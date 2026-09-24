@@ -2196,6 +2196,94 @@ def test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(home: Pat
         con.close()
 
 
+def _cold_backend(home: Path, con, sent: list) -> tuple:
+    """An open IDLE `backend` whose last activity is past the cache's life."""
+    orca_seen()
+    orcamod.wait_idle = lambda h, timeout_ms=0: True
+    orcamod.send = relaunching_send(sent, sessions_are("backend"))
+    db.set_terminal(con, "backend", "term_x", "wt")
+    db.set_agent_state(con, "backend", dmn.IDLE)
+    (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+    (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+        "account": "alpha", "collected_at": int(time.time()),
+        "session_id": "sess-cold", "pct_5h": 20}))
+    now = int(time.time())
+    db.add_event(con, "backend", "Stop", {})
+    con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                (now - dmn.RESUME_WARM_S - 60,))
+    return status.read_for_agent("backend", "alpha"), now
+
+
+def test_a_cold_session_close_that_fails_falls_back_to_typing(home: Path) -> None:
+    """T84 review #2391: a close that keeps failing must not hold the answer
+    forever - it is typed as on main, and the close is not tried every tick."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send, dmn.close_agent)
+    tries: list[int] = []
+    try:
+        st, now = _cold_backend(home, con, sent)
+        rid = db.add_request(con, "backend", "reviewer", "spec?", None,
+                             "peer", "async", None, 0, None)
+        con.execute("UPDATE requests SET state = 'done', verdict = 'yes' WHERE id = ?", (rid,))
+        dmn.close_agent = lambda *a, **k: (tries.append(1) or (False, "refused"))
+        dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("cold close fails: the failing tick types nothing into the cold session",
+              not sent and tries, str((sent, tries)))
+        dmn.supervise(con, "backend", lambda _m: None, now + 5, {}, [])
+        check("cold close fails: the next tick types the answer, and does not close again",
+              any("yes" in t for t in sent), str((sent, tries)))
+        check("cold close fails: and the cold path does not try the close again",
+              db.get_cursor(con, "cold_close_try:backend") == now, str(tries))
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send, dmn.close_agent = real
+        con.close()
+
+
+def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) -> None:
+    """T84 review #2391: an untold head closes a cold session instead of being
+    typed; a forgotten head closes it once, not again after the fresh session
+    is told the head and sits idle cold."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send, dmn.close_agent)
+    session_changed = dmn._session_changed
+    try:
+        st, now = _cold_backend(home, con, sent)
+        log = lambda _m: None
+        rid = db.add_request(con, "marina", "backend", "carry on", None,
+                             "peer", "async", None, 0, None)
+        row = db.get_agent_state(con, "backend")
+        check("cold head: an untold head closes the cold session",
+              dmn._cold_before_typing(con, "backend", row, now, st, log) is True
+              and db.get_agent_state(con, "backend")["closed_at"]
+              and not any("carry on" in t for t in sent), str(sent))
+
+        # Fresh session told the head, forgotten: idle and cold again. The
+        # real close is inside the previous close's settle window, so stub it.
+        dmn.close_agent = lambda *a, **k: (True, "closed")
+        db.clear_closed(con, "backend")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        db.set_cursor(con, "notify:backend", rid)
+        dmn._session_changed = lambda *a: False   # the fresh session was told it
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 4000, rid))
+        row = db.get_agent_state(con, "backend")
+        st = status.read_for_agent("backend", "alpha")
+        check("cold nudge: a forgotten head closes the cold session",
+              dmn._cold_before_typing(con, "backend", row, now, st, log) is True, str(sent))
+        db.clear_closed(con, "backend")
+        db.set_agent_state(con, "backend", dmn.IDLE)
+        row = db.get_agent_state(con, "backend")
+        check("cold nudge: the same head does not close it again",
+              dmn._cold_before_typing(con, "backend", row, now + 4000, st, log) is None)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send, dmn.close_agent = real
+        dmn._session_changed = session_changed
+        con.close()
+
+
 def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
     """DEGRADED is not a usage park. `DEGRADED_RETRY_S` is the only thing
     that re-hands a failed handoff's own retry, and clearing it early on a
@@ -3101,6 +3189,10 @@ def main() -> int:
             Path(td) / 'closerace'))
         run(lambda: test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(
             Path(td) / 'coldtyping'))
+        run(lambda: test_a_cold_session_close_that_fails_falls_back_to_typing(
+            Path(td) / 'coldfail'))
+        run(lambda: test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(
+            Path(td) / 'coldonce'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))
         run(lambda: test_a_close_gets_past_the_dialog_before_it_types_exit(Path(td) / 'limitclose'))
         run(lambda: test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(

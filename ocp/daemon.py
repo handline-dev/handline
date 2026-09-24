@@ -976,11 +976,15 @@ def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
     uncached; closing it lets the wake, which starts a cold agent fresh on its
     handoff, deliver the same line. Only when there is something to type, so an
     idle session costs nothing until it is spoken to. None when the session is
-    warm or there is nothing to say; otherwise whether it closed - a session
-    that would not close is not typed into either. A session running background work is left alone: closing would kill it.
+    warm or there is nothing to say; otherwise whether it closed. A close that
+    failed is not retried for IDLE_CLOSE_S, and that stretch types as usual: one
+    uncached read beats a line that never arrives.
+    A session running background work is left alone: closing would kill it.
     """
     if has_background_work(con, agent) or not cache_expired(con, agent, st.session_id, now):
         return None
+    if now - db.get_cursor(con, f"cold_close_try:{agent}") < IDLE_CLOSE_S:
+        return None           # a close just failed: type as usual, not held forever
     head = db.head_of_queue(con, agent)
     told = bool(head) and db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
         and not _session_changed(con, agent)
@@ -990,6 +994,8 @@ def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
     if not (db.unannounced_answers(con, agent) or (head and not told) or nudge):
         return None
     ok, _ = close_agent(con, agent, log, st)
+    if not ok:
+        db.set_cursor(con, f"cold_close_try:{agent}", now)
     if ok and nudge:
         # The wake re-tells the head, which is the reminder; closing again for
         # the same head would be one fresh turn an hour.
