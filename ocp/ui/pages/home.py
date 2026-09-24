@@ -4,6 +4,7 @@ touch the Dashboard. Its header is the chat page's (`page_header`)."""
 from __future__ import annotations
 
 from textual import events
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.errors import NoWidget
 from textual.widgets import DataTable, Static, Tabs
@@ -29,6 +30,14 @@ class HomePage(Dashboard):
     def __init__(self) -> None:
         super().__init__()
         self.showing_settings = False
+
+    AGENT_COLUMNS = ("agent", "acct", "kind", "state", "cache", "ctx", "in", "")
+
+    def _agent_cells(self, r, name) -> list:
+        """The Dashboard's cells with the prompt-cache time left after the state."""
+        cells = super()._agent_cells(r, name)
+        cells.insert(4, Text.from_ansi(tui.cache_cell(r.cache_left)) if not r.error else "")
+        return cells
 
     def compose(self) -> ComposeResult:
         yield from page_header([("Home", "home"), ("Settings", "settings")])

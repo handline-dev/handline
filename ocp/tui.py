@@ -361,6 +361,29 @@ class AgentRow(NamedTuple):
     inbox: int = 0
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
+    cache_left: int | None = None   # seconds of prompt cache left; None with no activity on record
+
+
+def cache_left(con, agent: str, now: int | None = None) -> int | None:
+    """Seconds until this agent's prompt cache lapses, negative once it has: the
+    cache lives PROMPT_CACHE_S from the agent's last activity (`db.last_activity`,
+    the clock `daemon.cache_expired` uses)."""
+    last = db.last_activity(con, agent)
+    if last is None:
+        return None
+    return daemon.PROMPT_CACHE_S - ((int(time.time()) if now is None else now) - last)
+
+
+def cache_cell(left: int | None) -> str:
+    """ANSI: `58m`, then `m:ss` in the last ten minutes, yellow from there; `gone`
+    once the cache has lapsed, `·` with nothing to measure from."""
+    if left is None:
+        return f"{DIM}·{R}"
+    if left <= 0:
+        return f"{DIM}gone{R}"
+    if left >= 600:
+        return f"{left // 60}m"
+    return f"{YEL}{left // 60}:{left % 60:02d}{R}"
 
 
 def state_cell(s: str, until: str, width: int | None = None) -> str:
@@ -433,7 +456,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
                          w.account != acct or w.assumed) if w else None)
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct), oneline(agents.kind(cfg)), ctxs,
-                             len(db.queued_for(con, name)), fire, wall))
+                             len(db.queued_for(con, name)), fire, wall, cache_left(con, name)))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 

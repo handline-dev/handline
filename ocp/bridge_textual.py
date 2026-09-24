@@ -352,6 +352,7 @@ class Dashboard(JobsAware, Screen):
     Dashboard #foot { height: auto; }
     """
     _ACCT_COLS = [k for k in tui.ACCT_W if k != "name"]
+    AGENT_COLUMNS = ("agent", "acct", "kind", "state", "ctx", "in", "")
 
     def compose(self) -> ComposeResult:
         yield Static(id="header")
@@ -376,7 +377,7 @@ class Dashboard(JobsAware, Screen):
         table.add_columns("account", *(tui.ACCT_HEAD[k] for k in self._ACCT_COLS), "")
         agents_table = self.query_one("#agents", DataTable)
         agents_table.can_focus = False
-        agents_table.add_columns("agent", "acct", "kind", "state", "ctx", "in", "")
+        agents_table.add_columns(*self.AGENT_COLUMNS)
         messages_table = self.query_one("#messages", DataTable)
         messages_table.can_focus = False
         messages_table.add_columns("", "", "#", "from", "kind", "message")
@@ -481,6 +482,20 @@ class Dashboard(JobsAware, Screen):
         self._sync_cursor(table, "#messages-box", tui.MESSAGES, [r.key for r in rows])
         self._notes("#message-notes", notes)
 
+    def _agent_cells(self, r: tui.AgentRow, name: Text) -> list:
+        """One AGENTS row, a cell per `AGENT_COLUMNS`."""
+        if r.error:
+            return [name, "", "", Text(f"config error: {textsafe.oneline(r.error)}", style="red"),
+                    "", "", ""]
+        wall = ""
+        if r.wall:
+            who = f"{r.wall.account}{r.wall.mark} " if r.wall.elsewhere else ""
+            wall = f"{tui.YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{tui.R}"
+        return [name, Text(r.acct), Text(r.kind, style="dim"),
+                Text.from_ansi(tui.state_cell(r.state, r.until)),
+                Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
+                Text.from_ansi(r.fire or wall)]
+
     def _draw_agents(self) -> None:
         con = db.connect()
         try:
@@ -492,18 +507,7 @@ class Dashboard(JobsAware, Screen):
         for r in rows:
             name = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}"
                                   + tui.fold_suffix(r.under, r.urgency))
-            if r.error:
-                table.add_row(name, "", "", Text(f"config error: {textsafe.oneline(r.error)}", style="red"),
-                              "", "", "", key=r.name)
-                continue
-            wall = ""
-            if r.wall:
-                who = f"{r.wall.account}{r.wall.mark} " if r.wall.elsewhere else ""
-                wall = f"{tui.YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{tui.R}"
-            table.add_row(name, Text(r.acct), Text(r.kind, style="dim"),
-                          Text.from_ansi(tui.state_cell(r.state, r.until)),
-                          Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
-                          Text.from_ansi(r.fire or wall), key=r.name)
+            table.add_row(*self._agent_cells(r, name), key=r.name)
         self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
         self._notes("#agent-notes", notes)
 
