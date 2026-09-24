@@ -1601,6 +1601,24 @@ edges:
         check(f"T39: a peer is refused `ocp {' '.join(cmd)}`",
               rc == 1 and "may not list marina's messages" in out
               and "secret of marina" not in out, out)
+    con = db.connect()
+    try:
+        for who in ("marina", "dohyun", "manager"):
+            con.execute("INSERT INTO events (ts, agent, kind, payload) VALUES (?, ?, 'decision', ?)",
+                        (int(time.time()), who, f"note of {who}"))
+        con.commit()
+    finally:
+        con.close()
+    rc, out = _cli(["events"], as_agent="dohyun")
+    check("T39: plain `ocp events` as a peer shows only its own rows",
+          rc == 0 and "note of dohyun" in out and "note of marina" not in out
+          and "note of manager" not in out, out)
+    rc, out = _cli(["events"], as_agent="manager")
+    check("T39: plain `ocp events` as a supervisor adds its reports",
+          "note of marina" in out and "note of dohyun" in out and "note of manager" in out, out)
+    rc, out = _cli(["events"], as_agent=askmod.HUMAN)
+    check("T39: plain `ocp events` as the human shows everyone",
+          "note of marina" in out and "note of dohyun" in out, out)
     rc, out = _cli(["inbox", "marina"], as_agent="marina")
     check("T39: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
     rc, out = _cli(["inbox", "marina", "--all"], as_agent="manager")

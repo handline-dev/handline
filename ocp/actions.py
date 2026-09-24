@@ -1538,6 +1538,15 @@ def listing_refusal(caller: str | None, target: str) -> str | None:
             f"and the human may. `ocp read <id>` shows one request by number.")
 
 
+def listable_agents(caller: str | None) -> tuple[str, ...] | None:
+    """Whose messages `caller` may list without naming one: None for anyone
+    (the human, or no name), else itself and the agents it supervises."""
+    if caller in (None, HUMAN):
+        return None
+    t = routing()
+    return (caller, *(a for a in paths.list_agents() if supervisor_of(t, a) == caller))
+
+
 def agent_tree() -> list[tuple[str, int]]:
     """Every registered agent as (name, depth), supervisors above their reports.
 
