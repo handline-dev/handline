@@ -40,7 +40,8 @@ from .yamlcompat import ConfigError, dump, is_plain_text, load
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 
-KINDS = ("add", "retire", "rename")
+KINDS = ("add", "retire", "rename", "link", "unlink")
+EDGE_KINDS = ("link", "unlink")
 
 
 def dir_() -> Path:
@@ -100,7 +101,8 @@ def listing(unreadable: list[str] | None = None) -> list[dict]:
 def _draft(kind: str, name: str, requester: str, why: str,
            team_name: str | None, repo: str | None, model: str | None,
            to: str | None, effort: str | None = None,
-           vendor: str | None = None) -> tuple[dict, str]:
+           vendor: str | None = None, response: str | None = None,
+           relation: str | None = None) -> tuple[dict, str]:
     """Check what was asked for and write it down. Returns (proposal, refusal)."""
     if kind not in KINDS:
         return {}, f"kind must be one of {', '.join(KINDS)}"
@@ -114,8 +116,12 @@ def _draft(kind: str, name: str, requester: str, why: str,
     registered = paths.list_agents()
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename") and name not in registered:
+    if kind in ("retire", "rename") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
+    if kind in EDGE_KINDS:
+        err = _edge_refusal(kind, name, to, response, relation, registered)
+        if err:
+            return {}, err
     if kind == "rename":
         if not to or "/" in to or to.startswith("."):
             return {}, "a rename needs a new name (--to)"
@@ -143,7 +149,8 @@ def _draft(kind: str, name: str, requester: str, why: str,
         "state": "proposed",
     }
     for key, value in (("team", team_name), ("repo", repo), ("model", model),
-                       ("effort", effort), ("to", to), ("vendor", vendor)):
+                       ("effort", effort), ("to", to), ("vendor", vendor),
+                       ("response", response), ("relation", relation)):
         if value:
             prop[key] = value
     return prop, ""
@@ -152,10 +159,12 @@ def _draft(kind: str, name: str, requester: str, why: str,
 def propose(kind: str, name: str, requester: str, why: str,
             team_name: str | None = None, repo: str | None = None,
             model: str | None = None, to: str | None = None,
-            effort: str | None = None, vendor: str | None = None) -> tuple[bool, str]:
+            effort: str | None = None, vendor: str | None = None,
+            response: str | None = None,
+            relation: str | None = None) -> tuple[bool, str]:
     """Write the proposal down and raise it to the founder. Nothing changes yet."""
     prop, err = _draft(kind, name, requester, why, team_name, repo, model,
-                       to, effort, vendor)
+                       to, effort, vendor, response, relation)
     if err:
         return False, err
     # Written down before it is raised: a proposal that cannot be recorded must
@@ -177,7 +186,8 @@ def enact(kind: str, name: str, why: str,
           team_name: str | None = None, repo: str | None = None,
           model: str | None = None, to: str | None = None,
           effort: str | None = None, con=None,
-          vendor: str | None = None) -> tuple[bool, str]:
+          vendor: str | None = None, response: str | None = None,
+          relation: str | None = None) -> tuple[bool, str]:
     """The founder changing the roster directly. No proposal to approve.
 
     The gate exists to stop an *agent* hiring on its own, and the founder is the
@@ -189,7 +199,7 @@ def enact(kind: str, name: str, why: str,
     change that fails halfway still leaves a record of what was attempted.
     """
     prop, err = _draft(kind, name, "human", why, team_name, repo, model,
-                       to, effort, vendor)
+                       to, effort, vendor, response, relation)
     if err:
         return False, err
     prop["state"] = "enacting"
@@ -197,7 +207,7 @@ def enact(kind: str, name: str, why: str,
     own = con is None
     con = con or db.connect()
     try:
-        doer = {"add": _add, "retire": _retire, "rename": _rename}[kind]
+        doer = _DOERS[kind]
         try:
             ok, said = doer(prop, con)
         except Exception as e:  # noqa: BLE001 - recorded, then raised on
@@ -222,9 +232,19 @@ def enact(kind: str, name: str, why: str,
 
 def _escalation(prop: dict) -> str:
     """What the founder reads. It says what will happen and how to decide."""
-    lines = [f"[roster] {prop['kind']} {prop['agent']} - asked by {prop['requested_by']}",
+    lines = [f"[roster] {prop['kind']} {prop['agent']}"
+             + (f" -> {prop['to']}" if prop["kind"] in EDGE_KINDS else "")
+             + f" - asked by {prop['requested_by']}",
              "", prop["why"], ""]
-    if prop["kind"] == "add":
+    if prop["kind"] == "link":
+        lines += [f"{prop['agent']} would be allowed to ask {prop['to']} "
+                  f"(response {prop.get('response') or 'async'}"
+                  + (f", relation {prop['relation']}" if prop.get("relation") else "")
+                  + "). One edge is added to team.yaml; nothing else in the routing changes."]
+    elif prop["kind"] == "unlink":
+        lines += [f"The edge {prop['agent']} -> {prop['to']} would be removed from team.yaml. "
+                  "Requests already queued on it stay queued."]
+    elif prop["kind"] == "add":
         lines += ["It would be registered"
                   + (f" in team {prop['team']}" if prop.get("team") else "")
                   + (f", working in {prop['repo']}" if prop.get("repo") else "")
@@ -299,7 +319,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
                            f"{(db.shown_verdict(row) or '').strip()[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`, or `ocp hr withdraw {pid}`.")
-        doer = {"add": _add, "retire": _retire, "rename": _rename}[prop["kind"]]
+        doer = _DOERS[prop["kind"]]
         ok, said = doer(prop, con)
         if not ok:
             return False, said
@@ -411,6 +431,114 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     return True, (f"{name} is an agent"
                   + (f", team {prop['team']}" if prop.get("team") else "")
                   + f". {said}")
+
+
+def _edge_refusal(kind: str, frm: str, to: str | None, response: str | None,
+                  relation: str | None, registered: list[str]) -> str:
+    """Why this edge cannot be added or removed, or "" when it can. Read against
+    the team.yaml as it is now; the write checks again, on the text it edits."""
+    if not to or to not in registered:
+        return f"{to or 'a target'} is not an agent (an edge is between two agents)"
+    if to == frm:
+        return "an agent cannot ask itself"
+    if response and response not in team.VALID_RESPONSE:
+        return f"response must be one of {', '.join(sorted(team.VALID_RESPONSE))}"
+    if relation and not re.fullmatch(r"[\w.-]+", relation):
+        return f"bad relation: {relation!r} (letters, digits, . _ - only)"
+    try:
+        t = team.Team.load()
+    except Exception as e:  # noqa: BLE001
+        return f"team.yaml cannot be read ({e})"
+    exact = [e for e in t.edges if str(e.get("from")) == frm and str(e.get("to")) == to]
+    if kind == "link":
+        if exact:
+            return f"team.yaml already has the edge {frm} -> {to}"
+        for d in t.deny:
+            if t.matches(str(d.get("from", "")), frm) and t.matches(str(d.get("to", "")), to):
+                return (f"a deny in team.yaml covers {frm} -> {to} "
+                        f"({d.get('reason') or 'no reason given'}); an edge would never apply")
+    elif not exact:
+        return f"team.yaml has no edge exactly {frm} -> {to} to remove"
+    return ""
+
+
+def _edge_lines(lines: list[str], head: int, end: int):
+    """(index, from, to) of each one-line edge in the edges block."""
+    out = []
+    for i in range(head + 1, end):
+        s = lines[i].strip()
+        if not s.startswith("- {"):
+            continue
+        try:
+            e = (load("e: " + s[1:].strip()) or {}).get("e")
+        except ConfigError:
+            continue
+        if isinstance(e, dict):
+            out.append((i, str(e.get("from", "")), str(e.get("to", ""))))
+    return out
+
+
+def _link_text(text: str, frm: str, to: str, response: str | None,
+               relation: str | None) -> str:
+    """One edge added. It goes before the first edge with a wildcard or a team at
+    an end, because the first match wins and a specific edge behind a wildcard
+    one would never be reached."""
+    _text_only("agent", frm)
+    _text_only("agent", to)
+    if relation and not re.fullmatch(r"[\w.-]+", relation):
+        raise ConfigError(f"bad relation: {relation!r}")
+    lines = text.splitlines()
+    head, end = _block(lines, "edges:")
+    found = _edge_lines(lines, head, end)
+    if any(f == frm and t == to for _, f, t in found):
+        raise ConfigError(f"team.yaml already has the edge {frm} -> {to}")
+    names = set(paths.list_agents())
+    broad = [i for i, f, t in found if f not in names or t not in names]
+    at = broad[0] if broad else (found[-1][0] + 1 if found else head + 1)
+    parts = [f'from: "{frm}"', f'to: "{to}"']
+    if relation:
+        parts.append(f"relation: {relation}")
+    parts.append(f"response: {response or 'async'}")
+    lines.insert(at, "  - { " + ", ".join(parts) + " }")
+    return "\n".join(lines) + "\n"
+
+
+def _unlink_text(text: str, frm: str, to: str) -> str:
+    lines = text.splitlines()
+    head, end = _block(lines, "edges:")
+    gone = [i for i, f, t in _edge_lines(lines, head, end) if f == frm and t == to]
+    if not gone:
+        raise ConfigError(f"team.yaml has no one-line edge exactly {frm} -> {to} to remove")
+    return "\n".join(l for i, l in enumerate(lines) if i not in gone) + "\n"
+
+
+def _link(prop: dict, con) -> tuple[bool, str]:
+    frm, to = prop["agent"], prop["to"]
+    err = _edge_refusal("link", frm, to, prop.get("response"), prop.get("relation"),
+                        paths.list_agents())
+    if err:
+        return False, err
+    ok, said = _edit_team_yaml(
+        lambda t: _link_text(t, frm, to, prop.get("response"), prop.get("relation")),
+        verify=lambda tm: _need(tm.route(frm, to).allowed, f"{frm} -> {to} is not routable"))
+    return ok, (f"{frm} may now ask {to}. {said}" if ok else said)
+
+
+def _unlink(prop: dict, con) -> tuple[bool, str]:
+    frm, to = prop["agent"], prop["to"]
+    err = _edge_refusal("unlink", frm, to, None, None, paths.list_agents())
+    if err:
+        return False, err
+    ok, said = _edit_team_yaml(
+        lambda t: _unlink_text(t, frm, to),
+        verify=lambda tm: _need(not any(str(e.get("from")) == frm and str(e.get("to")) == to
+                                        for e in tm.edges), "the edge is still there"))
+    return ok, (f"the edge {frm} -> {to} is removed. {said}" if ok else said)
+
+
+def _need(cond: bool, why: str) -> None:
+    if not cond:
+        raise ConfigError(why)
 
 
 def _retire(prop: dict, con) -> tuple[bool, str]:
@@ -548,6 +676,10 @@ def label(con, agent: str) -> tuple[bool, str]:
     if not ok or shown != agent:
         return False, f"Orca would not set the label ({out.strip()[:160]}): `{cmd}`"
     return True, f"Orca now labels {path} {agent!r}"
+
+
+_DOERS = {"add": _add, "retire": _retire, "rename": _rename,
+          "link": _link, "unlink": _unlink}
 
 
 def _edges_touching(t, name: str) -> set[str]:

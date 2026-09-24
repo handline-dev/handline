@@ -1727,6 +1727,98 @@ def test_agent_rewrite_uses_parser(home: Path) -> None:
     check("agents: other fields survive the rewrite", cfg.get("model") == "opus", str(cfg))
 
 
+def test_hr_link_and_unlink_edit_one_edge_and_nothing_else(home: Path) -> None:
+    """An ask edge is added or removed through hr, as text so the file's comments
+    survive, validated before it is written, and gated like any roster change."""
+    _daemon_home(home, 20)
+    for n in ("marina", "keeper", "scout"):
+        agents.register(n)
+    original = """# routing - the reasons are in the comments
+agents:
+  marina: {}
+  keeper: {}
+  scout: {}
+edges:
+  - { from: "scout", to: "keeper", response: async }   # scout may ask keeper
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "scout", relation: peer, response: async }
+deny:
+  - { from: "keeper", to: "scout", reason: "keeper never asks scout" }
+"""
+    tf = home / "team.yaml"
+    tf.write_text(original)
+    con = db.connect()
+    try:
+        ok, said = hr.enact("link", "marina", to="keeper", why="marina needs keeper's review",
+                            relation="peer", response="fire_and_forget")
+        check("link: the founder adds an edge directly", ok, said)
+        text = tf.read_text()
+        check("link: the edge is one line with what was asked for",
+              '  - { from: "marina", to: "keeper", relation: peer, response: fire_and_forget }'
+              in text, text)
+        check("link: it goes before the first wildcard edge, so it is reached",
+              text.index('from: "marina"') < text.index('from: "*"'), text)
+        check("link: the comments and every other line are kept",
+              "# routing - the reasons are in the comments" in text
+              and "# scout may ask keeper" in text
+              and all(l in text for l in original.splitlines()), text)
+        t = team.Team.load()
+        d = t.route("marina", "keeper")
+        check("link: the router now allows it, with the response given",
+              d.allowed and d.response == "fire_and_forget", d.reason)
+
+        for label, args, kw, want in [
+                ("the same edge twice", ("marina", "keeper"), {}, "already has the edge"),
+                ("a target that is not an agent", ("marina", "ghost"), {}, "not an agent"),
+                ("itself", ("marina", "marina"), {}, "itself"),
+                ("a route a deny covers", ("keeper", "scout"), {}, "deny"),
+                ("a bad response", ("marina", "scout"), {"response": "blocking"}, "response"),
+                ("a relation that is not a word", ("marina", "scout"),
+                 {"relation": "a, b: c"}, "relation")]:
+            ok, said = hr.enact("link", args[0], to=args[1], why="w", **kw)
+            check(f"link: refused - {label}", not ok and want in said, said)
+        check("link: and a refusal leaves the file as it was", tf.read_text() == text)
+
+        ok, said = hr.enact("unlink", "marina", to="keeper", why="done with it")
+        check("unlink: the founder removes it", ok, said)
+        check("unlink: the file is back to what it was, comments and all",
+              tf.read_text() == original, tf.read_text())
+        ok, said = hr.enact("unlink", "marina", to="keeper", why="again")
+        check("unlink: an edge that is not there is refused", not ok and "no edge" in said, said)
+        ok, said = hr.enact("unlink", "marina", to="scout", why="w")
+        check("unlink: a wildcard's coverage is not an edge to remove", not ok, said)
+
+        ok, said = hr.propose("link", "marina", requester="marina", to="keeper", why="need it")
+        check("link: an agent's own request is a proposal, nothing written yet",
+              ok and 'from: "marina", to: "keeper"' not in tf.read_text(), said)
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        req = db.get_request(con, prop["request"])
+        check("link: the founder is told which edge and how to decide",
+              "marina -> keeper" in req["body"] and "approve" in req["body"], req["body"])
+        ok, said = hr.apply(pid, con)
+        check("link: apply refuses until the founder has answered", not ok, said)
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
+                    (prop["request"],))
+        ok, said = hr.apply(pid, con)
+        check("link: apply after approval adds the edge",
+              ok and team.Team.load().route("marina", "keeper").allowed, said)
+
+        agents.register("late")
+        ok, said = hr.propose("unlink", "late", requester="late", to="keeper", why="x")
+        check("unlink: refused at proposal time when there is no such edge", not ok, said)
+        rc, out = _cli(["hr", "link", "keeper", "marina", "--why", "w", "--response",
+                        "async"], as_agent=askmod.HUMAN)
+        check("link: through the cli, as the founder, it is enacted",
+              rc == 0 and team.Team.load().route("keeper", "marina").allowed, out)
+        rc, out = _cli(["hr", "unlink", "keeper", "marina", "--why", "w"], as_agent=askmod.HUMAN)
+        check("unlink: and removed", rc == 0 and not any(
+            str(e.get("from")) == "keeper" and str(e.get("to")) == "marina"
+            for e in team.Team.load().edges), out)
+    finally:
+        con.close()
+
+
 def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
     """`hr add` writes `vendor:` into agent.yaml only when --vendor names a
     non-default one, both when the founder adds and when a proposal is applied."""
@@ -2287,6 +2379,7 @@ def main() -> int:
         run(lambda: test_an_opencode_row_takes_its_state_word_from_orca(Path(td) / 'ocrow'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
+        run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
