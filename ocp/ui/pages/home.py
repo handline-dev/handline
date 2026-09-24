@@ -64,8 +64,10 @@ class HomePage(Dashboard):
             return None
         return table.coordinate_to_cell_key((row, 0)).row_key.value
 
-    def on_click(self, event: events.Click) -> None:
-        """A click on a row puts the cursor there, as the arrow keys would."""
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Pressing on a row puts the cursor there, as the arrow keys would. Not on
+        Click: the focused panel's DataTable moves its own cursor on Click and stops
+        the event, so the screen never sees it and the next redraw undoes the move."""
         row = event.style.meta.get("row")
         table = next((w for w in event.widget.ancestors_with_self
                       if isinstance(w, DataTable)), None) if event.widget else None
