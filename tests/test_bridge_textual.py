@@ -1262,7 +1262,8 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
           and cfg["model"] and cfg["weight"] in cp.WEIGHTS, str(cfg))
     form = {k: cfg[k] for k in cp.EDITABLE}
     check("settings: an untouched form has no changes", cp.settings_changes(cfg, form) == [])
-    check("settings: a blank repo means leave it", cp.settings_changes(cfg, {**form, "repo": " "}) == [])
+    check("settings: a blank repo means leave the one it has",
+          cp.settings_changes({**cfg, "repo": "/somewhere"}, {**form, "repo": " "}) == [])
     check("settings: a changed field is reported old to new",
           cp.settings_changes(cfg, {**form, "model": "opus"}) == [("model", cfg["model"], "opus")])
     check("settings: a good form has no problem", cp.settings_problem({**form, "repo": ""}) is None)
