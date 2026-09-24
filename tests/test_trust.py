@@ -321,7 +321,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         orcamod.screen_text = lambda h: screen_for(wt)
         trustmod.is_declared = lambda p: False
         orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: an undeclared root escalates, nothing confirmed or typed",
               not ok and not sent and not trusted, str((ok, sent, trusted)))
         check("wake: ...and the agent is stalled",
@@ -331,14 +331,14 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         reset()
         orcamod.screen_text = lambda h: screen_for(other)
         trustmod.is_declared = lambda p: True
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: a recorded path that differs from the dialog's folder escalates",
               not ok and not sent and not trusted, str((ok, sent, trusted)))
 
         # 3. Declared and matching, but the keys never land.
         reset()
         orcamod.screen_text = lambda h: screen_for(wt)
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: keys that did not land escalate rather than typing blind",
               not ok and not sent, str((ok, sent, trusted)))
 
@@ -349,7 +349,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
             showing["v"] = False
             return True, "trusted"
         orcamod.confirm_trust = confirm_and_close
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: declared, matching, and the keys land: pressed",
               ok and trusted == ["term_x"], str((ok, trusted)))
         check("wake: ...and the handoff is still typed once it is",
@@ -375,7 +375,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         orcamod.trust_prompt_showing = slow_redraw
         orcamod.confirm_trust = confirm_landing
         orcamod.time.sleep = lambda s: None
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: a redraw that outlasts the press is waited out, not escalated",
               ok and sent and reads["n"] >= 3
               and db.get_agent_state(con, "backend")["state"] != dmn.STALLED,
@@ -397,8 +397,8 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
                                "peer", "async", None, 0, None)
         _set_request_state(con, asked, "done", "yes")
         db.set_agent_state(con, "backend", dmn.RUNNING)
-        dmn.deliver_answers(con, "backend", lambda _m: None)
-        dmn.deliver_queued(con, "backend", lambda _m: None)
+        dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("trust: the deliver paths neither type nor press at the screen",
               not sent and not trusted, str((sent, trusted)))
     finally:

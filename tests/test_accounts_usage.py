@@ -1689,13 +1689,13 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
         recovermod.recover = lambda acct: (False, "stub: not under test here")
         con = db.connect()
         try:
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: one account per tick", len(asked) == 1, asked)
             check("poll: and no renewal on the common path", asked[0][1] is False, asked)
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: the next tick takes the next account",
                   [a for a, _ in asked] == ["alpha", "beta"], asked)
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: an account just read is not read again this minute",
                   len(asked) == 2, asked)
             check("poll: the reading lands where every reader looks",
@@ -1707,12 +1707,12 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
             asked.clear()
             db.set_cursor(con, "usage-poll:alpha", 0)
             db.set_cursor(con, "usage-poll:beta", 0)
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: an idle account is not asked at all", asked == [], asked)
 
             # A turn is what moves the figures, and our own hooks record one.
             db.add_event(con, "backend", "Stop", {}, account="alpha")
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: a turn since the last reading makes it due",
                   [a for a, _ in asked] == ["alpha"], asked)
 
@@ -1723,7 +1723,7 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
             write_status(home, "beta", pct_5h=3, pct_7d=4,
                          rl_at=int(time.time()) - dmn.USAGE_MAX_AGE_S - 1)
             db.set_cursor(con, "usage-poll:beta", 0)
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: a reading older than the cadence is asked about anyway",
                   [a for a, _ in asked] == ["beta"], asked)
 
@@ -1734,13 +1734,13 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
             db.add_event(con, "backend", "Stop", {}, account="alpha")
             db.set_cursor(con, "usage-poll:alpha", 0)
             db.set_cursor(con, "usage-poll:beta", 0)
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: a failure is retried once, with a renewal",
                   [r for _a, r in asked] == [False, True], asked)
             asked.clear()
             db.add_event(con, "backend", "Stop", {}, account="alpha")
             db.set_cursor(con, "usage-poll:alpha", 0)
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: and the renewal is not tried again inside its cooldown",
                   [r for _a, r in asked] == [False], asked)
         finally:
@@ -1777,7 +1777,7 @@ def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
         con = db.connect()
         try:
             for _ in range(3):
-                dmn.poll_usage(con, lambda _m: None)
+                dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("starve: omega is actually asked, despite four accounts "
                   "ahead of it in list_accounts order failing every time",
                   "omega" in asked, asked)
@@ -1809,7 +1809,7 @@ def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
         return usage_api.Reading(acct, 7, None, 11, None, int(time.time()))
 
     real_read, real_login, real_recover = usage_api.read, accounts.logged_in, recovermod.recover
-    real_poll = dmn.poll_usage
+    real_poll = dmn_usage_poll.poll_usage
     try:
         accounts.logged_in = lambda acct: True
         usage_api.read = fake_read
@@ -1817,7 +1817,7 @@ def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
         con = db.connect()
         try:
             logs: list[str] = []
-            dmn.poll_usage(con, logs.append)
+            dmn_usage_poll.poll_usage(con, logs.append)
             check("poll raise: it does not leave poll_usage, and names the account",
                   any("alpha" in m and "IncompleteRead" in m for m in logs), str(logs))
             check("poll raise: the account behind it is read in the same tick",
@@ -1826,7 +1826,7 @@ def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
                   db.get_meta(con, "usage-fail:alpha") == "1"
                   and db.get_cursor(con, "usage-poll:alpha") > int(time.time()), str(logs))
             asked.clear()
-            dmn.poll_usage(con, logs.append)
+            dmn_usage_poll.poll_usage(con, logs.append)
             check("poll raise: and is not asked again inside it", "alpha" not in asked, str(asked))
 
             # recover() raising on a dead token is the same containment.
@@ -1838,14 +1838,14 @@ def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
                 raise RuntimeError("recover blew up")
             recovermod.recover = boom
             logs.clear()
-            dmn.poll_usage(con, logs.append)
+            dmn_usage_poll.poll_usage(con, logs.append)
             check("poll raise: a recover() that raises is contained too",
                   any("beta" in m and "recover blew up" in m for m in logs), str(logs))
 
             # A failure outside any one account must not end the tick either.
             def no_poll(_con, _log):
                 raise OSError("accounts directory unreadable")
-            dmn.poll_usage = no_poll
+            dmn_usage_poll.poll_usage = no_poll
             logs.clear()
             dmn.tick(con, logs.append)
             check("poll raise: a failure outside any account does not crash the tick",
@@ -1854,7 +1854,7 @@ def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
             con.close()
     finally:
         usage_api.read, accounts.logged_in, recovermod.recover = real_read, real_login, real_recover
-        dmn.poll_usage = real_poll
+        dmn_usage_poll.poll_usage = real_poll
 
 
 def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: Path) -> None:
@@ -1885,7 +1885,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
         con = db.connect()
         try:
             logs: list[str] = []
-            dmn.poll_usage(con, logs.append)
+            dmn_usage_poll.poll_usage(con, logs.append)
             check("poll+recover: a dead token calls recover()", recovered == ["alpha"], recovered)
             check("poll+recover: recover's own message is logged, not a 'could not ask'",
                   any("recovered - 5h 3% 7d 4%" in m for m in logs)
@@ -1906,7 +1906,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
             recovermod.recover = lambda acct: (
                 recovered.append(acct) or (False, "stub: refuses"))
             logs.clear()
-            dmn.poll_usage(con, logs.append)
+            dmn_usage_poll.poll_usage(con, logs.append)
             check("poll+recover: refusal still tries recover() first",
                   recovered == ["alpha"], recovered)
             check("poll+recover: and falls into the unchanged backoff path",
@@ -1937,7 +1937,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
                   dmn.usage_due(con, "alpha", status.read("alpha"), now)
                   == "its 5h window has ended")
             logs = []
-            dmn.poll_usage(con, logs.append)
+            dmn_usage_poll.poll_usage(con, logs.append)
             check("poll+recover: the 5h boundary calls recover() too, "
                   "even though the plain read just succeeded",
                   recovered == ["alpha"], recovered)
@@ -1953,7 +1953,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
             recovermod.recover = lambda acct: (
                 recovered.append(acct) or (False, "stub: refuses"))
             logs = []
-            dmn.poll_usage(con, logs.append)
+            dmn_usage_poll.poll_usage(con, logs.append)
             check("poll+recover: a refusal at the boundary still tried recover()",
                   recovered == ["alpha"], recovered)
             check("poll+recover: and falls back to the plain reading that already succeeded",
@@ -1972,7 +1972,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
         try:
             db.add_event(con, "backend", "Stop", {}, account="alpha")
             db.set_cursor(con, "usage-poll:alpha", 0)
-            dmn.poll_usage(con, lambda _m: None)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll+recover: an ordinary due-for-a-reason poll never calls recover()",
                   recovered == [], recovered)
         finally:
@@ -1998,7 +1998,7 @@ def test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(home: 
 
     def poll(con):
         db.set_cursor(con, "usage-poll:alpha", 0)
-        dmn.poll_usage(con, lambda _m: None)
+        dmn_usage_poll.poll_usage(con, lambda _m: None)
 
     try:
         accounts.logged_in = lambda acct: True
@@ -2258,10 +2258,10 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
               "alpha" in paths.list_accounts() and not st.exists)
         check("new account: and that is a reason to ask",
               dmn.usage_due(con, "alpha", st, int(time.time())) == "no reading yet")
-        dmn.poll_usage(con, lambda _m: None)
+        dmn_usage_poll.poll_usage(con, lambda _m: None)
         check("new account: the daemon asks it, unprompted", asked == ["alpha"], str(asked))
         asked.clear()
-        dmn.poll_usage(con, lambda _m: None)
+        dmn_usage_poll.poll_usage(con, lambda _m: None)
         check("new account: and asks once, not every tick", asked == [], str(asked))
         check("new account: because it has a reading now",
               dmn.usage_due(con, "alpha", status.read("alpha"), int(time.time())) is None)
@@ -2272,9 +2272,9 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
         accounts.logged_in = lambda a: checked.append(a) or False  # noqa: E731
         (home / "accounts" / "alpha" / "status.json").unlink()
         db.set_cursor(con, "usage-poll:alpha", 0)
-        dmn.poll_usage(con, lambda _m: None)
+        dmn_usage_poll.poll_usage(con, lambda _m: None)
         check("new account: not logged in, nothing to ask", asked == [], str(asked))
-        dmn.poll_usage(con, lambda _m: None)
+        dmn_usage_poll.poll_usage(con, lambda _m: None)
         check("new account: and a login check that came up empty is not repeated next tick",
               checked == ["alpha"], str(checked))
 
@@ -2282,7 +2282,7 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
         accounts.register("epsilon")
         accounts.logged_in = lambda a: True  # noqa: E731
         db.set_cursor(con, "usage-poll:alpha", int(time.time()) + 600)  # one per pass
-        dmn.poll_usage(con, lambda _m: None)
+        dmn_usage_poll.poll_usage(con, lambda _m: None)
         check("new account: epsilon was asked about", asked == ["epsilon"], str(asked))
         accounts.logged_in = lambda a: False  # noqa: E731 - logout took
         ok, msg = accounts.remove_account("epsilon", lambda: True, lambda a, e: 0, con)
@@ -2291,7 +2291,7 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
         accounts.register("epsilon")
         accounts.logged_in = lambda a: True  # noqa: E731
         asked.clear()
-        dmn.poll_usage(con, lambda _m: None)
+        dmn_usage_poll.poll_usage(con, lambda _m: None)
         check("new account: the same name added again is asked again",
               asked == ["epsilon"], str(asked))
     finally:
@@ -2727,7 +2727,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
             "session_id": "sess-7", "pct_5h": 20}))
-        dmn.close_agent(con, "backend", lambda _m: None,
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
 
         # The account was this agent's only session, so its snapshot ages out too.
@@ -2807,7 +2807,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # can parse - a call it cannot read left an unsorted kind passing at
     # 11/11 until this count was added.
     found, calls = [], 0
-    for f in Path(dmn.__file__).parent.rglob("*.py"):
+    for f in Path(dmn.__file__).parent.parent.rglob("*.py"):
         text = f.read_text()
         found += re.findall(r'add_event\s*\([^,()]+,[^,()]+,\s*"([a-zA-Z_]+)"', text)
         calls += len(re.findall(r'add_event\s*\(', text))
@@ -2981,7 +2981,7 @@ def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -
         con.commit()
         check("no room: find_room has nothing to offer", launch.find_room("backend") is None)
 
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("no room: a walled fresh wake waits and names the account",
               not ok and "alpha" in why and row["wake_failures"] == 0, why)
@@ -2993,7 +2993,7 @@ def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -
         # Nothing walled, nothing logged in: wake_wait has no wall to name, so
         # the guard in _wake_agent is what refuses, with no_room's own text.
         (home / "accounts" / "alpha" / ".claude" / ".credentials.json").unlink()
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("no room: a fresh wake with no account to go to returns no_room's text",
               not ok and why == launch.no_room("backend") and "logged in" in why, why)
         check("no room: and it is not a failed attempt",
@@ -3060,7 +3060,7 @@ def test_a_usage_park_is_woken_when_the_reading_clears(home: Path) -> None:
                      reset_5h=int(time.time()) + 1800)
 
         db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an open session wakes the moment the reading clears, "
               "not at the deadline it was given",
@@ -3077,14 +3077,14 @@ def test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(home: Path) 
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
-            dmn.session_present)
+            dmn_delivery.session_present)
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         # A re-fold, if the flap caused one, must be able to run to its end.
         orcamod.idle_now = lambda h, **kw: True
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
-        dmn.session_present = lambda a: True
+        dmn_delivery.session_present = lambda a: True
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_account(con, "backend", "alpha")
         _park_via_handoff(con, "backend", "usage")
@@ -3104,7 +3104,7 @@ def test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(home: Path) 
         continuations_before = int(before["continuations"])
 
         for _ in range(5):
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
             row = db.get_agent_state(con, "backend")
             check("park: still parked - the reading is still at the wall",
                   row["state"] == dmn.PARKED, str(dict(row)))
@@ -3115,7 +3115,7 @@ def test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(home: Path) 
               dict(before=continuations_before, after=row["continuations"]))
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
-         dmn.session_present) = real
+         dmn_delivery.session_present) = real
         con.close()
 
 
@@ -3125,14 +3125,14 @@ def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
-            dmn.session_present)
+            dmn_delivery.session_present)
     try:
         orcamod.available = lambda: True
         orcamod.alive = lambda h: True
         # A re-fold, if the flap caused one, must be able to run to its end.
         orcamod.idle_now = lambda h, **kw: True
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
-        dmn.session_present = lambda a: True
+        dmn_delivery.session_present = lambda a: True
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_account(con, "backend", "alpha")
         _park_via_handoff(con, "backend", "usage_7d")
@@ -3150,7 +3150,7 @@ def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
         continuations_before = int(before["continuations"])
 
         for _ in range(5):
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
             row = db.get_agent_state(con, "backend")
             check("park: still parked - the reading is still at the wall",
                   row["state"] == dmn.PARKED, str(dict(row)))
@@ -3161,7 +3161,7 @@ def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
               dict(before=continuations_before, after=row["continuations"]))
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
-         dmn.session_present) = real
+         dmn_delivery.session_present) = real
         con.close()
 
 
@@ -3185,7 +3185,7 @@ def test_a_context_park_does_not_auto_clear_on_a_usage_reading(home: Path) -> No
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: a context park is not a usage park - it keeps its own deadline",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
@@ -3226,7 +3226,7 @@ def test_an_assumed_account_does_not_auto_clear_a_park(home: Path) -> None:
         check("park: the account column really is null here",
               row["account"] is None, dict(row))
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: an agent with no known account never un-parks",
               row["state"] == dmn.PARKED and row["wake_at"] is not None, str(dict(row)))
@@ -3298,7 +3298,7 @@ def test_supervise_reads_the_reported_account_not_an_assumed_preference(home: Pa
                     "WHERE agent = 'backend'")
         con.commit()
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("account: a park against the wrong, assumed account no longer happens",
               row["state"] != dmn.PARKED, dict(row))
@@ -3354,7 +3354,7 @@ def test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(home: Path) -
                          int(time.time()) + 90)
         row = db.in_flight_for(con, "backend")
         before = int(time.time())
-        dmn.resume_handoff(con, row, lambda _m: None)
+        dmn_handoff.resume_handoff(con, row, lambda _m: None)
         fresh = db.get_agent_state(con, "backend")
         check("account: a resumed handoff's park also gets a short re-look, "
               "not alpha's own 4h-out rollover",
@@ -3455,21 +3455,21 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
               t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
 
         real = (orcamod.available, orcamod.alive, orcamod.close_session,
-               orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
+               orcamod.relaunch, orcamod.idle_now, dmn_delivery.wait_for_session)
         try:
             orca_idle()
             orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
-            dmn.wait_for_session = lambda agent, timeout=0: True
+            dmn_delivery.wait_for_session = lambda agent, timeout=0: True
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             check("7d wall: the agent moves off an account that hit its 7d wall",
-                  dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
+                  dmn_handoff._move_to_room(con, "keeper", t, lambda _m: None)[0])
             check("7d wall: it landed on the account with weekly room",
                   agents.current_account("keeper", con) == "beta",
                   agents.current_account("keeper", con))
         finally:
             (orcamod.available, orcamod.alive, orcamod.close_session,
-             orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session) = real
+             orcamod.relaunch, orcamod.idle_now, dmn_delivery.wait_for_session) = real
     finally:
         con.close()
 
@@ -3492,10 +3492,10 @@ def test_an_agent_is_judged_on_the_account_its_process_is_on(home: Path) -> None
                            wake_at=now + 3600, detail="usage; wakes at 23:00")
         write_status(home, "beta", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
         write_status(home, "gamma", pct_5h=5, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
-        dmn._seen["backend"] = obsmod.Observed(session_seen=True, session_pid=4242)
+        dmn_delivery._seen["backend"] = obsmod.Observed(session_seen=True, session_pid=4242)
 
         _process_on("beta")
-        dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
         row = db.get_agent_state(con, "backend")
         check("process: on beta at the wall, it is not unparked on gamma's room",
               row["state"] == dmn.PARKED, str(dict(row)))
@@ -3509,13 +3509,13 @@ def test_an_agent_is_judged_on_the_account_its_process_is_on(home: Path) -> None
         db.set_account(con, "backend", "gamma")
         _process_on("gamma")
         db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
-        dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
         check("process: on gamma, gamma's room does unpark it",
               db.get_agent_state(con, "backend")["state"] == dmn.QUEUED,
               str(dict(db.get_agent_state(con, "backend"))))
     finally:
         (orcamod.available, orcamod.alive, obsmod.env_of) = real
-        dmn._seen.pop("backend", None)
+        dmn_delivery._seen.pop("backend", None)
         con.close()
 
 
@@ -3532,7 +3532,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
     write_status(home, "beta", pct_5h=9, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.idle_now, dmn.wait_for_session, obsmod.env_of)
+            orcamod.idle_now, dmn_delivery.wait_for_session, obsmod.env_of)
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         table = sessions_are("keeper")
@@ -3542,12 +3542,12 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         orca_idle()
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
 
         _process_on("alpha")
         check("move: a process that came back on the old account is not a move",
-              not dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
+              not dmn_handoff._move_to_room(con, "keeper", t, lambda _m: None)[0])
         check("move: and the column still names the account it is on",
               agents.current_account("keeper", con) == "alpha",
               agents.current_account("keeper", con))
@@ -3562,14 +3562,14 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         _process_on("beta")
         con.execute("DELETE FROM events WHERE agent = 'keeper' AND kind = 'moved_account'")
         check("move: on the new account it is one",
-              dmn._move_to_room(con, "keeper", t, lambda _m: None)[0]
+              dmn_handoff._move_to_room(con, "keeper", t, lambda _m: None)[0]
               and agents.current_account("keeper", con) == "beta")
         check("move: and the move is on the record",
               sum(e["kind"] == "moved_account"
                   for e in db.events_after(con, 0, agent="keeper")) == 1)
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.idle_now, dmn.wait_for_session, obsmod.env_of) = real
+         orcamod.idle_now, dmn_delivery.wait_for_session, obsmod.env_of) = real
         con.close()
 
 
@@ -3588,7 +3588,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
     write_status(home, "gamma", pct_5h=100, pct_7d=10, reset_7d=now + 90000, reset_5h=now + 1800)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.idle_now, orcamod.typeable_now, dmn.wait_for_session, obsmod.env_of,
+            orcamod.idle_now, orcamod.typeable_now, dmn_delivery.wait_for_session, obsmod.env_of,
             accounts.logged_in)
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
@@ -3600,7 +3600,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         cmds: list[str] = []
         orcamod.relaunch = lambda h, cmd, **kw: (cmds.append(cmd),
                                                  table.__setitem__("keeper", 4200), (True, "ok"))[2]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         accounts.logged_in = lambda a: True
         keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
         log: list[str] = []
@@ -3619,25 +3619,25 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         # The move stops before it ends anything: the handoff it took must not
         # stay on a session that never ended.
         db.set_handoff(con, "keeper", None)
-        real_record = dmn.handoffmod.record
-        dmn.handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n"), [])[1]
+        real_record = handoffmod.record
+        handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n"), [])[1]
         orcamod.alive = lambda h: h != "term_x"
         try:
             ok, msg = dmn.force_move(con, "keeper", "beta", "test", log.append)
         finally:
-            dmn.handoffmod.record = real_record
+            handoffmod.record = real_record
             orcamod.alive = lambda h: True
         check("forced: a move that stops before ending anything is not a move", not ok, msg)
         check("forced: and the handoff it took is not left on a session that never ended",
               db.get_handoff(con, "keeper") is None, str(db.get_handoff(con, "keeper")))
         # A record already on the row stays exactly as it was.
         db.set_handoff(con, "keeper", "# handoff · keeper\n- an earlier record\n")
-        dmn.handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n- new\n"), [])[1]
+        handoffmod.record = lambda c, a: (db.set_handoff(c, a, "# handoff · keeper\n- new\n"), [])[1]
         orcamod.alive = lambda h: h != "term_x"
         try:
             dmn.force_move(con, "keeper", "beta", "test", log.append)
         finally:
-            dmn.handoffmod.record = real_record
+            handoffmod.record = real_record
             orcamod.alive = lambda h: True
         check("forced: a record that was already there is put back, not replaced",
               db.get_handoff(con, "keeper") == "# handoff · keeper\n- an earlier record\n",
@@ -3685,7 +3685,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
               str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.idle_now, orcamod.typeable_now, dmn.wait_for_session, obsmod.env_of,
+         orcamod.idle_now, orcamod.typeable_now, dmn_delivery.wait_for_session, obsmod.env_of,
          accounts.logged_in) = real
         con.close()
 
@@ -3728,7 +3728,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     far = int(time.time()) + 3 * 3600
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-            dmn.wait_for_session)
+            dmn_delivery.wait_for_session)
     launched: list[str] = []
     try:
         orca_idle()
@@ -3737,7 +3737,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         orcamod.resume_with = lambda h, text: (True, "handed back")
         orcamod.relaunch = lambda h, cmd, **kw: (
             launched.append(cmd), _SESSION_TABLE["t"].update({"keeper": 4300}), (True, "relaunched"))[2]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         sessions_are("keeper")
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_account(con, "keeper", "alpha")
@@ -3768,7 +3768,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         real_send = orcamod.send
         try:
             orcamod.send = lambda h, t, enter=True: (told.append(t), (True, ""))[1]
-            dmn.deliver_queued(con, "keeper", lambda _m: None)
+            dmn_delivery.deliver_queued(con, "keeper", lambda _m: None)
         finally:
             orcamod.send = real_send
         check("move: and work reaches it on the account it moved to", told, str(told))
@@ -3824,7 +3824,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
             orcamod.close_session = lambda h, **kw: (typed.append("/exit"), (True, "ended"))[1]
             sessions_are()                      # it went away while we folded
             check("move: a session that is already gone is not moved",
-                  not dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
+                  not dmn_handoff._move_to_room(con, "keeper", t, lambda _m: None)[0])
             check("move: and nothing is typed at the shell it left behind", not typed,
                   str(typed))
         finally:
@@ -3855,7 +3855,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
         unknown = triggers.evaluate(None, 10)
         check("move: an unreadable account is not a trigger", not unknown.fired, unknown.kind)
         check("move: and nothing moves on it",
-              not dmn._move_to_room(con, "keeper", unknown, lambda _m: None)[0])
+              not dmn_handoff._move_to_room(con, "keeper", unknown, lambda _m: None)[0])
 
         # What it is told when it lands. A move is not a close: its handoff was
         # taken a moment ago and `launch.context_for` put it in the new
@@ -3870,7 +3870,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-         dmn.wait_for_session) = real
+         dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -4018,7 +4018,7 @@ def test_a_parked_agent_gets_past_a_usage_limit_dialog_before_its_wake(home: Pat
     try:
         wake = int(time.time()) + 3600
         db.set_agent_state(con, "keeper", dmn.PARKED, wake_at=wake, detail="context; parked")
-        dmn.supervise(con, "keeper", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "keeper", lambda _m: None, int(time.time()), {}, [])
         check("parked: the dialog is pressed past well before wake_at",
               term.sent == [("\x1b", False)], str(term.sent))
         row = db.get_agent_state(con, "keeper")
@@ -4043,7 +4043,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
-    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session)
     launched: list[str] = []
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
@@ -4060,7 +4060,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         orcamod.available = lambda: True
         orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
         orcamod.resume_with = lambda h, text: (True, "handed back")
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         check("pinning: the wake succeeds instead of waiting out alpha's window",
@@ -4080,7 +4080,7 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         check("pinning: the move is a finished handoff, not a degraded one",
               [r["state"] for r in pinned] == ["done"], str([dict(r) for r in pinned]))
     finally:
-        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session = real
+        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session = real
         con.close()
 
 
@@ -4245,7 +4245,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_account(con, "backend", "alpha")
-        dmn.supervise(con, "backend", lambda _m: None, now,
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now,
                       {"alpha": [(now - 200, 20), (now, 21)]}, [])
     finally:
         con.close()
@@ -4259,7 +4259,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     con = db.connect()
     try:
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=now + 3600, detail="parked")
-        dmn.supervise(con, "backend", lambda _m: None, now, samples, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, samples, [])
     finally:
         con.close()
     check("burn: a pace whose samples stopped goes stale though supervise keeps running",
@@ -4808,18 +4808,18 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
                        "peer", "async", None, 0, None)
         real_send = orcamod.send
         orcamod.send = lambda h, t, enter=True: (typed.append(t), (True, ""))[1]
-        real = (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
-                dmn.session_present, orcamod.clear_context)
+        real = (orcamod.available, orcamod.alive, orcamod.idle_now, dmn_handoff._move_to_room,
+                dmn_delivery.session_present, orcamod.clear_context)
         try:
             orcamod.available = lambda: True
             orcamod.alive = lambda h: True
             orcamod.idle_now = lambda h, **kw: False   # the probe would say mid-turn
             orcamod.clear_context = lambda h, **kw: (True, "cleared")
-            dmn.session_present = lambda a: True
-            dmn._move_to_room = lambda con_, a, t, log, dest=None: (seen.append(t), (True, False))[1]
+            dmn_delivery.session_present = lambda a: True
+            dmn_handoff._move_to_room = lambda con_, a, t, log, dest=None: (seen.append(t), (True, False))[1]
             # Idle, so delivery would go through if nothing held it back.
             orcamod.idle_now = lambda h, **kw: True
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
             check("limit: a queued request is not typed into an agent at its limit",
                   not typed, str(typed))
             seen.clear()
@@ -4831,10 +4831,10 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
             db.clear_cursor(con, "typed_at:backend")
             db.set_agent_state(con, "backend", dmn.IDLE, detail="at its usage limit")
             orcamod.idle_now = lambda h, **kw: False
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
         finally:
-            (orcamod.available, orcamod.alive, orcamod.idle_now, dmn._move_to_room,
-             dmn.session_present, orcamod.clear_context) = real
+            (orcamod.available, orcamod.alive, orcamod.idle_now, dmn_handoff._move_to_room,
+             dmn_delivery.session_present, orcamod.clear_context) = real
         orcamod.send = real_send
         check("limit: once settled, handed off and moved though the probe says mid-turn",
               seen and seen[0].kind == "usage" and "payload.error" in seen[0].reason, str(seen))
@@ -5308,7 +5308,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
         t = triggers.evaluate(100, 10)
         logged: list[str] = []
         check("move headroom: a marginal destination is refused, agent stays put",
-              not dmn._move_to_room(con, "keeper", t, logged.append)[0])
+              not dmn_handoff._move_to_room(con, "keeper", t, logged.append)[0])
         check("move headroom: the account on record has not changed",
               agents.current_account("keeper", con) == "alpha",
               agents.current_account("keeper", con))
@@ -5319,16 +5319,16 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
         write_status(home, "beta", pct_5h=30, pct_7d=5,
                      reset_5h=int(time.time()) + 1800)
         real = (orcamod.available, orcamod.alive, orcamod.close_session,
-               orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session)
+               orcamod.relaunch, orcamod.idle_now, dmn_delivery.wait_for_session)
         try:
             orca_idle()
             orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
-            dmn.wait_for_session = lambda agent, timeout=0: True
+            dmn_delivery.wait_for_session = lambda agent, timeout=0: True
             keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
             logged.clear()
             check("move headroom: clear headroom lets the move through",
-                  dmn._move_to_room(con, "keeper", t, logged.append)[0])
+                  dmn_handoff._move_to_room(con, "keeper", t, logged.append)[0])
             check("move headroom: it actually landed on beta",
                   agents.current_account("keeper", con) == "beta",
                   agents.current_account("keeper", con))
@@ -5337,7 +5337,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
                   any("moved alpha -> beta" in m and "5h" in m for m in logged), str(logged))
         finally:
             (orcamod.available, orcamod.alive, orcamod.close_session,
-             orcamod.relaunch, orcamod.idle_now, dmn.wait_for_session) = real
+             orcamod.relaunch, orcamod.idle_now, dmn_delivery.wait_for_session) = real
     finally:
         con.close()
 
@@ -5360,14 +5360,14 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
     db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-            dmn.wait_for_session)
+            dmn_delivery.wait_for_session)
     try:
         orca_idle()
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.resume_with = lambda h, text: (True, "handed back")
         orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         sessions_are("keeper")
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_account(con, "keeper", "alpha")
@@ -5376,14 +5376,14 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
               launch.choose_account("keeper") == "gamma")
         t = triggers.evaluate(100, 10)
         check("move (bootstrap): the move actually completes",
-              dmn._move_to_room(con, "keeper", t, lambda _m: None)[0])
+              dmn_handoff._move_to_room(con, "keeper", t, lambda _m: None)[0])
         check("move (bootstrap): and lands on the bootstrapped account",
               agents.current_account("keeper", con) == "gamma",
               agents.current_account("keeper", con))
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-         dmn.wait_for_session) = real
+         dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -5426,7 +5426,7 @@ def test_a_moved_handoff_with_a_good_record_clears_the_streak(home: Path) -> Non
     credentialed(home, "alpha", "beta")
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-            dmn.wait_for_session)
+            dmn_delivery.wait_for_session)
     try:
         orca_idle()
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
@@ -5434,7 +5434,7 @@ def test_a_moved_handoff_with_a_good_record_clears_the_streak(home: Path) -> Non
         orcamod.resume_with = lambda h, text: (True, "handed back")
         orcamod.relaunch = lambda h, cmd, **kw: (
             _SESSION_TABLE["t"].update({"keeper": 4300}), (True, "relaunched"))[1]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         readable_agent(con, home, "keeper")
         sessions_are("keeper")
         # A move only happens for work waiting - an idle agent at the wall
@@ -5457,7 +5457,7 @@ def test_a_moved_handoff_with_a_good_record_clears_the_streak(home: Path) -> Non
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-         dmn.wait_for_session) = real
+         dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -5480,7 +5480,7 @@ def test_a_moved_handoff_with_a_failed_record_still_marks_typed(home: Path) -> N
     credentialed(home, "alpha", "beta")
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-            dmn.wait_for_session)
+            dmn_delivery.wait_for_session)
     try:
         orca_idle()
         orcamod.clear_context = lambda h, **kw: (True, "cleared")
@@ -5488,7 +5488,7 @@ def test_a_moved_handoff_with_a_failed_record_still_marks_typed(home: Path) -> N
         orcamod.resume_with = lambda h, text: (True, "handed back")
         orcamod.relaunch = lambda h, cmd, **kw: (
             _SESSION_TABLE["t"].update({"keeper": 4300}), (True, "relaunched"))[1]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         sessions_are("keeper")
         # A terminal handle, so the move itself can go ahead (`_move_to_room`
         # needs one) - but no `write_agent_status`, so the record still comes
@@ -5512,7 +5512,7 @@ def test_a_moved_handoff_with_a_failed_record_still_marks_typed(home: Path) -> N
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
          orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
-         dmn.wait_for_session) = real
+         dmn_delivery.wait_for_session) = real
         con.close()
 
 
