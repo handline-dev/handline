@@ -68,6 +68,7 @@ PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
 AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
     ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"),
+    ("v", "move"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "open"), ("a", "answer"), ("e", "answer in $EDITOR"),
@@ -110,7 +111,7 @@ def _confirmed_can(con, name: str, label: str) -> tuple[bool, str]:
 # they cost more room on every row than they earn. Still bound - dispatch
 # reads AGENT_KEYS whole - and named under the `?` the footer adds in their
 # place.
-AGENT_RARE = {"fold"}
+AGENT_RARE = {"fold", "move"}
 
 
 def agent_footer_keys(con, agent: str | None) -> list[tuple[str, str]]:
@@ -167,7 +168,7 @@ def agent_commands(con, agent: str) -> list[tuple[str, str]]:
 
 def agent_help_line() -> str:
     """The full AGENT_KEYS legend, for `?`: what the footer never shows at
-    all (fold) and whatever a row's own state hid from it. One place
+    all (fold, move) and whatever a row's own state hid from it. One place
     for the three spots that print it, so they cannot drift into naming
     different keys - the failure the detail-page footer already had once."""
     return " · ".join(f"{k} {label}" for k, label in AGENT_KEYS if label != "open")
@@ -549,7 +550,7 @@ def header_data(con) -> HeaderData:
 def panel_keys(panel: int, agent_keys: list[tuple[str, str]] | None = None) -> list[tuple[str, str]]:
     """The keys a panel answers to, as (key, label). `agent_keys` is
     `agent_footer_keys` for the row under the cursor on AGENTS or STUCK, with a
-    `?` for the keys that filtering never shows at all (fold)."""
+    `?` for the keys that filtering never shows at all (fold, move)."""
     if agent_keys is not None:
         return agent_keys + [("?", "help")]
     return {ACCOUNTS: ACCOUNT_KEYS, AGENTS: AGENT_KEYS, MESSAGES: MESSAGE_KEYS,

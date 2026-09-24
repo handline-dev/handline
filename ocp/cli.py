@@ -301,6 +301,29 @@ def cmd_account_list(args) -> int:
     return 0
 
 
+def cmd_agent_move(args) -> int:
+    """Move an agent's live session to another account now (a human's call)."""
+    if os.environ.get("OCP_AGENT"):
+        print("a forced move ends a session: it is the founder's, from a terminal or "
+              "the bridge, not an agent's", file=sys.stderr)
+        return 1
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+            return 1
+        if input(f"move {args.agent} to '{args.account}'? this records its handoff, "
+                 f"ends its session, and starts a new one there (y/N): ").strip().lower() != "y":
+            print("not moved")
+            return 1
+    con = db.connect()
+    try:
+        ok, msg = daemonmod.force_move(con, args.agent, args.account, "human (cli)", print)
+    finally:
+        con.close()
+    print(msg, file=None if ok else sys.stderr)
+    return 0 if ok else 1
+
+
 def cmd_agent_register(args) -> int:
     d = agents.register(args.name, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
@@ -2296,6 +2319,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_account_list)
 
     ag = sub.add_parser("agent", help="agents").add_subparsers(dest="sub", required=True)
+    p = ag.add_parser("move", help="move a live session to another account now")
+    p.add_argument("agent")
+    p.add_argument("account")
+    p.add_argument("--yes", action="store_true", help="skip the confirmation")
+    p.set_defaults(fn=cmd_agent_move)
     p = ag.add_parser("register", help="register an agent; the daemon places its sessions")
     p.add_argument("name")
     p.add_argument("--vendor", default=None,

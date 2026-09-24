@@ -2513,7 +2513,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                            "(recover.py's own mechanism is driven in test_recover_*)",
         "usage": "calls the usage endpoint and the Keychain against a real login "
                  "(usage_api's own parsing is driven above, without either)",
-        "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
+        "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
         "launch": "execs claude",
         "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
         "install-hooks": "writes the shared settings",

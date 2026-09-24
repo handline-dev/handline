@@ -1578,6 +1578,12 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
             vendors.for_account(acct).login_argv(), accounts.env_for(acct))
 
 
+def move(con, agent: str, account: str) -> str:
+    """Force this agent's live session onto `account`, recording its handoff first."""
+    ok, msg = daemon.force_move(con, agent, account, "human (bridge)", lambda _m: None)
+    return msg
+
+
 def can(con, agent: str, key: str) -> tuple[bool, str]:
     """Whether an action is worth offering for this agent, and why not.
 
@@ -1634,6 +1640,12 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         # terminal. An agent whose terminal is gone is one of the likelier ones
         # to want folded.
         return (False, busy_why) if busy else (True, "")
+    if key == "move":
+        if closed or not row["terminal"]:
+            return False, f"{agent} has no live session to move"
+        if state in (daemon.HANDOFF, daemon.STALLED):
+            return False, f"{agent} is {state}"
+        return True, ""
     if key == "start":
         if row["terminal"]:
             return False, (f"{agent} already has a terminal ({row['terminal']}) - "
@@ -2092,7 +2104,7 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
 # runs, what it can be waiting for and how long the longest of those waits is.
 # The verbs are the ones a key on the bridge acts with; nothing else can be asked.
 ASYNC_VERBS = ("wake", "close", "park", "fold", "unstall", "terminal", "message", "answer",
-               "dismiss", "cancel", "chat_reply")
+               "dismiss", "cancel", "move", "chat_reply")
 
 _IDLE_WAIT_S = orca.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
 _DELIVERY_S = daemon.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
@@ -2107,6 +2119,7 @@ WAITS: dict[str, tuple[str, int]] = {
     "close": ("it to finish its turn, then its session to end",
               _IDLE_WAIT_S + 30 + daemon.END_WAIT_S + 15),
     "park": ("its handoff to be recorded and its context cleared", _DELIVERY_S),
+    "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
     "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),
     "terminal": ("a terminal to be made and its session to start",
                  120 + STARTED_TIMEOUT_S + _IDLE_WAIT_S),

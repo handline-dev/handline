@@ -2689,7 +2689,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         dmn.wait_for_session = lambda agent, timeout=0: False
 
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None)[0]
+        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
         check("clobber: a hook's RUNNING outweighs a wake the wait missed - "
               "the move is recorded, not discarded", moved)
         row = db.get_agent_state(con, "mover")
@@ -5130,7 +5130,7 @@ def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
           and all(isinstance(v[1], int) and v[1] > 0 for v in actions.WAITS.values()),
           str(set(actions.ASYNC_VERBS) ^ set(actions.WAITS)))
     check("jobs: the long ones say what they wait on, the writes to the record say nothing",
-          all(actions.WAITS[v][0] for v in ("wake", "close", "park", "fold", "terminal",
+          all(actions.WAITS[v][0] for v in ("wake", "close", "park", "move", "fold", "terminal",
                                             "message", "answer", "cancel"))
           and not actions.WAITS["dismiss"][0] and not actions.WAITS["unstall"][0])
 

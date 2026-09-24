@@ -81,8 +81,8 @@ async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
         await pilot.pause(0.1)
         check("help: `?` shows the full AGENT_KEYS legend, not nothing",
               screen.flash == t.tui.agent_help_line(), screen.flash)
-        check("help: the legend names a key the footer can fold away (fold)",
-              "f fold" in screen.flash, screen.flash)
+        check("help: the legend names a key the footer can fold away (move)",
+              "v move" in screen.flash, screen.flash)
 
 
 async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
