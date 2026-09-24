@@ -25,7 +25,7 @@ HOOK_KILLERS = ("disableAllHooks", "allowManagedHooksOnly")
 MANAGED_PATHS = [
     Path("/Library/Application Support/ClaudeCode/managed-settings.json"),
     Path("/etc/claude-code/managed-settings.json"),
-    Path.home() / ".claude" / "managed-settings.json",
+    paths.user_home() / ".claude" / "managed-settings.json",
 ]
 
 
@@ -459,7 +459,7 @@ def _check_autocontinue(r: Report) -> None:
     """Claude Code's own autoContinueAtUsageLimit overlaps our resume logic
     (section 4). One of them has to own it; doctor keeps the choice explicit."""
     seen = []
-    for p in (paths.shared_claude() / "settings.json", Path.home() / ".claude" / "settings.json"):
+    for p in (paths.shared_claude() / "settings.json", paths.user_home() / ".claude" / "settings.json"):
         if not p.exists():
             continue
         try:

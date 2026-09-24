@@ -34,6 +34,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from ocp import paths  # noqa: E402
+
+# The machine's venv, read once before the stand-in below hides the real home:
+# textual is only installed there (see _python_with_textual).
+MACHINE_VENV = paths.default_home() / "venv"
+
+# Before anything else imports ocp: this process and every child it starts
+# see a temp directory as the user's home, and paths.home() refuses the real
+# ~/.orcapipe. An agent's session exports OCP_HOME=~/.orcapipe; a test that
+# ran against it once deleted the team's whole state.
+TEST_ROOT = Path(tempfile.mkdtemp(prefix="ocp-test-root-"))
+os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
+os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
+atexit.register(shutil.rmtree, TEST_ROOT, True)
+
 from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
                  digest,
                  doctor, drift, events as evmod, fold as foldmod,
@@ -1477,12 +1492,10 @@ def run(one) -> None:
 
 def _python_with_textual() -> str | None:
     """A python3 that can import textual: the interpreter running the suite when
-    it can, else the real machine's $OCP_HOME/venv (requirements.txt,
-    ocp/venv.py) - textual is only ever installed there, never assumed on
-    whatever runs this suite. `paths.default_home()`, not whatever OCP_HOME an
-    earlier test in this run happens to have left set: this asks about the
-    actual machine, not a fixture."""
-    candidates = [sys.executable, str(venvmod.venv_python(paths.default_home() / "venv"))]
+    it can, else the real machine's venv (requirements.txt, ocp/venv.py) -
+    textual is only ever installed there, never assumed on whatever runs this
+    suite."""
+    candidates = [sys.executable, str(venvmod.venv_python(MACHINE_VENV))]
     for py in candidates:
         if py and Path(py).exists() and subprocess.run(
                 [py, "-c", "import textual"], capture_output=True).returncode == 0:
@@ -1756,6 +1769,8 @@ __all__ = [
     'types',
     'Path',
     'ROOT',
+    'MACHINE_VENV',
+    'TEST_ROOT',
     'accounts',
     'actions',
     'agents',

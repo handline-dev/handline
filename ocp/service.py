@@ -39,7 +39,7 @@ LOG_BACKUPS = 5
 
 # ---------------------------------------------------------------- paths
 def plist_path() -> Path:
-    return Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    return paths.user_home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
 def log_dir(home: Path | None = None) -> Path:
