@@ -737,7 +737,7 @@ def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> No
               and db.head_of_queue(con, "backend") is None)
         db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
                            detail="throttled for an unrelated reason")
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("answer wake: with only an answer waiting, the wake still reads QUEUED",
               row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
@@ -943,7 +943,7 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
     t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
     try:
         keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
-        ok, _why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, _why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("trust once: the wake escalates and stalls",
               not ok and len(_escalations(con)) == 1
               and db.get_agent_state(con, "backend")["state"] == dmn.STALLED,
@@ -988,7 +988,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
     sent: list[str] = []
     said: list[str] = []
     real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
-            dmn.wall_reason)
+            dmn_delivery.wall_reason)
     try:
         orca_seen()
         orcamod.typeable_now = lambda h: True
@@ -1030,9 +1030,9 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         _set_request_state(con, ask, "done", verdict="fine", announced=True)
 
         # The gates delivery has.
-        dmn.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
+        dmn_delivery.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
         check("nudge: not at the usage wall", not nudge(now) and not sent, str(sent))
-        dmn.wall_reason = real[4]
+        dmn_delivery.wall_reason = real[4]
         orcamod.typeable_now = lambda h: False
         check("nudge: not at a modal or a working agent", not nudge(now) and not sent, str(sent))
         orcamod.typeable_now = lambda h: True
@@ -1067,7 +1067,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=now + 1800)
         db.set_cursor(con, "notify:backend", head)
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("nudge: supervise makes the same call", len(sent) == 1 and "ocp resolve" in sent[0],
               str(sent))
 
@@ -1098,7 +1098,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               not any("idle on" in b["what"] for b in actions.stuck(con)))
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
-         dmn.wall_reason) = real
+         dmn_delivery.wall_reason) = real
         con.close()
 
 
@@ -1262,7 +1262,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
             table.clear()
             sent.clear()
             seen.clear()
-            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
             check(f"cache: the wake after {idle_s}s with no handoff goes through", ok, why)
             table["backend"] = 4242
             return list(sent)
@@ -1309,14 +1309,14 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         rid = db.add_request(con, "backend", "reviewer", "is this ready?", None,
                              "peer", "async", None, 0, None)
         check("answered: nothing is announced while it is still open",
-              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+              not dmn_delivery.deliver_answers(con, "backend", lambda _m: None) and not sent)
 
         # Resolving is reporting: the answer goes to whoever asked as part of
         # the same command, and the tick is the safety net rather than the only
         # path. So by the time resolve returns there is nothing left to deliver.
         askmod.resolve(rid, "ship it, with the one nit fixed")
         check("answered: once it comes back, the agent is told",
-              sent and not dmn.deliver_answers(con, "backend", lambda _m: None),
+              sent and not dmn_delivery.deliver_answers(con, "backend", lambda _m: None),
               str(sent))
         check("answered: with who answered and what they said",
               "reviewer" in sent[-1] and "ship it" in sent[-1], sent[-1][:120])
@@ -1328,13 +1328,13 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         askmod.resolve(db.add_request(con, "backend", "reviewer", "and this?", None,
                                       "peer", "async", None, 0, None),
                        "a verdict long enough to be cut: " + "x" * 200)
-        dmn.deliver_answers(con, "backend", lambda _m: None)
+        dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         check("answered: one that was cut says where the rest is",
               "ocp read" in sent[-1], sent[-1][-80:])
 
         sent.clear()
         check("answered: and it is not told twice",
-              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+              not dmn_delivery.deliver_answers(con, "backend", lambda _m: None) and not sent)
 
         # Answering is not monotonic in id: two asks, the later one answered
         # first. A high-water cursor put the earlier answer behind it forever,
@@ -1344,7 +1344,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         late = db.add_request(con, "backend", "keeper", "a second question",
                               None, "peer", "async", None, 0, None)
         askmod.resolve(late, "keeper answers first")
-        dmn.deliver_answers(con, "backend", lambda _m: None)
+        dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         sent.clear()
         askmod.resolve(early, "and the one it was waiting for")
         check("answered: an answer that comes back late is still delivered",
@@ -1361,7 +1361,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         denied = db.add_request(con, "backend", "nobody", "unroutable", None,
                                 "peer", "async", None, 0, None)
         _set_request_state(con, denied, "denied", "unknown target")
-        dmn.deliver_answers(con, "backend", lambda _m: None)
+        dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         check("answered: an ask routing refused is not typed back at it",
               "unroutable" not in sent[-1] and "unknown target" not in sent[-1],
               sent[-1][:160])
@@ -1377,7 +1377,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
             askmod.resolve(rid_i, f"a{i}")
         sessions_are("backend")
         sent.clear()
-        dmn.deliver_answers(con, "backend", lambda _m: None)
+        dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         unshown = [r["id"] for r in db.unannounced_answers(con, "backend")]
         check("answered: nothing is marked told that was not named",
               not unshown and "also answered: #" in sent[-1], sent[-1][:200])
@@ -1389,7 +1389,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         sent.clear()
         sessions_are()
         check("answered: an answer is not typed at a terminal with no session",
-              not dmn.deliver_answers(con, "backend", lambda _m: None) and not sent)
+              not dmn_delivery.deliver_answers(con, "backend", lambda _m: None) and not sent)
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send) = real
         con.close()
@@ -1471,14 +1471,14 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         check("waiting: resolving leaves it closed, with no deadline left",
               row["closed_at"] is not None and row["wake_at"] is None, str(dict(row)))
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the tick wakes it for the answer it asked for",
               any("--resume sess-4" in t for t in sent), str(sent))
         check("waiting: and it is no longer closed",
               db.get_agent_state(con, "backend")["closed_at"] is None)
 
         sent.clear()
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the next tick hands it the answer",
               any("this way" in t for t in sent), str(sent)[:160])
 
@@ -1729,7 +1729,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
             stdout=subprocess.PIPE, text=True, env=dict(os.environ))
         try:
             check("lock: the other process has it", holder.stdout.readline().strip() == "True")
-            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
             check("lock: a second wake types nothing at all",
                   not ok and not sent and "someone else" in why, f"{why} {sent}")
             row = db.get_agent_state(con, "backend")
@@ -1742,7 +1742,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
 
         # The kernel releases it when the holder dies, so a daemon killed
         # mid-wake does not leave an agent unreachable.
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("lock: once the holder is gone the wake goes through",
               ok and any("--resume sess-1" in t for t in sent), f"{why} {sent}")
     finally:
@@ -2717,13 +2717,13 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
               and db.get_cursor(con, "notify:backend") != rid, str(dict(row)))
         check("wall: and says why to whoever asked", "usage limit" in msg, msg)
         check("wall: the daemon's own path is held the same way",
-              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
         check("wall: the mark that says it is at the wall is still there",
               evmod.at_limit(con, "backend") is not None)
 
         hook("UserPromptSubmit")
         check("wall: once it is running again the queued request is delivered",
-              dmn.deliver_queued(con, "backend", lambda _m: None)
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
               and any("please look at this" in t for t in sent), str(sent))
 
         # ---- an answer to an agent parked on usage
@@ -2740,7 +2740,7 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
         check("wall: the answer stays unannounced",
               [r["id"] for r in db.unannounced_answers(con, "product")] == [rid])
         check("wall: the daemon's own path is held the same way",
-              not dmn.deliver_answers(con, "product", lambda _m: None) and not sent)
+              not dmn_delivery.deliver_answers(con, "product", lambda _m: None) and not sent)
 
         # A park for any other reason is an ordinary open session.
         db.start_handoff(con, "h-ctx", "product", "sess", "context", int(time.time()) + 60)
@@ -2748,7 +2748,7 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
         con.execute("UPDATE handoff SET updated = updated + 5 WHERE id = 'h-ctx'")
         con.commit()
         check("wall: a context park is not the wall - the answer is delivered",
-              dmn.deliver_answers(con, "product", lambda _m: None)
+              dmn_delivery.deliver_answers(con, "product", lambda _m: None)
               and any("looked, fine" in t for t in sent), str(sent))
     finally:
         orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
@@ -2773,7 +2773,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
     write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 3 * 3600)
     write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.idle_now, dmn.wait_for_session)
+            orcamod.idle_now, dmn_delivery.wait_for_session)
     try:
         orca_idle()
         orcamod.close_session = exit_ends_session("mover")
@@ -2793,10 +2793,10 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
             evmod._mark_activity(con, "mover", "UserPromptSubmit")
             return False, "no session seen within the timeout"
         orcamod.relaunch = relaunch_but_miss
-        dmn.wait_for_session = lambda agent, timeout=0: False
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: False
 
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
+        moved = dmn_handoff._move_to_room(con, "mover", t, lambda _m: None, dest="beta")[0]
         check("clobber: a hook's RUNNING outweighs a wake the wait missed - "
               "the move is recorded, not discarded", moved)
         row = db.get_agent_state(con, "mover")
@@ -2809,7 +2809,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
               str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.idle_now, dmn.wait_for_session) = real
+         orcamod.idle_now, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -2968,9 +2968,9 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         # one (wake_agent), by watching the daemon calls dismiss must not make.
         woken: list = []
         delivered: list = []
-        real_wake, real_deliver = dmn.wake_agent, dmn.deliver_answers
-        dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
-        dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
+        real_wake, real_deliver = dmn_lifecycle.wake_agent, dmn_delivery.deliver_answers
+        dmn_lifecycle.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
+        dmn_delivery.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
         try:
             agents.register("marina")
             db.set_terminal(con, "marina", "term_marina", None)
@@ -3029,8 +3029,8 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
             woken.clear()
             delivered.clear()
             pushed: list = []
-            real_deliver_queued = dmn.deliver_queued
-            dmn.deliver_queued = lambda con_, a, log_: (pushed.append(a), True)[1]
+            real_deliver_queued = dmn_delivery.deliver_queued
+            dmn_delivery.deliver_queued = lambda con_, a, log_: (pushed.append(a), True)[1]
             try:
                 agents.register("nora")
                 db.set_terminal(con, "nora", "term_nora", None)
@@ -3044,9 +3044,9 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
                 check("mailbox: ...but pushes the target's next queued request",
                       pushed == ["nora"], str(pushed))
             finally:
-                dmn.deliver_queued = real_deliver_queued
+                dmn_delivery.deliver_queued = real_deliver_queued
         finally:
-            dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
+            dmn_lifecycle.wake_agent, dmn_delivery.deliver_answers = real_wake, real_deliver
 
         # A refusal is an answer too - the one that means do something else.
         ok, _said, rid2 = askmod.ask("reviewer", "rebase it", requester=actions.HUMAN)
@@ -3927,16 +3927,16 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     # that deliver an answer.
     woken: list = []
     delivered: list = []
-    real_wake, real_deliver = dmn.wake_agent, dmn.deliver_answers
-    dmn.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
-    dmn.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
+    real_wake, real_deliver = dmn_lifecycle.wake_agent, dmn_delivery.deliver_answers
+    dmn_lifecycle.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
+    dmn_delivery.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
     try:
         rc, out = _cli(["resolve", str(notice_rid), "ok"], as_agent="worker")
         check("resolve: the owner can acknowledge the notice", rc == 0, out)
         check("resolve: nothing was pushed back to manager or anyone else",
               not woken and not delivered, f"woken={woken} delivered={delivered}")
     finally:
-        dmn.wake_agent, dmn.deliver_answers = real_wake, real_deliver
+        dmn_lifecycle.wake_agent, dmn_delivery.deliver_answers = real_wake, real_deliver
 
     rc, out = _cli(["close", f"T{t_blocker}"])
     check("close: an already-closed task is refused, no second notice risked",

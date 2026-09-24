@@ -558,11 +558,11 @@ def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
     covers the sentence."""
     _daemon_home(home, 20)
     con = db.connect()
-    real_would_wake, real_wake_wait = dmn.would_wake, launch.wake_wait
+    real_would_wake, real_wake_wait = dmn_lifecycle.would_wake, launch.wake_wait
     try:
         db.set_closed(con, "backend", "sess-x")
         reset_at = int(time.time()) + 3 * 86400 + 3600
-        dmn.would_wake = lambda con, row: True
+        dmn_lifecycle.would_wake = lambda con, row: True
         launch.wake_wait = lambda name, row, con: launch.WakeWait(
             "alpha", 100, reset_at, window="7d")
         line = next(ln for ln in tui._ANSI.sub("", _snap(200, 40)).splitlines()
@@ -570,7 +570,7 @@ def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
         check("walled: the wake column dates a weekly wall, not a bare clock",
               time.strftime("%m-%d %H:%M", time.localtime(reset_at)) in line, line)
     finally:
-        dmn.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
+        dmn_lifecycle.would_wake, launch.wake_wait = real_would_wake, real_wake_wait
         con.close()
 
 
@@ -1743,7 +1743,7 @@ def test_a_folded_row_says_what_its_reports_are_doing(home: Path) -> None:
     it."""
     _daemon_home(home, 20)
     con = db.connect()
-    real_wall = dmn.wall_reason
+    real_wall = dmn_delivery.wall_reason
     try:
         (home / "team.yaml").write_text("""
 teams:
@@ -1783,11 +1783,11 @@ edges:
               tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.RED),
               str(tui.hidden_urgency(con, ["marina", "keeper"])))
         db.set_agent_state(con, "keeper", dmn.RUNNING)
-        dmn.wall_reason = lambda con_, agent, row=None: "at the wall" if agent == "marina" else None
+        dmn_delivery.wall_reason = lambda con_, agent, row=None: "at the wall" if agent == "marina" else None
         check("fold: a report at the usage wall beats running",
               tui.hidden_urgency(con, ["marina", "keeper"]) == ("!", 1, tui.YEL),
               str(tui.hidden_urgency(con, ["marina", "keeper"])))
-        dmn.wall_reason = real_wall
+        dmn_delivery.wall_reason = real_wall
         db.add_request(con, "marina", "human", "need your call", None,
                        "peer", "async", "escalate", 0, None)
         db.set_agent_state(con, "keeper", dmn.STALLED, detail="wedged")
@@ -1842,7 +1842,7 @@ edges:
               lines["lead"])
         tui.EXPANDED.clear()
     finally:
-        dmn.wall_reason = real_wall
+        dmn_delivery.wall_reason = real_wall
         con.close()
         tui.EXPANDED.clear()
 
@@ -1864,12 +1864,12 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.live_terminals,
             orcamod.idle_now, orcamod.send, obsmod.live_sessions,
-            dmn.running_elsewhere)
+            dmn_locks.running_elsewhere)
     try:
         # Every row below is about a daemon that is running and still cannot
         # deliver. "The next tick" is a promise only a live daemon keeps, so
         # the world these two are compared in has to say so out loud.
-        dmn.running_elsewhere = lambda: 4242
+        dmn_locks.running_elsewhere = lambda: 4242
         orcamod.available = lambda: True
         orcamod.send = lambda h, t, enter=True: (True, "")
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -1883,8 +1883,8 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
             orcamod.alive = lambda h: h in terms
             orcamod.idle_now = lambda h: idle
             obsmod.live_sessions = lambda: dict(sess)
-            dmn._seen.clear()
-            dmn._seen_at["t"] = 0.0
+            dmn_delivery._seen.clear()
+            dmn_delivery._seen_at["t"] = 0.0
             actions._WORLD["at"] = 0.0
             db.set_agent_state(con, "backend", state)
             db.set_closed(con, "backend", "s1") if closed else db.clear_closed(con, "backend")
@@ -1893,7 +1893,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
                         (int(time.time()) - (actions.STUCK_AFTER_S + 60 if age is None
                                              else age),))
             said = [b["why"] for b in actions.stuck(con) if "→ backend" in b["what"]]
-            return dmn.deliver_queued(con, "backend", lambda _m: None), (said[0] if said else "")
+            return dmn_delivery.deliver_queued(con, "backend", lambda _m: None), (said[0] if said else "")
 
         live = {"term_x"}, {"backend": 4242}
         delivered, said = world(*live, dmn.IDLE, told=False, age=5)
@@ -1910,7 +1910,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
 
         delivered, said = world(*live, dmn.IDLE, told=True)
         check("agree: the idle parameter is used, not decoration",
-              not dmn.deliver_queued(con, "backend", lambda _m: None) or True)
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) or True)
         check("agree: told and unanswered is the agent's turn, and says so",
               not delivered and "told and has not answered" in said, said)
 
@@ -1944,7 +1944,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
         # And the same world with no daemon in it. Nothing self-clears, so the
         # grace those reasons are given is not given, and the screen says the
         # one fact that explains the rest of the panel.
-        dmn.running_elsewhere = lambda: None
+        dmn_locks.running_elsewhere = lambda: None
         actions._WORLD["at"] = 0.0
         _, said = world(*live, dmn.IDLE, told=False, age=5)
         check("agree: with no daemon, what is about to be delivered is stuck now",
@@ -1958,7 +1958,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
     finally:
         (orcamod.available, orcamod.alive, orcamod.live_terminals,
          orcamod.idle_now, orcamod.send, obsmod.live_sessions,
-         dmn.running_elsewhere) = real
+         dmn_locks.running_elsewhere) = real
         con.close()
 
 
@@ -1971,9 +1971,9 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
     column says already."""
     _daemon_home(home, 20)
     con = db.connect()
-    was_running = dmn.running_elsewhere
+    was_running = dmn_locks.running_elsewhere
     try:
-        dmn.running_elsewhere = lambda: 4242      # the panel's ordinary world
+        dmn_locks.running_elsewhere = lambda: 4242      # the panel's ordinary world
         agents.register("marina")
         db.set_terminal(con, "backend", None, None)
         db.add_request(con, "marina", "backend", "please look", None,
@@ -2057,7 +2057,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
                   ["events", "--agent", "backend", "--limit", "20", "--all"])))
 
     finally:
-        dmn.running_elsewhere = was_running
+        dmn_locks.running_elsewhere = was_running
         con.close()
 
 
@@ -2621,7 +2621,7 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
                       "anything an agent chose, and the least reachable of these",
     }
     named, clean = [], []
-    for f in sorted((ROOT / "ocp").glob("*.py")):
+    for f in sorted((ROOT / "ocp").glob("*.py")) + sorted((ROOT / "ocp" / "daemon").glob("*.py")):
         if f.name == "textsafe.py":
             continue
         tree = ast.parse(f.read_text())
@@ -3070,9 +3070,9 @@ def test_the_screen_says_when_two_daemons_are_running(home: Path) -> None:
     """The warning is the whole of what can be done about a duplicate that
     predates the lock: nothing else on any screen can see one."""
     use_home(home)
-    orig = dmn.processes
+    orig = dmn_locks.processes
     try:
-        dmn.processes = lambda: [111, 222]
+        dmn_locks.processes = lambda: [111, 222]
         r = doctor.Report()
         doctor._check_one_daemon(r)
         check("doctor: two daemons are a warning, by pid",
@@ -3085,7 +3085,7 @@ def test_the_screen_says_when_two_daemons_are_running(home: Path) -> None:
         check("ps: the screen says it too", "WARNING" in buf.getvalue(), buf.getvalue())
 
     finally:
-        dmn.processes = orig
+        dmn_locks.processes = orig
 
 
 def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:

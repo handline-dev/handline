@@ -1162,7 +1162,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
                 # One account per tick, each put on its cooldown once asked,
                 # so four ticks walk past every account there is.
                 for _ in range(4):
-                    dmn.poll_usage(con, lambda _m: None)
+                    dmn_usage_poll.poll_usage(con, lambda _m: None)
             finally:
                 con.close()
                 recovermod.recover = real_recover
@@ -1389,7 +1389,7 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
     real = {n: getattr(orcamod, n) for n in
             ("_lookup_driver", "_orca_idle", "_screen", "alive", "send", "available",
              "background_work", "screen_blocker", "close_session", "clear_context")}
-    real_present = dmn.session_present
+    real_present = dmn_delivery.session_present
     con = db.connect()
     try:
         accounts.register("alpha")
@@ -1420,12 +1420,12 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
         check("close: and once for a whole close", looked == ["term_cl"], str(looked))
 
         orcamod.available = lambda: True
-        dmn.session_present = lambda agent: False
+        dmn_delivery.session_present = lambda agent: False
         _, why = dmn._reclaim_context(con, "glm", lambda _m: None)
         check("refusal: a shell prompt under opencode names /new", "/new" in why and "/clear" not in why, why)
         _, why = dmn._reclaim_context(con, "backend", lambda _m: None)
         check("refusal: and under claude still names /clear", "/clear" in why, why)
-        dmn.session_present = lambda agent: True
+        dmn_delivery.session_present = lambda agent: True
         orcamod.background_work = lambda h: ["a job"]
         _, why = dmn._reclaim_context(con, "glm", lambda _m: None)
         check("refusal: background work under opencode names /new too",
@@ -1433,7 +1433,7 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
     finally:
         for n, v in real.items():
             setattr(orcamod, n, v)
-        dmn.session_present = real_present
+        dmn_delivery.session_present = real_present
         con.close()
 
 

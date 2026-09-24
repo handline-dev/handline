@@ -328,45 +328,45 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     try:
         state = {"fp": None, "warned": None}
         check("dev-mode: while off, no baseline is kept",
-              dmn._dev_mode_should_restart(state, log) is False and state["fp"] is None,
+              dmn_devmode._dev_mode_should_restart(state, log) is False and state["fp"] is None,
               str(state))
 
         dmn.set_dev_mode(True)
         check("dev-mode: turning on captures a baseline, not a restart",
-              dmn._dev_mode_should_restart(state, log) is False and state["fp"] is not None,
+              dmn_devmode._dev_mode_should_restart(state, log) is False and state["fp"] is not None,
               str(state))
         check("dev-mode: an untouched tree asks nothing on the next tick",
-              dmn._dev_mode_should_restart(state, log) is False, str(state))
+              dmn_devmode._dev_mode_should_restart(state, log) is False, str(state))
 
-        real_check = dmn._dev_import_check
-        dmn._dev_import_check = lambda log_: True
+        real_check = dmn_devmode._dev_import_check
+        dmn_devmode._dev_import_check = lambda log_: True
         try:
             time.sleep(0.01)
             (root / "ocp" / "sub").mkdir()
             (root / "ocp" / "sub" / "x.py").write_text("x = 2\n")
             check("dev-mode: a new file in a subpackage, with the import check stubbed clean, asks to restart",
-                  dmn._dev_mode_should_restart(state, log) is True,
+                  dmn_devmode._dev_mode_should_restart(state, log) is True,
                   str(state) + " " + str(logs))
         finally:
-            dmn._dev_import_check = real_check
+            dmn_devmode._dev_import_check = real_check
 
         def failing_check(log_):
             log_("stub: fails to import")
             return False
-        dmn._dev_import_check = failing_check
+        dmn_devmode._dev_import_check = failing_check
         try:
             time.sleep(0.01)
             (root / "ocp" / "core.py").write_text("x = 3\n")
             logs.clear()
             check("dev-mode: a changed file that fails the import check does not ask to restart",
-                  dmn._dev_mode_should_restart(state, log) is False, str(state))
+                  dmn_devmode._dev_mode_should_restart(state, log) is False, str(state))
             check("dev-mode: it logs why",
                   any("fails to import" in m for m in logs), str(logs))
             logs.clear()
             check("dev-mode: the same broken fingerprint is not re-logged next tick",
-                  dmn._dev_mode_should_restart(state, log) is False and logs == [], str(logs))
+                  dmn_devmode._dev_mode_should_restart(state, log) is False and logs == [], str(logs))
         finally:
-            dmn._dev_import_check = real_check
+            dmn_devmode._dev_import_check = real_check
     finally:
         paths.repo_root = real_repo_root
         dmn.set_dev_mode(False)
@@ -417,13 +417,13 @@ def test_dev_mode_import_check_runs_the_real_entrypoint(home: Path) -> None:
     use_home(home)
     logs: list[str] = []
     check("dev-mode: the real bin/ocp --help passes its own import check",
-          dmn._dev_import_check(logs.append) is True, str(logs))
+          dmn_devmode._dev_import_check(logs.append) is True, str(logs))
 
     real_exe = service.ocp_executable
     service.ocp_executable = lambda: "/no/such/ocp-binary-at-all"
     try:
         check("dev-mode: an entrypoint that cannot even run fails closed",
-              dmn._dev_import_check(logs.append) is False, str(logs))
+              dmn_devmode._dev_import_check(logs.append) is False, str(logs))
         check("dev-mode: it says why", any(logs), str(logs))
     finally:
         service.ocp_executable = real_exe
@@ -438,7 +438,7 @@ def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -
     test process); what is checked is that it is reached only after `run`
     has already given up the lock."""
     _daemon_home(home, 20)
-    real_should, real_restart = dmn._dev_mode_should_restart, dmn._dev_mode_restart
+    real_should, real_restart = dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart
     calls: list[bool] = []
 
     def fake_should(state, log):
@@ -447,9 +447,9 @@ def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -
         return True
 
     def fake_restart():
-        calls.append(dmn.lock.holder(dmn.DAEMON_LOCK) is not None)
+        calls.append(lock.holder(dmn.DAEMON_LOCK) is not None)
 
-    dmn._dev_mode_should_restart, dmn._dev_mode_restart = fake_should, fake_restart
+    dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = fake_should, fake_restart
     try:
         rc_box: list[int] = []
         out = _capture(lambda: rc_box.append(dmn.run(once=False, verbose=True, max_ticks=5)))
@@ -462,7 +462,7 @@ def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -
         check("dev-mode restart: the daemon lock was already released when it ran",
               calls == [False], str(calls))
     finally:
-        dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
+        dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = real_should, real_restart
 
 
 def test_dev_mode_check_failing_degrades_not_crashes(home: Path) -> None:
@@ -472,13 +472,13 @@ def test_dev_mode_check_failing_degrades_not_crashes(home: Path) -> None:
     exactly when this runs) must not end a daemon a human started by hand
     the way an unguarded exception would."""
     _daemon_home(home, 20)
-    real_should, real_sleep = dmn._dev_mode_should_restart, dmn.time.sleep
+    real_should, real_sleep = dmn_devmode._dev_mode_should_restart, time.sleep
 
     def raising_should(state, log):
         raise RuntimeError("stub: vanished mid-stat")
 
-    dmn._dev_mode_should_restart = raising_should
-    dmn.time.sleep = lambda s: None  # two real ticks, not two real POLL_S waits
+    dmn_devmode._dev_mode_should_restart = raising_should
+    time.sleep = lambda s: None  # two real ticks, not two real POLL_S waits
     try:
         out = _capture(lambda: check(
             "dev-mode check failing: run() still exits cleanly, not with an exception",
@@ -488,7 +488,7 @@ def test_dev_mode_check_failing_degrades_not_crashes(home: Path) -> None:
         check("dev-mode check failing: it says why, not just that it failed",
               "dev-mode check failed" in out and "vanished mid-stat" in out, out)
     finally:
-        dmn._dev_mode_should_restart, dmn.time.sleep = real_should, real_sleep
+        dmn_devmode._dev_mode_should_restart, time.sleep = real_should, real_sleep
 
 
 def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home: Path) -> None:
@@ -497,7 +497,7 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
     while that stub stands in for it must still end the daemon - not be
     overridden by the restart the check was in the middle of approving."""
     _daemon_home(home, 20)
-    real_should, real_restart = dmn._dev_mode_should_restart, dmn._dev_mode_restart
+    real_should, real_restart = dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart
     restart_calls: list[bool] = []
 
     def should_but_signal_first(state, log):
@@ -509,7 +509,7 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
     def fake_restart():
         restart_calls.append(True)
 
-    dmn._dev_mode_should_restart, dmn._dev_mode_restart = should_but_signal_first, fake_restart
+    dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = should_but_signal_first, fake_restart
     try:
         out = _capture(lambda: check(
             "dev-mode signal race: run() exits cleanly",
@@ -521,7 +521,7 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
         check("dev-mode signal race: it says why the restart was skipped",
               "restart skipped" in out, out)
     finally:
-        dmn._dev_mode_should_restart, dmn._dev_mode_restart = real_should, real_restart
+        dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = real_should, real_restart
 
 
 def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -> None:
@@ -536,8 +536,8 @@ def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -
                          int(time.time()) + 90)
     finally:
         con.close()
-    real = dmn.resume_handoff
-    dmn.resume_handoff = lambda con, row, log: (_ for _ in ()).throw(
+    real = dmn_handoff.resume_handoff
+    dmn_handoff.resume_handoff = lambda con, row, log: (_ for _ in ()).throw(
         sqlite3.OperationalError("database is locked"))
     try:
         try:
@@ -548,7 +548,7 @@ def test_reconcile_still_propagates_a_fault_that_is_not_one_agents(home: Path) -
             check("reconcile: a database fault is not mistaken for one agent's "
                   "bad file and swallowed", True)
     finally:
-        dmn.resume_handoff = real
+        dmn_handoff.resume_handoff = real
 
 
 def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Path) -> None:
@@ -706,7 +706,7 @@ def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> 
                            detail="throttled for an unrelated reason")
         check("stale wake: before the tick, the row still claims THROTTLED",
               db.get_agent_state(con, "backend")["state"] == dmn.THROTTLED)
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("stale wake: with nothing queued, the wake reads IDLE, not QUEUED",
               row["state"] == dmn.IDLE and row["wake_at"] is None
@@ -718,7 +718,7 @@ def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> 
         db.set_agent_state(con, "backend", dmn.THROTTLED, wake_at=int(time.time()) - 1,
                            detail="throttled for an unrelated reason")
         db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("stale wake: with a real request queued, the same wake still reads QUEUED",
               row["state"] == dmn.QUEUED and row["wake_at"] is None, str(dict(row)))
@@ -754,7 +754,7 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
                                wake_at=int(time.time()) + 3600, detail="usage")
             write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                          reset_5h=int(time.time()) + 1800)
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
             row = db.get_agent_state(con, "backend")
             check(f"usage recovered: queued={queued} reads {want}",
                   row["state"] == want and row["wake_at"] is None, str(dict(row)))
@@ -954,7 +954,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
             db.set_agent_state(con, "backend", state, detail=detail)
             del sent[:]
             bg[0] = "3 monitors"
-            dmn.supervise(con, "backend", lambda _m: None, now, {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
             row = db.get_agent_state(con, "backend")
             word = tui.screen_state(con, row)[0]
             if state == dmn.IDLE:
@@ -1055,11 +1055,11 @@ def test_a_running_daemon_is_reported_whatever_daemon_pid_says(home: Path) -> No
     (home / "daemon.pid").write_text(json.dumps({"pid": 999999, "boot": 1}))
 
     check("daemon: nobody holding the lock reads as not running, whatever any file says",
-          dmn.running_elsewhere() is None)
+          dmn_locks.running_elsewhere() is None)
     holder, pid = _hold_daemon_lock_in_another_process(env)
     try:
         check("daemon: the process holding the lock is the one reported",
-              dmn.running_elsewhere() == pid, str(dmn.running_elsewhere()))
+              dmn_locks.running_elsewhere() == pid, str(dmn_locks.running_elsewhere()))
         check("daemon: a probe leaves the hold with its holder",
               lock.holder(dmn.DAEMON_LOCK) == pid)
         with lock.singleton(dmn.DAEMON_LOCK) as free:
@@ -1079,7 +1079,7 @@ def test_a_running_daemon_is_reported_whatever_daemon_pid_says(home: Path) -> No
         holder.wait(timeout=30)
 
     check("daemon: the name a dead holder left behind is not a running daemon",
-          dmn.running_elsewhere() is None, str(dmn.running_elsewhere()))
+          dmn_locks.running_elsewhere() is None, str(dmn_locks.running_elsewhere()))
     check("daemon: ...and needs no clearing by anything", lock.holder(dmn.DAEMON_LOCK) is None)
 
 
@@ -1090,14 +1090,14 @@ def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> Non
     use_home(home)
     env = {**os.environ, "OCP_HOME": str(home)}
     holder, pid = _hold_daemon_lock_in_another_process(env, write_name=False)
-    orig = dmn.processes
+    orig = dmn_locks.processes
     try:
         check("lock: held without a name reads as held, not as free",
               lock.holder(dmn.DAEMON_LOCK) == 0)
-        dmn.processes = lambda: [pid]
-        check("daemon: named from the process table", dmn.running_elsewhere() == pid)
+        dmn_locks.processes = lambda: [pid]
+        check("daemon: named from the process table", dmn_locks.running_elsewhere() == pid)
     finally:
-        dmn.processes = orig
+        dmn_locks.processes = orig
         holder.kill()
         holder.wait(timeout=30)
 
@@ -1124,9 +1124,9 @@ def test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(home:
     screen that answers "no daemon" over a list it just computed contradicts
     itself."""
     use_home(home)
-    orig = dmn.processes
+    orig = dmn_locks.processes
     try:
-        dmn.processes = lambda: [4242]
+        dmn_locks.processes = lambda: [4242]
         r = doctor.Report()
         doctor._check_one_daemon(r)
         check("doctor: a daemon process holding no lock warns, naming it",
@@ -1137,13 +1137,13 @@ def test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(home:
         check("ps: says the same, beside 'not running'",
               "daemon: not running" in buf.getvalue() and "pid 4242" in buf.getvalue(),
               buf.getvalue())
-        dmn.processes = lambda: []
+        dmn_locks.processes = lambda: []
         r = doctor.Report()
         doctor._check_one_daemon(r)
         check("doctor: no process and no lock is plainly no daemon",
               r.rows[-1][0] == doctor.OK and "no daemon" in r.rows[-1][1], str(r.rows))
     finally:
-        dmn.processes = orig
+        dmn_locks.processes = orig
 
 
 # ---------------------------------------------------------------- service
@@ -1416,18 +1416,18 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.IDLE)
 
         check("deliver: nothing is sent when nothing is waiting",
-              not dmn.deliver_queued(con, "backend", lambda _m: None))
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None))
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         check("deliver: a waiting request reaches the agent",
-              dmn.deliver_queued(con, "backend", lambda _m: None))
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None))
         check("deliver: and it is told how to read it", "ocp inbox" in sent[-1], sent[-1])
         check("deliver: and who it is from", "reviewer" in sent[-1], sent[-1])
 
         sent.clear()
         check("deliver: the same request is not announced twice",
-              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
 
         # Request #189: one at a time. A second request behind the first is
         # queued, but the head has not changed - backend is not re-told, and
@@ -1435,7 +1435,7 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         db.add_request(con, "reviewer", "backend", "and this", None,
                        "peer", "async", None, 0, None)
         check("deliver: a request behind the head does not get its own delivery",
-              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
 
         # Typing at an agent mid-turn leaves the text in its input box, unsent.
         orcamod.idle_now = lambda h: False
@@ -1443,7 +1443,7 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
                        "peer", "async", None, 0, None)
         sent.clear()
         check("deliver: a busy agent is left alone until it is free",
-              not dmn.deliver_queued(con, "backend", lambda _m: None) and not sent)
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
 
         # Being told is not the agent doing something, so it must not count as
         # activity - or an agent we keep reminding never looks idle enough to
@@ -1487,24 +1487,24 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
         head = db.add_request(con, "reviewer", "backend", "the open one", None,
                               "peer", "async", None, 0, None)
         busy[0] = False
-        check("send now: the head is delivered as ever", dmn.deliver_queued(con, "backend", say))
+        check("send now: the head is delivered as ever", dmn_delivery.deliver_queued(con, "backend", say))
         later = db.add_request(con, "human", "backend", "urgent", None,
                                "peer", "async", None, 0, None)
         sent.clear()
         check("send now: a request nobody marked stays behind an open head",
-              not dmn.deliver_queued(con, "backend", say) and not sent)
+              not dmn_delivery.deliver_queued(con, "backend", say) and not sent)
 
         check("send now: an undelivered queued request can be marked",
               db.mark_send_now(con, later))
         check("send now: marking again is harmless", db.mark_send_now(con, later))
         busy[0] = True
         check("send now: a working agent is never typed at",
-              not dmn.deliver_queued(con, "backend", say) and not sent)
+              not dmn_delivery.deliver_queued(con, "backend", say) and not sent)
         check("send now: and the mark waits for it",
               [r["id"] for r in db.send_now_pending(con, "backend")] == [later])
 
         busy[0] = False
-        check("send now: an agent that can be typed at is told", dmn.deliver_queued(con, "backend", say))
+        check("send now: an agent that can be typed at is told", dmn_delivery.deliver_queued(con, "backend", say))
         check("send now: with the marked request, not the head",
               len(sent) == 1 and "urgent" in sent[0] and f"#{later}" in sent[0]
               and "the open one" not in sent[0], str(sent))
@@ -1516,7 +1516,7 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
 
         sent.clear()
         check("send now: each is told once",
-              not dmn.deliver_queued(con, "backend", say) and not sent and not db.send_now_pending(con, "backend"))
+              not dmn_delivery.deliver_queued(con, "backend", say) and not sent and not db.send_now_pending(con, "backend"))
 
         # Each send starts the agent's turn: two due at once go out one per pass,
         # the second only after the agent is idle again.
@@ -1530,13 +1530,13 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
                                                    (True, ""))[2]
         sent.clear()
         check("send now: two marked at once - the first goes out",
-              dmn.deliver_queued(con, "backend", say) and len(sent) == 1 and f"#{two}" in sent[0],
+              dmn_delivery.deliver_queued(con, "backend", say) and len(sent) == 1 and f"#{two}" in sent[0],
               str(sent))
         check("send now: the second waits while the agent works",
-              not dmn.deliver_queued(con, "backend", say) and len(sent) == 1, str(sent))
+              not dmn_delivery.deliver_queued(con, "backend", say) and len(sent) == 1, str(sent))
         busy[0] = False
         check("send now: and goes out on the pass after it is idle again",
-              dmn.deliver_queued(con, "backend", say) and len(sent) == 2 and f"#{three}" in sent[1],
+              dmn_delivery.deliver_queued(con, "backend", say) and len(sent) == 2 and f"#{three}" in sent[1],
               str(sent))
         busy[0] = False
         four = db.add_request(con, "human", "backend", "fourth urgent", None,
@@ -1544,11 +1544,11 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
         db.mark_send_now(con, four)
         db.clear_cursor(con, "notify:backend")          # the head is due again as well
         sent.clear()
-        dmn.deliver_queued(con, "backend", say)
+        dmn_delivery.deliver_queued(con, "backend", say)
         check("send now: a marked request and a due head are not typed in one pass",
               len(sent) == 1 and f"#{four}" in sent[0], str(sent))
         busy[0] = False
-        dmn.deliver_queued(con, "backend", say)
+        dmn_delivery.deliver_queued(con, "backend", say)
         check("send now: the head follows on the next pass",
               len(sent) == 2 and f"#{head}" in sent[1], str(sent))
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
@@ -1558,7 +1558,7 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
 
         askmod.resolve(head, "done")
         check("send now: becoming the head later is not a second telling",
-              not dmn.deliver_queued(con, "backend", say) and not sent, str(sent))
+              not dmn_delivery.deliver_queued(con, "backend", say) and not sent, str(sent))
         check("send now: it is the head the resolve-nudge watches",
               db.get_cursor(con, "notify:backend") == later)
 
@@ -1652,7 +1652,7 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
         (home / "agents" / "backend" / "status.json").write_text(json.dumps({
             "account": "alpha", "collected_at": int(time.time()),
             "session_id": "sess-4", "pct_5h": 20}))
-        dmn.close_agent(con, "backend", lambda _m: None,
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
@@ -1715,7 +1715,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
         rid = db.add_request(con, "reviewer", "backend", "review the picker branch", None,
                              "peer", "async", None, 0, None)
         db.mark_delivered(con, rid)
-        dmn.close_agent(con, "backend", lambda _m: None,
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
                         status.read_for_agent("backend", "alpha"))
         record = db.get_handoff(con, "backend") or ""
         check("cache: closing mid-task recorded the request in hand and the transcript",
@@ -1729,7 +1729,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
             sent.clear()
             seen.clear()
             db.set_handoff(con, "backend", record)
-            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
             check(f"cache: the wake after {idle_s}s goes through", ok, why)
             table["backend"] = 4242
             return list(sent), list(seen)
@@ -1802,7 +1802,7 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
         con.execute("DELETE FROM events WHERE agent = 'backend'")
         db.set_closed(con, "backend", "sess-7")
         db.set_handoff(con, "backend", None)
-        ok, _ = dmn.wake_agent(con, "backend", logs.append)
+        ok, _ = dmn_lifecycle.wake_agent(con, "backend", logs.append)
         check("cold wake: a failed launch is reported", not ok)
         check("cold wake: its own note is not activity, so the next wake is still cold",
               db.last_activity(con, "backend") is None
@@ -1817,7 +1817,7 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
         orcamod.typeable_now = lambda h: True
         orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
         orcamod.resume_with = lambda h, text: (typed.append(text), (True, ""))[1]
-        ok2, _ = dmn.wake_agent(con, "backend", logs.append)
+        ok2, _ = dmn_lifecycle.wake_agent(con, "backend", logs.append)
         check("cold wake: the next wake at a live session types nothing", not ok2 and not typed,
               str(typed))
         db.set_closed(con, "backend", "sess-7")
@@ -2071,9 +2071,9 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
     con = db.connect()
     sent: list[str] = []
     real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
-            orcamod.resume_with, dmn.WAKE_SESSION_TIMEOUT_S)
+            orcamod.resume_with, dmn_delivery.WAKE_SESSION_TIMEOUT_S)
     try:
-        dmn.WAKE_SESSION_TIMEOUT_S = 1
+        dmn_delivery.WAKE_SESSION_TIMEOUT_S = 1
         orca_seen()
         waits: list[int] = []
         orcamod.wait_idle = lambda h, timeout_ms=0: (waits.append(timeout_ms), True)[1]
@@ -2083,7 +2083,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-8")
 
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a launch that started nothing is not a wake", not ok, why)
         check("wake: so the closed mark stays", row["closed_at"] is not None, str(dict(row)))
@@ -2109,7 +2109,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
                 table.update({"backend": 4242})
             return True, ""
         orcamod.send = send_launching
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a resume that starts nothing falls back to a fresh start", ok, why)
         check("wake: and the agent is told there is no handoff behind it",
@@ -2130,7 +2130,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         db.set_closed(con, "backend", "sess-8")
         table.clear()
         obsmod.live_sessions = lambda: None
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: an unreadable process table is not a session either",
               not ok and row["resume_session"] == "sess-8", f"{why} {dict(row)}")
@@ -2144,7 +2144,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         obsmod.live_sessions = lambda: dict(table)
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         for _ in range(dmn.MAX_FAILED_ATTEMPTS):
-            dmn.wake_agent(con, "backend", lambda _m: None)
+            dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a launch that never works ends in STALLED, not in a loop",
               row["state"] == dmn.STALLED, str(dict(row)))
@@ -2192,7 +2192,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 600)
         sent.clear()
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: an account at the wall is not launched into", not ok and not sent,
               f"{why} {sent}")
@@ -2203,7 +2203,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         orcamod.send = relaunching_send(sent, table)
-        ok, _ = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, _ = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: and it goes through once the window rolls over", ok, str(sent))
         table.clear()   # the session that wake started is closed again below
         db.set_closed(con, "backend", "sess-8")
@@ -2214,7 +2214,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.IDLE, detail="cleared by hand")
         obsmod.live_sessions = lambda: dict(table)
         orcamod.send = relaunching_send(sent, table)
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a launch that starts a session is a wake", ok, why)
         check("wake: the closed mark is cleared only then",
@@ -2223,7 +2223,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
               any("Nothing was lost" in t for t in sent), str(sent))
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
-         orcamod.resume_with, dmn.WAKE_SESSION_TIMEOUT_S) = real
+         orcamod.resume_with, dmn_delivery.WAKE_SESSION_TIMEOUT_S) = real
         con.close()
 
 
@@ -2240,9 +2240,9 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
     con = db.connect()
     sent: list[str] = []
     real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
-            dmn.WAKE_SESSION_TIMEOUT_S)
+            dmn_delivery.WAKE_SESSION_TIMEOUT_S)
     try:
-        dmn.WAKE_SESSION_TIMEOUT_S = 1
+        dmn_delivery.WAKE_SESSION_TIMEOUT_S = 1
         orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         table = sessions_are()
@@ -2256,7 +2256,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", None)
 
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a session its launch did not start is not its wake", not ok, why)
         check("wake: so it is not recorded as woken",
@@ -2273,7 +2273,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         table.clear()
         sent.clear()
         db.set_closed(con, "backend", "sess-abc")
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: nothing is typed into a session it did not start",
               not ok and [" launch " in t for t in sent] == [True], f"{why} {sent}")
@@ -2294,7 +2294,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
             return False, "no session seen within the timeout"
         orcamod.relaunch = own_but_late
         try:
-            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         finally:
             orcamod.relaunch = realr
         row = db.get_agent_state(con, "backend")
@@ -2312,7 +2312,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         db.set_closed(con, "backend", "sess-def")
         table["backend"] = 4321        # live before this wake starts at all
         obsmod.live_sessions = lambda: dict(table)
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a session already live before the wake starts is never typed into",
               not ok and not sent, f"{why} {sent}")
@@ -2342,7 +2342,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
             return False, "refused"
         orcamod.relaunch = refused_once
         try:
-            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         finally:
             orcamod.relaunch = realr
         row = db.get_agent_state(con, "backend")
@@ -2378,7 +2378,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
             return False, "no session seen within the timeout"
         orcamod.relaunch = took_but_no_session_seen
         try:
-            ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+            ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         finally:
             orcamod.relaunch = realr
         row = db.get_agent_state(con, "backend")
@@ -2388,7 +2388,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
               row["wake_failures"] == 1, str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
-         dmn.WAKE_SESSION_TIMEOUT_S) = real
+         dmn_delivery.WAKE_SESSION_TIMEOUT_S) = real
         con.close()
 
 
@@ -2453,7 +2453,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         check("walled: names the account and when it rolls over",
               reason is not None and "alpha" in reason and when in reason, reason)
 
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("walled: the daemon's own refusal is the same sentence, not a cousin of it",
               not ok and why == reason, f"{why!r} != {reason!r}")
 
@@ -2506,7 +2506,7 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
                      reset_5h=int(time.time()) + 1800)
         row = db.get_agent_state(con, "backend")
         check("walled: nothing waiting means would_wake says no",
-              not dmn.would_wake(con, row), dict(row))
+              not dmn_lifecycle.would_wake(con, row), dict(row))
 
         # A deadline that has not arrived yet is not "due" - a bare
         # `row["wake_at"]` truthy check would have said yes to any parked
@@ -2515,7 +2515,7 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
                            wake_at=int(time.time()) + 3600, detail="usage; wakes later")
         row = db.get_agent_state(con, "backend")
         check("walled: a deadline that has not come due yet is not waiting either",
-              not dmn.would_wake(con, row), dict(row))
+              not dmn_lifecycle.would_wake(con, row), dict(row))
 
         ps_out = _capture(lambda: climod.main(["ps"]))
         trig_out = _capture(lambda: climod.main(["triggers"]))
@@ -2576,7 +2576,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
     agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
-    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session)
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session)
     launched: list[str] = []
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
@@ -2592,7 +2592,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
         orcamod.resume_with = lambda h, text: (True, "handed back")
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         ok, why = dmn._wake_agent(con, "keeper", lambda _m: None)
         check("7d rescue: the wake succeeds instead of waiting out alpha's weekly wall",
@@ -2605,7 +2605,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
     finally:
-        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn.wait_for_session = real
+        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session = real
         con.close()
 
 
@@ -2632,7 +2632,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 600)
 
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: a wake the account refuses is not typed", not sent, str(sent))
         check("park: and the deadline stays, so the next tick tries again",
@@ -2643,7 +2643,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
                      reset_5h=int(time.time()) + 1800)
         table = sessions_are()
         orcamod.send = relaunching_send(sent, table)
-        dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: once it rolls over the park is woken and the deadline cleared",
               row["state"] == dmn.QUEUED and row["wake_at"] is None
@@ -2662,7 +2662,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
             evmod._mark_activity(hooked, "backend", "UserPromptSubmit")
             if " launch " in text else None, launching(h, text, enter))[1]
         try:
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         finally:
             hooked.close()
         row = db.get_agent_state(con, "backend")
@@ -2703,8 +2703,8 @@ def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None
                                wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
             write_agent_status(name, "alpha", ctx_used=200_000, model_id="claude-sonnet-5")
             db.add_request(con, "marina", name, "carry on", None, "peer", "async", None, 0, None)
-        dmn.supervise(con, "parkreal", lambda _m: None, int(time.time()), {}, [])
-        dmn.supervise(con, "parkctl", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "parkreal", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "parkctl", lambda _m: None, int(time.time()), {}, [])
         real_row = db.get_agent_state(con, "parkreal")
         ctl_row = db.get_agent_state(con, "parkctl")
         check("park/ctx: the default-limit agent stays parked - its context, "
@@ -2739,7 +2739,7 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
     con = db.connect()
     cleared = {"term_keeper": 0, "term_ctl": 0}
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
-            dmn.session_present)
+            dmn_delivery.session_present)
     try:
         db.set_terminal(con, "keeper", "term_keeper", "wt")
         db.set_terminal(con, "keeper_ctl", "term_ctl", "wt")
@@ -2753,7 +2753,7 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
             cleared[h] += 1
             return True, "cleared"
         orcamod.clear_context = clear
-        dmn.session_present = lambda a: True
+        dmn_delivery.session_present = lambda a: True
 
         limit_real = status.effective_context_limit(agents.read("keeper"), "claude-sonnet-5")
         limit_ctl = status.effective_context_limit(agents.read("keeper_ctl"), "claude-sonnet-5")
@@ -2797,7 +2797,7 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
               "never opens for it", cleared["term_ctl"] == 0, cleared)
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now,
-         orcamod.clear_context, dmn.session_present) = real
+         orcamod.clear_context, dmn_delivery.session_present) = real
         con.close()
 
 
@@ -2851,7 +2851,7 @@ def test_the_post_lock_idle_reread_actually_gates(home: Path) -> None:
 
         calls = [True, False]
         orcamod.typeable_now = lambda h: calls.pop(0) if calls else False
-        ok = dmn.deliver_queued(con, "backend", lambda _m: None)
+        ok = dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("reread: deliver_queued reads idle before the lock but busy "
               "after, and types nothing", not ok and not typed, typed)
 
@@ -2888,7 +2888,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
-            dmn.session_present)
+            dmn_delivery.session_present)
     try:
         db.set_terminal(con, "ctxreal", "term_real", "wt")
         db.set_terminal(con, "ctxctl", "term_ctl", "wt")
@@ -2903,14 +2903,14 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
             cleared[h] += 1
             return True, "cleared"
         orcamod.clear_context = clear
-        dmn.session_present = lambda a: True
+        dmn_delivery.session_present = lambda a: True
         write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 1800)
         for name in ("ctxreal", "ctxctl"):
             write_agent_status(name, "alpha", ctx_used=200_000, model_id="claude-sonnet-5")
 
         # 1. daemon.supervise - the call site both #1762 evaluate() calls share.
-        dmn.supervise(con, "ctxreal", lambda _m: None, int(time.time()), {}, [])
-        dmn.supervise(con, "ctxctl", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "ctxreal", lambda _m: None, int(time.time()), {}, [])
+        dmn_evaluate.supervise(con, "ctxctl", lambda _m: None, int(time.time()), {}, [])
         check("supervise: the default-limit agent folds on 200,000 tokens",
               cleared["term_real"] == 1, cleared)
         check("supervise: the overridden agent, same reading, does not - "
@@ -2936,7 +2936,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
               "context" not in ctl_row, ctl_row)
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now,
-         orcamod.clear_context, dmn.session_present) = real
+         orcamod.clear_context, dmn_delivery.session_present) = real
         con.close()
 
 
@@ -2954,7 +2954,7 @@ def test_a_resumed_handoff_also_records_its_park(home: Path) -> None:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
 
-        dmn.resume_handoff(con, row, lambda _m: None)
+        dmn_handoff.resume_handoff(con, row, lambda _m: None)
         events = db.events_after(con, 0, agent="backend", exclude_kinds=())
         check("resume: a recovered handoff's park is recorded too",
               any(e["kind"] == "park" for e in events), [e["kind"] for e in events])
@@ -2977,7 +2977,7 @@ def test_a_resumed_hand_park_stays_forceable_too(home: Path) -> None:
         check("resume hand: the account is only a guess, so the reading is assumed",
               agents.account_reading("backend", con).source == "assumed")
 
-        dmn.resume_handoff(con, row, lambda _m: None)
+        dmn_handoff.resume_handoff(con, row, lambda _m: None)
         parked = db.get_agent_state(con, "backend")
         check("resume hand: the by-hand mark survives the assumed-account short retry",
               parked["detail"].startswith(dmn.BY_HAND_MARK), parked["detail"])
@@ -3000,11 +3000,11 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     con = db.connect()
     typed: list[tuple[str, str]] = []
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
-            spawnmod.spawn, dmn.wait_for_session)
+            spawnmod.spawn, dmn_delivery.wait_for_session)
     try:
         orca_idle()
         orcamod.send = lambda h, text, enter=True: (typed.append((h, text)), (True, ""))[1]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         def fake_spawn(agent, repo, base="main"):
             db.set_terminal(db.connect(), agent, f"term_{agent}", str(repo))
@@ -3057,7 +3057,7 @@ edges:
               f"{saide} {typed}"[:200])
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
-         spawnmod.spawn, dmn.wait_for_session) = real
+         spawnmod.spawn, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -3072,11 +3072,11 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
     credentialed(home, "alpha")
     con = db.connect()
     started: list = []
-    real = (orcamod.available, spawnmod.spawn, dmn.wait_for_session)
-    real_wake = dmn.wake_agent
+    real = (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session)
+    real_wake = dmn_lifecycle.wake_agent
     try:
         orcamod.available = lambda: True
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         def fake_spawn(agent, repo, base="main"):
             started.append((agent, str(repo)))
@@ -3117,7 +3117,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         # answer has no way back at all. reviewer sat that way for a day.
         spawnmod.spawn = fake_spawn
         woken: list = []
-        dmn.wake_agent = lambda con_, a, log_, **kw: (woken.append(a), (False, "no terminal to wake"))[1]
+        dmn_lifecycle.wake_agent = lambda con_, a, log_, **kw: (woken.append(a), (False, "no terminal to wake"))[1]
         started.clear()
         agents.register("reviewer", repo=str(home / "checkout"))
         db.set_terminal(con, "reviewer", None, None)
@@ -3127,7 +3127,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         askmod.resolve(rid, "looks right")
         db.set_closed(con, "reviewer", "sess_old")
         logged: list[str] = []
-        dmn.supervise(con, "reviewer", lambda m: logged.append(m),
+        dmn_evaluate.supervise(con, "reviewer", lambda m: logged.append(m),
                       int(time.time()), {}, [])
         check("dispatch: an agent with an answer and no terminal is given one",
               ("reviewer", str((home / "checkout").resolve())) in started,
@@ -3145,7 +3145,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         spawnmod.spawn = lambda agent, repo, base="main": (False, "orca refused")
         logged.clear()
         for _ in range(3):
-            dmn.supervise(con, "reviewer", lambda m: logged.append(m),
+            dmn_evaluate.supervise(con, "reviewer", lambda m: logged.append(m),
                           int(time.time()), {}, [])
         said = [m for m in logged if "could not be woken" in m]
         check("dispatch: a wake that cannot happen is said out loud",
@@ -3153,8 +3153,8 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         check("dispatch: and not once per tick for as long as it lasts",
               len([m for m in logged if "could not be woken" in m]) == 1, str(logged))
     finally:
-        (orcamod.available, spawnmod.spawn, dmn.wait_for_session) = real
-        dmn.wake_agent = real_wake
+        (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
+        dmn_lifecycle.wake_agent = real_wake
         dmn._SAID.clear()
         con.close()
 
@@ -3232,7 +3232,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
     agents.register("mover")
     write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.idle_now, dmn.wait_for_session)
+            orcamod.idle_now, dmn_delivery.wait_for_session)
     try:
         orca_idle()
         orcamod.close_session = exit_ends_session("mover")
@@ -3243,7 +3243,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         db.bump_counter(con, "mover", "wake_failures")
         db.bump_counter(con, "mover", "wake_failures")
         keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
-        dmn.wait_for_session = lambda agent, timeout=0: False
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: False
 
         def relaunch_fails_but_late(h, cmd, **kw):
             # The session comes up late - after `_wake_agent` has already
@@ -3257,7 +3257,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 4 * 3600)
         db.add_request(con, "marina", "mover", "carry on", None, "peer", "async", None, 0, None)
         t = triggers.evaluate(100, 10)
-        moved = dmn._move_to_room(con, "mover", t, lambda _m: None)[0]
+        moved = dmn_handoff._move_to_room(con, "mover", t, lambda _m: None)[0]
         check("stalled: the third failure is not recorded as a move", not moved)
         row = db.get_agent_state(con, "mover")
         check("stalled: it lands on STALLED, not clobbered by the late hook",
@@ -3266,7 +3266,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
               bool(row["closed_at"]) and row["account"] == "alpha", str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.idle_now, dmn.wait_for_session) = real
+         orcamod.idle_now, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -3347,14 +3347,14 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
     con = db.connect()
     db.set_terminal(con, "zzlater", "term_z", "wt")
     db.set_account(con, "zzlater", "alpha")
-    real = dmn.supervise
+    real = dmn_evaluate.supervise
     try:
         def explode(con_, agent, *a, **k):
             if agent == "backend":
                 raise RuntimeError("orca fell over")
             return real(con_, agent, *a, **k)
 
-        dmn.supervise = explode
+        dmn_evaluate.supervise = explode
         t = dmn.tick(con, lambda _m: None)
         check("tick: the failure is reported against the agent that had it",
               any("backend: error" in a for a in t.actions), str(t.actions))
@@ -3366,7 +3366,7 @@ def test_one_agents_bad_tick_is_not_everyones(home: Path) -> None:
               and db.get_agent_state(con, "zzlater")["state"] == dmn.PARKED,
               str(dict(db.get_agent_state(con, "zzlater") or {})))
     finally:
-        dmn.supervise = real
+        dmn_evaluate.supervise = real
         con.close()
 
 
@@ -3463,7 +3463,7 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
               bool(db.get_handoff(con, "backend")), "no handoff kept")
 
         for _ in range(3):
-            dmn.supervise(con, "backend", lambda _m: None, int(time.time()) + 1, {}, [])
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()) + 1, {}, [])
         check("context handoff: its own record is typed into the session",
               any("Carry on from here" in t for t in typed), str(typed))
         row = db.get_agent_state(con, "backend")
@@ -3493,7 +3493,7 @@ def test_a_resumed_context_handoff_wakes_at_once(home: Path) -> None:
         row = db.in_flight_for(con, "backend")
 
         before = int(time.time())
-        dmn.resume_handoff(con, row, lambda _m: None)
+        dmn_handoff.resume_handoff(con, row, lambda _m: None)
         got = db.get_agent_state(con, "backend")
         check("resumed context handoff: parks with an immediate wake",
               got["state"] == dmn.PARKED and got["wake_at"] is not None
@@ -3514,15 +3514,15 @@ def test_wake_injects_handoff(home: Path) -> None:
         # own record back.
         sessions_are("backend")
 
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: nothing to wake without a terminal", not ok, why)
 
         db.set_terminal(con, "backend", "term_x", "wt")
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: nothing to resume from without a handoff", not ok, why)
 
         keep_handoff("backend", "# handoff · backend\n## 다음\n- finish the thing\n")
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: injects the handoff", ok and sent, why)
         check("wake: the agent is told its context was cleared",
               "context was cleared" in sent[-1], sent[-1][:80])
@@ -3547,7 +3547,7 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.resume_with, dmn.wait_for_session)
+            orcamod.resume_with, dmn_delivery.wait_for_session)
     sent: list[str] = []
     closed: list[str] = []
     launched: list[str] = []
@@ -3574,9 +3574,9 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
                                                  (True, "session ended"))[2]
         orcamod.relaunch = lambda h, cmd, started=None: (
             launched.append(cmd), table.update({"backend": 4242}), (True, "relaunched"))[2]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: a drifted launch's session is ended first, not typed into",
               closed == ["term_x"], str(closed))
         check("wake: and relaunched with its own session id to come back to",
@@ -3591,7 +3591,7 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
               row["closed_at"] is None, str(dict(row)))
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.resume_with, dmn.wait_for_session) = real
+         orcamod.resume_with, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -3606,7 +3606,7 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.resume_with, dmn.wait_for_session)
+            orcamod.resume_with, dmn_delivery.wait_for_session)
     sent: list[str] = []
     closed: list[str] = []
     launched: list[str] = []
@@ -3634,9 +3634,9 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
                                                  (True, "session ended"))[2]
         orcamod.relaunch = lambda h, cmd, started=None: (
             launched.append(cmd), table.update({"backend": 4242}), (True, "relaunched"))[2]
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
-        ok, why = dmn.wake_agent(con, "backend", lambda _m: None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: an unrecorded fingerprint ends the session, not typed into",
               closed == ["term_x"], str(closed))
         check("wake: and relaunches with its own session id to come back to",
@@ -3644,7 +3644,7 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
         check("wake: the relaunch itself is reported as a success", ok, why)
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.resume_with, dmn.wait_for_session) = real
+         orcamod.resume_with, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -3689,7 +3689,7 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
-            dmn.wait_for_session)
+            dmn_delivery.wait_for_session)
     table = sessions_are("backend")
     try:
         orcamod.available = lambda: True
@@ -3703,14 +3703,14 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
         orcamod.resume_with = lambda h, text: (True, "typed")
-        dmn.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         f = paths.agent_status_file("backend")
         f.parent.mkdir(parents=True, exist_ok=True)
 
         f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
                                  "ctx_pct": 5}))
         logged: list[str] = []
-        dmn.wake_agent(con, "backend", logged.append)
+        dmn_lifecycle.wake_agent(con, "backend", logged.append)
         check("drift wake: no session id to resume is logged, not silent",
               any("no session id" in m and "in place" in m for m in logged), str(logged))
 
@@ -3720,12 +3720,12 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
                            detail="usage; wakes soon")
         orcamod.close_session = lambda h, **kw: (False, "would not close")
         logged.clear()
-        dmn.wake_agent(con, "backend", logged.append)
+        dmn_lifecycle.wake_agent(con, "backend", logged.append)
         check("drift wake: a session that will not end is logged, not silent",
               any("would not end" in m and "in place" in m for m in logged), str(logged))
     finally:
         (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
-         dmn.wait_for_session) = real
+         dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -3758,7 +3758,7 @@ def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
             rc = dmn.run(once=True)
         check("daemon: the second one is refused", rc == 1)
         check("daemon: and the live one is still the one named",
-              dmn.running_elsewhere() == pid, str(dmn.running_elsewhere()))
+              dmn_locks.running_elsewhere() == pid, str(dmn_locks.running_elsewhere()))
     finally:
         holder.kill()
         holder.wait(timeout=30)
@@ -3783,14 +3783,14 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
         obsmod.process_table = lambda: table
         obsmod.process_env = lambda pid: f"OCP_HOME={home}"
         check("ps: the running daemon is found, and only it",
-              dmn.processes() == [4707], str(dmn.processes()))
+              dmn_locks.processes() == [4707], str(dmn_locks.processes()))
         check("ps: /ocp daemon quoted past the front (a session's own claude "
               "-p argv, not launchd's [ocp_executable(), 'daemon']) is not one",
-              4806 not in dmn.processes(), str(dmn.processes()))
+              4806 not in dmn_locks.processes(), str(dmn_locks.processes()))
 
         obsmod.process_env = lambda pid: f"OCP_HOME={home}-elsewhere"
         check("ps: another installation's daemon is not this one's duplicate",
-              dmn.processes() == [], str(dmn.processes()))
+              dmn_locks.processes() == [], str(dmn_locks.processes()))
 
         # The same directory under its other name - /var and /private/var are
         # one place on macOS, and the test homes live there. Compared as
@@ -3801,22 +3801,22 @@ def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
               other != str(home), f"{other} == {home}")
         obsmod.process_env = lambda pid: f"OCP_HOME={other}"
         check("ps: the home is compared as a directory, not as a spelling",
-              dmn.processes() == [4707], str(dmn.processes()))
+              dmn_locks.processes() == [4707], str(dmn_locks.processes()))
 
         # A process we cannot place is the one worth naming.
         obsmod.process_env = lambda pid: None
         check("ps: an unplaceable daemon is reported, not dropped",
-              dmn.processes() == [4707], str(dmn.processes()))
+              dmn_locks.processes() == [4707], str(dmn_locks.processes()))
 
         # Read, but OCP_HOME simply is not set: that process runs against the
         # default home, not against ours just because we could not name one.
         obsmod.process_env = lambda pid: "SHELL=/bin/zsh"
         check("ps: an unset OCP_HOME reads as the default home, not as ours",
-              dmn.processes() == [], str(dmn.processes()))
+              dmn_locks.processes() == [], str(dmn_locks.processes()))
 
         obsmod.process_table = lambda: None
         check("ps: and a process table we could not read is not an empty one",
-              dmn.processes() == [], str(dmn.processes()))
+              dmn_locks.processes() == [], str(dmn_locks.processes()))
     finally:
         obsmod.process_table, obsmod.process_env = orig_table, orig_env
 

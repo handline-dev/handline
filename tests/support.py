@@ -61,13 +61,16 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
                  venv as venvmod, waiting,
                  yamlcompat)  # noqa: E402
+from ocp.daemon import (delivery as dmn_delivery, devmode as dmn_devmode, evaluate as dmn_evaluate,  # noqa: E402
+                        handoff as dmn_handoff, lifecycle as dmn_lifecycle, locks as dmn_locks,
+                        usage_poll as dmn_usage_poll)
 from ocp.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
 
 # A stand-in `close_session` that does not also end the session in the fake
 # process table would otherwise wait out the real minute before failing.
-dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
+dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
 
 # No test reaches the machine's Keychain or the usage endpoint: asked for a
 # reading, it gets "could not look". A test that drives usage_api sets its own.
@@ -196,8 +199,8 @@ def restore_world() -> None:
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
     # world does not answer the next test's question.
-    dmn._seen.clear()
-    dmn._seen_at["t"] = 0.0
+    dmn_delivery._seen.clear()
+    dmn_delivery._seen_at["t"] = 0.0
     actions._WORLD["at"] = 0.0
 
 
@@ -798,7 +801,7 @@ def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None):
         term.screen = list(screen)
     term.install()
     st = types.SimpleNamespace(session_id="sess-1", ctx_pct=8)
-    ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
+    ok, why = dmn_lifecycle._end_session(con, "backend", lambda m: None, st, resume="sess-1")
     return con, term, ok, why
 
 
@@ -1796,6 +1799,13 @@ __all__ = [
     'clitask',
     'collect',
     'dmn',
+    'dmn_delivery',
+    'dmn_devmode',
+    'dmn_evaluate',
+    'dmn_handoff',
+    'dmn_lifecycle',
+    'dmn_locks',
+    'dmn_usage_poll',
     'db',
     'hr',
     'digest',

@@ -306,17 +306,17 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
         dmn._SAID.clear()
         logged: list[str] = []
         for _ in range(4):
-            dmn.supervise(con, "backend", logged.append, int(time.time()), {}, [])
+            dmn_evaluate.supervise(con, "backend", logged.append, int(time.time()), {}, [])
         wall = [m for m in logged if "5h window" in m]
         check("wall wake: the account really is the reason, so the fixture reaches the wall",
               wall, str(logged))
         check("wall wake: it is said once across four ticks, not once per tick",
               len(wall) == 1, str(logged))
-        ok, why = dmn.wake_agent(con, "backend", logged.append)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", logged.append)
         check("wall wake: and the wake itself still refuses and returns the reason",
               not ok and "5h window" in why, why)
         logged.clear()
-        dmn.wake_agent(con, "backend", logged.append)
+        dmn_lifecycle.wake_agent(con, "backend", logged.append)
         check("wall wake: a direct wake does not log it either - its caller has the reason",
               not [m for m in logged if "5h window" in m], str(logged))
     finally:
