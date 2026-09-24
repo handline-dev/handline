@@ -27,6 +27,12 @@ from textual import events  # noqa: E402
 from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
                  db, jobs as jobsmod, tui)
 from ocp.chat_page import ChatPage  # noqa: E402
+from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
+from ocp.ui.components.read_only import ReadOnly  # noqa: E402
+from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
+from ocp.ui.pages.home import HomePage  # noqa: E402
+from ocp.ui.pages.task_checks import TaskChecks  # noqa: E402
+from textual.widgets import DataTable, Static  # noqa: E402
 import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 
 PASS: list[str] = []
@@ -49,7 +55,7 @@ def _home(tag: str) -> Path:
 
 
 def _screen_text(screen) -> str:
-    return "\n".join(str(w.render()) for w in screen.query(bt.Static))
+    return "\n".join(str(w.render()) for w in screen.query(Static))
 
 
 async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None:
@@ -58,7 +64,7 @@ async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
         screen = app.screen
-        row = screen.query_one("#agents", bt.DataTable).get_row("backend")
+        row = screen.query_one("#agents", DataTable).get_row("backend")
         check("dashboard: the registered agent is on the AGENTS panel",
               "backend" in str(row[0]) and "alpha" in str(row[1]), row)
         await pilot.press("w")
@@ -107,11 +113,11 @@ async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
             await pilot.press("c")             # close: CONFIRM
             await pilot.pause(0.2)
             check("act: `c` on an idle agent with a terminal asks first",
-                  isinstance(app.screen, bt.Confirm), type(app.screen).__name__)
+                  isinstance(app.screen, Confirm), type(app.screen).__name__)
             await pilot.press("y")
             await pilot.pause(0.2)
             check("act: confirming starts the job and returns to the dashboard at once",
-                  isinstance(app.screen, bt.Dashboard) and screen.jobs.running, "")
+                  isinstance(app.screen, HomePage) and screen.jobs.running, "")
             await pilot.pause(0.5)     # past jobs.QUIET_S, so the running line is drawn
             mid_text = _screen_text(screen)
             check("act: the running line names what it is and that it is running",
@@ -146,7 +152,7 @@ async def test_confirm_rechecks_can_if_the_state_changed_while_it_was_open() -> 
         await pilot.press("c")             # close: CONFIRM
         await pilot.pause(0.1)
         check("recheck: c on an idle agent asks first",
-              isinstance(app.screen, bt.Confirm), type(app.screen).__name__)
+              isinstance(app.screen, Confirm), type(app.screen).__name__)
         con = db.connect()
         try:
             db.set_agent_state(con, "backend", daemonmod.HANDOFF)
@@ -162,7 +168,7 @@ async def test_confirm_rechecks_can_if_the_state_changed_while_it_was_open() -> 
 
 async def test_text_prompt_composer_sends_and_cancels() -> None:
     async def read(multi: bool, keys: list[str]) -> str | None:
-        app_ = _HostApp(bt.TextPrompt("to backend:", multi=multi))
+        app_ = _HostApp(TextPrompt("to backend:", multi=multi))
         async with app_.run_test(size=(80, 20)) as pilot:
             await pilot.pause()
             for k in keys:
@@ -225,19 +231,19 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.pause(0.2)
         check("accounts: removing one an agent is on refuses through remove_plan, "
               "before the human is ever asked to type its name",
-              "in use by" in screen.flash and not isinstance(app.screen, bt.TextPrompt),
+              "in use by" in screen.flash and not isinstance(app.screen, TextPrompt),
               screen.flash)
 
         await pilot.press("enter")
         await pilot.pause(0.2)
         check("accounts: enter opens a read-only page (account_detail)",
-              isinstance(app.screen, bt.ReadOnly), type(app.screen).__name__)
+              isinstance(app.screen, ReadOnly), type(app.screen).__name__)
         text = app.screen.title_text + "\n".join(r for _, rows in app.screen.sections for r in rows)
         check("accounts: it is that account's own detail",
               "account alpha" in text and "config" in text, text)
         await pilot.press("escape")
         await pilot.pause(0.1)
-        check("accounts: escape closes it", isinstance(app.screen, bt.Dashboard),
+        check("accounts: escape closes it", isinstance(app.screen, HomePage),
               type(app.screen).__name__)
 
 
@@ -263,7 +269,7 @@ async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
         await pilot.press("x")
         await pilot.pause(0.1)
         check("accounts: x on a free account prompts for its name",
-              isinstance(app.screen, bt.TextPrompt), type(app.screen).__name__)
+              isinstance(app.screen, TextPrompt), type(app.screen).__name__)
         for ch in "betx":
             await pilot.press(ch)
         await pilot.press("enter")
@@ -357,7 +363,7 @@ async def test_wake_on_a_stalled_agent_asks_first() -> None:
         await pilot.press("w")
         await pilot.pause(0.2)
         check("wake: a STALLED agent asks before clearing the stall",
-              isinstance(app.screen, bt.Confirm), type(app.screen).__name__)
+              isinstance(app.screen, Confirm), type(app.screen).__name__)
         await pilot.press("y")
         deadline = asyncio.get_event_loop().time() + 5
         while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
@@ -443,7 +449,7 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
             self.run_worker(self._read())
 
         async def _read(self):
-            self.result = await self.push_screen_wait(bt.TextPrompt("to backend:", multi=True))
+            self.result = await self.push_screen_wait(TextPrompt("to backend:", multi=True))
 
     app = _HostApp()
     async with app.run_test(size=(80, 20)) as pilot:
@@ -469,7 +475,7 @@ async def test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert(
             self.run_worker(self._read())
 
         async def _read(self):
-            self.result = await self.push_screen_wait(bt.TextPrompt("p:", multi=self.multi))
+            self.result = await self.push_screen_wait(TextPrompt("p:", multi=self.multi))
 
     app = _HostApp(False)
     async with app.run_test(size=(80, 12)) as pilot:
@@ -568,11 +574,11 @@ async def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
           rows[0].first == "please review this", repr(rows[0].first))
 
 
-async def test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe() -> None:
-    """The STUCK panel is a DataTable fed by `tui.stuck_data`. Its rows about
-    the daemon or an account have no agent to act on (agent None, and more than
-    one row can share that), so they are drawn without a row key and entering
-    the panel - where the selection can be nothing - must not fail."""
+async def test_stuck_data_with_no_agent_to_act_on_leaves_the_home_page_safe() -> None:
+    """`tui.stuck_data` rows about the daemon or an account have no agent (agent
+    None, and more than one row can share that). There is no STUCK panel: the home
+    page says what is stuck on the agent's row, so it must draw with such rows and
+    stay up."""
     _home("stuckdata")
     con = db.connect()
     try:
@@ -585,14 +591,10 @@ async def test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_saf
     app = bt.BridgeApp()
     async with app.run_test(size=(110, 30)) as pilot:
         await pilot.pause(0.3)
-        table = app.screen.query_one("#stuck", bt.DataTable)
-        for _ in range(6):
-            if app.screen.panel == tui.STUCK or not app.is_running:
-                break
-            await pilot.press("tab")
+        await pilot.press("tab")
         await pilot.pause(0.3)
-        check("dashboard: the stuck table has a row per stuck thing and entering it is safe",
-              app.is_running and table.row_count == len(rows), (app.is_running, table.row_count))
+        check("home: no STUCK panel, and stuck rows with no agent leave the page up",
+              app.is_running and not app.screen.query("#stuck"), app.is_running)
 
 
 async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
@@ -655,7 +657,7 @@ async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
         await pilot.pause()
         screen = app.screen
         check("checks: b opens the screen from the dashboard",
-              isinstance(screen, bt.TaskChecks), type(screen).__name__)
+              isinstance(screen, TaskChecks), type(screen).__name__)
         listed = [t["id"] for t in screen.rows]
         check("checks: the founder's own done tasks are both listed",
               t_founder1 in listed and t_founder2 in listed, listed)
@@ -758,7 +760,7 @@ async def test_read_only_page_shows_foreign_text_inert() -> None:
     async with app.run_test(size=(80, 12)) as pilot:
         await pilot.pause()
         secs = [("ONE", [bad] + [f"row {i}" for i in range(30)]), ("TWO", ["x"])]
-        app.push_screen(bt.ReadOnly("t", secs))
+        app.push_screen(ReadOnly("t", secs))
         await pilot.pause()
         segs = [seg for strip in app.screen._compositor.render_strips() for seg in strip]
         text = "".join(seg.text for seg in segs)
@@ -773,12 +775,12 @@ def test_only_y_n_or_escape_answers_a_confirm() -> None:
     """A wheel notch reaches a confirm as an arrow key and must not answer it."""
     for key, ch in (("up", None), ("down", None), ("left", None), ("right", None),
                     ("enter", "\r"), ("space", " "), ("x", "x"), ("pageup", None)):
-        check(f"confirm: {key} leaves it open", bt.confirm_answer(key, ch) is None)
-    check("confirm: y confirms", bt.confirm_answer("y", "y") is True)
-    check("confirm: Y confirms", bt.confirm_answer("Y", "Y") is True)
-    check("confirm: n declines", bt.confirm_answer("n", "n") is False)
-    check("confirm: escape declines", bt.confirm_answer("escape", "\x1b") is False)
-    check("confirm: ctrl+c declines", bt.confirm_answer("ctrl+c", "\x03") is False)
+        check(f"confirm: {key} leaves it open", confirm_answer(key, ch) is None)
+    check("confirm: y confirms", confirm_answer("y", "y") is True)
+    check("confirm: Y confirms", confirm_answer("Y", "Y") is True)
+    check("confirm: n declines", confirm_answer("n", "n") is False)
+    check("confirm: escape declines", confirm_answer("escape", "\x1b") is False)
+    check("confirm: ctrl+c declines", confirm_answer("ctrl+c", "\x03") is False)
 
 
 async def test_a_confirm_on_screen_ignores_an_arrow_and_answers_n() -> None:
@@ -789,12 +791,12 @@ async def test_a_confirm_on_screen_ignores_an_arrow_and_answers_n() -> None:
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
-        app.push_screen(bt.Confirm("close it"), answers.append)
+        app.push_screen(Confirm("close it"), answers.append)
         await pilot.pause()
         await pilot.press("down", "up", "pagedown")
         await pilot.pause()
         check("confirm: arrows leave the pushed Confirm up",
-              isinstance(app.screen, bt.Confirm) and answers == [], (type(app.screen).__name__, answers))
+              isinstance(app.screen, Confirm) and answers == [], (type(app.screen).__name__, answers))
         await pilot.press("n")
         await pilot.pause()
         check("confirm: n then answers it False", answers == [False], answers)
@@ -1082,7 +1084,7 @@ async def _run_all() -> None:
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
     await test_dashboard_messages_table_is_fed_by_messages_data()
-    await test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe()
+    await test_stuck_data_with_no_agent_to_act_on_leaves_the_home_page_safe()
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert()
