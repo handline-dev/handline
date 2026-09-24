@@ -27,5 +27,3 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.
-- No subagents: a subagent cannot be recovered if the session dies. To split
-  work, `ocp ask` another agent.
