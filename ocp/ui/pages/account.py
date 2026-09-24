@@ -87,7 +87,12 @@ class AccountPage(AccountActions, Screen):
 
     # ------------------------------------------------------------------ drawing
 
+    def on_screen_resume(self) -> None:
+        self._load()
+
     def _load(self) -> None:
+        if self.app.screen is not self:     # a page on top of this one (a chat): its timer keeps running
+            return
         if self.account not in paths.list_accounts():
             self.app.pop_screen()
             return

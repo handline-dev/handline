@@ -1442,17 +1442,17 @@ def test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(home: Path
     panel = tui._ANSI.sub("", _snap(200, 40))
     con = db.connect()
     try:
-        page = "\n".join(r for _, rows in actions.account_detail(con, "beta") for r in rows)
+        allowed, why = actions.account_facts(con, "beta")["assign"]
     finally:
         con.close()
     check("cap: the account's page says why it is not offered",
-          "at its cap: 2 of 2" in page, page[:400])
+          not allowed and "at its cap: 2 of 2" in why, why)
     row = next(ln for ln in panel.splitlines() if "beta" in ln and "✘" in ln or
                "beta" in ln and "✔" in ln)
     check("cap: the panel row says no with the mark, and leaves the sentence to the page",
           "✘" in row and "at its cap: 2 of 2" not in panel, row)
-    check("cap: the page and the panel agree - a cap reached reads 'assign   no'",
-          "assign   no" in page, page[:400])
+    check("cap: the page and the panel agree - a cap reached is not offered",
+          not allowed and "✘" in row, row)
 
 
 def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: Path) -> None:

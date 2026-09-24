@@ -2013,8 +2013,7 @@ def _config_line(acct: str) -> str:
 
 
 def account_facts(con, acct: str, logged_in=None) -> dict:
-    """What is known of an account, as values: the bridge's account page draws them and
-    `account_detail` words them.
+    """What is known of an account, as values, for the bridge's account page.
 
     `logged_in` is the caller's login check: the bridge redraws the page every
     couple of seconds and passes its cached one, since the real one asks the
@@ -2040,23 +2039,6 @@ def account_facts(con, acct: str, logged_in=None) -> dict:
     return {"status": st, "logged_in": is_in, "config": _config_line(acct),
             "vendor": vendors.account_vendor(acct), "assign": (allowed, why),
             "cost": status.live_cost(acct), "cap": loadmod.cap_of(acct), "agents": rows}
-
-
-def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]]:
-    """What is behind an account's row, in the same shape as an agent's."""
-    f = account_facts(con, acct, logged_in)
-    st, (allowed, why), live = f["status"], f["assign"], f["cost"]
-    head = [f"login    {'logged in' if f['logged_in'] else 'NOT logged in'}",
-            f"config   {f['config']}",
-            f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
-            f"snapshot {'-' if st.age_s is None else status.ago(st.age_s) + ' old'}"
-            f"   session {st.session_id or '-'}",
-            f"assign   {'yes' if allowed else 'no'} - {why}"]
-    head.append("spend    " + ("nothing running to read it from" if live is None else
-                               f"${live:.2f} across the sessions running now - not the "
-                               f"account's total, which nothing here can see"))
-    rows = [f"{a:<12}{state}   {detail}" for a, state, detail in f["agents"]]
-    return [("", head), (f"AGENTS ON IT ({len(rows)})", rows or ["none"])]
 
 
 def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
