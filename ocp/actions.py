@@ -1271,9 +1271,9 @@ def first_line(text: str | None) -> str:
 STUCK_AFTER_S = daemon.STUCK_RUNNING_S
 
 
-def _delivery_block(con, agent: str, sessions: dict | None,
-                    handles: set | None, alive: bool = True) -> tuple[str, bool]:
-    """Why work is not reaching this agent. (reason, does it resolve itself)
+def _delivery_state(con, agent: str, sessions: dict | None,
+                    handles: set | None, alive: bool = True) -> tuple[str, str, bool]:
+    """Why work is not reaching this agent. (short phrase, reason, does it resolve itself)
 
     The checks are the daemon's gates - `supervise`'s, then `deliver_queued`'s -
     in the order the daemon applies them, so the panel gives the daemon's reason
@@ -1284,39 +1284,39 @@ def _delivery_block(con, agent: str, sessions: dict | None,
     it costs its whole timeout and RUNNING already says it on the agent's row.
     """
     if agent not in paths.list_agents():
-        return f"{agent} is not registered - nothing will ever take this", False
+        return "not registered", f"{agent} is not registered - nothing will ever take this", False
     row = db.get_agent_state(con, agent)
     if not row:
-        return f"{agent} has never been started (t starts it)", False
+        return "never started", f"{agent} has never been started (t starts it)", False
     if row["state"] == daemon.STALLED:
         # First, because `supervise` returns on STALLED before delivery is
         # considered at all. Reporting a missing terminal ahead of it sent the
         # reader to start one, which would not have moved the request.
-        return f"{agent} is FATAL - the daemon will not touch it (w clears it)", False
+        return "stalled", f"{agent} is FATAL - the daemon will not touch it (w clears it)", False
     handle = row["terminal"]
     if not handle:
-        return f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
+        return "no terminal", f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
     if handles is not None and handle not in handles:
-        return f"{agent}'s terminal is gone - Orca no longer has it", False
+        return "terminal gone", f"{agent}'s terminal is gone - Orca no longer has it", False
     acct = agents.current_account(agent, con)
     pct = status.read(acct).trusted_pct_5h if acct else None
     if row["closed_at"]:
         if pct is not None and pct >= status.PCT_5H_BLOCK:
-            return (f"{agent} is closed and {acct} is at {pct}% - it cannot be "
+            return ("closed, account full", f"{agent} is closed and {acct} is at {pct}% - it cannot be "
                     f"launched into", False)
         if not alive:
-            return f"{agent} is closed and no daemon is running to wake it", False
-        return f"{agent} is closed; the next tick wakes it", True
+            return "closed, no daemon", f"{agent} is closed and no daemon is running to wake it", False
+        return "closed, waking", f"{agent} is closed; the next tick wakes it", True
     if sessions is not None and not sessions.get(agent):
-        return f"no session is running in {agent}'s terminal", False
+        return "no session", f"no session is running in {agent}'s terminal", False
     if row["state"] == daemon.RUNNING:
-        return f"{agent} is mid-turn - nothing is typed at a working agent", True
+        return "mid-turn", f"{agent} is mid-turn - nothing is typed at a working agent", True
     if row["state"] == daemon.HANDOFF:
-        return f"{agent} is mid-handoff", True
+        return "mid-handoff", f"{agent} is mid-handoff", True
     walled = daemon.wall_reason(con, agent, row)
     if walled:
-        return f"{walled} - delivered when it wakes or moves", True
-    return "", True
+        return "account at the wall", f"{walled} - delivered when it wakes or moves", True
+    return "", "", True
 
 
 # What the world looked like, and when we last looked. A frame is drawn every
@@ -1327,13 +1327,22 @@ _WORLD: dict = {"at": 0.0, "sessions": None, "handles": None}
 WORLD_FRESH_S = 10
 
 
+def _delivery_block(con, agent: str, sessions: dict | None,
+                    handles: set | None, alive: bool = True) -> tuple[str, bool]:
+    """`_delivery_state` without its short phrase: (reason, does it resolve itself)."""
+    _, why, clears = _delivery_state(con, agent, sessions, handles, alive)
+    return why, clears
+
+
 def queue_reason(con, agent: str, rid: int) -> str:
     """Why request `rid`, queued for `agent`, has not reached it, for the chat page."""
     head = db.head_of_queue(con, agent)
+    row = db.get_request(con, rid)
+    if row and row["send_now"]:
+        return _delivery_state(con, agent, *_world())[0] or "sending now"
     if head and int(head["id"]) != rid:
         return f"behind #{head['id']}"
-    why = _delivery_block(con, agent, *_world())[0].split(" - ")[0].split(" (")[0]
-    return why.removeprefix(f"{agent} ") or "waiting for the agent"
+    return _delivery_state(con, agent, *_world())[0] or "waiting for the agent"
 
 
 def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:

@@ -1155,6 +1155,21 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
               f"behind #{first}" == actions.queue_reason(con, "backend", second))
         actions.send_now(con, second)
         check("chat: send now marks it for the daemon", [r["id"] for r in db.send_now_pending(con, "backend")] == [second])
+        check("chat: a message marked send now no longer says it is behind another",
+              "behind" not in actions.queue_reason(con, "backend", second), actions.queue_reason(con, "backend", second))
+        check("chat: send now refuses a request that is not the founder's",
+              "not sent" in actions.send_now(con, first))
+        con.execute("UPDATE requests SET delivered_at = 1 WHERE id = ?", (second,))
+        check("chat: and one already delivered", "not sent" in actions.send_now(con, second))
+        from ocp import chat_page as cp
+        def buttons(delivered):
+            m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "text": "x", "waiting": False,
+                 "replyable": False, "answered": False, "queued": True, "delivered": delivered}
+            row = [c for c in cp.ChatMessage(m)._pending_children if type(c).__name__ == "Horizontal"][0]
+            return [b.label.plain if hasattr(b.label, "plain") else str(b.label)
+                    for b in row._pending_children if type(b).__name__ == "Button"]
+        check("chat: the send now button is gone once delivered",
+              len(buttons(False)) == 2 and len(buttons(True)) == 1, f"{buttons(False)} {buttons(True)}")
     finally:
         con.close()
 
