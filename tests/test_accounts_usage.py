@@ -2807,7 +2807,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # can parse - a call it cannot read left an unsorted kind passing at
     # 11/11 until this count was added.
     found, calls = [], 0
-    for f in Path(dmn.__file__).parent.glob("*.py"):
+    for f in Path(dmn.__file__).parent.rglob("*.py"):
         text = f.read_text()
         found += re.findall(r'add_event\s*\([^,()]+,[^,()]+,\s*"([a-zA-Z_]+)"', text)
         calls += len(re.findall(r'add_event\s*\(', text))
@@ -2816,7 +2816,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
           str(sorted(set(found) - db.AGENT_ACTIVITY_KINDS - daemon_kinds)))
     check("activity: the scan reads every call site, not just the ones its regex can parse",
           len(found) == calls - 2, f"{len(found)} literal kinds found, {calls} add_event( sites "
-          "(expected 2 unmatched: the def in db.py, the kind-as-variable forwarder in events.py)")
+          "(expected 2 unmatched: the def in db/events.py, the kind-as-variable forwarder in events.py)")
 
     # events.py's forwarder passes `event`, a variable ranging over CAPTURED -
     # invisible to the regex above at any count, so CAPTURED is sorted here
