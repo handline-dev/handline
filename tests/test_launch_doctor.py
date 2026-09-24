@@ -858,6 +858,60 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which = real
 
 
+def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
+    """`worktree create --name keeper` on a name already taken makes keeper-2
+    beside it, stranding the branch and whatever is uncommitted in the first.
+    With the terminal record gone but the checkout on disk, spawn must start
+    the agent in the checkout it has and create nothing."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    agents.register("keeper", "alpha")
+    wt = home / "keeper-wt"
+    wt.mkdir()
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, cwd=None):
+        calls.append(args)
+        if args[:3] == ["orca", "worktree", "create"]:
+            return 0, json.dumps({"result": {"worktree": {"path": "/tmp/keeper-2"}}}), ""
+        if args[:3] == ["orca", "terminal", "create"]:
+            return 0, json.dumps({"result": {"terminal": {"handle": "term_k"}}}), ""
+        return 0, "", ""
+
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create)
+    con = db.connect()
+    try:
+        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        spawnmod._run = fake_run
+        orcamod.run_current = lambda: None
+        orcamod.run_create = lambda objective: None
+        # The selector `ocp launch` records, not a plain path.
+        db.set_terminal(con, "keeper", None, f"abc123::{wt}")
+
+        ok, msg = spawnmod.spawn("keeper", ROOT, base="main", dry_run=True)
+        check("spawn: a dry run names the worktree it would keep", ok and str(wt) in msg, msg)
+        check("spawn: and plans no worktree create", "worktree create" not in msg, msg)
+
+        ok, msg = spawnmod.spawn("keeper", ROOT, base="main")
+        check("spawn: an agent with a worktree and no terminal starts", ok, msg)
+        check("spawn: no second worktree is created",
+              not any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
+        check("spawn: the terminal opens in the worktree it had",
+              [f"path:{wt}"] == [a[a.index("--worktree") + 1] for a in calls
+                                 if a[:3] == ["orca", "terminal", "create"]], str(calls))
+
+        # Gone from disk, there is nothing to keep: a fresh one is made.
+        calls.clear()
+        db.set_terminal(con, "keeper", None, f"abc123::{wt}-missing")
+        ok, msg = spawnmod.spawn("keeper", ROOT, base="main")
+        check("spawn: a worktree that is gone is made anew",
+              any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
+    finally:
+        con.close()
+        spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create = real
+
+
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
     """`ocp` is on PATH as a symlink into the repo, so one installation spells
     itself two ways. Matching the exact string added a second entry the first
@@ -1531,6 +1585,7 @@ def main() -> int:
         run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
             Path(td) / 'docactive'))
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
+        run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))

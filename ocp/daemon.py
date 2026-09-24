@@ -2860,6 +2860,25 @@ def _usage_backoff(con, acct: str, now: int, log) -> None:
     log(f"  usage: {acct}: could not ask (next try in {backoff}s)")
 
 
+def _ended_window(st, reading, now: int) -> tuple[str, int] | None:
+    """The (window, reset) whose end is worth a real turn, or None.
+
+    A window ended by the reading ocp holds; but the plain reading just
+    fetched has the last word - a window it still reports exhausted has not
+    reset, whatever the older figure said, and a turn on it is the spend the
+    wall exists to stop.
+    """
+    for window, held, fresh_pct, fresh_reset, wall in (
+            ("5h", st.reset_5h, reading.pct_5h, reading.reset_5h, status.PCT_5H_BLOCK),
+            ("7d", st.reset_7d, reading.pct_7d, reading.reset_7d, status.PCT_7D_BLOCK)):
+        if held is None or held > now:
+            continue
+        if fresh_pct is not None and fresh_pct >= wall and (fresh_reset is None or fresh_reset > now):
+            continue
+        return window, held
+    return None
+
+
 def _poll_account(con, acct: str, now: int, log) -> bool:
     """One account's turn in `poll_usage`; True when it took the tick's one
     successful reading."""
@@ -2892,15 +2911,19 @@ def _poll_account(con, acct: str, now: int, log) -> bool:
             return True
         _usage_backoff(con, acct, now, log)
         return False
-    if why == "its 5h window has ended":
-        # A stale reading can still report success right up to the
-        # boundary (#1885, task #76): nothing else forces the account to
-        # actually roll over to its new window, so spend the same real
-        # turn recover() spends on a dead token. A refusal here (off,
-        # already needs re-login, at the 7d wall) is not a failure of
-        # this poll - the plain reading just fetched still stands.
+    ended = _ended_window(st, reading, now)
+    if ended and db.get_meta(con, f"reset-ping:{acct}:{ended[0]}") != str(ended[1]):
+        # A stale reading can still report success right up to the boundary
+        # (#1885, task #76): nothing else forces the account to actually roll
+        # over to its new window, so spend the same real turn recover() spends
+        # on a dead token. A refusal here (off, already needs re-login, at the
+        # 7d wall) is not a failure of this poll - the plain reading just
+        # fetched still stands. Once per reset: the turn that succeeded is
+        # remembered against the reset it answered, so a server that keeps
+        # naming the old one does not get a turn on every poll.
         ok, msg = recovermod.recover(acct)
         if ok:
+            db.set_meta(con, f"reset-ping:{acct}:{ended[0]}", str(ended[1]))
             db.set_meta(con, f"usage-fail:{acct}", None)
             db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
             log(f"  usage: {msg}")

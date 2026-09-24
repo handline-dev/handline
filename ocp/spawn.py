@@ -159,7 +159,7 @@ def start_in(agent: str, worktree: str) -> tuple[bool, str]:
 
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
           dry_run: bool = False) -> tuple[bool, str]:
-    """Create the worktree named after the agent and start the agent in it."""
+    """Start the agent in its worktree: the one it has, else a new one named after it."""
     if not shutil.which("orca"):
         return False, "orca is not on PATH"
     try:
@@ -167,33 +167,50 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
     except Exception as e:  # noqa: BLE001
         return False, str(e)
 
-    base_ref, why = pick_base(repo, base)
-    if base_ref is None:
-        return False, why
+    # The agent's own worktree if it still has one: `worktree create --name`
+    # on a name already in use makes <name>-2 beside it and strands the branch
+    # and whatever is uncommitted in the first.
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, agent)
+    finally:
+        con.close()
+    wt = worktree_path(row["worktree"] if row else None)
+
+    if wt:
+        base_ref, why = None, "its own worktree, kept"
+    else:
+        base_ref, why = pick_base(repo, base)
+        if base_ref is None:
+            return False, why
 
     cmd = launch.command_for(agent)
+    if dry_run and wt:
+        return True, (f"would start in its own worktree {wt}\n"
+                      f"  orca terminal create --worktree path:{wt} --command \"{cmd}\"")
     if dry_run:
         return True, (f"would branch from {base_ref} ({why})\n"
                       f"  orca worktree create --repo path:{repo} --name {agent} "
                       f"--base-branch {base_ref}\n"
                       f"  orca terminal create --worktree <new> --command \"{cmd}\"")
 
-    code, out, err = _run([
-        "orca", "worktree", "create", "--repo", f"path:{repo}",
-        "--name", agent, "--base-branch", base_ref, "--json",
-    ])
-    if code != 0:
-        return False, f"worktree create failed: {err or out}"
-    wt = _parsed(out, "result", "worktree", "path")
-    if wt is None:
-        return False, f"could not read the new worktree path from: {out[:200]}"
+    if not wt:
+        code, out, err = _run([
+            "orca", "worktree", "create", "--repo", f"path:{repo}",
+            "--name", agent, "--base-branch", base_ref, "--json",
+        ])
+        if code != 0:
+            return False, f"worktree create failed: {err or out}"
+        wt = _parsed(out, "result", "worktree", "path")
+        if wt is None:
+            return False, f"could not read the new worktree path from: {out[:200]}"
 
     code, out, err = _run([
         "orca", "terminal", "create", "--worktree", f"path:{wt}",
         "--title", agent, "--command", cmd, "--json",
     ])
     if code != 0:
-        return False, f"worktree {wt} created, but starting the agent failed: {err or out}"
+        return False, f"worktree {wt} is ready, but starting the agent failed: {err or out}"
     handle = _parsed(out, "result", "terminal", "handle")
 
     if handle:
@@ -204,7 +221,8 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         finally:
             con.close()
 
-    lines = [f"{agent}: worktree {wt}", f"  branched from {base_ref} ({why})",
+    lines = [f"{agent}: worktree {wt}",
+             f"  {'branched from ' + base_ref if base_ref else 'kept'} ({why})",
              f"  terminal {handle or 'unknown'}"]
 
     if prompt and not handle:

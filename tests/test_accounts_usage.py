@@ -1947,8 +1947,9 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
             # --- recover() refuses at the boundary: the plain reading still stands
             recovered.clear()
             db.set_cursor(con, "usage-poll:alpha", 0)
+            # A reset of its own: the one above already had its turn.
             write_status(home, "alpha", pct_5h=90, pct_7d=10,
-                         reset_5h=now - 60, rl_at=now - 60)
+                         reset_5h=now - 120, rl_at=now - 120)
             recovermod.recover = lambda acct: (
                 recovered.append(acct) or (False, "stub: refuses"))
             logs = []
@@ -1979,6 +1980,94 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
     finally:
         (usage_api.read, accounts.logged_in,
          recovermod.recover, usage_api.record) = real_read, real_login, real_recover, real_record
+
+
+def test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(home: Path) -> None:
+    """T18: an account whose 5h or 7d window has reset is given one real turn
+    so it is live again. The 5h case was already wired (#76); the 7d one was
+    not - `poll_usage` matched the reason text of the 5h window only."""
+    _daemon_home(home, 40)
+    real = (usage_api.read, accounts.logged_in, recovermod.recover)
+    turns: list[str] = []
+    now = int(time.time())
+    reading = {}
+
+    def fake_recover(acct):
+        turns.append(acct)
+        return True, f"{acct}: recovered"
+
+    def poll(con):
+        db.set_cursor(con, "usage-poll:alpha", 0)
+        dmn.poll_usage(con, lambda _m: None)
+
+    try:
+        accounts.logged_in = lambda acct: True
+        recovermod.recover = fake_recover
+        usage_api.read = lambda acct, refresh=True: usage_api.Reading(acct, *reading["v"], now)
+        con = db.connect()
+        try:
+            # 7d ended, 5h fine: the week is what reset.
+            write_status(home, "alpha", pct_5h=2, pct_7d=100, reset_5h=now + 3600,
+                         reset_7d=now - 60, rl_at=now - 60)
+            reading["v"] = (2, now + 3600, 0, now + 7 * 86400)
+            poll(con)
+            check("reset turn: a 7d window that has reset gets a turn", turns == ["alpha"], turns)
+
+            # The server keeps naming the same reset: no second turn for it.
+            write_status(home, "alpha", pct_5h=2, pct_7d=100, reset_5h=now + 3600,
+                         reset_7d=now - 60, rl_at=now - 60)
+            poll(con)
+            check("reset turn: at most once per reset", turns == ["alpha"], turns)
+
+            # A later reset is a new occasion.
+            write_status(home, "alpha", pct_5h=2, pct_7d=100, reset_5h=now + 3600,
+                         reset_7d=now - 30, rl_at=now - 30)
+            poll(con)
+            check("reset turn: the next reset gets its own", turns == ["alpha", "alpha"], turns)
+
+            # Ended by the held figure, but the endpoint still says exhausted.
+            turns.clear()
+            write_status(home, "alpha", pct_5h=100, pct_7d=3, reset_5h=now - 60,
+                         reset_7d=now + 86400, rl_at=now - 60)
+            reading["v"] = (100, now + 1800, 3, now + 86400)
+            poll(con)
+            check("reset turn: never while the endpoint still reports the window exhausted",
+                  turns == [], turns)
+
+            # Nothing has reset: nothing to spend.
+            write_status(home, "alpha", pct_5h=100, pct_7d=3, reset_5h=now + 1800,
+                         reset_7d=now + 86400, rl_at=now - 60)
+            db.add_event(con, "backend", "Stop", {}, account="alpha")
+            poll(con)
+            check("reset turn: a window still running gets none", turns == [], turns)
+
+            # The switch (`ocp account recover <name> on|off`, config.yaml
+            # `usage_recover_<name>: false`): off, no turn is spent; on, one is.
+            recovermod.recover = real[2]
+            spent: list[str] = []
+            real_model, real_detail = foldmod.run_model, usage_api.read_detailed
+            foldmod.run_model = lambda prompt, acct, model: (spent.append(model) or (True, ""), )[-1]
+            usage_api.read_detailed = lambda acct, refresh=False: (
+                usage_api.Reading(acct, 0, now + 3600, 0, now + 7 * 86400, now), False)
+            try:
+                loadmod.set_usage_recover("alpha", False)
+                write_status(home, "alpha", pct_5h=2, pct_7d=3, reset_5h=now + 3600,
+                             reset_7d=now - 10, rl_at=now - 10)
+                poll(con)
+                check("reset turn: switched off, no turn is spent", spent == [], spent)
+                loadmod.set_usage_recover("alpha", True)
+                write_status(home, "alpha", pct_5h=2, pct_7d=3, reset_5h=now + 3600,
+                             reset_7d=now - 10, rl_at=now - 10)
+                poll(con)
+                check("reset turn: on (the default), one Haiku turn is spent",
+                      spent == [recovermod.RECOVER_MODEL], spent)
+            finally:
+                foldmod.run_model, usage_api.read_detailed = real_model, real_detail
+        finally:
+            loadmod.set_usage_recover("alpha", True)
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in, recovermod.recover = real
 
 
 def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
@@ -5683,6 +5772,8 @@ def main() -> int:
         run(lambda: test_one_accounts_usage_read_raising_is_contained(Path(td) / 'pollraise'))
         run(lambda: test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(
             Path(td) / 'pollrecover'))
+        run(lambda: test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(
+            Path(td) / 'resetturn'))
         run(lambda: test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_false(
             Path(td) / 'carriedoldpin'))
         run(lambda: test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(

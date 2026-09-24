@@ -1,7 +1,7 @@
 """Compressed snapshots of OCP_HOME, taken when it changed (`ocp backup`).
 
 A test run once deleted the whole of ~/.orcapipe. launchd runs `ocp backup`
-every five minutes, outside any agent's sandbox, and writes into a folder
+every minute, outside any agent's sandbox, and writes into a folder
 beside OCP_HOME that agents cannot write to either.
 
 accounts/*/.claude is never copied: it holds logins and transcripts, and
@@ -24,9 +24,16 @@ from pathlib import Path
 from . import paths, service
 
 LABEL = "dev.orcapipe.backup"
-INTERVAL_S = 300
-KEEP_ALL_S = 24 * 3600      # every snapshot of the last day
-KEEP_DAILY_S = 30 * 86400   # then the first of each day, for 30 days
+INTERVAL_S = 60
+# The ladder: up to each age, the first snapshot of every clock-aligned slot of
+# that width (age limit, slot width, both in seconds). A snapshot's slot never
+# changes as it ages, so what is kept stays kept; the newest is always kept, and
+# nothing is kept past the last limit. Slot widths divide the next, so a
+# snapshot kept at one width is the first of its slot at the next.
+LADDER_S = tuple((limit * 60, width * 60) for limit, width in (
+    (5, 1), (30, 5), (60, 30), (6 * 60, 60), (24 * 60, 6 * 60),
+    (7 * 24 * 60, 24 * 60), (30 * 24 * 60, 7 * 24 * 60)))
+MAX_AGE_S = LADDER_S[-1][0]
 DB_NAMES = ("db.sqlite", "db.sqlite-wal", "db.sqlite-shm")
 PREFIX = "orcapipe-"
 SUFFIX = ".tar.gz"
@@ -113,20 +120,29 @@ def snapshot(home: Path | None = None, dest: Path | None = None,
     return out
 
 
+def expired(taken: list[float], now: float) -> set[float]:
+    """Which of these snapshot times LADDER_S lets go."""
+    if not taken:
+        return set()
+    keep = {max(taken)}
+    first: dict[tuple[int, int], float] = {}
+    for t in sorted(taken):
+        for limit, width in LADDER_S:
+            if now - t <= limit:
+                # Earliest in the slot wins, whatever width the older ones were kept at.
+                first.setdefault((width, int(t // width)), t)
+                break
+    keep |= set(first.values())
+    return {t for t in taken if t not in keep}
+
+
 def prune(dest: Path, now: float) -> list[Path]:
-    """Keep every snapshot of the last day, then the first of each day for 30 days."""
-    removed, days_seen = [], set()
-    for p in sorted(dest.glob(PREFIX + "*" + SUFFIX)):
-        taken = p.stat().st_mtime
-        age = now - taken
-        day = time.strftime("%Y%m%d", time.localtime(taken))
-        if age <= KEEP_ALL_S:
-            continue
-        if age <= KEEP_DAILY_S and day not in days_seen:
-            days_seen.add(day)
-            continue
+    """Delete the snapshots in `dest` that LADDER_S lets go."""
+    found = {p: p.stat().st_mtime for p in dest.glob(PREFIX + "*" + SUFFIX)}
+    gone = expired(list(found.values()), now)
+    removed = [p for p, t in sorted(found.items()) if t in gone]
+    for p in removed:
         p.unlink()
-        removed.append(p)
     return removed
 
 
