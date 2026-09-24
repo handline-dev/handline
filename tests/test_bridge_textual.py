@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT))
 from textual import events  # noqa: E402
 from ocp import (actions, agents, bridge_textual as bt, daemon as daemonmod,  # noqa: E402
                  db, jobs as jobsmod, tui)
+from ocp.chat_page import ChatPage  # noqa: E402
 import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 
 PASS: list[str] = []
@@ -188,233 +189,6 @@ async def test_text_prompt_composer_sends_and_cancels() -> None:
     check("prompt: escape cancels and sends nothing", cancelled is None, repr(cancelled))
 
 
-async def test_agent_page_box_sends_a_message_and_runs_slash_commands() -> None:
-    """chat-box (task #16/#1390), taken over: typing lands in the box, Enter
-    sends it, '/' opens the same commands `agent_commands` lists elsewhere,
-    and escape goes back keeping the draft - through `ocp.actrun`, same as
-    every other verb here (bridge-working).
-
-    Targets `reviewer`, not `backend`: DESIGN_TEAM (`test_ocp._daemon_home`)
-    gives `*` an edge to `reviewer` alone, so a human message to `backend`
-    would be denied for a reason that has nothing to do with this screen."""
-    _home("box")
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-    finally:
-        con.close()
-
-    class _HostApp(bt.App):
-        def __init__(self):
-            super().__init__()
-            self.jobs = jobsmod.Jobs()
-
-        def on_mount(self):
-            self.push_screen(bt.AgentDetail("reviewer"))
-
-    app = _HostApp()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        check("page: opens on the agent it is given",
-              isinstance(screen, bt.AgentDetail) and screen.agent == "reviewer",
-              type(screen).__name__)
-
-        for ch in "hello there":
-            await pilot.press(ch)
-        text = str(screen.query_one("#canvas").render())
-        check("page: what is typed lands in the box", "hello there" in text, text)
-
-        await pilot.press("enter")
-        deadline = asyncio.get_event_loop().time() + 8
-        while asyncio.get_event_loop().time() < deadline and "hello there" in screen.box.text:
-            await pilot.pause(0.1)
-        check("page: the box is cleared once the message is handed off",
-              screen.box.text == "", repr(screen.box.text))
-        while asyncio.get_event_loop().time() < deadline and not screen.flash:
-            await pilot.pause(0.1)
-        check("page: sending it runs through the real chat_reply, not a stub",
-              "queued as #" in screen.flash, screen.flash)
-
-        await pilot.press("slash")
-        await pilot.pause(0.1)
-        text = str(screen.query_one("#canvas").render())
-        check("page: '/' alone lists every command agent_commands does",
-              "knows" in text and "terminal" in text and "cancel" in text, text)
-        for ch in "knows":
-            await pilot.press(ch)
-        await pilot.press("escape")
-        await pilot.pause(0.1)
-        check("page: escape backs out of the page, keeping the draft",
-              not isinstance(app.screen, bt.AgentDetail) and screen.box.text == "/knows",
-              f"{type(app.screen).__name__} draft={screen.box.text!r}")
-
-
-async def test_agent_page_box_keeps_a_draft_a_busy_target_refuses() -> None:
-    """auditor #2013 BLOCKING (new): `_deliver` used to clear the box whatever
-    `_start` returned. A busy target is refused before anything is started -
-    what was typed must stay, not vanish with nothing sent."""
-    _home("boxbusy")
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-    finally:
-        con.close()
-    bt._DRAFTS.pop("reviewer", None)   # a global keyed by name; other tests use "reviewer" too
-
-    class _HostApp(bt.App):
-        def __init__(self):
-            super().__init__()
-            self.jobs = jobsmod.Jobs()
-
-        def on_mount(self):
-            self.push_screen(bt.AgentDetail("reviewer"))
-
-    app = _HostApp()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        # Occupies the target with a real (harmless, long-sleeping) process,
-        # not a stand-in `proc=None` - `reap()`'s own timer tick polls it on
-        # every redraw, stand-in or not.
-        stub = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True)
-        busy = jobsmod.Job("chat_reply", "reviewer", "messaging reviewer", stub, time.time())
-        screen.jobs.running.append(busy)
-        try:
-            for ch in "second draft":
-                await pilot.press(ch)
-            await pilot.press("enter")
-            await pilot.pause(0.2)
-            check("page: a refused send keeps what was typed",
-                  screen.box.text == "second draft", repr(screen.box.text))
-            check("page: and says why", "one thing at a time on it" in screen.flash, screen.flash)
-        finally:
-            screen.jobs.running.remove(busy)
-            stub.kill()
-            stub.wait()
-
-
-async def test_agent_page_box_restores_a_draft_the_send_failed() -> None:
-    """auditor #2013 BLOCKING (new), the other half: a send that starts but
-    fails - a team routing refusal, here - must put the draft back rather
-    than leave the box empty with nothing having gone. Real `chat_reply`
-    through `ocp.actrun`, not a stub: `backend` has no edge from the human in
-    DESIGN_TEAM, so the refusal is genuine, not manufactured."""
-    _home("boxfail")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-    finally:
-        con.close()
-    bt._DRAFTS.pop("backend", None)
-
-    class _HostApp(bt.App):
-        def __init__(self):
-            super().__init__()
-            self.jobs = jobsmod.Jobs()
-
-        def on_mount(self):
-            self.push_screen(bt.AgentDetail("backend"))
-
-    app = _HostApp()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        for ch in "not routed":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause(0.1)
-        check("page: the box clears the moment the send is on its way",
-              screen.box.text == "", repr(screen.box.text))
-        deadline = asyncio.get_event_loop().time() + 8
-        while asyncio.get_event_loop().time() < deadline and not screen.flash:
-            await pilot.pause(0.1)
-        check("page: the real routing refusal comes back",
-              "failed" in screen.flash or "denied" in screen.flash, screen.flash)
-        check("page: and the draft is restored, not lost",
-              screen.box.text == "not routed", repr(screen.box.text))
-
-
-async def test_agent_page_box_keeps_a_refused_draft_ahead_of_the_next_one() -> None:
-    """auditor #2050 SHOULD-FIX 2: `restore_if_refused` only put the draft
-    back "if not self.box.text" - a human who sends, then starts typing the
-    next thing before the refusal comes back, had the failed send discarded
-    for good, with nothing in the flash to retype it from. It must go back
-    ahead of whatever is now in the box, not only into an empty one."""
-    _home("boxfail2")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-    finally:
-        con.close()
-    bt._DRAFTS.pop("backend", None)
-
-    class _HostApp(bt.App):
-        def __init__(self):
-            super().__init__()
-            self.jobs = jobsmod.Jobs()
-
-        def on_mount(self):
-            self.push_screen(bt.AgentDetail("backend"))
-
-    app = _HostApp()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        for ch in "not routed":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause(0.1)
-        check("page2: the box clears the moment the send is on its way",
-              screen.box.text == "", repr(screen.box.text))
-        for ch in "next thing":       # started before the refusal comes back
-            await pilot.press(ch)
-        deadline = asyncio.get_event_loop().time() + 8
-        while asyncio.get_event_loop().time() < deadline and not screen.flash:
-            await pilot.pause(0.1)
-        check("page2: the real routing refusal comes back",
-              "failed" in screen.flash or "denied" in screen.flash, screen.flash)
-        check("page2: the failed draft is put back ahead of what was typed since, not dropped",
-              screen.box.text == "not routed\nnext thing", repr(screen.box.text))
-
-
-async def test_agent_page_box_keeps_a_paste_instead_of_dropping_it() -> None:
-    """auditor #2050 SHOULD-FIX 1: `AgentDetail.on_paste` had no test of its
-    own - renaming it away still passed 47/0, since the only paste check was
-    `TextPrompt`'s, from phase 1."""
-    _home("boxpaste")
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-    finally:
-        con.close()
-    bt._DRAFTS.pop("reviewer", None)
-
-    class _HostApp(bt.App):
-        def __init__(self):
-            super().__init__()
-            self.jobs = jobsmod.Jobs()
-
-        def on_mount(self):
-            self.push_screen(bt.AgentDetail("reviewer"))
-
-    app = _HostApp()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        for ch in "draft ":
-            await pilot.press(ch)
-        screen.post_message(events.Paste("pasted one\npasted two"))
-        await pilot.pause(0.2)
-        check("page: a paste into the agent's own box lands whole, not dropped",
-              screen.box.text == "draft pasted one\npasted two", repr(screen.box.text))
-
-
 async def test_accounts_panel_cap_add_remove_and_open() -> None:
     """ACCOUNTS' non-interactive actions (task #45's own third piece): `c`
     sets the cap through `loadmod` directly, `a`/`x` refuse through the same
@@ -542,11 +316,33 @@ async def test_messages_panel_open_reaches_the_agents_page() -> None:
         check("messages: right from AGENTS enters MESSAGES", screen.panel == 2, str(screen.panel))
         await pilot.press("enter")
         await pilot.pause(0.2)
-        check("messages: enter opens the sender's own page",
-              isinstance(app.screen, bt.AgentDetail) and app.screen.agent == "reviewer",
+        check("messages: enter opens the sender's chat page",
+              isinstance(app.screen, ChatPage) and app.screen.agent == "reviewer",
               type(app.screen).__name__)
-        text = str(app.screen.query_one("#canvas").render())
+        await pilot.pause(0.3)
+        text = " ".join(str(w.render()) for w in app.screen.query("#transcript Static"))
         check("messages: the message itself is on it", "please review this" in text, text)
+
+
+async def test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back() -> None:
+    """Task #89: Enter on an agent's row opens its chat page over the dashboard,
+    and Esc leaves it back to the dashboard."""
+    _home("chatopen")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        dash = app.screen
+        want = dash.sel.get(tui.AGENTS)
+        check("chat open: the dashboard is on the agents panel with an agent selected",
+              dash.panel == tui.AGENTS and want is not None, str(dash.sel))
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("chat open: Enter opens that agent's chat page",
+              isinstance(app.screen, ChatPage) and app.screen.agent == want, type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        check("chat open: Esc leaves it and the dashboard is back", app.screen is dash,
+              type(app.screen).__name__)
 
 
 async def test_wake_on_a_stalled_agent_asks_first() -> None:
@@ -608,8 +404,8 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
         await pilot.pause(0.2)
         check("messages: enter on a folded row does not crash the app",
               opener.is_running, "app exited")
-        check("messages: it opens the sender's own page",
-              isinstance(opener.screen, bt.AgentDetail) and opener.screen.agent == "reviewer",
+        check("messages: it opens the sender's chat page",
+              isinstance(opener.screen, ChatPage) and opener.screen.agent == "reviewer",
               type(opener.screen).__name__)
 
     _home("msgfold")
@@ -877,54 +673,6 @@ async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
             con.close()
         check("dashboard: a key on a selection that names no row acts on nothing",
               states == ["queued"] * len(before) and not app.screen.jobs.running, (states, before))
-
-
-async def test_the_agent_page_cancel_command_names_what_it_closes() -> None:
-    """`/cancel` needs to know which request: bare with several waiting it lists
-    them and closes nothing."""
-    _home("cancelcmd")
-    bt._DRAFTS.pop("reviewer", None)       # a draft kept by an earlier test
-    agents.register("reviewer", "alpha")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-        ids = [db.add_request(con, "marina", "reviewer", f"job {i}", None, "peer", "async",
-                              None, 0, None) for i in range(2)]
-    finally:
-        con.close()
-
-    class _HostApp(bt.App):
-        def __init__(self):
-            super().__init__()
-            self.jobs = jobsmod.Jobs()
-
-        def on_mount(self):
-            self.push_screen(bt.AgentDetail("reviewer"))
-
-    app = _HostApp()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-
-        async def command(text: str) -> str:
-            screen.flash = ""
-            for ch in text:
-                await pilot.press("slash" if ch == "/" else ("space" if ch == " " else ch))
-            await pilot.press("enter")
-            deadline = asyncio.get_event_loop().time() + 5
-            while asyncio.get_event_loop().time() < deadline and not screen.flash:
-                await pilot.pause(0.1)
-            return screen.flash
-
-        said = await command("/cancel")
-        check("cancel: bare with several waiting lists them and closes nothing",
-              all(f"/cancel {r}" in said for r in ids), said)
-        con = db.connect()
-        try:
-            states = [db.get_request(con, r)["state"] for r in ids]
-        finally:
-            con.close()
-        check("cancel: and both requests are still queued", states == ["queued", "queued"], states)
 
 
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
@@ -1359,14 +1107,10 @@ async def _run_all() -> None:
     await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()
     await test_confirm_rechecks_can_if_the_state_changed_while_it_was_open()
     await test_text_prompt_composer_sends_and_cancels()
-    await test_agent_page_box_sends_a_message_and_runs_slash_commands()
-    await test_agent_page_box_keeps_a_draft_a_busy_target_refuses()
-    await test_agent_page_box_restores_a_draft_the_send_failed()
-    await test_agent_page_box_keeps_a_refused_draft_ahead_of_the_next_one()
-    await test_agent_page_box_keeps_a_paste_instead_of_dropping_it()
     await test_accounts_panel_cap_add_remove_and_open()
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()
+    await test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
@@ -1377,7 +1121,6 @@ async def _run_all() -> None:
     await test_dashboard_messages_table_is_fed_by_messages_data_and_follows_the_cursor()
     await test_dashboard_stuck_table_is_fed_by_stuck_data_and_entering_it_is_safe()
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()
-    await test_the_agent_page_cancel_command_names_what_it_closes()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert_and_scrolls_on_arrows()
 

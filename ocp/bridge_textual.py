@@ -2,8 +2,8 @@
 
 Three screens: the dashboard (four DataTables - ACCOUNTS, AGENTS, FOR YOU,
 STUCK - fed by `tui.accounts_data`, `agents_data`, `messages_data` and
-`stuck_data`), an agent's own page (its conversation and the box that sends to
-it), and the founder's "done - waiting for check" list. They draw what the data
+`stuck_data`), an agent's chat page (`chat_page.ChatPage`, opened with Enter on
+an agent or a message), and the founder's "done - waiting for check" list. They draw what the data
 functions in `tui.py` and `actions` say and decide nothing themselves, so a row
 or a page means the same here as in `ocp status` and the daemon.
 
@@ -12,9 +12,8 @@ through `jobs.Jobs` and returns at once, so a screen keeps redrawing and reading
 keys while an action is in flight, with a line saying what is running and for
 how long.
 
-The agent's page's box takes typing, Enter sends, and a message starting with
-'/' is a command - `/knows`, `/done`, `/cancel <id>`, and every `AGENT_KEYS`
-verb the row keys bind on the dashboard.
+Every `AGENT_KEYS` verb is a row key on the dashboard; the chat page is for
+talking to the agent, not for running them.
 
 ACCOUNTS' login and add hand the whole terminal to another program - a human
 typing a login code into claude's own screen - through Textual's own
@@ -22,7 +21,7 @@ typing a login code into claude's own screen - through Textual's own
 run and report on later.
 
 `?` on an AGENTS/STUCK row names every `AGENT_KEYS` verb (`tui.agent_help_line`),
-and a row opened read-only (`/knows`, `/done`, ACCOUNTS) is a `ReadOnly` page.
+and a row opened read-only (an ACCOUNTS row, a message with no agent) is a `ReadOnly` page.
 Run once or into a pipe, `ocp bridge` is `tui.snapshot`, plain text, and does not
 start this app.
 
@@ -34,6 +33,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from rich.text import Text
 from textual import events
@@ -78,7 +78,6 @@ def key_token(event: events.Key) -> str | None:
     return None
 
 
-_LEVEL_COLOR = {"normal": tui.DIM, "slow": tui.YEL, "danger": tui.RED}
 _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 
 
@@ -102,11 +101,6 @@ def _header_text(head: tui.HeaderData) -> Text:
         if len(shown) < len(head.waits):
             out.append(f"\n  … {len(head.waits) - len(shown)} more", "dim")
     return out
-
-
-def _job_lines_ansi(jobs: jobsmod.Jobs, width: int) -> list[str]:
-    return [tui.fit(f"{_LEVEL_COLOR.get(jl.level, '')}{jl.text}{tui.R}", width)
-            for jl in jobs.lines()]
 
 
 def confirm_answer(key: str, character: str | None) -> bool | None:
@@ -249,7 +243,7 @@ class JobsAware:
     """What a screen needs to run a verb through `jobs.Jobs` and keep showing
     it: one `Jobs` per app (`self.app.jobs`), shared across screens so an
     action started from the dashboard is still there, still running, if the
-    human moves to an agent's own page while it goes."""
+    human moves to another screen while it goes."""
 
     REFRESH_S = 2.0
     BUSY_REFRESH_S = 0.25  # while a job is running, quick enough to notice it end
@@ -534,6 +528,10 @@ class Dashboard(JobsAware, Screen):
         # allows from inside a worker - not straight from an event handler.
         self.run_worker(self._act_and_redraw(k), exclusive=True, group="act")
 
+    def open_chat(self, agent: str) -> None:
+        from .chat_page import ChatPage   # chat_page imports this module
+        self.app.push_screen(ChatPage(agent))
+
     async def _act_and_redraw(self, key: str) -> None:
         await self._act(key)
         self._redraw()
@@ -662,7 +660,7 @@ class Dashboard(JobsAware, Screen):
 
     async def _act_agent(self, con, name: str, key: str) -> None:
         if key in ("\r", "\n"):    # "↵" in AGENT_KEYS is a display label, never a lookup key
-            self.app.push_screen(AgentDetail(name))
+            self.open_chat(name)
             return
         if key == "?":
             # The footer (`tui.panel_keys`) folds fold/move out of a filtered
@@ -692,10 +690,8 @@ class Dashboard(JobsAware, Screen):
             actions.opened_by_human(con, rid)
             place = actions.message_place(con, rid)
             if place is not None:
-                d = tui._agent_page(con, place[0], tui.AGENTS)
-                if actions.CHAT_TAB in tui._tab_stems(d):    # not a page that could not be built
-                    self.app.push_screen(AgentDetail(place[0]))
-                    return
+                self.open_chat(place[0])
+                return
             detail = actions.message_detail(con, rid)
             if detail is None:
                 self.flash = f"#{rid} is gone"
@@ -918,269 +914,12 @@ class TaskChecks(JobsAware, Screen):
         self.checked.clear()
 
 
-class AgentDraft(tui.Composer):
-    """What is typed in an agent's own box (chat-box, `buddyron/chat-box-is-
-    the-composer`, task #16 - taken over as a requirement here). One per
-    agent, kept in `_DRAFTS` for the session: it is not part of the screen,
-    which is rebuilt from the database every tick, and leaving the page keeps
-    it."""
-
-    def __init__(self) -> None:
-        super().__init__(multi=True)
-        self.matches: list[str] = []
-        self.sel, self.picked = 0, False
-        self.cleared = ""
-
-
-_DRAFTS: dict[str, AgentDraft] = {}
-
-
-def _draft(agent: str) -> AgentDraft:
-    return _DRAFTS.setdefault(agent, AgentDraft())
-
-
-def _sync_matches(box: AgentDraft, cmds: list[tuple[str, str]]) -> list[str]:
-    """The commands the box's text names. The highlight survives only typing
-    that leaves the same list - clamping alone would retarget it to another
-    command."""
-    new = ([n for n, _ in cmds if n.startswith(box.text[1:])]
-           if box.text.startswith("/") else [])
-    if new != box.matches:
-        box.sel, box.picked = 0, False
-    box.matches = new
-    return new
-
-
-def _resolved(box: AgentDraft) -> str:
-    """What Enter sends: a command when exactly one is named or the human
-    picked one, otherwise the text as typed - a real message may start with
-    '/'."""
-    if len(box.matches) == 1 or (box.matches and box.picked):
-        return f"/{box.matches[box.sel]}"
-    return box.text.strip("\n")
-
-
-def _conversation_lines(con, name: str, width: int) -> tuple[list[str], int]:
-    """The conversation, formatted and wrapped by `tui._agent_page` and
-    `tui.lines_of` (the turn-by-turn layout), and
-    where it ends - `conv_end`, the newest line of the conversation itself,
-    not of whatever `agent_detail` lists under it (queued-for-it rows,
-    untold answers). Pinning to `len(body)` pins to the bottom of that list
-    instead, on any agent with something queued (auditor #2146 BLOCKING).
-    `hint=False`: this screen's own box already says where a message goes."""
-    detail = tui._agent_page(con, name, tui.AGENTS, hint=False)
-    body = tui.lines_of(detail, width)
-    return body, detail.get("conv_end", len(body))
-
-
-class AgentDetail(JobsAware, Screen):
-    """An agent's own page: its conversation, and the box chat-box put there -
-    typing lands in it, Enter sends, '/' opens its commands in place. Escape
-    goes back to the dashboard, keeping the draft."""
-
-    def __init__(self, agent: str) -> None:
-        super().__init__()
-        # `top`: None means pinned to the end of the conversation (`_redraw`'s
-        # `pin`, not the bottom of the page - what agent_detail lists under
-        # the conversation is not it, auditor #2146). The page opens there
-        # and follows it as replies arrive, until a scroll away from it sets
-        # an explicit row and un-pins it (task #54, #2124).
-        self.agent, self.top, self.flash = agent, None, ""
-        self._top_now = 0
-        self.commands: list[tuple[str, str]] = []
-
-    @property
-    def box(self) -> AgentDraft:
-        return _draft(self.agent)
-
-    def compose(self) -> ComposeResult:
-        yield Static(id="canvas")
-
-    def on_mount(self) -> None:
-        self._retime()
-        self._redraw()
-
-    def _room(self, height: int) -> int:
-        # title + blank, two rules, the box (at least one row), flash, keys.
-        return max(1, height - 8)
-
-    def _redraw(self) -> None:
-        size = self.size
-        width, height = max(20, size.width), max(10, size.height)
-        con = db.connect()
-        try:
-            body, conv_end = _conversation_lines(con, self.agent, width)
-            cmds = tui.agent_commands(con, self.agent)
-        finally:
-            con.close()
-        self.commands = cmds
-        job_lines = _job_lines_ansi(self.jobs, width)
-        room = self._room(height) - len(job_lines)
-        max_top = max(0, len(body) - room)
-        # The pin is the end of the conversation, not of whatever `agent_detail`
-        # lists under it (auditor #2146 BLOCKING).
-        pin = min(max_top, max(0, conv_end - room))
-        top = pin if self.top is None else max(0, min(self.top, max_top))
-        self._top_now = top
-        # `== pin`, not `>= pin` (auditor #2171 BLOCKING 1): the view re-pins only
-        # on the exact spot - `>=` re-pinned on any scroll past it too, so a look
-        # at what is queued under the conversation snapped back to `pin` on the
-        # very next redraw, a timer tick away.
-        self.top = None if top == pin else top
-        shown = body[top:top + room]
-        while len(shown) < room:
-            shown.append("")
-        rule = f"{tui.DIM}{'─' * width}{tui.R}"
-        box_text = self.box.shown(f"{tui.CYA}{tui.BOLD}❯{tui.R}", width, 3)
-        _sync_matches(self.box, cmds)
-        if self.box.matches:
-            box_text = box_text + [tui.fit(f"{tui.DIM}  " + "  ".join(
-                (f"{tui.R}▸{tui.DIM}" if i == self.box.sel else " ") + n
-                for i, n in enumerate(self.box.matches)) + tui.R, width)]
-        keys = "esc back · ↑↓ scroll · / commands · ↵ send"
-        lines = ([tui.fit(f"{tui.BOLD}agent {self.agent}{tui.R}", width), ""]
-                 + shown + [rule] + box_text + [rule] + job_lines
-                 + [tui.fit(self.flash, width) if self.flash else "",
-                    tui.fit(f"{tui.DIM}{keys}{tui.R}", width)])
-        text = "\n".join(line for line in lines[:height])
-        self.query_one("#canvas", Static).update(Text.from_ansi(text))
-
-    def on_key(self, event: events.Key) -> None:
-        k = key_token(event)
-        if k is None:
-            return
-        event.stop()
-        box = self.box
-        if k in ("\033[A", "\033[B") and box.matches:
-            box.sel = max(0, min(len(box.matches) - 1, box.sel + (1 if k == "\033[B" else -1)))
-            box.picked = True
-            self._redraw()
-            return
-        if k in ("\033[A", "\033[B"):
-            self.top = max(0, self._top_now + (1 if k == "\033[B" else -1))
-            self._redraw()
-            return
-        if k in ("\033[5~", "\033[6~"):
-            room = self._room(max(10, self.size.height))
-            self.top = max(0, self._top_now + room * (1 if k == "\033[6~" else -1))
-            self._redraw()
-            return
-        if k in ("\033[H", "\033[F") and not box.text:
-            self.top = 0 if k == "\033[H" else None    # None: pinned to the conversation's end
-            self._redraw()
-            return
-        if k == "\x15":         # ctrl+u: clear the draft, kept for ctrl+y
-            if box.text:
-                box.cleared = box.text
-                box.text, box.pos, box.typed = "", 0, ""
-            self._redraw()
-            return
-        if k == "\x19":         # ctrl+y: bring the cleared draft back
-            if box.cleared:
-                box.text = box.text[:box.pos] + box.cleared + box.text[box.pos:]
-                box.pos += len(box.cleared)
-                box.cleared = ""
-            self._redraw()
-            return
-        done = box.feed(k)
-        _sync_matches(box, self.commands)
-        if done == "cancel":
-            self.app.pop_screen()
-            return
-        if done == "send":
-            body = _resolved(box)
-            if body.strip():
-                self.run_worker(self._deliver(body), exclusive=True, group="act")
-            return
-        self._redraw()
-
-    def on_paste(self, event: events.Paste) -> None:
-        event.stop()
-        box = self.box
-        box.feed(tui.Composer.START + event.text + tui.Composer.END)
-        _sync_matches(box, self.commands)
-        self._redraw()
-
-    async def _deliver(self, body: str) -> None:
-        """Send `body`, or run it when it names one of `self.commands` - a
-        literal message that happens to type a real command's name runs it,
-        the same tradeoff any chat command syntax makes. Dispatched through
-        `jobs.Jobs` either way, so the box is free the moment it is handed
-        off, not once an answer comes back.
-
-        The box is cleared only once `chat_reply` is actually on its way, not
-        on a refusal `_start` already caught (a busy target, `MAX_JOBS`), and
-        is restored if the job's own answer turns out to be a refusal - a
-        team routing decision, say - since typing it twice is worse than a
-        line saying it did not go. Restored ahead of whatever is in the box
-        by then, not only when it is empty: the human may already be typing
-        the next thing by the time a refusal comes back, and that draft is
-        no reason to drop the one that did not go."""
-        box = self.box
-        con = db.connect()
-        try:
-            known = dict(self.commands)
-            if body.startswith("/") and body[1:] in known:
-                await self._run_command(con, body[1:], known[body[1:]])
-                box.text, box.pos, box.typed, box.cleared = "", 0, "", ""
-            else:
-                agent = self.agent
-
-                def restore_if_refused(ok: bool, _text: str) -> None:
-                    if ok:
-                        return
-                    prefix = body if not self.box.text else body + "\n"
-                    self.box.text = prefix + self.box.text
-                    self.box.pos += len(prefix)
-
-                refused = self._start("chat_reply", agent, f"messaging {agent}", (agent, body),
-                                      on_result=restore_if_refused)
-                self.flash = refused
-                if not refused:
-                    box.text, box.pos, box.typed, box.cleared = "", 0, "", ""
-        finally:
-            con.close()
-        self._redraw()
-
-    async def _run_command(self, con, cmd: str, kind: str) -> None:
-        name = self.agent
-        if kind == "info":
-            _, self.flash = tui._run_info_command(con, {}, name, cmd)
-            return
-        if kind == "page":
-            rows = actions.agent_knows(con, name) if cmd == "knows" else actions.agent_done(con, name)
-            await self.app.push_screen_wait(ReadOnly(f"{cmd} · {name}", rows))
-            return
-        if kind == "cancel":
-            await self._cancel(con, name, cmd.partition(" ")[2])
-            return
-        await dispatch_agent_verb(self, con, name, cmd)
-
-    async def _cancel(self, con, name: str, arg: str) -> None:
-        waiting = actions.waiting_ids(con, name)
-        if not arg:
-            if len(waiting) != 1:
-                self.flash = ("nothing is waiting for it" if not waiting else
-                              "several are waiting - " + " · ".join(f"/cancel {r}" for r in waiting))
-                return
-            rid = waiting[0]
-        else:
-            rid = int(arg)
-        ok, plan = actions.cancel_plan(con, rid)
-        if not ok:
-            self.flash = plan
-            return
-        if not await self.app.push_screen_wait(Confirm(plan)):
-            self.flash = "left alone"
-            return
-        self.flash = self._start("cancel", f"#{rid}", f"cancelling #{rid}", (rid,))
-
-
 class BridgeApp(App):
-    """The Textual bridge (`ocp bridge --textual`, task #45). Two screens so
-    far: the dashboard and an agent's own page - see `Dashboard`, `AgentDetail`."""
+    """The Textual bridge (`ocp bridge --textual`, task #45): the dashboard, and
+    from it an agent's chat page - see `Dashboard`, `chat_page.ChatPage`."""
 
     TITLE = "ocp bridge"
+    CSS_PATH = Path(__file__).with_name("chat_page.tcss")
 
     def __init__(self) -> None:
         super().__init__()

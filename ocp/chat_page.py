@@ -609,7 +609,7 @@ class TaskDetail(Screen):
                 Binding("d", "discard_task", "discard")]
 
     def __init__(self, tid: int) -> None:
-        super().__init__()
+        super().__init__(classes="chat_page")
         self.tid = tid
         self.d: dict | None = None
 
@@ -739,7 +739,7 @@ class ChatPage(Screen):
     BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history")]
 
     def __init__(self, agent: str) -> None:
-        super().__init__()
+        super().__init__(classes="chat_page")
         self.agent = agent
         self.replying: ChatMessage | None = None
         self.everyone = False
