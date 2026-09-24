@@ -31,11 +31,14 @@ class HomePage(Dashboard):
         super().__init__()
         self.showing_settings = False
 
-    AGENT_COLUMNS = ("agent", "acct", "kind", "state", "cache", "ctx", "in", "")
+    AGENT_COLUMNS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
 
     def _agent_cells(self, r, name) -> list:
-        """The Dashboard's cells with the prompt-cache time left after the state."""
+        """The Dashboard's cells with the short model and the prompt-cache time left after
+        the state. The full model and vendor are on the agent's chat page, Settings tab."""
         cells = super()._agent_cells(r, name)
+        if not r.error:
+            cells[2] = Text(r.kind_short, style="dim")
         cells.insert(4, Text.from_ansi(tui.cache_cell(r.cache_left)) if not r.error else "")
         return cells
 

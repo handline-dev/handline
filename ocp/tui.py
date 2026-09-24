@@ -361,6 +361,7 @@ class AgentRow(NamedTuple):
     inbox: int = 0
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
+    kind_short: str = ""            # `agents.kind_short`
     cache_left: int | None = None   # seconds of prompt cache left; None with no activity on record
 
 
@@ -456,7 +457,8 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
                          w.account != acct or w.assumed) if w else None)
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct), oneline(agents.kind(cfg)), ctxs,
-                             len(db.queued_for(con, name)), fire, wall, cache_left(con, name)))
+                             len(db.queued_for(con, name)), fire, wall, oneline(agents.kind_short(cfg)),
+                             cache_left(con, name)))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 

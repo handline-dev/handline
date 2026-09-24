@@ -64,6 +64,13 @@ def kind(cfg: dict) -> str:
     return out if vendor == DEFAULT_VENDOR else f"{vendor} {out}"
 
 
+def kind_short(cfg: dict) -> str:
+    """`kind` for a narrow column: the model without its provider prefix
+    (`zai-coding-plan/glm-5.3-flash` is `glm-5.3-flash`) and its effort, no vendor."""
+    _vendor, model, effort = parts(cfg)
+    return f"{model.rsplit('/', 1)[-1]} {EFFORT_SHORT.get(effort, effort)}"
+
+
 BASE_BUDGET_BYTES = 2048  # base.md <= 2KB (team model section 1)
 ROLE_BUDGET_BYTES = 1024  # ROLE.md <= 1KB
 
