@@ -318,7 +318,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     root = tmp_path / "repo"
     (root / "ocp").mkdir(parents=True)
     (root / "bin").mkdir()
-    (root / "ocp" / "cli.py").write_text("x = 1\n")
+    (root / "ocp" / "core.py").write_text("x = 1\n")
     (root / "bin" / "ocp").write_text("#!/bin/sh\n")
     (root / "requirements.txt").write_text("")
     real_repo_root = paths.repo_root
@@ -342,8 +342,9 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
         dmn._dev_import_check = lambda log_: True
         try:
             time.sleep(0.01)
-            (root / "ocp" / "cli.py").write_text("x = 2\n")
-            check("dev-mode: a changed file, with the import check stubbed clean, asks to restart",
+            (root / "ocp" / "sub").mkdir()
+            (root / "ocp" / "sub" / "x.py").write_text("x = 2\n")
+            check("dev-mode: a new file in a subpackage, with the import check stubbed clean, asks to restart",
                   dmn._dev_mode_should_restart(state, log) is True,
                   str(state) + " " + str(logs))
         finally:
@@ -355,7 +356,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
         dmn._dev_import_check = failing_check
         try:
             time.sleep(0.01)
-            (root / "ocp" / "cli.py").write_text("x = 3\n")
+            (root / "ocp" / "core.py").write_text("x = 3\n")
             logs.clear()
             check("dev-mode: a changed file that fails the import check does not ask to restart",
                   dmn._dev_mode_should_restart(state, log) is False, str(state))
@@ -371,6 +372,21 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
         dmn.set_dev_mode(False)
 
 
+def test_dev_mode_watches_subpackages(tmp_path: Path) -> None:
+    """`ocp/cli/` is a package: an edit under it must be seen as a change."""
+    root = tmp_path / "repo"
+    (root / "ocp" / "cli").mkdir(parents=True)
+    (root / "ocp" / "top.py").write_text("x = 1\n")
+    (root / "ocp" / "cli" / "ask.py").write_text("x = 1\n")
+    names = {p.relative_to(root).as_posix() for p in dmn._watched_files(root)}
+    check("dev-mode: a top-level and a subpackage file are both watched",
+          {"ocp/top.py", "ocp/cli/ask.py"} <= names, str(names))
+    before = dmn._code_fingerprint(root)
+    (root / "ocp" / "cli" / "ask.py").write_text("x = 22\n")
+    check("dev-mode: editing a subpackage file changes the fingerprint",
+          dmn._code_fingerprint(root) != before)
+
+
 def test_dev_mode_fingerprint_skips_a_missing_watched_file(tmp_path: Path) -> None:
     """auditor #2174 should-fix: `_code_fingerprint`'s try/except around
     stat() has to actually run to matter, and both restart-decision tests
@@ -382,7 +398,7 @@ def test_dev_mode_fingerprint_skips_a_missing_watched_file(tmp_path: Path) -> No
     root = tmp_path / "repo"
     (root / "ocp").mkdir(parents=True)
     (root / "bin").mkdir()
-    (root / "ocp" / "cli.py").write_text("x = 1\n")
+    (root / "ocp" / "core.py").write_text("x = 1\n")
     (root / "bin" / "ocp").write_text("#!/bin/sh\n")
     # requirements.txt is listed by _watched_files but never created.
     fp = dmn._code_fingerprint(root)
@@ -3907,6 +3923,7 @@ def main() -> int:
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))
         run(lambda: test_dev_mode_fingerprint_and_restart_decision(
             Path(td) / 'devmodefp_repo', Path(td) / 'devmodefp_home'))
+        run(lambda: test_dev_mode_watches_subpackages(Path(td) / 'devmodesub'))
         run(lambda: test_dev_mode_fingerprint_skips_a_missing_watched_file(Path(td) / 'devmodefpmissing'))
         run(lambda: test_dev_mode_import_check_runs_the_real_entrypoint(Path(td) / 'devmodeimport'))
         run(lambda: test_dev_mode_restart_execs_after_the_lock_and_db_are_released(Path(td) / 'devmoderestart'))
