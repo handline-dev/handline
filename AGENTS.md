@@ -19,3 +19,13 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 
 `ocp guide` lists the rest. Your role and standing context are injected per
 agent (ROLE.md, base.md); this file does not repeat them.
+
+## How we work
+
+- Tests: when you change code, write unit tests for the change in the same
+  commit. Work is not done until they pass.
+- UI: don't design a screen alone. Agree on its shape with the human first,
+  and after you build it, the human checks it by eye. Passing tests do not
+  finish UI work.
+- No subagents: a subagent cannot be recovered if the session dies. To split
+  work, `ocp ask` another agent.
