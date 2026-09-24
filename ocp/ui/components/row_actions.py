@@ -2,15 +2,14 @@
 through `jobs.Jobs` (ACCOUNTS' login and add hand the terminal to another program instead)."""
 from __future__ import annotations
 
-import subprocess
-
-from ... import accounts, actions, db, load as loadmod, orca, tui
+from ... import accounts, actions, db, orca, tui
+from .account_actions import AccountActions
 from .text_prompt import TextPrompt
 from .jobs_aware import dispatch_agent_verb
 from .read_only import ReadOnly
 
 
-class RowActions:
+class RowActions(AccountActions):
     """Mixin for a screen that keeps `panel`, `sel` and `flash` and starts jobs (`JobsAware`)."""
 
     def open_chat(self, agent: str) -> None:
@@ -51,9 +50,8 @@ class RowActions:
 
     async def _act_account(self, con, name: str, key: str) -> None:
         if key in ("\r", "\n"):
-            sections = actions.account_detail(con, name, accounts.logged_in)
-            await self.app.push_screen_wait(
-                ReadOnly(f"account {name}", sections))
+            from ..pages.account import AccountPage   # the page imports these components
+            self.app.push_screen(AccountPage(name))
             return
         if key == "l":
             await self._account_login(name)
@@ -64,18 +62,6 @@ class RowActions:
         if key == "x":
             await self._account_remove(name)
             return
-
-    def _run_suspended(self, argv: list[str], env: dict) -> tuple[int | None, str]:
-        """`tui._suspend`'s own contract, through `App.suspend()`: hand the
-        whole terminal to `argv` (a login is a human typing a code into
-        claude's own screen - nothing about that can happen behind Textual's
-        screen), then take it back."""
-        try:
-            with self.app.suspend():
-                r = subprocess.run(argv, env=env)
-                return r.returncode, f"{argv[0]} exited {r.returncode}"
-        except (OSError, subprocess.SubprocessError) as e:
-            return None, f"could not run {argv[0]}: {e}"
 
     async def _account_add(self) -> None:
         name = await self.app.push_screen_wait(TextPrompt("new account name:"))
@@ -97,51 +83,6 @@ class RowActions:
         yn = await self.app.push_screen_wait(TextPrompt(prompt))
         if (yn or "").strip().lower() in ("y", "yes"):
             self.flash = msg + " · " + "; ".join(actions.trust_worktrees(name, declared))
-
-    async def _account_login(self, name: str) -> None:
-        line, argv, env = actions.login_argv(name)
-        if not argv:
-            self.flash = line
-            return
-        _, self.flash = self._run_suspended(argv, env)
-
-    async def _account_cap(self, name: str) -> None:
-        text = await self.app.push_screen_wait(
-            TextPrompt(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:"))
-        if not text or not text.strip():
-            self.flash = "cap unchanged"
-            return
-        try:
-            loadmod.set_cap(name, int(text.strip()))
-        except ValueError:
-            self.flash = "a cap is a whole number, at least 1"
-            return
-        self.flash = f"{name}: at most {text.strip()} agents mid-turn"
-
-    async def _account_remove(self, name: str) -> None:
-        # `remove_plan` first, the same order the CLI uses: an
-        # account in use is refused before anyone is asked to type its name,
-        # not after - `remove_account` checks it again post-confirm, since
-        # that wait is on a person and an agent can start in the meantime.
-        con = db.connect()
-        try:
-            ok, why = accounts.remove_plan(name, con)
-        finally:
-            con.close()
-        if not ok:
-            self.flash = why
-            return
-        typed = await self.app.push_screen_wait(
-            TextPrompt(f"remove '{name}'? type its name to confirm:"))
-        confirmed = typed == name
-        con = db.connect()
-        try:
-            ok, msg = accounts.remove_account(
-                name, lambda: confirmed,
-                lambda argv, env: self._run_suspended(argv, env)[0], con)
-        finally:
-            con.close()
-        self.flash = msg
 
     async def _act_agent(self, con, name: str, key: str) -> None:
         if key in ("\r", "\n"):    # "↵" in AGENT_KEYS is a display label, never a lookup key

@@ -32,6 +32,7 @@ from ocp.chat_page import ChatPage  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from ocp.ui.components.read_only import ReadOnly  # noqa: E402
 from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
+from ocp.ui.pages.account import AccountPage  # noqa: E402
 from ocp.ui.pages.home import HomePage  # noqa: E402
 from ocp.ui.pages.task_checks import TaskChecks  # noqa: E402
 from textual.widgets import DataTable, Static  # noqa: E402
@@ -237,15 +238,87 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
 
         await pilot.press("enter")
         await pilot.pause(0.2)
-        check("accounts: enter opens a read-only page (account_detail)",
-              isinstance(app.screen, ReadOnly), type(app.screen).__name__)
-        text = app.screen.title_text + "\n".join(r for _, rows in app.screen.sections for r in rows)
-        check("accounts: it is that account's own detail",
-              "account alpha" in text and "config" in text, text)
+        check("accounts: enter opens that account's page",
+              isinstance(app.screen, AccountPage) and app.screen.account == "alpha",
+              type(app.screen).__name__)
         await pilot.press("escape")
         await pilot.pause(0.1)
         check("accounts: escape closes it", isinstance(app.screen, HomePage),
               type(app.screen).__name__)
+
+
+async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
+    from unittest import mock
+    from textual.widgets import Input, Tabs
+    from ocp import accounts as accountsmod, load as loadmod
+    _home("acctpage")
+    check("account cap: a non-number or zero is refused",
+          not actions.set_account_cap("alpha", "")[0] and not actions.set_account_cap("alpha", "0")[0]
+          and not actions.set_account_cap("alpha", "x")[0])
+    ok, said = actions.set_account_cap("alpha", " 5 ")
+    check("account cap: a number is kept", ok and loadmod.cap_of("alpha") == 5 and "at most 5" in said, said)
+    with mock.patch.object(accountsmod, "identity", lambda acct: "me@example.com"):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 34)) as pilot:
+            await pilot.pause(0.3)
+            home = app.screen
+            app.push_screen(AccountPage("alpha"))
+            await pilot.pause(0.5)
+            page = app.screen
+            text = "\n".join(str(page.query_one(i, Static).render()) for i in ("#t_title", "#t_meta", "#t_badge", "#a_usage"))
+            check("account page: the overview names the account, its vendor and its email",
+                  "alpha" in text and "claude" in text and "me@example.com" in text, text)
+            check("account page: and says whether it is logged in and how full it is",
+                  "logged in" in text.lower() and "5h" in text and "7d" in text, text)
+            check("account page: it opens with the tab bar focused", isinstance(page.focused, Tabs), page.focused)
+            await pilot.press("right")
+            await pilot.pause(0.2)
+            table = page.query_one("#a_agents", DataTable)
+            check("account page: right on the bar changes tab, down goes into it, up comes back",
+                  table.display, "")
+            await pilot.press("down")
+            check("account page: down enters the agents table", page.focused is table, page.focused)
+            await pilot.press("up")
+            check("account page: up from its first row returns to the bar", isinstance(page.focused, Tabs), page.focused)
+            await pilot.press("right", "down", "down")
+            check("account page: in settings the arrows walk the fields", page.focused is page.query_one("#a_cap", Input),
+                  page.focused)
+            await pilot.press("up", "up", "left")     # back to the bar, then to the Agents tab
+            await pilot.pause(0.2)
+            check("account page: the agents tab lists who runs on the account",
+                  table.display and [k.value for k in table.rows] == ["backend"], [k.value for k in table.rows])
+            check("account page: the overview is hidden behind it", not page.query_one("#detail_pane").display)
+            await pilot.press("down", "enter")
+            await pilot.pause(0.4)
+            check("account page: Enter on an agent opens its chat page", isinstance(app.screen, ChatPage),
+                  type(app.screen).__name__)
+            await pilot.press("escape")
+            await pilot.pause(0.3)
+            check("account page: and Esc comes back to the account", app.screen is page, type(app.screen).__name__)
+
+            page.query_one("#scope", Tabs).active = "settings"
+            await pilot.pause(0.2)
+            check("account page: settings shows the cap and the buttons",
+                  page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
+            page.query_one("#a_cap", Input).value = "2"
+            page.query_one("#a_name", Input).value = "Work"
+            await pilot.click("#a_save")
+            await pilot.pause(0.3)
+            flash = str(page.query_one("#a_flash", Static).render())
+            check("account page: Save writes the alias and the cap",
+                  loadmod.cap_of("alpha") == 2
+                  and loadmod.label_of("alpha") == "Work" and "at most 2" in flash, flash)
+            check("account page: the title shows the new name",
+                  "Work" in str(page.query_one("#t_title", Static).render()))
+            page.query_one("#a_cap", Input).value = ""
+            await pilot.click("#a_save")
+            await pilot.pause(0.3)
+            flash = str(page.query_one("#a_flash", Static).render())
+            check("account page: an empty cap is refused and nothing is written",
+                  loadmod.cap_of("alpha") == 2 and "whole number" in flash, flash)
+            await pilot.click("#leave")
+            await pilot.pause(0.3)
+            check("account page: Back returns to the home page", app.screen is home, type(app.screen).__name__)
 
 
 async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
@@ -1369,7 +1442,8 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
 
 async def test_home_tab_bar_focus_mouse_and_columns() -> None:
     from unittest import mock
-    from textual.widgets import Tabs
+    from textual.widgets import Input, Tabs
+    from ocp import load as loadmod
     _home("homekeys")
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 30)) as pilot:
@@ -1395,6 +1469,21 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
         await pilot.press("right")
         await pilot.pause(0.1)
         check("home: with the focus back in the panels the arrows move panels again", screen.panel != tui.ACCOUNTS)
+
+        screen.query_one("#scope", Tabs).active = "settings"
+        await pilot.pause(0.2)
+        screen.query_one("#default_cap", Input).value = "7"
+        await pilot.click("#settings_save")
+        await pilot.pause(0.2)
+        check("home: the Settings tab saves the default cap", loadmod.default_cap() == 7, loadmod.default_cap())
+        screen.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        last = next(p for p in reversed(screen.PANELS) if tui._keys_of(p))
+        screen.panel, screen.sel[last] = last, tui._keys_of(last)[-1]
+        screen.set_focus(None)
+        await pilot.press("down")
+        check("home: down on the last row stays there, it does not wrap to the top",
+              screen.panel == last and screen.sel[last] == tui._keys_of(last)[-1], (screen.panel, screen.sel))
 
         table = screen.query_one("#agents", DataTable)
         screen.panel = tui.ACCOUNTS
@@ -1539,6 +1628,69 @@ async def test_hr_tab_approve_reject_withdraw_and_the_red_dot() -> None:
         finally:
             con.close()
 
+async def test_the_account_page_leaves_a_page_on_top_alone_and_closes_when_it_is_back() -> None:
+    from unittest import mock
+    from ocp import accounts as accountsmod
+    from ocp.ui.components.read_only import ReadOnly
+    _home("acctgone")
+    with mock.patch.object(accountsmod, "identity", lambda acct: None):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 34)) as pilot:
+            await pilot.pause(0.3)
+            home = app.screen
+            app.push_screen(AccountPage("alpha"))
+            await pilot.pause(0.4)
+            page = app.screen
+            app.push_screen(ReadOnly("on top", [("", ["x"])]))
+            await pilot.pause(0.2)
+            top = app.screen
+            with mock.patch("ocp.ui.pages.account.paths.list_accounts", lambda: []):
+                page._load()        # its timer keeps running under the page on top
+                await pilot.pause(0.2)
+                check("account page: the account going while another page is on top does not pop that page",
+                      app.screen is top, type(app.screen).__name__)
+                app.pop_screen()
+                await pilot.pause(0.4)
+            check("account page: back on top it sees the account is gone and closes itself",
+                  app.screen is home, type(app.screen).__name__)
+
+
+async def test_the_home_accounts_row_shows_the_alias() -> None:
+    from ocp import load as loadmod
+    _home("alias_row")
+    loadmod.set_label("alpha", "Work")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause(0.3)
+        first = app.screen.query_one("#accounts", DataTable).get_row_at(0)[0]
+        check("home: the ACCOUNTS row shows the alias, not the account's name",
+              first.plain.strip() == "Work", first.plain)
+
+
+def test_account_settings_alias_and_default_cap() -> None:
+    from ocp import load as loadmod, triggers
+    _home("settings")
+    ok, _ = actions.save_account_settings("alpha", "x" * 41, "3")
+    check("settings: an alias over 40 characters is refused", not ok and loadmod.label_of("alpha") == "alpha")
+    ok, _ = actions.save_account_settings("alpha", "a\x1bb", "3")
+    check("settings: an alias with a control character is refused", not ok and loadmod.label_of("alpha") == "alpha")
+
+    actions.save_account_settings("alpha", "Work", "3")
+    ok, _ = actions.save_account_settings("alpha", "Other", "0")
+    check("settings: a bad cap leaves the new alias unwritten", not ok and loadmod.label_of("alpha") == "Work",
+          loadmod.label_of("alpha"))
+    ok, _ = actions.save_account_settings("alpha", "  ", "3")
+    check("settings: a blank alias goes back to the account's own name",
+          ok and loadmod.label_of("alpha") == "alpha" and "label_alpha" not in loadmod._config())
+
+    cfg = loadmod._config()
+    for bad in (None, 0, -1, True, "3"):
+        cfg["active_cap"] = bad
+        check(f"default cap: {bad!r} falls back to the built-in", loadmod.default_cap(cfg) == triggers.DEFAULT_ACTIVE_CAP)
+    loadmod.set_default_cap(6)
+    check("default cap: an account with no cap of its own follows it", loadmod.cap_of("beta") == 6)
+
+
 async def _run_all() -> None:
     test_only_y_n_or_escape_answers_a_confirm()
     test_the_menu_offers_what_the_text_could_become()
@@ -1557,6 +1709,7 @@ async def _run_all() -> None:
     await test_confirm_rechecks_can_if_the_state_changed_while_it_was_open()
     await test_text_prompt_composer_sends_and_cancels()
     await test_accounts_panel_cap_add_remove_and_open()
+    await test_the_account_page_shows_the_account_and_sets_its_cap()
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()
     await test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back()
@@ -1573,6 +1726,7 @@ async def _run_all() -> None:
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()
     await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
     await test_read_only_page_shows_foreign_text_inert()
+    await test_the_account_page_leaves_a_page_on_top_alone_and_closes_when_it_is_back()
     test_gauge_elapsed_fraction_bar_and_usage_cells()
     test_agent_rows_short_model_cache_and_founder_block()
     test_agent_rows_collect_carries_the_agents_own_model_and_effort()
@@ -1584,6 +1738,8 @@ async def _run_all() -> None:
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
     await test_home_tab_bar_focus_mouse_and_columns()
     await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
+    await test_the_home_accounts_row_shows_the_alias()
+    test_account_settings_alias_and_default_cap()
 
 
 def main() -> int:

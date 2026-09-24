@@ -1995,10 +1995,10 @@ def _config_line(acct: str) -> str:
         return str(e)
 
 
-def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]]:
-    """What is behind an account's row, in the same shape as an agent's.
+def account_facts(con, acct: str, logged_in=None) -> dict:
+    """What is known of an account, as values, for the bridge's account page.
 
-    `logged_in` is the caller's login check: the bridge redraws this page every
+    `logged_in` is the caller's login check: the bridge redraws the page every
     couple of seconds and passes its cached one, since the real one asks the
     keychain.
     """
@@ -2012,24 +2012,59 @@ def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]
                                     load=loads, vendor=vendors.account_vendor(acct))
     is_in = logged_in(acct)
     allowed, why = status.account_verdict(acct, st, loads.get(acct), ranked, is_in)
-    head = [f"login    {'logged in' if is_in else 'NOT logged in'}",
-            f"config   {_config_line(acct)}",
-            f"5h       {st.trusted_pct_5h}% ({st.pct_5h_source})   7d {st.pct_7d}%",
-            f"snapshot {'-' if st.age_s is None else status.ago(st.age_s) + ' old'}"
-            f"   session {st.session_id or '-'}",
-            f"assign   {'yes' if allowed else 'no'} - {why}"]
-    live = status.live_cost(acct)
-    head.append("spend    " + ("nothing running to read it from" if live is None else
-                               f"${live:.2f} across the sessions running now - not the "
-                               f"account's total, which nothing here can see"))
-    mine = [a for a in paths.list_agents() if agents.current_account(a, con) == acct]
     rows = []
-    for a in mine:
-        row = db.get_agent_state(con, a)
-        closed = " ·closed" if row and row["closed_at"] else ""
-        rows.append(f"{a:<12}{(row['state'] if row else 'never started')}{closed}"
-                    f"   {(row['detail'] if row else '') or ''}")
-    return [("", head), (f"AGENTS ON IT ({len(mine)})", rows or ["none"])]
+    for a in paths.list_agents():
+        if agents.current_account(a, con) == acct:
+            row = db.get_agent_state(con, a)
+            rows.append((a, (row["state"] if row else "never started")
+                         + (" ·closed" if row and row["closed_at"] else ""),
+                         (row["detail"] if row else "") or ""))
+    return {"status": st, "logged_in": is_in, "config": _config_line(acct),
+            "vendor": vendors.account_vendor(acct), "assign": (allowed, why),
+            "cost": status.live_cost(acct), "cap": loadmod.cap_of(acct), "agents": rows}
+
+
+def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
+    """The most agents mid-turn on an account at once, from what was typed."""
+    try:
+        n = int(text.strip())
+        loadmod.set_cap(acct, n)
+    except ValueError:
+        return False, "a cap is a whole number, at least 1"
+    return True, f"{acct}: at most {n} agents mid-turn"
+
+
+def save_account_settings(acct: str, label: str, cap: str) -> tuple[bool, str]:
+    """The account page's Settings form: its alias and its cap, each written only when it
+    differs from what is there. Nothing is written if either is refused."""
+    label = label.strip()
+    if textsafe.has_unsafe(label) or len(label) > 40:
+        return False, "an alias is one plain line of at most 40 characters"
+    try:
+        n = int(cap.strip())
+    except ValueError:
+        n = 0
+    if n < 1:
+        return False, "the cap is a whole number, at least 1"
+    now = loadmod.label_of(acct)
+    said = []
+    if label != ("" if now == acct else now):
+        loadmod.set_label(acct, label)
+        said.append(f"alias {label}" if label else "alias cleared")
+    if n != loadmod.cap_of(acct):
+        loadmod.set_cap(acct, n)
+        said.append(f"{acct}: at most {n} agents mid-turn")
+    return True, "; ".join(said) or "nothing changed"
+
+
+def set_default_cap(text: str) -> tuple[bool, str]:
+    """The cap of every account that has none of its own, from what was typed."""
+    try:
+        n = int(text.strip())
+        loadmod.set_default_cap(n)
+    except ValueError:
+        return False, "the default cap is a whole number, at least 1"
+    return True, f"default cap {n}"
 
 
 def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:

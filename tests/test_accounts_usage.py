@@ -4478,10 +4478,12 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     panel = tui._ANSI.sub("", _snap(200, 40))
     con = db.connect()
     try:
-        page = "\n".join(r for _, rows in actions.account_detail(con, "beta") for r in rows)
+        facts = actions.account_facts(con, "beta")
     finally:
         con.close()
-    check("stale: the account's own page shows it", "5h 41% (60m old)" in page, page[:400])
+    check("stale: the account's own page draws the last figure, marked, and how old the snapshot is",
+          facts["status"].shown_pct_5h() == (41, status.IDLE_MARK)
+          and status.ago(facts["status"].age_s) == "60m", str(facts["status"].shown_pct_5h()))
     check("stale: the panel keeps the sentence off the row", "5h 41% (60m old)" not in panel,
           panel[:400])
 

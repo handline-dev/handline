@@ -916,16 +916,13 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
                 # the only ones that can ever run here (#1815). Drawn as a
                 # refusal it said "assign no - a zai account, not claude" of an
                 # account that is a perfectly good place for zai agents.
-                page = dict(actions.account_detail(con, "zeta"))
-                head = next(iter(page.values()))
-                assign = next(ln for ln in head if ln.startswith("assign"))
+                facts = actions.account_facts(con, "zeta")
+                allowed, why = facts["assign"]
                 check("vendor pick: its page does not refuse it outright - the "
                       "account is judged for its own vendor",
-                      assign.startswith("assign   yes")
-                      and "not claude" not in assign, assign)
-                check("vendor pick: and the page still names the vendor above it",
-                      any(ln.startswith("config") and ln.endswith("(zai)")
-                          for ln in head), str(head))
+                      allowed and "not claude" not in why, why)
+                check("vendor pick: and the page still names the vendor",
+                      facts["vendor"] == "zai" and facts["config"].endswith("(zai)"), str(facts))
             finally:
                 con.close()
             out = io.StringIO()
