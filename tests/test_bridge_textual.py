@@ -28,6 +28,7 @@ import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, n
 from textual import events  # noqa: E402
 from ocp import (actions, agents, bridge_textual as bt, # noqa: E402
                  db, hr, jobs as jobsmod, tui)
+from ocp import timefmt  # noqa: E402
 from ocp.daemon import states as dmn_states
 from ocp.chat_page import ChatPage  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
@@ -1413,7 +1414,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         check("proposals: proposals raised in the same second come oldest first by request id",
               tied == sorted(ids), tied)
         check("proposals: the age is the biggest whole unit",
-              pr.age(0, now=59) == "0m" and pr.age(0, now=3600) == "1h" and pr.age(0, now=86400 * 2) == "2d")
+              timefmt.ago_short(0, now=59) == "0m" and timefmt.ago_short(0, now=3600) == "1h" and timefmt.ago_short(0, now=86400 * 2) == "2d")
     finally:
         con.close()
 

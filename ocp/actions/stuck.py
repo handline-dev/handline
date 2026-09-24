@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from .. import agents
+from .. import timefmt
 from .. import blocked
 from ..daemon import delivery as dmn_delivery, locks as dmn_locks, states as dmn_states
 from .. import db
@@ -150,7 +151,7 @@ def stuck(con) -> list[dict]:
     for h in db.in_flight_handoffs(con):
         left = (h["deadline"] or now) - now
         add(f"handoff {h['agent']} at '{h['step']}'", 0,
-            f"deadline in {status.ago(left)}" if left > 0 else "past its deadline",
+            f"deadline in {timefmt.ago(left)}" if left > 0 else "past its deadline",
             h["agent"])
 
     queued = con.execute(

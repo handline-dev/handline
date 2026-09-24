@@ -58,7 +58,7 @@ from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod
                  observe as obsmod, orca as orcamod, paths, recover as recovermod, rehome,
                  replay as replaymod, service,
                  spawn as spawnmod,
-                 status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
+                 status, team, textsafe, timefmt, triggers, trust as trustmod, tui, usage_api, vendors,
                  venv as venvmod, waiting,
                  yamlcompat)  # noqa: E402
 from ocp.daemon import (delivery as dmn_delivery, devmode as dmn_devmode, evaluate as dmn_evaluate,  # noqa: E402
@@ -1833,6 +1833,7 @@ __all__ = [
     'status',
     'team',
     'textsafe',
+    'timefmt',
     'triggers',
     'trustmod',
     'tui',

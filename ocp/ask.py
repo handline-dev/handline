@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from . import db, paths, team
+from . import timefmt
 
 # States an agent may not move itself out of. STALLED is a task defect and
 # only a human clears it (section 8.6); without this an agent could launder
@@ -352,7 +353,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             if not _terminal(con, requester):
                 db.set_agent_state(con, requester, "THROTTLED",
                                    wake_at=free_at, detail=note)
-            when = time.strftime("%H:%M", time.localtime(free_at))
+            when = timefmt.stamp(free_at, timefmt.CLOCK)
             return False, (f"{note} - {requester} is THROTTLED. The window rolls, so the "
                            f"next slot frees at {when}; wait for it rather than retrying, "
                            f"because a refusal sends nothing. Your text is kept as #{rid}."), None

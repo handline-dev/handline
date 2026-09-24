@@ -1,10 +1,10 @@
 """Reads of the whole system: doctor, status, drift, triggers, events, fold, rollover, backup."""
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from .. import actions
+from .. import timefmt
 from .. import agents
 from .. import ask as askmod
 from .. import backup as backupmod
@@ -170,7 +170,7 @@ def cmd_events(args) -> int:
             print("no events" if args.all else "no decisions (--all includes turn edges)")
             return 0
         for r in rows:
-            when = time.strftime("%m-%d %H:%M", time.localtime(r["ts"]))
+            when = timefmt.stamp(r["ts"], timefmt.SHORT)
             print(f"{r['id']:<6} {when} {r['agent']:<12} {textsafe.oneline(r['kind']):<16} "
                   f"{textsafe.oneline(r['payload'] or '')[:70]}")
         # With --after the whole table is not the population being paged, and

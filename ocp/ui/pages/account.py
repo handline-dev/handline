@@ -14,6 +14,7 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Header, Input, Static, Tabs
 
 from ... import accounts, actions, db, load as loadmod, paths, status, textsafe, tui
+from ... import timefmt
 from ..components import gauge
 from ..components.account_actions import AccountActions
 from ..components.action_bar import ActionBar
@@ -148,7 +149,7 @@ class AccountPage(AccountActions, Screen):
             usage.append(f"  {name:<6}", style="dim")
             usage.append_text(Text.from_ansi(f"{bar} {tui.pct(pct)}%{mark}"))
             left = (reset or 0) - time.time()
-            usage.append(f"   resets in {status.span(left)}" if reset and left > 0 else "", style="dim")
+            usage.append(f"   resets in {timefmt.span(left)}" if reset and left > 0 else "", style="dim")
             usage.append("\n")
         self.query_one("#a_usage", Static).update(usage)
 
@@ -166,7 +167,7 @@ class AccountPage(AccountActions, Screen):
         live = f["cost"]
         out = Text("Status\n", style="bold")
         for key, value in (("assign", f"{'yes' if allowed else 'no'} - {why}"),
-                           ("snapshot", "-" if st.age_s is None else f"{status.ago(st.age_s)} old"),
+                           ("snapshot", "-" if st.age_s is None else f"{timefmt.ago(st.age_s)} old"),
                            ("session", st.session_id or "-"),
                            ("spend", "nothing running to read it from" if live is None
                             else f"${live:.2f} across the sessions running now"),

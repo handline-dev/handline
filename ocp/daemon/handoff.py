@@ -6,6 +6,7 @@ import time
 import uuid
 
 from .. import accounts
+from .. import timefmt
 from .. import agents
 from .. import db
 from .. import events
@@ -93,7 +94,7 @@ def resume_handoff(con, row, log) -> None:
         MOVING_MARK if short_retry else "resumed handoff")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{label}; wakes at "
-                              f"{time.strftime('%H:%M', time.localtime(wake))}")
+                              f"{timefmt.stamp(wake, timefmt.CLOCK)}")
     # Same gap as a fresh park's - see _perform_handoff - through a different
     # path: a restart recovering an in-flight handoff parks the agent too.
     db.add_event(con, agent, "park", {
@@ -577,7 +578,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             log(f"  {agent}: backing off {backoff}s after {streak} degraded handoff(s)")
     db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
-                       detail=f"{label}; wakes at {time.strftime('%H:%M', time.localtime(wake))}")
+                       detail=f"{label}; wakes at {timefmt.stamp(wake, timefmt.CLOCK)}")
     # `close` and `wake` both leave a record of when and why; a park never did,
     # so `ocp events --agent` had nothing to show for it even though the
     # kind was already reserved for it (kept out of db.AGENT_ACTIVITY_KINDS,
@@ -589,5 +590,5 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                                       "account": reading.account if reading else None,
                                       "account_source": reading.source if reading else None})
     db.bump_counter(con, agent, "continuations")  # 8.5: handoff is not a failure
-    log(f"  {agent}: PARKED until {time.strftime('%Y-%m-%d %H:%M', time.localtime(wake))}")
+    log(f"  {agent}: PARKED until {timefmt.stamp(wake, timefmt.DATE_TIME)}")
     return ok, cleared

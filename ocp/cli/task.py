@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 from pathlib import Path
 
 from .. import actions
+from .. import timefmt
 from .. import agents
 from .. import ask as askmod
 from ..daemon import lifecycle as dmn_lifecycle
@@ -310,7 +310,7 @@ def _print_board(con, tasks: list) -> None:
         print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
               f"{parent}{edited}{done}{closed}")
         for r in db.task_requests(con, t["id"]):
-            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
+            when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
                   f"{r['state']} {when}")
 

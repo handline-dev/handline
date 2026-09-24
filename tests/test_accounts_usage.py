@@ -543,7 +543,7 @@ def test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(home
               not allowed and why == said["gamma"], str((allowed, why)))
         rw = status.describe_runway(status.runway(st, status.read_burn("gamma"), None, loads["gamma"]))
         check("week: the runway column names the week, from the same stretch the pick judged",
-              rw == f"~{status.span(status.week_stretch_s(st, loads['gamma']))} to 7d", rw)
+              rw == f"~{timefmt.span(status.week_stretch_s(st, loads['gamma']))} to 7d", rw)
         alone, why = status.pick_account(["gamma"], load=loads)
         check("week: gamma alone, #1233's shape, is refused for the week's runway",
               alone is None and "one more agent lasts" in dict(why)["gamma"], str((alone, why)))
@@ -4483,7 +4483,7 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
         con.close()
     check("stale: the account's own page draws the last figure, marked, and how old the snapshot is",
           facts["status"].shown_pct_5h() == (41, status.IDLE_MARK)
-          and status.ago(facts["status"].age_s) == "60m", str(facts["status"].shown_pct_5h()))
+          and timefmt.ago(facts["status"].age_s) == "60m", str(facts["status"].shown_pct_5h()))
     check("stale: the panel keeps the sentence off the row", "5h 41% (60m old)" not in panel,
           panel[:400])
 

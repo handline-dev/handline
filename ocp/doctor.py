@@ -10,11 +10,11 @@ import os
 import re
 import shutil
 import subprocess
-import time
 from pathlib import Path
 
 from . import (accounts, agents, db, hooks, launch, load as loadmod, observe as obs,
                orca, paths, service, status, textsafe, vendors)
+from . import timefmt
 from .daemon import reconciler as dmn_reconciler
 
 OK, WARN, FAIL = "ok", "warn", "fail"
@@ -372,7 +372,7 @@ def _check_rate_limits_present(r: Report) -> None:
         elif src == "carried_old":
             age = st.rl_age_s
             r.add(WARN, f"account {acct}: the 5h figure is older than we assign on",
-                  f"5h {st.pct_5h}% observed {status.ago(age)} ago; "
+                  f"5h {st.pct_5h}% observed {timefmt.ago(age)} ago; "
                   f"still a floor for triggers, but no new work goes here")
         elif src == "quiet":
             r.add(OK, f"account {acct}: 5h window quiet",

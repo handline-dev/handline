@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from .. import ask as askmod
+from .. import timefmt
 from .. import db
 from .. import waiting
 
@@ -72,7 +73,7 @@ class Event(Row):
 
     def __new__(cls, ts: int, kind: str, payload: str):
         self = super().__new__(
-            cls, f"{time.strftime('%H:%M:%S', time.localtime(ts))}  {kind:<18}{payload}")
+            cls, f"{timefmt.stamp(ts, '%H:%M:%S')}  {kind:<18}{payload}")
         self.ts, self.kind, self.payload = ts or 0, kind, payload
         return self
 
@@ -135,7 +136,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
             tail = ""
             if r["state"] == "queued":
                 tail = ("waiting for you" if r["target"] == HUMAN else
-                        f"delivered {time.strftime('%H:%M', time.localtime(r['delivered_at']))}"
+                        f"delivered {timefmt.stamp(r['delivered_at'], timefmt.CLOCK)}"
                         if r["delivered_at"] else "queued")
                 if r["target"] == agent:
                     tail += f" · #{r['id']}"       # what /cancel names

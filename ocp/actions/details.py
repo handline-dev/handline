@@ -5,6 +5,7 @@ import shlex
 import time
 
 from .. import accounts
+from .. import timefmt
 from .. import agents
 from .. import collect
 from .. import db
@@ -45,7 +46,7 @@ def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str
     if row:
         closed = "  ·closed" if row["closed_at"] else ""
         head.append(Fact(("state", f"{row['state']}{closed}"),
-                         *([("wakes", time.strftime("%H:%M", time.localtime(row["wake_at"])))]
+                         *([("wakes", timefmt.stamp(row["wake_at"], timefmt.CLOCK))]
                            if row["wake_at"] else [])))
         if row["detail"]:
             head.append(row["detail"])

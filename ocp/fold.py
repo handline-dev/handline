@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import accounts, agents, db, digest, events as evmod, paths, status, textsafe
+from . import timefmt
 
 FOLD_TIMEOUT_S = 180
 
@@ -91,7 +92,7 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
         if told:
             lines.append("- last events:")
             for e in told:
-                when = time.strftime("%H:%M", time.localtime(e["ts"]))
+                when = timefmt.stamp(e["ts"], timefmt.CLOCK)
                 lines.append(f"    {when} {e['kind']} {(e['payload'] or '')[:90]}")
     else:
         lines.append("- events folded: 0 (nothing new since the last fold)")
@@ -164,7 +165,7 @@ def build_prompt(agent: str, previous: digest.Digest, events, day: str) -> str:
     prev_text = digest.render(previous) if previous.agent else "(no previous digest)"
     delta = []
     for e in events:
-        when = time.strftime("%H:%M", time.localtime(e["ts"]))
+        when = timefmt.stamp(e["ts"], timefmt.CLOCK)
         delta.append(f"{when} [{e['kind']}] {e['payload'] or ''}")
     headings = "\n".join(f"## {h}" for _, h in digest.SECTIONS)
     return f"""Rewrite the work digest below. Output ONLY the digest in markdown, nothing else.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from .. import accounts
+from .. import timefmt
 from .. import collect
 from .. import db
 from .. import paths
@@ -55,7 +56,7 @@ def usage_due(con, acct: str, st: status.AccountStatus, now: int) -> str | None:
     if not st.exists or st.rl_at is None:
         return "no reading yet"
     if now - st.rl_at >= USAGE_MAX_AGE_S:
-        return f"last read {status.ago(now - st.rl_at)} ago"
+        return f"last read {timefmt.ago(now - st.rl_at)} ago"
     for window, reset in (("5h", st.reset_5h), ("7d", st.reset_7d)):
         if reset is not None and reset <= now:
             return f"its {window} window has ended"

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import time
 
-from . import ask as askmod, db, orca, paths, status, waiting
+from . import ask as askmod, db, orca, paths, timefmt, waiting
 
 # The same obstacle, with work waiting, this long before it is said. A dialog
 # does not clear itself, so the wait is only for the person who is at the
@@ -249,14 +249,14 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
     if all_cleared >= MAX_PRESSES_AGENT:
         titles = {p["title"] for p in all_history if p["outcome"] == "cleared"}
         if len(titles) == 1:
-            return (f"ocp cleared it {all_cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
+            return (f"ocp cleared it {all_cleared} times in {timefmt.ago(PRESS_WINDOW_S)} and it "
                     f"came back each time, so it has stopped pressing")
-        return (f"ocp cleared {all_cleared} dialogs on this agent in {status.ago(PRESS_WINDOW_S)} "
+        return (f"ocp cleared {all_cleared} dialogs on this agent in {timefmt.ago(PRESS_WINDOW_S)} "
                 f"({len(titles)} different titles), so it has stopped pressing")
     history = [p for p in all_history if p["title"] == title]
     cleared = sum(1 for p in history if p["outcome"] == "cleared")
     if cleared >= MAX_PRESSES:
-        return (f"ocp cleared it {cleared} times in {status.ago(PRESS_WINDOW_S)} and it "
+        return (f"ocp cleared it {cleared} times in {timefmt.ago(PRESS_WINDOW_S)} and it "
                 f"came back each time, so it has stopped pressing")
     pressed = [p for p in history if p["outcome"] != "not-pressed"]
     if len(pressed) >= MAX_IGNORED and all(p["outcome"] == "still-open" for p in pressed[-MAX_IGNORED:]):
@@ -300,7 +300,7 @@ def _decline(con, agent: str, rec, now: int, log):
                   f"while it was open: {reason(rec['kind'], rec['detail'])}.\nThe dialog's own footer "
                   f"says Esc cancels it, and Esc is a key that only declines it, so that was the "
                   f"only key ocp pressed; nothing was chosen. If it comes back {MAX_PRESSES} times "
-                  f"in {status.ago(PRESS_WINDOW_S)} ocp stops pressing and tells you.",
+                  f"in {timefmt.ago(PRESS_WINDOW_S)} ocp stops pressing and tells you.",
                   "dialog declined")
     _end(con, agent, rec, how, log)
     return None
@@ -384,7 +384,7 @@ def _raise(con, recs, now: int, log) -> None:
     for r in recs:
         held = now - r["since"]
         note = press_note(con, r["agent"], r, now)
-        lines.append(f"{r['agent']} cannot be given its work ({status.ago(held)}).\n"
+        lines.append(f"{r['agent']} cannot be given its work ({timefmt.ago(held)}).\n"
                      f"  In the way: {reason(r['kind'], r['detail'])}\n"
                      f"  Waiting: {r['work'] or 'nothing yet'}\n"
                      + (f"  {note[0].upper() + note[1:]}.\n" if note else "")

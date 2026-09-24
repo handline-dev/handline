@@ -25,6 +25,7 @@ from textual.widgets import Button, DataTable, Header, Input, OptionList, Select
 from textual.widgets.option_list import Option
 
 from . import actions, agents, ask as askmod, db, paths, status, textsafe, tui
+from . import timefmt
 from .ui.components.confirm import Confirm
 from .ui.components.text_prompt import TextPrompt, _TextBox
 from .ui.components.action_bar import ActionBar
@@ -284,7 +285,7 @@ def message_parts(m: dict) -> tuple[Text | None, Text, Text | None]:
     body = Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else "")
     head = None
     if not mine:
-        stamp = time.strftime("%H:%M", time.localtime(m["when"])) if m["when"] else ""
+        stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
         head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
         if m["answered"]:
             head.append("  answered", style="italic dim")
@@ -302,7 +303,7 @@ def task_cells(row: tuple) -> tuple:
 
     def cell(value) -> Text:
         return Text(safe(value), no_wrap=True, overflow="ellipsis")
-    return (actions.task_ref(tid), role, state, time.strftime("%m-%d %H:%M", time.localtime(updated)),
+    return (actions.task_ref(tid), role, state, timefmt.stamp(updated, timefmt.SHORT),
             cell(title), cell(other))
 
 
@@ -313,7 +314,7 @@ def task_page(d: dict) -> dict:
         return Text(label, style=Style(underline=True, meta={"@click": f"screen.open_task({tid})"}))
 
     def when(ts) -> Text:
-        return Text(time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "", style="dim")
+        return Text(timefmt.stamp(ts, timefmt.DATE_TIME) if ts else "", style="dim")
 
     facts: list[tuple[str, Text]] = [
         ("owner", Text(safe(d["owner"]))),
@@ -647,10 +648,6 @@ class TaskTable(DataTable):
 STATE_STYLE_FG = {"waiting": "yellow", "doing": "blue", "done": "green", "closed": "dim"}
 STATE_STYLE = {"waiting": "black on yellow", "doing": "white on blue",
                "done": "black on green", "closed": "white on grey37"}
-
-
-def _when(ts) -> str:
-    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else ""
 
 
 class TaskDetail(Screen):

@@ -33,6 +33,7 @@ import uuid
 from pathlib import Path
 
 from . import agents, ask as askmod, db, paths, team, textsafe, vendors
+from . import timefmt
 from .yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the escalation, so the words are
@@ -291,7 +292,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     if not is_proposal(prop):
         return False, f"{pid} is not a proposal"
     if prop.get("state") == "applied":
-        return False, f"proposal {pid} was already applied on {_when(prop.get('applied'))}"
+        return False, f"proposal {pid} was already applied on {timefmt.stamp(prop.get('applied'), timefmt.DATE_TIME, 'an unknown date')}"
     if prop.get("state") == "withdrawn":
         return False, f"proposal {pid} was withdrawn"
     own = con is None
@@ -412,10 +413,6 @@ def is_open_proposal(rid: int) -> bool:
                for p in listing())
 
 
-def _when(ts) -> str:
-    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "an unknown date"
-
-
 def _add(prop: dict, con) -> tuple[bool, str]:
     name = prop["agent"]
     # The table first: it is the write that can be refused, and a refusal after
@@ -426,7 +423,7 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     agents.register(name, model=prop.get("model"),
                     effort=prop.get("effort"), repo=prop.get("repo"),
                     vendor=prop.get("vendor"),
-                    role=f"Added on {_when(prop.get('created'))} at "
+                    role=f"Added on {timefmt.stamp(prop.get('created'), timefmt.DATE_TIME, 'an unknown date')} at "
                          f"{prop['requested_by']}'s request: {prop['why']}")
     return True, (f"{name} is an agent"
                   + (f", team {prop['team']}" if prop.get("team") else "")

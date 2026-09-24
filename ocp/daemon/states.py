@@ -1,9 +1,9 @@
 """The states an agent is in, what wakes each, and the timing constants the daemon runs on."""
 from __future__ import annotations
 
-import time
 
 from .. import ask as askmod
+from .. import timefmt
 
 
 # Section 8.2 states.
@@ -60,7 +60,7 @@ def park_wakeable(row) -> tuple[bool, str]:
         return False, f"{row['agent']} is moving accounts - it retries on its own shortly"
     if detail.startswith(BY_HAND_MARK):
         return True, ""
-    when = time.strftime("%H:%M", time.localtime(row["wake_at"])) if row["wake_at"] else "?"
+    when = timefmt.stamp(row["wake_at"], timefmt.CLOCK) if row["wake_at"] else "?"
     return False, f"{row['agent']} clears on its own - starts {when} when the window rolls over"
 
 # How long after a limit StopFailure the agent counts as settled.

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from .. import agents
+from .. import timefmt
 from .. import blocked
 from .. import db
 from .. import events
@@ -421,7 +422,7 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
         ok, _ = orca.send(
             handle,
             f"#{head['id']} was delivered to you and is still open, and you have been "
-            f"idle {status.ago(found['idle_s'])}"
+            f"idle {timefmt.ago(found['idle_s'])}"
             + (f" with {behind} more waiting behind it" if behind else "")
             + f". {what}")
         if ok:
@@ -430,7 +431,7 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
         db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
         db.add_event(con, agent, "nudged", {"request_id": head["id"],
                                             "idle_s": found["idle_s"], "behind": behind})
-        log(f"  {agent}: idle {status.ago(found['idle_s'])} with #{head['id']} open and "
+        log(f"  {agent}: idle {timefmt.ago(found['idle_s'])} with #{head['id']} open and "
             f"nothing outstanding - nudged to resolve it")
     return ok
 

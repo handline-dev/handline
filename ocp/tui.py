@@ -24,6 +24,7 @@ from typing import NamedTuple
 
 from . import (accounts, actions, agents, ask as askmod, blocked as blockedmod, db,
                launch, load as loadmod, orca, paths, status, triggers, vendors)
+from . import timefmt
 from .daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, locks as dmn_locks, states as dmn_states
 from . import waiting as promptwait
 from .textsafe import cwidth, drawable, oneline, wrap
@@ -490,7 +491,7 @@ def messages_data(con) -> tuple[str, list[MessageRow], list[str]]:
     for m in waiting:
         # The clock alone made a two-day-old row look like this hour's.
         when = time.strftime(
-            "%H:%M" if time.strftime("%Y%m%d", time.localtime(m["ts"])) == today
+            "%H:%M" if timefmt.stamp(m["ts"], "%Y%m%d") == today
             else "%m-%d", time.localtime(m["ts"]))
         # Same rule as the reading view: what a message says is its text.
         # An escape here is invisible to the width count, so it is never
@@ -525,7 +526,7 @@ def stuck_data(con) -> tuple[str, list[StuckRow]]:
     because their target had no terminal to be told with. Traffic drawn as
     traffic said the system was busy while it was stuck."""
     blocked = actions.stuck(con)
-    rows = [StuckRow(b["agent"], oneline(b["what"]), age(b["age"]) if b["age"] else "",
+    rows = [StuckRow(b["agent"], oneline(b["what"]), timefmt.ago(b["age"]) if b["age"] else "",
                      oneline(b["why"])) for b in blocked]
     return ("STUCK" if blocked else "STUCK — nothing is waiting on anything"), rows
 
@@ -577,7 +578,7 @@ def snapshot() -> str:
            + (f" · {status.SOURCE_LEGEND_SHORT}" if head.legend else "")]
     if head.waits:
         out.append(f"{WAITING_ON_YOU} ({len(head.waits)})")
-        out += [f"  {oneline(w['who'])} · {oneline(w['what'])} · {age(now - w['since'])}"
+        out += [f"  {oneline(w['who'])} · {oneline(w['what'])} · {timefmt.ago(now - w['since'])}"
                 for w in head.waits]
     out += ["", "ACCOUNTS"]
     for r in accounts_:
@@ -614,11 +615,7 @@ def countdown(ts: int | None) -> str:
     left = ts - int(time.time())
     if left <= 0:
         return " due"
-    return status.span(left, precise=True)
-
-
-def age(secs: float | None) -> str:
-    return status.ago(secs)
+    return timefmt.span(left, precise=True)
 
 
 def hidden_urgency(con, names: list[str]) -> tuple[str, int, str] | None:
@@ -969,7 +966,7 @@ def screen_state(con, row) -> tuple[str, str]:
         # not a clock face worth printing - "due" says so the way the
         # countdown this replaced always did.
         until = "due" if row["wake_at"] <= int(time.time()) \
-            else time.strftime("%H:%M", time.localtime(row["wake_at"]))
+            else timefmt.stamp(row["wake_at"], timefmt.CLOCK)
         return "PENDING", until
     # An opencode agent never writes RUNNING - its hooks do not exist - so an
     # agent that IS working sits here in the db and the plain IDLE below would

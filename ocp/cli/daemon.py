@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from .. import actions
+from .. import timefmt
 from .. import blocked as blockedmod
 from ..daemon import devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
 from .. import db
@@ -49,7 +50,7 @@ def _print_waits() -> None:
     now = time.time()
     print(f"{tui.WAITING_ON_YOU} ({len(waits)})")
     for w in waits:
-        print(f"  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · {tui.age(now - w['since'])}")
+        print(f"  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · {timefmt.ago(now - w['since'])}")
     print()
 
 
@@ -81,7 +82,7 @@ def cmd_daemon_status(args) -> int:
             now = int(time.time())
             sessions = obs.live_sessions()
             for r in rows:
-                wake = "-" if not r["wake_at"] else time.strftime("%H:%M", time.localtime(r["wake_at"]))
+                wake = "-" if not r["wake_at"] else timefmt.stamp(r["wake_at"], timefmt.CLOCK)
                 if r["wake_at"] and r["wake_at"] <= now:
                     wake += "!"
                 # A running session with a stale launch is not closed, so it
@@ -117,7 +118,7 @@ def cmd_daemon_status(args) -> int:
             print("\nin-flight handoffs (resume from these steps):")
             for h in flight:
                 print(f"  {h['agent']:<14} step={h['step']:<11} state={h['state']:<10} "
-                      f"deadline={time.strftime('%H:%M:%S', time.localtime(h['deadline']))}")
+                      f"deadline={timefmt.stamp(h['deadline'], '%H:%M:%S')}")
     finally:
         con.close()
     return 0

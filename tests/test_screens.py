@@ -1102,12 +1102,12 @@ def test_a_span_ends_in_its_unit(home: Path) -> None:
             (3600, False, "1h00m"), (35 * 60 + 12, False, "35m"), (10, False, "1m"),
             (35 * 60 + 12, True, "35m12s"), (2 * 60 + 5, True, " 2m05s"),
             (5 * 3600 + 3 * 60, True, "5h03m"), (6 * 86400 + 23 * 3600, True, "6d23h")):
-        got = status.span(secs, precise=precise)
+        got = timefmt.span(secs, precise=precise)
         check(f"span: {secs}s{' precise' if precise else ''} reads {want!r}", got == want, got)
-    check("span: the bridge's age column reads days too", tui.age(162 * 3600 + 20 * 60) == "6d18h"
-          and tui.age(3 * 3600 + 100) == "3h", tui.age(162 * 3600 + 20 * 60))
-    check("span: and so does the stale line's age", status.ago(162 * 3600 + 20 * 60) == "6d18h"
-          and status.ago(3 * 3600) == "3h")
+    check("span: the bridge's age column reads days too", timefmt.ago(162 * 3600 + 20 * 60) == "6d18h"
+          and timefmt.ago(3 * 3600 + 100) == "3h", timefmt.ago(162 * 3600 + 20 * 60))
+    check("span: and so does the stale line's age", timefmt.ago(162 * 3600 + 20 * 60) == "6d18h"
+          and timefmt.ago(3 * 3600) == "3h")
     now = int(time.time())
     for ts, want in ((now + 6 * 86400 + 23 * 3600 + 30, "6d23h"), (now + 5 * 3600 + 200, "5h03m"),
                      (now + 59 * 60 + 59, "59m59s")):
