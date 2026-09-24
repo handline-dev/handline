@@ -2429,7 +2429,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "account list": [["account", "list"], ["account", "list", "--json"]],
             "hr list": [["hr", "list"]], "service logs": [["service", "logs"]],
             "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
-            "command": [["command", "reviewer"]], "org": [["org"]], "rollover": [["rollover", "reviewer"]],
+            "command": [["command", "reviewer"]], "org": [["org"]], "rollover": [["rollover", "reviewer"]], "backup": [["backup"]],
             "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
                        None, "spawn --dry-run")],
             "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
