@@ -456,13 +456,13 @@ teams:
   ops:     [archivist]
 
 agents:
-  product:    { intake: dedicated, model: mid,   weight: light }
-  backend:    { intake: dedicated, model: high,  weight: heavy }
-  frontend:   { intake: dedicated, model: high,  weight: heavy }
-  marketing:  { intake: dedicated, model: mid,   weight: light }
-  analytics:  { intake: dedicated, model: mid,   weight: light }
-  archivist:  { intake: ephemeral, model: cheap, weight: light }
-  reviewer:   { intake: serial,    model: mid,   weight: light, reviews: [eng, growth, product] }
+  product:    { model: mid,   weight: light }
+  backend:    { model: high,  weight: heavy }
+  frontend:   { model: high,  weight: heavy }
+  marketing:  { model: mid,   weight: light }
+  analytics:  { model: mid,   weight: light }
+  archivist:  { model: cheap, weight: light }
+  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }
 
 edges:
   - { from: "*",         to: "reviewer",     relation: peer,  response: async }
@@ -1412,7 +1412,7 @@ def _two_agents_one_slot(home: Path, cap: int = 2) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         f"limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: {cap}\n"
     )
@@ -1515,8 +1515,8 @@ def _board_world(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
     (home / "team.yaml").write_text("""
 agents:
-  manager: { intake: dedicated }
-  worker:  { intake: dedicated }
+  manager: {}
+  worker:  {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
@@ -1604,11 +1604,11 @@ teams:
   halim: [lane.x]
 
 agents:
-  manager:  { intake: dedicated }
-  worker:   { intake: dedicated }
-  boss:     { intake: dedicated }
-  reviewer: { intake: dedicated }
-  lane.x:   { intake: dedicated }
+  manager:  {}
+  worker:   {}
+  boss:     {}
+  reviewer: {}
+  lane.x:   {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }

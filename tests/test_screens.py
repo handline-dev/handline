@@ -849,9 +849,9 @@ def test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(hom
     _daemon_home(home, 20)
     (home / "team.yaml").write_text("""
 agents:
-  orcapipe-manager: { intake: dedicated }
-  orcapipe-manager.chat: { intake: dedicated }
-  other.tool: { intake: dedicated }
+  orcapipe-manager: {}
+  orcapipe-manager.chat: {}
+  other.tool: {}
 edges:
   - { from: "orcapipe-manager", to: "orcapipe-manager.chat", relation: supervisor, response: fire_and_forget }
   - { from: "orcapipe-manager", to: "other.tool", relation: supervisor, response: fire_and_forget }
@@ -904,7 +904,7 @@ def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> Non
         agents.register("hr")
         (home / "team.yaml").write_text("""
 agents:
-  hr: { intake: serial }
+  hr: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
@@ -1310,7 +1310,7 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
 def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
     """One condition per check, so removing any one guard fails a test."""
     use_home(home)
-    (home / "team.yaml").write_text("agents:\n  backend: { intake: dedicated }\n")
+    (home / "team.yaml").write_text("agents:\n  backend: {}\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
     agents.register("backend")
@@ -1550,10 +1550,10 @@ teams:
   dev: [marina, keeper]
 
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
-  keeper:  { intake: dedicated }
-  scout:   { intake: serial }
+  manager: {}
+  marina:  {}
+  keeper:  {}
+  scout:   {}
 
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
@@ -1665,7 +1665,7 @@ teams:
   dev: [marina]
 
 agents:
-  marina: { intake: dedicated }
+  marina: {}
 
 edges:
   - { from: "ghost", to: "dev.*", relation: supervisor, response: fire_and_forget }
@@ -1679,8 +1679,8 @@ edges:
 teams: {}
 
 agents:
-  marina: { intake: dedicated }
-  keeper: { intake: dedicated }
+  marina: {}
+  keeper: {}
 
 edges:
   - { from: "marina", to: "keeper", relation: supervisor, response: fire_and_forget }
@@ -1749,9 +1749,9 @@ def test_a_folded_row_says_what_its_reports_are_doing(home: Path) -> None:
 teams:
   dev: [marina, keeper]
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
-  keeper:  { intake: dedicated }
+  manager: {}
+  marina:  {}
+  keeper:  {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
@@ -1803,10 +1803,10 @@ teams:
   dev: [idle1, lead]
   sub: [worker]
 agents:
-  manager: { intake: dedicated }
-  idle1:   { intake: dedicated }
-  lead:    { intake: dedicated }
-  worker:  { intake: dedicated }
+  manager: {}
+  idle1:   {}
+  lead:    {}
+  worker:  {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "lead", to: "sub.*", relation: supervisor, response: fire_and_forget }

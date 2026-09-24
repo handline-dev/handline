@@ -99,7 +99,9 @@ def test_ask_flow(home: Path) -> None:
     inbox_file = home / "agents" / "reviewer" / "inbox" / f"{rid:06d}.json"
     check("ask: writes an inbox file", inbox_file.exists())
     payload = json.loads(inbox_file.read_text())
-    check("ask: inbox payload carries routing", payload["intake"] == "serial", str(payload))
+    check("ask: inbox payload carries routing",
+          payload["response"] == "async" and "intake" not in payload, str(payload))
+    check("ask: the queued line names no intake", "intake" not in msg, msg)
 
     ok, msg, _ = askmod.ask("marketing", "do this", requester="backend")
     check("ask: denied edge refuses", not ok and "product" in msg, msg)
@@ -388,7 +390,7 @@ def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path)
 def test_ask_rate_limit(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 3\n"
     )
@@ -464,7 +466,7 @@ def test_rate_limit_throttles(home: Path) -> None:
     rather than needing a human the way a task defect does (section 8.6)."""
     use_home(home)
     (home / "team.yaml").write_text(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 2\n"
     )
@@ -1698,9 +1700,9 @@ def test_growing_the_team_needs_a_person(home: Path) -> None:
 teams:
   dev: [marina]
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
-  hr:      { intake: serial }
+  manager: {}
+  marina:  {}
+  hr:      {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "hr", relation: peer, response: async }
@@ -1812,8 +1814,8 @@ edges:
 teams:
   dev: [marina]
 agents:
-  harbor-manager: { intake: dedicated }
-  marina:         { intake: dedicated }
+  harbor-manager: {}
+  marina:         {}
 edges:
   - from: harbor-manager
     to: marina
@@ -1869,7 +1871,7 @@ def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
 teams:
   dev: [marina]
 agents:
-  marina:  { intake: dedicated }
+  marina:  {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
@@ -2119,7 +2121,7 @@ def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) ->
     agents.register("hr")
     (home / "team.yaml").write_text("""
 agents:
-  hr: { intake: serial }
+  hr: {}
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
@@ -4965,9 +4967,9 @@ def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> No
     use_home(home)
     (home / "team.yaml").write_text("""
 agents:
-  reviewer: { intake: dedicated }
-  backend:  { intake: dedicated }
-  frontend: { intake: dedicated }
+  reviewer: {}
+  backend:  {}
+  frontend: {}
 
 edges:
   - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
@@ -5129,8 +5131,8 @@ def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
         # (ask.py's own retire, not a hand-built row) is what is measured.
         (home / "team.yaml").write_text("""
 agents:
-  manager: { intake: dedicated }
-  worker:  { intake: dedicated }
+  manager: {}
+  worker:  {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }

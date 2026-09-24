@@ -21,7 +21,7 @@ def test_trust_roots(home: Path) -> None:
     against exactly that list."""
     use_home(home)
     (home / "team.yaml").write_text(
-        "agents:\n  backend: { intake: dedicated }\n"
+        "agents:\n  backend: {}\n"
         'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
     agents.register("backend")
     root = home / "repos" / "widget"

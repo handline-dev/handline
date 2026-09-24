@@ -2887,8 +2887,8 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
 teams:
   dev: [marina]
 agents:
-  manager: { intake: dedicated }
-  marina:  { intake: dedicated }
+  manager: {}
+  marina:  {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "dev.*", to: "manager", relation: subordinate, response: fire_and_forget }
