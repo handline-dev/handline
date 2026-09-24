@@ -659,13 +659,25 @@ NUDGE_RETRY_S = 60
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """The head of this agent's queue, if it looks like a resolve nobody wrote.
 
-    IDLE with a live terminal, the head delivered and told and still open, and
-    nothing the agent asked that is still unanswered - which is what separates
-    a request forgotten from one being waited on, since an agent waiting on an
-    answer is also IDLE with its head open. Idle time counts from the later of
-    its last activity and the delivery.
+    IDLE or QUEUED with a live terminal, the head delivered and told and
+    still open, and nothing the agent asked that is still unanswered - which
+    is what separates a request forgotten from one being waited on, since an
+    agent waiting on an answer is also IDLE (or QUEUED) with its head open.
+    Idle time counts from the later of its last activity and the delivery.
+
+    QUEUED is admitted too (task #83): it means only "something is queued
+    for this agent", not that this same head is untold - `_session_changed`
+    already tells the two apart in `deliver_queued`/`work_waiting`, so a
+    QUEUED agent whose head was told in its current session and then sat
+    idle is exactly the same forgotten resolve as an IDLE one, whatever set
+    QUEUED (a move, an unstall, a reply, `ocp ask` - only a fresh prompt
+    clears it, and Stop only clears RUNNING). Without this, that agent's
+    queue never gets a nudge and never surfaces on `blocked.py` either
+    (`work_waiting` reads this same function): the founder's #2284/#2286
+    trace sat parked-then-QUEUED with a told head, idle six hours, and
+    nothing anywhere said so.
     """
-    if not row or row["state"] != IDLE or row["closed_at"] or not row["terminal"]:
+    if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
     head = db.head_of_queue(con, agent)
     if not head or not head["delivered_at"] \
@@ -847,10 +859,10 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     Closing is about the machine, not the account, so the question is whether
     anyone is using this session and whether we can bring it back. Six things
     say no: it is working or being handed off, a human has to look at it,
-    someone is waiting on it, it has been busy recently, we cannot name the
-    session we would resume, or a close of it failed within the last idle
-    window. Anything else is a session whose only job right now
-    is to occupy 250-500MB.
+    someone is waiting on it (unless it is PARKED, task #83), it has been
+    busy recently, we cannot name the session we would resume, or a close of
+    it failed within the last idle window. Anything else is a session whose
+    only job right now is to occupy 250-500MB.
 
     The session id is the asymmetric trade: memory is recoverable the moment
     anything wants it, and a working context is not recoverable at all. Closing
@@ -861,7 +873,18 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
         return False
     if not row or row["closed_at"] or not row["terminal"]:
         return False
-    if db.queued_for(con, agent):
+    # Everywhere else, work waiting is a reason to keep the session hot: it is
+    # about to be delivered this same tick, in `supervise`'s `deliver_queued`
+    # call, which runs before this one does. A PARKED agent already had that
+    # chance in the same tick - a quiet park re-parks over it, a usage/forced
+    # park is walled (`wall_reason`), and a context/backoff/hand park with an
+    # open session was delivered to just now, same as an IDLE one - so by the
+    # time this runs, refusing over the queue only holds a session open that
+    # either could not be, or already was, given its one shot this tick (task
+    # #83: a quiet-hours park sat open the whole window on that account,
+    # never delivered to and never closed, with two asks queued for it).
+    # Waking a closed PARKED agent resumes the same session either way.
+    if db.queued_for(con, agent) and state != PARKED:
         return False          # work is waiting; closing would only delay it
     if not st.session_id:
         return False          # nothing to resume; losing the context costs more

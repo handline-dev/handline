@@ -22238,6 +22238,122 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         con.close()
 
 
+def test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_as_idle(
+        home: Path) -> None:
+    """#83 (founder #2284/#2286/#2287), the production trace: keeper's head
+    (#2200) was already delivered and told, then a later wake moved it from
+    PARKED to QUEUED without retyping anything - QUEUED means only "something
+    is queued for this agent", not that the current head is untold. Idle for
+    six hours after that with nothing else outstanding is exactly the
+    forgotten-resolve case `forgotten_resolve` already catches for IDLE - it
+    only excluded QUEUED, so nothing ever reminded it and it never surfaced
+    on `blocked.py` either, which reads this same function. Auditor #2296
+    measured it live: keeper's queue never moved because of this, not
+    because of any silent wake."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send)
+    sent: list[str] = []
+    sessions_are("backend")
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        now = int(time.time())
+        head = db.add_request(con, "marina", "backend", "carry on", None,
+                              "peer", "async", None, 0, None)
+        db.add_request(con, "marina", "backend", "and this too", None,
+                       "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn.NUDGE_AFTER_S - 60,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn.NUDGE_AFTER_S - 60, head))
+        # QUEUED, not IDLE - a wake, a move, an unstall or a reply can all
+        # leave an agent here with its own head already told.
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+
+        ok = dmn.nudge_forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"),
+                                         now, lambda _m: None)
+        check("queued nudge: it is typed for a QUEUED agent, same as an IDLE one",
+              ok and sent, str(sent))
+        check("queued nudge: names the head and the one behind it",
+              sent and f"#{head}" in sent[0] and "1 more waiting" in sent[0], str(sent))
+        check("queued nudge: the state and the queue are untouched by the nudge itself",
+              db.get_agent_state(con, "backend")["state"] == dmn.QUEUED
+              and db.get_request(con, head)["state"] == "queued")
+    finally:
+        orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send = real
+        con.close()
+
+
+def test_a_queued_agents_blocked_reminder_surfaces_like_an_idle_ones(home: Path) -> None:
+    """The other half of #83: `blocked.py`'s own row for a reminder that
+    cannot land (`test_a_reminder_a_dialog_blocks_is_said` above, for IDLE)
+    reads `forgotten_resolve` through `work_waiting` - so once that admits
+    QUEUED, a QUEUED agent whose reminder is blocked by a dialog gets the
+    same `delivery_blocks` row, the same bridge line, and the same
+    escalation at `ESCALATE_AFTER_S` that an IDLE one already does."""
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    sessions_are("backend")
+    con = db.connect()
+    now = int(time.time())
+    try:
+        db.set_agent_state(con, "backend", dmn.QUEUED)
+        head = db.add_request(con, "marina", "backend", "the first thing", None,
+                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, head)
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 3600,))
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - 3600, head))
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"Continue?"')
+        blockedmod.sweep(con, lambda _m: None, now)
+        rec = db.block_get(con, "backend")
+        check("queued reminder: a dialog on a QUEUED agent's screen is recorded too",
+              rec and rec["kind"] == "modal" and rec["detail"] == '"Continue?"'
+              and f"reminder to resolve #{head}" in rec["work"], str(rec and dict(rec)))
+    finally:
+        con.close()
+
+
+def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) -> None:
+    """#83: a PARKED agent already had its one chance at delivery this same
+    tick - `deliver_queued` runs before `should_close` in `supervise`, and a
+    quiet park re-parks over it, a usage/forced park is walled, and a
+    context/backoff/hand park with an open session was just delivered to -
+    so by the time `should_close` runs, refusing over the queue only holds a
+    session open that either could not be delivered to, or already was
+    (task #83: a quiet-hours park sat open the whole window, undelivered and
+    unclosed, with two asks queued for it). A closed PARKED agent's wake
+    already resumes the same session by its own session id (`_wake_agent`'s
+    `closed` branch), so nothing about waking it back up is worse for having
+    been closed."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.add_request(con, "marina", "backend", "carry on", None,
+                       "peer", "async", None, 0, None)
+        row = db.get_agent_state(con, "backend")
+        st = status.AccountStatus("alpha", exists=True, session_id="sess-1")
+        check("parked+queued close: an IDLE agent with queued work is not closed - "
+              "it is about to be delivered to instead",
+              not dmn.should_close(con, "backend", dmn.IDLE, row, int(time.time()) + 10_000, st))
+        check("parked+queued close: a PARKED agent with the same queued work is - "
+              "it already had its one shot at delivery this tick",
+              dmn.should_close(con, "backend", dmn.PARKED, row, int(time.time()) + 10_000, st))
+    finally:
+        con.close()
+
+
 def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
     """The cursor on claude's folder-trust screen defaults to "No, exit" - a
     handoff typed there, followed by Enter, chooses exit every time, and the
@@ -27528,6 +27644,12 @@ def main() -> int:
         run(lambda: test_a_parked_row_with_no_fingerprint_also_relaunches(Path(td) / 'nofp'))
         run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))
         run(lambda: test_a_drifted_wake_that_cannot_relaunch_says_why(Path(td) / 'driftlog'))
+        run(lambda: test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_as_idle(
+            Path(td) / 'queuednudge'))
+        run(lambda: test_a_queued_agents_blocked_reminder_surfaces_like_an_idle_ones(
+            Path(td) / 'queuedblocked'))
+        run(lambda: test_a_parked_agent_with_queued_work_is_still_closed_while_idle(
+            Path(td) / 'parkedqueuedclose'))
         run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
         run(lambda: test_a_closed_agents_relaunch_stops_at_the_trust_screen(Path(td) / 'trustclosed'))
