@@ -375,9 +375,9 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         # link on a still-queued row, never an answered row attached to nothing.
         record_human_resolve(con, rid, tasks, no_task, me)
     # Closed, not announced: a dismissal is not an answer, so nothing is typed
-    # at the asker. An async asker is still woken by the close itself
-    # (`_after_close` queues it), and resolve() stamps announced_at in the same
-    # write as the state change.
+    # at the asker. An async asker that was parked goes back to idle
+    # (`_after_close`), and resolve() stamps announced_at in the same write as
+    # the state change.
     ok, msg = askmod.resolve(rid, None, state="done", notify=False,
                              dismissed_by=by, dismissed_reason=reason)
     return ok, f"{msg} (dismissed; {row['requester']} is not told)"

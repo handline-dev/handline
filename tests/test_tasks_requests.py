@@ -2919,10 +2919,20 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
             parked2 = db.add_request(con, "marina", actions.HUMAN, "which one?", None,
                                      "peer", "async", None, 0, None)
             actions.dismiss(con, parked2)
-            check("mailbox: nor is a parked one told; its close still queues it to run",
+            check("mailbox: nor is a parked one told; with nothing else waiting it is idle",
                   not woken and not delivered
-                  and db.get_agent_state(con, "marina")["state"] == dmn.QUEUED,
+                  and db.get_agent_state(con, "marina")["state"] == dmn.IDLE,
                   f"woken={woken} delivered={delivered}")
+            other = db.add_request(con, "marina", "reviewer", "another?", None,
+                                   "peer", "async", None, 0, None)
+            db.close_if_queued(con, other, "done", "yes")
+            parked3 = db.add_request(con, "marina", actions.HUMAN, "which now?", None,
+                                     "peer", "async", None, 0, None)
+            actions.dismiss(con, parked3)
+            check("mailbox: with another answer untold it reads QUEUED, and only for that",
+                  db.get_agent_state(con, "marina")["state"] == dmn.QUEUED
+                  and [r["id"] for r in db.unannounced_answers(con, "marina")] == [other],
+                  str(dict(db.get_agent_state(con, "marina"))))
 
             # #264: resolve(notify=False) committed 'done' with announced_at
             # still NULL, and dismiss stamped it afterwards with its own
