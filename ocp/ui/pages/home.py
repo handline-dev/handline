@@ -39,6 +39,7 @@ class HomePage(Dashboard):
     def __init__(self) -> None:
         super().__init__()
         self.tab = "home"
+        self._hr_dot = False           # whether the HR tab wears its dot
         self._on = True                 # the blink phase
         self._blinking: dict = {}       # agent -> its AgentRow, for the rows that blink
 
@@ -148,17 +149,17 @@ class HomePage(Dashboard):
         super()._draw_agents()
 
     def _count_hr(self) -> None:
-        """The HR tab says how many proposals wait on the founder, so it is seen from
-        the other tabs."""
+        """The HR tab wears a red dot while a proposal waits on the founder, so it is
+        seen from the other tabs."""
         con = db.connect()
         try:
             n = len(open_proposals(con))
         finally:
             con.close()
-        label = f"HR ({n})" if n else "HR"
-        tab = self.query_one("#scope", Tabs).get_tab("hr")
-        if str(tab.label) != label:
-            tab.label = label
+        if (n > 0) != self._hr_dot:
+            self._hr_dot = n > 0
+            self.query_one("#scope", Tabs).get_tab("hr").label = (
+                Text.assemble("HR", (" ●", "bold red")) if n else Text("HR"))
 
     def _blink(self) -> None:
         """Flip the phase and repaint only the cells that blink; a redraw would read
