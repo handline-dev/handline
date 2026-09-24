@@ -26,8 +26,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import accounts, agents, db, digest, events as evmod, paths, status, textsafe
-from . import timefmt
+from . import accounts, agents, db, digest, events as evmod, gitrun, paths, status, textsafe, timefmt
 
 FOLD_TIMEOUT_S = 180
 
@@ -49,13 +48,10 @@ def _git(args: list[str], cwd: Path, strip: bool = True) -> str:
     columns wide and the first can be a space, so stripping the whole output
     eats a character off the first filename.
     """
-    try:
-        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=15)
-        if r.returncode != 0:
-            return ""
-        return r.stdout.strip() if strip else r.stdout.rstrip("\n")
-    except (OSError, subprocess.SubprocessError):
+    rc, out, _ = gitrun.run(cwd, *args)
+    if rc != 0:
         return ""
+    return out.strip() if strip else out.rstrip("\n")
 
 
 def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:

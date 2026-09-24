@@ -2617,17 +2617,20 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
         "accounts.py": "parses subscriptionType and email out of "
                        "`claude auth status`; both are Anthropic's own auth output "
                        "and the user's own email, never text an agent wrote",
+        "vendors/claude.py": "reads the email and subscriptionType out of `claude auth "
+                             "status`, the same auth output accounts.py parses; the "
+                             "rest of what it returns is a bool or a parsed field",
         "service.py": "launchctl's own error text - a macOS tool's output, not "
                       "anything an agent chose, and the least reachable of these",
     }
     named, clean = [], []
-    for f in sorted((ROOT / "ocp").glob("*.py")) + sorted((ROOT / "ocp" / "daemon").glob("*.py")):
+    for f in sorted((ROOT / "ocp").rglob("*.py")):
         if f.name == "textsafe.py":
             continue
         tree = ast.parse(f.read_text())
         if not (_touches_subprocess_text(tree) and _builds_a_returned_message(tree)):
             continue
-        (clean if _imports_textsafe(tree) else named).append(f.name)
+        (clean if _imports_textsafe(tree) else named).append(str(f.relative_to(ROOT / "ocp")))
     check("boundary: every module returning subprocess text as a message imports "
           "textsafe, or is exempt with a reason",
           not (set(named) - set(exempt)), str(sorted(set(named) - set(exempt))))
@@ -2636,10 +2639,11 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
           not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
     # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
     # (hr never touches a subprocess at all; the other three do and are clean),
-    # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones
-    # this branch touched.
+    # and orca.py/spawn.py are exactly the ones this branch touched (drift, fold
+    # and handoff read git through gitrun, which hands the text back untouched
+    # for them to sanitise).
     check("boundary: the modules this branch closed are the ones found dirty",
-          {"orca.py", "spawn.py", "drift.py", "fold.py", "handoff.py"} <= set(clean),
+          {"orca.py", "spawn.py"} <= set(clean),
           str(clean))
 
     # Proof by mutation: the same two functions, run on synthetic source, so
