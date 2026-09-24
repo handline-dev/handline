@@ -2106,13 +2106,13 @@ edges:
         # and _pre_schema_migrate's) reads as a writer too.
         import ast
         import re
-        db_src = (ROOT / "ocp" / "db.py").read_text()
-        db_tree = ast.parse(db_src)
+        db_funcs = [n for f in sorted((ROOT / "ocp" / "db").glob("*.py"))
+                    for n in ast.parse(f.read_text()).body]
         set_clause_re = re.compile(r"UPDATE\s+requests\s+SET\s+(.*?)(?:\bWHERE\b|$)",
                                    re.S | re.I)
         state_col_re = re.compile(r"(^|[\s,])state\s*=")
         guarded_writers, unguarded_writers = set(), set()
-        for n in db_tree.body:
+        for n in db_funcs:
             if not isinstance(n, ast.FunctionDef):
                 continue
             writes_state = False
@@ -2130,7 +2130,7 @@ edges:
                 and c.func.id == "_would_strand_a_proposal"
                 for c in ast.walk(n))
             (guarded_writers if calls_guard else unguarded_writers).add(n.name)
-        check("chokepoint: every db.py function writing requests.state "
+        check("chokepoint: every db function writing requests.state "
               "calls _would_strand_a_proposal",
               not unguarded_writers and guarded_writers ==
               {"retire_queued", "close_if_queued", "retire_if_undelivered"},
