@@ -1254,6 +1254,26 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
         con.close()
 
 
+def test_the_task_page_offers_discard_only_on_the_founders_unfinished_task() -> None:
+    from ocp import chat_page as cp
+    _home("discardable")
+    con = db.connect()
+    try:
+        mine = db.new_task(con, "mine", "backend", actions.HUMAN)
+        theirs = db.new_task(con, "theirs", "backend", "orcapipe")
+        done = db.new_task(con, "done", "backend", actions.HUMAN)
+        con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (done,))
+        con.commit()
+        can = {tid: cp.task_detail(con, tid)["can_discard"] for tid in (mine, theirs, done)}
+        check("discard: offered on a task the founder asked for that is not done",
+              can == {mine: True, theirs: False, done: False}, str(can))
+        ok, said = actions.discard_task(con, mine, actions.HUMAN, "not needed")
+        check("discard: the button's action discards it", ok, said)
+        check("discard: and a discarded task is not offered again", not cp.task_detail(con, mine)["can_discard"])
+    finally:
+        con.close()
+
+
 def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     from ocp import chat_page as cp
     home = _home("settings")
@@ -1314,6 +1334,7 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_the_tasks_table_lists_owned_and_opened_and_sorts()
+    test_the_task_page_offers_discard_only_on_the_founders_unfinished_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
     await test_a_confirm_on_screen_ignores_an_arrow_and_answers_n()

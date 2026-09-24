@@ -146,7 +146,7 @@ def tasks_of(con, agent: str) -> list[tuple]:
 
 def task_detail(con, tid: int) -> dict | None:
     """A task as what its page shows: its own fields, the sub-tasks and
-    requests tied to it, and which of close and reopen the human may do now.
+    requests tied to it, and which of close, reopen and discard the human may do now.
     None when there is no such task."""
     t = db.get_task(con, tid)
     if t is None:
@@ -168,7 +168,8 @@ def task_detail(con, tid: int) -> dict | None:
             "closed": (t["closed_by"], t["closed_at"]) if t["closed_by"] else None,
             "children": kids, "requests": reqs, "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
-            "can_reopen": state == "done" and mine}
+            "can_reopen": state == "done" and mine,
+            "can_discard": state in ("waiting", "doing") and mine}
 
 
 EDITABLE = ("model", "effort", "weight", "repo")
@@ -600,10 +601,11 @@ class ActionBar(Horizontal):
 class TaskDetail(Screen):
     """One task: its title and state, who has it, what it grew out of, its
     sub-tasks and requests, and the two calls the human may make on it - close
-    a done task, or send it back with a reason."""
+    a done task, send it back with a reason, or discard one that is not done."""
     BINDINGS = [Binding("escape", "app.pop_screen", "back"),
                 Binding("c", "close_task", "close"),
-                Binding("r", "reopen_task", "reopen")]
+                Binding("r", "reopen_task", "reopen"),
+                Binding("d", "discard_task", "discard")]
 
     def __init__(self, tid: int) -> None:
         super().__init__()
@@ -624,6 +626,7 @@ class TaskDetail(Screen):
         with ActionBar(id="t_actions"):
             yield Button("Close  c", id="close", variant="success", compact=True)
             yield Button("Reopen  r", id="reopen", variant="warning", compact=True)
+            yield Button("Discard  d", id="discard", variant="error", compact=True)
 
     def on_mount(self) -> None:
         self.sub_title = f"task #{self.tid}"
@@ -647,6 +650,7 @@ class TaskDetail(Screen):
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
         self.query_one("#close", Button).disabled = not d["can_close"]
         self.query_one("#reopen", Button).disabled = not d["can_reopen"]
+        self.query_one("#discard", Button).disabled = not d["can_discard"]
 
     def action_open_task(self, tid: int) -> None:
         self.app.push_screen(TaskDetail(tid))
@@ -707,9 +711,26 @@ class TaskDetail(Screen):
                 self.report("reopen", ok, said)
         self.app.push_screen(TextPrompt("reopen - why?"), answered)
 
+    def action_discard_task(self) -> None:
+        if not (self.d and self.d["can_discard"]):
+            self.query_one("#t_flash", Static).update("only a task that you asked for and that is not done can be discarded")
+            return
+
+        def answered(reason: str | None) -> None:
+            log_action(f"task #{self.tid} discard: reason {'given' if reason and reason.strip() else 'not given'}")
+            if reason and reason.strip():
+                con = db.connect()
+                try:
+                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
+                finally:
+                    con.close()
+                self.report("discard", ok, said)
+        self.app.push_screen(TextPrompt("discard - why?"), answered)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
         {"close": self.action_close_task, "reopen": self.action_reopen_task,
+         "discard": self.action_discard_task,
          "back": self.app.pop_screen}[event.button.id]()
 
 
