@@ -169,8 +169,8 @@ def test_quiet_hours_blocks_only_a_claude_agent_with_the_flag_on(home: Path) -> 
     the flag is on."""
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
-    agents.register("coder", "alpha", vendor="opencode")
+    agents.register("backend")
+    agents.register("coder", vendor="opencode")
     in_window = _pt_epoch(2026, 9, 21, 7, 0)
     out_of_window = _pt_epoch(2026, 9, 21, 12, 0)
 
@@ -2433,7 +2433,7 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
     as before this fix."""
     _daemon_home(home, 20)
     accounts.register("beta")
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     con = db.connect()
     real = orcamod.available
     try:
@@ -2855,7 +2855,7 @@ def test_hooks_report_activity(home: Path) -> None:
     """
     orcamod.live_terminals = lambda: None    # doctor.run() below asks Orca; nothing here is about it
     use_home(home)
-    agents.register("hooky", "alpha")
+    agents.register("hooky")
     env = dict(os.environ, OCP_AGENT="hooky", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
 
     con = db.connect()
@@ -2978,7 +2978,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
     set, the unchanged usage would trigger again, and the agent would hand off
     in a loop - which is exactly what happened: 42 folds in seven minutes."""
     use_home(home)
-    agents.register("loopy", "alpha")
+    agents.register("loopy")
     env = dict(os.environ, OCP_AGENT="loopy", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
 
     con = db.connect()

@@ -67,7 +67,7 @@ def test_event_allowlist() -> None:
 def test_fold(home: Path) -> None:
     use_home(home)
     (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
+    agents.register("backend")
 
     con = db.connect()
     try:
@@ -239,7 +239,7 @@ def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_has
 
 def test_rollover(home: Path) -> None:
     use_home(home)
-    agents.register("backend", "alpha")
+    agents.register("backend")
     yesterday = "2000-01-01"
     foldmod.journal_path("backend", yesterday).write_text(digest.render(digest.Digest(
         date=yesterday, agent="backend", updated="23:59", folded_through=7,
@@ -363,7 +363,7 @@ def test_a_rejected_fold_still_records_what_it_spent(home: Path) -> None:
     account off the failure made the spend reconstructable for the folds that
     worked and blank for the ones that went wrong."""
     use_home(home)
-    agents.register("spender", "alpha")
+    agents.register("spender")
     con = db.connect()
     real = foldmod.run_model
     try:
@@ -493,7 +493,7 @@ def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
     """The machine record in a digest counts turn boundaries and quotes what
     happened, instead of repeating one event kind sixteen times."""
     use_home(home)
-    agents.register("backend", "alpha")
+    agents.register("backend")
     now = int(time.time())
     events = [{"id": i, "ts": now, "kind": "SubagentStop", "payload": "{}"} for i in range(20)]
     events.append({"id": 99, "ts": now, "kind": "commit", "payload": '{"sha": "abc"}'})

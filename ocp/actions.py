@@ -1295,11 +1295,8 @@ def _delivery_block(con, agent: str, sessions: dict | None,
         return f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
     if handles is not None and handle not in handles:
         return f"{agent}'s terminal is gone - Orca no longer has it", False
-    try:
-        acct = agents.current_account(agent, con)
-        pct = status.read(acct).trusted_pct_5h
-    except Exception:  # noqa: BLE001
-        acct, pct = "?", None
+    acct = agents.current_account(agent, con)
+    pct = status.read(acct).trusted_pct_5h if acct else None
     if row["closed_at"]:
         if pct is not None and pct >= status.PCT_5H_BLOCK:
             return (f"{agent} is closed and {acct} is at {pct}% - it cannot be "
@@ -1581,12 +1578,6 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
             vendors.for_account(acct).login_argv(), accounts.env_for(acct))
 
 
-def move(con, agent: str, account: str) -> str:
-    """Force this agent's live session onto `account`, recording its handoff first."""
-    ok, msg = daemon.force_move(con, agent, account, "human (bridge)", lambda _m: None)
-    return msg
-
-
 def can(con, agent: str, key: str) -> tuple[bool, str]:
     """Whether an action is worth offering for this agent, and why not.
 
@@ -1643,13 +1634,6 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         # terminal. An agent whose terminal is gone is one of the likelier ones
         # to want folded.
         return (False, busy_why) if busy else (True, "")
-    if key == "move":
-        if closed or not row["terminal"]:
-            return False, (f"{agent} has no live session to move - it starts on its "
-                           f"preferred account")
-        if state in (daemon.HANDOFF, daemon.STALLED):
-            return False, f"{agent} is {state}"
-        return True, ""
     if key == "start":
         if row["terminal"]:
             return False, (f"{agent} already has a terminal ({row['terminal']}) - "
@@ -1927,13 +1911,7 @@ def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str
     except Exception as e:  # noqa: BLE001
         return [("", [f"config error: {e}"])]
     st = status.read_for_agent(agent, acct)
-    # Where it is, and - when they differ - where it would rather be. agent.yaml
-    # is a preference: a session started while that account was at the wall is
-    # on another one, and a reader who only saw the preference would be watching
-    # an account the agent is not spending on.
-    prefers = agents.account_of(agent)
-    where = acct if acct == prefers else f"{acct} (prefers {prefers})"
-    head = [Fact(("account", where), ("model", str(cfg.get("model"))),
+    head = [Fact(("account", acct or "-"), ("model", str(cfg.get("model"))),
                  ("effort", cfg.get("effort") or agents.DEFAULT_EFFORT),
                  ("ctx", "?" if st.ctx_pct is None else str(st.ctx_pct) + "%"))]
     if row:
@@ -2039,7 +2017,7 @@ def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]
     head.append("spend    " + ("nothing running to read it from" if live is None else
                                f"${live:.2f} across the sessions running now - not the "
                                f"account's total, which nothing here can see"))
-    mine = [a for a in paths.list_agents() if _account_of(a, con) == acct]
+    mine = [a for a in paths.list_agents() if agents.current_account(a, con) == acct]
     rows = []
     for a in mine:
         row = db.get_agent_state(con, a)
@@ -2047,19 +2025,6 @@ def account_detail(con, acct: str, logged_in=None) -> list[tuple[str, list[str]]
         rows.append(f"{a:<12}{(row['state'] if row else 'never started')}{closed}"
                     f"   {(row['detail'] if row else '') or ''}")
     return [("", head), (f"AGENTS ON IT ({len(mine)})", rows or ["none"])]
-
-
-def _account_of(agent: str, con=None) -> str | None:
-    """Where this agent's session is, for the list of who is on an account.
-
-    The live account, like every other runtime reading: an agent that moved is
-    on the account it moved to, and listing it under the one it left puts it a
-    keystroke away from its own page saying otherwise.
-    """
-    try:
-        return agents.current_account(agent, con)
-    except Exception:  # noqa: BLE001 - an unreadable agent belongs to no account here
-        return None
 
 
 def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -2127,7 +2092,7 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
 # runs, what it can be waiting for and how long the longest of those waits is.
 # The verbs are the ones a key on the bridge acts with; nothing else can be asked.
 ASYNC_VERBS = ("wake", "close", "park", "fold", "unstall", "terminal", "message", "answer",
-               "dismiss", "cancel", "move", "chat_reply")
+               "dismiss", "cancel", "chat_reply")
 
 _IDLE_WAIT_S = orca.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
 _DELIVERY_S = daemon.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
@@ -2142,7 +2107,6 @@ WAITS: dict[str, tuple[str, int]] = {
     "close": ("it to finish its turn, then its session to end",
               _IDLE_WAIT_S + 30 + daemon.END_WAIT_S + 15),
     "park": ("its handoff to be recorded and its context cleared", _DELIVERY_S),
-    "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
     "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),
     "terminal": ("a terminal to be made and its session to start",
                  120 + STARTED_TIMEOUT_S + _IDLE_WAIT_S),

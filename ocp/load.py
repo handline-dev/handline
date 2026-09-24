@@ -90,11 +90,9 @@ def active_by_account(con) -> dict[str, list[str]]:
         "AND m.kind = 'moved_account' AND m.id > COALESCE((SELECT MAX(s.id) FROM events s "
         "WHERE s.agent = agent_state.agent AND s.kind = 'Stop'), 0)))").fetchall()
     for row in rows:
-        try:
-            acct = agents.current_account(row["agent"], con)
-        except Exception:  # noqa: BLE001 - one agent's bad config is not the pick's problem
-            continue
-        found.setdefault(acct, []).append(row["agent"])
+        acct = agents.current_account(row["agent"], con)
+        if acct:
+            found.setdefault(acct, []).append(row["agent"])
     return found
 
 
@@ -105,22 +103,23 @@ def is_running(row) -> bool:
 
 
 def roster(con) -> tuple[dict[str, tuple[int, int]], int]:
-    """(assigned, running) per account, and how many agents could not be placed.
+    """(assigned, running) per account, and how many agents could not be read.
 
-    An agent belongs to the account the AGENTS panel's acct column names, where
-    it actually is, not the one it would prefer, and only if the panel can draw
-    it: `agents.placed` is the panel's own test, so an agent it draws as a
-    config error is not counted on any account. Assigned is every agent placed
-    there, running or not; running is those of them `is_running`. An agent that
-    is not placed is returned as a count of its own: every figure is then a
-    floor, and the caller says so."""
+    An agent belongs to the account its session is on; one that has never run
+    is on none. Assigned is every agent there, running or not; running is those
+    of them `is_running`. An agent whose config cannot be read is drawn as a
+    config error and counted on no account: it is returned as a count of its
+    own, every figure is then a floor, and the caller says so."""
     found: dict[str, list[int]] = {}
     unplaced = 0
     for name in paths.list_agents():
         try:
-            acct, _ = agents.placed(name, con)
+            agents.read(name)
         except Exception:  # noqa: BLE001 - the AGENTS panel draws it as a config error
             unplaced += 1
+            continue
+        acct = agents.current_account(name, con)
+        if not acct:
             continue
         counts = found.setdefault(acct, [0, 0])
         counts[0] += 1

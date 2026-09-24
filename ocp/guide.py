@@ -12,7 +12,6 @@ TOPICS = {
   ocp account add <name>           register it and log it in (a human types the login)
   ocp account remove <name>        log it out and move it aside; refused while an agent is on it
   ocp account list                 usage, agents assigned and running, and whether it is assignable
-  ocp agent move <agent> <account> record its handoff, end its live session and start fresh there, making it the preferred account (a human's call; also v on the bridge)
 
 ocp never reads, writes or copies credentials. A refresh token rotates on
 single use, so two copies of one credential invalidate each other.""",
@@ -41,15 +40,14 @@ past the age we will assign on - still a floor for triggers, no new work.
 
 Design section 4 has the five cases and why only one of them is fail-closed.
 
-An agent's account is a preference. A session starts on it unless what is known
-says it is a bad place to start - at the wall, at its cap of agents mid-turn
-(`ocp account cap`), or filling so fast one more agent would not last half an
-hour - and on the best account that qualifies when it is; the state row records
-where it went, and `ocp bridge` shows that rather than the preference.
-Nothing moves a live session below the wall unless a person orders it (`ocp
-agent move`). At the wall an agent moves only if work is waiting and its account
-resets too late to wait for, once, and a resume always goes back to the account
-its session lives on.""",
+No agent has an account of its own: a session starts on the best account that
+has room - not at the wall, not at its cap of agents mid-turn (`ocp account
+cap`), not filling so fast one more agent would not last half an hour - and the
+state row records where it went, which `ocp bridge` shows. With no room the work
+waits, and the refusal names the account that frees up first. Nothing moves a
+live session below the wall. At the wall an agent moves only if work is waiting
+and its account resets too late to wait for, once, and a resume always goes
+back to the account its session lives on.""",
     "work": """giving an agent work
   ocp team                        who you may ask, and what they are doing
   ocp ask <agent> "<task>"        queue it

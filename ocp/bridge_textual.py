@@ -299,19 +299,6 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> 
             return
         screen.flash = screen._start("terminal", name, f"starting {name}", (name, repo.strip()))
         return
-    if label == "move":
-        dest = await screen.app.push_screen_wait(TextPrompt(f"move {name} to which account:"))
-        if not dest:
-            screen.flash = "not moved"
-            return
-        dest = dest.strip()
-        if not await screen.app.push_screen_wait(
-                Confirm(f"move {name} to {dest} - records its handoff, ends its session, "
-                        f"and makes {dest} its preferred account")):
-            screen.flash = "left alone"
-            return
-        screen.flash = screen._start("move", name, f"moving {name} to {dest}", (name, dest))
-        return
     if tui._needs_confirm(con, name, label):
         if not await screen.app.push_screen_wait(Confirm(f"{label} {name}")):
             screen.flash = "left alone"
@@ -663,7 +650,7 @@ class Dashboard(JobsAware, Screen):
             self.open_chat(name)
             return
         if key == "?":
-            # The footer (`tui.panel_keys`) folds fold/move out of a filtered
+            # The footer (`tui.panel_keys`) folds fold out of a filtered
             # row's own keys - `?` is the one place every AGENT_KEYS verb is named.
             self.flash = tui.agent_help_line()
             return

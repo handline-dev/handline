@@ -301,37 +301,11 @@ def cmd_account_list(args) -> int:
     return 0
 
 
-def cmd_agent_move(args) -> int:
-    """Move an agent's live session to another account now (a human's call)."""
-    if os.environ.get("OCP_AGENT"):
-        print("a forced move ends a session: it is the founder's, from a terminal or "
-              "the bridge, not an agent's", file=sys.stderr)
-        return 1
-    if not args.yes:
-        if not sys.stdin.isatty():
-            print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
-            return 1
-        if input(f"move {args.agent} to '{args.account}'? this records its handoff, ends its session, and makes "
-                 f"'{args.account}' its preferred account (y/N): ").strip().lower() != "y":
-            print("not moved")
-            return 1
-    con = db.connect()
-    try:
-        ok, msg = daemonmod.force_move(con, args.agent, args.account, "human (cli)", print)
-    finally:
-        con.close()
-    print(msg, file=None if ok else sys.stderr)
-    return 0 if ok else 1
-
-
 def cmd_agent_register(args) -> int:
-    if args.account not in paths.list_accounts():
-        print(f"warning: account '{args.account}' is not registered yet. "
-              f"Run `ocp account add {args.account}` first.")
-    d = agents.register(args.name, args.account, role=args.role, model=args.model,
+    d = agents.register(args.name, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
-                        repo=args.repo)
-    print(f"registered agent '{args.name}' -> account '{args.account}': {d}")
+                        repo=args.repo, vendor=args.vendor)
+    print(f"registered agent '{args.name}': {d}")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
     return 0
@@ -343,12 +317,11 @@ def cmd_agent_show(args) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"error: {e}")
         return 1
-    acct = str(cfg.get("account", ""))
-    st = status.read_for_agent(args.name, acct)
     con = db.connect()
     try:
         row = db.get_agent_state(con, args.name)
         queued = len(db.queued_for(con, args.name))
+        st = status.read_for_agent(args.name, agents.current_account(args.name, con))
     finally:
         con.close()
     info = {
@@ -806,20 +779,24 @@ def cmd_agent_list(args) -> int:
         print("no agents registered.")
         return 0
     loads = load.read_all()
-    for n in names:
-        try:
-            acct = agents.account_of(n)
-        except Exception as e:  # noqa: BLE001
-            print(f"{n:<14} <error: {e}>")
-            continue
-        ld = loads.get(acct)
-        allowed, _ = status.read(acct).takes_work(ld.active if ld else 0)
-        cfg = agents.read(n)
-        budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
-                          for fn, size, _, over in agents.budget_report(n))
-        print(f"{n:<11} -> {acct:<7} {textsafe.oneline(str(cfg.get('model'))):<7} "
-              f"{textsafe.oneline(str(cfg.get('effort') or agents.DEFAULT_EFFORT)):<7} "
-              f"{'ok' if allowed else 'BLOCKED':<8} {budget}")
+    con = db.connect()
+    try:
+        for n in names:
+            try:
+                cfg = agents.read(n)
+            except Exception as e:  # noqa: BLE001
+                print(f"{n:<14} <error: {e}>")
+                continue
+            acct = agents.current_account(n, con)
+            ld = loads.get(acct)
+            allowed = acct and status.read(acct).takes_work(ld.active if ld else 0)[0]
+            budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
+                              for fn, size, _, over in agents.budget_report(n))
+            print(f"{n:<11} -> {acct or '-':<7} {textsafe.oneline(str(cfg.get('model'))):<7} "
+                  f"{textsafe.oneline(str(cfg.get('effort') or agents.DEFAULT_EFFORT)):<7} "
+                  f"{('ok' if allowed else 'BLOCKED') if acct else '-':<8} {budget}")
+    finally:
+        con.close()
     return 0
 
 
@@ -1242,10 +1219,10 @@ def cmd_triggers(args) -> int:
         for a in paths.list_agents():
             try:
                 # The account the daemon is watching, which is where the
-                # session went - not the preference in agent.yaml. A moved
-                # agent read on its preference prints the old account's figure
-                # and FIRES YES while the daemon, reading the new one, does
-                # nothing: the dashboard arguing with the daemon.
+                # session went. Read anywhere else, it prints another
+                # account's figure and FIRES YES while the daemon, reading
+                # the right one, does nothing: the dashboard arguing with the
+                # daemon.
                 acct = agents.current_account(a, con)
                 cfg = agents.read(a)
             except Exception as e:  # noqa: BLE001
@@ -1266,7 +1243,7 @@ def cmd_triggers(args) -> int:
                 fires = "no "
                 walled = daemonmod.would_wake(con, row) and launch.wake_wait_reason(a, row, con)
                 reason = walled or "session closed; nothing to hand off"
-            print(f"{a:<{w}}{acct:<10}{five:>5}{cell(st.ctx_pct):>5}  "
+            print(f"{a:<{w}}{acct or '-':<10}{five:>5}{cell(st.ctx_pct):>5}  "
                   f"{fires:<6} {reason}")
     finally:
         con.close()
@@ -1499,7 +1476,7 @@ def cmd_hr(args) -> int:
     if not me:
         print(_who_refusal("propos"))
         return 1
-    kw = dict(why=args.why, account=args.account, team_name=args.team,
+    kw = dict(why=args.why, team_name=args.team,
               repo=args.repo, model=args.model, to=getattr(args, "to", None),
               effort=args.effort, vendor=getattr(args, "vendor", None))
     # The founder is the approval, so their own change is made, not proposed.
@@ -2319,14 +2296,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_account_list)
 
     ag = sub.add_parser("agent", help="agents").add_subparsers(dest="sub", required=True)
-    p = ag.add_parser("move", help="move a live session to another account now")
-    p.add_argument("agent")
-    p.add_argument("account")
-    p.add_argument("--yes", action="store_true", help="skip the confirmation")
-    p.set_defaults(fn=cmd_agent_move)
-    p = ag.add_parser("register", help="register an agent with its fixed account")
+    p = ag.add_parser("register", help="register an agent; the daemon places its sessions")
     p.add_argument("name")
-    p.add_argument("--account", required=True)
+    p.add_argument("--vendor", default=None,
+                   help=f"the tool it runs (default {agents.DEFAULT_VENDOR})")
     p.add_argument("--role", default="")
     p.add_argument("--model", default=None,
                    help="model for this agent; on re-registration, omit to keep the current one")
@@ -2382,49 +2355,43 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hr", help="propose a roster change; the founder approves it")
     hrsub = p.add_subparsers(dest="hr_cmd", required=True)
-    for kind in ("add", "retire", "rename", "move"):
+    for kind in ("add", "retire", "rename"):
         q = hrsub.add_parser(kind, help=f"propose to {kind} an agent")
         q.add_argument("name")
         q.add_argument("--why", required=True, help="what the founder is deciding")
         if kind == "add":
-            q.add_argument("--account", required=True)
             q.add_argument("--team", default=None, help="team in team.yaml to join")
             q.add_argument("--repo", default=None, help="where it works")
             q.add_argument("--model", default=None)
             q.add_argument("--effort", default=None, choices=sorted(agents.VALID_EFFORT))
             q.add_argument("--vendor", default=None,
-                           help="checked against the account's own vendor, not a choice; "
-                                "the account's is what gets written")
+                           help=f"the tool it runs (default {agents.DEFAULT_VENDOR})")
         elif kind == "rename":
             q.add_argument("--to", required=True, help="the new name")
             q.add_argument("--team", default=None, help="team it should be in after")
-            q.set_defaults(account=None, repo=None, model=None, effort=None, vendor=None)
-        elif kind == "move":
-            q.add_argument("--account", required=True, help="the account it should prefer next")
-            q.set_defaults(team=None, repo=None, model=None, effort=None, to=None, vendor=None)
+            q.set_defaults(repo=None, model=None, effort=None, vendor=None)
         else:
-            q.set_defaults(account=None, team=None, repo=None, model=None, effort=None,
-                           vendor=None)
+            q.set_defaults(team=None, repo=None, model=None, effort=None, vendor=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
-    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+    q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("relabel", help="name a renamed agent's Orca worktree for it "
                                          "(what a rename does; for one already applied)")
     q.add_argument("id", help="the agent's name")
-    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+    q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("rehome", help="also move the folder, once no terminal is open in it")
     q.add_argument("id", help="the agent's new name")
     q.add_argument("--from", dest="old", required=True, help="the name its folder still carries")
-    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+    q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
-    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+    q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
     q.add_argument("id")
-    q.set_defaults(name=None, why=None, account=None, team=None, repo=None,
+    q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     p.set_defaults(fn=cmd_hr)
 

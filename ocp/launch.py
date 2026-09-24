@@ -43,37 +43,34 @@ from . import accounts, agents, db, paths, status, textsafe, triggers, vendors
 DISALLOWED_TOOLS = "Agent,SendMessage,ScheduleWakeup,CronCreate"
 
 
-def find_room(agent: str, exclude: dict[str, str] | None = None) -> str | None:
-    """An account that can take this agent's next session, or None.
-
-    The preferred account unless what is known says it is a bad place to start
-    (`status.unfit`), else the best of the others by `pick_account`. `exclude`
-    names accounts to skip and why - the one the agent just left.
+def find_room(agent: str) -> str | None:
+    """The account that can take this agent's next session, or None: the best
+    of the logged-in ones by `pick_account`, and failing that one nothing says
+    is a bad place to start (`status.unfit`) - a stale or missing reading is
+    the account nobody has run on lately, and the session about to start is the
+    only thing that writes a fresh one.
     """
-    preferred = agents.account_of(agent)
     from . import load as loadmod
     load = loadmod.read_all()
-    if not (exclude and preferred in exclude) \
-            and status.unfit(status.read(preferred), load.get(preferred), agent) is None:
-        return preferred
     # Logged-in accounts only: `assignable` says nothing about credentials.
-    # bootstrap: a never-run account is a real place to go. `preferred` is out:
-    # it is what was just found unfit.
-    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a) and a != preferred]
-    # live_refresh=True: this is the one caller actually about to move an
+    # bootstrap: a never-run account is a real place to go.
+    # live_refresh=True: this is the one caller actually about to place an
     # agent, not a screen asking what would happen - the only place worth the
     # network cost of asking a carried_old or idle-floored candidate fresh
     # before it decides the answer (#1811 part 2, #1816).
-    return status.pick_account(candidates, bootstrap=True, exclude=exclude, load=load,
-                               agent=agent, live_refresh=True)[0]
+    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a)]
+    picked = status.pick_account(candidates, bootstrap=True, load=load, agent=agent,
+                                 live_refresh=True)[0]
+    vendor = vendors.agent_vendor(agent)
+    return picked or next((a for a in candidates if not status.not_for(a, vendor)
+                           and status.unfit(status.read(a), load.get(a), agent) is None), None)
 
 
-def choose_account(agent: str, resuming: bool = False, con=None) -> str:
-    """Which account this launch runs on.
+def choose_account(agent: str, resuming: bool = False, con=None) -> str | None:
+    """Which account this launch runs on, or None when there is none.
 
-    agent.yaml names a preference, not a destination: the moment a session is
-    made is the only moment its account can be chosen, since after execve the
-    config directory is fixed.
+    The moment a session is made is the only moment its account can be chosen,
+    since after execve the config directory is fixed.
 
     Resuming is not that moment. A session id belongs to one account's config
     directory, so a resumed session goes back to the account it was recorded
@@ -85,9 +82,7 @@ def choose_account(agent: str, resuming: bool = False, con=None) -> str:
     """
     if resuming:
         return agents.current_account(agent, con)
-    # Nothing with room is not a reason to pick at random: `build` refuses on
-    # a current reading at the wall, and names the account and the figure.
-    return find_room(agent) or agents.account_of(agent)
+    return find_room(agent)
 
 
 @dataclass
@@ -96,12 +91,48 @@ class WakeWait:
     pct: int
     # When the walled window rolls over: the 5h one, or the weekly one.
     reset: int | None
-    # True when `account` is a guess (agent.yaml's preference, or a spawn's
-    # own unconfirmed one) rather than the account this resume is actually
-    # tied to - `account_reading` prefers a fresher reported one first, so
-    # this is the residual case where nothing has confirmed one at all.
+    # True when `account` is a guess (one written before a launch confirmed
+    # it) rather than the account this resume is actually tied to -
+    # `account_reading` prefers a fresher reported one first, so this is the
+    # residual case where nothing has confirmed one at all.
     assumed: bool = False
     window: str = "5h"
+
+
+def _wall(acct: str, assumed: bool = False) -> WakeWait | None:
+    """The window this account is walled behind, the 5h one first: an account
+    walled on both reports the 5h rollover, and once that passes it is refused
+    again on the 7d one still standing - the sentence names a rollover that
+    does not itself unblock it."""
+    st = status.read(acct)
+    pct, week = st.trusted_pct_5h, st.trusted_pct_7d
+    if pct is not None and pct >= status.PCT_5H_BLOCK:
+        return WakeWait(acct, pct, st.reset_5h, assumed)
+    if week is not None and week >= status.PCT_7D_BLOCK:
+        return WakeWait(acct, week, st.reset_7d, assumed, window="7d")
+    return None
+
+
+def frees_first(agent: str) -> WakeWait | None:
+    """For an agent no account has room for: the walled account whose wall
+    lifts first, or None when none is walled (capped, unreadable, or none
+    of the agent's vendor)."""
+    walls = [w for a in paths.list_accounts()
+             if accounts.logged_in(a) and not status.not_for(a, vendors.agent_vendor(agent))
+             for w in [_wall(a)] if w]
+    return min(walls, key=lambda w: w.reset or float("inf"), default=None)
+
+
+def no_room(agent: str) -> str:
+    """Why no account can take this agent, naming the one that frees up first."""
+    named = paths.list_accounts()
+    if not any(accounts.logged_in(a) for a in named):
+        return ("no account is registered - `ocp account add <name>` first" if not named else
+                "no account is logged in. A human has to do this once (ocp never "
+                f"touches credentials):\n\n  {accounts.login_command(named[0])}\n")
+    w = frees_first(agent)
+    return ("no account can take one more agent"
+            + (f" - {describe_wake_wait(w)}" if w else ""))
 
 
 def wake_wait(agent: str, row, con) -> WakeWait | None:
@@ -120,41 +151,21 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
     them gates on `daemon.would_wake` first; this makes no such promise on its
     own.
 
-    The move branch already goes through `choose_account` -> `find_room` ->
-    `status.unfit`, which refuses a walled account on both windows - but only
-    while some other account has room. `choose_account` falls back to the
-    agent's own preferred account when `find_room` finds nowhere (`find_room
-    (agent) or agents.account_of(agent)`), so when every account is at its
-    weekly wall the move branch reaches this 7d check too, not just the
-    resume branch: it is the only guard left, not a second one. The resume
-    branch is pinned to the account its session is tied to and cannot follow
-    an account change even when another account does have room - nothing
-    upstream ever checks 7d for it, walled or not.
+    A start with no session to resume goes wherever `choose_account` finds
+    room; with none it waits on the account that frees up first
+    (`frees_first`). The resume branch is pinned to the account its session is
+    tied to and cannot follow an account change even when another account does
+    have room - nothing upstream ever checks 7d for it, walled or not.
 
     A computed condition, not a stored one: called again a moment later, on an
     account whose window has since rolled over, it returns None.
-
-    5h is checked first: an account walled on both reports the 5h rollover, and
-    once that passes the wake is refused again on the 7d one still standing -
-    the sentence names a rollover that does not itself unblock the wake.
     """
     if not row or not row["closed_at"]:
         return None
     if row["resume_session"]:
         reading = agents.account_reading(agent, con)
-        acct, assumed = reading.account, reading.source == "assumed"
-    else:
-        # The move's wake: nowhere its own session was tied to, so there is
-        # no reading to prefer over a fresh choice - `account_reading`
-        # answers a question this branch does not ask.
-        acct, assumed = choose_account(agent, resuming=False, con=con), False
-    st = status.read(acct)
-    pct, week = st.trusted_pct_5h, st.trusted_pct_7d
-    if pct is not None and pct >= status.PCT_5H_BLOCK:
-        return WakeWait(acct, pct, st.reset_5h, assumed)
-    if week is not None and week >= status.PCT_7D_BLOCK:
-        return WakeWait(acct, week, st.reset_7d, assumed, window="7d")
-    return None
+        return reading and _wall(reading.account, reading.source == "assumed")
+    return None if choose_account(agent, resuming=False, con=con) else frees_first(agent)
 
 
 def wake_wait_reason(agent: str, row, con) -> str | None:
@@ -236,7 +247,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False) -> tu
         drv = vendors.for_agent(agent)
     except vendors.UnknownVendor as e:
         raise SystemExit(f"agent '{agent}': {e}") from None
-    acct = choose_account(agent, resuming=drv.is_resume(extra))
+    resuming = drv.is_resume(extra)
+    acct = choose_account(agent, resuming=resuming)
+    if acct is None:
+        raise SystemExit(f"agent '{agent}' has no recorded session to resume" if resuming
+                         else f"agent '{agent}': {no_room(agent)}")
     # The last line before an exec: whatever chose this account, a session
     # is this vendor's binary pointed at that account's credentials.
     theirs = vendors.account_vendor(acct)
@@ -480,9 +495,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
     this is the only moment we can see it - after execve we are the agent. The
     daemon needs it to clear the agent's context and hand it back its handoff.
 
-    The account comes from the environment we are about to exec with, not from
-    agent.yaml: those are the same value only when the preferred account had
-    room, and the whole point of recording it is that the two can differ.
+    The account comes from the environment we are about to exec with.
 
     `fp` is the fingerprint `exec_agent` computed just before this ran; see
     `fingerprint`.
@@ -520,13 +533,8 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 # this is the one place a landing account differing from the
                 # last one is ever seen - and the one place to carry what
                 # that last session had learned along with it, before
-                # `set_account` overwrites the record. Read the row directly
-                # rather than through `current_account`: an agent that has
-                # never run has no account to migrate anything from, and its
-                # preference is not one just because nothing else is on
-                # record.
-                prev_row = db.get_agent_state(con, agent)
-                previous = prev_row["account"] if prev_row else None
+                # `set_account` overwrites the record.
+                previous = agents.current_account(agent, con)
                 if previous and previous != acct:
                     repo = agents.repo_of(agent)
                     project = accounts.memory_project_dir(previous, repo) if repo else None

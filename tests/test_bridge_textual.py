@@ -81,8 +81,8 @@ async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
         await pilot.pause(0.1)
         check("help: `?` shows the full AGENT_KEYS legend, not nothing",
               screen.flash == t.tui.agent_help_line(), screen.flash)
-        check("help: the legend names a key the footer can fold away (move)",
-              "v move" in screen.flash, screen.flash)
+        check("help: the legend names a key the footer can fold away (fold)",
+              "f fold" in screen.flash, screen.flash)
 
 
 async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
@@ -290,7 +290,7 @@ async def test_messages_panel_open_reaches_the_agents_page() -> None:
     row does when the message belongs to one - `actions.message_place`,
     reused rather than a separate detail view for the common case."""
     home = _home("msgopen")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         db.set_terminal(con, "reviewer", "term_r", "wt")
@@ -343,7 +343,7 @@ async def test_wake_on_a_stalled_agent_asks_first() -> None:
     tui.CONFIRM` misses it, since `wake` is deliberately left off that set for
     every other state."""
     home = _home("wake")
-    agents.register("backend", "alpha")
+    agents.register("backend")
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -378,7 +378,7 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
     # closes a report (`opened_by_human`), and the dismiss scenario below
     # needs its own two reports still queued and folded.
     _home("msgfoldopen")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         db.set_terminal(con, "reviewer", "term_r", "wt")
@@ -401,7 +401,7 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
               type(opener.screen).__name__)
 
     _home("msgfold")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         db.set_terminal(con, "reviewer", "term_r", "wt")
@@ -552,7 +552,7 @@ async def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
     counts what is waiting, a row per message (sender, kind, its first line
     with nothing a terminal would obey in it)."""
     _home("msgdata")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     from ocp import ask as askmod
     askmod.ask("human", "\n\033[2Jplease \033]8;;http://evil.example\033\\review\033]8;;\033\\ this",
                requester="reviewer")
@@ -599,7 +599,7 @@ async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
     """A selection can be stale - the row it named left the list - and a key
     pressed then must do nothing, not act on whatever is under it now."""
     _home("stalekey")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     from ocp import ask as askmod
     askmod.ask("human", "first thing", requester="reviewer")
     con = db.connect()
@@ -870,7 +870,7 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
 def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
     from ocp import ask as askmod, chat_page as cp
     _home("chat")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         for body in ("one", "two", "three"):
@@ -905,7 +905,7 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
 def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     from ocp import ask as askmod, chat_page as cp
     _home("reply")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         ok, _, rid = askmod.ask("human", "merge it?", requester="reviewer")
@@ -937,7 +937,7 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
 def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
     from ocp import chat_page as cp
     _home("tasks")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         a = db.new_task(con, "bravo", "backend", "orcapipe")
@@ -973,7 +973,7 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
     from ocp import ask as askmod, chat_page as cp
     _home("discardable")
-    agents.register("reviewer", "alpha")
+    agents.register("reviewer")
     con = db.connect()
     try:
         mine = db.new_task(con, "mine", "backend", actions.HUMAN)
@@ -1000,7 +1000,7 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     from ocp import chat_page as cp
     home = _home("settings")
     cfg = cp.settings_of("backend")
-    check("settings: the agent file is read", cfg["account"] and cfg["effort"] in agents.VALID_EFFORT
+    check("settings: the agent file is read", cfg["effort"] in agents.VALID_EFFORT
           and cfg["model"] and cfg["weight"] in cp.WEIGHTS, str(cfg))
     form = {k: cfg[k] for k in cp.EDITABLE}
     check("settings: an untouched form has no changes", cp.settings_changes(cfg, form) == [])
@@ -1021,11 +1021,11 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     check("settings: a save writes the changed fields", ok and now["model"] == "opus"
           and now["effort"] == "high" and now["repo"] == str(repo), said)
     check("settings: and leaves the rest of the file as it was",
-          now["account"] == cfg["account"] and now["weight"] == cfg["weight"] and now.get("enabled") is True)
-    agents.register("backend", "beta")
+          now["weight"] == cfg["weight"] and now.get("enabled") is True)
+    agents.register("backend", weight="heavy")
     ok, said = cp.save_settings("backend", [("effort", now["effort"], "low")])
-    check("settings: a save leaves an account moved since the tab was read",
-          ok and agents.read("backend")["account"] == "beta", said)
+    check("settings: a save leaves a field changed since the tab was read",
+          ok and agents.read("backend")["weight"] == "heavy", said)
 
 
 def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:

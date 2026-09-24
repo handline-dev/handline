@@ -104,8 +104,7 @@ def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
     briefly the default vendor's; a vendor with no driver is refused."""
     if not acct or "/" in acct or acct.startswith("."):
         raise ValueError(f"bad account name: {acct!r}")
-    # It is written as `account: <name>` in every agent.yaml and as a key in
-    # config.yaml, so it must be text there.
+    # It is a key in config.yaml, so it must be text there.
     if not is_plain_text(acct):
         raise ValueError(f"bad account name: {acct!r}. It would not be read back as text "
                          "from the YAML files it is written into; choose another.")
@@ -393,41 +392,24 @@ def same_login_as(acct: str) -> list[str]:
 
 
 def users_of(acct: str, con=None) -> list[str]:
-    """Agents that would lose their account if this one went away.
-
-    Both halves of "on this account": a session that actually went there, and
-    agent.yaml naming it as the preference. They differ when the preferred
-    account had no room, and removing either one strands an agent. An agent
-    that cannot be read is counted as a user: what is unknown is not free.
-    """
+    """Agents whose session is recorded on this account."""
     from . import agents
-
-    def on(name: str) -> bool:
-        for get in (lambda: agents.current_account(name, con),
-                    lambda: agents.account_of(name)):
-            try:
-                if get() == acct:
-                    return True
-            except Exception:  # noqa: BLE001 - unreadable means in use
-                return True
-        return False
-
-    return [name for name in paths.list_agents() if on(name)]
+    return [name for name in paths.list_agents()
+            if agents.current_account(name, con) == acct]
 
 
 def remove_plan(acct: str, con=None) -> tuple[bool, str]:
     """Whether this account may be removed, and the line to say about it.
 
-    Refused while any agent is on it. Moving them is a roster decision with
-    somewhere to go - which account, and whether that one has room - and a
-    removal that made it silently would leave an agent whose next start fails.
+    Refused while any agent is on it: a session's resume id lives under its
+    account's config directory, so removing the account strands the session.
     """
     if acct not in paths.list_accounts():
         return False, f"no account '{acct}'"
     users = users_of(acct, con)
     if users:
-        return False, (f"account '{acct}' is in use by {', '.join(users)} - move "
-                       f"{'it' if len(users) == 1 else 'them'} to another account first")
+        return False, (f"account '{acct}' is in use by {', '.join(users)} - close "
+                       f"{'it' if len(users) == 1 else 'them'} first")
     return True, ""
 
 
