@@ -264,7 +264,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             app.push_screen(AccountPage("alpha"))
             await pilot.pause(0.5)
             page = app.screen
-            text = str(page.query_one("#a_text", Static).render())
+            text = "\n".join(str(page.query_one(i, Static).render()) for i in ("#t_title", "#t_meta", "#t_badge", "#a_usage"))
             check("account page: the overview names the account, its vendor and its email",
                   "alpha" in text and "claude" in text and "me@example.com" in text, text)
             check("account page: and says whether it is logged in and how full it is",
@@ -274,7 +274,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             table = page.query_one("#a_agents", DataTable)
             check("account page: the agents tab lists who runs on the account",
                   table.display and [k.value for k in table.rows] == ["backend"], [k.value for k in table.rows])
-            check("account page: the overview is hidden behind it", not page.query_one("#a_overview").display)
+            check("account page: the overview is hidden behind it", not page.query_one("#detail_pane").display)
             table.focus()
             await pilot.press("enter")
             await pilot.pause(0.4)
@@ -289,16 +289,22 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             check("account page: settings shows the cap and the buttons",
                   page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
             page.query_one("#a_cap", Input).value = "2"
+            page.query_one("#a_name", Input).value = "Work"
+            page.query_one("#a_default", Input).value = "4"
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            check("account page: Save cap writes the cap", loadmod.cap_of("alpha") == 2
-                  and "at most 2" in str(page.query_one("#a_flash", Static).render()),
-                  str(page.query_one("#a_flash", Static).render()))
+            flash = str(page.query_one("#a_flash", Static).render())
+            check("account page: Save writes the name and both caps",
+                  loadmod.cap_of("alpha") == 2 and loadmod.default_cap() == 4
+                  and loadmod.label_of("alpha") == "Work" and "at most 2" in flash, flash)
+            check("account page: the title shows the new name",
+                  "Work" in str(page.query_one("#t_title", Static).render()))
             page.query_one("#a_cap", Input).value = ""
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            check("account page: an empty cap is refused and the old one stays",
-                  loadmod.cap_of("alpha") == 2 and "whole number" in str(page.query_one("#a_flash", Static).render()))
+            flash = str(page.query_one("#a_flash", Static).render())
+            check("account page: an empty cap is refused and nothing is written",
+                  loadmod.cap_of("alpha") == 2 and "whole number" in flash, flash)
             await pilot.click("#leave")
             await pilot.pause(0.3)
             check("account page: Back returns to the home page", app.screen is home, type(app.screen).__name__)

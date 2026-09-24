@@ -2069,6 +2069,34 @@ def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
     return True, f"{acct}: at most {n} agents mid-turn"
 
 
+def save_account_settings(acct: str, label: str, cap: str, default_cap: str) -> tuple[bool, str]:
+    """The account page's Settings form: what it shows under, its cap and the default cap,
+    each written only when it differs from what is there. Nothing is written if any is refused."""
+    label = label.strip()
+    if textsafe.has_unsafe(label) or len(label) > 40:
+        return False, "a name is one plain line of at most 40 characters"
+    caps = {}
+    for key, text, now in (("cap", cap, loadmod.cap_of(acct)), ("default", default_cap, loadmod.default_cap())):
+        try:
+            n = int(text.strip())
+        except ValueError:
+            n = 0
+        if n < 1:
+            return False, f"the {key} cap is a whole number, at least 1"
+        caps[key] = n if n != now else None
+    said = []
+    if label != (loadmod.label_of(acct) if loadmod.label_of(acct) != acct else ""):
+        loadmod.set_label(acct, label)
+        said.append(f"named {label or acct}")
+    if caps["cap"]:
+        loadmod.set_cap(acct, caps["cap"])
+        said.append(f"{acct}: at most {caps['cap']} agents mid-turn")
+    if caps["default"]:
+        loadmod.set_default_cap(caps["default"])
+        said.append(f"default cap {caps['default']}")
+    return True, "; ".join(said) or "nothing changed"
+
+
 def _account_of(agent: str, con=None) -> str | None:
     """Where this agent's session is, for the list of who is on an account.
 

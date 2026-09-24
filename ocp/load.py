@@ -61,6 +61,37 @@ def set_cap(acct: str, n: int) -> None:
     paths.config_file().write_text(dump(cfg))
 
 
+def set_default_cap(n: int) -> None:
+    """The cap of every account that has none of its own."""
+    if n < 1:
+        raise ValueError("a cap is at least 1")
+    cfg = _config()
+    cfg["active_cap"] = n
+    paths.config_file().write_text(dump(cfg))
+
+
+def default_cap(cfg: dict | None = None) -> int:
+    v = (_config() if cfg is None else cfg).get("active_cap")
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 1 else triggers.DEFAULT_ACTIVE_CAP
+
+
+def label_of(acct: str, cfg: dict | None = None) -> str:
+    """The name the screens show for an account; the account's own name until one is set."""
+    v = (_config() if cfg is None else cfg).get(f"label_{acct}")
+    return v if isinstance(v, str) and v.strip() else acct
+
+
+def set_label(acct: str, text: str) -> None:
+    """Show this account under another name; blank goes back to its own. The account
+    is still what agents and the CLI call it."""
+    cfg = _config()
+    if text.strip():
+        cfg[f"label_{acct}"] = text.strip()
+    else:
+        cfg.pop(f"label_{acct}", None)
+    paths.config_file().write_text(dump(cfg))
+
+
 def usage_recover_enabled(acct: str, cfg: dict | None = None) -> bool:
     """Whether #1885's recovery turn may run on this account - on by default,
     off only where config.yaml's `usage_recover_<account>: false` says so."""

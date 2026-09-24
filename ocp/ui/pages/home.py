@@ -15,7 +15,7 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Static, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
-from ... import db, status, tui
+from ... import db, load as loadmod, status, tui
 from ..components import agent_rows, gauge
 from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
@@ -177,7 +177,7 @@ class HomePage(RowActions, JobsAware, Screen):
                 if meters[r.name]:
                     five, seven = gauge.usage_cells(status.read(r.name), with_pct)
                     cells["five"], cells["seven"] = five, seven
-                body.append([Text.from_ansi(f"{tui.BOLD}{tui.oneline(r.name)}{tui.R}"),
+                body.append([Text.from_ansi(f"{tui.BOLD}{tui.oneline(loadmod.label_of(r.name))}{tui.R}"),
                              *(Text.from_ansi(cells[c]) for c in cols),
                              Text.from_ansi(r.mark + r.next)])
             widths = [max(len(h), *(c.cell_len for c in col)) + 2 for h, col in zip(heads, zip(*body))] \
