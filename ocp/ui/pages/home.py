@@ -19,7 +19,7 @@ _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS,
                    "messages": tui.MESSAGES, "stuck": tui.STUCK}
 # Each tab's widgets: what it shows and the others hide. Home's are the Dashboard's own.
 _TAB_WIDGETS = {
-    "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#stuck-box", "#foot"),
+    "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot"),
     "hr": ("#hr_view",),
     "settings": ("#settings_view",),
 }
@@ -32,6 +32,8 @@ class HomePage(Dashboard):
     DEFAULT_CSS = """
     HomePage DataTable > .datatable--hover { background: transparent; }
     HomePage DataTable { overflow-x: hidden; }
+    HomePage #stuck-box { display: none; }
+    HomePage #messages-box { height: 1fr; max-height: 100%; }
     """
 
     def __init__(self) -> None:
@@ -46,8 +48,11 @@ class HomePage(Dashboard):
     # reply, ↩ came back, · to read), so the kind column is left out, and the id too; `refused`, the
     # one kind the glyph shares with `answer`, is said in the text.
     MESSAGE_COLUMNS = ("", "", "from", "message")
+    # What is stuck is said on the agent's row, on the account's mark and in the header's
+    # daemon word, so the STUCK panel is not drawn and the keys skip it.
+    PANELS = (tui.ACCOUNTS, tui.AGENTS, tui.MESSAGES)
     SHOW_WAITS = False   # what waits on the founder shows on the rows it is about
-    WITH_BLOCKS = True
+    FOUNDER_VIEW = True
     BLINK_S = 0.6
 
     def _message_cells(self, r) -> list:
@@ -57,6 +62,9 @@ class HomePage(Dashboard):
             cells[3] = Text.assemble(("refused ", "red"), cells[3])
         cells[3].no_wrap, cells[3].overflow = True, "ellipsis"
         return cells
+
+    def _draw_stuck(self) -> None:
+        pass
 
     def _draw_messages(self) -> None:
         super()._draw_messages()
@@ -92,11 +100,15 @@ class HomePage(Dashboard):
         if r.under:
             out.append(f" +{r.under}", style="dim")
             if r.urgency:
-                glyph, n, _colour = r.urgency
-                if glyph == "!":
+                glyph, n, colour = r.urgency
+                if glyph == "!" and colour == tui.RED:      # hides an error: blinks
                     out.append(f" ⚠{n}" if on else " " * (len(str(n)) + 2), style="bold red")
-                else:
-                    out.append(f" {glyph}{n}", style="green")
+                elif glyph == "!":                          # hides a limit or a delay
+                    out.append(f" ⚠{n}", style="yellow")
+                else:                                       # ✉ asks of the founder, ▶ running
+                    out.append(f" {glyph}{n}", style="yellow" if glyph == "✉" else "green")
+        if r.asks:
+            out.append(f" ✉{r.asks}", style="yellow")
         if self._alarm(r):
             out.append(" ⚠" if on else "  ", style="bold red")
         return out
@@ -105,12 +117,15 @@ class HomePage(Dashboard):
         cell = Text.from_ansi(tui.state_cell(r.state, r.until))
         if r.block and r.state not in tui.NEEDS_A_HUMAN:
             cell.append(f" {r.block}", style="red")
+        elif r.stuck:
+            cell.append(f" ⚠ {r.stuck}", style="yellow")
         if self._alarm(r) and on:
             cell.stylize("reverse")
         return cell
 
     def _blinks(self, r) -> bool:
-        return self._alarm(r) or (not r.error and r.under and r.urgency and r.urgency[0] == "!")
+        return self._alarm(r) or (not r.error and r.under and r.urgency
+                                  and r.urgency[0] == "!" and r.urgency[2] == tui.RED)
 
     def _agent_cells(self, r, name) -> list:
         """The Dashboard's cells with the short model and the prompt-cache time left after

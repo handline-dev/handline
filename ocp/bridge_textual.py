@@ -354,8 +354,9 @@ class Dashboard(JobsAware, Screen):
     _ACCT_COLS = [k for k in tui.ACCT_W if k != "name"]
     AGENT_COLUMNS = ("agent", "acct", "kind", "state", "ctx", "in", "")
     MESSAGE_COLUMNS = ("", "", "#", "from", "kind", "message")
+    PANELS = tui.PANELS   # the panels ←→ and the row keys walk
     SHOW_WAITS = True     # the WAITING ON YOU list under the header
-    WITH_BLOCKS = False   # whether an agent's delivery block counts on its AGENTS row
+    FOUNDER_VIEW = False   # whether an agent's delivery block counts on its AGENTS row
 
     def compose(self) -> ComposeResult:
         yield Static(id="header")
@@ -506,7 +507,7 @@ class Dashboard(JobsAware, Screen):
     def _draw_agents(self) -> None:
         con = db.connect()
         try:
-            rows, notes = tui.agents_data(con, self.WITH_BLOCKS)
+            rows, notes = tui.agents_data(con, self.FOUNDER_VIEW)
         finally:
             con.close()
         table = self.query_one("#agents", DataTable)
@@ -529,7 +530,7 @@ class Dashboard(JobsAware, Screen):
         if k == "b":     # task #72: "done - waiting for check" - free on every panel
             self.app.push_screen(TaskChecks())
             return
-        moved = tui.navigate(self.panel, self.sel, k)
+        moved = tui.navigate(self.panel, self.sel, k, self.PANELS)
         if moved is not None:
             self.panel = moved
             self._redraw()

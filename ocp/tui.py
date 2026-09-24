@@ -363,6 +363,8 @@ class AgentRow(NamedTuple):
     wall: WallCell | None = None
     kind_short: str = ""            # `agents.kind_short`
     block: str = ""                  # what stops ocp reaching it, once it is on the founder's list
+    stuck: str = ""                  # why it is not moving: `actions.stuck`, or its usage limit; or ""
+    asks: int = 0                    # its open asks to the founder
     cache_left: int | None = None   # seconds of prompt cache left; None with no activity on record
 
 
@@ -407,10 +409,17 @@ def fold_suffix(under: int, urgency: tuple[str, int, str] | None) -> str:
     return count
 
 
-def agents_data(con, with_blocks: bool = False) -> tuple[list[AgentRow], list[str]]:
+def agents_data(con, founder_view: bool = False) -> tuple[list[AgentRow], list[str]]:
     """What the AGENTS panel shows, before any of it is laid out: one row per
     drawn agent, in tree order, and the notes under them."""
     drawn_tree = _walk_tree()
+    # What is not moving, by the agent it is about: the STUCK panel's rows, said on the
+    # agent's own row instead. Read once, it is the costly part of a frame.
+    stuck: dict = {}
+    if founder_view:
+        for b in actions.stuck(con):
+            if b["agent"]:
+                stuck.setdefault(b["agent"], b)
     # Model and effort are configuration and do not change while anyone is
     # watching, which was the case for leaving them off. What changed is
     # that they will not all be claude: with a second vendor coming, what
@@ -431,7 +440,7 @@ def agents_data(con, with_blocks: bool = False) -> tuple[list[AgentRow], list[st
         twig = f"{DIM}{'  ' * (depth - 1)}└ {R}" if depth else ""
         # How many of its reports are not drawn, and the most urgent thing
         # among them.
-        urgency = hidden_urgency(con, hidden, with_blocks) if under else None
+        urgency = hidden_urgency(con, hidden, founder_view, stuck) if under else None
         row = state_rows[name]
         s, until = screen_state(con, row)
         try:
@@ -456,12 +465,22 @@ def agents_data(con, with_blocks: bool = False) -> tuple[list[AgentRow], list[st
         w = daemon.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
-        fb = founder_block(con, name) if with_blocks else None
+        fb = founder_block(con, name) if founder_view else None
         blk = oneline(blockedmod.headline(fb["kind"], fb["detail"]))[:DETAIL_CAP] if fb else ""
+        why_stuck = asks = 0
+        if founder_view:
+            limit = daemon.wall_reason(con, name, row)
+            why_stuck = oneline(stuck[name]["why"] if name in stuck else limit or "")
+            why_stuck = why_stuck.removeprefix(f"{name} is ")[:DETAIL_CAP]
+            asks = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = ? "
+                               "AND state = 'queued'", (name, actions.HUMAN)).fetchone()[0]
+        else:
+            why_stuck = ""
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct), oneline(agents.kind(cfg)), ctxs,
                              len(db.queued_for(con, name)), fire, wall, oneline(agents.kind_short(cfg)),
-                             blk, cache_left(con, name)))
+                             blk, why_stuck, asks,
+                             cache_left(con, name)))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 
@@ -654,7 +673,8 @@ def founder_block(con, agent: str, now: float | None = None):
     return b if b and (time.time() if now is None else now) >= b["show_at"] else None
 
 
-def hidden_urgency(con, names: list[str], with_blocks: bool = False) -> tuple[str, int, str] | None:
+def hidden_urgency(con, names: list[str], founder_view: bool = False,
+                   stuck: dict | None = None) -> tuple[str, int, str] | None:
     """The most urgent thing among agents a fold hides: (glyph, how many share
     it, colour), or None when there is nothing to say.
 
@@ -673,8 +693,10 @@ def hidden_urgency(con, names: list[str], with_blocks: bool = False) -> tuple[st
         word, _ = screen_state(con, row)
         if word in NEEDS_A_HUMAN:
             found.setdefault(1, []).append(STATE_COLOR[word])
-        elif with_blocks and founder_block(con, name):
+        elif founder_view and founder_block(con, name):
             found.setdefault(1, []).append(RED)
+        elif stuck and name in stuck:
+            found.setdefault(1, []).append(YEL)
         elif daemon.wall_reason(con, name, row):
             found.setdefault(1, []).append(YEL)
         elif loadmod.is_running(row):
@@ -683,7 +705,8 @@ def hidden_urgency(con, names: list[str], with_blocks: bool = False) -> tuple[st
         return None
     worst = min(found)
     colours = found[worst]
-    return ("▶" if worst == 2 else "!", len(colours), RED if RED in colours else colours[0])
+    glyph = "▶" if worst == 2 else "✉" if founder_view and worst == 0 else "!"
+    return glyph, len(colours), RED if RED in colours else colours[0]
 
 
 # Supervisors whose reports are drawn. Closed by default: the screen is for
@@ -1357,7 +1380,7 @@ def move(keys: list, current, delta: int):
     return keys[i] if 0 <= i < len(keys) else None
 
 
-def step(panel: int, sel: dict, delta: int) -> int:
+def step(panel: int, sel: dict, delta: int, panels: tuple = PANELS) -> int:
     """One row down or up, crossing into the next panel at the end of one.
 
     The panels are four lists stacked on one screen, and a reader arrowing down
@@ -1371,8 +1394,8 @@ def step(panel: int, sel: dict, delta: int) -> int:
     if nxt is not None:
         sel[panel] = nxt
         return panel
-    for _ in range(len(PANELS) - 1):
-        panel = (panel + delta) % len(PANELS)
+    for _ in range(len(panels) - 1):
+        panel = panels[(panels.index(panel) + delta) % len(panels)]
         keys = _keys_of(panel)
         if keys:
             sel[panel] = keys[0] if delta > 0 else keys[-1]
@@ -1613,7 +1636,7 @@ NEXT_ROW = ("j", "\033[B", "\033OB")
 PREV_ROW = ("k", "\033[A", "\033OA")
 
 
-def navigate(panel: int, sel: dict, k: str) -> int | None:
+def navigate(panel: int, sel: dict, k: str, panels: tuple = PANELS) -> int | None:
     """Where this keypress leaves the cursor, or None if it was not a move.
 
     ←→ and tab jump a whole panel; ↑↓ walk the screen and cross into the next
@@ -1624,13 +1647,13 @@ def navigate(panel: int, sel: dict, k: str) -> int | None:
     if panel == AGENTS and k in ARROWS and _fold(sel, k):
         return panel
     if k in NEXT_PANEL:
-        return _enter((panel + 1) % len(PANELS), sel)
+        return _enter(panels[(panels.index(panel) + 1) % len(panels)], sel)
     if k in PREV_PANEL:
-        return _enter((panel - 1) % len(PANELS), sel)
+        return _enter(panels[(panels.index(panel) - 1) % len(panels)], sel)
     if k in NEXT_ROW:
-        return step(panel, sel, 1)
+        return step(panel, sel, 1, panels)
     if k in PREV_ROW:
-        return step(panel, sel, -1)
+        return step(panel, sel, -1, panels)
     if k in ("r", "R"):
         return panel
     return None
