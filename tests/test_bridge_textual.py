@@ -30,6 +30,7 @@ from ocp.chat_page import ChatPage  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from ocp.ui.components.read_only import ReadOnly  # noqa: E402
 from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
+from ocp.ui.pages.account import AccountPage  # noqa: E402
 from ocp.ui.pages.home import HomePage  # noqa: E402
 from ocp.ui.pages.task_checks import TaskChecks  # noqa: E402
 from textual.widgets import DataTable, Static  # noqa: E402
@@ -236,15 +237,71 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
 
         await pilot.press("enter")
         await pilot.pause(0.2)
-        check("accounts: enter opens a read-only page (account_detail)",
-              isinstance(app.screen, ReadOnly), type(app.screen).__name__)
-        text = app.screen.title_text + "\n".join(r for _, rows in app.screen.sections for r in rows)
-        check("accounts: it is that account's own detail",
-              "account alpha" in text and "config" in text, text)
+        check("accounts: enter opens that account's page",
+              isinstance(app.screen, AccountPage) and app.screen.account == "alpha",
+              type(app.screen).__name__)
         await pilot.press("escape")
         await pilot.pause(0.1)
         check("accounts: escape closes it", isinstance(app.screen, HomePage),
               type(app.screen).__name__)
+
+
+async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
+    from unittest import mock
+    from textual.widgets import Button, Input, Tabs
+    from ocp import accounts as accountsmod, load as loadmod
+    check("account cap: a non-number or zero is refused, a number is kept",
+          not actions.set_account_cap("alpha", "")[0] and not actions.set_account_cap("alpha", "0")[0]
+          and not actions.set_account_cap("alpha", "x")[0])
+    _home("acctpage")
+    ok, said = actions.set_account_cap("alpha", " 5 ")
+    check("account cap: a number is kept", ok and loadmod.cap_of("alpha") == 5 and "at most 5" in said, said)
+    with mock.patch.object(accountsmod, "identity", lambda acct: "me@example.com"):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 34)) as pilot:
+            await pilot.pause(0.3)
+            home = app.screen
+            app.push_screen(AccountPage("alpha"))
+            await pilot.pause(0.5)
+            page = app.screen
+            text = str(page.query_one("#a_text", Static).render())
+            check("account page: the overview names the account, its vendor and its email",
+                  "alpha" in text and "claude" in text and "me@example.com" in text, text)
+            check("account page: and says whether it is logged in and how full it is",
+                  "logged in" in text.lower() and "5h" in text and "7d" in text, text)
+            page.query_one("#scope", Tabs).active = "agents"
+            await pilot.pause(0.2)
+            table = page.query_one("#a_agents", DataTable)
+            check("account page: the agents tab lists who runs on the account",
+                  table.display and [k.value for k in table.rows] == ["backend"], [k.value for k in table.rows])
+            check("account page: the overview is hidden behind it", not page.query_one("#a_overview").display)
+            table.focus()
+            await pilot.press("enter")
+            await pilot.pause(0.4)
+            check("account page: Enter on an agent opens its chat page", isinstance(app.screen, ChatPage),
+                  type(app.screen).__name__)
+            await pilot.press("escape")
+            await pilot.pause(0.3)
+            check("account page: and Esc comes back to the account", app.screen is page, type(app.screen).__name__)
+
+            page.query_one("#scope", Tabs).active = "settings"
+            await pilot.pause(0.2)
+            check("account page: settings shows the cap and the buttons",
+                  page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
+            page.query_one("#a_cap", Input).value = "2"
+            await pilot.click("#a_save")
+            await pilot.pause(0.3)
+            check("account page: Save cap writes the cap", loadmod.cap_of("alpha") == 2
+                  and "at most 2" in str(page.query_one("#a_flash", Static).render()),
+                  str(page.query_one("#a_flash", Static).render()))
+            page.query_one("#a_cap", Input).value = ""
+            await pilot.click("#a_save")
+            await pilot.pause(0.3)
+            check("account page: an empty cap is refused and the old one stays",
+                  loadmod.cap_of("alpha") == 2 and "whole number" in str(page.query_one("#a_flash", Static).render()))
+            await pilot.click("#leave")
+            await pilot.pause(0.3)
+            check("account page: Back returns to the home page", app.screen is home, type(app.screen).__name__)
 
 
 async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
@@ -1542,6 +1599,7 @@ async def _run_all() -> None:
     await test_confirm_rechecks_can_if_the_state_changed_while_it_was_open()
     await test_text_prompt_composer_sends_and_cancels()
     await test_accounts_panel_cap_add_remove_and_open()
+    await test_the_account_page_shows_the_account_and_sets_its_cap()
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()
     await test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back()
