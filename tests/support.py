@@ -519,10 +519,6 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     obsmod.live_sessions = lambda: None
 
 
-def _pt_epoch(y: int, m: int, d: int, h: int, mi: int) -> int:
-    return int(datetime(y, m, d, h, mi, tzinfo=dmn.QUIET_HOURS_TZ).timestamp())
-
-
 def _hold_daemon_lock_in_another_process(env: dict, write_name: bool = True):
     """A separate process holding the daemon lock, as launchd's daemon does.
     An in-process hold would pass on a lock that never leaves the process."""
@@ -1866,7 +1862,6 @@ __all__ = [
     'DESIGN_TEAM',
     '_reconcile_world',
     '_daemon_home',
-    '_pt_epoch',
     '_hold_daemon_lock_in_another_process',
     'EXIT_DIALOG',
     'PASTED_DRAFT',
