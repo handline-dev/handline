@@ -439,10 +439,10 @@ def _start_for_work(con, agent: str, log) -> str:
     return f"{agent}: could not be started - {said.splitlines()[0]}"
 
 
-def _write_wake_prompt(agent: str, text: str) -> Path:
+def _write_wake_prompt(agent: str, text: str, suffix: str = "txt") -> Path:
     d = paths.home() / "wake"
     d.mkdir(parents=True, exist_ok=True)
-    p = d / f"{agent}.txt"
+    p = d / f"{agent}.{suffix}"
     p.write_text(text)
     return p
 
@@ -708,10 +708,16 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
 
     if not orca.typeable_now(handle):
         return False, "the session is busy or has a modal open; not typing the handoff"
-    # Typed, so kept to the three lines a paste-safe delivery is (T106): more
-    # arrives inside <pasted_content>, "carry on" included, and may be declined.
-    ok, why = orca.resume_with(handle, delivery.three_lines(
-        wake_prompt(agent, False, was_closed=False, moved_to=moved_to, con=con)))
+    # The record is a page of lines, and typed at a session that many arrive
+    # inside <pasted_content> to be declined. It is written to a file the
+    # session reads, and one line pointing at it is typed (T106). Not the
+    # launch's prompt file: that one is taken and deleted by the launch.
+    record = _write_wake_prompt(
+        agent, wake_prompt(agent, False, was_closed=False, moved_to=moved_to, con=con),
+        suffix="handoff.txt")
+    ok, why = orca.resume_with(
+        handle, f"You were parked and your context was cleared. Your handoff is in "
+                f"{record} - read all of it, then carry on from there.")
     if ok:
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")

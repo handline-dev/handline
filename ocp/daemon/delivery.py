@@ -457,23 +457,15 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
 MAX_TYPED_LINES = 3
 
 
-def three_lines(text: str) -> str:
-    """`text` as at most `MAX_TYPED_LINES` lines: blank lines go first, then
-    the middle lines are joined into one, the first and last kept. A sender
-    still builds its own three lines so nothing important is squeezed."""
+def _send(handle: str, text: str) -> tuple[bool, str]:
+    """`orca.send` for text an agent is meant to act on: never more than
+    `MAX_TYPED_LINES` lines. Past that the middle lines are joined into one; a
+    sender still builds its own three lines so nothing important is squeezed."""
     lines = text.split("\n")
-    if len(lines) > MAX_TYPED_LINES:
-        lines = [ln for ln in lines if ln.strip()] or lines[:1]
     if len(lines) > MAX_TYPED_LINES:
         keep = MAX_TYPED_LINES - 2
         lines = lines[:keep] + [" ".join(lines[keep:-1])] + lines[-1:]
-    return "\n".join(lines)
-
-
-def _send(handle: str, text: str) -> tuple[bool, str]:
-    """`orca.send` for text an agent is meant to act on: never more than
-    `MAX_TYPED_LINES` lines."""
-    return orca.send(handle, three_lines(text))
+    return orca.send(handle, "\n".join(lines))
 
 
 def type_notice(con, agent: str, text: str) -> bool:

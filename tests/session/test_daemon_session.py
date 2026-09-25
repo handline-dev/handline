@@ -3663,7 +3663,7 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
         for _ in range(3):
             dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()) + 1, {}, [])
         check("context handoff: its own record is typed into the session",
-              any("Carry on from here" in t for t in typed), str(typed))
+              any("Carry on from here" in support.pointed_record(t) for t in typed), str(typed))
         row = db.get_agent_state(con, "backend")
         check("context handoff: settles into QUEUED or IDLE once delivered, not PARKED",
               row["state"] in (dmn_states.IDLE, dmn_states.QUEUED) and not row["wake_at"],
@@ -3722,13 +3722,17 @@ def test_wake_injects_handoff(home: Path) -> None:
         keep_handoff("backend", "# handoff · backend\n## Next\n- finish the thing\n- and the other\n\n## Done\n- a\n- b\n")
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: injects the handoff", ok and sent, why)
-        check("wake: typed in three lines at most, or Claude Code takes it for a paste (T106)",
-              sent and sent[-1].count("\n") <= 2 and "Carry on from here" in sent[-1]
-              and "and the other" in sent[-1], repr(sent[-1]))
+        record = Path(sent[-1].split(" is in ")[1].split(" - ")[0]) if sent else None
+        check("wake: what is typed is one line naming a file, not the record (T106)",
+              sent and "\n" not in sent[-1] and record is not None and record.is_absolute(), repr(sent))
+        check("wake: and the file holds the whole record, structure kept",
+              record is not None and record.exists()
+              and "- finish the thing\n- and the other\n\n## Done\n- a\n- b" in record.read_text()
+              and "Carry on from here" in record.read_text(), record and record.read_text())
         check("wake: the agent is told its context was cleared",
               "context was cleared" in sent[-1], sent[-1][:80])
         check("wake: and gets its own record back",
-              "finish the thing" in sent[-1], sent[-1][:120])
+              "finish the thing" in (record.read_text() if record else ""), sent[-1][:120])
     finally:
         orcamod.resume_with, orcamod.alive = real_resume, real_alive
         con.close()

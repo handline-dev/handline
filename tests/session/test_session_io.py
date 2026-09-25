@@ -1289,7 +1289,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
         ok, _ = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("wake: a cleared agent gets its handoff", ok and "routing fix" in sent[-1],
+        check("wake: a cleared agent gets its handoff", ok and "routing fix" in support.pointed_record(sent[-1]),
               sent[-1][:120] if sent else "")
         check("wake: and is told its context was cleared",
               "context was cleared" in sent[-1])
@@ -1586,9 +1586,6 @@ def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) ->
         dmn_delivery._send("term_x", "a\nb\nc\nd\ne")
         check("lines: whatever else is typed is squeezed to three, first and last kept",
               sent == ["a\nb c d\ne"], repr(sent))
-        check("lines: blank lines go before anything is joined",
-              dmn_delivery.three_lines("intro\n\n# h\n- a\n\n- b\nlast") == "intro\n# h - a - b\nlast",
-              repr(dmn_delivery.three_lines("intro\n\n# h\n- a\n\n- b\nlast")))
     finally:
         con.close()
 
