@@ -1209,8 +1209,8 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
               == sorted(r[3] for r in rows))
         check("tasks: reversed is the reverse",
               [r[0] for r in cp.sort_tasks(rows, "task", True)] == sorted((r[0] for r in rows), reverse=True))
-        check("tasks: state sorts waiting before done",
-              cp.sort_tasks([(1, "owns", "done", "x", "y", 1), (2, "owns", "waiting", "x", "y", 1)],
+        check("tasks: state sorts draft before done",
+              cp.sort_tasks([(1, "owns", "done", "x", "y", 1), (2, "owns", "draft", "x", "y", 1)],
                             "state", False)[0][0] == 2)
     finally:
         con.close()

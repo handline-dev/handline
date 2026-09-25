@@ -3172,8 +3172,9 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
 
         # And the CLI holds the same rows, or clearing one leaves the other
         # still asking.
-        os.environ.pop("OCP_AGENT", None)
+        os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        os.environ.pop("OCP_AGENT", None)
         check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
 
         # Whose row it is is checked against who is asking, and a caller we

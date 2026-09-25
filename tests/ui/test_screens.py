@@ -350,7 +350,9 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
               and after["to read"] - before.get("to read", 0) == 3,
               f"{before_title!r} -> {after_title!r}")
         want = len(actions.mailbox_rows(con))
+        os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        os.environ.pop("OCP_AGENT", None)
         check("fold: `ocp inbox` counts every message in the mailbox, not every line",
               int(out.splitlines()[0].split()[0]) == want, out.splitlines()[0])
     finally:
@@ -2097,12 +2099,16 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         for i in range(8):
             db.add_event(con, "backend", "Stop", {"i": i})
         db.add_event(con, "backend", "wake", {"resumed_session": "sess-1"})
+        os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["events", "--agent", "backend", "--limit", "20"]))
+        os.environ.pop("OCP_AGENT", None)
         check("events: a decision is shown", "wake" in out, out[:160])
         check("events: and the turn edges are not", "Stop" not in out, out[:160])
-        check("events: unless they are asked for",
-              "Stop" in _capture(lambda: climod.main(
-                  ["events", "--agent", "backend", "--limit", "20", "--all"])))
+        os.environ["OCP_AGENT"] = actions.HUMAN
+        with_all = _capture(lambda: climod.main(
+            ["events", "--agent", "backend", "--limit", "20", "--all"]))
+        os.environ.pop("OCP_AGENT", None)
+        check("events: unless they are asked for", "Stop" in with_all)
 
     finally:
         dmn_locks.running_elsewhere = was_running
@@ -2494,6 +2500,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
 
         def run_it(argv: list[str], env: dict | None = None, key: str | None = None) -> None:
             buf, err = io.StringIO(), io.StringIO()
+            if env is None and argv[0] in ("inbox", "digest", "handoff", "events"):
+                env = {"OCP_AGENT": "human"}  # listings refuse a caller with no name (T39)
             saved = {k: os.environ.get(k) for k in (env or {})}
             os.environ.update(env or {})
             try:
@@ -2588,6 +2596,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",
+        "task queue": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out, not this scene",
+        "task draft": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out, not this scene",
         "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task edit": "writes a row; driven in "
