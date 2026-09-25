@@ -5037,6 +5037,27 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
     check("reason: an empty --reason on dismiss is refused", rc == 1 and "empty" in out, out)
 
 
+def test_a_corrected_reply_stays_in_its_thread(home: Path) -> None:
+    """T117: `--replaces` on a reply without saying `--parent` again sent the
+    correction as a new request, which waits behind the head it followed."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, _, head = askmod.ask("worker", "the task", requester="manager")
+        ok, _, reply = askmod.ask("worker", "do it this way", requester="manager", parent_id=head)
+        ok, _, fixed = askmod.ask("worker", "do it that way", requester="manager", replaces=reply)
+        row = db.get_request(con, fixed)
+        check("replaces: a corrected reply keeps its parent",
+              ok and row["parent_id"] == head and row["chain_depth"] == 1, str(dict(row)))
+        ok, _, other = askmod.ask("worker", "an aside", requester="manager", parent_id=fixed)
+        ok, _, plain = askmod.ask("worker", "first", requester="manager")
+        ok, _, plain2 = askmod.ask("worker", "first, again", requester="manager", replaces=plain)
+        check("replaces: a top-level request stays top-level",
+              db.get_request(con, plain2)["parent_id"] is None)
+    finally:
+        con.close()
+
+
 def test_moot_by_records_who_retired_a_row(home: Path) -> None:
     """#1349: moot_by is a record, not a relation - set once, from the row
     that went moot, by whichever verb already knows both ids."""
@@ -5503,6 +5524,7 @@ def main() -> int:
         run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
         run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
+        run(lambda: test_a_corrected_reply_stays_in_its_thread(Path(td) / 'replythread'))
         run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
