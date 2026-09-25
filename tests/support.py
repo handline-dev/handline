@@ -1112,6 +1112,14 @@ class FakeOrca:
             "path": path, "displayName": self.names[path]}}})
 
 
+class _StubMeter:
+    """A metered second vendor's Meter: it exists, and reads nothing."""
+    renews_by_turn = False
+
+    def read_usage(self, acct, refresh):
+        return None, False
+
+
 class SecondVendor:
     """A second vendor, registered for real: a single-vendor suite cannot see
     a literal left behind, or an account handed to the wrong kind of agent -
@@ -1132,6 +1140,8 @@ class SecondVendor:
         return "ZAI_HOME"
     def headless_argv(self, exe, model, prompt):
         return [exe, "run", prompt]
+    def can_headless(self):
+        return True
     def headless_model(self, model):
         return model or "zai-default"
     def is_session(self, command):
@@ -1141,10 +1151,8 @@ class SecondVendor:
         if "glmcode" not in command:
             return False
         return " run " not in command and not command.endswith(" run")
-    def meters(self):
-        return self.metered
     def meter(self):
-        return None
+        return _StubMeter() if self.metered else None
     def collector(self):
         return None
     def context_window(self, model_id):
@@ -1402,10 +1410,22 @@ def _touches_subprocess_text(tree) -> bool:
                for n in ast.walk(tree))
     reads = any(isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr")
                for n in ast.walk(tree))
-    via_gitrun = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                     and n.func.attr == "run"
-                     and isinstance(n.func.value, ast.Name) and n.func.value.id == "gitrun"
-                     for n in ast.walk(tree))
+    mods, funcs = {"gitrun"}, set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                if a.name == "gitrun":
+                    mods.add(a.asname or a.name)
+                elif a.name == "run" and (n.module or "").split(".")[-1] == "gitrun":
+                    funcs.add(a.asname or a.name)
+        elif isinstance(n, ast.Import):
+            mods.update(a.asname for a in n.names
+                        if a.name.split(".")[-1] == "gitrun" and a.asname)
+    via_gitrun = any(isinstance(n, ast.Call) and (
+        (isinstance(n.func, ast.Attribute) and n.func.attr == "run"
+         and isinstance(n.func.value, ast.Name) and n.func.value.id in mods)
+        or (isinstance(n.func, ast.Name) and n.func.id in funcs))
+        for n in ast.walk(tree))
     return (calls and reads) or via_gitrun
 
 

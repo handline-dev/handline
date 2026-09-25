@@ -22,8 +22,6 @@ from ..infra import paths
 from .. import vendors
 from ..infra.yamlcompat import is_plain_text
 
-# The status line commands ocp used to install into shared/.claude (D11). The
-# slot is the human's now, so these are only ever removed.
 def ensure_shared() -> None:
     """Create each vendor's shared config dir and the settings ocp keeps in it."""
     for h in vendors.state_hooks():

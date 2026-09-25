@@ -87,6 +87,9 @@ class Opencode:
         # file was. Explicit None: fold refuses rather than guess.
         return None
 
+    def can_headless(self) -> bool:
+        return False
+
     def headless_model(self, model: str | None) -> str:
         # Never called: headless_argv is always None.
         return model or ""
@@ -96,13 +99,6 @@ class Opencode:
         or ends there. Anchored to the start because a claude session's
         preamble can say "opencode" anywhere in its own command line."""
         return _SESSION.match(command) is not None
-
-    def meters(self) -> bool:
-        # The coding-plan credential answers a usage endpoint, so ocp can read
-        # how much of the plan's limit is spent. A credential of some other
-        # provider never answers it - the same fail-closed "could not look"
-        # as a dead token is on any metered vendor.
-        return True
 
     # The coding plan's quota endpoint, measured live against the console the
     # founder reads (task #42, 2026-09-23): same totals, same reset instants,
@@ -207,6 +203,10 @@ class Opencode:
         return tuple(out)
 
     def meter(self):
+        # The coding-plan credential answers a usage endpoint, so ocp can read
+        # how much of the plan's limit is spent. A credential of some other
+        # provider never answers it - the same fail-closed "could not look"
+        # as a dead token is on any metered vendor.
         return _Meter(self)
 
     def collector(self):

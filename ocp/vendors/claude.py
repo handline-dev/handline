@@ -50,6 +50,9 @@ class Claude:
     def headless_argv(self, exe: str, model: str | None, prompt: str) -> list[str] | None:
         return [exe, "--model", self.headless_model(model), "-p", prompt]
 
+    def can_headless(self) -> bool:
+        return True
+
     def headless_model(self, model: str | None) -> str:
         return model or self.DEFAULT_HEADLESS_MODEL
 
@@ -59,9 +62,6 @@ class Claude:
         if "claude" not in command:
             return False
         return " -p " not in command and not command.endswith(" -p")
-
-    def meters(self) -> bool:
-        return True
 
     def meter(self):
         from .claude_meter import ClaudeMeter       # it imports this module

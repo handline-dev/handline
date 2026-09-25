@@ -980,6 +980,39 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
           r.returncode != 0 and "ocp install-hooks" in r.stderr, r.stdout + r.stderr)
 
 
+def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None:
+    """T27: an entry written as `~/...` or through a symlink is the same path
+    as the home, so it is folded, removed or named as a blocker like any other."""
+    use_home(home)
+    home.mkdir(parents=True, exist_ok=True)
+    real = home.resolve()
+    link = home.parent / "homelink"
+    link.symlink_to(real)
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    old_home = os.environ.get("HOME")
+    os.environ["HOME"] = str(real.parent)
+    try:
+        tilde = f"~/{real.name}"
+        target.write_text(json.dumps({"sandbox": {"filesystem": {
+            "allowWrite": [tilde, str(link / "locks" / "x")],
+            "denyWrite": [str(link), "~"]}}}))
+        changed, blockers = vendors.state_hooks()[0].allow_home_writes()
+        fs = json.loads(target.read_text())["sandbox"]["filesystem"]
+        check("home writes: a `~` entry for the home is the home, kept once, nothing appended",
+              fs["allowWrite"] == [tilde], str(fs))
+        check("home writes: a symlinked entry under it is folded away", changed)
+        check("home writes: a deny through a symlink to the home is removed",
+              str(link) not in fs["denyWrite"], str(fs))
+        check("home writes: a `~` deny on a parent is named as a blocker",
+              blockers == ["~"] and fs["denyWrite"] == ["~"], str((blockers, fs)))
+    finally:
+        if old_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = old_home
+
+
 def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(home: Path) -> None:
     """`state_hooks()` is the one fact hooks, init, doctor and the state word
     ask: claude has them, opencode and a second vendor do not, and a vendor
@@ -1643,6 +1676,7 @@ def main() -> int:
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
+        run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))
         run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
