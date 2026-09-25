@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.session import hooks  # noqa: E402
+from ocp.vendors import claude_hooks as hooks  # noqa: E402
 
 
 
@@ -28,7 +28,7 @@ def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
     shared.mkdir(parents=True, exist_ok=True)
     settings = shared / "settings.json"
 
-    for old in accounts.OLD_STATUSLINES:
+    for old in hooks.OLD_STATUSLINES:
         (shared / old).write_text("#!/bin/sh\n")
         settings.write_text(json.dumps({"statusLine": {
             "type": "command", "command": str(shared / old)}, "theme": "dark"}))
@@ -59,7 +59,7 @@ def test_a_failed_settings_write_keeps_the_old_scripts(home: Path) -> None:
     use_home(home)
     shared = vendors.shared_dir("claude")
     shared.mkdir(parents=True, exist_ok=True)
-    old = shared / accounts.OLD_STATUSLINES[0]
+    old = shared / hooks.OLD_STATUSLINES[0]
     old.write_text("#!/bin/sh\n")
     (shared / "settings.json").write_text(json.dumps(
         {"statusLine": {"type": "command", "command": str(old)}}))
@@ -89,7 +89,7 @@ def test_an_unreadable_settings_file_is_refused_and_left_alone(home: Path) -> No
     use_home(home)
     shared = vendors.shared_dir("claude")
     shared.mkdir(parents=True, exist_ok=True)
-    old = shared / accounts.OLD_STATUSLINES[0]
+    old = shared / hooks.OLD_STATUSLINES[0]
     old.write_text("#!/bin/sh\n")
     settings = shared / "settings.json"
     for bad, why in (('{"theme": "dark", "model": ', "malformed JSON"),
@@ -980,6 +980,28 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
           r.returncode != 0 and "ocp install-hooks" in r.stderr, r.stdout + r.stderr)
 
 
+def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(home: Path) -> None:
+    """`state_hooks()` is the one fact hooks, init, doctor and the state word
+    ask: claude has them, opencode and a second vendor do not, and a vendor
+    without them is one whose row state is read off its screen."""
+    from ocp.ui import tui
+    use_home(home)
+    check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
+    check("state hooks: opencode has none - its screen is the witness",
+          vendors.get("opencode").state_hooks() is None)
+    check("state hooks: the list the commands loop over is claude's alone",
+          [type(h).__name__ for h in vendors.state_hooks()] == ["ClaudeHooks"],
+          str(vendors.state_hooks()))
+    accounts.register("clacct")
+    accounts.register("ocacct", vendor="opencode")
+    check("state hooks: a claude account's state comes from its hooks",
+          tui._state_from_screen("clacct") is False)
+    check("state hooks: an opencode account's is read off its screen",
+          tui._state_from_screen("ocacct") is True)
+    check("state hooks: an account whose vendor has no driver is neither",
+          tui._state_from_screen("nosuch") is False)
+
+
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
     """The check that has to fire when `observe.is_session` stops matching - and
     stay quiet in the states that are not that. It fires on a status line still
@@ -1621,6 +1643,7 @@ def main() -> int:
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
+        run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
         run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))

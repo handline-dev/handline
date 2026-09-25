@@ -10,6 +10,42 @@ from pathlib import Path
 from typing import Protocol
 
 
+class StateHooks(Protocol):
+    """How a vendor's agents report RUNNING and IDLE: hooks ocp installs into a
+    settings file every account of the vendor shares. A vendor without them has
+    no StateHooks (`Driver.state_hooks()` is None) and its state is read off the
+    screen instead."""
+
+    def source_settings(self) -> Path:
+        """Where the host application (Orca) installs its own hooks."""
+
+    def target_settings(self) -> Path:
+        """The shared settings file every account of this vendor links to."""
+
+    def plan(self) -> tuple[dict, dict, bool]:
+        """(Orca's hooks at the source, those in the shared file, drifted?)."""
+
+    def sync(self, quiet: bool = False) -> bool:
+        """Mirror Orca's hooks into the shared file; True if it changed."""
+
+    def watch(self, interval: float = 5.0, once: bool = False) -> None:
+        """Re-apply `sync` whenever the source changes."""
+
+    def install(self, exe: str, wanted: set[str]) -> tuple[list[str], int]:
+        """Put `exe hook <event>` for each of `wanted` in the shared file, once
+        each: (events added, duplicate entries removed)."""
+
+    def allow_home_writes(self) -> tuple[bool, list[str]]:
+        """Let a sandboxed agent write under OCP_HOME: (changed, blockers)."""
+
+    def ensure_shared(self) -> Path:
+        """Create the shared config dir and its settings file; refuses, changing
+        nothing, when the settings file is not a JSON object."""
+
+    def shared_problems(self) -> list[tuple[str, str]]:
+        """(what, detail) for each way the shared settings would break a session."""
+
+
 class Driver(Protocol):
     name: str
     min_version: tuple[int, ...]
@@ -49,6 +85,10 @@ class Driver(Protocol):
         """Whether ocp can read how much of the account's limit is spent. An
         account whose vendor cannot be read is unmetered: never picked, never
         polled, and only its own agents' agent.yaml sends work there."""
+
+    def state_hooks(self) -> StateHooks | None:
+        """This vendor's StateHooks, or None when its agents do not report
+        their state through hooks."""
 
     def is_resume(self, extra: list[str] | None) -> bool:
         """Does this argv carry a session to resume?"""

@@ -887,6 +887,15 @@ OPENCODE_STATE_TTL_S = 2.0
 _opencode_seen: dict[str, tuple[float, bool | None]] = {}
 
 
+def _state_from_screen(acct: str) -> bool:
+    """Does this account's vendor leave its agents' state to the screen, having
+    no hooks to report it? False for a vendor nothing can be said about."""
+    try:
+        return vendors.for_account(acct).state_hooks() is None
+    except vendors.UnknownVendor:
+        return False
+
+
 def _opencode_working(handle: str) -> bool | None:
     """What this pane's screen says: True working, False idle at its prompt.
 
@@ -948,7 +957,7 @@ def screen_state(con, row) -> tuple[str, str]:
         # moving is working. A closed row's word is the db's, and so is any
         # row when the screen cannot be read.
         if state == dmn_states.RUNNING and row["terminal"] and not row["closed_at"] \
-                and vendors.account_vendor(row["account"] or "") == "opencode" \
+                and _state_from_screen(row["account"] or "") \
                 and _opencode_working(row["terminal"]) is False:
             return "IDLE", ""
         return "RUNNING", ""
@@ -976,7 +985,7 @@ def screen_state(con, row) -> tuple[str, str]:
     # hide it. The same witness speaks first, but never for a closed agent:
     # its pane is a shell prompt, and its word is the db's.
     if state == dmn_states.IDLE and not row["closed_at"] and row["terminal"] \
-            and vendors.account_vendor(row["account"] or "") == "opencode" \
+            and _state_from_screen(row["account"] or "") \
             and _opencode_working(row["terminal"]) is True:
         return "RUNNING", ""
     # A row the daemon marked with work still running behind the prompt is not

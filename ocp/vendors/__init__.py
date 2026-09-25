@@ -29,6 +29,11 @@ def known() -> list[Driver]:
     return list(_REGISTRY.values())
 
 
+def state_hooks() -> list:
+    """The StateHooks of every vendor that has them."""
+    return [h for d in known() if (h := d.state_hooks()) is not None]
+
+
 def for_agent(name: str) -> Driver:
     return get(agent_vendor(name))
 

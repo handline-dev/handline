@@ -1097,6 +1097,8 @@ class SecondVendor:
         return " run " not in command and not command.endswith(" run")
     def meters(self):
         return self.metered
+    def state_hooks(self):
+        return None
     def is_resume(self, extra):
         return "--resume" in (extra or [])
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble):

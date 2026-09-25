@@ -184,6 +184,10 @@ class Opencode:
             return None
         return tuple(out)
 
+    def state_hooks(self):
+        # It has no hooks to install: the screen is the only witness.
+        return None
+
     def is_resume(self, extra: list[str] | None) -> bool:
         return any(x in ("-s", "--session", "-c", "--continue") or x.startswith("--session=")
                    for x in (extra or []))

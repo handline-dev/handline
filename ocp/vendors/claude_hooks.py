@@ -1,4 +1,7 @@
-"""Keep Orca's Claude agent hooks mirrored into our shared settings.
+"""Claude's StateHooks: how RUNNING and IDLE reach ocp, and the shared settings
+file that carries them.
+
+Keep Orca's Claude agent hooks mirrored into our shared settings.
 
 Orca integrates with Claude Code through hooks in ~/.claude/settings.json,
 not through statusLine (established in Phase 0, probe J0). Those hooks report
@@ -16,11 +19,15 @@ one shared copy propagates to every account.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
 from ..infra import paths
-from .. import vendors
+from .claude import Claude
+
+# ocp's own status line scripts, which it no longer installs (D11).
+OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
 
 # How we recognize a hook Orca installed. Every Orca hook command mentions one
 # of these paths or variables.
@@ -32,8 +39,12 @@ def source_settings() -> Path:
     return paths.user_home() / ".claude" / "settings.json"
 
 
+def _shared() -> Path:
+    return paths.home() / "shared" / Claude.config_dir_name
+
+
 def target_settings() -> Path:
-    return vendors.shared_dir("claude") / "settings.json"
+    return _shared() / "settings.json"
 
 
 def _read_json(p: Path) -> dict:
@@ -204,3 +215,137 @@ def watch(interval: float = 5.0, once: bool = False) -> None:
         if once:
             return
         time.sleep(interval)
+
+
+def _is_our_hook(command: object, event: str) -> bool:
+    """Is this entry ours, whatever path it was written with?
+
+    `ocp` is on PATH as a symlink into the repo, so the same installation spells
+    itself two ways. Matching the exact string meant a second entry was added
+    the first time the spelling changed, and then every hook fired twice - two
+    events recorded per turn, and two of everything downstream.
+    """
+    if not isinstance(command, str):
+        return False
+    parts = command.split()
+    return (len(parts) >= 3 and parts[-2:] == ["hook", event]
+            and os.path.basename(parts[0]) == "ocp")
+
+
+def ensure_shared() -> Path:
+    """Create shared/.claude and its settings.json.
+
+    Refuses, changing nothing, when settings.json exists but cannot be read
+    as a JSON object: it holds the human's settings too, and rewriting it
+    from {} would lose them.
+    """
+    shared = _shared()
+    settings = shared / "settings.json"
+    current = {}
+    if settings.exists():
+        try:
+            current = json.loads(settings.read_text())
+        except (OSError, ValueError) as e:
+            raise ValueError(f"{settings} could not be read ({e}); ocp changed nothing. "
+                             "Fix or move it, then run this again.") from e
+        if not isinstance(current, dict):
+            raise ValueError(f"{settings} is not a JSON object; ocp changed nothing. "
+                             "Fix or move it, then run this again.")
+
+    shared.mkdir(parents=True, exist_ok=True)
+    for sub in ("skills", "agents", "commands"):
+        (shared / sub).mkdir(exist_ok=True)
+
+    ours = {str(shared / name) for name in OLD_STATUSLINES}
+
+    # A statusLine pointing at a script just deleted would error in every
+    # session. Anyone else's is left alone.
+    line = current.get("statusLine")
+    if isinstance(line, dict) and line.get("command") in ours:
+        del current["statusLine"]
+    # Ours overlaps Claude Code's own auto-continue, and section 4 says to pick
+    # one. We pick ours, and doctor enforces that the choice stays made.
+    current.setdefault("autoContinueAtUsageLimit", False)
+    tmp = settings.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(settings)
+    # Only once no setting points at them: deleted first, a failed write
+    # would leave every session running a script that is gone.
+    for cmd in ours:
+        Path(cmd).unlink(missing_ok=True)
+    return shared
+
+
+def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
+    """Add `exe hook <event>` for each of `wanted` to the shared settings, next
+    to Orca's mirrored hooks: (events added, duplicate entries removed)."""
+    target = target_settings()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(target.read_text()) if target.exists() else {}
+    block = data.setdefault("hooks", {})
+    added, pruned = [], 0
+    for event in sorted(wanted | set(block)):
+        groups = block.get(event)
+        if groups is None:
+            if event not in wanted:
+                continue
+            groups = block.setdefault(event, [])
+        # Ours, in whatever spelling, collapses to exactly one entry.
+        keep, seen = [], False
+        for g in groups:
+            if not isinstance(g, dict):
+                keep.append(g)
+                continue
+            entries = g.get("hooks", [])
+            mine = [h for h in entries
+                    if isinstance(h, dict) and _is_our_hook(h.get("command"), event)]
+            if not mine:
+                keep.append(g)
+                continue
+            if seen or len(entries) > len(mine):
+                g["hooks"] = [h for h in entries if h not in mine]
+                pruned += len(mine)
+                if g["hooks"]:
+                    keep.append(g)
+                continue
+            seen = True
+            keep.append(g)
+        groups[:] = keep
+        if not seen and event in wanted:
+            groups.append({"hooks": [{"type": "command",
+                                      "command": f"{exe} hook {event}", "timeout": 10}]})
+            added.append(event)
+    write_settings(target, data)
+    return added, pruned
+
+
+def shared_problems() -> list[tuple[str, str]]:
+    """(what, detail) for each way the shared settings would break a session."""
+    s = target_settings()
+    if not s.exists():
+        return [("shared/.claude/settings.json missing", "")]
+    try:
+        line = json.loads(s.read_text()).get("statusLine", {})
+    except json.JSONDecodeError:
+        line = {}
+    # ocp installs no status line (D11); one of its old ones left in the slot
+    # points at a script `ocp init` deletes.
+    old = {str(_shared() / n) for n in OLD_STATUSLINES}
+    if isinstance(line, dict) and line.get("command") in old:
+        return [("shared statusLine is an old ocp script", "run `ocp init` to remove it")]
+    return []
+
+
+class ClaudeHooks:
+    """`Claude.state_hooks()`: the module's functions, as the StateHooks
+    Protocol names them."""
+
+    source_settings = staticmethod(source_settings)
+    target_settings = staticmethod(target_settings)
+    plan = staticmethod(plan)
+    sync = staticmethod(sync)
+    watch = staticmethod(watch)
+    install = staticmethod(install)
+    allow_home_writes = staticmethod(allow_home_writes)
+    ensure_shared = staticmethod(ensure_shared)
+    shared_problems = staticmethod(shared_problems)
