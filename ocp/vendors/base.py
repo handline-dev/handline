@@ -22,6 +22,19 @@ class Driver(Protocol):
     def config_dir_env(self) -> str:
         """The variable that pins a session to one account's config dir."""
 
+    def headless_argv(self, exe: str, model: str | None, prompt: str) -> list[str] | None:
+        """argv for one one-shot, non-interactive run of `prompt`.
+
+        None: this vendor has no such run, and a caller that needs one (fold)
+        refuses cleanly rather than guessing at a flag nobody has measured."""
+
+    def headless_model(self, model: str | None) -> str:
+        """The model name `headless_argv(exe, model, ...)` actually runs:
+        `model` itself, or this vendor's own cheap default when none was
+        asked for by name. A caller that needs the model it is about to spend
+        (fold's own spend record) asks this rather than assuming `model` is
+        it. Never called for a vendor whose `headless_argv` is always None."""
+
     def is_session(self, command: str) -> bool:
         """Is this `ps` command line one of this vendor's agent sessions?
 

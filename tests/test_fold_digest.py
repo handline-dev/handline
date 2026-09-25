@@ -377,7 +377,8 @@ def test_a_rejected_fold_still_records_what_it_spent(home: Path) -> None:
         payload = json.loads(rows[-1]["payload"])
         check("fold: naming the account that was charged for it",
               payload.get("account") == "alpha", str(payload))
-        check("fold: and the model that charged it",
+        check("fold: and the model that actually ran - claude's own default, "
+              "resolved even though nothing asked for one by name",
               payload.get("model") == "haiku", str(payload))
     finally:
         foldmod.run_model = real
@@ -503,6 +504,97 @@ def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
           and "commit" in facts, facts)
 
 
+def test_run_model_asks_the_vendor_for_its_headless_argv(home: Path) -> None:
+    """run_model builds argv from the account's own driver (design/04 §4.2),
+    and refuses cleanly - no subprocess run at all - for a vendor whose
+    driver says it has no one-shot run."""
+    use_home(home)
+    accounts.register("alpha")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    cdrv = vendors.get("claude")
+    real_binary, real_run = cdrv.binary, subprocess.run
+    seen: list[list[str]] = []
+    try:
+        cdrv.binary = lambda: "/x/bin/claude"
+
+        def fake_run(argv, **kw):
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "ok", "")
+        subprocess.run = fake_run
+        ok, out = foldmod.run_model("hi", "alpha", "haiku")
+        check("run_model: claude's argv is --model then -p prompt",
+              ok and seen[0] == ["/x/bin/claude", "--model", "haiku", "-p", "hi"], str(seen))
+    finally:
+        cdrv.binary, subprocess.run = real_binary, real_run
+    with second_vendor() as drv:
+        drv.headless_argv = lambda exe, model, prompt: None
+        accounts.register("zeta", vendor="zai")
+        (vendors.config_dir("zeta") / ".credentials.json").write_text("{}")
+        ok, out = foldmod.run_model("hi", "zeta", "haiku")
+        check("run_model: a vendor with no one-shot run refuses cleanly",
+              not ok and "no one-shot run" in out, out)
+
+
+def test_fold_picks_an_account_of_the_agents_own_vendor(home: Path) -> None:
+    """A fold auto-picking (no `fold_account`) asks `_cheapest_account` for
+    the agent's own vendor, not always claude's - it reaches `run_model` with
+    a second-vendor account for a second-vendor agent (design/04 §4.2)."""
+    use_home(home)
+    with second_vendor(metered=True):
+        agents.register("zbackend")
+        _with_vendor("zbackend", "zai")
+        accounts.register("alpha")
+        write_status(home, "alpha", pct_5h=10)
+        accounts.register("zeta", vendor="zai")
+        write_status(home, "zeta", pct_5h=10)
+        accounts.logged_in = lambda a: True
+        seen: list[str] = []
+        real = foldmod.run_model
+        try:
+            foldmod.run_model = lambda prompt, acct, model: (seen.append(acct), (False, "stop"))[1]
+            con = db.connect()
+            try:
+                db.add_event(con, "zbackend", "commit", {"sha": "a", "subject": "x"})
+            finally:
+                con.close()
+            foldmod.fold("zbackend", use_model=True)
+        finally:
+            foldmod.run_model = real
+        check("fold: a second-vendor agent's auto-pick lands on its own vendor's account",
+              seen == ["zeta"], str(seen))
+
+
+def test_fold_falls_back_to_claude_for_a_vendor_that_cannot_headless(home: Path) -> None:
+    """An opencode agent's auto-pick still reaches a claude account for its
+    fold call, as every fold did before vendors existed: opencode's driver
+    has no one-shot run, so `_headless_vendor_for` falls back to claude's
+    rather than picking an opencode account only to have `run_model` refuse
+    it (design/04 §4.2, auditor's #321 should-fix 1 - this is not a
+    behaviour change)."""
+    use_home(home)
+    agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
+    _with_vendor("glm", "opencode")
+    accounts.register("alpha")
+    write_status(home, "alpha", pct_5h=10)
+    accounts.register("zai", vendor="opencode")
+    write_status(home, "zai", pct_5h=10)
+    accounts.logged_in = lambda a: True
+    seen: list[str] = []
+    real = foldmod.run_model
+    try:
+        foldmod.run_model = lambda prompt, acct, model: (seen.append(acct), (False, "stop"))[1]
+        con = db.connect()
+        try:
+            db.add_event(con, "glm", "commit", {"sha": "a", "subject": "x"})
+        finally:
+            con.close()
+        foldmod.fold("glm", use_model=True)
+    finally:
+        foldmod.run_model = real
+    check("fold: an opencode agent's auto-pick still lands on a claude account",
+          seen == ["alpha"], str(seen))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -520,6 +612,10 @@ def main() -> int:
         run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
         run(lambda: test_the_handoff_carries_the_agents_progress_note_on_its_request(Path(td) / 'hdprog'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
+        run(lambda: test_run_model_asks_the_vendor_for_its_headless_argv(Path(td) / 'headless'))
+        run(lambda: test_fold_picks_an_account_of_the_agents_own_vendor(Path(td) / 'foldvendor'))
+        run(lambda: test_fold_falls_back_to_claude_for_a_vendor_that_cannot_headless(
+            Path(td) / 'foldfallback'))
     return run_area(tests)
 
 

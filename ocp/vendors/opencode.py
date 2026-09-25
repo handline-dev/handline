@@ -58,6 +58,17 @@ class Opencode:
         adds a config dir and moves nothing; config and state stay shared."""
         return "XDG_DATA_HOME"
 
+    def headless_argv(self, exe: str, model: str | None, prompt: str) -> list[str] | None:
+        # `opencode run` exists (it is one of `is_session`'s own headless
+        # subcommands), but its prompt and model flags are unmeasured here -
+        # no live run has confirmed them the way every other argv in this
+        # file was. Explicit None: fold refuses rather than guess.
+        return None
+
+    def headless_model(self, model: str | None) -> str:
+        # Never called: headless_argv is always None.
+        return model or ""
+
     def is_session(self, command: str) -> bool:
         """The command line starts with the binary and goes on with an option,
         or ends there. Anchored to the start because a claude session's

@@ -20,13 +20,13 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 
-from . import accounts, agents, db, digest, events as evmod, gitrun, paths, status, textsafe, timefmt
+from . import (accounts, agents, db, digest, events as evmod, gitrun, paths, status,
+              textsafe, timefmt, vendors)
 
 FOLD_TIMEOUT_S = 180
 
@@ -196,28 +196,36 @@ Rules:
 """
 
 
-def run_model(prompt: str, account: str, model: str = "haiku") -> tuple[bool, str]:
-    """Run the single model call a fold is allowed (KICKOFF rule 4)."""
-    claude = shutil.which("claude")
-    if not claude:
-        return False, "claude not on PATH"
+def run_model(prompt: str, account: str, model: str | None = None) -> tuple[bool, str]:
+    """Run the single model call a fold is allowed (KICKOFF rule 4).
+
+    `model` is a human's own choice (`--model`), or None to let the driver
+    pick its own cheap default - never a literal fallen back to here, which
+    would be one vendor's model alias handed to whichever vendor answers.
+    """
+    drv = vendors.for_account(account)
+    exe = drv.binary()
+    if not exe:
+        return False, f"{drv.name} not on PATH"
+    argv = drv.headless_argv(exe, model, prompt)
+    if argv is None:
+        return False, f"{drv.name} has no one-shot run; fold is refused"
     if not accounts.logged_in(account):
         return False, f"account '{account}' is not logged in"
     env = accounts.env_for(account)
     try:
         r = subprocess.run(
-            [claude, "--model", model, "-p", prompt],
-            capture_output=True, text=True, timeout=FOLD_TIMEOUT_S, env=env,
+            argv, capture_output=True, text=True, timeout=FOLD_TIMEOUT_S, env=env,
         )
     except subprocess.TimeoutExpired:
         return False, f"fold timed out after {FOLD_TIMEOUT_S}s"
     except OSError as e:
-        return False, f"could not run claude: {e}"
+        return False, f"could not run {drv.name}: {e}"
     if r.returncode != 0:
-        # claude's own stderr, not anything of ours - clean it here rather
-        # than trust every future reader of a fold refusal to remember to.
+        # The vendor's own stderr, not anything of ours - clean it here
+        # rather than trust every future reader of a fold refusal to remember to.
         return False, textsafe.oneline((r.stderr or r.stdout
-                                        or "claude exited non-zero").strip())[:500]
+                                        or f"{drv.name} exited non-zero").strip())[:500]
     return True, r.stdout.strip()
 
 
@@ -232,7 +240,7 @@ def _strip_fences(text: str) -> str:
     return t.strip()
 
 
-def fold(agent: str, use_model: bool = True, model: str = "haiku",
+def fold(agent: str, use_model: bool = True, model: str | None = None,
          fold_account: str | None = None, repo: Path | None = None) -> tuple[bool, str]:
     """Fold one agent's events into its digest.
 
@@ -277,10 +285,15 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         candidate = ""
         used_model = False
         acct = None
+        spent_model = model
         if use_model:
-            acct = fold_account or _cheapest_account()
+            acct = fold_account or _cheapest_account(_headless_vendor_for(agent))
             if acct:
-                ok, out = run_model(build_prompt(agent, previous, events, day), acct, model)
+                # What actually runs, for the spend record below - `model`
+                # itself once the driver has looked at it, since a fold that
+                # asked for none still spends whatever the driver defaults to.
+                spent_model = vendors.for_account(acct).headless_model(model)
+                ok, out = run_model(build_prompt(agent, previous, events, day), acct, spent_model)
                 if ok:
                     candidate, used_model = _strip_fences(out), True
                 else:
@@ -312,7 +325,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # for the folds that worked and blank for the ones that went wrong.
             db.add_event(con, agent, "fold_failed",
                          {"problems": problems, "cursor": cursor,
-                          "model": model if used_model else None,
+                          "model": spent_model if used_model else None,
                           "account": acct})
             return False, (f"{agent}: fold rejected, kept the previous digest and left the "
                            f"cursor at {cursor}. Reason: {'; '.join(problems)[:300]}")
@@ -339,7 +352,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
             # A fold is the one spender no status line observes, so this event
             # is the only record that the account was charged at all.
             db.add_event(con, agent, "fold", {"through": top, "events": len(events),
-                                              "model": model if used_model else None,
+                                              "model": spent_model if used_model else None,
                                               "account": acct})
             con.execute("COMMIT")
         except Exception:
@@ -350,15 +363,29 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         con.close()
 
 
-def _cheapest_account() -> str | None:
+def _headless_vendor_for(agent: str) -> str:
+    """Which vendor's account should pay for this agent's fold call: its own,
+    if that vendor can run one-shot at all, else claude's - the vendor every
+    fold reached before vendors existed, and the only one that can today.
+    Probed with placeholder arguments: whether a driver's `headless_argv`
+    exists at all does not depend on them for any driver measured so far, and
+    the real call that spends the turn passes its own real ones."""
+    own = vendors.agent_vendor(agent)
+    if vendors.get(own).headless_argv("_probe", None, "") is not None:
+        return own
+    return agents.DEFAULT_VENDOR
+
+
+def _cheapest_account(vendor: str = agents.DEFAULT_VENDOR) -> str | None:
     # Only an account with a genuinely current reading, never one pick_account
     # admitted on a stale floor (`status.idle_floor`, `rolled_over`): those are
     # safe for a launch, which the daemon asks the endpoint about on its next
     # tick and self-corrects, but a fold is the one spend nothing observes -
     # sending it to an account we already cannot read only deepens the
     # blindness. Same rule the fallback below applies.
-    # `claude -p`, so a claude account and one ocp can read.
-    ours = [a for a in paths.list_accounts() if status.not_for(a, agents.DEFAULT_VENDOR) is None]
+    # A fold runs headless, under whichever vendor can (`_headless_vendor_for`
+    # picks it) - one account of that vendor, and one ocp can read.
+    ours = [a for a in paths.list_accounts() if status.not_for(a, vendor) is None]
     readable = [a for a in ours if accounts.logged_in(a) and not status.read(a).stale]
     picked, _ = status.pick_account(readable)
     if picked:
