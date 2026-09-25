@@ -252,23 +252,56 @@ def test_the_human_is_the_supervisor_of_an_agent_with_none(home: Path) -> None:
         con.close()
 
 
+def test_migration_adds_the_timebox_columns_to_an_older_requests_table(home: Path) -> None:
+    """Every tick selects timebox_noticed_at, so a database made before it must
+    gain both columns on connect, keeping its rows and leaving them untimed."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
+          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
+          files TEXT, relation TEXT, response TEXT, kind TEXT,
+          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
+          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
+          announced_at INTEGER, resolved_at INTEGER, delivered_at INTEGER
+        )
+    """)
+    old.execute("INSERT INTO requests(ts, requester, target, body, state, chain_id, delivered_at) "
+                "VALUES(?,?,?,?,?,?,?)", (int(time.time()), "manager", "marina", "old", "queued", "1",
+                                          int(time.time()) - 9000))
+    old.commit()
+    old.close()
+    con = db.connect(p)
+    try:
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(requests)")}
+        check("migration: an older requests table gains both timebox columns",
+              {"timebox_s", "timebox_noticed_at"} <= cols, str(sorted(cols)))
+        rows = db.timeboxed_open(con)
+        check("migration: its open request is watched, with the config default box",
+              len(rows) == 1 and rows[0]["timebox_s"] is None and timebox.timebox_s(rows[0]) == 7200)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
-        for i, fn in enumerate((
-                test_a_duration_needs_its_unit,
-                test_ask_keeps_its_timebox,
-                test_the_asker_is_told_once_when_a_request_runs_past_its_timebox,
-                test_a_resolved_or_cancelled_request_stops_the_clock,
-                test_a_notice_that_cannot_be_typed_is_tried_again,
-                test_a_human_asker_is_recorded_not_typed_at,
-                test_a_supervisor_is_told_once_of_an_agent_running_with_nothing_asked,
-                test_an_open_request_or_a_short_run_is_not_unasked,
-                test_background_work_counts_as_running_and_the_limit_is_configurable,
-                test_the_human_is_the_supervisor_of_an_agent_with_none)):
-            try:
-                run(lambda fn=fn, i=i: fn(Path(td) / f"tb{i}"))
-            finally:
-                dmn_delivery.session_present = REAL_SESSION_PRESENT
+        try:
+            run(lambda: test_a_duration_needs_its_unit(Path(td) / 'tb0'))
+            run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
+            run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))
+            run(lambda: test_a_resolved_or_cancelled_request_stops_the_clock(Path(td) / 'tb3'))
+            run(lambda: test_a_notice_that_cannot_be_typed_is_tried_again(Path(td) / 'tb4'))
+            run(lambda: test_a_human_asker_is_recorded_not_typed_at(Path(td) / 'tb5'))
+            run(lambda: test_a_supervisor_is_told_once_of_an_agent_running_with_nothing_asked(Path(td) / 'tb6'))
+            run(lambda: test_an_open_request_or_a_short_run_is_not_unasked(Path(td) / 'tb7'))
+            run(lambda: test_background_work_counts_as_running_and_the_limit_is_configurable(Path(td) / 'tb8'))
+            run(lambda: test_the_human_is_the_supervisor_of_an_agent_with_none(Path(td) / 'tb9'))
+            run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb10'))
+        finally:
+            dmn_delivery.session_present = REAL_SESSION_PRESENT
     return run_area(tests)
 
 
