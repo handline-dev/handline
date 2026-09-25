@@ -1571,6 +1571,43 @@ def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) ->
         con.close()
 
 
+def test_a_reply_in_the_open_heads_thread_is_told_now_not_behind_it(home: Path) -> None:
+    """A request told and open, its follow-up queued behind it, the agent idle:
+    the follow-up used to wait for a resolve that could depend on it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        _session_file(home, "sess-A")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        head = db.add_request(con, "marina", "backend", "step six", None, "peer", "async", None, 0, None)
+        other = db.add_request(con, "marina", "backend", "unrelated", None, "peer", "async", None, 0, None)
+        reply = db.add_request(con, "marina", "backend", "on step six: leave it", None,
+                               "peer", "async", None, 0, head)
+        check("thread: the reply to a head not yet told does not jump it",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and "step six" in sent[-1] and "leave it" not in sent[-1], str(sent))
+        sent.clear()
+        check("thread: the reply is told now, though its head is still open",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and "leave it" in sent[-1] and f"follow-up to #{head}" in sent[-1], str(sent))
+        sent.clear()
+        check("thread: and once - the unrelated request stays behind the head",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        con.execute("UPDATE requests SET state = 'done', verdict = 'ok' WHERE id = ?", (head,))
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("thread: with the head closed, the reply is not told a second time",
+              not any("leave it" in t for t in sent) and any("unrelated" in t for t in sent),
+              str(sent))
+    finally:
+        con.close()
+
+
 def test_nothing_is_typed_at_a_modal(home: Path) -> None:
     """Claude Code opens modals of its own at start; a typed line plus Enter
     answers whichever option is highlighted."""
@@ -3182,6 +3219,7 @@ def main() -> int:
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
         run(lambda: test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(Path(td) / 'sessback'))
         run(lambda: test_what_is_typed_at_an_agent_is_never_more_than_three_lines(Path(td) / 'threelines'))
+        run(lambda: test_a_reply_in_the_open_heads_thread_is_told_now_not_behind_it(Path(td) / 'threadreply'))
         run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
         run(lambda: test_a_wake_types_nothing_at_a_shell_when_the_session_dies(Path(td) / 'shellwake'))
         run(lambda: test_a_launch_takes_its_prompt_once(Path(td) / 'takeprompt'))
