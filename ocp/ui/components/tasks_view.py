@@ -100,7 +100,7 @@ class TasksView(Vertical):
 
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns(
-            "", "#", "P", "title", "owner", "state", "idle", "may close", "blocked by")
+            "", "#", "P", "state", "title", "owner", "idle", "may close", "blocked by")
         self.set_interval(2.0, self.refresh_rows)
         self.refresh_rows()
 
@@ -135,7 +135,7 @@ class TasksView(Vertical):
         for r in self.rows:
             stale = actions.task_stale(r, now)
             cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
-                     textsafe.oneline(r["title"]), r["owner"], r["state"],
+                     r["state"], textsafe.oneline(r["title"]), r["owner"],
                      idle_text(r, now) + (" !" if stale else ""), r["closer"],
                      " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
             table.add_row(*(Text(c, style="yellow" if stale else "") for c in cells), key=str(r["id"]))

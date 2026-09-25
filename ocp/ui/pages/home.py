@@ -40,8 +40,8 @@ _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 _TAB_WIDGETS = {
     "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot", "#home_keys"),
     "hr": ("#hr_view",),
-    "tasks": ("#header", "#tasks_view"),
-    "stats": ("#header", "#stats_view"),
+    "tasks": ("#tasks_view",),
+    "stats": ("#stats_view",),
     "settings": ("#settings_view",),
 }
 # The ACCOUNTS columns from the richest layout to the barest; the first that fits the

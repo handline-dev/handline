@@ -884,7 +884,6 @@ async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> Non
         app.screen.query_one("#scope", Tabs).active = "stats"
         await pilot.pause(0.3)
         tab = app.screen.query_one("#stats_view")
-        check("stats tab: the state line stays on top", app.screen.query_one("#header").display)
         check("stats tab: home has a Stats tab with the same rows", tab.display and [r.agent for r in tab.rows] == ["writer"],
               (tab.display, [r.agent for r in tab.rows]))
 
@@ -957,7 +956,6 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.pause(0.3)
         view = home.query_one("#tasks_view")
         ids = {r["id"] for r in view.rows}
-        check("tasks tab: the state line stays on top", home.query_one("#header").display)
         check("tasks tab: only the tasks that concern the founder", mine in ids and not ({a, b, c} & ids), ids)
         view.query_one("#tasks_table").focus()
         await pilot.press("f")
