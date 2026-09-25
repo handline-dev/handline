@@ -12,14 +12,17 @@ import time
 TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
-               "discarded_by", "discard_reason")
+               "discarded_by", "discard_reason", "priority", "merged_into")
+
+DEFAULT_PRIORITY = 2
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
-             parent_task: int | None = None) -> int:
+             parent_task: int | None = None, priority: int = DEFAULT_PRIORITY) -> int:
     cur = con.execute(
-        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at) "
-        "VALUES (?, ?, ?, ?, ?)", (title, owner, parent_task, opened_by, int(time.time())))
+        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (title, owner, parent_task, opened_by, int(time.time()), priority))
     return int(cur.lastrowid)
 
 
@@ -29,22 +32,22 @@ def get_task(con, tid: int):
 
 def open_tasks(con) -> list:
     return con.execute(
-        "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY id").fetchall()
+        "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY priority, id").fetchall()
 
 
 def open_tasks_for(con, owner: str) -> list:
     return con.execute(
-        "SELECT * FROM tasks WHERE closed_by IS NULL AND owner = ? ORDER BY id",
+        "SELECT * FROM tasks WHERE closed_by IS NULL AND owner = ? ORDER BY priority, id",
         (owner,)).fetchall()
 
 
 def all_tasks(con) -> list:
-    return con.execute("SELECT * FROM tasks ORDER BY id").fetchall()
+    return con.execute("SELECT * FROM tasks ORDER BY priority, id").fetchall()
 
 
 def open_child_tasks(con, tid: int) -> list:
     return con.execute(
-        "SELECT * FROM tasks WHERE parent_task = ? AND closed_by IS NULL ORDER BY id",
+        "SELECT * FROM tasks WHERE parent_task = ? AND closed_by IS NULL ORDER BY priority, id",
         (tid,)).fetchall()
 
 
@@ -99,11 +102,11 @@ def tasks_needing_close(con) -> list:
     """Done tasks not yet closed - #71's 'done - waiting for check' group."""
     return con.execute(
         "SELECT * FROM tasks WHERE done_evidence IS NOT NULL AND closed_by IS NULL "
-        "ORDER BY id").fetchall()
+        "ORDER BY priority, id").fetchall()
 
 
 def edit_task(con, tid: int, by: str, owner: str | None = None,
-              title: str | None = None) -> None:
+              title: str | None = None, priority: int | None = None) -> None:
     """Write a changed owner and/or title, stamped with who and when - the
     same evidence close_task leaves on closed_by/closed_at. Caller has
     already checked permission and that something actually changed; this
@@ -116,6 +119,9 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     if title is not None:
         sets.append("title = ?")
         params.append(title)
+    if priority is not None:
+        sets.append("priority = ?")
+        params.append(priority)
     params.append(tid)
     con.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
 
@@ -174,3 +180,38 @@ def task_requests(con, tid: int) -> list:
     return con.execute(
         "SELECT r.* FROM requests r JOIN task_requests l ON l.request_id = r.id "
         "WHERE l.task_id = ? ORDER BY r.id", (tid,)).fetchall()
+
+
+def merge_task(con, tid: int, into: int, by: str) -> bool:
+    """Close `tid` as merged into `into`, atomically. True only if this call
+    was the one that ended it."""
+    cur = con.execute(
+        "UPDATE tasks SET closed_by = ?, closed_at = ?, merged_into = ? "
+        "WHERE id = ? AND closed_by IS NULL AND done_evidence IS NULL",
+        (by, int(time.time()), into, tid))
+    return cur.rowcount > 0
+
+
+def move_task_links(con, tid: int, into: int) -> None:
+    """Hand `tid`'s linked requests, sub-tasks and the edges that name it as
+    a blocker to `into`. A request already linked to both stays linked once."""
+    con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) "
+                "SELECT ?, request_id FROM task_requests WHERE task_id = ?", (into, tid))
+    con.execute("DELETE FROM task_requests WHERE task_id = ?", (tid,))
+    con.execute("UPDATE tasks SET parent_task = ? WHERE parent_task = ? AND id != ?",
+                (into, tid, into))
+    con.execute("UPDATE OR IGNORE task_blocks SET blocks_on = ? WHERE blocks_on = ? AND task_id != ?",
+                (into, tid, into))
+    con.execute("DELETE FROM task_blocks WHERE blocks_on = ?", (tid,))
+
+
+def task_last_activity(con, tid: int) -> int:
+    """The latest of the task's creation, edit, done and close and the newest
+    time on any request linked to it."""
+    r = con.execute(
+        "SELECT MAX(COALESCE(t.created_at, 0), COALESCE(t.edited_at, 0), "
+        "COALESCE(t.done_at, 0), COALESCE(t.closed_at, 0), "
+        "COALESCE((SELECT MAX(MAX(q.ts), COALESCE(MAX(q.resolved_at), 0)) FROM requests q "
+        "JOIN task_requests l ON l.request_id = q.id WHERE l.task_id = t.id), 0)) "
+        "FROM tasks t WHERE t.id = ?", (tid,)).fetchone()
+    return int(r[0] or 0)
