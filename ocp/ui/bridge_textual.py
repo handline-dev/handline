@@ -31,9 +31,8 @@ from .keymap import KeymapApp
 class ClipboardApp(KeymapApp):
     """An app whose copy also reaches the system clipboard: Textual's own copy
     is OSC 52, which iTerm2 and macOS Terminal drop unless told otherwise. A
-    drag-selection is copied when the mouse is let go: Cmd+C never reaches an
-    app in a terminal that does not send it, and Ctrl+C is not what a hand
-    reaches for after a drag."""
+    drag-selection is copied when the mouse is let go, as Cmd+C never reaches
+    the app."""
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
         self.call_after_refresh(self._copy_selection)
