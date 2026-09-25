@@ -170,11 +170,16 @@ def expired(taken: list[float], now: float) -> set[float]:
 
 def prune(dest: Path, now: float) -> list[Path]:
     """Delete the snapshots in `dest` that LADDER_S lets go."""
-    found = {p: p.stat().st_mtime for p in dest.glob(PREFIX + "*" + SUFFIX)}
+    found = {}
+    for p in dest.glob(PREFIX + "*" + SUFFIX):
+        try:
+            found[p] = p.stat().st_mtime
+        except FileNotFoundError:
+            pass  # a concurrent prune already took it
     gone = expired(list(found.values()), now)
     removed = [p for p, t in sorted(found.items()) if t in gone]
     for p in removed:
-        p.unlink()
+        p.unlink(missing_ok=True)  # a concurrent prune may already have taken it
     # A run killed mid-write leaves its partial behind, and it matches no
     # snapshot name. A live run's is young.
     for p in dest.glob(PREFIX + "*" + PARTIAL):
