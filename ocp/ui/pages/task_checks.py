@@ -7,11 +7,12 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Static
+from textual.widgets import DataTable, Static
 
 from ... import actions, db
 from ...usage import status
 from ...infra import textsafe
+from ..components.key_guide import Key, KeyGuide, KeyHelp
 from ..components.text_prompt import TextPrompt
 from ..components.jobs_aware import JobsAware
 
@@ -34,7 +35,15 @@ class TaskChecks(JobsAware, Screen):
         Binding("C", "act('C')", "close checked"),
         Binding("escape", "app.pop_screen", "back"),
         Binding("q,ctrl+c", "app.quit", "quit", show=False),
+        Binding("question_mark", "key_help", "keys", show=False),
     ]
+    KEYS = [Key("space", "mark", 1, "mark or unmark the row"),
+            Key("c", "close", 1, "close the task under the cursor"),
+            Key("r", "reopen", 1, "send it back to doing, with a one-line reason"),
+            Key("C", "close marked", 2, "close every marked task"),
+            Key("esc", "back", 1, "back to the home page"),
+            Key("q", "quit", 3, "quit the bridge")]
+    DEFAULT_CSS = "TaskChecks #table { height: 1fr; }"
     _STATUS_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 
     def __init__(self) -> None:
@@ -47,7 +56,7 @@ class TaskChecks(JobsAware, Screen):
         yield Static("done - waiting for check", id="title")
         yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
         yield Static(id="status")
-        yield Footer()
+        yield KeyGuide(self.KEYS, id="foot")
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
@@ -87,6 +96,9 @@ class TaskChecks(JobsAware, Screen):
         if self.flash:
             status.append(self.flash, "yellow")
         self.query_one("#status", Static).update(status)
+
+    def action_key_help(self) -> None:
+        self.app.push_screen(KeyHelp("checks keys", self.KEYS))
 
     def action_check(self) -> None:
         if self.cur < len(self.rows):
