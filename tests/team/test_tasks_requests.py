@@ -5645,6 +5645,9 @@ def test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(home: Path)
         check("stale: not at 2 days", not actions.task_stale(old, old["last_activity"] + 2 * 86400))
         check("stale: a task that is not waiting is never flagged",
               not actions.task_stale({**old, "state": "done"}, now))
+        mine = [r["id"] for r in rows if actions.task_related_to(r, "manager")]
+        check("related: a task its opener or owner is named is related", set(mine) == set(ids), mine)
+        check("related: a stranger has none", not any(actions.task_related_to(r, "nobody") for r in rows))
         res = actions.batch_task(con, "priority", [a, b, 9999], "manager", "P3")
         check("batch: each task gets its own result, a refusal says why",
               [ok for _, ok, _ in res] == [True, True, False] and "no task T9999" in res[2][2], str(res))

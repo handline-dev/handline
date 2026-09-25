@@ -651,6 +651,11 @@ def task_stale(row: dict, now: float) -> bool:
     return row["state"] == "waiting" and task_idle_s(row, now) >= STALE_AFTER_S
 
 
+def task_related_to(row: dict, who: str) -> bool:
+    """Does `who` own this `task_rows` row, open it, or have to close it?"""
+    return who in (row["owner"], row["opened_by"], row["closer"])
+
+
 def sort_task_rows(rows: list[dict], by: str) -> list[dict]:
     """`priority` (P1 first, then by number) or `number` (T9 before T10)."""
     if by == "number":

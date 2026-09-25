@@ -747,6 +747,7 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
     """T69: T opens the tasks screen; space marks; p sets the priority of the
     marked tasks; c on tasks that are not done shows each refusal with its reason."""
     from ocp.ui.pages.tasks import TasksScreen
+    from textual.widgets import Tabs
     _home("tasksscreen")
     con = db.connect()
     try:
@@ -761,12 +762,13 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.press("T")
         await pilot.pause()
         screen = app.screen
+        view = screen.query_one('#tasks_view')
         check("tasks: T opens the screen, every open task listed",
-              isinstance(screen, TasksScreen) and {a, b, c} <= {r["id"] for r in screen.rows},
+              isinstance(screen, TasksScreen) and {a, b, c} <= {r["id"] for r in view.rows},
               type(screen).__name__)
         await pilot.press("space", "down", "space")
         await pilot.pause()
-        check("tasks: space marks the rows", len(screen.checked) == 2, screen.checked)
+        check("tasks: space marks the rows", len(view.checked) == 2, view.checked)
         await pilot.press("p")
         await pilot.pause()
         await pilot.press("1", "enter")
@@ -779,9 +781,29 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         check("tasks: p wrote P1 to both marked tasks", prios == [1, 1], prios)
         await pilot.press("c")
         await pilot.pause(0.3)
-        said = str(screen.query_one("#results").render())
+        said = str(screen.query_one("#tasks_results").render())
         check("tasks: c on tasks that are not done shows a line per task, with the reason",
               said.count("refused") >= 1 and "T" in said, said)
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("tasks: enter opens the task's detail", type(app.screen).__name__ == "TaskDetail", type(app.screen).__name__)
+        await pilot.press("escape", "escape")
+        await pilot.pause(0.2)
+        con = db.connect()
+        try:
+            mine = db.new_task(con, "founder's own", "worker", actions.HUMAN)
+        finally:
+            con.close()
+        home = app.screen
+        home.query_one("#scope", Tabs).active = "tasks"
+        await pilot.pause(0.3)
+        view = home.query_one("#tasks_view")
+        ids = {r["id"] for r in view.rows}
+        check("tasks tab: only the tasks that concern the founder", mine in ids and not ({a, b, c} & ids), ids)
+        view.query_one("#tasks_table").focus()
+        await pilot.press("f")
+        await pilot.pause(0.2)
+        check("tasks tab: f steps to an agent's own tasks", view.owner == "worker", view.owner)
 
 
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
@@ -1751,7 +1773,7 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
         check("home: up from the very first row does", isinstance(screen.focused, Tabs), screen.focused)
         await pilot.press("right")
         await pilot.pause(0.2)
-        check("home: right on the tab bar changes tab", screen.tab == "hr", screen.tab)
+        check("home: right on the tab bar changes tab", screen.tab == "tasks", screen.tab)
         await pilot.press("left")
         await pilot.pause(0.2)
         check("home: left changes it back", screen.tab == "home", screen.tab)
