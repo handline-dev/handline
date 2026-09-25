@@ -165,8 +165,9 @@ def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
 def save_account_settings(acct: str, label: str, cap: str,
                           recover: bool | None = None) -> tuple[bool, str]:
     """The account page's Settings form: its alias, its cap and (when given) the usage
-    recovery switch, each written only when it differs from what is there. A blank cap writes none, so an account with no cap of its
-    own keeps following the default. Nothing is written if either is refused."""
+    recovery switch, each written only when it differs from what is there. A blank
+    cap writes none, so an account with no cap of its own keeps following the
+    default. Nothing is written if any is refused."""
     label = label.strip()
     if textsafe.has_unsafe(label) or len(label) > 40:
         return False, "an alias is one plain line of at most 40 characters"

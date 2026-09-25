@@ -78,9 +78,9 @@ class AccountPage(AccountActions, Screen):
                                 placeholder=self.account if key == "name" else "")
                     yield Static(hint, classes="fhint")
             with Horizontal(classes="frow"):
-                yield Static("usage reset", classes="flabel")
+                yield Static("usage recovery", classes="flabel")
                 yield Switch(id="a_recover", value=True)
-                yield Static("  a turn that resets the usage window when it runs out", classes="fhint")
+                yield Static("  one real turn that renews a dead credential or restarts the usage window", classes="fhint")
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")

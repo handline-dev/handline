@@ -317,7 +317,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
             page.query_one("#a_cap", Input).value = "2"
             page.query_one("#a_name", Input).value = "Work"
-            check("account page: the usage reset switch is drawn from the config, off",
+            check("account page: the usage recovery switch is drawn from the config, off",
                   page.query_one("#a_recover", Switch).value is False)
             await pilot.click("#a_save")
             await pilot.pause(0.3)
@@ -330,7 +330,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             page.query_one("#a_recover", Switch).value = True
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            check("account page: Save writes the usage reset switch", loadmod.usage_recover_enabled("alpha")
+            check("account page: Save writes the usage recovery switch", loadmod.usage_recover_enabled("alpha")
                   and page.query_one("#a_recover", Switch).value is True)
             check("account page: the title shows the new name",
                   "Work" in str(page.query_one("#t_title", Static).render()))
@@ -1735,6 +1735,14 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
             check(f"home: a default cap of {bad!r} is refused and the saved one stays",
                   loadmod.default_cap() == 7 and "at least 1" in str(screen.query_one("#settings_flash", Static).render()),
                   str(screen.query_one("#settings_flash", Static).render()))
+        screen.query_one("#default_cap", Input).value = "9"
+        screen.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        screen.query_one("#scope", Tabs).active = "settings"
+        await pilot.pause(0.2)
+        check("home: a cap typed and not saved (T67) is left unsaved by changing tab, and the field shows the saved one",
+              loadmod.default_cap() == 7 and screen.query_one("#default_cap", Input).value == "7",
+              (loadmod.default_cap(), screen.query_one("#default_cap", Input).value))
         screen.query_one("#scope", Tabs).active = "home"
         await pilot.pause(0.2)
         last = next(p for p in reversed(screen.PANELS) if tui._keys_of(p))

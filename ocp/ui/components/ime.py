@@ -1,8 +1,6 @@
 """Widgets that keep a syllable an IME commits with the Enter that ends it."""
 from __future__ import annotations
 
-import re
-
 from textual import events
 from textual.widgets import Input
 
@@ -21,8 +19,7 @@ class ImeInput(Input):
         if event.key == "enter" and (ch := committed(event)):
             event.prevent_default()
             event.stop()
-            if not self.restrict or re.fullmatch(self.restrict, ch):
-                self.insert_text_at_cursor(ch)
+            self.insert_text_at_cursor(ch)
             await self.action_submit()
             return
         await super()._on_key(event)
