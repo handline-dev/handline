@@ -271,6 +271,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
         raise SystemExit(f"agent '{agent}' is a {drv.name} agent and account '{acct}' "
                          f"is a {theirs} account - refusing to start it there.")
 
+    hooks = drv.state_hooks()
+    if hooks:
+        try:
+            hooks.ensure_shared()  # settings ocp keeps, e.g. notifications off
+        except ValueError:
+            pass  # an unreadable settings file is doctor's to report, not a reason not to start
     if not accounts.logged_in(acct):
         raise SystemExit(
             f"account '{acct}' is not logged in.\n"
