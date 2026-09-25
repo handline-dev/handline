@@ -1093,6 +1093,27 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
         m["queued"] for m in msgs if m["text"] == "second, not read yet"))
 
 
+async def test_escape_does_not_cancel_a_queued_message() -> None:
+    from ocp.team import ask as askmod
+    _home("noesc")
+    agents.register("reviewer")
+    _, _, mine = askmod.ask("reviewer", "still queued", requester=actions.HUMAN)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        left = not isinstance(app.screen, ChatPage)
+    con = db.connect()
+    try:
+        state = db.get_request(con, mine)["state"]
+    finally:
+        con.close()
+    check("chat: Esc no longer takes back a queued message (Cancel is the way), it just leaves",
+          state == "queued" and left, state)
+
+
 async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
     from ocp.team import ask as askmod
     _home("selreply")
@@ -1917,6 +1938,7 @@ async def _run_all() -> None:
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
+    await test_escape_does_not_cancel_a_queued_message()
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
 
