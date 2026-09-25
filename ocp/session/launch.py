@@ -459,10 +459,6 @@ def _your_team(agent: str) -> str:
                      "`ocp`, never in chat.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
                  "A decision or a block only the founder can clear: `ocp ask human`.")
-    lines.append("Write `ask` and `resolve` text with line breaks, not as one long line: "
-                 "one point per line, lists as `- ` lines. Pass anything longer than a "
-                 "sentence with `--file <path>` (or a quoted heredoc), which is safe to "
-                 "paste; a single-quoted one-liner is what makes it one line.")
     # A self-scheduled wakeup survives the park's /clear and fires into a
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
