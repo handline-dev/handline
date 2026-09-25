@@ -55,6 +55,8 @@ back to the account its session lives on.""",
   ocp ask <agent> "..." --replaces <id>   correct a task you sent, before it is delivered
   ocp ask human "..." --fyi       a report that asks nothing: not red, not counted as
                                   waiting on the founder, gone once read or superseded
+  ocp ask <agent> "..." --timebox 90m   you are told once if it is still open that long
+                                  after delivery (default 2h, config.yaml timebox_s)
   ocp withdraw <id> [--reason R]  take back your own request, before it is delivered;
                                    --reason (also on dismiss, and on ask --replaces)
                                    is stored as typed

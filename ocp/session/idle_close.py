@@ -30,6 +30,13 @@ def _config() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def config_seconds(key: str, default: int) -> int:
+    """A positive number of seconds from config.yaml, or `default` when it is
+    absent, not an integer, or not above zero."""
+    v = _config().get(key)
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else default
+
+
 def _agent_cfg(agent: str) -> dict:
     """The agent's own config, or {} for one that cannot be read - closing
     must not stall on a bad agent.yaml; it just follows the global setting."""

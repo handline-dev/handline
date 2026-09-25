@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS requests (
   -- id: a cursor for every request ever sent out of turn sat in `cursors`
   -- forever, with nothing to ever clear it.
   told_out_of_turn INTEGER,
+  -- `ocp ask --timebox`: seconds after delivery when the asker is told it is
+  -- still open. NULL follows config.yaml's timebox_s. The notice is once per
+  -- request, so its time is a column, not a cursor left behind for every row.
+  timebox_s INTEGER,
+  timebox_noticed_at INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
   fyi INTEGER NOT NULL DEFAULT 0,
@@ -545,6 +550,9 @@ def _add_missing_columns(con) -> None:
     for col in ("dismissed_by", "dismissed_reason"):
         if col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
+    for col in ("timebox_s", "timebox_noticed_at"):
+        if col not in request_cols:
+            con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
     if "told_out_of_turn" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN told_out_of_turn INTEGER")
         # Carry over what the old sendnow_told:<id> cursors already knew - a

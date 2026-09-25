@@ -21,7 +21,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, lifecycle, reconciler, usage_poll
+from . import delivery, handoff, lifecycle, reconciler, timebox, usage_poll
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -434,6 +434,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
             reconciler._stall_agent(con, agent, log, actions, e, "error")
 
     blocked.sweep(con, log, now)
+    try:
+        timebox.sweep(con, log, now)
+    except Exception as e:  # noqa: BLE001 - a notice that failed is not the tick's failure
+        log(f"  timebox: {type(e).__name__}: {e}")
     observe_burn(con, log)
     return Tick(now, actions)
 

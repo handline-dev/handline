@@ -49,6 +49,19 @@ def ago(secs: float | None) -> str:
     return span(secs)
 
 
+_SPAN_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def parse_span(text: str) -> int:
+    """`90m`, `2h`, `45s`, `1d` as seconds. The unit is required: a bare `90`
+    is minutes to one person and seconds to another, and a timebox that means
+    the wrong one is silent. ValueError says what is accepted."""
+    t = text.strip().lower()
+    if len(t) < 2 or t[-1] not in _SPAN_UNITS or not t[:-1].isdigit() or int(t[:-1]) == 0:
+        raise ValueError("a positive number with a unit: 45s, 90m, 2h or 1d")
+    return int(t[:-1]) * _SPAN_UNITS[t[-1]]
+
+
 def ago_short(ts: int, now: float | None = None) -> str:
     """How long since `ts`, in whole d, h or m: the proposals list's column."""
     secs = max(0, int((time.time() if now is None else now) - ts))
