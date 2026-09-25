@@ -19,11 +19,11 @@ from pathlib import Path
 from ..infra import gitrun, textsafe
 
 NO_OVERLAP_HEADER = (
-    "아래 \"완료\" 항목은 이미 끝났습니다. 재수행하지 마십시오."
+    "The items under \"완료\" (done) below are already finished. Do not redo them."
 )
 OVERLAP_HEADER = (
-    "아래 \"완료\" 항목은 베이스 이동으로 무효일 수 있습니다. "
-    "해당 파일을 먼저 확인하십시오."
+    "The items under \"완료\" (done) below may no longer hold, because the base moved. "
+    "Check the files they touch first."
 )
 
 

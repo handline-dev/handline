@@ -40,6 +40,7 @@ from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the escalation, so the words are
 # in front of whoever answers rather than in a document they have not read.
+# 승인 and 반려 are approve and reject: the founder answers in Korean.
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 

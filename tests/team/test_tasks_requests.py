@@ -1490,10 +1490,10 @@ def test_an_answer_line_says_what_it_answers(home: Path) -> None:
             askmod.resolve(rid, verdict)
             return [r for r in db.unannounced_answers(con, "backend") if r["id"] == rid][0]
 
-        line, more = dmn_delivery.answer_line(answered("T18 main 반영, supervisor 재시작"))
+        line, more = dmn_delivery.answer_line(answered("T18 on main, supervisor restarted"))
         rid = int(line.split()[0][1:])
         check("answer line: a short question is quoted whole, then who answered and what",
-              line == f"#{rid} (you asked: T18 main 반영, supervisor 재시작) reviewer: done", line)
+              line == f"#{rid} (you asked: T18 on main, supervisor restarted) reviewer: done", line)
         check("answer line: and nothing more to read", more is False)
 
         line, _ = dmn_delivery.answer_line(answered("q" * 100))
@@ -2866,7 +2866,7 @@ def test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(home: Pat
         db.set_agent_state(con, "mover", dmn_states.PARKED, detail="parked earlier")
         db.bump_counter(con, "mover", "wake_failures")
         db.add_request(con, "marina", "mover", "carry on", None, "peer", "async", None, 0, None)
-        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
+        keep_handoff("mover", "# handoff · mover\n## Next\n- carry on\n")
 
         def relaunch_but_miss(h, cmd, **kw):
             # The session starts and its hook fires, but the wait `_wake_agent`
@@ -3829,7 +3829,7 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
 
 
 def test_done_tasks_show_as_a_waiting_for_check_group(home: Path) -> None:
-    """#71: `ocp task list` (what status-sync.sh polls into 요청-현황.md) and
+    """#71: `ocp task list` (what a status script polls) and
     `ocp task board` both surface done-not-yet-closed tasks as their own
     group - list shows every one, board only the ones *I* am the asker of."""
     _board_world(home)

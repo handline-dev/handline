@@ -3299,7 +3299,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         db.set_agent_state(con, "mover", dmn_states.PARKED, detail="parked earlier")
         db.bump_counter(con, "mover", "wake_failures")
         db.bump_counter(con, "mover", "wake_failures")
-        keep_handoff("mover", "# handoff · mover\n## 다음\n- carry on\n")
+        keep_handoff("mover", "# handoff · mover\n## Next\n- carry on\n")
         dmn_delivery.wait_for_session = lambda agent, timeout=0: False
 
         def relaunch_fails_but_late(h, cmd, **kw):
@@ -3578,7 +3578,7 @@ def test_wake_injects_handoff(home: Path) -> None:
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: nothing to resume from without a handoff", not ok, why)
 
-        keep_handoff("backend", "# handoff · backend\n## 다음\n- finish the thing\n")
+        keep_handoff("backend", "# handoff · backend\n## Next\n- finish the thing\n")
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: injects the handoff", ok and sent, why)
         check("wake: the agent is told its context was cleared",

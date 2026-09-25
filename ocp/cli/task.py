@@ -352,7 +352,7 @@ def _fit100(line: str) -> str:
 def cmd_task_board(args) -> int:
     """The asking agent's own open tasks, and who holds each one now.
 
-    Ports `status-sync.sh`'s logic (which built 요청 현황.md by polling)
+    Ports `status-sync.sh`'s logic (a script that polled a status file)
     rather than rederiving it: a task's own linked requests, read live,
     never a status copied onto the task row. `held` is who a still-queued
     request is with. Absent that, an open child task's own queued request
