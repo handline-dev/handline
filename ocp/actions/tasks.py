@@ -576,45 +576,60 @@ def _merge_refusal(con, keep_row, row, by: str) -> str | None:
     return None
 
 
+def _merge_checks(con, keep: int, others: list[int], by: str):
+    """(refusal, keep_row, rows) for folding `others` into `keep`. Read inside
+    the merge's own transaction, so what is checked is what is written."""
+    keep_row = db.get_task(con, keep)
+    if keep_row is None:
+        return f"no task T{keep}", None, []
+    if not others:
+        return "merge needs at least one task to fold in", None, []
+    if len(set(others)) != len(others):
+        return "a task is named twice", None, []
+    if keep in others:
+        return f"task T{keep} cannot merge into itself", None, []
+    guard = _task_edit_guard(keep_row, keep, by)
+    if guard:
+        return guard, None, []
+    if keep_row["closed_by"]:
+        return f"task T{keep} is closed - nothing can merge into it", None, []
+    if keep_row["done_evidence"]:
+        return f"task T{keep} is done - nothing can merge into it", None, []
+    rows = []
+    for tid in others:
+        row = db.get_task(con, tid)
+        if row is None:
+            return f"no task T{tid}", None, []
+        why = _merge_refusal(con, keep_row, row, by)
+        if why:
+            return why, None, []
+        rows.append(row)
+    return None, keep_row, rows
+
+
 def merge_tasks(con, keep: int, others: list[int], by: str) -> tuple[bool, str]:
     """Fold `others` into `keep` (T68): each one's title is added to the kept
     title, its requests, sub-tasks and the tasks waiting on it move to `keep`,
     and it closes as merged into `keep`. Whoever may edit a task may merge it
     (its opener, or the founder), and the same goes for `keep`. All or none:
-    one refusal leaves every task as it was."""
-    keep_row = db.get_task(con, keep)
-    if keep_row is None:
-        return False, f"no task T{keep}"
-    if not others:
-        return False, "merge needs at least one task to fold in"
-    if len(set(others)) != len(others):
-        return False, "a task is named twice"
-    if keep in others:
-        return False, f"task T{keep} cannot merge into itself"
-    guard = _task_edit_guard(keep_row, keep, by)
-    if guard:
-        return False, guard
-    if keep_row["closed_by"]:
-        return False, f"task T{keep} is closed - nothing can merge into it"
-    if keep_row["done_evidence"]:
-        return False, f"task T{keep} is done - nothing can merge into it"
-    rows = []
-    for tid in others:
-        row = db.get_task(con, tid)
-        if row is None:
-            return False, f"no task T{tid}"
-        why = _merge_refusal(con, keep_row, row, by)
-        if why:
-            return False, why
-        rows.append(row)
+    one refusal leaves every task as it was. Every check runs inside the
+    write's transaction, so a blocker or parent that changes meanwhile is seen."""
     con.execute("BEGIN IMMEDIATE")
     try:
+        why, keep_row, rows = _merge_checks(con, keep, others, by)
+        if why:
+            con.execute("ROLLBACK")
+            return False, why
         for row in rows:
             if not db.merge_task(con, row["id"], keep, by):
                 con.execute("ROLLBACK")
                 return False, f"task T{row['id']} was done or closed by someone else just now"
+            # keep waiting on the folded task is no wait on itself: that edge goes.
+            dropped = row["id"] in db.blocks_on_ids(con, keep)
             db.move_task_links(con, row["id"], keep)
-            db.add_event(con, by, "merge_task", {"task_id": row["id"], "into": keep})
+            db.add_event(con, by, "merge_task",
+                         {"task_id": row["id"], "into": keep,
+                          **({"dropped_wait": True} if dropped else {})})
         title = keep_row["title"] + "".join(
             f" (+ T{r['id']}: {r['title']})" for r in rows)
         db.edit_task(con, keep, by, title=title)

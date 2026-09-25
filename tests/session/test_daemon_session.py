@@ -1014,9 +1014,9 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
 
 
 def test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(home: Path) -> None:
-    from ocp.infra.yamlcompat import ConfigError
     """T86: every writer of config.yaml read a file that failed to parse as
     empty, and then wrote that one key over the whole of it."""
+    from ocp.infra.yamlcompat import ConfigError
     _daemon_home(home, 20)
     cfg = paths.config_file()
     writers = {

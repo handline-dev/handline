@@ -148,10 +148,11 @@ def timeboxed_open(con):
     """Requests an agent has been shown and not closed, whose asker has not yet
     been told they ran long. Reports ask nothing, so no clock runs on them, and
     the human's rows are "delivered" when drawn, not worked on."""
+    from ..team import ask as askmod  # late: team imports db
     return con.execute(
         "SELECT * FROM requests WHERE state = 'queued' AND delivered_at IS NOT NULL "
         "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
-        "AND target != ?", ("human",)).fetchall()
+        "AND target != ?", (askmod.HUMAN,)).fetchall()
 
 
 def mark_timebox_noticed(con, rid: int) -> None:
@@ -183,10 +184,11 @@ def send_now_pending(con, target: str):
 def founder_pending(con, target: str):
     """The founder's requests to `target` that have not been shown to it yet,
     oldest first: what `deliver_queued` tells past an open head."""
+    from ..team import ask as askmod  # late: team imports db
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND requester = 'human' "
+        "SELECT * FROM requests WHERE target = ? AND requester = ? "
         "AND state = 'queued' AND delivered_at IS NULL ORDER BY queue_order, id",
-        (target,)).fetchall()
+        (target, askmod.HUMAN)).fetchall()
 
 
 def followups_pending(con, target: str, head_id: int):

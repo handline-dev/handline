@@ -5082,6 +5082,8 @@ def test_a_corrected_reply_stays_in_its_thread(home: Path) -> None:
         check("replaces: a corrected reply keeps its parent",
               ok and row["parent_id"] == head and row["chain_depth"] == 1, str(dict(row)))
         ok, _, other = askmod.ask("worker", "an aside", requester="manager", parent_id=fixed)
+        check("replaces: a request under the corrected reply is its child",
+              ok and db.get_request(con, other)["parent_id"] == fixed)
         ok, _, plain = askmod.ask("worker", "first", requester="manager")
         ok, _, plain2 = askmod.ask("worker", "first, again", requester="manager", replaces=plain)
         check("replaces: a top-level request stays top-level",
@@ -5630,6 +5632,28 @@ def test_the_priority_columns_migrate_an_old_tasks_table(home: Path) -> None:
         con.close()
 
 
+def test_a_merge_says_when_it_drops_the_kept_tasks_wait_on_a_folded_one(home: Path) -> None:
+    """T129: keep waiting on a task folded into it would wait on itself, so
+    that edge goes - and the merge event names it."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        keep = db.new_task(con, "keep", "worker", "manager")
+        gone = db.new_task(con, "gone", "worker", "manager")
+        plain = db.new_task(con, "plain", "worker", "manager")
+        db.add_block(con, keep, gone)
+        ok, msg = actions.merge_tasks(con, keep, [gone], "manager")
+        check("merge wait: the merge goes through", ok, msg)
+        check("merge wait: the wait is gone", db.blocks_on_ids(con, keep) == [])
+        ok, msg = actions.merge_tasks(con, keep, [plain], "manager")
+        ev = [json.loads(r["payload"]) for r in con.execute(
+            "SELECT payload FROM events WHERE kind = 'merge_task' ORDER BY id")]
+        check("merge wait: the event names the dropped wait, and only where there was one",
+              ev[0].get("dropped_wait") is True and "dropped_wait" not in ev[1], str(ev))
+    finally:
+        con.close()
+
+
 def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
     """T68 (auditor #616): a loop, a blocked folded task, a cycle through a
     waiting task, and a done keep are each refused with nothing changed."""
@@ -5803,6 +5827,7 @@ def main() -> int:
         run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
+        run(lambda: test_a_merge_says_when_it_drops_the_kept_tasks_wait_on_a_folded_one(Path(td) / 'mergewait'))
         run(lambda: test_requests_parent_id_is_indexed(Path(td) / 'parentidx'))
         run(lambda: test_the_priority_columns_migrate_an_old_tasks_table(Path(td) / 'taskprimig'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))

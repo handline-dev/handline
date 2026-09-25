@@ -396,17 +396,19 @@ def test_status_methods_all_honor_a_pinned_as_of() -> None:
     try:
         want = (live.takes_work(), live.rolled_over(), live.idle_floor(),
                 live.shown_short(), live.last_known(), status.long_pace(live),
-                status.unfit(live, None))
+                status.unfit(live, None), status._no_long_room(live, None),
+                status._pick_reason(live, None, None, False))
     finally:
         time.time = real_time
     # The wall clock is back at its real, much later value; only a method
     # that actually reads as_of, not time.time(), can still match `want`.
     got = (pinned_st.takes_work(), pinned_st.rolled_over(), pinned_st.idle_floor(),
            pinned_st.shown_short(), pinned_st.last_known(), status.long_pace(pinned_st),
-           status.unfit(pinned_st, None))
+           status.unfit(pinned_st, None), status._no_long_room(pinned_st, None),
+           status._pick_reason(pinned_st, None, None, False))
     for name, w, g in zip(
             ("takes_work", "rolled_over", "idle_floor", "shown_short", "last_known",
-             "long_pace", "unfit"),
+             "long_pace", "unfit", "_no_long_room", "_pick_reason"),
             want, got):
         check(f"status: {name} honors a pinned as_of", g == w, str((g, w)))
 
