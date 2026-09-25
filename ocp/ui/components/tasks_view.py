@@ -10,13 +10,13 @@ import time
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
 from ...infra import textsafe
-from ..chat_page import TaskActions, TaskTable, task_detail, task_page
+from ..chat_page import TaskPane, TaskTable
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
 
@@ -37,89 +37,6 @@ def result_lines(results: list[tuple[int, bool, str]]) -> Text:
 def idle_text(row: dict, now: float) -> str:
     s = actions.task_idle_s(row, now)
     return f"{s // 86400}d" if s >= 86400 else f"{s // 3600}h" if s >= 3600 else "<1h"
-
-
-WIDE = 130
-
-
-class TaskPane(TaskActions, Vertical):
-    """The task under the cursor, beside the table when the terminal is wide: what its page
-    (`chat_page.task_page`) says, the sub-tasks without links."""
-
-    DEFAULT_CSS = """
-    TaskPane { width: 50; height: 100%; padding: 0 1; border-left: solid $primary; }
-    TaskPane #pane_scroll { height: 1fr; }
-    TaskPane #pane_foot { dock: bottom; height: auto; }
-    TaskPane #pane_buttons { height: 1; }
-    TaskPane #pane_flash { height: auto; color: $warning; }
-    """
-
-    def __init__(self, **kw) -> None:
-        super().__init__(**kw)
-        self.tid = 0
-        self.d = None
-
-    def compose(self) -> ComposeResult:
-        with VerticalScroll(id="pane_scroll"):
-            yield Static(id="pane_text")
-        with Vertical(id="pane_foot"):
-            yield Static(id="pane_flash")
-            with Horizontal(id="pane_buttons"):
-                yield Button("Close", id="pane_close", variant="success", compact=True)
-                yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
-                yield Button("Discard", id="pane_discard", variant="error", compact=True)
-
-    def say(self, text: str) -> None:
-        self.query_one("#pane_flash", Static).update(Text(textsafe.oneline(text)))
-
-    def flash(self, text: str) -> None:
-        self.say(text)
-        self.show(self.tid)
-        self.query_ancestor(TasksView).refresh_rows()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        event.stop()
-        {"pane_close": self.action_close_task, "pane_reopen": self.action_reopen_task,
-         "pane_discard": self.action_discard_task}[event.button.id]()
-
-    def show(self, tid: int | None) -> None:
-        text = self.query_one("#pane_text", Static)
-        if tid != self.tid:
-            self.query_one("#pane_flash", Static).update("")
-        self.tid = tid or 0
-        self.d = None
-        for name in ("close", "reopen", "discard"):
-            self.query_one(f"#pane_{name}", Button).disabled = True
-        if tid is None:
-            text.update(Text("no task", style="dim"))
-            return
-        con = db.connect()
-        try:
-            d = task_detail(con, tid)
-        finally:
-            con.close()
-        if d is None:
-            text.update(Text(f"task {actions.task_ref(tid)} is gone", style="dim"))
-            return
-        self.d = d
-        for name in ("close", "reopen", "discard"):
-            self.query_one(f"#pane_{name}", Button).disabled = not d[f"can_{name}"]
-        page = task_page(d)
-        out = Text()
-        for part in (page["title"], page["badge"]):
-            out.append_text(part)
-            out.append("\n")
-        out.append("\n")
-        out.append_text(page["meta"])
-        for title, lines in (("Sub-tasks", [Text(f"{actions.task_ref(i)}  {st}  {t}")
-                                            for i, t, st in d["children"]]), ("Requests", page["reqs"])):
-            out.append(f"\n{title}", style="bold")
-            out.append(f"  {len(lines)}\n", style="dim")
-            for line in lines or [Text("none", style="dim")]:
-                out.append("  ")
-                out.append_text(line)
-                out.append("\n")
-        text.update(out)
 
 
 class StatePicker(ModalScreen["set[str] | None"]):
@@ -215,20 +132,17 @@ class TasksView(Vertical):
         yield Static(id="tasks_results")
         yield KeyGuide(self._keys(), id="tasks_foot")
 
-    @property
-    def wide(self) -> bool:
-        return self.size.width >= WIDE
-
     def on_resize(self) -> None:
-        wide = self.wide
-        self.query_one("#tasks_pane").display = wide
-        self.table.click_selects = not wide
-        if wide:
-            self._show_pane()
+        self._show_pane()
 
     def _show_pane(self) -> None:
-        if self.wide:
-            self.query_one(TaskPane).show(self.rows[self.cur]["id"] if self.cur < len(self.rows) else None)
+        pane = self.query_one(TaskPane)
+        if pane.fit(self.size.width, self.table):
+            pane.show(self.rows[self.cur]["id"] if self.cur < len(self.rows) else None)
+
+    def on_task_pane_changed(self, event: TaskPane.Changed) -> None:
+        event.stop()
+        self.refresh_rows()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         event.stop()

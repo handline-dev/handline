@@ -1492,6 +1492,31 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
         con.close()
 
 
+async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
+    from textual.widgets import Tabs
+    from ocp.ui import chat_page as cp
+    _home("agentpane")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        db.new_task(con, "pane subject", "reviewer", "orcapipe")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(170, 40)) as pilot:
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        page = app.screen
+        page.query_one(Tabs).active = "tasks"
+        await pilot.pause(0.5)
+        pane = page.query_one(cp.TaskPane)
+        check("agent tasks: a wide terminal shows the pane with the task under the cursor",
+              pane.display and "pane subject" in str(pane.query_one("#pane_text").render()), pane.display)
+        await pilot.resize_terminal(100, 30)
+        await pilot.pause(0.3)
+        check("agent tasks: a narrow one hides it", not pane.display)
+
+
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -2264,6 +2289,7 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_the_tasks_table_lists_owned_and_opened_and_sorts()
+    await test_the_agent_tasks_tab_shows_the_pane_when_wide()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()

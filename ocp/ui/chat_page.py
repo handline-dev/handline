@@ -741,6 +741,99 @@ class TaskActions:
         self.app.push_screen(TextPrompt("discard - why?"), answered)
 
 
+class TaskPane(TaskActions, Vertical):
+    """The task under the cursor, beside a table when the terminal is wide: what its page
+    (`chat_page.task_page`) says, the sub-tasks without links."""
+
+    WIDE = 130
+    WIDTH = 50
+    DEFAULT_CSS = f"""
+    TaskPane {{ width: {WIDTH}; height: 100%; padding: 0 1; border-left: solid $primary; }}
+    TaskPane #pane_scroll {{ height: 1fr; }}
+    TaskPane #pane_foot {{ dock: bottom; height: auto; }}
+    TaskPane #pane_buttons {{ height: 1; }}
+    TaskPane #pane_flash {{ height: auto; color: $warning; }}
+    """
+
+    class Changed(Message):
+        """An action changed the task: the host redraws its table."""
+
+    def __init__(self, **kw) -> None:
+        super().__init__(**kw)
+        self.tid = 0
+        self.d = None
+
+    def fit(self, width: int, table: "TaskTable") -> bool:
+        """Show beside `table` when `width` allows; then a click on a row only moves the
+        cursor, and the pane says what is under it."""
+        wide = width >= self.WIDE
+        self.display = wide
+        table.click_selects = not wide
+        return wide
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="pane_scroll"):
+            yield Static(id="pane_text")
+        with Vertical(id="pane_foot"):
+            yield Static(id="pane_flash")
+            with Horizontal(id="pane_buttons"):
+                yield Button("Close", id="pane_close", variant="success", compact=True)
+                yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
+                yield Button("Discard", id="pane_discard", variant="error", compact=True)
+
+    def say(self, text: str) -> None:
+        self.query_one("#pane_flash", Static).update(Text(safe(text)))
+
+    def flash(self, text: str) -> None:
+        self.say(text)
+        self.show(self.tid)
+        self.post_message(self.Changed())
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        {"pane_close": self.action_close_task, "pane_reopen": self.action_reopen_task,
+         "pane_discard": self.action_discard_task}[event.button.id]()
+
+    def show(self, tid: int | None) -> None:
+        text = self.query_one("#pane_text", Static)
+        if tid != self.tid:
+            self.query_one("#pane_flash", Static).update("")
+        self.tid = tid or 0
+        self.d = None
+        for name in ("close", "reopen", "discard"):
+            self.query_one(f"#pane_{name}", Button).disabled = True
+        if tid is None:
+            text.update(Text("no task", style="dim"))
+            return
+        con = db.connect()
+        try:
+            d = task_detail(con, tid)
+        finally:
+            con.close()
+        if d is None:
+            text.update(Text(f"task {actions.task_ref(tid)} is gone", style="dim"))
+            return
+        self.d = d
+        for name in ("close", "reopen", "discard"):
+            self.query_one(f"#pane_{name}", Button).disabled = not d[f"can_{name}"]
+        page = task_page(d)
+        out = Text()
+        for part in (page["title"], page["badge"]):
+            out.append_text(part)
+            out.append("\n")
+        out.append("\n")
+        out.append_text(page["meta"])
+        for title, lines in (("Sub-tasks", [Text(f"{actions.task_ref(i)}  {st}  {t}")
+                                            for i, t, st in d["children"]]), ("Requests", page["reqs"])):
+            out.append(f"\n{title}", style="bold")
+            out.append(f"  {len(lines)}\n", style="dim")
+            for line in lines or [Text("none", style="dim")]:
+                out.append("  ")
+                out.append_text(line)
+                out.append("\n")
+        text.update(out)
+
+
 class TaskDetail(TaskActions, Screen):
     """One task: its title and state, who has it, what it grew out of, its
     sub-tasks and requests, and the calls the human may make on it - close
@@ -859,7 +952,9 @@ class ChatPage(Screen):
                                 ("Settings", "settings")], back=True)
         with Horizontal(id="body"):
             yield VerticalScroll(id="transcript")
-        yield TaskTable(id="task_table", cursor_type="row", zebra_stripes=True)
+        with Horizontal(id="tasks_body"):
+            yield TaskTable(id="task_table", cursor_type="row", zebra_stripes=True)
+            yield TaskPane(id="task_pane")
         with Vertical(id="settings_view"):
             with VerticalScroll(id="settings_pane"):
                 for key, label in (("session_account", "session runs on"),
@@ -909,7 +1004,7 @@ class ChatPage(Screen):
         self.sub_title = f"agent {self.agent}"
         table = self.query_one("#task_table", DataTable)
         self.set_columns()
-        table.display = False
+        self.query_one("#tasks_body").display = False
         self.query_one("#compose", ChatBox).menu = self.query_one("#menu", OptionList)
         self.query_one("#compose", ChatBox).focus()
         self.refresh_view()
@@ -926,7 +1021,8 @@ class ChatPage(Screen):
         table.clear(columns=True)
         with_w = self.TASK_WITH_W if self.size.width >= 100 else self.TASK_WITH_NARROW
         fixed = sum(w for _, w in self.TASK_COLS) + with_w
-        self.title_w = max(8, self.size.width - fixed - 2 * 6 - 3)
+        beside = TaskPane.WIDTH if self.size.width >= TaskPane.WIDE else 0
+        self.title_w = max(8, self.size.width - beside - fixed - 2 * 6 - 3)
 
         def label(name: str) -> str:
             return name + (" ▼" if self.sort_rev else " ▲") if name == self.sort_col else name
@@ -957,6 +1053,24 @@ class ChatPage(Screen):
             self.set_columns()
             if self.showing_tasks:
                 self.refresh_tasks()
+            self.show_pane()
+
+    def show_pane(self) -> None:
+        pane = self.query_one(TaskPane)
+        table = self.query_one("#task_table", TaskTable)
+        if pane.fit(self.size.width, table) and self._tasks:
+            pane.show(self._tasks[min(table.cursor_row, len(self._tasks) - 1)][0])
+        elif not self._tasks:
+            pane.show(None)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        event.stop()
+        self.show_pane()
+
+    def on_task_pane_changed(self, event: TaskPane.Changed) -> None:
+        event.stop()
+        self._tasks = None
+        self.refresh_tasks()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "leave":
@@ -1019,6 +1133,7 @@ class ChatPage(Screen):
         table.clear()
         for row in rows:
             table.add_row(*task_cells(row), key=str(row[0]))
+        self.show_pane()
 
     def refresh_conversation(self, force: bool = False) -> None:
         """Bring what is on screen up to date. Unchanged, this is one small
@@ -1270,7 +1385,7 @@ class ChatPage(Screen):
         if self.is_mounted:
             self.query_one("#body").display = chat
             self.query_one("#dock").display = chat
-            self.query_one("#task_table").display = self.showing_tasks
+            self.query_one("#tasks_body").display = self.showing_tasks
             self.query_one("#settings_view").display = self.showing_settings
             if self.showing_settings:
                 self.load_settings()
