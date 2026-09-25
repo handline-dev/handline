@@ -193,13 +193,6 @@ def _result(out: str, *path: str):
     return node
 
 
-# claude's folder-trust screen ("Quick safety check: Is this a project you
-# created or one you trust?"), rendered, not accumulated output - the default
-# read stacks a repainted screen's fragments rather than showing what it
-# looks like now, which this specifically needs.
-TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
-
-
 def screen_text(handle: str) -> str | None:
     """What this terminal is rendering right now, or None if it could not be
     read - never mistaken for "nothing is showing"."""
@@ -211,22 +204,23 @@ def screen_text(handle: str) -> str | None:
 
 
 def trust_prompt_showing(handle: str) -> bool:
-    """Is claude sitting at its folder-trust screen, cursor on "No, exit"?
+    """Is this session sitting at its vendor's folder-trust screen?
 
     Read before typing anything: a handoff followed by Enter, the daemon's
-    ordinary wake, chooses "No, exit" on this screen every time.
+    ordinary wake, answers the default option on this screen every time -
+    "No, exit" on claude's.
     """
     text = screen_text(handle)
-    return text is not None and TRUST_PROMPT_MARKER in text
+    return text is not None and _driver_for(handle).trust_screen(text.split("\n")) is not None
 
 
 def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
                           poll_s: float = 0.5) -> bool:
     """Poll until `trust_prompt_showing(handle)` is `showing`, or give up.
 
-    The daemon uses it after pressing "Yes", to wait for the screen to clear:
-    claude's redraw is not instant, and checking on the very next line risks
-    reading the screen it was still drawing.
+    The daemon uses it after accepting the dialog, to wait for the screen to
+    clear: the vendor's redraw is not instant, and checking on the very next
+    line risks reading the screen it was still drawing.
     """
     deadline = time.time() + timeout_s
     while trust_prompt_showing(handle) != showing:
@@ -236,48 +230,32 @@ def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
     return True
 
 
-# The line the prompt names its folder under. Wrapped at terminal width with
-# no separator, so its continuation lines are joined bare, not with a space.
-WORKSPACE_MARKER = "Accessing workspace:"
-
-
-def trust_prompt_folder(text: str) -> str | None:
-    """The folder the prompt itself names, out of its own screen text.
+def trust_prompt_folder(handle: str) -> str | None:
+    """The folder the trust dialog on this terminal's screen names, or None
+    when it is not showing one, or is but the folder could not be read -
+    `trust_screen`'s "" collapses into None here, since a caller of this one
+    has nothing to do with "showing but unreadable" except what it already
+    does with "not showing": escalate rather than press ahead.
 
     Never the path a caller has on record for the session: the two can
     differ (a stale record, a reused terminal, a human's own `cd`), and
-    pressing "Yes" presses it for whatever is actually on screen.
+    accepting it accepts whatever is actually on screen.
     """
-    lines = text.split("\n")
-    try:
-        start = next(i for i, ln in enumerate(lines) if WORKSPACE_MARKER in ln) + 1
-    except StopIteration:
+    text = screen_text(handle)
+    if text is None:
         return None
-    parts = []
-    for ln in lines[start:]:
-        stripped = ln.strip()
-        if not stripped or TRUST_PROMPT_MARKER in stripped:
-            break
-        parts.append(stripped)
-    return "".join(parts) or None
-
-
-# Verified against a live prompt: one Down off the default cursor ("No,
-# exit") lands on "Yes, I trust this folder"; a bare Enter then confirms it.
-# A bare Enter with no Down confirms "No, exit" instead.
-TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
+    return _driver_for(handle).trust_screen(text.split("\n")) or None
 
 
 def confirm_trust(handle: str) -> tuple[bool, str]:
-    """Press Down then Enter to choose "Yes, I trust this folder".
-
-    Callers decide *whether* to press it; this only presses it, blind to
-    which folder is on screen. Writes nothing to `.claude.json`.
+    """Press this vendor's trust answer, blind to which folder is on screen -
+    callers decide *whether* to press it. Writes nothing to any vendor's own
+    config file.
     """
     ok, out = _run(["terminal", "send", "--terminal", handle,
-                    "--text", TRUST_PROMPT_DOWN_ARROW])
+                    "--text", _driver_for(handle).trust_answer()])
     if not ok:
-        return False, f"could not move to 'Yes, I trust this folder': {out[:200]}"
+        return False, f"could not accept the trust dialog: {out[:200]}"
     ok, out = send(handle, "")
     return ok, "trusted" if ok else f"could not confirm the trust prompt: {out[:200]}"
 
@@ -639,103 +617,6 @@ def _composer_shape(tail: list) -> bool:
     return _composer_box(tail) is not None
 
 
-# Claude Code's backgrounded-session picker: the conversation moved to the
-# background and the screen is a list of sessions. Its new-session box has the
-# ordinary composer shape - rule/marker/rule - so the shape alone cannot tell it
-# from the agent's own prompt, and text typed there goes to a new session, not
-# the conversation. Its hint line does, where the conversation's own says
-# "shift+tab to cycle". The picker's hint has two forms, found in a scratch
-# tmux session on Claude Code 2.1.278 (purser's #1294, three runs, one
-# session in the list): "enter to open" when another session is selected,
-# "enter to return" when the current one is - which is what Left gives - so
-# "enter to return" is not a marker. "space to reply" is in both, and a
-# separate #1294 fleet read (31 live terminals, 2026-09-21) found it on 1 of
-# them, with the banner. The one earlier case where it appeared with no
-# banner (#1144, harbor) is not a hole in that: it is the picker with its
-# banner scrolled out of the window, and the miss fails closed to UNREADABLE
-# there, never to a false BACKGROUNDED (see _hint_below_box: the position
-# guard is the same code path for both markers).
-#
-# "enter to open" alone is not enough: it is ordinary English, and any agent that
-# reports on this feature (this docstring, a review of it) writes it in its
-# own transcript, which sits in the same rows the naive search covered - #1252,
-# measured on all 8 live agents where the window reached 1-2 rows of the
-# agent's own output. So the hint is required at or below the composer's own
-# box, never above it in the transcript.
-#
-# That alone still under-determines it (auditor's #1285 B1): a screen where
-# the box's own hint happens to say a picker phrase for some other reason
-# would pass a position check alone, and reading nothing there as "in the
-# way" is exactly the bug 7f01f52 exists to fix. So the picker's own banner -
-# "...conversation moved to the background...", specific text neither an
-# ordinary composer's hint nor a session's own summary line would produce -
-# is required above the box too. A session list's own shape (a bullet, a
-# gap, a summary column) was tried first and dropped: auditor measured three
-# real-picker variants - a short title with no summary gap, a bullet outside
-# the two guessed at, a cursor glyph ahead of the selected row - that the
-# column-alignment guess missed, while the banner is the one thing all of
-# them, and both fixtures here, say word for word.
-_BACKGROUNDED_HINTS = ("enter to open", "space to reply")
-_BACKGROUND_BANNER = "moved to the background"
-
-
-def _has_picker_hint(row: str) -> bool:
-    return any(h in row for h in _BACKGROUNDED_HINTS)
-
-
-def _picker_box(tail: list) -> tuple[int, int] | None:
-    """(banner_top, hint) when the composer's own hint carries a picker
-    phrase ("enter to open" or "space to reply") and the picker's own banner
-    is above it - the picker, unambiguously.
-    None when neither is there - an ordinary composer, whose own hint never
-    says this and whose transcript quoting the words is above the box, not
-    below it (auditor's #1285 S2/S3).
-
-    A third case - the hint is there but the banner is not - is not this
-    function's to decide: it is a screen shaped like the picker that this
-    code does not otherwise recognise, and `screen_blocker` fails closed on
-    it rather than reading it as nothing in the way (#1285 B1).
-    """
-    box = _composer_box(tail)
-    if box is None:
-        return None
-    top, bottom = box
-    hint = next((i for i in range(bottom, len(tail))
-                 if _has_picker_hint(str(tail[i]))), None)
-    if hint is None:
-        return None
-    if not any(_BACKGROUND_BANNER in str(x) for x in tail[:top]):
-        return None
-    return top, hint
-
-
-def _hint_below_box(tail: list) -> bool:
-    """Whether the composer's own hint says a picker phrase ("enter to
-    open" or "space to reply"), whether or not its banner confirms it. Used
-    only to tell an unconfirmed match from a clean composer: the hint alone
-    is the one thing an ordinary conversation's composer never says
-    (auditor's #1285 B1)."""
-    box = _composer_box(tail)
-    if box is None:
-        return False
-    _top, bottom = box
-    return any(_has_picker_hint(str(tail[i])) for i in range(bottom, len(tail)))
-
-
-def _describe_backgrounded(tail: list, top: int) -> str:
-    """The picker's banner and session list above its own box, quoted - the
-    same hostile-text care as describe_modal, since the agent paints this
-    screen too. Never the box or the hint themselves, which say nothing
-    about the conversation. Called only once `_picker_box` has confirmed the
-    banner is there - not a guarantee against every false match (auditor's
-    #1285 N4: an agent's own transcript can quote this exact fixture, banner
-    and all), but that case clears itself on the next read, unlike a false
-    BACKGROUNDED that never scrolls."""
-    lines = [textsafe.oneline(str(x).strip()) for x in tail[:top]]
-    shown = [ln for ln in lines if ln and not _COMPOSER_RULE.match(ln) and ln != "❯"]
-    return " / ".join(shown[:3])[:DETAIL_CHARS]
-
-
 def screen_blocker(handle: str) -> Blocker | None:
     """What on the screen a typed line would answer or merge into, from one read.
 
@@ -756,33 +637,6 @@ def screen_blocker(handle: str) -> Blocker | None:
     if not isinstance(tail, list) or term.get("source") != "screen":
         return Blocker(UNREADABLE)
     return _driver_for(handle).screen_blocker(tail)
-
-
-def claude_screen_blocker(tail: list) -> Blocker | None:
-    """`screen_blocker` on Claude Code's layout, from rows already read."""
-    footer = _footer_row(tail)
-    if footer is not None:
-        dialog = parse_dialog(tail, footer)
-        return Blocker(MODAL, describe_modal(tail, footer), title=dialog.title if dialog else "")
-    picker = _picker_box(tail)
-    if picker is not None:
-        top, _hint = picker
-        return Blocker(BACKGROUNDED, _describe_backgrounded(tail, top))
-    if _hint_below_box(tail):
-        # The composer's own hint says the picker's words but its banner is
-        # not above the box: a picker shaped differently than the two we
-        # have measured, not a clean composer. Fail closed rather than read
-        # it as nothing in the way and type into what might be its
-        # new-session box (auditor's #1285 B1) - the same failure 7f01f52
-        # exists to fix, reopened by trusting a guess about session-row shape.
-        return Blocker(UNREADABLE)
-    if _composer_shape(tail):
-        return None
-    # Not the composer's shape either - a screen mid-scroll, a different
-    # layout, a read that landed somewhere else. UNREADABLE goes through the
-    # same escalation as any other block and clears the moment a read
-    # recognises the shape again.
-    return Blocker(UNREADABLE)
 
 
 # How often a redraw or a recheck may reuse the same screen read, so a caller
@@ -949,10 +803,11 @@ def close_session(handle: str, wait: bool = True,
                   timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
     """End the agent's session and leave its terminal standing.
 
-    Orca runs our launch command inside a login shell, so claude is the shell's
-    child: when it exits the shell survives and the tab, the worktree and the
-    cwd stay exactly as they were. Measured on a live agent: 401MB returned to
-    the machine, terminal still running, prompt in the same worktree.
+    Orca runs our launch command inside a login shell, so the agent's process
+    is the shell's child: when it exits the shell survives and the tab, the
+    worktree and the cwd stay exactly as they were. Measured on a live claude
+    agent: 401MB returned to the machine, terminal still running, prompt in
+    the same worktree.
 
     Same guard as clearing - ending a session mid-turn throws away work that
     nothing has recorded yet - and nothing is typed at a modal, where `/exit`

@@ -260,6 +260,14 @@ class Opencode:
             return orca.Blocker(orca.UNREADABLE)
         return None
 
+    def trust_screen(self, tail: list[str]) -> str | None:
+        # No folder-trust dialog of its own to detect.
+        return None
+
+    def trust_answer(self) -> str:
+        # Never called: trust_screen never names a folder to accept.
+        return ""
+
     def credential_present(self, config_dir: Path) -> bool:
         """Asked of `opencode auth list`, which counts the credentials under
         this data dir without printing them. The file alone does not answer:

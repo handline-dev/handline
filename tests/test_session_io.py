@@ -2458,10 +2458,11 @@ def test_orca_idle_parsing() -> None:
 
 def test_confirm_trust_presses_down_then_enter() -> None:
     """Request 156 item 1b's two keys, measured against a live prompt (see
-    orca.py's own comment on TRUST_PROMPT_DOWN_ARROW): one Down off the
+    claude.py's own comment on TRUST_PROMPT_DOWN_ARROW): one Down off the
     default 'No, exit' lands on 'Yes, I trust this folder', and a bare Enter
     after that confirms it. Wrong order or a missing key each press whatever
     the cursor happened to be sitting on instead."""
+    from ocp.vendors import claude as claudemod
     calls: list[list[str]] = []
     real = orcamod._run
     try:
@@ -2471,7 +2472,7 @@ def test_confirm_trust_presses_down_then_enter() -> None:
         check("confirm_trust: sends exactly two commands", len(calls) == 2, str(calls))
         check("confirm_trust: the first moves down, with no --enter",
               calls[0] == ["terminal", "send", "--terminal", "term_x",
-                           "--text", orcamod.TRUST_PROMPT_DOWN_ARROW],
+                           "--text", claudemod.TRUST_PROMPT_DOWN_ARROW],
               str(calls[0]))
         check("confirm_trust: the second is a bare Enter",
               calls[1] == ["terminal", "send", "--terminal", "term_x", "--text", "", "--enter"],
@@ -2484,7 +2485,7 @@ def test_confirm_trust_presses_down_then_enter() -> None:
         orcamod._run = lambda *a, **k: (False, "no such terminal")
         ok, why = orcamod.confirm_trust("term_x")
         check("confirm_trust: a failed first key is reported, not silently retried",
-              not ok and "Yes" in why, why)
+              not ok and "trust dialog" in why, why)
     finally:
         orcamod._run = real
 

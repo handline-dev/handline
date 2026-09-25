@@ -1114,6 +1114,10 @@ class SecondVendor:
         return True
     def screen_blocker(self, tail):
         return None
+    def trust_screen(self, tail):
+        return None
+    def trust_answer(self):
+        return ""
     def credential_present(self, config_dir):
         return self.logged_in
     def login_argv(self):

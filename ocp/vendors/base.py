@@ -78,6 +78,19 @@ class Driver(Protocol):
         """What on this vendor's rendered screen a typed line would answer or
         merge into, as an `orca.Blocker`, or None when its prompt is ready."""
 
+    def trust_screen(self, tail: list[str]) -> str | None:
+        """The folder this vendor's own folder-trust dialog names, when
+        `tail` shows it. None: not showing it, or this vendor has no such
+        dialog. "": showing it, but the folder could not be parsed out (a
+        cut-off or mid-redraw screen) - still showing, so a caller telling
+        "showing" from "not showing" checks `is not None`, never truthiness,
+        or an unparseable screen reads as no dialog and a wake types blind
+        into it."""
+
+    def trust_answer(self) -> str:
+        """Keys sent, then Enter, to accept the folder `trust_screen` named.
+        Never called for a vendor whose `trust_screen` never returns one."""
+
     def credential_present(self, config_dir: Path) -> bool:
         """Whether a credential exists. Never reads or returns it."""
 

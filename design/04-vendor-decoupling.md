@@ -103,9 +103,23 @@ audited before it is merged, as the four file splits were.
 2. `vendor-headless` - `Driver.headless_argv`; `fold` builds its command from the
    agent's vendor and refuses cleanly when there is none. `status`'s wording
    about `claude -p` names the vendor.
-3. `vendor-dialogs` - trust marker/keys and `claude_screen_blocker`'s markers move
-   from `orca.py` to `claude.py`; `daemon/lifecycle` calls the driver. `orca.py`
-   loses every claude string.
+3. `vendor-dialogs` - `Driver.trust_screen`/`trust_answer`; the folder-trust
+   markers (`TRUST_PROMPT_MARKER`, `WORKSPACE_MARKER`, the down-arrow key) and
+   `claude_screen_blocker` with the picker markers only it uses
+   (`_has_picker_hint`, `_picker_box`, `_hint_below_box`, `_describe_backgrounded`,
+   `_BACKGROUNDED_HINTS`, `_BACKGROUND_BANNER`) move to `claude.py`;
+   `daemon/lifecycle`'s escalation names the vendor instead of "claude's".
+   `_composer_box`/`_composer_shape` stay in `orca.py`, reached from `claude.py`
+   the same late way: `background_work` (claude-specific in fact, generic in
+   name) still calls them directly, unconverted. `MODAL_MARKERS`, `Dialog`/
+   `parse_dialog`/`describe_modal`/`_footer_row`, `declining_key`/
+   `decline_dialog`/`INERT_LABELS`/`_usage_limit_dialog`, and `background_work`
+   itself stay in `orca.py` too and keep naming Claude Code in their comments:
+   they are claude's own dialog format (measured against its exit and
+   session-limit dialogs specifically), but nothing in section 2's interface
+   list gives them a driver method to move behind, and `blocked.py`/
+   `daemon/delivery.py` call them unconditionally for any vendor already - a
+   second, larger step, not this one.
 4. `vendor-hooks` - `StateHooks`; `hooks.py` becomes claude's implementation,
    `doctor` and `cli/hooks` ask the driver; `tui.py:875` reads `state_from_hooks`.
 5. `vendor-meter` - `Meter`; `usage_api.py` and `recover.py` move behind it;
