@@ -24,6 +24,7 @@ from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
+from ..components.key_guide import Key, KeyGuide, KeyHelp
 from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
@@ -36,7 +37,7 @@ _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": t
 _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 # Each tab's widgets: what it shows and the others hide.
 _TAB_WIDGETS = {
-    "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot"),
+    "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot", "#home_keys"),
     "hr": ("#hr_view",),
     "tasks": ("#tasks_view",),
     "settings": ("#settings_view",),
@@ -49,6 +50,10 @@ _ACCT_TIERS = (
     (("five", "agents", "seven", "runway"), True),
     (("five", "agents", "seven", "runway"), False),
 )
+# The keys every panel answers to, after the panel's own.
+_GLOBAL_KEYS = (Key("←→", "panel", 3, "move between the panels"), Key("↑↓", "row", 3, "move between the rows"),
+                Key("q", "quit", 2, "quit the bridge"), Key("b", "checks", 2, "done tasks waiting for your check"),
+                Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "token use per agent and account"))
 _AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
 _MESSAGE_HEADS = ("", "", "from", "message")
 
@@ -116,6 +121,7 @@ class HomePage(RowActions, JobsAware, Screen):
             yield DataTable(id="messages", cursor_type="row", show_cursor=False)
             yield Static(id="message-notes")
         yield Static(id="foot")
+        yield KeyGuide(id="home_keys")
         yield TasksView(mine=True, id="tasks_view")
         yield ProposalsView(id="hr_view")
         with Vertical(id="settings_view"):
@@ -186,19 +192,8 @@ class HomePage(RowActions, JobsAware, Screen):
             foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
         if self.flash:
             foot.append(tui.oneline(self.flash) + "\n")
-        foot.append(f"{tui.PANEL_NAME[self.panel]}: ", "dim")
-        for i, (k, label) in enumerate(tui.panel_keys(self.panel, agent_keys)):
-            foot.append(" · " if i else "", "dim")
-            foot.append(k, "bold")
-            foot.append(f" {label}", "dim")
-        foot.append(" · ←→ panel ↑↓ row · q quit · ", "dim")
-        foot.append("b", "bold")
-        foot.append(" checks · ", "dim")
-        foot.append("T", "bold")
-        foot.append(" tasks · ", "dim")
-        foot.append("S", "bold")
-        foot.append(" stats", "dim")
         self.query_one("#foot", Static).update(foot)
+        self.query_one("#home_keys", KeyGuide).set_keys(self._keys(agent_keys))
         self._count_hr()
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
@@ -419,6 +414,9 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab != "home" or k is None:
             return
         event.stop()
+        if k == "?":
+            self.app.push_screen(KeyHelp(f"{tui.PANEL_NAME[self.panel]} keys", self._keys()))
+            return
         if k == "S":     # T65b: token use per agent and account
             self.app.push_screen(StatsScreen())
             return
@@ -436,6 +434,12 @@ class HomePage(RowActions, JobsAware, Screen):
             self._redraw()
             return
         self._press(k)
+
+    def _keys(self, agent_keys=None) -> list[Key]:
+        """The panel's own keys, then the ones every panel has; `agent_keys` are the
+        ones the row under the cursor allows, none meaning all the panel has."""
+        own = [(k, label) for k, label in tui.panel_keys(self.panel, agent_keys) if k != "?"]
+        return [Key(k, label, 1 if i < 3 else 3, label) for i, (k, label) in enumerate(own)] + list(_GLOBAL_KEYS)
 
     def _press(self, k: str) -> None:
         self.flash = ""

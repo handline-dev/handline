@@ -92,10 +92,14 @@ async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
         screen = app.screen
         await pilot.press("?")
         await pilot.pause(0.1)
-        check("help: `?` shows the full AGENT_KEYS legend, not nothing",
-              screen.flash == t.tui.agent_help_line(), screen.flash)
-        check("help: the legend names a key the footer can fold away (move)",
-              "v move" in screen.flash, screen.flash)
+        from ocp.ui.components.key_guide import KeyHelp
+        box = app.screen
+        listed = str(box.query_one("#keys").render()) if isinstance(box, KeyHelp) else ""
+        check("help: `?` opens the box with the full AGENT_KEYS legend, not nothing",
+              isinstance(box, KeyHelp) and all(label in listed for _, label in t.tui.AGENT_KEYS if label != "open"), listed)
+        check("help: the legend names a key the footer can fold away (move)", "move" in listed, listed)
+        await pilot.press("escape")
+        await pilot.pause(0.1)
 
 
 async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
