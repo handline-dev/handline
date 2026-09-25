@@ -322,6 +322,9 @@ def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
     return last is None or now - last >= RESUME_WARM_S
 
 
+NOTHING_WAITING = "nothing is waiting for it; it is woken when something is sent to it"
+
+
 def waiting_for(con, agent: str) -> bool:
     """Is anything waiting to be told to `agent`: a request at the head of its
     queue, or an answer to something it asked. A closed agent is woken for
@@ -504,7 +507,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # message that arrives is what wakes it. A move is the exception: the
         # agent was mid-work and its handoff is what it is started with.
         if moved_to is None and not waiting_for(con, agent):
-            return False, "nothing is waiting for it; it is woken when something is sent to it"
+            return False, NOTHING_WAITING
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
         # to be told what we already knew, and count a streak against an agent

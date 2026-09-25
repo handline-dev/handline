@@ -184,8 +184,12 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
     busy_why = f"{agent} is {state}" + (" - only a human clears that (w)"
                                         if state == dmn_states.STALLED else "")
     if key == "wake":
-        if closed or state == dmn_states.STALLED:
+        if state == dmn_states.STALLED:
             return True, ""
+        if closed:
+            # The wake itself refuses this (T124), so the key is not offered.
+            return ((True, "") if dmn_lifecycle.waiting_for(con, agent)
+                    else (False, f"{agent}: {dmn_lifecycle.NOTHING_WAITING}"))
         if state in (dmn_states.PARKED, dmn_states.THROTTLED, dmn_states.DEGRADED):
             return dmn_states.park_wakeable(row)
         return False, f"{agent} is {state}, not parked or closed - there is nothing to wake"
