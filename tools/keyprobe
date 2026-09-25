@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# What does this terminal send the app? See tools/keyprobe.py. The probe is a
-# file, not stdin: python reading its script from stdin leaves Textual no
-# keyboard to read.
-exec "${OCP_HOME:-$HOME/.orcapipe}/venv/bin/python3" "$(dirname "$0")/keyprobe.py" "$@"
