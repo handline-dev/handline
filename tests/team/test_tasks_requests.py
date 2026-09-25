@@ -5694,7 +5694,7 @@ def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
 
 
 def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: Path) -> None:
-    """T82: draft -> queued -> doing. A new task is a draft; its opener or the
+    """T82: draft -> queued -> doing. A new task is a draft; its owner's manager or the
     founder queues it and drafts it again; a request out makes it doing."""
     _board_world(home)
     con = db.connect()
@@ -5703,9 +5703,12 @@ def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: P
         st = lambda: actions.task_state(con, db.get_task(con, t))
         check("states: a new task is a draft", st() == "draft", st())
         ok, msg = actions.set_queued(con, t, "worker", True)
-        check("states: someone else cannot queue it", not ok and "can only be edited" in msg, msg)
+        check("states: the owner cannot queue its own task", not ok and "manager" in msg, msg)
+        opened = db.new_task(con, "u", "manager", "worker")
+        ok, msg = actions.set_queued(con, opened, "worker", True)
+        check("states: an opener that is not the owner's manager cannot queue it", not ok, msg)
         ok, msg = actions.set_queued(con, t, "manager", True)
-        check("states: its opener queues it", ok and st() == "queued", msg)
+        check("states: the owner's manager queues it", ok and st() == "queued", msg)
         check("states: queuing twice is refused", not actions.set_queued(con, t, "manager", True)[0])
         check("states: the filter finds it",
               [r["id"] for r in actions.task_rows(con, state="queued")] == [t])

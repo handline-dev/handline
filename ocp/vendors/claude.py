@@ -105,7 +105,10 @@ class Claude:
         if preamble:
             argv += ["--append-system-prompt", preamble]
         if hide:
-            argv += ["--settings", json.dumps({"sandbox": {"filesystem": {"denyRead": hide}}})]
+            # denyRead binds Bash; the Read tool is a permission, so deny it there too.
+            settings = {"sandbox": {"filesystem": {"denyRead": hide}},
+                        "permissions": {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}}
+            argv += ["--settings", json.dumps(settings)]
         return argv
 
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:

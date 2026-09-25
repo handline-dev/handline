@@ -1708,6 +1708,8 @@ edges:
     settings = json.loads(argv[argv.index("--settings") + 1])
     check("transcripts: claude gets them as sandbox denyRead",
           settings["sandbox"]["filesystem"]["denyRead"] == ["/a", "/b"], argv)
+    check("transcripts: and the Read tool is denied the same folders",
+          settings["permissions"]["deny"] == ["Read(//a/**)", "Read(//b/**)"], argv)
     check("transcripts: nothing to hide adds no --settings",
           "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
 

@@ -484,10 +484,10 @@ def build_parser() -> argparse.ArgumentParser:
                    choices=("draft", "queued", "doing", "done", "closed", "discarded", "merged"),
                    help="only tasks in this state; a closed one shows even without --all")
     p.set_defaults(fn=cmd_task_list)
-    p = tk.add_parser("queue", help="approve draft tasks to run - their opener or the founder")
+    p = tk.add_parser("queue", help="approve draft tasks to run - the founder or the owner's manager")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_queue)
-    p = tk.add_parser("draft", help="send queued tasks back to draft - their opener or the founder")
+    p = tk.add_parser("draft", help="send queued tasks back to draft - the founder or the owner's manager")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
     p = tk.add_parser("link", help="attach a further request to a task")

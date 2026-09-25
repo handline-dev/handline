@@ -453,15 +453,21 @@ def _task_edit_guard(row, tid: int, by: str) -> str | None:
 
 def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
     """Approve a draft task to run (`queued`), or send a queued one back to
-    draft (T82). Its opener or the founder, as for every verb that reshapes a
-    task; refused for a task that is done or ended, or that already has a
-    request out (that is doing, and is not taken back by a word)."""
+    draft (T82). The founder or the manager of the task's owner - not its
+    opener, so an agent cannot approve its own work; refused for a task that
+    is done or ended, or that already has a request out (that is doing, and
+    is not taken back by a word)."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
-    guard = _task_edit_guard(row, tid, by)
-    if guard:
-        return False, guard
+    if by != HUMAN:
+        try:
+            boss = supervisor_of(team.Team.load(), row["owner"])
+        except (FileNotFoundError, ConfigError):
+            boss = None
+        if by != boss:
+            return False, (f"task T{tid} can only be queued or drafted by the founder "
+                           f"or {row['owner']}'s manager")
     state = task_state(con, row)
     want, other = ("queued", "draft") if queued else ("draft", "queued")
     if state == want:

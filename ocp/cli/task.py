@@ -181,12 +181,12 @@ def _cmd_task_queue(args, queued: bool) -> int:
 
 
 def cmd_task_queue(args) -> int:
-    """Approve draft tasks to run - their opener or the founder."""
+    """Approve draft tasks to run - the founder or the owner's manager."""
     return _cmd_task_queue(args, True)
 
 
 def cmd_task_draft(args) -> int:
-    """Send queued tasks back to draft - their opener or the founder."""
+    """Send queued tasks back to draft - the founder or the owner's manager."""
     return _cmd_task_queue(args, False)
 
 
