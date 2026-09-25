@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+from . import cursors
+
 
 def set_task(con, agent: str, task: str | None) -> None:
     con.execute(
@@ -100,6 +102,11 @@ def set_closed(con, agent: str, session_id: str | None) -> None:
 
 
 def clear_closed(con, agent: str) -> None:
+    """A session is running again, wherever it came from - a wake, a start for
+    waiting work, a human's relaunch. It is a new process, so it is told about
+    its queue afresh: what an earlier one was told may never have been read,
+    and a resume keeps the session id that would say otherwise."""
+    cursors.forget_told(con, agent)
     con.execute(
         "UPDATE agent_state SET closed_at = NULL, resume_session = NULL, updated = ? "
         "WHERE agent = ?", (int(time.time()), agent),

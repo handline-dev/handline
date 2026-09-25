@@ -39,6 +39,13 @@ def get_notified_session(con, agent: str) -> str | None:
     return row["notified_session"] if row else None
 
 
+def forget_told(con, agent: str) -> None:
+    """Void what this agent's earlier session was told about its queue: the
+    head is announced again to whatever session is running next."""
+    con.execute("DELETE FROM cursors WHERE name = ?", (f"notify:{agent}",))
+    con.execute("UPDATE agent_state SET notified_session = NULL WHERE agent = ?", (agent,))
+
+
 def set_notified_session(con, agent: str, session_id: str | None) -> None:
     con.execute("UPDATE agent_state SET notified_session = ? WHERE agent = ?",
                 (session_id, agent))
