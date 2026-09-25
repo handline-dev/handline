@@ -617,6 +617,6 @@ calls active** has spent, over OAuth, in the right shape. The per-account
 channel exists and is not dependable - 40h old on one reading, absent on the
 next - and ocp needs all five of its accounts at once, continuously.
 
-Part 2 (`vendor-extension-board.md`) takes this list seam by seam and asks
+Part 2 (`vendor-extension-board.md`, local, not in the repo) takes this list seam by seam and asks
 what ocp uses, what it rebuilt, and what a second vendor would cost. What has
 been settled out of both is in `vendor-extension-decisions.md`.

@@ -37,6 +37,8 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 
 Easy to get wrong:
 
+- Count a transcript once per API response (`requestId`), never per line: one
+  response is several JSONL lines repeating its usage (`token_calls` is keyed on it).
 - A fold runs outside the session, so its input does not grow with the session.
 - A fold's cursor is a row id, never a time, and moves only after the output
   validates (schema, and nothing `done` before is gone).

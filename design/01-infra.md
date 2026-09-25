@@ -662,7 +662,7 @@ handoff·세션 id·트랜스크립트 경로를 **얼마든지 같이 줘도 �
 
 | Phase | 산출물 | 완료 기준 |
 |---|---|---|
-| **0** | `phase0/probe.sh` — H · I · J0~J3, 이어서 A(장시간) · D · E · F · G | 판정표 갱신. 실행 계층 확정 |
+| **0** | `phase0/probe.sh` (로컬, 저장소에 없음) — H · I · J0~J3, 이어서 A(장시간) · D · E · F · G | 판정표 갱신. 실행 계층 확정 |
 | **1** | statusLine 수집기, `agent register`, `doctor` | 계정 2개 상태가 status.json에 정확히. fail-closed 확인 |
 | **2** | 고정 매핑, `team.yaml`, `ocp ask` | 에이전트 3개가 각자 계정에서 서로 요청을 주고받음 |
 | **3** | 훅 이벤트, fold, 검증·롤백, 자정 롤오버 | 모델 토큰 0으로 이벤트 누락·중복 0 |

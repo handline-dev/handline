@@ -3,7 +3,7 @@
 What is **settled**, so it is not re-argued or forgotten. Small on purpose.
 
 The two working documents move as the survey moves: `orca-cli-survey.md`
-(what Orca offers) and `vendor-extension-board.md` (seam-by-seam verdicts).
+(what Orca offers) and `vendor-extension-board.md` (local, not in the repo; seam-by-seam verdicts).
 This file does not move. A line leaves the OPEN list only when a measurement
 settles it, and then it moves up with its evidence.
 

@@ -3,7 +3,7 @@
 Reference design (#1315). Built: §7 steps 1 and 2 (`ocp/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks and meter seams. The rest is open.
 
 One place that answers, per vendor, the fifteen questions enumerated in
-`docs/vendor-extension-board.md` §11. Everything else in ocp stays where it is.
+`docs/vendor-extension-board.md` (local, not in the repo) §11. Everything else in ocp stays where it is.
 
 Sources: the survey (`docs/orca-cli-survey.md`), the seam board, and the
 decisions (`docs/vendor-extension-decisions.md`, D1-D10). Where codex's answer
@@ -210,7 +210,7 @@ ChatGPT account, so `launch_argv` must not inherit `config.toml`'s default.
 | `binary` | `opencode` | ✅ |
 | `config_dir_env` | `XDG_DATA_HOME`, pointed at `<account>/xdg-data`; opencode keeps auth.json, its db and logs under `opencode/` inside it. `OPENCODE_CONFIG_DIR` moves nothing. Config and state stay shared | ✅ #1751 |
 | `is_session` | the command line starts with the binary, then an option or nothing; `run`, `serve`, `auth` and the rest are not sessions | ✅ `ps` of a live TUI |
-| `meters` | false: the db tallies spend, nothing says what is left | ✅ docs/vendor-extension-board §12.4 |
+| `meters` | false: the db tallies spend, nothing says what is left | ✅ vendor-extension-board §12.4 (local, not in the repo) |
 | `is_resume` | `-s`/`--session`, `-c`/`--continue` | ✅ `--help` |
 | `launch_argv` | `-m provider/model` only. The TUI has no flag for effort, tool denial, MCP config or a system prompt | ✅ |
 | `launch_env` | `OPENCODE_CONFIG_CONTENT`: the preamble as an `instructions` file (`<agent>/opencode-preamble.md`), added to the system prompt and reread for every session, a `/new`'s included; `Agent` denied as `permission.task`, which takes the tool out of the model's list. SendMessage, ScheduleWakeup and CronCreate have no opencode tool | ✅ #1926, a live session named the file's codeword and had no task tool |
