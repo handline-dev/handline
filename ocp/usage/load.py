@@ -45,13 +45,16 @@ def _config() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def own_cap(acct: str, cfg: dict | None = None) -> int | None:
+    """The cap set for this account alone, or None when it follows the default."""
+    v = (_config() if cfg is None else cfg).get(f"active_cap_{acct}")
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 1 else None
+
+
 def cap_of(acct: str, cfg: dict | None = None) -> int:
     cfg = _config() if cfg is None else cfg
-    for key in (f"active_cap_{acct}", "active_cap"):
-        v = cfg.get(key)
-        if isinstance(v, int) and not isinstance(v, bool) and v >= 1:
-            return v
-    return triggers.DEFAULT_ACTIVE_CAP
+    own = own_cap(acct, cfg)
+    return own if own is not None else default_cap(cfg)
 
 
 def set_cap(acct: str, n: int) -> None:

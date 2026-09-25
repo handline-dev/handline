@@ -328,8 +328,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             await pilot.click("#a_save")
             await pilot.pause(0.3)
             flash = str(page.query_one("#a_flash", Static).render())
-            check("account page: an empty cap is refused and nothing is written",
-                  loadmod.cap_of("alpha") == 2 and "whole number" in flash, flash)
+            check("account page: an empty cap writes nothing", loadmod.cap_of("alpha") == 2, flash)
             await pilot.click("#leave")
             await pilot.pause(0.3)
             check("account page: Back returns to the home page", app.screen is home, type(app.screen).__name__)
@@ -1935,6 +1934,11 @@ def test_account_settings_alias_and_default_cap() -> None:
         check(f"default cap: {bad!r} falls back to the built-in", loadmod.default_cap(cfg) == triggers.DEFAULT_ACTIVE_CAP)
     loadmod.set_default_cap(6)
     check("default cap: an account with no cap of its own follows it", loadmod.cap_of("beta") == 6)
+    check("own cap: none for an account that follows the default", loadmod.own_cap("beta") is None)
+    ok, _ = actions.save_account_settings("beta", "", "")
+    check("settings: a blank cap writes no own cap", ok and loadmod.own_cap("beta") is None)
+    actions.save_account_settings("beta", "", "4")
+    check("settings: a typed cap is written as its own", loadmod.own_cap("beta") == 4 and loadmod.cap_of("beta") == 4)
 
 
 async def _run_all() -> None:

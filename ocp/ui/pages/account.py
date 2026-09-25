@@ -67,7 +67,7 @@ class AccountPage(AccountActions, Screen):
                 yield Static("account", classes="flabel")
                 yield Static(self.account)
             for label, key, hint in (("alias", "name", "  shown instead of the account's name on the bridge; blank shows the name"),
-                                     ("cap", "cap", "  most agents mid-turn on this account at once")):
+                                     ("cap", "cap", "  most agents mid-turn on this account at once; blank follows the default")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")
                     yield ImeInput(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None,
@@ -125,10 +125,11 @@ class AccountPage(AccountActions, Screen):
         self.query_one("#a_vendor", Static).update(f["vendor"])
         self.query_one("#a_config", Static).update(textsafe.oneline(f["config"]))
         label = loadmod.label_of(self.account)
-        for key, now in (("name", "" if label == self.account else label), ("cap", str(f["cap"]))):
+        for key, now in (("name", "" if label == self.account else label), ("cap", "" if f["own_cap"] is None else str(f["own_cap"]))):
             box = self.query_one(_INPUTS[key], Input)
             if box.value in (self._shown.get(key, ""), now):    # unedited: follow the config, never what is typed
                 box.value = self._shown[key] = now
+        self.query_one("#a_cap", Input).placeholder = str(f["default_cap"])
         self.query_one("#a_flash", Static).update(Text(textsafe.oneline(self.flash)))
 
     def _draw_overview(self, f: dict, row) -> None:
@@ -252,6 +253,8 @@ class AccountPage(AccountActions, Screen):
         elif event.key in ("up", "down") and self.query_one("#a_settings").display \
                 and (isinstance(focused, (Input, Button))):
             event.stop()
+            if event.key == "down" and focused is self.query_one("#a_remove"):
+                return      # the last button: stop here, do not wrap to the tab bar
             (self.focus_next if event.key == "down" else self.focus_previous)()
         if isinstance(focused, Input):
             return
