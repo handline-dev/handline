@@ -225,6 +225,22 @@ def past_dialog(con, agent: str, log, now: int | None = None,
     return "", ""
 
 
+def stop_work_and_exit(con, agent: str, log) -> bool:
+    """Choose "Exit and stop tasks" on the exit dialog over stale background
+    work, if it is exactly that dialog. True when the dialog went; anything else
+    leaves it for `past_dialog`, which declines it. The caller holds the
+    agent's terminal and has established the work is stale."""
+    handle = db.get_terminal(con, agent)
+    if not handle:
+        return False
+    outcome, title, why = orca.stop_work_and_exit(handle)
+    if outcome == orca.NOT_PRESSED:
+        return False
+    db.add_event(con, agent, "stale_background_stopped", {"title": title, "outcome": outcome})
+    log(f'  {agent}: pressed Enter on "{title}" - its background work was stale, so it is stopped')
+    return outcome == orca.CLEARED
+
+
 def dialog_note(con, agent: str) -> str:
     """' - <the dialog on its screen>' when that is what ocp's own close met,
     else '': what a stall on repeated failed handoffs adds so its reason is not

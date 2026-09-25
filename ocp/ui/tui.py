@@ -912,6 +912,15 @@ def _opencode_working(handle: str) -> bool | None:
     return working
 
 
+def _background_detail(con, agent: str) -> str:
+    """How long the session has reported background work, and "stale" once the
+    agent has shown nothing beside it for `delivery.STALE_BG_S`."""
+    now = int(time.time())
+    since = dmn_delivery.bg_since(con, agent)
+    return (f"background {timefmt.ago(now - since)}" if since else "background work") \
+        + (", stale" if dmn_delivery.bg_stale(con, agent, now) else "")
+
+
 def screen_state(con, row) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn
@@ -956,7 +965,7 @@ def screen_state(con, row) -> tuple[str, str]:
         if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
         if dmn_delivery.has_background_work(con, row["agent"]):
-            return "RUNNING", "background work"
+            return "RUNNING", _background_detail(con, row["agent"])
         return "PENDING", ""
     if state in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED):
         if detail.startswith(askmod.AWAIT_REPLY_MARK):
@@ -982,7 +991,7 @@ def screen_state(con, row) -> tuple[str, str]:
     # A row the daemon marked with work still running behind the prompt is not
     # idle, whatever the hooks last said.
     if state == dmn_states.IDLE and dmn_delivery.has_background_work(con, row["agent"]):
-        return "RUNNING", "background work"
+        return "RUNNING", _background_detail(con, row["agent"])
     # IDLE, and anything not written above (section 8.4's own DONE, never
     # actually written - see daemon.WAKER): shown as IDLE rather than a raw
     # internal name a person was never meant to read.

@@ -676,9 +676,10 @@ CLEARED, STILL_OPEN, NOT_PRESSED = "cleared", "still-open", "not-pressed"
 PRESS_SETTLE_S, PRESS_SETTLE_READS = 0.5, 4
 
 
-def decline_dialog(handle: str) -> tuple[str, str, str]:
-    """Press Esc on the dialog on this terminal's screen, if - and only if -
-    the screen just read says that declines it. (outcome, dialog title, why).
+def _press_dialog(handle: str, pick, key_name: str) -> tuple[str, str, str]:
+    """(outcome, dialog title, why): press the key `pick(dialog)` names on the
+    dialog on this terminal's screen, if - and only if - the screen just read
+    says it may be pressed.
 
     The screen is read here, immediately before the key, and read again after
     it: what is pressed is what is on screen now, never what an earlier read
@@ -696,10 +697,10 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     dialog = parse_dialog(tail, footer)
     if dialog is None:
         return NOT_PRESSED, "", "its title or options could not be parsed"
-    key, why = declining_key(dialog)
+    key, why = pick(dialog)
     if key is None:
         return NOT_PRESSED, dialog.title, why
-    ok, out = send(handle, key, enter=False)
+    ok, out = send(handle, "") if key == ENTER else send(handle, key, enter=False)
     if not ok:
         return NOT_PRESSED, dialog.title, f"the key could not be sent: {out[:120]}"
     for _ in range(PRESS_SETTLE_READS):
@@ -713,12 +714,51 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
             return CLEARED, dialog.title, ""
         after_dialog = parse_dialog(after_tail, after_footer)
         if after_dialog is not None and after_dialog.title != dialog.title:
-            # Not the dialog Esc was pressed on - that one is gone, whatever
+            # Not the dialog the key was pressed on - that one is gone, whatever
             # this new one is; still-open must never be counted against a
             # title that is not what is actually still on screen, since that
             # is what a loop is measured by.
             return CLEARED, dialog.title, ""
-    return STILL_OPEN, dialog.title, "the dialog is still on screen after Esc"
+    return STILL_OPEN, dialog.title, f"the dialog is still on screen after {key_name}"
+
+
+def decline_dialog(handle: str) -> tuple[str, str, str]:
+    """Press Esc on the dialog on this terminal's screen, if - and only if -
+    the screen just read says that declines it."""
+    return _press_dialog(handle, declining_key, "Esc")
+
+
+# The exit dialog over background work, as Claude Code drew it (fixture
+# EXIT_DIALOG, copied from a live screen): its highlighted first option stops
+# the tasks and exits, and Enter confirms the highlighted one.
+EXIT_OVER_WORK_TITLE = "background work is running"
+EXIT_AND_STOP_LABEL = "exit and stop tasks"
+ENTER = "enter"
+
+
+def stopping_key(dialog: Dialog) -> tuple[str | None, str]:
+    """(key, why not) - Enter, when this is the exit dialog over background work
+    and the option highlighted is the one that stops the tasks and exits.
+
+    The one place ocp chooses to stop a session's work, so it is as narrow as
+    the parse allows: the title, the footer's own words, and the highlighted
+    option's whole label must all be the measured ones. Anything else, however
+    close, is declined like any dialog and the session stays."""
+    if dialog.title.strip().lower() != EXIT_OVER_WORK_TITLE:
+        return None, "it is not the exit dialog over background work"
+    if "Enter to confirm" not in dialog.footer:
+        return None, "its footer does not say Enter confirms"
+    marked = [ln for ln in dialog.body if ln.startswith("\u276f")]
+    m = _OPTION_LABEL.match(marked[0]) if len(marked) == 1 else None
+    if not m or _norm_label(m[2]) != EXIT_AND_STOP_LABEL:
+        return None, "its highlighted option is not 'Exit and stop tasks'"
+    return ENTER, ""
+
+
+def stop_work_and_exit(handle: str) -> tuple[str, str, str]:
+    """Press Enter on the exit dialog over background work, when `stopping_key`
+    allows; (outcome, title, why) as `decline_dialog`."""
+    return _press_dialog(handle, stopping_key, "Enter")
 
 
 # Claude Code's hint row under the composer counts what still runs in the

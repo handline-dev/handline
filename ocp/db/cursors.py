@@ -23,6 +23,12 @@ def get_cursor(con, name: str) -> int:
     return int(row["row_id"]) if row else 0
 
 
+def cursor_updated(con, name: str) -> int | None:
+    """When this cursor was last written, or None when it is not set."""
+    row = con.execute("SELECT updated FROM cursors WHERE name = ?", (name,)).fetchone()
+    return int(row["updated"]) if row else None
+
+
 def clear_cursor(con, name: str) -> None:
     con.execute("DELETE FROM cursors WHERE name = ?", (name,))
 

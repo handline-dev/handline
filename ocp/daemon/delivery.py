@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..team import agents
 from ..infra import timefmt
-from ..session import blocked
+from ..session import blocked, idle_close
 from .. import db
 from ..session import events
 from ..infra import lock
@@ -360,6 +360,48 @@ def has_background_work(con, agent: str) -> bool:
     return bool(db.get_cursor(con, f"bgwork:{agent}"))
 
 
+# Background work the agent has shown nothing beside this long is stale: forgotten
+# rather than being waited on. Under the hour a prompt cache lives (RESUME_WARM_S),
+# so it is caught while a resume would still have been warm (founder #435).
+STALE_BG_S = 3000
+# Once the supervisor has been told, this long passes before the work may be
+# stopped: room to say no, by giving the agent something to do or with
+# `ocp idle-timeout never --agent`.
+STALE_BG_VETO_S = 600
+
+
+def bg_since(con, agent: str) -> int | None:
+    """When the daemon first saw this agent's session report background work
+    in this stretch, or None when it does not."""
+    return db.cursor_updated(con, f"bgwork:{agent}") if has_background_work(con, agent) else None
+
+
+def bg_silent_s(con, agent: str, now: int) -> int | None:
+    """How long this agent has shown nothing while its session reports
+    background work, or None without any. Work that notifies the model or is
+    waited on shows up as activity; hours without it is a shell nobody reads."""
+    since = bg_since(con, agent)
+    if since is None:
+        return None
+    return max(0, now - (db.last_activity(con, agent) or since))
+
+
+def bg_stale(con, agent: str, now: int) -> bool:
+    silent = bg_silent_s(con, agent, now)
+    return silent is not None and silent >= idle_close.config_seconds("stale_background_s", STALE_BG_S)
+
+
+def bg_may_stop(con, agent: str, now: int) -> bool:
+    """Stale, and told to its supervisor at least STALE_BG_VETO_S ago."""
+    told = db.get_cursor(con, f"stale_bg_told:{agent}")
+    return bool(told) and now - told >= STALE_BG_VETO_S and bg_stale(con, agent, now)
+
+
+def bg_holds(con, agent: str, now: int) -> bool:
+    """Does background work keep this agent from being closed or typed past?"""
+    return has_background_work(con, agent) and not bg_may_stop(con, agent, now)
+
+
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """The head of this agent's queue, if it looks like a resolve nobody wrote.
 
@@ -376,7 +418,7 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """
     if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
-    if has_background_work(con, agent):
+    if has_background_work(con, agent) and not bg_stale(con, agent, now):
         return None           # not idle: work it started is still running
     head = db.head_of_queue(con, agent)
     if not head or not head["delivered_at"] \
