@@ -133,6 +133,23 @@ def test_nothing_is_pressed_when_the_setting_is_off_or_the_wait_is_not_the_brows
         con.close()
 
 
+def test_a_stale_wait_is_not_pressed_on_a_later_prompt_that_looks_like_it(home: Path) -> None:
+    """T100: the wait file was left by a browser prompt that was answered
+    without its PostToolUse, and the agent has since gone on. A later prompt
+    whose screen happens to pass every check must not be pressed on the word
+    of that file."""
+    con, term = _world(home, BROWSER_PROMPT)
+    try:
+        first = db.add_event(con, "backend", "PermissionRequest", {}) or 0
+        waiting.note("backend", TOOL, {"url": "https://example.com"}, after_event_id=first)
+        db.add_event(con, "backend", "commit", {})
+        autoaccept.sweep(con, lambda _m: None)
+        check("stale: a wait the agent has moved on from is not pressed", term.sent == [], str(term.sent))
+        check("stale: and it is cleared, not left to be believed later", waiting.read("backend") is None)
+    finally:
+        con.close()
+
+
 def test_the_setting_defaults_on_and_a_stuck_prompt_is_not_pressed_every_tick(home: Path) -> None:
     con, term = _world(home, BROWSER_PROMPT, ignores_enter=True)
     try:
@@ -234,6 +251,7 @@ def main() -> int:
         run(lambda: test_a_waiting_browser_tool_is_said_yes_to_once(Path(td) / 'aa1'))
         run(lambda: test_nothing_is_pressed_when_the_setting_is_off_or_the_wait_is_not_the_browsers(Path(td) / 'aa2'))
         run(lambda: test_the_setting_defaults_on_and_a_stuck_prompt_is_not_pressed_every_tick(Path(td) / 'aa3'))
+        run(lambda: test_a_stale_wait_is_not_pressed_on_a_later_prompt_that_looks_like_it(Path(td) / 'aa8'))
         run(lambda: test_a_declared_folders_trust_screen_is_accepted_by_the_blocked_sweep(Path(td) / 'aa4'))
         run(lambda: test_the_trust_screen_is_left_alone_when_consent_or_the_setting_is_missing(Path(td) / 'aa5'))
         run(lambda: test_a_wake_meeting_a_declared_trust_screen_escalates_with_the_setting_off(Path(td) / 'aa7'))

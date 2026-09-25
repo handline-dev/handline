@@ -47,7 +47,9 @@ def sweep(con, log, now: int | None = None) -> None:
 
 
 def _accept(con, agent: str, row, now: int, log) -> None:
-    held = waiting.read(agent)
+    # `of`, not the raw file: a wait left by a prompt that was answered without
+    # its PostToolUse is stale, and `of` is what says so (T100).
+    held = waiting.of(con, row)
     tool = (held or {}).get("tool") or ""
     if not tool or row["closed_at"] or row["state"] != "RUNNING":
         return

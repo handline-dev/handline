@@ -204,12 +204,14 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
 
 
 def _merge_into_queued(con, requester: str, target: str, body: str,
-                       files: str | None) -> int | None:
+                       files: str | None, timebox_s: int | None = None) -> int | None:
     """Fold this ask into one already queued, undelivered, for the same target.
 
     Team model section 5: a review belongs to a PR, not to every commit in it.
     Delivered is excluded: merging into a row the target is already reading
     or working from would change its content with nobody told (request #189).
+    A `--timebox` on the folded ask is the latest word on the merged row's, and
+    none leaves the queued row's own.
     """
     rows = con.execute(
         "SELECT * FROM requests WHERE requester = ? AND target = ? AND state = 'queued' "
@@ -220,8 +222,9 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
     merged_files = ",".join(sorted(
         {f for f in ((rows["files"] or "") + "," + (files or "")).split(",") if f}
     )) or None
-    con.execute("UPDATE requests SET body = ?, files = ?, ts = ? WHERE id = ?",
-                (merged_body, merged_files, int(time.time()), rows["id"]))
+    con.execute("UPDATE requests SET body = ?, files = ?, ts = ?, "
+                "timebox_s = COALESCE(?, timebox_s) WHERE id = ?",
+                (merged_body, merged_files, int(time.time()), timebox_s, rows["id"]))
     return int(rows["id"])
 
 
@@ -370,7 +373,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                            f"because a refusal sends nothing. Your text is kept as #{rid}."), None
 
         if mergeable and old is None:
-            merged = _merge_into_queued(con, requester, target, body, files)
+            merged = _merge_into_queued(con, requester, target, body, files, timebox_s)
             if merged is not None:
                 row = db.get_request(con, merged)
                 deliver(merged, requester, target, row["body"], row["files"], decision)

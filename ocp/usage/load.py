@@ -45,6 +45,26 @@ def _config() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def config_for_write() -> dict:
+    """config.yaml as it stands, for a write that keeps every other setting.
+
+    `_config` reads a file that will not parse as empty, which is right for a
+    reader and wrong here: the write would replace the whole file with the one
+    key being set. A missing or empty file is {}; anything else that cannot be
+    read as a mapping is a ConfigError, and nothing is written."""
+    path = paths.config_file()
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return {}
+    except OSError as e:
+        raise ConfigError(f"{path}: {e}") from e
+    data = load_yaml(text)
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path} is not a mapping; not overwriting it")
+    return data
+
+
 def own_cap(acct: str, cfg: dict | None = None) -> int | None:
     """The cap set for this account alone, or None when it follows the default."""
     v = (_config() if cfg is None else cfg).get(f"active_cap_{acct}")
@@ -63,7 +83,7 @@ def set_cap(acct: str, n: int) -> None:
     removing it is for."""
     if n < 1:
         raise ValueError("a cap is at least 1")
-    cfg = _config()
+    cfg = config_for_write()
     cfg[f"active_cap_{acct}"] = n
     paths.config_file().write_text(dump(cfg))
 
@@ -72,7 +92,7 @@ def set_default_cap(n: int) -> None:
     """The cap of every account that has none of its own."""
     if n < 1:
         raise ValueError("a cap is at least 1")
-    cfg = _config()
+    cfg = config_for_write()
     cfg["active_cap"] = n
     paths.config_file().write_text(dump(cfg))
 
@@ -91,7 +111,7 @@ def label_of(acct: str, cfg: dict | None = None) -> str:
 def set_label(acct: str, text: str) -> None:
     """Show this account under another name; blank goes back to its own. The account
     is still what agents and the CLI call it."""
-    cfg = _config()
+    cfg = config_for_write()
     if text.strip():
         cfg[f"label_{acct}"] = text.strip()
     else:
@@ -108,7 +128,7 @@ def usage_recover_enabled(acct: str, cfg: dict | None = None) -> bool:
 
 def set_usage_recover(acct: str, on: bool) -> None:
     """Write the per-account switch, keeping every other setting."""
-    cfg = _config()
+    cfg = config_for_write()
     if on:
         cfg.pop(f"usage_recover_{acct}", None)
     else:

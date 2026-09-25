@@ -708,8 +708,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
 
     if not orca.typeable_now(handle):
         return False, "the session is busy or has a modal open; not typing the handoff"
-    ok, why = orca.resume_with(handle, wake_prompt(agent, False, was_closed=False,
-                                                   moved_to=moved_to, con=con))
+    # Typed, so kept to the three lines a paste-safe delivery is (T106): more
+    # arrives inside <pasted_content>, "carry on" included, and may be declined.
+    ok, why = orca.resume_with(handle, delivery.three_lines(
+        wake_prompt(agent, False, was_closed=False, moved_to=moved_to, con=con)))
     if ok:
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")

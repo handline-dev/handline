@@ -204,6 +204,10 @@ def _session_changed(con, agent: str) -> bool:
     voids what it was told. An id that cannot be read is not a difference -
     nothing is retyped on a guess.
     """
+    # What voids it on a resume that keeps the id is `db.clear_closed`
+    # (`forget_told`), and every caller of that leans on this: a wake, the
+    # reconciler finding a session running, a moved account's wake. A new
+    # caller that is not a restart would re-tell what its session already read.
     live = _live_session(con, agent)
     return bool(live) and live != db.get_notified_session(con, agent)
 
@@ -313,7 +317,9 @@ def deliver_queued(con, agent: str, log) -> bool:
         # One message per pass: it starts the agent's turn, so a second would be
         # typed mid-turn. The rest go out on later ticks, each behind its own
         # typeable_now.
-        if marked:
+        # A session that has read nothing hears the head first: "a follow-up to
+        # #N, which is still open" means nothing before #N itself (T111).
+        if marked and not _session_changed(con, agent):
             return _tell(con, agent, marked[0], depth, handle, log, ahead_of=head)
         return _tell(con, agent, head, depth, handle, log)
 
@@ -451,15 +457,23 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
 MAX_TYPED_LINES = 3
 
 
-def _send(handle: str, text: str) -> tuple[bool, str]:
-    """`orca.send` for text an agent is meant to act on: never more than
-    `MAX_TYPED_LINES` lines. Past that the middle lines are joined into one; a
-    sender still builds its own three lines so nothing important is squeezed."""
+def three_lines(text: str) -> str:
+    """`text` as at most `MAX_TYPED_LINES` lines: blank lines go first, then
+    the middle lines are joined into one, the first and last kept. A sender
+    still builds its own three lines so nothing important is squeezed."""
     lines = text.split("\n")
+    if len(lines) > MAX_TYPED_LINES:
+        lines = [ln for ln in lines if ln.strip()] or lines[:1]
     if len(lines) > MAX_TYPED_LINES:
         keep = MAX_TYPED_LINES - 2
         lines = lines[:keep] + [" ".join(lines[keep:-1])] + lines[-1:]
-    return orca.send(handle, "\n".join(lines))
+    return "\n".join(lines)
+
+
+def _send(handle: str, text: str) -> tuple[bool, str]:
+    """`orca.send` for text an agent is meant to act on: never more than
+    `MAX_TYPED_LINES` lines."""
+    return orca.send(handle, three_lines(text))
 
 
 def type_notice(con, agent: str, text: str) -> bool:

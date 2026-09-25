@@ -96,6 +96,26 @@ def test_ask_keeps_its_timebox(home: Path) -> None:
         con.close()
 
 
+def test_a_folded_ask_keeps_its_timebox(home: Path) -> None:
+    """T95: `--mergeable` folds an ask into one already queued; its `--timebox`
+    used to vanish with it."""
+    _world(home)
+    orcamod.typeable_now = lambda h: False      # nothing is delivered, so the first stays foldable
+    ok, _, first = askmod.ask("marina", "review the branch", requester="manager", mergeable=True)
+    ok2, msg, merged = askmod.ask("marina", "and its new commit", requester="manager",
+                                  mergeable=True, timebox_s=900)
+    con = db.connect()
+    try:
+        check("timebox: the second ask folded into the first", ok and ok2 and merged == first, msg)
+        check("timebox: and its timebox is the merged row's",
+              db.get_request(con, first)["timebox_s"] == 900, str(dict(db.get_request(con, first))))
+        ok3, _, again = askmod.ask("marina", "one more", requester="manager", mergeable=True)
+        check("timebox: a fold with none leaves the row's own",
+              ok3 and again == first and db.get_request(con, first)["timebox_s"] == 900)
+    finally:
+        con.close()
+
+
 def test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -482,6 +502,7 @@ def main() -> int:
         try:
             run(lambda: test_a_duration_needs_its_unit(Path(td) / 'tb0'))
             run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
+            run(lambda: test_a_folded_ask_keeps_its_timebox(Path(td) / 'tb1b'))
             run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))
             run(lambda: test_a_resolved_or_cancelled_request_stops_the_clock(Path(td) / 'tb3'))
             run(lambda: test_a_notice_that_cannot_be_typed_is_tried_again(Path(td) / 'tb4'))

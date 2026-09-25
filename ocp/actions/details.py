@@ -15,6 +15,7 @@ from ..infra import paths
 from ..team import spawn as spawnmod
 from ..usage import status
 from ..infra import textsafe
+from ..infra.yamlcompat import ConfigError
 from ..session import triggers
 from ..team import trust
 from .. import vendors
@@ -156,6 +157,8 @@ def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
         loadmod.set_cap(acct, n)
     except ValueError:
         return False, "a cap is a whole number, at least 1"
+    except ConfigError as e:
+        return False, str(e)
     return True, f"{acct}: at most {n} agents mid-turn"
 
 
@@ -177,15 +180,18 @@ def save_account_settings(acct: str, label: str, cap: str,
             return False, "the cap is a whole number, at least 1"
     now = loadmod.label_of(acct)
     said = []
-    if label != ("" if now == acct else now):
-        loadmod.set_label(acct, label)
-        said.append(f"alias {label}" if label else "alias cleared")
-    if n is not None and n != loadmod.own_cap(acct):
-        loadmod.set_cap(acct, n)
-        said.append(f"{acct}: at most {n} agents mid-turn")
-    if recover is not None and recover != loadmod.usage_recover_enabled(acct):
-        loadmod.set_usage_recover(acct, recover)
-        said.append(f"usage recovery {'on' if recover else 'off'}")
+    try:
+        if label != ("" if now == acct else now):
+            loadmod.set_label(acct, label)
+            said.append(f"alias {label}" if label else "alias cleared")
+        if n is not None and n != loadmod.own_cap(acct):
+            loadmod.set_cap(acct, n)
+            said.append(f"{acct}: at most {n} agents mid-turn")
+        if recover is not None and recover != loadmod.usage_recover_enabled(acct):
+            loadmod.set_usage_recover(acct, recover)
+            said.append(f"usage recovery {'on' if recover else 'off'}")
+    except ConfigError as e:
+        return False, str(e)
     return True, "; ".join(said) or "nothing changed"
 
 
@@ -213,6 +219,8 @@ def set_default_cap(text: str) -> tuple[bool, str]:
         loadmod.set_default_cap(n)
     except ValueError:
         return False, "the default cap is a whole number, at least 1"
+    except ConfigError as e:
+        return False, str(e)
     return True, f"default cap {n}"
 
 
