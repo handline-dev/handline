@@ -1,10 +1,13 @@
-"""Two notices about work that has run long, both read from the db every tick.
+"""Three notices about work that has run long, all read from the db every tick.
 
 A request still open a set time after it was delivered tells its asker once
 (`ocp ask --timebox`, config.yaml's `timebox_s`). An agent that shows RUNNING -
 working, or with background work behind its prompt - while nothing is asked of
 it tells its supervisor once, so the manager can ask what it is doing
-(`unasked_running_s`). Neither acts on the agent or closes anything.
+(`unasked_running_s`). Background work with the agent silent for STALE_BG_S
+tells its supervisor it may be stopped after a veto window
+(`delivery.bg_may_stop`; the close itself is `lifecycle`'s). The first two
+act on nothing.
 
 A notice to an agent is a line typed at its open session, so one that cannot be
 typed now is tried again; a notice to the human has no session to type at and is
@@ -104,6 +107,34 @@ def sweep_unasked_running(con, log, now: int) -> None:
             log(f"  {agent}: RUNNING {timefmt.ago(now - since)} with no request open - {boss} told")
 
 
+def sweep_stale_background(con, log, now: int) -> None:
+    """Tell the supervisor once that an agent's background work is stale, and
+    that its session may be closed - which stops the work - after the veto
+    window. The mark is cleared when the work is no longer stale, so a later
+    stretch is told again."""
+    from .. import actions
+    team = actions.routing()
+    for agent in paths.list_agents():
+        key = f"stale_bg_told:{agent}"
+        if not delivery.bg_stale(con, agent, now) \
+                or idle_close.close_timeout_s(agent) == idle_close.NEVER:
+            db.clear_cursor(con, key)
+            continue
+        if db.get_cursor(con, key):
+            continue
+        boss = actions.supervisor_of(team, agent) or HUMAN
+        silent = delivery.bg_silent_s(con, agent, now)
+        text = (f"{agent} has had background work for {timefmt.ago(now - (delivery.bg_since(con, agent) or now))} "
+                f"and shown nothing for {timefmt.ago(silent)}. In {timefmt.ago(delivery.STALE_BG_VETO_S)} "
+                f"its session may be closed, which stops that work, unless it shows activity or "
+                f"`ocp idle-timeout never --agent {agent}` is set.")
+        if _tell(con, boss, text, now):
+            db.set_cursor(con, key, now)
+            db.add_event(con, agent, "stale_background", {"told": boss, "silent_s": silent})
+            log(f"  {agent}: background work stale ({timefmt.ago(silent)} silent) - {boss} told")
+
+
 def sweep(con, log, now: int) -> None:
     sweep_timeboxes(con, log, now)
     sweep_unasked_running(con, log, now)
+    sweep_stale_background(con, log, now)

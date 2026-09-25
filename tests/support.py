@@ -787,10 +787,12 @@ class _ExitTerm:
         return True, ""
 
 
-def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None):
+def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None, prep=None):
     restore_world()
     con = _blocked_world(home)
     db.set_terminal(con, "backend", "term_x", "wt")
+    if prep:
+        prep(con)
     table = sessions_are("backend")
     term = _ExitTerm(dialog, exits_on, table)
     term.torn = torn

@@ -53,7 +53,7 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     # `deliver_queued` runs before this in the same tick, so a PARKED agent
     # that reaches here was not delivered to (walled by `wall_reason`); its
     # queue is no reason to hold the session open.
-    if delivery.has_background_work(con, agent):
+    if delivery.bg_holds(con, agent, now):
         return False          # not idle: work is still running behind the prompt
     if db.queued_for(con, agent) and state != PARKED:
         return False          # work is waiting; closing would only delay it
@@ -118,9 +118,10 @@ def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
     warm or there is nothing to say; otherwise whether it closed. A close that
     failed is not retried for IDLE_CLOSE_S, and that stretch types as usual: one
     uncached read beats a line that never arrives.
-    A session running background work is left alone: closing would kill it.
+    A session running background work is left alone: closing would kill it -
+    until the work is stale and its supervisor has had its say (`bg_may_stop`).
     """
-    if delivery.has_background_work(con, agent) or not cache_expired(con, agent, st.session_id, now):
+    if delivery.bg_holds(con, agent, now) or not cache_expired(con, agent, st.session_id, now):
         return None
     if now - db.get_cursor(con, f"cold_close_try:{agent}") < IDLE_CLOSE_S:
         return None           # a close just failed: type as usual, not held forever
@@ -203,12 +204,14 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     return ok, why
 
 
-def _decline_exit_dialog(con, agent: str, log) -> bool:
+def _answer_exit_dialog(con, agent: str, log, stop: bool = False) -> bool:
     """The `/exit` just typed can raise a dialog offering to stop background
-    work: decline it (Esc keeps the session), never choose it. True when one
-    was declined; a dialog that would not be, or none, is left to the
-    session-still-running report. Stops when the session is gone, or after
-    EXIT_DIALOG_WAIT_S."""
+    work: decline it (Esc keeps the session). Only with `stop` - the work is
+    stale and its supervisor has had its say - is it answered the other way,
+    and then only by `orca.stopping_key`'s narrow match; a dialog that does
+    not match is declined as ever. True when one was declined; a dialog that
+    would not be, or none, is left to the session-still-running report. Stops
+    when the session is gone, or after EXIT_DIALOG_WAIT_S."""
     # END_WAIT_S bounds it too, which is what lets the suite run it in tenths of a second.
     deadline = time.time() + min(delivery.EXIT_DIALOG_WAIT_S, delivery.END_WAIT_S)
     handle = db.get_terminal(con, agent)
@@ -218,6 +221,8 @@ def _decline_exit_dialog(con, agent: str, log) -> bool:
             return False
         seen = orca.screen_blocker(handle) if handle else None
         if seen is not None and seen.kind == orca.MODAL:
+            if stop and blocked.stop_work_and_exit(con, agent, log):
+                return False
             return not blocked.past_dialog(con, agent, log)[0]
         time.sleep(delivery.END_POLL_S)
     return False
@@ -244,9 +249,11 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         # session did whatever it did.
         return False, "no session process; nothing to close"
     # Work the session says it still runs is not ours to stop: an agent with
-    # background work is not idle, whichever path is closing it.
+    # background work is not idle, whichever path is closing it - unless it is
+    # stale and its supervisor was told (`bg_may_stop`).
+    stale = delivery.bg_may_stop(con, agent, int(time.time()))
     running = orca.background_work(handle)
-    if running:
+    if running and not stale:
         return False, f"background work is running ({running}); not closing"
     # A dialog on screen is what `/exit` would answer instead of ending anything.
     # Past it first, so the close is one act and not a refusal the next tick
@@ -265,7 +272,7 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
         return False, why
     # A dialog that offers to stop background work only appears now; declining
     # it is the answer, so this is a refusal and not a failed close.
-    if _decline_exit_dialog(con, agent, log):
+    if _answer_exit_dialog(con, agent, log, stop=stale):
         why = "background work is running; the exit dialog was declined, session kept"
         db.add_event(con, agent, "close_failed", {"why": why, "pid": None})
         return False, why

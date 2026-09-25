@@ -252,6 +252,197 @@ def test_the_human_is_the_supervisor_of_an_agent_with_none(home: Path) -> None:
         con.close()
 
 
+def _stale_bg(con, agent: str, silent_s: int, told_ago: int | None = None) -> int:
+    """`agent` reports background work, seen 3h ago, and has shown nothing for
+    `silent_s`; the supervisor was told `told_ago` seconds ago, if at all."""
+    now = int(time.time())
+    con.execute("DELETE FROM events WHERE agent = ?", (agent,))
+    db.add_event(con, agent, "Stop", {})
+    con.execute("UPDATE events SET ts = ? WHERE agent = ?", (now - silent_s, agent))
+    db.set_cursor(con, f"bgwork:{agent}", 1)
+    con.execute("UPDATE cursors SET updated = ? WHERE name = ?", (now - 3 * 3600, f"bgwork:{agent}"))
+    if told_ago is None:
+        db.clear_cursor(con, f"stale_bg_told:{agent}")
+    else:
+        db.set_cursor(con, f"stale_bg_told:{agent}", now - told_ago)
+    return now
+
+
+def test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(home: Path) -> None:
+    _world(home)
+    con = db.connect()
+    try:
+        S, V = dmn_delivery.STALE_BG_S, dmn_delivery.STALE_BG_VETO_S
+        st = types.SimpleNamespace(session_id="s")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+
+        def probe(silent, told_ago=None):
+            now = _stale_bg(con, "marina", silent, told_ago)
+            row = db.get_agent_state(con, "marina")
+            return (dmn_delivery.bg_stale(con, "marina", now), dmn_delivery.bg_may_stop(con, "marina", now),
+                    dmn_lifecycle.should_close(con, "marina", "IDLE", row, now, st))
+
+        check("stale: a second short of the limit is not stale, and holds the close",
+              probe(S - 1, told_ago=V + 5) == (False, False, False), str(probe(S - 1, V + 5)))
+        check("stale: at the limit it is stale, but not told, so still held",
+              probe(S) == (True, False, False), str(probe(S)))
+        check("stale: told a second short of the veto window is still held",
+              probe(S, told_ago=V - 1) == (True, False, False), str(probe(S, V - 1)))
+        check("stale: told and the window over, it may be stopped and the close is no longer held",
+              probe(S, told_ago=V) == (True, True, True), str(probe(S, V)))
+        idle_close.set_agent_close_timeout("marina", idle_close.NEVER)
+        check("stale: an agent set to never close is never stopped, whichever path asks (the veto)",
+              probe(S, told_ago=V) == (True, False, False)
+              and dmn_delivery.bg_holds(con, "marina", _stale_bg(con, "marina", S, V)), str(probe(S, V)))
+        idle_close.set_agent_close_timeout("marina", None)
+        idle_close.paths.config_file().write_text("stale_background_s: 100\n")
+        check("stale: config.yaml's stale_background_s moves the limit",
+              probe(99)[0] is False and probe(100)[0] is True)
+    finally:
+        con.close()
+
+
+def test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(home: Path) -> None:
+    _world(home)
+    con = db.connect()
+    try:
+        rid = _delivered(con, "manager", "marina", 9000, timebox_s=10 ** 6)
+        db.set_cursor(con, "notify:marina", rid)
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        row = db.get_agent_state(con, "marina")
+        now = _stale_bg(con, "marina", dmn_delivery.STALE_BG_S - 1)
+        check("stale: background work not yet stale means it is not forgotten",
+              dmn_delivery.forgotten_resolve(con, "marina", row, now) is None)
+        now = _stale_bg(con, "marina", dmn_delivery.STALE_BG_S)
+        check("stale: stale background work does not hide a forgotten resolve",
+              dmn_delivery.forgotten_resolve(con, "marina", row, now) is not None)
+    finally:
+        con.close()
+
+
+def test_the_supervisor_is_told_once_per_stale_stretch(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        S = dmn_delivery.STALE_BG_S
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = _stale_bg(con, "marina", S - 1)
+        timebox.sweep_stale_background(con, lambda _m: None, now)
+        check("stale notice: nothing before the limit", not sent, str(sent))
+        now = _stale_bg(con, "marina", S)
+        timebox.sweep_stale_background(con, lambda _m: None, now)
+        check("stale notice: the supervisor is told, with the veto",
+              len(sent) == 1 and sent[0][0] == "term_manager" and "marina" in sent[0][1]
+              and "idle-timeout never --agent marina" in sent[0][1], str(sent))
+        check("stale notice: it is marked and recorded",
+              db.get_cursor(con, "stale_bg_told:marina") == now
+              and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'stale_background'").fetchone()[0] == 1)
+        timebox.sweep_stale_background(con, lambda _m: None, now + 5)
+        check("stale notice: once while the stretch goes on", len(sent) == 1, str(sent))
+        db.add_event(con, "marina", "Stop", {})
+        timebox.sweep_stale_background(con, lambda _m: None, now + 10)
+        check("stale notice: activity ends the stretch and clears the mark",
+              db.get_cursor(con, "stale_bg_told:marina") == 0)
+        timebox.sweep_stale_background(con, lambda _m: None, now + 10 + S)
+        check("stale notice: a later stale stretch is told again", len(sent) == 2, str(sent))
+        idle_close.set_agent_close_timeout("marina", idle_close.NEVER)
+        timebox.sweep_stale_background(con, lambda _m: None, now + 10 + S)
+        check("stale notice: an agent that never closes is not told it may be stopped",
+              len(sent) == 2 and not db.get_cursor(con, "stale_bg_told:marina"), str(sent))
+    finally:
+        con.close()
+
+
+def test_the_row_says_how_long_and_when_stale(home: Path) -> None:
+    _world(home)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        _stale_bg(con, "marina", 60)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (int(time.time()) - 720,))
+        word, detail = tui.screen_state(con, db.get_agent_state(con, "marina"))
+        check("row: RUNNING, background and how long", (word, detail) == ("RUNNING", "background 12m"),
+              str((word, detail)))
+        _stale_bg(con, "marina", dmn_delivery.STALE_BG_S + 5)
+        word, detail = tui.screen_state(con, db.get_agent_state(con, "marina"))
+        check("row: and stale once the agent has shown nothing that long",
+              word == "RUNNING" and detail == "background 3h, stale", detail)
+    finally:
+        con.close()
+
+
+def test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_read(home: Path) -> None:
+    bg_hint = "  ⏵⏵ auto mode on · 1 shell · ← for agents · ↓ to manage"
+    composer_bg = COMPOSER_EMPTY[:-1] + [bg_hint]
+
+    def stale(told_ago):
+        return lambda con: _stale_bg(con, "backend", dmn_delivery.STALE_BG_S + 5, told_ago)
+
+    told = dmn_delivery.STALE_BG_VETO_S + 5
+    con, term, ok, why = _close_at(home / "a", EXIT_DIALOG, exits_on="", screen=composer_bg, prep=stale(told))
+    check("stop: stale work past the veto is stopped with Enter on 'Exit and stop tasks', and closes",
+          ok and term.sent == [("/exit", True), ("", True)], f"{ok} {why} {term.sent}")
+    check("stop: and the choice is on the record",
+          con.execute("SELECT 1 FROM events WHERE agent = 'backend' AND kind = 'stale_background_stopped'"
+                      ).fetchone() is not None)
+    con.close()
+
+    con, term, ok, why = _close_at(home / "b", EXIT_DIALOG, exits_on="", screen=composer_bg, prep=stale(None))
+    check("stop: stale but the supervisor not yet told is refused, nothing typed",
+          not ok and term.sent == [] and "background work is running" in why, f"{ok} {why} {term.sent}")
+    con.close()
+
+    con, term, ok, why = _close_at(home / "c", EXIT_DIALOG, exits_on="", screen=composer_bg,
+                                   prep=lambda c: _stale_bg(c, "backend", 60, told))
+    check("stop: work that is not stale is refused however long ago its supervisor was told",
+          not ok and term.sent == [], f"{ok} {why} {term.sent}")
+    con.close()
+
+    def never(con):
+        idle_close.set_agent_close_timeout("backend", idle_close.NEVER)
+        return stale(told)(con)
+
+    con, term, ok, why = _close_at(home / "g", EXIT_DIALOG, exits_on="", screen=composer_bg, prep=never)
+    check("stop: an agent set to never close is refused by the close itself, nothing typed",
+          not ok and term.sent == [] and "background work is running" in why, f"{ok} {why} {term.sent}")
+    con.close()
+
+    other = [ln.replace("❯ 1. Exit and stop tasks", "  1. Exit and stop tasks")
+             .replace("  2. Move to background and exit", "❯ 2. Move to background and exit")
+             for ln in EXIT_DIALOG]
+    variants = (("d", other, "a dialog whose highlighted option is not 'Exit and stop tasks'"),
+                ("e", [ln.replace("Exit and stop tasks", "Exit and stop all tasks") for ln in EXIT_DIALOG],
+                 "one whose label is not exactly the measured one"),
+                ("f", [ln.replace("Background work is running", "Something else is running")
+                       for ln in EXIT_DIALOG], "a different title"))
+    for tag, dialog, what in variants:
+        con, term, ok, why = _close_at(home / tag, dialog, exits_on="", screen=composer_bg, prep=stale(told))
+        keys = [t for t, _ in term.sent if t != "/exit"]
+        check(f"stop: {what} is declined with Esc, never chosen", not ok and keys == ["\x1b"],
+              f"{ok} {why} {term.sent}")
+        con.close()
+
+
+def test_stopping_key_presses_only_the_measured_dialog(home: Path) -> None:
+    def dialog(title="Background work is running", footer="Enter to confirm \u00b7 Esc to cancel",
+               marked=("\u276f 1. Exit and stop tasks", "  2. Move to background and exit", "  3. Stay")):
+        return orcamod.Dialog(title, (), footer, (title, *marked))
+
+    check("stopping_key: the measured dialog is pressed with Enter",
+          orcamod.stopping_key(dialog()) == (orcamod.ENTER, ""))
+    near = (
+        ("a different title", dialog(title="Something else is running")),
+        ("a footer without Enter to confirm", dialog(footer="Esc to cancel")),
+        ("the keep option highlighted", dialog(marked=("  1. Exit and stop tasks", "\u276f 3. Stay"))),
+        ("a highlighted option that only resembles it", dialog(marked=("\u276f 1. Exit and stop all tasks",))),
+        ("two marked lines", dialog(marked=("\u276f 1. Exit and stop tasks", "\u276f 3. Stay"))),
+        ("no marked line", dialog(marked=("  1. Exit and stop tasks", "  3. Stay"))),
+    )
+    for what, d in near:
+        key, why = orcamod.stopping_key(d)
+        check(f"stopping_key: {what} presses nothing", key is None and why, f"{key!r} {why}")
+
+
 def test_migration_adds_the_timebox_columns_to_an_older_requests_table(home: Path) -> None:
     """Every tick selects timebox_noticed_at, so a database made before it must
     gain both columns on connect, keeping its rows and leaving them untimed."""
@@ -299,7 +490,13 @@ def main() -> int:
             run(lambda: test_an_open_request_or_a_short_run_is_not_unasked(Path(td) / 'tb7'))
             run(lambda: test_background_work_counts_as_running_and_the_limit_is_configurable(Path(td) / 'tb8'))
             run(lambda: test_the_human_is_the_supervisor_of_an_agent_with_none(Path(td) / 'tb9'))
-            run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb10'))
+            run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
+            run(lambda: test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(Path(td) / 'tb11'))
+            run(lambda: test_the_supervisor_is_told_once_per_stale_stretch(Path(td) / 'tb12'))
+            run(lambda: test_the_row_says_how_long_and_when_stale(Path(td) / 'tb13'))
+            run(lambda: test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_read(Path(td) / 'tb14'))
+            run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb15'))
+            run(lambda: test_stopping_key_presses_only_the_measured_dialog(Path(td) / 'tb16'))
         finally:
             dmn_delivery.session_present = REAL_SESSION_PRESENT
     return run_area(tests)
