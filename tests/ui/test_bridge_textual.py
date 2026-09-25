@@ -262,7 +262,7 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
 
 async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
     from unittest import mock
-    from textual.widgets import Input, Tabs
+    from textual.widgets import Input, Switch, Tabs
     from ocp.team import accounts as accountsmod
     from ocp.usage import load as loadmod
     _home("acctpage")
@@ -316,12 +316,15 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
             page.query_one("#a_cap", Input).value = "2"
             page.query_one("#a_name", Input).value = "Work"
+            page.query_one("#a_recover", Switch).value = False
             await pilot.click("#a_save")
             await pilot.pause(0.3)
             flash = str(page.query_one("#a_flash", Static).render())
             check("account page: Save writes the alias and the cap",
                   loadmod.cap_of("alpha") == 2
                   and loadmod.label_of("alpha") == "Work" and "at most 2" in flash, flash)
+            check("account page: Save writes the usage reset switch", not loadmod.usage_recover_enabled("alpha")
+                  and not page.query_one("#a_recover", Switch).value)
             check("account page: the title shows the new name",
                   "Work" in str(page.query_one("#t_title", Static).render()))
             page.query_one("#a_cap", Input).value = ""
@@ -1941,6 +1944,14 @@ def test_account_settings_alias_and_default_cap() -> None:
     check("settings: a blank cap writes no own cap", ok and loadmod.own_cap("beta") is None)
     actions.save_account_settings("beta", "", "4")
     check("settings: a typed cap is written as its own", loadmod.own_cap("beta") == 4 and loadmod.cap_of("beta") == 4)
+    check("settings: usage recovery is on until switched off", loadmod.usage_recover_enabled("beta"))
+    ok, said = actions.save_account_settings("beta", "", "", False)
+    check("settings: the switch turns usage recovery off", ok and not loadmod.usage_recover_enabled("beta")
+          and "recovery off" in said, said)
+    actions.save_account_settings("beta", "", "")
+    check("settings: a save that does not carry the switch leaves it", not loadmod.usage_recover_enabled("beta"))
+    actions.save_account_settings("beta", "", "", True)
+    check("settings: and back on", loadmod.usage_recover_enabled("beta"))
 
 
 async def _run_all() -> None:

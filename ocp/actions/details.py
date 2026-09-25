@@ -145,6 +145,7 @@ def account_facts(con, acct: str, logged_in=None) -> dict:
     return {"status": st, "logged_in": is_in, "config": _config_line(acct),
             "vendor": vendors.account_vendor(acct), "assign": (allowed, why),
             "cost": status.live_cost(acct), "cap": loadmod.cap_of(acct), "own_cap": loadmod.own_cap(acct),
+            "recover": loadmod.usage_recover_enabled(acct),
             "default_cap": loadmod.default_cap(), "agents": rows}
 
 
@@ -158,9 +159,10 @@ def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
     return True, f"{acct}: at most {n} agents mid-turn"
 
 
-def save_account_settings(acct: str, label: str, cap: str) -> tuple[bool, str]:
-    """The account page's Settings form: its alias and its cap, each written only when it
-    differs from what is there. A blank cap writes none, so an account with no cap of its
+def save_account_settings(acct: str, label: str, cap: str,
+                          recover: bool | None = None) -> tuple[bool, str]:
+    """The account page's Settings form: its alias, its cap and (when given) the usage
+    recovery switch, each written only when it differs from what is there. A blank cap writes none, so an account with no cap of its
     own keeps following the default. Nothing is written if either is refused."""
     label = label.strip()
     if textsafe.has_unsafe(label) or len(label) > 40:
@@ -181,6 +183,9 @@ def save_account_settings(acct: str, label: str, cap: str) -> tuple[bool, str]:
     if n is not None and n != loadmod.own_cap(acct):
         loadmod.set_cap(acct, n)
         said.append(f"{acct}: at most {n} agents mid-turn")
+    if recover is not None and recover != loadmod.usage_recover_enabled(acct):
+        loadmod.set_usage_recover(acct, recover)
+        said.append(f"usage recovery {'on' if recover else 'off'}")
     return True, "; ".join(said) or "nothing changed"
 
 
