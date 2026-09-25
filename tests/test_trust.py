@@ -270,8 +270,11 @@ def test_trust_prompt_folder_parses_a_live_capture() -> None:
           claudemod.TRUST_PROMPT_MARKER in LIVE_TRUST_PROMPT_CAPTURE)
     check("trust_screen: no marker at all is None, not a guess",
           drv.trust_screen(["ordinary TUI, nothing to see here"]) is None)
-    check("trust_screen: the marker with nothing after it is None too",
-          drv.trust_screen([claudemod.TRUST_PROMPT_MARKER, "Accessing workspace:"]) is None)
+    check("trust_screen: the marker with no workspace line is \"\" (showing, "
+          "unreadable), not None (auditor's FAIL on #337)",
+          drv.trust_screen([claudemod.TRUST_PROMPT_MARKER]) == "")
+    check("trust_screen: the workspace line with nothing after it is \"\" too",
+          drv.trust_screen([claudemod.TRUST_PROMPT_MARKER, "Accessing workspace:"]) == "")
 
 
 def test_trust_prompt_dispatches_to_the_terminals_own_vendor(home: Path) -> None:
@@ -302,6 +305,26 @@ def test_trust_prompt_dispatches_to_the_terminals_own_vendor(home: Path) -> None
     finally:
         orcamod.screen_text = real_text
         con.close()
+
+
+def test_trust_prompt_showing_stays_true_when_the_folder_cannot_be_read(home: Path) -> None:
+    """auditor's FAIL on #337: an unparseable trust screen (its own marker
+    shown, no workspace line yet - a mid-redraw, or a layout drift) must
+    still read as showing, or the wake path calls it clear and types its
+    wake line and Enter into the dialog - picking the default "No, exit"
+    where main escalates and stalls."""
+    os.environ["OCP_HOME"] = str(home)
+    real_text = orcamod.screen_text
+    try:
+        orcamod.screen_text = lambda h: (
+            "Quick safety check: Is this a project you created or one you trust?\n"
+            "...\nNo, exit\nYes, I trust this folder\n")
+        check("trust: showing, even though the folder cannot be read",
+              orcamod.trust_prompt_showing("term_x"))
+        check("trust: and the folder itself is None, not a guess",
+              orcamod.trust_prompt_folder("term_x") is None)
+    finally:
+        orcamod.screen_text = real_text
 
 
 def test_a_declared_root_gets_standing_consent(home: Path) -> None:
@@ -489,6 +512,8 @@ def main() -> int:
         run(lambda: test_trust_worktrees_quotes_the_path(Path(td) / 'trust_wt_quote'))
         run(lambda: test_trust_prompt_folder_parses_a_live_capture())
         run(lambda: test_trust_prompt_dispatches_to_the_terminals_own_vendor(Path(td) / 'trustvendor'))
+        run(lambda: test_trust_prompt_showing_stays_true_when_the_folder_cannot_be_read(
+            Path(td) / 'trustunreadable'))
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
         run(lambda: test_offer_to_trust_worktrees_lists_paths_and_skips(
             Path(td) / 'offertrust'))

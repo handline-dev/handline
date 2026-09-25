@@ -196,6 +196,8 @@ TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
 
 
 def _trust_screen(orca, tail: list[str]) -> str | None:
+    """`Driver.trust_screen`'s contract: "" for a shown dialog whose folder a
+    missing workspace line, a cut-off or a mid-redraw screen leaves unparsed."""
     text = "\n".join(str(x) for x in tail)
     if TRUST_PROMPT_MARKER not in text:
         return None
@@ -203,14 +205,14 @@ def _trust_screen(orca, tail: list[str]) -> str | None:
     try:
         start = next(i for i, ln in enumerate(lines) if WORKSPACE_MARKER in ln) + 1
     except StopIteration:
-        return None
+        return ""
     parts = []
     for ln in lines[start:]:
         stripped = ln.strip()
         if not stripped or TRUST_PROMPT_MARKER in stripped:
             break
         parts.append(stripped)
-    return "".join(parts) or None
+    return "".join(parts)
 
 
 # Claude Code's backgrounded-session picker: the conversation moved to the

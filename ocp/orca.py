@@ -232,14 +232,19 @@ def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
 
 def trust_prompt_folder(handle: str) -> str | None:
     """The folder the trust dialog on this terminal's screen names, or None
-    when it is not showing one.
+    when it is not showing one, or is but the folder could not be read -
+    `trust_screen`'s "" collapses into None here, since a caller of this one
+    has nothing to do with "showing but unreadable" except what it already
+    does with "not showing": escalate rather than press ahead.
 
     Never the path a caller has on record for the session: the two can
     differ (a stale record, a reused terminal, a human's own `cd`), and
     accepting it accepts whatever is actually on screen.
     """
     text = screen_text(handle)
-    return _driver_for(handle).trust_screen(text.split("\n")) if text is not None else None
+    if text is None:
+        return None
+    return _driver_for(handle).trust_screen(text.split("\n")) or None
 
 
 def confirm_trust(handle: str) -> tuple[bool, str]:

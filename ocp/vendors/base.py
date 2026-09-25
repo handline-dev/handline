@@ -80,8 +80,12 @@ class Driver(Protocol):
 
     def trust_screen(self, tail: list[str]) -> str | None:
         """The folder this vendor's own folder-trust dialog names, when
-        `tail` shows it - None for a vendor with no such dialog, or a screen
-        that is not showing it."""
+        `tail` shows it. None: not showing it, or this vendor has no such
+        dialog. "": showing it, but the folder could not be parsed out (a
+        cut-off or mid-redraw screen) - still showing, so a caller telling
+        "showing" from "not showing" checks `is not None`, never truthiness,
+        or an unparseable screen reads as no dialog and a wake types blind
+        into it."""
 
     def trust_answer(self) -> str:
         """Keys sent, then Enter, to accept the folder `trust_screen` named.
