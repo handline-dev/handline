@@ -418,8 +418,8 @@ class ChatMessage(Vertical):
             parts.append(Horizontal(
                 Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
                        classes="qstate"),
-                *([Button("⚡ send now", classes="sendnow", compact=True)] if not m.get("delivered") else []),
-                Button("✕ cancel", classes="cancel", compact=True),
+                *([Button("⚡ send now", classes="sendnow", compact=True),
+                   Button("✕ cancel", classes="cancel", compact=True)] if not m.get("delivered") else []),
                 classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}")
         self.m = m

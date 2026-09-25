@@ -1311,8 +1311,8 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
             row = [c for c in cp.ChatMessage(m)._pending_children if type(c).__name__ == "Horizontal"][0]
             return [b.label.plain if hasattr(b.label, "plain") else str(b.label)
                     for b in row._pending_children if type(b).__name__ == "Button"]
-        check("chat: the send now button is gone once delivered",
-              len(buttons(False)) == 2 and len(buttons(True)) == 1, f"{buttons(False)} {buttons(True)}")
+        check("chat: send now and cancel are gone once delivered",
+              len(buttons(False)) == 2 and buttons(True) == [], f"{buttons(False)} {buttons(True)}")
     finally:
         con.close()
 
