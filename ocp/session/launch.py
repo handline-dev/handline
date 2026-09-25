@@ -581,6 +581,11 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 spawn.register_worker(con, agent, handle)
                 db.set_launch_fingerprint(con, agent, fp)
             if acct:
+                repo = agents.repo_of(agent)
+                try:
+                    accounts.share_memory(acct, repo)
+                except OSError as e:  # noqa: BLE001 - memory is not worth a launch
+                    print(f"ocp launch: could not share memory for {acct}: {e}", file=sys.stderr)
                 # Every path that starts a session passes through here, so
                 # this is the one place a landing account differing from the
                 # last one is ever seen - and the one place to carry what
@@ -588,7 +593,6 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 # `set_account` overwrites the record.
                 previous = agents.current_account(agent, con)
                 if previous and previous != acct:
-                    repo = agents.repo_of(agent)
                     project = accounts.memory_project_dir(previous, repo) if repo else None
                     try:
                         carried = accounts.migrate_memory(previous, acct, project=project)

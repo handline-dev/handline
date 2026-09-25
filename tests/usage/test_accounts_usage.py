@@ -2625,6 +2625,39 @@ def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> Non
         con.close()
 
 
+def test_memory_is_one_folder_per_project_shared_by_every_account(home: Path) -> None:
+    """T74: each account kept its own copy of a project's memory, and the copies
+    drifted. share_memory merges them into shared/ and links each account."""
+    os.environ["OCP_HOME"] = str(home)
+    proj = "-Users-x-orcapipe"
+    mems = {a: home / "accounts" / a / ".claude" / "projects" / proj / "memory"
+            for a in ("alpha", "beta")}
+    for a, m in mems.items():
+        m.mkdir(parents=True)
+        (m / f"{a}.md").write_text(f"only on {a}\n")
+    shared = home / "shared" / "memory" / "claude" / proj
+    check("share: links the project's folder",
+          accounts.share_memory("alpha", "/Users/x/orcapipe") == [proj])
+    check("share: the account's memory is now the shared folder",
+          mems["alpha"].is_symlink() and mems["alpha"].resolve() == shared.resolve())
+    check("share: its own notes are in the shared folder", (shared / "alpha.md").exists())
+    check("share: the old folder is kept aside, not deleted",
+          (mems["alpha"].parent / "memory.before-shared" / "alpha.md").exists())
+    accounts.share_memory("beta")
+    check("share: another account's notes join it and it links the same folder",
+          (shared / "beta.md").exists() and mems["beta"].resolve() == shared.resolve())
+    check("share: a note written through one account shows through the other",
+          (mems["alpha"] / "beta.md").exists() and (mems["beta"] / "alpha.md").exists())
+    check("share: again changes nothing",
+          accounts.share_memory("alpha", "/Users/x/orcapipe") == [])
+    accounts.register("gamma")
+    gamma = home / "accounts" / "gamma" / ".claude" / "projects" / proj / "memory"
+    check("share: a new account is linked to every shared project",
+          gamma.is_symlink() and gamma.resolve() == shared.resolve())
+    check("share: migrate_memory has nothing to carry between linked accounts",
+          accounts.migrate_memory("alpha", "beta") == [])
+
+
 def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
     """A fold runs `claude -p`, which is headless and has no status line, so it
     is the one spender no collector ever sees. Choosing by the raw figure sent
@@ -5806,6 +5839,7 @@ def main() -> int:
         run(lambda: test_migrate_memory_carries_projects_between_accounts(Path(td) / 'memmig'))
         run(lambda: test_migrate_memory_merges_the_index_and_stays_in_scope(Path(td) / 'memmerge'))
         run(lambda: test_record_terminal_migrates_memory_on_an_account_change(Path(td) / 'memrec'))
+        run(lambda: test_memory_is_one_folder_per_project_shared_by_every_account(Path(td) / 'memshare'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
