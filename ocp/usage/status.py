@@ -1,7 +1,8 @@
 """Account status and assignability (design 01-infra.md section 4).
 
-The governing rule is fail-closed. Section 4 puts it as: a shortest-window figure we cannot
-trust is not a full tank, it is a refusal to assign, plus a red light.
+The governing rule is fail-closed. Section 4 puts it as: a shortest-window
+figure we cannot trust is not a full tank, it is a refusal to assign, plus a
+red light.
 
 Reading a missing value as 0 makes every account look perfectly fresh, which
 makes the 90% trigger false forever: the feature is dead while the dashboard
@@ -170,7 +171,7 @@ class Window:
 class AccountStatus:
     account: str
     exists: bool = False
-    # Its vendor reports no usage ocp can read (`Driver.meters`). Not "no
+    # Its vendor reports no usage ocp can read (`Driver.meter()` is None). Not "no
     # reading yet": that is a claude account nothing has run on, a bootstrap
     # candidate, and nothing ever will give this one a reading.
     unmetered: bool = False
@@ -223,7 +224,7 @@ class AccountStatus:
 
     @property
     def short_age_s(self) -> float | None:
-        """How long ago the 5h figure was observed, not when it was copied."""
+        """How long ago the shortest window's figure was observed, not when it was copied."""
         if self.short.at is None:
             return None
         age = self._now() - self.short.at
@@ -294,18 +295,19 @@ class AccountStatus:
 
     @property
     def long_source(self) -> str:
-        """Where the weekly figure comes from, on the same terms as the 5h one.
+        """Where the longest window's figure comes from, on the same terms as
+        the shortest window's.
 
         The two are not trusted the same way and should not be, but they were
-        not drawn the same way either: the 5h figure went to "?" the moment its
-        snapshot went stale while the weekly figure from that same file was
-        drawn as a measurement, unmarked.
+        not drawn the same way either: the shortest figure went to "?" the
+        moment its snapshot went stale while the longest, from that same file,
+        was drawn as a measurement, unmarked.
 
-        Inside one window weekly usage only rises, so an old reading is a floor
-        and a floor is worth having - marked as carried, not as measured. Once
-        the longest window's reset has passed it is not even that: it describes a window that no
-        longer exists, and reading it as the truth is how an account reads 60%
-        for a week after the week ended.
+        Inside one window usage only rises, so an old reading is a floor and a
+        floor is worth having - marked as carried, not as measured. Once the
+        longest window's reset has passed it is not even that: it describes a
+        window that no longer exists, and reading it as the truth is how an
+        account reads 60% for a week after the week ended.
 
         The longest's `at`, not `collected_at`, bounds the carry here too (see
         `short_source`): checked before the `live` case, so a poll gone quiet
@@ -488,7 +490,7 @@ class AccountStatus:
         return True, f"{text} - stale but idle"
 
     def shown_short(self) -> tuple[int | None, str]:
-        """What a 5h column draws: the figure and its mark.
+        """What the shortest window's column draws: the figure and its mark.
 
         The trusted figure where there is one. Otherwise the floor an idle
         account was last seen at, marked `?` - nothing may act on it as a
@@ -516,7 +518,7 @@ class AccountStatus:
         return out
 
     def short_headroom(self) -> int | None:
-        """Remaining 5h headroom in percent, or None when unknown."""
+        """Remaining headroom in the shortest window, in percent, or None when unknown."""
         pct = self.short_trusted
         if pct is None:
             return None
@@ -585,7 +587,7 @@ def metered(acct: str) -> bool:
     A vendor with no driver is left to `logged_in`, which refuses it."""
     from .. import vendors
     try:
-        return vendors.for_account(acct).meters()
+        return vendors.for_account(acct).meter() is not None
     except vendors.UnknownVendor:
         return True
 
@@ -908,7 +910,7 @@ def long_pace(st: "AccountStatus") -> float:
     week = st.long_trusted
     if week is None or not st.long.reset:
         return float("inf")
-    remaining = st.long.reset - time.time()
+    remaining = st.long.reset - st._now()
     if remaining <= 0:
         return float("inf")
     length = st.long.minutes * 60
@@ -957,7 +959,7 @@ def unfit(st: "AccountStatus", ld, agent: str | None = None) -> str | None:
     # A stale reading at the wall is still a floor until its window has rolled
     # over, but one older than 5h cannot describe the current window.
     if not full and st.short.pct is not None and st.short.pct >= SHORT_BLOCK:
-        now = time.time()
+        now = st._now()
         full = st.short.reset > now if st.short.reset else (
             st.age_s is not None and st.age_s < st.short.minutes * 60)
     if full:
@@ -1024,7 +1026,7 @@ def _no_long_room(st: "AccountStatus", ld, agent: str | None = None) -> str | No
     lasts = long_stretch_s(st, ld, agent)
     if lasts is None or lasts >= triggers.MIN_STRETCH_S:
         return None
-    left = (st.long.reset - time.time()) if st.long.reset else None
+    left = (st.long.reset - st._now()) if st.long.reset else None
     if left is not None and left <= lasts:
         return None
     reset = f", resets in {timefmt.span(left)}" if left and left > 0 else ""
@@ -1078,7 +1080,7 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
     for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
         if stale_ok:
             return stale_why + tag
-    when = "unknown" if not st.long.reset else timefmt.ago(max(0.0, st.long.reset - time.time()))
+    when = "unknown" if not st.long.reset else timefmt.ago(max(0.0, st.long.reset - st._now()))
     pace = long_pace(st)
     pace_s = "unknown pace" if pace == float("inf") else f"{pace:.2f}x its weekly pace"
     # Neither early return above fired, so this account is live, not stale -
@@ -1129,11 +1131,12 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
 
     An account can take one more agent when it is not at the wall, is under its
     cap of agents mid-turn (`load`), and lasts at least `MIN_STRETCH_S` before
-    its wall at its current fill plus one more agent of the kind `agent` names (a
-    typical one when it names none), and the same holds of its week (`_no_long_room`,
-    at the plan's measured week-per-5h ratio) unless the week rolls over first. How fast it is filling,
-    not a fixed line, is what says it has room: an account at 60% and idle has
-    more than one at 30% with three agents on it.
+    its wall at its current fill plus one more agent of the kind `agent` names
+    (a typical one when it names none), and the same holds of its longest
+    window (`_no_long_room`, at the plan's measured long-per-short ratio)
+    unless that window rolls over first. How fast it is filling, not a fixed
+    line, is what says it has room: an account at 60% and idle has more than
+    one at 30% with three agents on it.
 
     `exclude` names accounts to skip and why (the one an agent just left, until
     it resets). `load` defaults to reading it.

@@ -293,10 +293,25 @@ def test_write_labels_disambiguates_a_name_repeated_inside_one_test(home: Path) 
           out.strip() == f"PASS -> FAIL  test_synthetic_loop :: {name}", out)
 
 
+def test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch() -> None:
+    """T62: `empty=` is what a missing time reads as; without it a missing
+    time is the epoch, not now."""
+    from ocp.infra import timefmt
+    check("stamp: a missing time reads as empty= when one is given",
+          timefmt.stamp(None, timefmt.DATE_TIME, "-") == "-"
+          and timefmt.stamp(0, timefmt.DATE_TIME, "an unknown date") == "an unknown date")
+    check("stamp: a real time ignores empty=",
+          timefmt.stamp(86400 * 400, "%Y", "-") == time.strftime("%Y", time.localtime(86400 * 400)))
+    check("stamp: None without empty= is 1970 (localtime(0)), never now",
+          timefmt.stamp(None, "%Y") in ("1969", "1970")
+          and timefmt.stamp(None, "%Y") == timefmt.stamp(0, "%Y"))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
+        run(lambda: test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch())
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_run_recovers_from_an_uncaught_error())

@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS requests (
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
 CREATE INDEX IF NOT EXISTS requests_chain ON requests(chain_id, id);
+CREATE INDEX IF NOT EXISTS requests_parent ON requests(parent_id);
 
 -- The task board (request #1259). A task is never a message: it is its own
 -- row, named and owned by whoever opened it. The columns below are the whole
@@ -568,14 +569,16 @@ def _add_missing_columns(con) -> None:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
     if "told_out_of_turn" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN told_out_of_turn INTEGER")
-        # Carry over what the old sendnow_told:<id> cursors already knew - a
-        # request left NULL here that was in fact already told out of turn
-        # would be told a second time once it becomes the head.
-        con.execute(
-            "UPDATE requests SET told_out_of_turn = 1 WHERE id IN "
-            "(SELECT CAST(substr(name, 14) AS INTEGER) FROM cursors "
-            "WHERE name LIKE 'sendnow_told:%')")
-        con.execute("DELETE FROM cursors WHERE name LIKE 'sendnow_told:%'")
+    # Carry over what the old sendnow_told:<id> cursors already knew - a
+    # request left NULL here that was in fact already told out of turn would be
+    # told a second time once it becomes the head. Every connect, not only the
+    # one that adds the column: a crash between the statements, or an old
+    # daemon still writing a cursor, leaves some behind.
+    con.execute(
+        "UPDATE requests SET told_out_of_turn = 1 WHERE id IN "
+        "(SELECT CAST(substr(name, 14) AS INTEGER) FROM cursors "
+        "WHERE name LIKE 'sendnow_told:%')")
+    con.execute("DELETE FROM cursors WHERE name LIKE 'sendnow_told:%'")
     task_cols = _cols(con, "tasks")
     for col in ("discarded_by", "discard_reason"):
         if col not in task_cols:

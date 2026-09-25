@@ -395,15 +395,18 @@ def test_status_methods_all_honor_a_pinned_as_of() -> None:
     time.time = lambda: pinned
     try:
         want = (live.takes_work(), live.rolled_over(), live.idle_floor(),
-                live.shown_short(), live.last_known())
+                live.shown_short(), live.last_known(), status.long_pace(live),
+                status.unfit(live, None))
     finally:
         time.time = real_time
     # The wall clock is back at its real, much later value; only a method
     # that actually reads as_of, not time.time(), can still match `want`.
     got = (pinned_st.takes_work(), pinned_st.rolled_over(), pinned_st.idle_floor(),
-           pinned_st.shown_short(), pinned_st.last_known())
+           pinned_st.shown_short(), pinned_st.last_known(), status.long_pace(pinned_st),
+           status.unfit(pinned_st, None))
     for name, w, g in zip(
-            ("takes_work", "rolled_over", "idle_floor", "shown_short", "last_known"),
+            ("takes_work", "rolled_over", "idle_floor", "shown_short", "last_known",
+             "long_pace", "unfit"),
             want, got):
         check(f"status: {name} honors a pinned as_of", g == w, str((g, w)))
 
@@ -1147,7 +1150,7 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
     ocmod._OPENER.open = fake_open
     try:
         check("zai meter: the driver reports the vendor as metered",
-              drv.meters() and status.metered("zai"))
+              drv.meter() is not None and status.metered("zai"))
 
         r = usage_api.read("zai", refresh=False)
         check("zai meter: the 5-hour window reads pct and reset",

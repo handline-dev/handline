@@ -345,6 +345,21 @@ def test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(home: Path) -
         check("migration: and the cursor that carried it is gone",
               con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
                           ).fetchone() is None)
+        # T77: an old daemon still writing one, or a crash between the two
+        # statements, leaves a cursor after the column exists - the next
+        # connect still carries it.
+        con.execute("UPDATE requests SET told_out_of_turn = NULL WHERE id = 1")
+        con.execute("INSERT INTO cursors(name, row_id, updated) VALUES('sendnow_told:1', 1, ?)",
+                    (now,))
+        con.commit()
+    finally:
+        con.close()
+    con = db.connect(p)
+    try:
+        check("migration: a cursor left behind after the column exists is carried on the next connect",
+              db.get_request(con, 1)["told_out_of_turn"] == 1
+              and con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
+                              ).fetchone() is None)
     finally:
         con.close()
 
@@ -863,6 +878,13 @@ def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> No
             # less what it never touches - here "skills", which claude shares.
             shared = vendors.shared_dir("claude")
             (shared / "skills").mkdir(parents=True, exist_ok=True)
+            # gamma's own shared dir has one too, so only never_touch keeps
+            # "skills" out of unlinked() - not the item's absence there.
+            gshared = vendors.shared_dir(vendors.for_account("gamma").name)
+            (gshared / "skills").mkdir(parents=True, exist_ok=True)
+            check("accounts: setup - the item exists in gamma's shared dir, and gamma never touches it",
+                  (gshared / "skills").exists()
+                  and "skills" in vendors.for_account("gamma").never_touch())
             accounts.register("gamma")
             check("accounts: an item the driver never touches is not linked",
                   not (cdir / "skills").exists())
@@ -5642,6 +5664,20 @@ def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
         con.close()
 
 
+def test_requests_parent_id_is_indexed(home: Path) -> None:
+    """T92: the replied EXISTS looks a request up by parent_id once per row on
+    the page; without an index that is a table scan each."""
+    home.mkdir(parents=True, exist_ok=True)
+    con = db.connect(home / "idx.db")
+    try:
+        plan = " ".join(str(tuple(r)) for r in con.execute(
+            "EXPLAIN QUERY PLAN SELECT 1 FROM requests WHERE parent_id = 1"))
+        check("index: looking a request up by parent_id uses an index",
+              "requests_parent" in plan, plan)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -5733,6 +5769,7 @@ def main() -> int:
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
+        run(lambda: test_requests_parent_id_is_indexed(Path(td) / 'parentidx'))
         run(lambda: test_the_priority_columns_migrate_an_old_tasks_table(Path(td) / 'taskprimig'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))

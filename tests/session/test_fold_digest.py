@@ -568,7 +568,7 @@ def test_fold_picks_an_account_of_the_agents_own_vendor(home: Path) -> None:
 def test_fold_falls_back_to_claude_for_a_vendor_that_cannot_headless(home: Path) -> None:
     """An opencode agent's auto-pick still reaches a claude account for its
     fold call, as every fold did before vendors existed: opencode's driver
-    has no one-shot run, so `_headless_vendor_for` falls back to claude's
+    has no one-shot run (`can_headless()` is False), so `_fold_account` falls back to claude's
     rather than picking an opencode account only to have `run_model` refuse
     it (design/04 §4.2, auditor's #321 should-fix 1 - this is not a
     behaviour change)."""
@@ -596,6 +596,23 @@ def test_fold_falls_back_to_claude_for_a_vendor_that_cannot_headless(home: Path)
           seen == ["alpha"], str(seen))
 
 
+def test_fold_falls_back_to_claude_when_the_own_vendor_has_no_usable_account(home: Path) -> None:
+    """T90: an agent whose vendor can run headless but has no readable account
+    of it still gets its model call, on a claude account."""
+    use_home(home)
+    with second_vendor(metered=True):
+        agents.register("zbackend")
+        _with_vendor("zbackend", "zai")
+        accounts.register("alpha")
+        write_status(home, "alpha", pct_5h=10)
+        accounts.logged_in = lambda a: True
+        check("fold: the second vendor says it can run one-shot",
+              vendors.get("zai").can_headless() is True and vendors.get("opencode").can_headless() is False
+              and vendors.get("claude").can_headless() is True)
+        check("fold: no zai account, so the pick falls to claude's",
+              foldmod._fold_account("zbackend") == "alpha", str(foldmod._fold_account("zbackend")))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -613,6 +630,7 @@ def main() -> int:
         run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
         run(lambda: test_the_handoff_carries_the_agents_progress_note_on_its_request(Path(td) / 'hdprog'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
+        run(lambda: test_fold_falls_back_to_claude_when_the_own_vendor_has_no_usable_account(Path(td) / 'foldfb'))
         run(lambda: test_run_model_asks_the_vendor_for_its_headless_argv(Path(td) / 'headless'))
         run(lambda: test_fold_picks_an_account_of_the_agents_own_vendor(Path(td) / 'foldvendor'))
         run(lambda: test_fold_falls_back_to_claude_for_a_vendor_that_cannot_headless(

@@ -246,8 +246,12 @@ def _escalation(prop: dict) -> str:
                   + (f", relation {prop['relation']}" if prop.get("relation") else "")
                   + "). One edge is added to team.yaml; nothing else in the routing changes."]
     elif prop["kind"] == "unlink":
+        try:
+            caveat = _unlink_caveat(team.Team.load(), prop["agent"], prop["to"])
+        except Exception:  # noqa: BLE001 - the refusal at apply time says why
+            caveat = ""
         lines += [f"The edge {prop['agent']} -> {prop['to']} would be removed from team.yaml. "
-                  "Requests already queued on it stay queued."]
+                  "Requests already queued on it stay queued." + caveat]
     elif prop["kind"] == "add":
         lines += ["It would be registered"
                   + (f" in team {prop['team']}" if prop.get("team") else "")
@@ -433,6 +437,25 @@ def _add(prop: dict, con) -> tuple[bool, str]:
                   + f". {said}")
 
 
+def _still_allowed_by(t, frm: str, to: str) -> str:
+    """The edge that lets `frm` ask `to` in `t` once the exact edge is gone, or
+    "" when nothing does - a wildcard or team edge can route the same pair, so
+    removing one edge is not always taking the permission away."""
+    for e in t.edges:
+        if str(e.get("from")) == frm and str(e.get("to")) == to:
+            continue
+        if t.matches(str(e["from"]), frm) and t.matches(str(e["to"]), to):
+            d = t.route(frm, to)
+            return f"{e['from']} -> {e['to']}" if d.allowed else ""
+    return ""
+
+
+def _unlink_caveat(t, frm: str, to: str) -> str:
+    left = _still_allowed_by(t, frm, to)
+    return (f" {frm} can still ask {to}: the edge {left} allows it - "
+            "this does not take the permission away." if left else "")
+
+
 def _edge_refusal(kind: str, frm: str, to: str | None, response: str | None,
                   relation: str | None, registered: list[str]) -> str:
     """Why this edge cannot be added or removed, or "" when it can. Read against
@@ -451,6 +474,9 @@ def _edge_refusal(kind: str, frm: str, to: str | None, response: str | None,
         return f"team.yaml cannot be read ({e})"
     exact = [e for e in t.edges if str(e.get("from")) == frm and str(e.get("to")) == to]
     if kind == "link":
+        for end in (frm, to):
+            if end not in t.agents:
+                return f"{end} is not in team.yaml agents - add it there first"
         if exact:
             return f"team.yaml already has the edge {frm} -> {to}"
         for d in t.deny:
@@ -533,7 +559,9 @@ def _unlink(prop: dict, con) -> tuple[bool, str]:
         lambda t: _unlink_text(t, frm, to),
         verify=lambda tm: _need(not any(str(e.get("from")) == frm and str(e.get("to")) == to
                                         for e in tm.edges), "the edge is still there"))
-    return ok, (f"the edge {frm} -> {to} is removed. {said}" if ok else said)
+    if not ok:
+        return False, said
+    return True, f"the edge {frm} -> {to} is removed.{_unlink_caveat(team.Team.load(), frm, to)} {said}"
 
 
 def _need(cond: bool, why: str) -> None:

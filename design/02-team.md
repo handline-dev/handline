@@ -139,7 +139,7 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 |---|---|---|---|---|
 | `supervisor → subordinate` | 명령 | ✘ | 높음 | 대상의 현재 작업을 선점 |
 | `peer ↔ peer` | 요청 | ✔ | 보통 | 거부 사유를 회신 |
-| `subordinate → supervisor` | 에스컬레이션 | — | 즉시 | Orca `gate-create` |
+| `subordinate → supervisor` | 에스컬레이션 | — | 즉시 | 게이트(`creates_gate`) |
 
 상하관계의 실질적 차이는 호칭이 아니라 **거부권과 선점권**이다. 그것만 다르다.
 
@@ -178,7 +178,7 @@ ocp ask <target> "<요청>" [--files a.ts,b.ts]
 우선순위       → relation + 요청자의 크리티컬패스 위치
 계정            → v1: 고정 매핑 / v2: §7 게이트
 요청자 처리    → async면 handoff + park
-응답 경로      → Orca orchestration message
+응답 경로      → 요청자의 inbox 파일, 데몬이 세션에 입력해 알림
 체인 깊이      → 순환 방지
 ```
 
@@ -235,7 +235,7 @@ limits:
 우리 설계에서 `orchestrator`는 **에이전트가 아니라 데몬이다.**
 
 ```
-태스크 의존성 해소  → Orca orchestration의 DAG
+태스크 의존성 해소  → 작업의 `--blocked-by` (막던 작업이 닫히면 알림)
 계정 배정          → v1: 고정 매핑 (§0.5) / v2: §7 게이트
 요청 라우팅        → team.yaml (선언)
 handoff 시점 판단  → 인프라 §8 트리거 (조건식)

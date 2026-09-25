@@ -57,7 +57,7 @@ class Meter(Protocol):          # replaces usage_api.py's claude code
     renews_by_turn: bool        # one real turn renews a dead credential (recover's job)
     def read_usage(self, acct, refresh=True) -> tuple[Reading | None, bool]
                                 # bool: the failure was the credential being refused
-# Driver.meter() -> Meter | None, asked the way state_hooks() is; meters() stays the bool.
+# Driver.meter() -> Meter | None, asked the way state_hooks() is; unmetered is `meter() is None`.
 
 class Collector(Protocol):      # design/03 §5's output contract
     def collect(self, transcript: Path, config_dir: Path) -> Snapshot | None
@@ -144,8 +144,9 @@ audited before it is merged, as the four file splits were.
 6. `vendor-collect` - `Collector` and the §5 contract; `collect.py` becomes
    claude's collector; the model table becomes `Driver.context_window`.
 7. `vendor-windows` - design/03 step 3, the large one: 25 files stop reading
-   window names. Write `pct_5h` and `windows` together for one release so a
-   bad read is visible, then drop the old keys. Needs 5 and 6 first, because
+   window names. A hard cut (founder #587): records are written as a `windows`
+   list only, and old records and `usage_samples` rows are converted on read
+   (`ocp/usage/windows.py`) and never rewritten. Needs 5 and 6 first, because
    they are what produces the new shape.
 8. `vendor-prose` - optional sweep of user-facing "claude" strings to the
    vendor's name. Cosmetic; last, and skippable.
@@ -163,8 +164,8 @@ Steps 1-4 are independent of each other and could run in parallel branches;
 - **Tool denial (design/03 §6) is still unresolved** for a vendor without
   `--disallowedTools`. Nothing here decides it; it must be settled before a
   non-claude agent is given real work.
-- **Window model dual-write:** one release of both key sets in step 7, or a
-  hard cut. Recommend the dual write; the cost is a release of duplicated keys.
+- **Window model dual-write:** decided - a hard cut (founder #587), old
+  records converted on read.
 - **Optional capability Protocols vs one growing `Driver`:** recommended above
   because `Driver` is already 22 methods and three of the new ones apply to
   claude only in practice. If the founder prefers a single Protocol with

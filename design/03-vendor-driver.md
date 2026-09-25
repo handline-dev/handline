@@ -300,8 +300,9 @@ Each step is independently shippable and leaves the tree green.
    right companion to the account-vendor change below, which is the other thing
    that has to know which vendor an account is.
 3. **The window model (§5).** The big one: 208 lines, 16 files, five of which
-   never mention `claude`. Do it with both `pct_5h` and `windows` written for
-   one release so a bad read is visible, then drop the old keys.
+   never mention `claude`. Built as a hard cut (founder #587): records are
+   written as a `windows` list, and old records and `usage_samples` rows convert
+   on read (`ocp/usage/windows.py`), never rewritten.
 4. **The preamble writer (D10).** Shared code, two-row table.
 5. **`codex.py`**, collector first (§11.14) - without context ocp cannot park.
 6. **Tool denial (§6).** Blocking for a codex agent that does real work.

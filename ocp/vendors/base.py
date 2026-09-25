@@ -48,7 +48,9 @@ class Snapshot:
     """What one session's transcript says: the model and its context. Where the
     transcript is, and when it was last written, are the reader's to add
     (`usage/collect.py`). `ctx_used` is the vendor's own count breakdown, whose
-    total is the sum of its values; `ctx_pct` is None when unknown."""
+    total is the sum of its values - so a collector keeps only the counts that
+    make up the context (claude's `slim_usage`), and a dict written by hand
+    into status.json is summed as it stands. `ctx_pct` is None when unknown."""
     model_id: str | None
     ctx_used: dict | None
     ctx_size: int | None
@@ -134,6 +136,11 @@ class Driver(Protocol):
         None: this vendor has no such run, and a caller that needs one (fold)
         refuses cleanly rather than guessing at a flag nobody has measured."""
 
+    def can_headless(self) -> bool:
+        """Whether `headless_argv` ever gives an argv: this vendor has a
+        one-shot run a fold can use. A capability the caller asks directly,
+        never one it infers by probing `headless_argv` with placeholders."""
+
     def headless_model(self, model: str | None) -> str:
         """The model name `headless_argv(exe, model, ...)` actually runs:
         `model` itself, or this vendor's own cheap default when none was
@@ -151,14 +158,10 @@ class Driver(Protocol):
         the moment it ends.
         """
 
-    def meters(self) -> bool:
-        """Whether ocp can read how much of the account's limit is spent. An
-        account whose vendor cannot be read is unmetered: never picked, never
-        polled, and only its own agents' agent.yaml sends work there."""
-
     def meter(self) -> Meter | None:
-        """This vendor's Meter, or None when its usage cannot be read (the
-        same fact `meters()` states as a bool)."""
+        """This vendor's Meter, or None when its usage cannot be read. An
+        account whose vendor has none is unmetered: never picked, never
+        polled, and only its own agents' agent.yaml sends work there."""
 
     def collector(self) -> Collector | None:
         """This vendor's Collector, or None when it writes no transcript ocp

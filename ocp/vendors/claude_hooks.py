@@ -71,6 +71,11 @@ def _within(child: Path, parent: Path) -> bool:
     return child == parent or parent in child.parents
 
 
+def _as_path(entry: str) -> Path:
+    """A settings path as Claude Code reads it: `~` expanded, symlinks followed."""
+    return Path(entry).expanduser().resolve()
+
+
 def allow_home_writes() -> tuple[bool, list[str]]:
     """Let a sandboxed agent write anywhere under OCP_HOME: (changed, blockers).
 
@@ -82,20 +87,21 @@ def allow_home_writes() -> tuple[bool, list[str]]:
     for the founder to decide.
     """
     home = paths.home()
+    real = home.resolve()
     target = target_settings()
     data = _read_json(target) if target.exists() else {}
     fs = data.setdefault("sandbox", {}).setdefault("filesystem", {})
     before = json.dumps(data, sort_keys=True)
     allow = [e for e in fs.get("allowWrite", [])
-             if not (isinstance(e, str) and _within(Path(e), home) and Path(e) != home)]
-    if str(home) not in allow:
+             if not (isinstance(e, str) and _within(_as_path(e), real) and _as_path(e) != real)]
+    if not any(isinstance(e, str) and _as_path(e) == real for e in allow):
         allow.append(str(home))
     fs["allowWrite"] = allow
     if "denyWrite" in fs:
         fs["denyWrite"] = [e for e in fs["denyWrite"]
-                           if not (isinstance(e, str) and Path(e) == home)]
+                           if not (isinstance(e, str) and _as_path(e) == real)]
     blockers = [e for e in fs.get("denyWrite", [])
-                if isinstance(e, str) and _within(home, Path(e))]
+                if isinstance(e, str) and _within(real, _as_path(e))]
     if json.dumps(data, sort_keys=True) == before:
         return False, blockers
     target.parent.mkdir(parents=True, exist_ok=True)

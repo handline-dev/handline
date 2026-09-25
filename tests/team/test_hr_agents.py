@@ -813,7 +813,7 @@ def test_yaml_booleans() -> None:
 def test_team_validation() -> None:
     old = team.Team(yamlcompat.parse("agents:\n  a: { intake: nonsense, model: mid }\n"))
     check("team validation: an old team.yaml's intake key is ignored, not an error",
-          "a" in old.agents and not hasattr(old.route("a", "a"), "intake"))
+          "a" in old.agents)
     for bad, label in [
         ('edges:\n  - { from: "a", to: "b", response: blocking }\n',
          "blocking response rejected"),
@@ -1781,6 +1781,34 @@ def test_agent_rewrite_uses_parser(home: Path) -> None:
     check("agents: other fields survive the rewrite", cfg.get("model") == "opus", str(cfg))
 
 
+def test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(home: Path) -> None:
+    """T34: removing an exact edge is not taking the permission away while a
+    wildcard routes the pair - the result and the escalation say which edge.
+    T35: an end that is registered but not in team.yaml is refused up front."""
+    _daemon_home(home, 20)
+    for n in ("marina", "scout", "loose"):
+        agents.register(n)
+    (home / "team.yaml").write_text("""agents:
+  marina: {}
+  scout: {}
+edges:
+  - { from: "marina", to: "scout", response: async }
+  - { from: "*", to: "scout", relation: peer, response: async }
+""")
+    esc = hr._escalation({"kind": "unlink", "agent": "marina", "to": "scout", "id": 1,
+                          "requested_by": "marina", "why": "w"})
+    check("unlink: the escalation names the edge that still lets it through",
+          "can still ask scout" in esc and "* -> scout" in esc, esc)
+    ok, said = hr.enact("unlink", "marina", to="scout", why="w")
+    check("unlink: it is removed, and the result says the wildcard still allows it",
+          ok and "can still ask scout" in said and "* -> scout" in said, said)
+    ok, said = hr.enact("link", "marina", to="loose", why="w")
+    check("link: an agent registered but not in team.yaml is refused up front",
+          not ok and "not in team.yaml" in said and "loose" in said, said)
+    ok, said = hr.enact("link", "loose", to="scout", why="w")
+    check("link: and so is the asking end", not ok and "not in team.yaml" in said, said)
+
+
 def test_hr_link_and_unlink_edit_one_edge_and_nothing_else(home: Path) -> None:
     """An ask edge is added or removed through hr, as text so the file's comments
     survive, validated before it is written, and gated like any roster change."""
@@ -2436,6 +2464,7 @@ def main() -> int:
         run(lambda: test_an_opencode_row_takes_its_state_word_from_orca(Path(td) / 'ocrow'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
+        run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(

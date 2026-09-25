@@ -132,27 +132,39 @@ def test_a_file_that_vanishes_or_a_failed_write_leaves_no_partial(home: Path) ->
 
 
 def test_a_concurrent_prune_taking_the_same_file_first_is_not_an_error(home: Path) -> None:
-    """Two prune passes can race on the same expired file - a's stat firing
-    b's removal from under it, at whichever of b's own stat or unlink the
-    glob order leaves exposed. Either way it must not raise."""
+    """Two prune passes can race on the same expired file: the other's unlink
+    can land before this one's stat, or between its stat and its unlink. Each
+    is forced here, so neither depends on the order the glob returns files."""
     now = time.mktime((2026, 9, 24, 12, 0, 0, 0, 0, -1))
-    made = _snapshots(home / "bk", now, [0, 60 * 86400, 90 * 86400])
-    kept, a, b = made[0], made[60 * 86400], made[90 * 86400]
-    real_stat = Path.stat
+    real_stat, real_expired = Path.stat, backupmod.expired
 
-    def stat_and_race(self):
-        st = real_stat(self)
-        if self == a:
-            b.unlink(missing_ok=True)  # the other prune's unlink beat this one's
-        return st
-    Path.stat = stat_and_race
-    try:
-        removed = backupmod.prune(home / "bk", now)
-    finally:
-        Path.stat = real_stat
-    check("backup: the file the other prune already took raises nothing, and is gone either way",
-          not b.exists(), str(removed))
-    check("backup: the survivor is untouched", kept.exists())
+    for label, race in (("before its stat", "stat"), ("between its stat and its unlink", "unlink")):
+        dest = home / f"bk-{race}"
+        made = _snapshots(dest, now, [0, 60 * 86400, 90 * 86400])
+        kept, b = made[0], made[90 * 86400]
+
+        def stat_after_theirs(self, *a, **kw):
+            if self == b:
+                b.unlink(missing_ok=True)
+            return real_stat(self, *a, **kw)
+
+        def expired_after_theirs(times, at):
+            b.unlink(missing_ok=True)
+            return real_expired(times, at)
+
+        if race == "stat":
+            Path.stat = stat_after_theirs
+        else:
+            backupmod.expired = expired_after_theirs
+        try:
+            backupmod.prune(dest, now)
+        except Exception as e:  # noqa: BLE001
+            check(f"backup: a file taken {label} raises nothing", False, repr(e))
+        finally:
+            Path.stat = real_stat
+            backupmod.expired = real_expired
+        check(f"backup: a file taken {label} raises nothing and is gone either way", not b.exists())
+        check(f"backup: the survivor is untouched ({label})", kept.exists())
 
 
 def test_a_partial_from_a_killed_run_is_pruned_once_stale(home: Path) -> None:

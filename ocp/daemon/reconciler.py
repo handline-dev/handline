@@ -111,7 +111,7 @@ def reconcile(con, log) -> list[str]:
                                f"still due - {why}")
                 continue
             actions.append(f"{agent}: woken at reconciliation")
-        new_state = evaluate._queued_or_idle(con, agent, f"woke from {row['state']} at reconciliation")
+        new_state = evaluate.queued_or_idle(con, agent, f"woke from {row['state']} at reconciliation")
         actions.append(f"{agent}: {row['state']} -> {new_state} (wake_at was {row['wake_at']})")
 
     # 3. Agents we know about but have no state row for.

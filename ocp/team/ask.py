@@ -676,7 +676,7 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
         if outstanding == 0:
             # QUEUED only if something is queued or untold: a quiet dismissal
             # leaves neither, and the asker just goes back to idle.
-            dmn_evaluate._queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
+            dmn_evaluate.queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
     p = _inbox(row["target"]) / f"{rid:06d}.json"
     if p.exists():
         p.unlink()

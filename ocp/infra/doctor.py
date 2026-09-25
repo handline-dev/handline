@@ -175,7 +175,7 @@ def _check_accounts(r: Report) -> None:
             r.add(FAIL, f"account {a}: settings.json does not point at shared",
                   f"ocp account register --force {a}")
 
-        if not drv.meters():
+        if drv.meter() is None:
             r.add(OK, f"account {a}: unmetered ({drv.name})",
                   "never picked or polled; only agents that name it run there")
             continue

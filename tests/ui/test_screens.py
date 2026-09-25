@@ -2733,6 +2733,13 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
           _touches_subprocess_text(ast.parse(gitrun_src))
           and _builds_a_returned_message(ast.parse(gitrun_src))
           and not _imports_textsafe(ast.parse(gitrun_src)))
+    for label, imp in (("from-import", "from .gitrun import run\n"),
+                       ("aliased import", "from ..infra import gitrun as g\n")):
+        call = "run(cwd, 'x')" if label == "from-import" else "g.run(cwd, 'x')"
+        check(f"boundary: gitrun.run reached by a {label} is caught too",
+              _touches_subprocess_text(ast.parse(f"{imp}def _g(cwd):\n    return {call}\n")))
+    check("boundary: an unrelated run() is not gitrun",
+          not _touches_subprocess_text(ast.parse("def _g(cwd):\n    return run(cwd)\n")))
     check("boundary: a module with no subprocess call at all is not named, whatever it returns",
           not _touches_subprocess_text(ast.parse('def f():\n    return f"{x}"\n')))
     check("boundary: reading .stdout with nothing returned as a message is not named either "

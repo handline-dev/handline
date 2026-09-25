@@ -2,7 +2,7 @@
 
 Whether an account can take one more agent depends on how long it lasts with
 that agent on it, so the agent's cost is measured rather than assumed: the
-share of an account's 5h window one agent spends per second while it works.
+share of an account's shortest window one agent spends per second while it works.
 
 A sample is the account's rise over a stretch in which the same agents were
 mid-turn from its first reading to its last, divided by how many they were. One
@@ -239,9 +239,10 @@ class Costs:
         return self._plans[account]
 
     def long_per_short(self, account: str) -> float | None:
-        """Points of the week one point of the 5h window costs on this account:
-        its own measured ratio, else its plan's pooled one, else None - nothing has
-        measured it, and no 5h figure can be turned into the week's."""
+        """Points of the longest window one point of the shortest costs on this
+        account: its own measured ratio, else its plan's pooled one, else None -
+        nothing has measured it, and no shortest-window figure can be turned
+        into the longest's."""
         return self._long_ratios.get(account, self._long_ratios.get(_pool(self._plan(account))))
 
     def _median(self, pick) -> tuple[float, int] | None:

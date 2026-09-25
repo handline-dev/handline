@@ -290,7 +290,7 @@ def fold(agent: str, use_model: bool = True, model: str | None = None,
         acct = None
         spent_model = model
         if use_model:
-            acct = fold_account or _cheapest_account(_headless_vendor_for(agent))
+            acct = fold_account or _fold_account(agent)
             if acct:
                 # What actually runs, for the spend record below - `model`
                 # itself once the driver has looked at it, since a fold that
@@ -366,17 +366,19 @@ def fold(agent: str, use_model: bool = True, model: str | None = None,
         con.close()
 
 
-def _headless_vendor_for(agent: str) -> str:
-    """Which vendor's account should pay for this agent's fold call: its own,
-    if that vendor can run one-shot at all, else claude's - the vendor every
-    fold reached before vendors existed, and the only one that can today.
-    Probed with placeholder arguments: whether a driver's `headless_argv`
-    exists at all does not depend on them for any driver measured so far, and
-    the real call that spends the turn passes its own real ones."""
+def _fold_account(agent: str) -> str | None:
+    """The account that pays for this agent's fold call: one of its own
+    vendor's, if that vendor can run one-shot at all and one is usable, else
+    one of claude's - the vendor every fold reached before vendors existed."""
     own = vendors.agent_vendor(agent)
-    if vendors.get(own).headless_argv("_probe", None, "") is not None:
-        return own
-    return agents.DEFAULT_VENDOR
+    tries = [own] if vendors.get(own).can_headless() else []
+    if agents.DEFAULT_VENDOR not in tries:
+        tries.append(agents.DEFAULT_VENDOR)
+    for vendor in tries:
+        acct = _cheapest_account(vendor)
+        if acct:
+            return acct
+    return None
 
 
 def _cheapest_account(vendor: str = agents.DEFAULT_VENDOR) -> str | None:
@@ -386,7 +388,7 @@ def _cheapest_account(vendor: str = agents.DEFAULT_VENDOR) -> str | None:
     # tick and self-corrects, but a fold is the one spend nothing observes -
     # sending it to an account we already cannot read only deepens the
     # blindness. Same rule the fallback below applies.
-    # A fold runs headless, under whichever vendor can (`_headless_vendor_for`
+    # A fold runs headless, under whichever vendor can (`_fold_account`
     # picks it) - one account of that vendor, and one ocp can read.
     ours = [a for a in paths.list_accounts() if status.not_for(a, vendor) is None]
     readable = [a for a in ours if accounts.logged_in(a) and not status.read(a).stale]
