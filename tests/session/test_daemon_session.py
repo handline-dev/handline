@@ -1686,10 +1686,12 @@ def test_an_agent_is_never_handed_another_agents_session(home: Path) -> None:
         con.close()
 
 
-def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
-    """Waking sends the agent a prompt it is now reading. Announcing the inbox
-    in the same tick types at an agent mid-turn, which leaves the text in its
-    input box unsent - the failure delivery exists to avoid."""
+def test_a_resume_woken_for_a_message_is_handed_that_message(home: Path) -> None:
+    """Waking sends the agent a prompt it is now reading. Typing the message
+    after it, in the same tick, lands at an agent mid-turn and leaves the text
+    in its input box unsent - the failure delivery exists to avoid - and
+    "carry on" ahead of it says nothing. So the message is the prompt (T124),
+    and the ticks after it do not tell it again."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -1718,13 +1720,36 @@ def test_a_woken_agent_is_told_on_the_following_tick(home: Path) -> None:
         dmn_evaluate.tick(con, lambda _m: None)
         check("wake: the tick that wakes it brings the session back",
               any("--resume sess-4" in t for t in sent), str(sent))
-        check("wake: and does not announce the inbox in the same breath",
-              not any("ocp inbox" in t for t in sent), str(sent))
+        told = [t for t in sent if "look at this" in t]
+        check("wake: the resume's first prompt is the message itself",
+              len(told) == 1 and "from reviewer, waiting for you" in told[0]
+              and "ocp inbox" in told[0], str(sent))
+        check("wake: and not the generic line ahead of it",
+              not any("Nothing was lost" in t for t in sent), str(sent))
+        check("wake: the tell is on the row, for the session that read it",
+              db.get_cursor(con, "notify:backend") is not None
+              and db.get_notified_session(con, "backend") == "sess-4",
+              str(db.get_notified_session(con, "backend")))
 
         sent.clear()
         dmn_evaluate.tick(con, lambda _m: None)
-        check("wake: the following tick tells it what is waiting",
-              any("ocp inbox" in t for t in sent), str(sent))
+        check("wake: the following tick does not tell it again",
+              not any("look at this" in t for t in sent), str(sent))
+
+        # An answer waiting is a message too.
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        rid = db.add_request(con, "backend", "reviewer", "ship it?", None,
+                             "peer", "async", None, 0, None)
+        support._set_request_state(con, rid, "done", "yes, ship it")
+        sent.clear()
+        dmn_evaluate.tick(con, lambda _m: None)
+        told = [t for t in sent if "Answers to what you asked" in t]
+        check("wake: a resume waiting on an answer is handed the answer",
+              len(told) == 1 and "yes, ship it" in told[0]
+              and not any("Nothing was lost" in t for t in sent), str(sent))
+        check("wake: and the answer is marked told", not db.unannounced_answers(con, "backend"),
+              str(sent))
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available) = real
@@ -4016,7 +4041,7 @@ def main() -> int:
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_send_now_reaches_an_agent_whose_head_is_already_open(Path(td) / 'sendnow'))
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
-        run(lambda: test_a_woken_agent_is_told_on_the_following_tick(Path(td) / 'woketick'))
+        run(lambda: test_a_resume_woken_for_a_message_is_handed_that_message(Path(td) / 'woketick'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))

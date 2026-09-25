@@ -1557,13 +1557,16 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the tick wakes it for the answer it asked for",
               any("--resume sess-4" in t for t in sent), str(sent))
+        check("waiting: and the resume's first prompt is that answer",
+              any("this way" in t for t in sent)
+              and not any("Nothing was lost" in t for t in sent), str(sent)[:160])
         check("waiting: and it is no longer closed",
               db.get_agent_state(con, "backend")["closed_at"] is None)
 
         sent.clear()
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("waiting: the next tick hands it the answer",
-              any("this way" in t for t in sent), str(sent)[:160])
+        check("waiting: the next tick does not hand it the answer again",
+              not any("this way" in t for t in sent), str(sent)[:160])
 
         # And when it can be reached, resolving is the delivery: the answer
         # does not wait for a tick that may be two seconds or a restart away.

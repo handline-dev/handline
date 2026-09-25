@@ -557,9 +557,10 @@ def _answer_verb(head) -> str:
     return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
 
 
-def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) -> bool:
-    """`ahead_of` is the head a "send now" request is jumping: it is told
-    without touching the head's own cursor, so that head is not told twice."""
+def tell_text(con, head, depth: int, ahead_of=None) -> str:
+    """The message that tells an agent about `head`, as it is typed.
+
+    `ahead_of` is the head a "send now" request is jumping."""
     more = depth - 1
     # One line, capped at 400; `ocp read` has the rest. The message is three
     # lines at most (`MAX_TYPED_LINES`), so what follows the body rides on its line.
@@ -571,6 +572,30 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
         tail = (f" [A follow-up to #{ahead_of['id']}, which is still open.]"
                 if head["parent_id"] == ahead_of["id"] else
                 f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]")
+    reply = in_reply_to(con, head)
+    return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
+            f"`ocp read {head['id']}` shows it whole; {_answer_verb(head)}, "
+            f"or `ocp inbox` any time.")
+
+
+def _record_told(con, agent: str, head, depth: int, log, session: str | None,
+                 ahead_of=None) -> None:
+    """What a delivered tell leaves behind, once it is known to have landed."""
+    more = depth - 1
+    if ahead_of is None:
+        db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+        db.set_notified_session(con, agent, session)
+    else:
+        db.mark_told_out_of_turn(con, int(head["id"]))
+    db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
+    log(f"  {agent}: told about #{head['id']}"
+        + (" (send now)" if ahead_of is not None else "")
+        + (f" ({more} more waiting)" if more else ""))
+
+
+def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) -> bool:
+    """`ahead_of` is the head a "send now" request is jumping: it is told
+    without touching the head's own cursor, so that head is not told twice."""
     # Before the send, not after: this is what closes withdraw/replace's race
     # against delivery (request #189). A send that then fails leaves the row
     # marked anyway - its requester can no longer withdraw it, but the cursor
@@ -580,24 +605,33 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
         # here. Typing a dead request into the target's terminal would be
         # worse than skipping it; the next tick picks up whatever is now head.
         return False
-    reply = in_reply_to(con, head)
-    ok, _ = _send(
-        handle,
-        f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
-        f"`ocp read {head['id']}` shows it whole; {_answer_verb(head)}, "
-        f"or `ocp inbox` any time.")
+    ok, _ = _send(handle, tell_text(con, head, depth, ahead_of))
     if ok:
         _mark_typed(con, agent)
-        if ahead_of is None:
-            db.set_cursor(con, f"notify:{agent}", int(head["id"]))
-            db.set_notified_session(con, agent, _live_session(con, agent))
-        else:
-            db.mark_told_out_of_turn(con, int(head["id"]))
-        db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
-        log(f"  {agent}: told about #{head['id']}"
-            + (" (send now)" if ahead_of is not None else "")
-            + (f" ({more} more waiting)" if more else ""))
+        _record_told(con, agent, head, depth, log,
+                     _live_session(con, agent) if ahead_of is None else None, ahead_of)
     return ok
+
+
+def waiting_prompt(con, agent: str, log):
+    """The message waiting for a parked agent, as the first prompt of the
+    session that resumes it, and what to record once that session is up -
+    or None when nothing waits.
+
+    It is the tell `deliver_queued` and `deliver_answers` would type on the
+    next tick, so the resume does not say "carry on" and then say the message.
+    Marked delivered here, before the launch, for the reason `_tell` is."""
+    head = db.head_of_queue(con, agent)
+    if head:
+        if not db.mark_delivered(con, int(head["id"])):
+            return None
+        depth = db.queue_depth(con, agent)
+        return (tell_text(con, head, depth),
+                lambda session: _record_told(con, agent, head, depth, log, session))
+    answered = db.unannounced_answers(con, agent)
+    if answered:
+        return answers_text(answered), lambda session: _record_answers(con, agent, answered, log)
+    return None
 
 
 # How much of the original question an answer line quotes.
@@ -635,6 +669,32 @@ def answer_line(r) -> tuple[str, bool]:
     return f"{head} {r['target']}: {said[:160]}", len(said) > 160 or "\n" in text
 
 
+def answers_text(answered) -> str:
+    """What is typed at an agent about its answered requests."""
+    shown, rest = answered[-3:], answered[:-3]
+    lines, cut = [], False
+    for r in shown:
+        line, more = answer_line(r)
+        cut = cut or more
+        lines.append(line)
+    if rest:
+        # Named, not counted: every id that is marked told has to have been
+        # said, or this is the same silence with a number on it.
+        lines.append("also answered: " + ", ".join(f"#{r['id']}" for r in rest))
+        cut = True
+    # Only when there is more to read. A one-line "ok go" followed by an
+    # instruction to go and read it whole is three lines of ceremony around two
+    # words, typed into an agent that was in the middle of something.
+    tail = "\nRead one whole with `ocp read <id>`." if cut else ""
+    return "Answers to what you asked:\n" + " | ".join(lines) + tail
+
+
+def _record_answers(con, agent: str, answered, log) -> None:
+    db.mark_announced(con, [r["id"] for r in answered])
+    db.add_event(con, agent, "answered", {"count": len(answered)})
+    log(f"  {agent}: told about {len(answered)} answer(s)")
+
+
 def deliver_answers(con, agent: str, log) -> bool:
     """Tell an agent what came back from something it asked.
 
@@ -661,32 +721,15 @@ def deliver_answers(con, agent: str, log) -> bool:
         return False
     if not orca.typeable_now(handle):
         return False
-    shown, rest = answered[-3:], answered[:-3]
-    lines, cut = [], False
-    for r in shown:
-        line, more = answer_line(r)
-        cut = cut or more
-        lines.append(line)
-    if rest:
-        # Named, not counted: every id that is marked told has to have been
-        # said, or this is the same silence with a number on it.
-        lines.append("also answered: " + ", ".join(f"#{r['id']}" for r in rest))
-        cut = True
-    # Only when there is more to read. A one-line "ok go" followed by an
-    # instruction to go and read it whole is three lines of ceremony around two
-    # words, typed into an agent that was in the middle of something.
-    tail = "\nRead one whole with `ocp read <id>`." if cut else ""
+    text = answers_text(answered)
     with lock.terminal(agent) as mine:
         if not mine:
             return False
         if _type_gate(con, agent, handle):
             return False
-        ok, _ = _send(
-            handle, "Answers to what you asked:\n" + " | ".join(lines) + tail)
+        ok, _ = _send(handle, text)
         if ok:
             _mark_typed(con, agent)
     if ok:
-        db.mark_announced(con, [r["id"] for r in answered])
-        db.add_event(con, agent, "answered", {"count": len(answered)})
-        log(f"  {agent}: told about {len(answered)} answer(s)")
+        _record_answers(con, agent, answered, log)
     return ok

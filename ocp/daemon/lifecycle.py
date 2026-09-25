@@ -323,8 +323,14 @@ def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
 
 
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
-                moved_to: str | None = None, con=None, cold: bool = False) -> str:
+                moved_to: str | None = None, con=None, cold: bool = False,
+                waiting: str | None = None) -> str:
     """What an agent is told when it comes back.
+
+    A resume that was started for a message is told that message, and only
+    that (`waiting`, from `delivery.waiting_prompt`): "carry on" ahead of it
+    is a prompt with nothing in it. The generic line is for a resume with
+    nothing waiting.
 
     A resumed session already holds everything it knew, so it is told where it
     is rather than what it did. One that was parked is given its handoff here;
@@ -341,6 +347,8 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         parts.append(f"Your account was at its 5h limit, so this session was started on "
                      f"{moved_to} instead of waiting for that window to roll over. Your "
                      f"handoff is in your system prompt above. Carry on from there.")
+    elif resumed and waiting:
+        return waiting
     elif resumed:
         parts.append("Your session was closed while you were idle and has been resumed. "
                      "Nothing was lost; carry on.")
@@ -594,9 +602,13 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                 if foreign:
                     why = "a session it did not start is running"
                 break
+            # Only a resume reads it: a fresh start has read nothing of what the
+            # queue held, and is told the ordinary way once it is up.
+            waiting = delivery.waiting_prompt(con, agent, log) if resume else None
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
-                                   moved_to=moved_to, con=con, cold=cold))
+                                   moved_to=moved_to, con=con, cold=cold,
+                                   waiting=waiting[0] if waiting else None))
             cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
                 f" -- --resume {session}" if resume else "")
             ok, why = orca.relaunch(
@@ -655,6 +667,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             return False, why
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
+        if resumed and waiting:
+            # After `clear_closed`, which voids what a session was told.
+            waiting[1](session)
         db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None,
                                           **({"cache_expired": True} if cold else {})})
         db.set_handoff(con, agent, None)
