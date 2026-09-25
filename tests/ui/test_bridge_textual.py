@@ -849,6 +849,12 @@ async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> Non
         await pilot.press("w")
         await pilot.pause(0.2)
         check("stats: w steps the window", view.window == "5h", view.window)
+        from textual.widgets import Select
+        dd = view.query_one("#s_window", Select)
+        check("stats: the window dropdown follows w", dd.value == "5h", dd.value)
+        dd.value = "24h"
+        await pilot.pause(0.2)
+        check("stats: choosing in the dropdown sets the window", view.window == "24h", view.window)
         await pilot.press("escape")
         await pilot.pause(0.2)
         from textual.widgets import Tabs
@@ -932,6 +938,15 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.press("f")
         await pilot.pause(0.2)
         check("tasks tab: f steps to an agent's own tasks", view.owner == "worker", view.owner)
+        from textual.widgets import Select
+        dd = view.query_one("#f_agent", Select)
+        check("tasks tab: the agent dropdown follows f", dd.value == "worker", dd.value)
+        dd.value = ""
+        await pilot.pause(0.2)
+        check("tasks tab: choosing all in the dropdown clears the agent", view.owner is None, view.owner)
+        view.query_one("#f_sort", Select).value = "number"
+        await pilot.pause(0.2)
+        check("tasks tab: the sort dropdown sets the sort", view.by == "number", view.by)
 
 
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:

@@ -10,8 +10,8 @@ import time
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import DataTable, Static
+from textual.containers import Horizontal, Vertical
+from textual.widgets import DataTable, Select, Static
 
 from ... import actions, db
 from ...infra import textsafe
@@ -56,6 +56,8 @@ class TasksView(Vertical):
     TasksView { height: 1fr; }
     TasksView #tasks_table { height: 1fr; }
     TasksView #tasks_results { height: auto; max-height: 6; }
+    TasksView #tasks_filters { height: 1; }
+    TasksView #tasks_filters Select { width: 1fr; }
     """
     KEYS = (
         Key("space", "mark", 1, "mark or unmark the row; c d o p act on the marked rows"),
@@ -67,7 +69,7 @@ class TasksView(Vertical):
         Key("m", "merge", 2, "fold the marked tasks into the row under the cursor"),
         Key("s", "sort", 3, "sort by priority, or by number"),
         Key("a", "closed", 3, "show or hide closed, discarded and merged tasks"),
-        Key("f", "agent", 3, "show one agent's tasks, and the next agent on each press"),
+        Key("f", "agent", 3, "show one agent's tasks, and the next agent on each press; or use the agent dropdown"),
     )
 
     def __init__(self, mine: bool = False, back: bool = False, **kw) -> None:
@@ -82,9 +84,16 @@ class TasksView(Vertical):
         self.rows: list[dict] = []
         self.flash = ""
         self.results = Text()
+        self._syncing = False
 
     def compose(self) -> ComposeResult:
         yield Static(id="tasks_title")
+        with Horizontal(id="tasks_filters"):
+            yield Select([("agent: all", "")], id="f_agent", allow_blank=False, compact=True)
+            yield Select([("by priority", "priority"), ("by number", "number")], id="f_sort",
+                         allow_blank=False, compact=True)
+            yield Select([("open only", "open"), ("incl. closed", "all")], id="f_closed",
+                         allow_blank=False, compact=True)
         yield DataTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
         yield Static(id="tasks_results")
         yield KeyGuide(self._keys(), id="tasks_foot")
@@ -136,10 +145,35 @@ class TasksView(Vertical):
         title.append(f"{len(self.rows)} {'incl. closed' if self.show_closed else 'open'}"
                      f" · agent {self.owner or 'all'} · by {self.by}", style="dim")
         self.query_one("#tasks_title", Static).update(title)
+        self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
         shown = Text(self.flash + "\n" if self.flash else "", "yellow")
         shown.append_text(self.results)
         self.query_one("#tasks_results", Static).update(shown)
+
+    def _sync_filters(self) -> None:
+        """Show the state in the dropdowns; `_syncing` keeps that from reading as a choice."""
+        self._syncing = True
+        agent = self.query_one("#f_agent", Select)
+        agent.set_options([("agent: all", ""), *((f"agent: {o}", o) for o in self.owners)])
+        agent.value = self.owner or ""
+        self.query_one("#f_sort", Select).value = self.by
+        self.query_one("#f_closed", Select).value = "all" if self.show_closed else "open"
+        self.call_after_refresh(setattr, self, "_syncing", False)
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        event.stop()
+        if self._syncing:
+            return
+        v = event.value
+        if event.select.id == "f_agent":
+            self.owner = v or None
+        elif event.select.id == "f_sort":
+            self.by = str(v)
+        elif event.select.id == "f_closed":
+            self.show_closed = v == "all"
+        self.table.focus()
+        self.refresh_rows()
 
     def _targets(self) -> list[int]:
         """The marked tasks, or the one under the cursor."""

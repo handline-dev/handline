@@ -10,7 +10,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Select, Static
 
 from ... import actions, db
 from ...infra import textsafe
@@ -45,6 +45,7 @@ class StatsView(Vertical):
     DEFAULT_CSS = """
     StatsView { height: 1fr; }
     StatsView #stats_table { height: 1fr; }
+    StatsView #s_window { height: 1; }
     """
 
     def __init__(self, back: bool = False, **kw) -> None:
@@ -58,6 +59,8 @@ class StatsView(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static(id="stats_title")
+        yield Select([(f"window: {w}", w) for w in WINDOWS], id="s_window", value=self.window,
+                     allow_blank=False, compact=True)
         yield DataTable(id="stats_table", zebra_stripes=True, cursor_type="row")
         yield Static("cost is at list price; ~ is an estimate: the agent's share of the account "
                      "times the plan percent it reports", id="stats_note")
@@ -90,8 +93,14 @@ class StatsView(Vertical):
             + ("" if self.rows else "  - nothing logged in this window"))
 
     def action_window(self) -> None:
-        self.window = WINDOWS[(WINDOWS.index(self.window) + 1) % len(WINDOWS)]
-        self.refresh_rows()
+        self.query_one("#s_window", Select).value = WINDOWS[(WINDOWS.index(self.window) + 1) % len(WINDOWS)]
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        event.stop()
+        if event.value != self.window:
+            self.window = str(event.value)
+            self.query_one(DataTable).focus()
+            self.refresh_rows()
 
     def action_key_help(self) -> None:
         self.app.push_screen(KeyHelp("STATS keys", self._keys()))
