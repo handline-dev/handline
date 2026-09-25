@@ -1,6 +1,6 @@
 """#1885: a stale or dead account earns itself back with one real turn.
 
-Measured on omega (#2148): `usage_api.refresh_credential` is `claude auth
+Measured on omega (#2148): claude's `refresh_credential` is `claude auth
 status`, and that can answer `loggedIn: true` without renewing a token that
 has already expired - the CLI's own judgement of "near enough to renewal" is
 not this endpoint's. Every read after that keeps hitting the same 401
@@ -26,7 +26,6 @@ from ..session import fold
 from . import load, status, usage_api
 from ..infra import paths
 from .. import vendors
-from ..vendors import claude as claudemod
 
 RECOVER_MODEL = "haiku"
 # One line, no content anything downstream would have to think about - the
@@ -70,8 +69,13 @@ def recover(acct: str) -> tuple[bool, str]:
         return False, f"{acct} needs re-login - not retrying"
     if not load.usage_recover_enabled(acct):
         return False, f"{acct}: usage recovery is turned off"
-    if vendors.account_vendor(acct) != claudemod.Claude.name:
-        return False, f"{acct} is not a claude account"
+    try:
+        drv = vendors.for_account(acct)
+    except vendors.UnknownVendor as e:
+        return False, f"{acct}: {e}"
+    meter = drv.meter()
+    if meter is None or not meter.renews_by_turn:
+        return False, f"{acct} is a {drv.name} account - no turn renews its credential"
     if not accounts.logged_in(acct):
         return False, f"{acct} is not logged in"
     # trusted_pct_7d carries a stale reading as a floor until its own reset

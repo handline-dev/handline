@@ -63,6 +63,10 @@ class Claude:
     def meters(self) -> bool:
         return True
 
+    def meter(self):
+        from .claude_meter import ClaudeMeter       # it imports this module
+        return ClaudeMeter()
+
     def state_hooks(self):
         from .claude_hooks import ClaudeHooks       # it imports this module
         return ClaudeHooks()

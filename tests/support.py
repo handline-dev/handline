@@ -54,6 +54,7 @@ from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, 
 from ocp.team import accounts, agents, ask as askmod, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from ocp import actions, cli as climod, db, vendors  # noqa: E402
 from ocp.session import blocked as blockedmod, digest, drift, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
+from ocp.vendors import claude_meter as claudemeter  # noqa: E402
 from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from ocp.infra import doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from ocp.ui import jobs as jobsmod, tui  # noqa: E402
@@ -71,9 +72,9 @@ dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
 
 # No test reaches the machine's Keychain or the usage endpoint: asked for a
 # reading, it gets "could not look". A test that drives usage_api sets its own.
-REAL_ACCESS_TOKEN = usage_api._access_token_detailed
-usage_api._access_token_detailed = lambda acct: (None, False)
-usage_api.refresh_credential = lambda acct, timeout=0: False
+REAL_ACCESS_TOKEN = claudemeter._access_token_detailed
+claudemeter._access_token_detailed = lambda acct: (None, False)
+claudemeter.refresh_credential = lambda acct, timeout=0: False
 
 # Every test that needs an Orca stands in for one, and a restore tuple that
 # forgot a name used to leak that stand-in into every test after it. Captured
@@ -1097,6 +1098,8 @@ class SecondVendor:
         return " run " not in command and not command.endswith(" run")
     def meters(self):
         return self.metered
+    def meter(self):
+        return None
     def state_hooks(self):
         return None
     def is_resume(self, extra):
@@ -1850,6 +1853,7 @@ __all__ = [
     'trustmod',
     'tui',
     'usage_api',
+    'claudemeter',
     'vendors',
     'venvmod',
     'waiting',

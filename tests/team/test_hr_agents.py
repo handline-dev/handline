@@ -1122,7 +1122,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
     ever give this one a reading. Its own agents start there; nothing is
     moved onto it, it is never asked for usage, and it is drawn unmetered."""
     _daemon_home(home, 20)
-    real = (usage_api.read, usage_api.refresh_credential, accounts.logged_in)
+    real = (usage_api.read, claudemeter.refresh_credential, accounts.logged_in)
     with second_vendor(metered=False):
         try:
             accounts.register("alpha")
@@ -1170,7 +1170,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
                   "alpha" in asked and not {"zeta", "zeta2"} & set(asked), str(asked))
             usage_api.read = real[0]
             renewed: list[str] = []
-            usage_api.refresh_credential = lambda acct, **k: renewed.append(acct) or True
+            claudemeter.refresh_credential = lambda acct, **k: renewed.append(acct) or True
             check("unmetered: nor does the endpoint reader, and it renews nothing",
                   usage_api.read("zeta") is None and not renewed, str(renewed))
 
@@ -1187,7 +1187,7 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
                   and not any(n.startswith("account zeta: no status") for _lv, n, _d in r.rows),
                   str([n for _lv, n, _d in r.rows if "zeta" in n]))
         finally:
-            usage_api.read, usage_api.refresh_credential, accounts.logged_in = real
+            usage_api.read, claudemeter.refresh_credential, accounts.logged_in = real
 
 
 def test_an_account_records_its_vendor(home: Path) -> None:

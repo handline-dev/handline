@@ -6,8 +6,40 @@ arrives with the step that first calls it.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class Reading:
+    """One account's usage as its vendor's endpoint reported it.
+
+    `pct_*` is None when the endpoint returned no such window, which is a
+    reading and not an absence - it means nothing has been spent in it.
+    `status.py` draws the same distinction when it reads the file back.
+    """
+    account: str
+    pct_5h: int | None
+    reset_5h: int | None
+    pct_7d: int | None
+    reset_7d: int | None
+    at: int
+
+
+class Meter(Protocol):
+    """How ocp reads one vendor's usage for one account, without spending it."""
+
+    # Whether one real turn on the account renews a dead credential (claude's
+    # token expires and is renewed only by a running session); `recover` spends
+    # that turn only where this is True.
+    renews_by_turn: bool
+
+    def read_usage(self, acct: str, refresh: bool = True) -> tuple[Reading | None, bool]:
+        """(the reading, or None when it could not be asked; whether that
+        failure was the credential itself being refused). None is "could not
+        look", never "nothing spent". `refresh=False` skips a renewal for a
+        caller that knows the credential is live."""
 
 
 class StateHooks(Protocol):
@@ -85,6 +117,10 @@ class Driver(Protocol):
         """Whether ocp can read how much of the account's limit is spent. An
         account whose vendor cannot be read is unmetered: never picked, never
         polled, and only its own agents' agent.yaml sends work there."""
+
+    def meter(self) -> Meter | None:
+        """This vendor's Meter, or None when its usage cannot be read (the
+        same fact `meters()` states as a bool)."""
 
     def state_hooks(self) -> StateHooks | None:
         """This vendor's StateHooks, or None when its agents do not report
