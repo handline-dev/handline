@@ -47,7 +47,7 @@ class _TextBox(TextArea):
             event.stop()
             self.post_message(self.Send())
             return
-        if event.key in ("ctrl+v", "ctrl+ㅍ") and (path := clipboard.image_to_file()):
+        if event.key == "ctrl+v" and (path := clipboard.image_to_file()):
             event.prevent_default()
             event.stop()
             self.insert(str(path))

@@ -595,14 +595,21 @@ async def test_ctrl_v_puts_a_clipboard_picture_path_in_and_copy_reaches_pbcopy()
         app = _HostApp()
         async with app.run_test(size=(80, 20)) as pilot:
             await pilot.pause()
-            await pilot.press("ctrl+v")
+            await pilot.press("ctrl+ㅍ")
             await pilot.pause(0.1)
             text = app.screen.query_one("#box").text
             app.copy_to_clipboard("picked")
     finally:
         clipboard.image_to_file, clipboard.copy = real
-    check("ctrl+v: the saved picture's absolute path is in the box", text == str(saved), repr(text))
+    check("ctrl+v (typed as ctrl+ㅍ on a Korean layout): the saved picture's absolute path is in the box", text == str(saved), repr(text))
     check("copy: the text also went to the system clipboard", copied == ["picked"], repr(copied))
+
+
+def test_keymap_names_a_korean_key_by_the_latin_letter_on_it() -> None:
+    from ocp.ui.keymap import canonical
+    got = [canonical(k) for k in ("ctrl+ㅍ", "ㅁ", "ㅃ", "ctrl+ㅃ", "ctrl+v", "enter", "ㅎ+x")]
+    check("keymap: jamo become the Latin key, anything else is left alone",
+          got == ["ctrl+v", "a", "Q", "ctrl+q", "ctrl+v", "enter", "ㅎ+x"], repr(got))
 
 
 async def test_a_drag_selection_is_copied_when_the_mouse_is_let_go() -> None:
@@ -2038,6 +2045,7 @@ async def _run_all() -> None:
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     await test_ctrl_v_puts_a_clipboard_picture_path_in_and_copy_reaches_pbcopy()
+    test_keymap_names_a_korean_key_by_the_latin_letter_on_it()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
@@ -2083,3 +2091,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
