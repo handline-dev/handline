@@ -329,6 +329,8 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             await pilot.pause(0.3)
             flash = str(page.query_one("#a_flash", Static).render())
             check("account page: an empty cap writes nothing", loadmod.cap_of("alpha") == 2, flash)
+            check("account page: and the box shows the account's own cap again",
+                  page.query_one("#a_cap", Input).value == "2", page.query_one("#a_cap", Input).value)
             await pilot.click("#leave")
             await pilot.pause(0.3)
             check("account page: Back returns to the home page", app.screen is home, type(app.screen).__name__)

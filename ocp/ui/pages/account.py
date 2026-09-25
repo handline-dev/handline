@@ -67,7 +67,7 @@ class AccountPage(AccountActions, Screen):
                 yield Static("account", classes="flabel")
                 yield Static(self.account)
             for label, key, hint in (("alias", "name", "  shown instead of the account's name on the bridge; blank shows the name"),
-                                     ("cap", "cap", "  most agents mid-turn on this account at once; blank follows the default")):
+                                     ("cap", "cap", "  most agents mid-turn on this account at once; empty is the default")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")
                     yield ImeInput(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None,
@@ -204,7 +204,9 @@ class AccountPage(AccountActions, Screen):
 
     def _save(self) -> None:
         box = {k: self.query_one(sel, Input).value for k, sel in _INPUTS.items()}
-        _, self.flash = actions.save_account_settings(self.account, box["name"], box["cap"])
+        ok, self.flash = actions.save_account_settings(self.account, box["name"], box["cap"])
+        if ok:
+            self._shown.clear()     # a saved form shows the config again, even where a blank wrote nothing
         self._load()
 
     async def _run(self, act) -> None:
