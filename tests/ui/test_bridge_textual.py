@@ -843,11 +843,20 @@ async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> Non
         await pilot.pause(0.3)
         screen = app.screen
         check("stats: S opens the screen", isinstance(screen, StatsScreen), type(screen).__name__)
+        view = screen.query_one("#stats_view")
         check("stats: an agent that used the account in the window is a row",
-              [r.agent for r in screen.rows] == ["writer"] and screen.window == "7d", [r.agent for r in screen.rows])
+              [r.agent for r in view.rows] == ["writer"] and view.window == "7d", [r.agent for r in view.rows])
         await pilot.press("w")
         await pilot.pause(0.2)
-        check("stats: w steps the window", screen.window == "5h", screen.window)
+        check("stats: w steps the window", view.window == "5h", view.window)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        from textual.widgets import Tabs
+        app.screen.query_one("#scope", Tabs).active = "stats"
+        await pilot.pause(0.3)
+        tab = app.screen.query_one("#stats_view")
+        check("stats tab: home has a Stats tab with the same rows", tab.display and [r.agent for r in tab.rows] == ["writer"],
+              (tab.display, [r.agent for r in tab.rows]))
 
 
 async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:

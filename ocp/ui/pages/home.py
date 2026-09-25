@@ -25,6 +25,7 @@ from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
 from ..components.key_guide import Key, KeyGuide, KeyHelp
+from ..components.stats_view import StatsView
 from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
@@ -40,6 +41,7 @@ _TAB_WIDGETS = {
     "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot", "#home_keys"),
     "hr": ("#hr_view",),
     "tasks": ("#tasks_view",),
+    "stats": ("#stats_view",),
     "settings": ("#settings_view",),
 }
 # The ACCOUNTS columns from the richest layout to the barest; the first that fits the
@@ -107,7 +109,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._blinking: dict = {}       # agent -> (its AgentRow, its Extra), for the rows that blink
 
     def compose(self) -> ComposeResult:
-        yield from page_header([("Home", "home"), ("Tasks", "tasks"), ("HR", "hr"), ("Settings", "settings")])
+        yield from page_header([("Home", "home"), ("Tasks", "tasks"), ("Stats", "stats"), ("HR", "hr"), ("Settings", "settings")])
         yield Static(id="header")
         with Vertical(id="accounts-box") as box:
             box.border_title = "ACCOUNTS"
@@ -123,6 +125,7 @@ class HomePage(RowActions, JobsAware, Screen):
         yield Static(id="foot")
         yield KeyGuide(id="home_keys")
         yield TasksView(mine=True, id="tasks_view")
+        yield StatsView(id="stats_view")
         yield ProposalsView(id="hr_view")
         with Vertical(id="settings_view"):
             with Horizontal(classes="frow"):
@@ -140,6 +143,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self.set_interval(self.BLINK_S, self._blink)
         self.query_one("#hr_view").display = False
         self.query_one("#tasks_view").display = False
+        self.query_one("#stats_view").display = False
         self.query_one("#settings_view").display = False
         self._retime()
         self._redraw()
@@ -153,6 +157,8 @@ class HomePage(RowActions, JobsAware, Screen):
             self.query_one("#hr_view", ProposalsView).refresh_rows()
         if self.tab == "tasks":
             self.query_one("#tasks_view", TasksView).refresh_rows()
+        if self.tab == "stats":
+            self.query_one("#stats_view", StatsView).refresh_rows()
         if self.tab == "settings":
             self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
 
@@ -453,6 +459,8 @@ class HomePage(RowActions, JobsAware, Screen):
             return self.query_one("#hr_table", DataTable).cursor_row == 0
         if self.tab == "tasks":
             return self.query_one("#tasks_table", DataTable).cursor_row == 0
+        if self.tab == "stats":
+            return self.query_one("#stats_table", DataTable).cursor_row == 0
         if self.tab != "home":
             return True
         first = next((p for p in self.PANELS if tui._keys_of(p)), None)
@@ -470,6 +478,8 @@ class HomePage(RowActions, JobsAware, Screen):
             self.query_one("#hr_table").focus()
         elif self.tab == "tasks":
             self.query_one("#tasks_table").focus()
+        elif self.tab == "stats":
+            self.query_one("#stats_table").focus()
         else:
             self.set_focus(None)
 
