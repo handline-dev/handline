@@ -32,6 +32,7 @@ from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
 from ocp.infra import timefmt  # noqa: E402
 from ocp.daemon import states as dmn_states
 from ocp.ui.chat_page import ChatPage  # noqa: E402
+from ocp.ui.clipboard_app import ClipboardApp  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from ocp.ui.components.read_only import ReadOnly  # noqa: E402
 from textual import events  # noqa: E402
@@ -585,7 +586,7 @@ async def test_copy_reaches_the_system_clipboard() -> None:
     copied, real = [], clipboard.copy
     clipboard.copy = lambda text: copied.append(text) or True
     try:
-        app = bt.ClipboardApp()
+        app = ClipboardApp()
         async with app.run_test(size=(40, 6)) as pilot:
             await pilot.pause()
             app.copy_to_clipboard("picked")
@@ -601,7 +602,7 @@ async def test_a_drag_selection_is_copied_when_the_mouse_is_let_go() -> None:
     copied, real = [], clipboard.copy
     clipboard.copy = lambda text: copied.append(text) or True
     try:
-        class _HostApp(bt.ClipboardApp):
+        class _HostApp(ClipboardApp):
             def compose(self):
                 yield Static("hello world", id="s")
 
@@ -1425,6 +1426,14 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
                     for b in row._pending_children if type(b).__name__ == "Button"]
         check("chat: send now and cancel are gone once delivered",
               len(buttons(False)) == 2 and buttons(True) == [], f"{buttons(False)} {buttons(True)}")
+        m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "text": "x", "waiting": False,
+             "replyable": False, "answered": False, "queued": True, "delivered": False}
+        idle, busy = cp.ChatMessage(m, working=False), cp.ChatMessage(m, working=True)
+        check("chat (T133): send now is offered only while the agent is mid-turn",
+              idle._send_now.display is False and busy._send_now.display is True,
+              (idle._send_now.display, busy._send_now.display))
+        idle.set_working(True)
+        check("chat (T133): and appears when the agent starts a turn", idle._send_now.display is True)
     finally:
         con.close()
 
@@ -2147,4 +2156,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

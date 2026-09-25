@@ -29,7 +29,7 @@ from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
 from ..usage import status
 from . import tui
-from .bridge_textual import ClipboardApp
+from .clipboard_app import ClipboardApp
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
@@ -398,16 +398,18 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "") -> list:
         if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
             out.append(QueueLine(working, why=why))
             line = True
-        out.append(ChatMessage(m))
+        out.append(ChatMessage(m, working))
     if not line:
         out.append(QueueLine(working, rule=False))
     return out
 
 
 class ChatMessage(Vertical):
-    """One message; a click makes it what the next thing typed replies to."""
+    """One message; a click makes it what the next thing typed replies to. Its send
+    now button is shown only while the agent is `working` (mid-turn): with the agent
+    idle the message goes on its own."""
 
-    def __init__(self, m: dict) -> None:
+    def __init__(self, m: dict, working: bool = True) -> None:
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
         head, body_text, note = message_parts(m)
         parts = [Static(body_text, classes="text")]
@@ -415,15 +417,23 @@ class ChatMessage(Vertical):
             parts.insert(0, Static(head, classes="who"))
         if note is not None:
             parts.append(Static(note, classes="qstate"))
+        self._send_now: Button | None = None
         if m.get("queued"):
+            buttons = []
+            if not m.get("delivered"):
+                self._send_now = Button("⚡ send now", classes="sendnow", compact=True)
+                buttons = [self._send_now, Button("✕ cancel", classes="cancel", compact=True)]
             parts.append(Horizontal(
                 Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
                        classes="qstate"),
-                *([Button("⚡ send now", classes="sendnow", compact=True),
-                   Button("✕ cancel", classes="cancel", compact=True)] if not m.get("delivered") else []),
-                classes="qrow"))
+                *buttons, classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}")
         self.m = m
+        self.set_working(working)
+
+    def set_working(self, working: bool) -> None:
+        if self._send_now is not None:
+            self._send_now.display = working
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
@@ -959,6 +969,8 @@ class ChatPage(Screen):
             self.agent_state = state
             for line in self.query(QueueLine):
                 line.working = state[0] == "RUNNING"
+            for msg in self.query(ChatMessage):
+                msg.set_working(state[0] == "RUNNING")
             self._sig = None                # the reason a message waits follows the agent's state
             self.query_one("#status", Static).update(self._status())
 
