@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.usage import stats  # noqa: E402
+from ocp.usage import prices, stats  # noqa: E402
 
 NOW = 1_800_000_000
 H = 3600
@@ -33,6 +33,12 @@ def _call(con, account, ago_h, cwd, n, i=[0]) -> None:
     i[0] += 1
     con.execute("INSERT INTO token_calls VALUES(?,?,?,?,?,?,0,?,0,0,0,0)",
                 (account, "s", f"r{i[0]}", NOW - int(ago_h * H), "m", cwd, n))
+
+
+def _priced_call(con, account, ago_h, cwd, model, inp=0, cc=0, cr=0, out=0, thinking=0, i=[0]) -> None:
+    i[0] += 1
+    con.execute("INSERT INTO token_calls VALUES(?,?,?,?,?,?,0,?,?,?,?,?)",
+                (account, "p", f"p{i[0]}", NOW - int(ago_h * H), model, cwd, inp, cc, cr, out, thinking))
 
 
 def _fixture(home: Path):
@@ -227,6 +233,69 @@ def test_estimate_uses_the_windows_own_span(home: Path) -> None:
         con.close()
 
 
+def test_prices(home: Path) -> None:
+    M = 1_000_000
+    check("prices: a family is read from the model id",
+          [prices.family(m) for m in ("claude-opus-5-5", "claude-sonnet-5", "claude-haiku-4-5-20251001",
+                                      "something-else", "")] == ["opus", "sonnet", "haiku", "sonnet", "sonnet"])
+    check("prices: input, cache write, cache read and output are priced by their multiples of it",
+          [round(prices.cost("claude-sonnet-5", **{k: M}, **{o: 0 for o in ("inp", "cc", "cr", "out", "thinking")
+                                                             if o != k}), 6)
+           for k in ("inp", "cc", "cr", "out")] == [3.0, 3.75, 0.3, 15.0])
+    c = prices.class_costs("claude-opus-5-5", 0, 0, 0, 1000, 400)
+    check("prices: thinking is part of output, so it is priced once and taken out of it",
+          abs(c["thinking"] - 400 * 5 * 5 / M) < 1e-12 and abs(c["out"] - 600 * 5 * 5 / M) < 1e-12, str(c))
+    check("prices: a model dearer per token costs more for the same tokens",
+          prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0) > prices.cost("claude-haiku-4-5", 100, 0, 0, 0, 0))
+    t = prices.table_from_config({"token_prices": {"opus": 15, "haiku": "x", "sonnet": -1, "newfam": 2}})
+    check("prices: config.yaml overrides a family, and a bad entry is ignored",
+          t["opus"] == 15.0 and t["haiku"] == 1.0 and t["sonnet"] == 3.0 and t["newfam"] == 2.0, str(t))
+    check("prices: the override reaches the cost",
+          prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0, t) == 3 * prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0))
+
+
+def test_share_is_by_what_tokens_cost(home: Path) -> None:
+    con = _fixture(home)
+    try:
+        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES "
+                    "('reader', 'IDLE', 0, '/w/reader'), ('writer', 'IDLE', 0, '/w/writer')")
+        # The reader has five times the writer's tokens, nearly all cache reads;
+        # the writer's are output, which costs fifty times as much per token.
+        _priced_call(con, "alpha", 1, "/w/reader", "claude-sonnet-5", cr=1000)
+        _priced_call(con, "alpha", 1, "/w/writer", "claude-sonnet-5", out=200, thinking=50)
+        con.commit()
+        by = {(r.window, r.agent): r for r in stats.token_share(con, NOW) if r.account == "alpha"}
+        r, w = by[("5h", "reader")], by[("5h", "writer")]
+        check("stats: by count the reader is most of it", abs(r.token_share - 1000 / 1200) < 1e-9, str(r))
+        check("stats: by cost the writer is most of it",
+              abs(w.share - 1000 / 1100) < 1e-9 and abs(r.share - 100 / 1100) < 1e-9, f"{r.share} {w.share}")
+        check("stats: tokens do not count thinking twice", w.tokens == 200 and w.classes["thinking"] == 50,
+              str(w))
+        check("stats: cost is per kind and the kinds add up",
+              abs(sum(w.costs.values()) - w.cost) < 1e-12 and abs(w.cost - 200 * 5 * 3 / 1e6) < 1e-12,
+              str(w.costs))
+        check("stats: the estimate is on the cost basis",
+              abs(w.est_pct - w.share * 40) < 1e-9 and abs(r.est_pct - r.share * 40) < 1e-9, f"{r.est_pct} {w.est_pct}")
+        check("stats: the largest cost comes first, not the most tokens",
+              [x.agent for x in stats.token_share(con, NOW) if x.window == "5h" and x.account == "alpha"]
+              == ["writer", "reader"])
+        cheap = {(x.window, x.agent): x for x in
+                 stats.token_share(con, NOW, {"sonnet": 30.0}) if x.account == "alpha"}
+        check("stats: prices can be overridden, and shares do not move when every price does",
+              abs(cheap[("5h", "writer")].cost - 10 * w.cost) < 1e-12
+              and abs(cheap[("5h", "writer")].share - w.share) < 1e-9)
+        # Models are priced apart: the same tokens on a dearer model are a bigger share.
+        _priced_call(con, "alpha", 1, "/w/reader", "claude-opus-5-5", inp=1000)
+        _priced_call(con, "alpha", 1, "/w/writer", "claude-haiku-4-5-20251001", inp=1000)
+        con.commit()
+        by = {(x.window, x.agent): x for x in stats.token_share(con, NOW) if x.account == "alpha"}
+        check("stats: the same input tokens cost more on opus than on haiku",
+              by[("5h", "reader")].costs["inp"] == 5 * by[("5h", "writer")].costs["inp"],
+              f"{by[('5h', 'reader')].costs} {by[('5h', 'writer')].costs}")
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_recovery_and_burn(Path(td) / 'stats1'))
@@ -235,6 +304,8 @@ def main() -> int:
         run(lambda: test_series(Path(td) / 'stats4'))
         run(lambda: test_token_share(Path(td) / 'stats5'))
         run(lambda: test_estimate_uses_the_windows_own_span(Path(td) / 'stats6'))
+        run(lambda: test_prices(Path(td) / 'stats7'))
+        run(lambda: test_share_is_by_what_tokens_cost(Path(td) / 'stats8'))
     return run_area(tests)
 
 
