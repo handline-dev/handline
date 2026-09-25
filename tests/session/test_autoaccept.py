@@ -199,6 +199,25 @@ def test_the_trust_screen_is_left_alone_when_consent_or_the_setting_is_missing(h
         con.close()
 
 
+def test_a_wake_meeting_a_declared_trust_screen_escalates_with_the_setting_off(home: Path) -> None:
+    con, term, pressed = _trust_world(home)
+    try:
+        ok, _why = dmn_lifecycle._handle_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        check("trust: with the setting on a wake presses a declared, recorded folder",
+              ok and pressed == ["term_x"], str(pressed))
+    finally:
+        con.close()
+    con, term, pressed = _trust_world(home / "off")
+    try:
+        autoaccept.set_enabled(False)
+        ok, _why = dmn_lifecycle._handle_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        check("trust: with the setting off the same wake escalates and does not confirm",
+              not ok and pressed == []
+              and db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED, str(pressed))
+    finally:
+        con.close()
+
+
 def test_auto_accept_config_round_trips(home: Path) -> None:
     _daemon_home(home, 20)
     out = support._capture(lambda: climod.main(["auto-accept"]))
@@ -217,6 +236,7 @@ def main() -> int:
         run(lambda: test_the_setting_defaults_on_and_a_stuck_prompt_is_not_pressed_every_tick(Path(td) / 'aa3'))
         run(lambda: test_a_declared_folders_trust_screen_is_accepted_by_the_blocked_sweep(Path(td) / 'aa4'))
         run(lambda: test_the_trust_screen_is_left_alone_when_consent_or_the_setting_is_missing(Path(td) / 'aa5'))
+        run(lambda: test_a_wake_meeting_a_declared_trust_screen_escalates_with_the_setting_off(Path(td) / 'aa7'))
         run(lambda: test_auto_accept_config_round_trips(Path(td) / 'aa6'))
     return run_area(tests)
 

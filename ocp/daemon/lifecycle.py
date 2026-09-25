@@ -712,10 +712,10 @@ def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
 
 def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     """Standing consent: press "Yes" only for the folder the dialog itself
-    names, and only when that folder is both a declared root and the one on
-    record for this agent. Anything else - unreadable, undeclared, or a
-    mismatch with the recorded worktree - escalates, as does a press whose
-    keys did not land.
+    names, only when that folder is both a declared root and the one on
+    record for this agent, and only while `ocp auto-accept` is on. Anything
+    else - unreadable, undeclared, a mismatch with the recorded worktree, or
+    the setting off - escalates, as does a press whose keys did not land.
     """
     shown, recorded, consented = _trust_consent(con, agent, handle)
     if not consented:
