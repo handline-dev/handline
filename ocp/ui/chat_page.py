@@ -501,13 +501,9 @@ def history_matches(query: str, history: list[str]) -> list[str]:
 
 @dataclass
 class Pending:
-    """A message handed to a worker and not yet answered. `started` is set once
-    the worker is actually sending it, after which it can no longer be taken
-    back before it is queued."""
+    """A message handed to a worker and not yet answered."""
     widget: object
     body: str
-    started: bool = False
-    cancelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -1333,7 +1329,7 @@ class ChatPage(Screen):
             menu.display = False
         elif self.replying is not None:
             self.reply_to(None)
-        elif not self.undo_last() and not self.query_one("#compose", ChatBox).text.strip():
+        elif not self.query_one("#compose", ChatBox).text.strip():
             self.app.pop_screen()
 
     def on__text_box_send(self, event: _TextBox.Send) -> None:
@@ -1352,46 +1348,6 @@ class ChatPage(Screen):
             return
         rid = self.replying.m["rid"] if self.replying else None
         self.start_send(body, rid)
-
-    def undo_last(self) -> bool:
-        """Esc on an empty box takes back the newest message still on its way -
-        one not yet sent, or one queued and not yet answered - and puts its text
-        back in the box. True when Esc was used for that (or to say it cannot
-        be); False when there is nothing to take back."""
-        box = self.query_one("#compose", ChatBox)
-        if box.text.strip():
-            return False
-        for rec in reversed(self.pending):
-            if rec.cancelled:
-                continue
-            # The lock is the worker's: holding it, the flag cannot be read
-            # after the worker has checked it and before it has started, so
-            # `started` is read again under it.
-            handed = rec.started or not self._send_lock.acquire(blocking=False)
-            if not handed:
-                try:
-                    handed = rec.started
-                    if not handed:
-                        rec.cancelled = True
-                finally:
-                    self._send_lock.release()
-            if handed:
-                self.sub_title = f"agent {self.agent} · being handed over - cannot be taken back yet"
-                return True
-            self.sending -= 1
-            self.pending.remove(rec)
-            rec.widget.remove()
-            self._restore(rec.body)
-            self.query_one("#status", Static).update(self._status())
-            return True
-        con = db.connect()
-        try:
-            row = con.execute(
-                "SELECT id, body FROM requests WHERE requester = ? AND target = ? "
-                "AND state = 'queued' ORDER BY id DESC LIMIT 1", (actions.HUMAN, self.agent)).fetchone()
-        finally:
-            con.close()
-        return row is not None and self.cancel_message(row["id"], row["body"])
 
     def send_now(self, rid: int) -> None:
         def work() -> None:
@@ -1479,9 +1435,6 @@ class ChatPage(Screen):
 
         def work() -> None:
             with self._send_lock:
-                if rec.cancelled:
-                    return
-                rec.started = True
                 con = db.connect()
                 try:
                     ok, said = send_reply(con, self.agent, rid, body)
