@@ -1254,6 +1254,34 @@ def test_shared_dir_is_named_by_the_vendors_own_config_dir_name(home: Path) -> N
               vendors.shared_dir("zai") == paths.home() / "shared" / ".zai")
 
 
+def test_an_account_links_from_its_own_vendors_shared_dir(home: Path) -> None:
+    """register(), relink_all() and unlinked() read `drv.shared_items()` from
+    shared/<that account's own vendor>, not from claude's - a "skills" item
+    dropped into a second vendor's shared dir reaches that vendor's accounts,
+    never claude's shared/.claude (design/04 §4.1)."""
+    os.environ["OCP_HOME"] = str(home)
+    with second_vendor() as drv:
+        drv.never_touch = lambda: set()  # SecondVendor's own default excludes "skills"
+        accounts.register("zeta", vendor="zai")
+        link = vendors.config_dir("zeta") / "skills"
+        check("register: no link yet - the second vendor's shared dir is empty",
+              not link.exists())
+        (vendors.shared_dir("zai") / "skills").mkdir(parents=True)
+        (vendors.shared_dir("claude") / "skills").mkdir(parents=True, exist_ok=True)
+        accounts.register("zeta", vendor="zai")
+        check("register: linked from the second vendor's own shared dir",
+              link.is_symlink() and os.readlink(link) == str(vendors.shared_dir("zai") / "skills"))
+        link.unlink()
+        done = accounts.relink_all()
+        check("relink_all: catches it up from the same, vendor-owned, shared dir",
+              done.get("zeta") == ["skills"]
+              and os.readlink(link) == str(vendors.shared_dir("zai") / "skills"), str(done))
+        link.unlink()
+        link.symlink_to(home / "elsewhere")
+        check("unlinked: reports it against the second vendor's own shared dir",
+              ("zeta", "skills") in accounts.unlinked())
+
+
 def test_the_opencode_driver(home: Path) -> None:
     """The opencode driver's answers, each from what 1.18.32 was measured to
     do (design/03 §4.3). Nothing here runs opencode: `auth list` is replaced
@@ -2401,6 +2429,7 @@ def main() -> int:
         run(lambda: test_an_unmetered_account_is_pinned_never_picked_or_polled(Path(td) / 'unmetered'))
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
+        run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
         run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))

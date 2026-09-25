@@ -92,8 +92,14 @@ Each step leaves the suite green and claude behaviour unchanged. Each branch is
 audited before it is merged, as the four file splits were.
 
 1. `vendor-paths` - `paths.account_claude`/`shared_claude` become
-   `vendors.config_dir(acct)` / `vendors.shared_dir(vendor)`; `accounts.py`
-   bootstrap asks the driver for what shared/ holds. 10 call sites.
+   `vendors.config_dir(acct)` / `vendors.shared_dir(vendor)`; every caller that
+   already holds an account's driver (`register`, `relink_all`, `unlinked`)
+   asks `vendors.shared_dir(drv.name)` for that account's own vendor instead
+   of `"claude"`. 10 call sites. `ensure_shared`'s body - the subdirectories it
+   pre-creates, and `settings.json`'s statusLine/autoContinue content - stays
+   claude's, since it is `hooks.py`'s bootstrap (the table in section 1 already
+   places `accounts.py` under Hooks); it moves in `vendor-hooks` (step 4), not
+   here.
 2. `vendor-headless` - `Driver.headless_argv`; `fold` builds its command from the
    agent's vendor and refuses cleanly when there is none. `status`'s wording
    about `claude -p` names the vendor.
