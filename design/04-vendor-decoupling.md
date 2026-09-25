@@ -54,8 +54,10 @@ Optional capabilities:
 
 ```python
 class Meter(Protocol):          # replaces usage_api.py's claude code
-    def read_usage(self, acct: str) -> Reading | None
-    def renew_credential(self, acct: str) -> tuple[bool, str]     # recover.py's job
+    renews_by_turn: bool        # one real turn renews a dead credential (recover's job)
+    def read_usage(self, acct, refresh=True) -> tuple[Reading | None, bool]
+                                # bool: the failure was the credential being refused
+# Driver.meter() -> Meter | None, asked the way state_hooks() is; meters() stays the bool.
 
 class Collector(Protocol):      # design/03 §5's output contract
     def collect(self, transcript: Path, config_dir: Path) -> Snapshot | None
@@ -132,9 +134,13 @@ audited before it is merged, as the four file splits were.
    `cli/hooks` and `ocp init` loop over `vendors.state_hooks()`; `tui.py`'s
    state word asks `Driver.state_hooks()` where it named opencode. The hook
    *recording* (`ocp hook`, `events`) is the same for any vendor and stays.
-5. `vendor-meter` - `Meter`; `usage_api.py` and `recover.py` move behind it;
-   `daemon/usage_poll` and `cli/usage` call the driver. The keychain read is
-   claude's only.
+5. `vendor-meter` - `Meter`; `Reading` moves to `vendors/base.py`; claude's
+   endpoint, keychain read and `refresh_credential` move to
+   `vendors/claude_meter.py`, opencode's `usage_reading` is wrapped as its
+   Meter. `usage_api.read`/`read_detailed` ask the account's driver instead of
+   naming a vendor, so `daemon/usage_poll` and `cli/usage` reach the driver
+   through it unchanged; `recover` asks `meter.renews_by_turn` where it named
+   claude. The keychain read is claude's only.
 6. `vendor-collect` - `Collector` and the §5 contract; `collect.py` becomes
    claude's collector; the model table becomes `Driver.context_window`.
 7. `vendor-windows` - design/03 step 3, the large one: 25 files stop reading

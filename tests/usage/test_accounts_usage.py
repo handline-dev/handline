@@ -962,16 +962,16 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
             def __enter__(self): return self
             def __exit__(self, *a): return False
         if state["status"] != 200:
-            raise usage_api.urllib.error.HTTPError(
-                usage_api.USAGE_URL, state["status"], "no", {}, None)
+            raise claudemeter.urllib.error.HTTPError(
+                claudemeter.USAGE_URL, state["status"], "no", {}, None)
         return R()
 
-    real = (usage_api.refresh_credential, usage_api._access_token_detailed,
-            usage_api.urllib.request.urlopen, usage_api.json.load)
-    usage_api.refresh_credential = fake_refresh
-    usage_api._access_token_detailed = lambda acct: (state["token"], state["token"] is None)
-    usage_api.urllib.request.urlopen = fake_fetch
-    usage_api.json.load = lambda r: json.loads(r.read())
+    real = (claudemeter.refresh_credential, claudemeter._access_token_detailed,
+            claudemeter.urllib.request.urlopen, claudemeter.json.load)
+    claudemeter.refresh_credential = fake_refresh
+    claudemeter._access_token_detailed = lambda acct: (state["token"], state["token"] is None)
+    claudemeter.urllib.request.urlopen = fake_fetch
+    claudemeter.json.load = lambda r: json.loads(r.read())
     try:
         r = usage_api.read("alpha")
         check("usage_api: a rolled-over window reads 0%, not None",
@@ -1006,8 +1006,8 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
         check("usage_api: no credential is 'could not look', not 0%",
               usage_api.read("alpha", refresh=False) is None, "expected None")
     finally:
-        (usage_api.refresh_credential, usage_api._access_token_detailed,
-         usage_api.urllib.request.urlopen, usage_api.json.load) = real
+        (claudemeter.refresh_credential, claudemeter._access_token_detailed,
+         claudemeter.urllib.request.urlopen, claudemeter.json.load) = real
 
 
 def test_read_claude_tells_a_dead_credential_apart_from_transient() -> None:
@@ -1017,41 +1017,41 @@ def test_read_claude_tells_a_dead_credential_apart_from_transient() -> None:
     the whole suite once before. 401/403 -> auth_failed True; a 429, a 5xx
     and a timeout -> False, because none of those three say the credential
     itself was refused."""
-    real_token, real_urlopen = usage_api._access_token_detailed, usage_api.urllib.request.urlopen
-    usage_api._access_token_detailed = lambda acct: ("t", False)
+    real_token, real_urlopen = claudemeter._access_token_detailed, claudemeter.urllib.request.urlopen
+    claudemeter._access_token_detailed = lambda acct: ("t", False)
     try:
         for code, want in ((401, True), (403, True), (429, False), (503, False)):
             def fake_fetch(req, timeout=None, _code=code):
-                raise usage_api.urllib.error.HTTPError(
-                    usage_api.USAGE_URL, _code, "no", {}, None)
-            usage_api.urllib.request.urlopen = fake_fetch
-            reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+                raise claudemeter.urllib.error.HTTPError(
+                    claudemeter.USAGE_URL, _code, "no", {}, None)
+            claudemeter.urllib.request.urlopen = fake_fetch
+            reading, auth_failed = claudemeter._read_claude("alpha", refresh=False)
             check(f"_read_claude: HTTPError {code} classifies auth_failed={want}",
                   reading is None and auth_failed is want, (reading, auth_failed))
 
         def fake_timeout(req, timeout=None):
-            raise usage_api.urllib.error.URLError("timed out")
-        usage_api.urllib.request.urlopen = fake_timeout
-        reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+            raise claudemeter.urllib.error.URLError("timed out")
+        claudemeter.urllib.request.urlopen = fake_timeout
+        reading, auth_failed = claudemeter._read_claude("alpha", refresh=False)
         check("_read_claude: a timeout is transient, not a dead credential",
               reading is None and auth_failed is False, (reading, auth_failed))
 
         # A Keychain item that is genuinely gone (#2194's NOTE 2) - never
         # reaches urlopen, and carries the same auth_failed=True the 401/403
         # cases above do.
-        usage_api._access_token_detailed = lambda acct: (None, True)
-        reading, auth_failed = usage_api._read_claude("alpha", refresh=False)
+        claudemeter._access_token_detailed = lambda acct: (None, True)
+        reading, auth_failed = claudemeter._read_claude("alpha", refresh=False)
         check("_read_claude: a missing credential is auth_failed=True",
               reading is None and auth_failed is True, (reading, auth_failed))
     finally:
-        usage_api._access_token_detailed, usage_api.urllib.request.urlopen = real_token, real_urlopen
+        claudemeter._access_token_detailed, claudemeter.urllib.request.urlopen = real_token, real_urlopen
 
 
 def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None:
     """`_access_token_detailed` (#2186's SHOULD-FIX 1): `security` exit 44 or
     a parsed item with no accessToken is the credential genuinely gone; every
     other shape of failure is 'could not read it', not 'it is not there'."""
-    real_run = usage_api.subprocess.run
+    real_run = claudemeter.subprocess.run
 
     def fake_run(returncode: int, stdout: str):
         class R:
@@ -1061,41 +1061,41 @@ def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None
         return lambda *a, **k: r
 
     try:
-        usage_api.subprocess.run = fake_run(44, "")
+        claudemeter.subprocess.run = fake_run(44, "")
         token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: exit 44 (item not found) is missing=True",
               token is None and missing is True, (token, missing))
 
-        usage_api.subprocess.run = fake_run(1, "")
+        claudemeter.subprocess.run = fake_run(1, "")
         token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: any other nonzero exit is missing=False (could not read)",
               token is None and missing is False, (token, missing))
 
-        usage_api.subprocess.run = fake_run(
+        claudemeter.subprocess.run = fake_run(
             0, '{"claudeAiOauth": {"accessToken": ""}}')
         token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: a parsed item with an empty token is missing=True",
               token is None and missing is True, (token, missing))
 
-        usage_api.subprocess.run = fake_run(0, "not json")
+        claudemeter.subprocess.run = fake_run(0, "not json")
         token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: malformed stdout is missing=False (could not read)",
               token is None and missing is False, (token, missing))
 
         def raise_timeout(*a, **k):
-            raise usage_api.subprocess.TimeoutExpired(cmd="security", timeout=15)
-        usage_api.subprocess.run = raise_timeout
+            raise claudemeter.subprocess.TimeoutExpired(cmd="security", timeout=15)
+        claudemeter.subprocess.run = raise_timeout
         token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: a timed-out security call is missing=False",
               token is None and missing is False, (token, missing))
 
-        usage_api.subprocess.run = fake_run(
+        claudemeter.subprocess.run = fake_run(
             0, '{"claudeAiOauth": {"accessToken": "tok"}}')
         token, missing = REAL_ACCESS_TOKEN("alpha")
         check("access_token: a real token is returned, missing=False",
               token == "tok" and missing is False, (token, missing))
     finally:
-        usage_api.subprocess.run = real_run
+        claudemeter.subprocess.run = real_run
 
 
 def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
@@ -1242,6 +1242,35 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
     finally:
         del drv.binary, drv.credential_present
         ocmod._OPENER.open = real_open
+
+
+def test_a_reading_is_asked_of_the_accounts_own_drivers_meter(home: Path) -> None:
+    """`usage_api.read_detailed` names no vendor: it asks `Driver.meter()`. Claude's
+    meter is the one a turn renews, opencode's reads its own endpoint, and a
+    vendor with none - or none at all - is "could not look", never a reading."""
+    use_home(home)
+    check("meter: claude's is renewed by a turn", vendors.get("claude").meter().renews_by_turn)
+    oc = vendors.get("opencode")
+    check("meter: opencode's is not", oc.meter().renews_by_turn is False)
+    accounts.register("zai", vendor="opencode")
+    real = oc.usage_reading
+    try:
+        oc.usage_reading = lambda cdir: (10, 111, 20, 222)
+        r, failed = usage_api.read_detailed("zai", refresh=False)
+        check("meter: opencode's reading carries its account and figures",
+              (r.account, r.pct_5h, r.reset_5h, r.pct_7d, r.reset_7d) == ("zai", 10, 111, 20, 222)
+              and failed is False, repr(r))
+        oc.usage_reading = lambda cdir: None
+        check("meter: could not look is (None, False)",
+              usage_api.read_detailed("zai", refresh=False) == (None, False))
+    finally:
+        oc.usage_reading = real
+    with second_vendor():
+        accounts.register("other", vendor="zai")
+        check("meter: a vendor with no meter is not asked",
+              usage_api.read_detailed("other") == (None, False))
+    check("meter: an account whose vendor has no driver is not asked",
+          usage_api.read_detailed("other") == (None, False))
 
 
 def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
@@ -5718,6 +5747,7 @@ def main() -> int:
         run(lambda: test_read_claude_tells_a_dead_credential_apart_from_transient())
         run(lambda: test_access_token_detailed_tells_missing_apart_from_could_not_read())
         run(lambda: test_the_zai_meter_reads_the_plan_and_hides_its_key(Path(td) / 'zaimeter'))
+        run(lambda: test_a_reading_is_asked_of_the_accounts_own_drivers_meter(Path(td) / 'meterdrv'))
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
         run(lambda: test_usage_recover_is_a_per_account_switch(Path(td) / 'recoverswitch'))
         run(lambda: test_recover_marks_and_clears_needs_relogin(Path(td) / 'recovermark'))

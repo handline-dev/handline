@@ -12,6 +12,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from .base import Reading
+
 # `opencode auth list`'s closing line, "<n> credentials", whether or not it is
 # given a terminal.
 _CREDENTIALS = re.compile(r"\b(\d+) credentials\b")
@@ -41,6 +43,25 @@ class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
 
 _OPENER = urllib.request.build_opener(_RefuseRedirect)
 
+
+
+class _Meter:
+    """`Opencode.meter()`: its `usage_reading`, as the Meter Protocol names it."""
+
+    # A coding-plan key does not expire, so there is nothing a turn renews.
+    renews_by_turn = False
+
+    def __init__(self, drv: "Opencode") -> None:
+        self._drv = drv
+
+    def read_usage(self, acct: str, refresh: bool = True) -> tuple[Reading | None, bool]:
+        from . import config_dir       # the package imports this module
+        windows = self._drv.usage_reading(config_dir(acct))
+        if windows is None:
+            return None, False
+        pct_5h, reset_5h, pct_7d, reset_7d = windows
+        return Reading(account=acct, pct_5h=pct_5h, reset_5h=reset_5h,
+                       pct_7d=pct_7d, reset_7d=reset_7d, at=int(time.time())), False
 
 
 class Opencode:
@@ -183,6 +204,9 @@ class Opencode:
         if corrupt or out[0] is None:
             return None
         return tuple(out)
+
+    def meter(self):
+        return _Meter(self)
 
     def state_hooks(self):
         # It has no hooks to install: the screen is the only witness.
