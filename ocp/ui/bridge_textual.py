@@ -22,10 +22,21 @@ from pathlib import Path
 
 from textual.app import App
 
+from ..infra import clipboard
 from . import jobs as jobsmod, tui
 
 
-class BridgeApp(App):
+class ClipboardApp(App):
+    """An app whose copy also reaches the system clipboard: Textual's own copy
+    is OSC 52, which iTerm2 and macOS Terminal drop unless told otherwise."""
+
+    def copy_to_clipboard(self, text: str) -> None:
+        super().copy_to_clipboard(text)
+        if clipboard.copy(text):
+            self.notify(f"copied {len(text)} chars", timeout=2)
+
+
+class BridgeApp(ClipboardApp):
     """The Textual bridge: the home page, and from it an agent's chat page - see
     `HomePage`, `chat_page.ChatPage`."""
 
