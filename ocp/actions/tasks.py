@@ -637,6 +637,8 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     return out
 
 
+TASK_STATES = ("waiting", "doing", "done", "closed", "discarded", "merged")
+OPEN_STATES = TASK_STATES[:3]
 STALE_AFTER_S = 3 * 86400
 BATCH_VERBS = ("close", "discard", "owner", "priority")
 

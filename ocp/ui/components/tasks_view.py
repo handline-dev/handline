@@ -11,7 +11,8 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Select, Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
 from ...infra import textsafe
@@ -38,6 +39,30 @@ def idle_text(row: dict, now: float) -> str:
     return f"{s // 86400}d" if s >= 86400 else f"{s // 3600}h" if s >= 3600 else "<1h"
 
 
+class StatePicker(ModalScreen["set[str] | None"]):
+    """The states to show, as checkboxes: space marks, enter applies, esc leaves it."""
+
+    BINDINGS = [Binding("escape", "dismiss(None)", "cancel"), Binding("enter", "apply", "apply")]
+    DEFAULT_CSS = """
+    StatePicker { align: center middle; background: $background 60%; }
+    StatePicker #dialog { width: 36; height: auto; padding: 1 2; border: thick $primary; background: $panel; }
+    StatePicker #hint { margin-top: 1; color: $text-muted; }
+    """
+
+    def __init__(self, chosen: set[str]) -> None:
+        super().__init__()
+        self.chosen = chosen
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static(Text("show tasks in state", style="bold"))
+            yield SelectionList(*((s, s, s in self.chosen) for s in actions.TASK_STATES), id="states")
+            yield Static("space marks · enter applies · esc cancels", id="hint")
+
+    def action_apply(self) -> None:
+        self.dismiss(set(self.query_one(SelectionList).selected))
+
+
 class TasksView(Vertical):
     """`mine` limits it to what concerns the founder; `f` steps through the owners."""
 
@@ -49,6 +74,7 @@ class TasksView(Vertical):
         Binding("p", "act('priority')", "priority"),
         Binding("m", "act('merge')", "merge"),
         Binding("a", "closed", "closed"),
+        Binding("v", "states", "states"),
         Binding("f", "owner_filter", "agent"),
         Binding("question_mark", "key_help", "keys"),
     ]
@@ -58,6 +84,7 @@ class TasksView(Vertical):
     TasksView #tasks_results { height: auto; max-height: 6; }
     TasksView #tasks_filters { height: 1; }
     TasksView #tasks_filters Select { width: 1fr; }
+    TasksView #tasks_filters Button { width: 1fr; }
     """
     KEYS = (
         Key("space", "mark", 1, "mark or unmark the row; c d o p act on the marked rows"),
@@ -69,6 +96,7 @@ class TasksView(Vertical):
         Key("m", "merge", 2, "fold the marked tasks into the row under the cursor"),
         Key("s", "sort", 3, "sort by the next column; S reverses; a click on a column head sorts by it"),
         Key("a", "closed", 3, "show or hide closed, discarded and merged tasks"),
+        Key("v", "states", 3, "pick which states to show, with checkboxes"),
         Key("f", "agent", 3, "show one agent's tasks, and the next agent on each press; or use the agent dropdown"),
     )
 
@@ -82,7 +110,7 @@ class TasksView(Vertical):
         self.checked: set[int] = set()
         self.by = "priority"
         self.rev = False
-        self.show_closed = False
+        self.states: set[str] = set(actions.OPEN_STATES)
         self.owner: str | None = None
         self.owners: list[str] = []
         self.rows: list[dict] = []
@@ -96,8 +124,7 @@ class TasksView(Vertical):
             yield Select([("agent: all", "")], id="f_agent", allow_blank=False, compact=True)
             yield Select([(f"sort: {c}", c) for c in actions.TASK_SORTS], id="f_sort",
                          allow_blank=False, compact=True)
-            yield Select([("open only", "open"), ("incl. closed", "all")], id="f_closed",
-                         allow_blank=False, compact=True)
+            yield Button(self._state_label(), id="f_state", compact=True)
         yield TaskTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
         yield Static(id="tasks_results")
         yield KeyGuide(self._keys(), id="tasks_foot")
@@ -128,7 +155,7 @@ class TasksView(Vertical):
             return
         con = db.connect()
         try:
-            rows = actions.task_rows(con, include_closed=self.show_closed)
+            rows = actions.task_rows(con, state=sorted(self.states))
         finally:
             con.close()
         if self.mine:
@@ -153,7 +180,7 @@ class TasksView(Vertical):
         if self.rows:
             table.move_cursor(row=min(row, len(self.rows) - 1))
         title = Text(f"{'MY TASKS' if self.mine else 'TASKS'}  ", style="bold")
-        title.append(f"{len(self.rows)} {'incl. closed' if self.show_closed else 'open'}"
+        title.append(f"{len(self.rows)} {self._state_label()}"
                      f" · agent {self.owner or 'all'} · by {self.by} {'desc' if self.rev else 'asc'}", style="dim")
         self.query_one("#tasks_title", Static).update(title)
         self._sync_filters()
@@ -162,6 +189,13 @@ class TasksView(Vertical):
         shown.append_text(self.results)
         self.query_one("#tasks_results", Static).update(shown)
 
+    def _state_label(self) -> str:
+        if self.states == set(actions.TASK_STATES):
+            return "all states"
+        if self.states == set(actions.OPEN_STATES):
+            return "open"
+        return ",".join(st for st in actions.TASK_STATES if st in self.states) or "no state"
+
     def _sync_filters(self) -> None:
         """Show the state in the dropdowns, touching a dropdown only when it differs, so an
         open one is not rebuilt under the user and no Changed is posted for our own state."""
@@ -169,30 +203,39 @@ class TasksView(Vertical):
         if self.owners != self._agent_owners:
             self._agent_owners = list(self.owners)
             agent.set_options([("agent: all", ""), *((f"agent: {o}", o) for o in self.owners)])
-        for sel, want in ((agent, self.owner or ""), (self.query_one("#f_sort", Select), self.by),
-                          (self.query_one("#f_closed", Select), "all" if self.show_closed else "open")):
+        for sel, want in ((agent, self.owner or ""), (self.query_one("#f_sort", Select), self.by)):
             if sel.value != want:
                 sel.value = want
+        self.query_one("#f_state", Button).label = f"state: {self._state_label()}"
 
     def on_select_changed(self, event: Select.Changed) -> None:
         event.stop()
         v = event.value
         if event.select.id == "f_agent":
-            new = ("owner", v or None)
-        elif event.select.id == "f_sort":
-            if v != self.by:
-                self._sort_by(str(v))
-                self._set_columns()
-                self.table.focus()
-                self.refresh_rows()
-            return
+            if (v or None) == self.owner:
+                return
+            self.owner = v or None
         else:
-            new = ("show_closed", v == "all")
-        if getattr(self, new[0]) == new[1]:
-            return
-        setattr(self, *new)
+            if v == self.by:
+                return
+            self._sort_by(str(v))
+            self._set_columns()
         self.table.focus()
         self.refresh_rows()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        if event.button.id == "f_state":
+            self.action_states()
+
+    def action_states(self) -> None:
+        self.app.push_screen(StatePicker(set(self.states)), self._set_states)
+
+    def _set_states(self, chosen: "set[str] | None") -> None:
+        if chosen is not None:
+            self.states = chosen
+            self.refresh_rows()
+        self.table.focus()
 
     def _targets(self) -> list[int]:
         """The marked tasks, or the one under the cursor."""
@@ -229,7 +272,8 @@ class TasksView(Vertical):
         self.by, self.rev = column, column == "idle"
 
     def action_closed(self) -> None:
-        self.show_closed = not self.show_closed
+        ended = set(actions.TASK_STATES) - set(actions.OPEN_STATES)
+        self.states = self.states - ended if self.states & ended else self.states | ended
         self.refresh_rows()
 
     def action_owner_filter(self) -> None:

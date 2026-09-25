@@ -978,6 +978,17 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.press("s")
         await pilot.pause(0.2)
         check("tasks tab: s sorts by the next column", view.by == "state", view.by)
+        from ocp.ui.components.tasks_view import StatePicker
+        await pilot.press("v")
+        await pilot.pause(0.2)
+        check("tasks tab: v opens the state checkboxes", isinstance(app.screen, StatePicker), type(app.screen).__name__)
+        await pilot.press("space", "enter")
+        await pilot.pause(0.2)
+        check("tasks tab: applying the checkboxes sets the states (waiting now unmarked)",
+              "waiting" not in view.states and {"doing", "done"} <= view.states, view.states)
+        await pilot.press("a")
+        await pilot.pause(0.2)
+        check("tasks tab: a adds the closed states", {"closed", "discarded", "merged"} <= view.states, view.states)
         opts = list(view.query_one("#f_agent", Select)._options)
         await pilot.pause(2.3)
         check("tasks tab: a refresh with the same agents leaves the agent dropdown alone",
