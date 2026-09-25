@@ -11,6 +11,7 @@ from .. import ask as askmod
 from .. import blocked
 from .. import db
 from .. import handoff as handoffmod
+from .. import idle_close
 from .. import launch
 from .. import lock
 from .. import measure
@@ -31,12 +32,13 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     """Is this agent holding memory for nothing?
 
     Closing is about the machine, not the account, so the question is whether
-    anyone is using this session and whether we can bring it back. Six things
+    anyone is using this session and whether we can bring it back. Seven things
     say no: it is working or being handed off, a human has to look at it,
     someone is waiting on it (unless it is PARKED), it has been
-    busy recently, we cannot name the session we would resume, or a close of
-    it failed within the last idle window. Anything else is a session whose
-    only job right now is to occupy 250-500MB.
+    busy recently, we cannot name the session we would resume, a close of
+    it failed within the last idle window, or this agent's own idle window
+    (`idle_close.close_timeout_s`, T52) is NEVER. Anything else is a session
+    whose only job right now is to occupy 250-500MB.
 
     The session id is the asymmetric trade: memory is recoverable the moment
     anything wants it, and a working context is not recoverable at all. Closing
@@ -56,13 +58,16 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
         return False          # work is waiting; closing would only delay it
     if not st.session_id:
         return False          # nothing to resume; losing the context costs more
+    timeout = idle_close.close_timeout_s(agent)
+    if timeout == idle_close.NEVER:
+        return False          # this agent's own override: never close its window
     failed = db.last_event_ts(con, agent, "close_failed")
     if failed is not None and now - failed < IDLE_CLOSE_S:
         return False          # /exit did not end it; asking every tick types it every tick
     last = delivery.idle_since(con, agent)
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
-    return (now - last) >= IDLE_CLOSE_S
+    return (now - last) >= timeout
 
 
 def triggers_apply(row) -> bool:
@@ -297,8 +302,13 @@ def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
     since it last did anything, or no clock at all, where a wrong "warm" costs
     the whole transcript and a wrong "cold" costs a handoff. Whether a handoff
     exists does not decide it; the wake takes one when it is missing.
+
+    Unless `idle_close.ignore_cache_expiry` (T52) says this agent's resume
+    may reuse the cache past that margin regardless - a human call that the
+    whole transcript re-read costs less than a fresh conversation would, for
+    whatever this agent is.
     """
-    if not session:
+    if not session or idle_close.ignore_cache_expiry(agent):
         return False
     last = db.last_activity(con, agent)
     return last is None or now - last >= RESUME_WARM_S

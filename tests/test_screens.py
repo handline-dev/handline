@@ -1451,6 +1451,38 @@ def test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(home: Path
           not allowed and "✘" in row, row)
 
 
+def test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(home: Path) -> None:
+    """T52: `ocp idle-timeout` / `ocp ignore-cache-expiry` show or set
+    config.yaml's global default, and with --agent one agent's own override;
+    --clear drops the override back to following the global setting."""
+    _daemon_home(home, 20)
+    out = _capture(lambda: climod.main(["idle-timeout"]))
+    check("idle-timeout: shows the default with nothing set",
+          f"default: closes after {dmn_states.IDLE_CLOSE_S}s idle" in out, out)
+    out = _capture(lambda: climod.main(["idle-timeout", "300"]))
+    check("idle-timeout: sets the global default",
+          idle_close.default_close_timeout_s() == 300, out)
+    out = _capture(lambda: climod.main(["idle-timeout", "never", "--agent", "backend"]))
+    check("idle-timeout: sets one agent's own override",
+          idle_close.close_timeout_s("backend") == idle_close.NEVER
+          and "backend: never closes while idle" in out, out)
+    out = _capture(lambda: climod.main(["idle-timeout", "--agent", "backend", "--clear"]))
+    check("idle-timeout: --clear drops the override back to the global default",
+          idle_close.close_timeout_s("backend") == 300, out)
+
+    out = _capture(lambda: climod.main(["ignore-cache-expiry"]))
+    check("ignore-cache-expiry: shows off by default", "today's behaviour" in out, out)
+    out = _capture(lambda: climod.main(["ignore-cache-expiry", "on"]))
+    check("ignore-cache-expiry: sets the global switch",
+          idle_close.default_ignore_cache_expiry(), out)
+    out = _capture(lambda: climod.main(["ignore-cache-expiry", "off", "--agent", "backend"]))
+    check("ignore-cache-expiry: an agent's own 'off' overrides the global 'on'",
+          not idle_close.ignore_cache_expiry("backend"), out)
+    out = _capture(lambda: climod.main(["ignore-cache-expiry", "--agent", "backend", "--clear"]))
+    check("ignore-cache-expiry: --clear drops it back to the global switch",
+          idle_close.ignore_cache_expiry("backend"), out)
+
+
 def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: Path) -> None:
     """The figure is `load.roster`'s: agents living on the account (where the
     AGENTS panel's acct column puts them) and how many of those are running,
@@ -2511,6 +2543,10 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "account recover": "writes a per-account setting; prints where it stands, or "
                            "with --now calls recover.recover() against a real login "
                            "(recover.py's own mechanism is driven in test_recover_*)",
+        "idle-timeout": "writes the global or a per-agent park timeout; prints it - driven in "
+                        "test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line, not this scene",
+        "ignore-cache-expiry": "writes the global or a per-agent switch; prints it - driven in "
+                               "test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line, not this scene",
         "usage": "calls the usage endpoint and the Keychain against a real login "
                  "(usage_api's own parsing is driven above, without either)",
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
@@ -3292,6 +3328,7 @@ def main() -> int:
         run(lambda: test_a_wheel_notch_leaves_a_draft_untouched(Path(td) / 'ar4f'))
         run(lambda: test_a_pasted_escape_in_a_message_being_typed_is_never_sent(Path(td) / 'ar4g'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(Path(td) / 'ar5'))
+        run(lambda: test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(Path(td) / 'idletimeoutcli'))
         run(lambda: test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(Path(td) / 'panelagents'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))

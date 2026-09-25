@@ -15,6 +15,7 @@ from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_drift, cmd_events, cmd_fold, cmd_rollover, cmd_status, cmd_triggers
 from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_status, cmd_hooks_sync
 from .hr import cmd_hr, cmd_trust
+from .idle import cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .setup import cmd_guide, cmd_init, cmd_login
 from .task import _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_new, cmd_task_reopen
@@ -384,6 +385,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("triggers", help="what the daemon would decide right now")
     p.set_defaults(fn=cmd_triggers)
+
+    p = sub.add_parser("idle-timeout", help="show or set how long an idle agent may sit "
+                       "before the daemon closes it (T52)")
+    p.add_argument("seconds", type=seconds_or_never, nargs="?", default=None,
+                   help="seconds, or 'never'; omit to show the current value")
+    p.add_argument("--agent", default=None,
+                   help="set only this agent's own override, instead of the global default")
+    p.add_argument("--clear", action="store_true",
+                   help="with --agent, drop its override and follow the global setting again")
+    p.set_defaults(fn=cmd_idle_timeout)
+
+    p = sub.add_parser("ignore-cache-expiry", help="show or set whether a resume may reuse "
+                       "a session past its prompt cache's expiry instead of starting fresh (T52)")
+    p.add_argument("state", choices=["on", "off"], nargs="?", default=None,
+                   help="omit to show the current value")
+    p.add_argument("--agent", default=None,
+                   help="set only this agent's own override, instead of the global default")
+    p.add_argument("--clear", action="store_true",
+                   help="with --agent, drop its override and follow the global setting again")
+    p.set_defaults(fn=cmd_ignore_cache_expiry)
 
     p = sub.add_parser("unstall", help="clear STALLED (humans only)")
     p.add_argument("agent")
