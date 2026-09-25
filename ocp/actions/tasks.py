@@ -572,6 +572,8 @@ def merge_tasks(con, keep: int, others: list[int], by: str) -> tuple[bool, str]:
         return False, guard
     if keep_row["closed_by"]:
         return False, f"task T{keep} is closed - nothing can merge into it"
+    if keep_row["done_evidence"]:
+        return False, f"task T{keep} is done - nothing can merge into it"
     rows = []
     for tid in others:
         row = db.get_task(con, tid)

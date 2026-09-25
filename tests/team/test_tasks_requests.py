@@ -5598,6 +5598,44 @@ def test_the_priority_columns_migrate_an_old_tasks_table(home: Path) -> None:
         con.close()
 
 
+def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
+    """T68 (auditor #616): a loop, a blocked folded task, a cycle through a
+    waiting task, and a done keep are each refused with nothing changed."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        keep = db.new_task(con, "keep", "worker", "manager")
+        good = db.new_task(con, "good", "worker", "manager")
+        parent = db.new_task(con, "parent", "worker", "manager")
+        under = db.new_task(con, "under", "worker", "manager", parent_task=parent)
+        gate = db.new_task(con, "gate", "worker", "manager")
+        blocked = db.new_task(con, "blocked", "worker", "manager")
+        db.add_block(con, blocked, gate)
+        folded = db.new_task(con, "folded", "worker", "manager")
+        dep = db.new_task(con, "dep", "worker", "manager")
+        db.add_block(con, dep, folded)
+        db.add_block(con, keep, dep)
+        donek = db.new_task(con, "done keep", "worker", "manager")
+        db.mark_task_done(con, donek, "finished")
+
+        def snap():
+            return ([tuple(r) for r in con.execute("SELECT * FROM tasks ORDER BY id")],
+                    [tuple(r) for r in con.execute("SELECT * FROM task_blocks ORDER BY task_id")],
+                    [tuple(r) for r in con.execute("SELECT * FROM task_requests")])
+
+        for label, args_, want in (
+                ("keep under a folded task", (under, [good, parent]), "would loop"),
+                ("a folded task that is blocked", (keep, [good, blocked]), "is waiting on"),
+                ("a waiting task would cycle", (keep, [good, folded]), "cycle"),
+                ("a done keep", (donek, [good]), "is done")):
+            before = snap()
+            ok, msg = actions.merge_tasks(con, args_[0], args_[1], "manager")
+            check(f"merge refusal: {label}", not ok and want in msg, msg)
+            check(f"merge refusal: {label} - nothing changed", snap() == before)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -5688,6 +5726,7 @@ def main() -> int:
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
+        run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
         run(lambda: test_the_priority_columns_migrate_an_old_tasks_table(Path(td) / 'taskprimig'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
