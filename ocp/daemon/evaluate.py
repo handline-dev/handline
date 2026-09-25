@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from ..team import accounts
 from ..team import agents
-from ..session import blocked
+from ..session import autoaccept, blocked
 from ..usage import burnrate
 from .. import db
 from ..session import events
@@ -434,6 +434,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
             reconciler._stall_agent(con, agent, log, actions, e, "error")
 
     blocked.sweep(con, log, now)
+    try:
+        autoaccept.sweep(con, log, now)
+    except Exception as e:  # noqa: BLE001 - a prompt left for a person is not the tick's failure
+        log(f"  auto-accept: {type(e).__name__}: {e}")
     try:
         timebox.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a notice that failed is not the tick's failure

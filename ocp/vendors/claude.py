@@ -124,6 +124,13 @@ class Claude:
     def trust_answer(self) -> str:
         return TRUST_PROMPT_DOWN_ARROW
 
+    def accepts_tool(self, tool: str | None) -> bool:
+        return _browser_tool(tool)
+
+    def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:
+        from ..session import orca  # late: orca looks drivers up
+        return _accepting_key(orca, dialog, tool)
+
     def credential_present(self, config_dir: Path) -> bool:
         """Never reads the secret: `security find-generic-password` is called without
         -w, so it reports the item's presence and nothing else.
@@ -232,6 +239,42 @@ def _trust_screen(orca, tail: list[str]) -> str | None:
             break
         parts.append(stripped)
     return "".join(parts)
+
+
+# Claude Code's permission prompt for one tool call ("Do you want to proceed?",
+# "1. Yes" highlighted first, "2. Yes, and don't ask again ...", "3. No ...").
+# Reconstructed from its wording, not measured on a live screen: the match below
+# is as narrow as the wording allows, so a layout that differs is not pressed.
+BROWSER_TOOL_PREFIX = "mcp__claude-in-chrome__"
+BROWSER_SERVER = "claude-in-chrome"
+PROCEED_QUESTION = "do you want to proceed?"
+YES_LABEL = "yes"
+
+
+def _browser_tool(tool: str | None) -> bool:
+    return bool(tool) and tool.startswith(BROWSER_TOOL_PREFIX)
+
+
+def _accepting_key(orca, dialog, tool: str | None) -> tuple[str | None, str]:
+    """`Driver.accepting_key` for the browser extension's tool calls: Enter on
+    the one-time "Yes" of the prompt that names this very tool. The hook said
+    which tool waits and the screen must say it too - both, since the prompt's
+    own text is painted from the tool call's input."""
+    if not _browser_tool(tool):
+        return None, "the tool waiting is not one of the browser's"
+    short = tool[len(BROWSER_TOOL_PREFIX):]
+    if "Esc to cancel" not in dialog.footer:
+        return None, "its footer does not say Esc cancels"
+    if not any(ln.strip().lower() == PROCEED_QUESTION for ln in dialog.body):
+        return None, "it does not ask 'Do you want to proceed?'"
+    if not any(BROWSER_SERVER in ln.lower() and short.lower() in ln.lower()
+               for ln in dialog.body if not orca._OPTION_LABEL.match(ln)):
+        return None, f"it does not name {BROWSER_SERVER} and {short}"
+    marked = [ln for ln in dialog.body if ln.startswith("\u276f")]
+    m = orca._OPTION_LABEL.match(marked[0]) if len(marked) == 1 else None
+    if not m or orca._norm_label(m[2]) != YES_LABEL:
+        return None, "its highlighted option is not the plain 'Yes'"
+    return orca.ENTER, ""
 
 
 # Claude Code's backgrounded-session picker: the conversation moved to the

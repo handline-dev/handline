@@ -1,14 +1,15 @@
 """`ocp idle-timeout` / `ocp ignore-cache-expiry` (T52): config.yaml's global
 default for how long an idle agent may sit before the daemon closes it, and
 whether a resume may ignore its prompt cache's expiry - plus, with --agent,
-one agent's own override of either."""
+one agent's own override of either. `ocp auto-accept` (T64): whether dialogs
+are answered for a working agent."""
 from __future__ import annotations
 
 import argparse
 import sys
 
 from ..infra import timefmt
-from ..session import idle_close
+from ..session import autoaccept, idle_close
 
 
 def seconds_or_never(text: str) -> int:
@@ -54,6 +55,19 @@ def cmd_idle_timeout(args) -> int:
         print(f"{args.agent}: {_describe_timeout(idle_close.close_timeout_s(args.agent))}")
     else:
         print(f"default: {_describe_timeout(idle_close.default_close_timeout_s())}")
+    return 0
+
+
+def cmd_auto_accept(args) -> int:
+    if args.state is not None:
+        try:
+            autoaccept.set_enabled(args.state == "on")
+        except Exception as e:  # noqa: BLE001
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+    print("auto-accept: " + ("on - browser tool calls are said yes to once, and a declared "
+                            "folder's trust screen is accepted" if autoaccept.enabled()
+                            else "off - every dialog is left for a person"))
     return 0
 
 

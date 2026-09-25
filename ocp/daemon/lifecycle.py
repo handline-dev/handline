@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..team import agents
 from ..team import ask as askmod
-from ..session import blocked
+from ..session import autoaccept, blocked
 from .. import db
 from ..session import handoff as handoffmod
 from ..session import idle_close
@@ -712,17 +712,44 @@ def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
 
 def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     """Standing consent: press "Yes" only for the folder the dialog itself
-    names, and only when that folder is both a declared root and the one on
-    record for this agent. Anything else - unreadable, undeclared, or a
-    mismatch with the recorded worktree - escalates, as does a press whose
-    keys did not land.
+    names, only when that folder is both a declared root and the one on
+    record for this agent, and only while `ocp auto-accept` is on. Anything
+    else - unreadable, undeclared, a mismatch with the recorded worktree, or
+    the setting off - escalates, as does a press whose keys did not land.
     """
+    shown, recorded, consented = _trust_consent(con, agent, handle)
+    if not consented:
+        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
+    return _press_trust(con, agent, handle, log, shown, recorded)
+
+
+def _trust_consent(con, agent: str, handle: str) -> tuple[str | None, str | None, bool]:
+    """(folder on screen, folder on record, whether standing consent covers
+    it): the auto-accept setting is on and the folder is a declared root and the
+    agent's own recorded worktree."""
     row = db.get_agent_state(con, agent)
     recorded = spawnmod.worktree_path(row["worktree"]) if row else None
     shown = orca.trust_prompt_folder(handle)
-    if not shown or not recorded or not trust.is_declared(shown) \
-            or not _same_path(shown, recorded):
-        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
+    consented = bool(autoaccept.enabled() and shown and recorded and trust.is_declared(shown)
+                     and _same_path(shown, recorded))
+    return shown, recorded, consented
+
+
+def auto_trust(con, agent: str, log) -> bool:
+    """The blocked sweep's use of standing consent, for a trust screen a wake
+    never met: press "Yes" when consent covers it, and say nothing otherwise -
+    the sweep reports what it cannot clear. True when the screen went."""
+    handle = db.get_terminal(con, agent)
+    if not handle:
+        return False
+    with orca.driver_scope():
+        if not orca.trust_prompt_showing(handle):
+            return False
+        shown, recorded, consented = _trust_consent(con, agent, handle)
+        return consented and _press_trust(con, agent, handle, log, shown, recorded)[0]
+
+
+def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -> tuple[bool, str]:
     ok, why = orca.confirm_trust(handle)
     # The redraw is not instant; checking on the very next line risks reading
     # the screen the vendor was still drawing, and escalating a trust that
