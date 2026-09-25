@@ -23,7 +23,9 @@ agent (ROLE.md, base.md); this file does not repeat them.
 ## How we work
 
 - Tests: when you change code, write unit tests for the change in the same
-  commit. Work is not done until they pass.
+  commit. Work is not done until they pass. Run the whole suite with
+  `tools/suite.sh`, in the foreground with a 600000 ms Bash timeout, never in the
+  background.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.
