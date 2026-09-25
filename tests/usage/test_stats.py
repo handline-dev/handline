@@ -235,23 +235,38 @@ def test_estimate_uses_the_windows_own_span(home: Path) -> None:
 
 def test_prices(home: Path) -> None:
     M = 1_000_000
-    check("prices: a family is read from the model id",
-          [prices.family(m) for m in ("claude-opus-5-5", "claude-sonnet-5", "claude-haiku-4-5-20251001",
-                                      "something-else", "")] == ["opus", "sonnet", "haiku", "sonnet", "sonnet"])
-    check("prices: input, cache write, cache read and output are priced by their multiples of it",
-          [round(prices.cost("claude-sonnet-5", **{k: M}, **{o: 0 for o in ("inp", "cc", "cr", "out", "thinking")
-                                                             if o != k}), 6)
-           for k in ("inp", "cc", "cr", "out")] == [3.0, 3.75, 0.3, 15.0])
+    models = ("claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6",
+              "claude-haiku-4-5-20251001", "claude-fable-5-1", "something-else", "")
+    check("prices: a model is priced by its own entry before its family's",
+          [prices.INPUT_PRICE[prices.pattern_of(m)] for m in models]
+          == [4.0, 5.0, 5.0, 2.0, 3.0, 1.0, 10.0, 3.0, 3.0],
+          str([prices.pattern_of(m) for m in models]))
+    check("prices: a fable is not priced as a sonnet", prices.pattern_of("claude-fable-5-1") == "fable")
+
+    def each(model, k):
+        z = dict(inp=0, cc=0, cr=0, out=0, thinking=0)
+        z[k] = M
+        return round(prices.cost(model, **z), 6)
+    check("prices: sonnet 5 is $2 in, $2.50 to write cache, $0.20 to read it, $10 out",
+          [each("claude-sonnet-5", k) for k in ("inp", "cc", "cr", "out")] == [2.0, 2.5, 0.2, 10.0])
+    check("prices: opus 5.5 reads its cache at $0.20 of its $4 - a twentieth, not a tenth",
+          [each("claude-opus-5-5", k) for k in ("inp", "cc", "cr", "out")] == [4.0, 5.0, 0.2, 20.0])
+    check("prices: opus 5 is $5, and its cache read a tenth of that",
+          [each("claude-opus-5", k) for k in ("inp", "cr", "out")] == [5.0, 0.5, 25.0])
+    check("prices: fable 5.1 reads at $0.25 of its $10",
+          [each("claude-fable-5-1", k) for k in ("inp", "cr", "out")] == [10.0, 0.25, 50.0])
+    check("prices: so opus 5.5 costs twice sonnet 5 per input token",
+          each("claude-opus-5-5", "inp") == 2 * each("claude-sonnet-5", "inp"))
     c = prices.class_costs("claude-opus-5-5", 0, 0, 0, 1000, 400)
     check("prices: thinking is part of output, so it is priced once and taken out of it",
-          abs(c["thinking"] - 400 * 5 * 5 / M) < 1e-12 and abs(c["out"] - 600 * 5 * 5 / M) < 1e-12, str(c))
-    check("prices: a model dearer per token costs more for the same tokens",
-          prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0) > prices.cost("claude-haiku-4-5", 100, 0, 0, 0, 0))
-    t = prices.table_from_config({"token_prices": {"opus": 15, "haiku": "x", "sonnet": -1, "newfam": 2}})
-    check("prices: config.yaml overrides a family, and a bad entry is ignored",
-          t["opus"] == 15.0 and t["haiku"] == 1.0 and t["sonnet"] == 3.0 and t["newfam"] == 2.0, str(t))
-    check("prices: the override reaches the cost",
-          prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0, t) == 3 * prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0))
+          abs(c["thinking"] - 400 * 20 / M) < 1e-12 and abs(c["out"] - 600 * 20 / M) < 1e-12, str(c))
+    t = prices.table_from_config({"token_prices": {"opus-5-5": 8, "haiku": "x", "sonnet": -1, "newmodel": 2}})
+    check("prices: config.yaml sets a pattern's price in place, a new one goes first, a bad one is ignored",
+          t["opus-5-5"] == 8.0 and t["haiku"] == 1.0 and t["sonnet"] == 3.0
+          and next(iter(t)) == "newmodel" and prices.pattern_of("a-newmodel-opus", t) == "newmodel", str(t))
+    check("prices: the override reaches the cost, cache read ratio kept",
+          prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0, t) == 2 * prices.cost("claude-opus-5-5", 100, 0, 0, 0, 0)
+          and round(prices.cost("claude-opus-5-5", 0, 0, M, 0, 0, t), 6) == 0.4)
 
 
 def test_share_is_by_what_tokens_cost(home: Path) -> None:
@@ -272,7 +287,7 @@ def test_share_is_by_what_tokens_cost(home: Path) -> None:
         check("stats: tokens do not count thinking twice", w.tokens == 200 and w.classes["thinking"] == 50,
               str(w))
         check("stats: cost is per kind and the kinds add up",
-              abs(sum(w.costs.values()) - w.cost) < 1e-12 and abs(w.cost - 200 * 5 * 3 / 1e6) < 1e-12,
+              abs(sum(w.costs.values()) - w.cost) < 1e-12 and abs(w.cost - 200 * 5 * 2 / 1e6) < 1e-12,
               str(w.costs))
         check("stats: the estimate is on the cost basis",
               abs(w.est_pct - w.share * 40) < 1e-9 and abs(r.est_pct - r.share * 40) < 1e-9, f"{r.est_pct} {w.est_pct}")
@@ -280,7 +295,8 @@ def test_share_is_by_what_tokens_cost(home: Path) -> None:
               [x.agent for x in stats.token_share(con, NOW) if x.window == "5h" and x.account == "alpha"]
               == ["writer", "reader"])
         cheap = {(x.window, x.agent): x for x in
-                 stats.token_share(con, NOW, {"sonnet": 30.0}) if x.account == "alpha"}
+                 stats.token_share(con, NOW, prices.table_from_config({"token_prices": {"sonnet-5": 20}}))
+                 if x.account == "alpha"}
         check("stats: prices can be overridden, and shares do not move when every price does",
               abs(cheap[("5h", "writer")].cost - 10 * w.cost) < 1e-12
               and abs(cheap[("5h", "writer")].share - w.share) < 1e-9)
@@ -289,8 +305,8 @@ def test_share_is_by_what_tokens_cost(home: Path) -> None:
         _priced_call(con, "alpha", 1, "/w/writer", "claude-haiku-4-5-20251001", inp=1000)
         con.commit()
         by = {(x.window, x.agent): x for x in stats.token_share(con, NOW) if x.account == "alpha"}
-        check("stats: the same input tokens cost more on opus than on haiku",
-              by[("5h", "reader")].costs["inp"] == 5 * by[("5h", "writer")].costs["inp"],
+        check("stats: the same input tokens cost four times as much on opus 5.5 as on haiku",
+              abs(by[("5h", "reader")].costs["inp"] - 4 * by[("5h", "writer")].costs["inp"]) < 1e-12,
               f"{by[('5h', 'reader')].costs} {by[('5h', 'writer')].costs}")
     finally:
         con.close()
