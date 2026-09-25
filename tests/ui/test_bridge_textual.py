@@ -1002,10 +1002,14 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.press("v")
         await pilot.pause(0.2)
         check("tasks tab: v opens the state checkboxes", isinstance(app.screen, StatePicker), type(app.screen).__name__)
-        await pilot.press("space", "enter")
+        await pilot.press("space")
         await pilot.pause(0.2)
-        check("tasks tab: applying the checkboxes sets the states (waiting now unmarked)",
+        check("tasks tab: a checkbox applies at once (waiting now unmarked)",
               "waiting" not in view.states and {"doing", "done"} <= view.states, view.states)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        check("tasks tab: esc closes the picker and keeps the states",
+              not isinstance(app.screen, StatePicker) and "waiting" not in view.states, type(app.screen).__name__)
         await pilot.press("a")
         await pilot.pause(0.2)
         check("tasks tab: a adds the closed states", {"closed", "discarded", "merged"} <= view.states, view.states)
