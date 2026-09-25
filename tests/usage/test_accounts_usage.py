@@ -3528,7 +3528,7 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
             orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn_delivery.wait_for_session = lambda agent, timeout=0: True
-            keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+            keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
             check("7d wall: the agent moves off an account that hit its 7d wall",
                   dmn_handoff._move_to_room(con, "keeper", t, lambda _m: None)[0])
             check("7d wall: it landed on the account with weekly room",
@@ -3610,7 +3610,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
-        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
 
         _process_on("alpha")
         check("move: a process that came back on the old account is not a move",
@@ -3669,7 +3669,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
                                                  table.__setitem__("keeper", 4200), (True, "ok"))[2]
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         accounts.logged_in = lambda a: True
-        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
         log: list[str] = []
 
         check("forced: a live session is offered the move", actions.can(con, "keeper", "move")[0])
@@ -3710,7 +3710,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
               db.get_handoff(con, "keeper") == "# handoff · keeper\n- an earlier record\n",
               str(db.get_handoff(con, "keeper")))
         db.set_agent_state(con, "keeper", dmn_states.IDLE)
-        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
 
         _process_on("alpha")
         ok, msg = dmn_handoff.force_move(con, "keeper", "beta", "test", log.append)
@@ -3722,7 +3722,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'keeper'")
         table["keeper"] = 4200
         db.set_agent_state(con, "keeper", dmn_states.IDLE)
-        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
         _process_on("beta")
         ok, msg = dmn_handoff.force_move(con, "keeper", "beta", "the founder", log.append)
         check("forced: onto an account with room, with the process there, it moves", ok, msg)
@@ -3738,7 +3738,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         # wall, so the agent comes back on the next look, not at a 5h reset.
         table["keeper"] = 4200
         db.set_agent_state(con, "keeper", dmn_states.IDLE)
-        keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+        keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
         orcamod.relaunch = lambda h, cmd, **kw: (False, "refused")
         # The move above typed a real /exit and started the single writer's
         # 15s settle window (#2064); this next move is real here, not later.
@@ -3790,7 +3790,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     write_status(home, "beta", pct_5h=10, pct_7d=5, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
     credentialed(home, "alpha", "beta")
-    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+    keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
     db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
     far = int(time.time()) + 3 * 3600
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
@@ -3962,7 +3962,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
     write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
                  reset_5h=int(time.time()) + 3 * 3600)
     credentialed(home, "alpha", "beta")
-    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+    keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
     db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
     # The turn ended on the usage limit and has long since settled, so
     # perform_handoff does not gate on typeable_now at all - it is
@@ -5392,7 +5392,7 @@ def test_move_requires_clear_headroom_not_bare_assignability(home: Path) -> None
             orcamod.close_session = exit_ends_session("keeper")
             orcamod.relaunch = lambda h, cmd, **kw: (True, "relaunched")
             dmn_delivery.wait_for_session = lambda agent, timeout=0: True
-            keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+            keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
             logged.clear()
             check("move headroom: clear headroom lets the move through",
                   dmn_handoff._move_to_room(con, "keeper", t, logged.append)[0])
@@ -5423,7 +5423,7 @@ def test_move_to_room_reaches_a_bootstrap_account(home: Path) -> None:
                  reset_5h=int(time.time()) + 3 * 3600)
     accounts.register("gamma")
     (home / "accounts" / "gamma" / ".claude" / ".credentials.json").write_text("{}")
-    keep_handoff("keeper", "# handoff · keeper\n## 다음\n- carry on\n")
+    keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
     db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
     real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
             orcamod.clear_context, orcamod.resume_with, orcamod.idle_now,
