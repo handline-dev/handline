@@ -96,7 +96,14 @@ class Claude:
 
     def screen_blocker(self, tail: list[str]):
         from .. import orca  # late: orca looks drivers up
-        return orca.claude_screen_blocker(tail)
+        return _screen_blocker(orca, tail)
+
+    def trust_screen(self, tail: list[str]) -> str | None:
+        from .. import orca  # late: orca looks drivers up
+        return _trust_screen(orca, tail)
+
+    def trust_answer(self) -> str:
+        return TRUST_PROMPT_DOWN_ARROW
 
     def credential_present(self, config_dir: Path) -> bool:
         """Never reads the secret: `security find-generic-password` is called without
@@ -167,3 +174,165 @@ class Claude:
         """Claude Code's own path encoding: every non-alphanumeric character
         mapped to '-'."""
         return re.sub(r"[^A-Za-z0-9]", "-", repo)
+
+
+# --------------------------------------------------------------- screen text
+# The markers below read claude's own screens; the reader they feed on
+# (Orca's terminal client, its Blocker/Dialog vocabulary, the composer-box and
+# dialog-panel parsing every vendor's screen_blocker shares) stays generic in
+# orca.py, reached here the same late way (design/04 §4.3: orca.py carries no
+# vendor's own screen text).
+
+# claude's folder-trust screen ("Quick safety check: Is this a project you
+# created or one you trust?").
+TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
+# The line the prompt names its folder under. Wrapped at terminal width with
+# no separator, so its continuation lines are joined bare, not with a space.
+WORKSPACE_MARKER = "Accessing workspace:"
+# Verified against a live prompt: one Down off the default cursor ("No,
+# exit") lands on "Yes, I trust this folder"; a bare Enter then confirms it.
+# A bare Enter with no Down confirms "No, exit" instead.
+TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
+
+
+def _trust_screen(orca, tail: list[str]) -> str | None:
+    text = "\n".join(str(x) for x in tail)
+    if TRUST_PROMPT_MARKER not in text:
+        return None
+    lines = text.split("\n")
+    try:
+        start = next(i for i, ln in enumerate(lines) if WORKSPACE_MARKER in ln) + 1
+    except StopIteration:
+        return None
+    parts = []
+    for ln in lines[start:]:
+        stripped = ln.strip()
+        if not stripped or TRUST_PROMPT_MARKER in stripped:
+            break
+        parts.append(stripped)
+    return "".join(parts) or None
+
+
+# Claude Code's backgrounded-session picker: the conversation moved to the
+# background and the screen is a list of sessions. Its new-session box has the
+# ordinary composer shape - rule/marker/rule - so the shape alone cannot tell it
+# from the agent's own prompt, and text typed there goes to a new session, not
+# the conversation. Its hint line does, where the conversation's own says
+# "shift+tab to cycle". The picker's hint has two forms, found in a scratch
+# tmux session on Claude Code 2.1.278 (purser's #1294, three runs, one
+# session in the list): "enter to open" when another session is selected,
+# "enter to return" when the current one is - which is what Left gives - so
+# "enter to return" is not a marker. "space to reply" is in both, and a
+# separate #1294 fleet read (31 live terminals, 2026-09-21) found it on 1 of
+# them, with the banner. The one earlier case where it appeared with no
+# banner (#1144, harbor) is not a hole in that: it is the picker with its
+# banner scrolled out of the window, and the miss fails closed to UNREADABLE
+# there, never to a false BACKGROUNDED (see _hint_below_box: the position
+# guard is the same code path for both markers).
+#
+# "enter to open" alone is not enough: it is ordinary English, and any agent that
+# reports on this feature (this docstring, a review of it) writes it in its
+# own transcript, which sits in the same rows the naive search covered - #1252,
+# measured on all 8 live agents where the window reached 1-2 rows of the
+# agent's own output. So the hint is required at or below the composer's own
+# box, never above it in the transcript.
+#
+# That alone still under-determines it (auditor's #1285 B1): a screen where
+# the box's own hint happens to say a picker phrase for some other reason
+# would pass a position check alone, and reading nothing there as "in the
+# way" is exactly the bug 7f01f52 exists to fix. So the picker's own banner -
+# "...conversation moved to the background...", specific text neither an
+# ordinary composer's hint nor a session's own summary line would produce -
+# is required above the box too. A session list's own shape (a bullet, a
+# gap, a summary column) was tried first and dropped: auditor measured three
+# real-picker variants - a short title with no summary gap, a bullet outside
+# the two guessed at, a cursor glyph ahead of the selected row - that the
+# column-alignment guess missed, while the banner is the one thing all of
+# them, and both fixtures here, say word for word.
+_BACKGROUNDED_HINTS = ("enter to open", "space to reply")
+_BACKGROUND_BANNER = "moved to the background"
+
+
+def _has_picker_hint(row: str) -> bool:
+    return any(h in row for h in _BACKGROUNDED_HINTS)
+
+
+def _picker_box(orca, tail: list) -> tuple[int, int] | None:
+    """(banner_top, hint) when the composer's own hint carries a picker
+    phrase ("enter to open" or "space to reply") and the picker's own banner
+    is above it - the picker, unambiguously.
+    None when neither is there - an ordinary composer, whose own hint never
+    says this and whose transcript quoting the words is above the box, not
+    below it (auditor's #1285 S2/S3).
+
+    A third case - the hint is there but the banner is not - is not this
+    function's to decide: it is a screen shaped like the picker that this
+    code does not otherwise recognise, and `screen_blocker` fails closed on
+    it rather than reading it as nothing in the way (#1285 B1).
+    """
+    box = orca._composer_box(tail)
+    if box is None:
+        return None
+    top, bottom = box
+    hint = next((i for i in range(bottom, len(tail))
+                 if _has_picker_hint(str(tail[i]))), None)
+    if hint is None:
+        return None
+    if not any(_BACKGROUND_BANNER in str(x) for x in tail[:top]):
+        return None
+    return top, hint
+
+
+def _hint_below_box(orca, tail: list) -> bool:
+    """Whether the composer's own hint says a picker phrase ("enter to
+    open" or "space to reply"), whether or not its banner confirms it. Used
+    only to tell an unconfirmed match from a clean composer: the hint alone
+    is the one thing an ordinary conversation's composer never says
+    (auditor's #1285 B1)."""
+    box = orca._composer_box(tail)
+    if box is None:
+        return False
+    _top, bottom = box
+    return any(_has_picker_hint(str(tail[i])) for i in range(bottom, len(tail)))
+
+
+def _describe_backgrounded(orca, tail: list, top: int) -> str:
+    """The picker's banner and session list above its own box, quoted - the
+    same hostile-text care as describe_modal, since the agent paints this
+    screen too. Never the box or the hint themselves, which say nothing
+    about the conversation. Called only once `_picker_box` has confirmed the
+    banner is there - not a guarantee against every false match (auditor's
+    #1285 N4: an agent's own transcript can quote this exact fixture, banner
+    and all), but that case clears itself on the next read, unlike a false
+    BACKGROUNDED that never scrolls."""
+    lines = [orca.textsafe.oneline(str(x).strip()) for x in tail[:top]]
+    shown = [ln for ln in lines if ln and not orca._COMPOSER_RULE.match(ln) and ln != "❯"]
+    return " / ".join(shown[:3])[:orca.DETAIL_CHARS]
+
+
+def _screen_blocker(orca, tail: list) -> "orca.Blocker | None":
+    """`Driver.screen_blocker` on Claude Code's layout, from rows already read."""
+    footer = orca._footer_row(tail)
+    if footer is not None:
+        dialog = orca.parse_dialog(tail, footer)
+        return orca.Blocker(orca.MODAL, orca.describe_modal(tail, footer),
+                            title=dialog.title if dialog else "")
+    picker = _picker_box(orca, tail)
+    if picker is not None:
+        top, _hint = picker
+        return orca.Blocker(orca.BACKGROUNDED, _describe_backgrounded(orca, tail, top))
+    if _hint_below_box(orca, tail):
+        # The composer's own hint says the picker's words but its banner is
+        # not above the box: a picker shaped differently than the two we
+        # have measured, not a clean composer. Fail closed rather than read
+        # it as nothing in the way and type into what might be its
+        # new-session box (auditor's #1285 B1) - the same failure 7f01f52
+        # exists to fix, reopened by trusting a guess about session-row shape.
+        return orca.Blocker(orca.UNREADABLE)
+    if orca._composer_shape(tail):
+        return None
+    # Not the composer's shape either - a screen mid-scroll, a different
+    # layout, a read that landed somewhere else. UNREADABLE goes through the
+    # same escalation as any other block and clears the moment a read
+    # recognises the shape again.
+    return orca.Blocker(orca.UNREADABLE)

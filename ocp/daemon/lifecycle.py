@@ -20,6 +20,7 @@ from .. import paths
 from .. import spawn as spawnmod
 from .. import status
 from .. import trust
+from .. import vendors
 
 from . import delivery, handoff
 from .states import (DEGRADED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
@@ -679,10 +680,16 @@ def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     of `typeable_now`, which refuses this screen as a dialog and would leave
     it unanswered. The deliver paths only check `typeable_now`, so they wait
     and the blocked sweep reports it.
+
+    One `driver_scope()` for the whole check: `trust_prompt_showing` and
+    `_handle_trust_prompt`'s own reads and `wait_for_trust_prompt`'s poll all
+    ask this handle's driver, and a stalled clear would otherwise look it up
+    fresh - a DB round trip - on every one of that poll's ticks.
     """
-    if not orca.trust_prompt_showing(handle):
-        return True, "clear"
-    return _handle_trust_prompt(con, agent, handle, log)
+    with orca.driver_scope():
+        if not orca.trust_prompt_showing(handle):
+            return True, "clear"
+        return _handle_trust_prompt(con, agent, handle, log)
 
 
 def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
@@ -694,22 +701,21 @@ def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     """
     row = db.get_agent_state(con, agent)
     recorded = spawnmod.worktree_path(row["worktree"]) if row else None
-    text = orca.screen_text(handle)
-    shown = orca.trust_prompt_folder(text) if text else None
+    shown = orca.trust_prompt_folder(handle)
     if not shown or not recorded or not trust.is_declared(shown) \
             or not _same_path(shown, recorded):
         return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
     ok, why = orca.confirm_trust(handle)
     # The redraw is not instant; checking on the very next line risks reading
-    # the screen claude was still drawing, and escalating a trust that
+    # the screen the vendor was still drawing, and escalating a trust that
     # actually went through.
     orca.wait_for_trust_prompt(handle, showing=False)
     if not ok or orca.trust_prompt_showing(handle):
         return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
     db.add_event(con, agent, "trust_confirmed", {"path": shown})
     log(f"  {agent}: trusted {shown} (standing consent)")
-    # The screen just changed under us; typing the wake prompt before claude
-    # has finished drawing its ordinary TUI loses the opening characters.
+    # The screen just changed under us; typing the wake prompt before the
+    # vendor has finished drawing its ordinary TUI loses the opening characters.
     orca.wait_idle(handle)
     return True, "trusted"
 
@@ -720,10 +726,10 @@ TRUST_STALL = "folder-trust prompt"
 def _escalate_trust_prompt(con, agent: str, handle: str, log,
                           shown: str | None = None, recorded: str | None = None
                           ) -> tuple[bool, str]:
-    """claude is sitting at its folder-trust screen - nothing is typed, since
-    typed text is not a choice there, it is a coin flip landing on the
-    default "No, exit". STALLED and escalated rather than retried: the screen
-    does not resolve itself.
+    """The agent's vendor is sitting at its folder-trust screen - nothing is
+    typed, since typed text is not a choice there, it is a coin flip landing
+    on whatever the vendor's own default is (claude's: "No, exit"). STALLED
+    and escalated rather than retried: the screen does not resolve itself.
     """
     # Already escalated: a later wake - the next tick, an ask, a key on the
     # bridge - meets the same screen and would raise the same request again.
@@ -731,7 +737,8 @@ def _escalate_trust_prompt(con, agent: str, handle: str, log,
     if row and row["state"] == STALLED and TRUST_STALL in (row["detail"] or ""):
         return False, row["detail"]
     acct = agents.current_account(agent, con)
-    why = (f"{agent}'s terminal is showing claude's {TRUST_STALL} for "
+    vendor = vendors.for_agent(agent).name
+    why = (f"{agent}'s terminal is showing {vendor}'s {TRUST_STALL} for "
            f"{shown or 'an unreadable folder'} (account {acct or 'none'}, recorded "
            f"worktree {recorded or 'unknown'}) - nothing was typed into it")
     askmod.escalate(con, agent, f"[trust] {why}", why)

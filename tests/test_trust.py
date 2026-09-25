@@ -255,20 +255,53 @@ def test_trust_worktrees_quotes_the_path(home: Path) -> None:
 
 
 def test_trust_prompt_folder_parses_a_live_capture() -> None:
-    """auditor's #339 should-fix 3: `trust_prompt_folder` is what blocker 2's
-    whole fix rests on, and nothing pinned its join-bare, wrapped-path
+    """auditor's #339 should-fix 3: claude's `trust_screen` is what blocker
+    2's whole fix rests on, and nothing pinned its join-bare, wrapped-path
     behaviour against a real screen - only a synthetic one-liner. A parse
     that silently comes out wrong fails closed (escalate + STALLED), so a
-    quiet regression here stalls every agent in a declared root."""
-    check("trust_prompt_folder: the wrapped path is joined bare, no space",
-          orcamod.trust_prompt_folder(LIVE_TRUST_PROMPT_CAPTURE) == LIVE_TRUST_PROMPT_FOLDER,
-          orcamod.trust_prompt_folder(LIVE_TRUST_PROMPT_CAPTURE))
-    check("trust_prompt_folder: trust_prompt_showing agrees this is the screen",
-          orcamod.TRUST_PROMPT_MARKER in LIVE_TRUST_PROMPT_CAPTURE)
-    check("trust_prompt_folder: no marker at all is None, not a guess",
-          orcamod.trust_prompt_folder("ordinary TUI, nothing to see here") is None)
-    check("trust_prompt_folder: the marker with nothing after it is None too",
-          orcamod.trust_prompt_folder("Accessing workspace:") is None)
+    quiet regression here stalls every agent in a declared root (design/04
+    §4.3: the parse itself is claude's driver's now, not orca's)."""
+    from ocp.vendors import claude as claudemod
+    drv = vendors.get("claude")
+    live = LIVE_TRUST_PROMPT_CAPTURE.split("\n")
+    check("trust_screen: the wrapped path is joined bare, no space",
+          drv.trust_screen(live) == LIVE_TRUST_PROMPT_FOLDER, drv.trust_screen(live))
+    check("trust_screen: trust_prompt_showing agrees this is the screen",
+          claudemod.TRUST_PROMPT_MARKER in LIVE_TRUST_PROMPT_CAPTURE)
+    check("trust_screen: no marker at all is None, not a guess",
+          drv.trust_screen(["ordinary TUI, nothing to see here"]) is None)
+    check("trust_screen: the marker with nothing after it is None too",
+          drv.trust_screen([claudemod.TRUST_PROMPT_MARKER, "Accessing workspace:"]) is None)
+
+
+def test_trust_prompt_dispatches_to_the_terminals_own_vendor(home: Path) -> None:
+    """trust_prompt_showing/trust_prompt_folder ask the terminal's own
+    vendor's driver, not always claude's (design/04 §4.3): a second vendor's
+    own trust dialog is read by its own driver, and never mistaken for one on
+    a claude terminal showing something else."""
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    real_text = orcamod.screen_text
+    try:
+        with second_vendor() as drv:
+            drv.trust_screen = lambda tail: (
+                "the/folder" if any("SECOND VENDOR TRUST" in ln for ln in tail) else None)
+            agents.register("zbackend")
+            _with_vendor("zbackend", "zai")
+            agents.register("backend")
+            db.set_terminal(con, "zbackend", "term_z", "wt")
+            db.set_terminal(con, "backend", "term_c", "wt")
+            orcamod.screen_text = lambda h: (
+                "SECOND VENDOR TRUST" if h == "term_z" else "an ordinary claude screen")
+            check("trust: the second vendor's own dialog is recognized on its terminal",
+                  orcamod.trust_prompt_showing("term_z")
+                  and orcamod.trust_prompt_folder("term_z") == "the/folder")
+            check("trust: claude's terminal is not read as the second vendor's dialog",
+                  not orcamod.trust_prompt_showing("term_c")
+                  and orcamod.trust_prompt_folder("term_c") is None)
+    finally:
+        orcamod.screen_text = real_text
+        con.close()
 
 
 def test_a_declared_root_gets_standing_consent(home: Path) -> None:
@@ -455,6 +488,7 @@ def main() -> int:
         run(lambda: test_trust_worktrees(Path(td) / 'trust_wt'))
         run(lambda: test_trust_worktrees_quotes_the_path(Path(td) / 'trust_wt_quote'))
         run(lambda: test_trust_prompt_folder_parses_a_live_capture())
+        run(lambda: test_trust_prompt_dispatches_to_the_terminals_own_vendor(Path(td) / 'trustvendor'))
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
         run(lambda: test_offer_to_trust_worktrees_lists_paths_and_skips(
             Path(td) / 'offertrust'))
