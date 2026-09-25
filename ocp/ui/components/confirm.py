@@ -9,6 +9,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
 from ...infra import textsafe
+from ..keymap import canonical
 
 
 def confirm_answer(key: str, character: str | None) -> bool | None:
@@ -65,6 +66,6 @@ class Confirm(ModalScreen[bool]):
 
     def on_key(self, event: events.Key) -> None:
         event.stop()
-        answer = confirm_answer(event.key, event.character)
+        answer = confirm_answer(event.key, canonical(event.character or ""))
         if answer is not None:
             self.dismiss(answer)

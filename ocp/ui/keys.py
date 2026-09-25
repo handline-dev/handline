@@ -6,6 +6,7 @@ import time
 from textual import events
 
 from . import tui
+from .keymap import canonical
 
 # Textual hands a key event as a symbolic name (`event.key`) plus, for a
 # printable one, the character itself (`event.character`). tui.py's own key
@@ -35,5 +36,5 @@ def key_token(event: events.Key) -> str | None:
     if event.key in KEY_TOKENS:
         return KEY_TOKENS[event.key]
     if event.character and event.character.isprintable():
-        return event.character
+        return canonical(event.character)
     return None

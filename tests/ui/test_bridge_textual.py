@@ -599,6 +599,14 @@ def test_keymap_names_a_korean_key_by_the_latin_letter_on_it() -> None:
     got = [canonical(k) for k in ("ctrl+ㅍ", "ㅁ", "ㅃ", "ctrl+ㅃ", "ctrl+v", "enter", "ㅎ+x")]
     check("keymap: jamo become the Latin key, anything else is left alone",
           got == ["ctrl+v", "a", "Q", "ctrl+q", "ctrl+v", "enter", "ㅎ+x"], repr(got))
+    from ocp.ui.keys import key_token
+    from ocp.ui.components.confirm import confirm_answer
+    from ocp.ui.keymap import canonical as canon
+    answers = [confirm_answer("ㅛ", canon("ㅛ")), confirm_answer("ㅜ", canon("ㅜ"))]
+    check("keymap: a confirm box takes ㅛ as y and ㅜ as n", answers == [True, False], repr(answers))
+    tokens = [key_token(events.Key(k, k)) for k in ("ㅂ", "ㅁ", "q", "+")]
+    check("keymap: the home page's key token is the Latin letter (ㅂ is q, ㅁ is a)",
+          tokens == ["q", "a", "q", "+"], repr(tokens))
 
 
 async def test_a_korean_key_fires_the_binding_and_still_types_as_typed() -> None:
