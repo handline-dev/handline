@@ -142,7 +142,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- and guard already treats it as gone; these two say it was thrown away, by
   -- whom and why (closed_at is when) - never signed off as finished work.
   discarded_by  TEXT,
-  discard_reason TEXT
+  discard_reason TEXT,
+  -- Task T68: 1 (P1, high), 2 (P2, the default) or 3 (P3, low). Lists sort
+  -- by it, then by id.
+  priority     INTEGER NOT NULL DEFAULT 2,
+  -- The task this one was merged into. Written with closed_by/closed_at, so
+  -- a merged task leaves every open set the way a close does.
+  merged_into  INTEGER REFERENCES tasks(id)
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -574,6 +580,10 @@ def _add_missing_columns(con) -> None:
     for col in ("discarded_by", "discard_reason"):
         if col not in task_cols:
             con.execute(f"ALTER TABLE tasks ADD COLUMN {col} TEXT")
+    if "priority" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
+    if "merged_into" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN merged_into INTEGER REFERENCES tasks(id)")
     state_cols = _cols(con, "agent_state")
     for col in ("failed_attempts", "continuations", "throttle_count", "wake_failures"):
         if col not in state_cols:

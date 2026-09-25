@@ -5421,6 +5421,183 @@ def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
           r.returncode == 0 and r.stdout.strip() == "ocp 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
 
 
+def test_task_priority_sorts_and_numbers_compare_as_numbers(home: Path) -> None:
+    """T68: P1/P2/P3, default P2, set by task new and task edit, and lists
+    order by priority then by the task's number (T9 before T10)."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ids = [db.new_task(con, f"filler {i}", "worker", "manager") for i in range(11)]
+    finally:
+        con.close()
+    rc, out = _cli(["task", "new", "urgent", "--owner", "worker", "--priority", "P1"],
+                   as_agent="manager")
+    check("priority: new takes --priority", rc == 0 and "P1" in out, out)
+    rc, out = _cli(["task", "new", "later", "--owner", "worker", "--priority", "p3"],
+                   as_agent="manager")
+    try:
+        actions.parse_priority("P4")
+        refused = False
+    except ValueError:
+        refused = True
+    check("priority: P4 is refused", refused)
+    con = db.connect()
+    try:
+        check("priority: the default is P2", db.get_task(con, ids[0])["priority"] == 2)
+        rows = actions.task_rows(con)
+        order = [r["id"] for r in rows]
+        p2 = [r["id"] for r in rows if r["priority"] == 2]
+        check("priority: P1 first, P3 last", rows[0]["priority"] == 1 and rows[-1]["priority"] == 3,
+              str([(r["ref"], r["priority"]) for r in rows]))
+        check("priority: within one, by number not text (T9 before T10)",
+              p2 == sorted(p2) and p2.index(ids[8]) < p2.index(ids[9]), str(p2))
+        check("priority: task_rows and db.open_tasks agree", order == [t["id"] for t in db.open_tasks(con)])
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", f"T{ids[10]}", "--priority", "P1"], as_agent="worker")
+    check("priority: only the opener or the founder changes it", rc == 1, out)
+    rc, out = _cli(["task", "edit", f"T{ids[10]}", "--priority", "P1"], as_agent="manager")
+    check("priority: the opener changes it", rc == 0 and "P2" in out and "P1" in out, out)
+    rc, out = _cli(["task", "edit", f"T{ids[10]}", "--priority", "P1"], as_agent="manager")
+    check("priority: the same value is a no-op refusal", rc == 1 and "nothing to edit" in out, out)
+    con = db.connect()
+    try:
+        check("priority: the task now sorts among the P1s",
+              actions.task_rows(con)[1]["id"] == ids[10] or actions.task_rows(con)[0]["id"] == ids[10])
+        ev = con.execute("SELECT payload FROM events WHERE kind = 'edit_task'").fetchall()
+        check("priority: the edit event names old and new",
+              json.loads(ev[-1]["payload"])["priority"] == {"old": "P2", "new": "P1"})
+    finally:
+        con.close()
+
+
+def test_task_rows_carry_who_closes_what_blocks_and_last_activity(home: Path) -> None:
+    """T68: the data API a screen draws from - closer, blocked_by, last
+    activity, and filters by owner and state with closed hidden."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        a = db.new_task(con, "a", "worker", "manager")
+        b = db.new_task(con, "b", "manager", "manager")
+        c = db.new_task(con, "c", "worker", "manager")
+        db.add_block(con, b, a)
+        rid = _human_request()
+        db.link_request(con, a, rid)
+        rows = {r["id"]: r for r in actions.task_rows(con)}
+        check("rows: blocked_by lists the open blocker", rows[b]["blocked_by"] == [a], str(rows[b]))
+        check("rows: closer is the founder when the founder asked", rows[a]["closer"] == actions.HUMAN)
+        check("rows: closer is the opener otherwise", rows[c]["closer"] == "manager")
+        check("rows: last_activity is a time", rows[a]["last_activity"] >= rows[a]["row"]["created_at"] > 0)
+        con.execute("UPDATE tasks SET created_at = 1000 WHERE id = ?", (c,))
+        check("rows: last_activity of an idle task is its creation",
+              [r for r in actions.task_rows(con) if r["id"] == c][0]["last_activity"] == 1000)
+        check("rows: filter by owner",
+              {r["id"] for r in actions.task_rows(con, owner="worker")} == {a, c})
+        check("rows: filter by state",
+              {r["id"] for r in actions.task_rows(con, state="waiting")} >= {c})
+        db.discard_task(con, c, "manager", "no")
+        check("rows: a discarded task is hidden by default",
+              c not in {r["id"] for r in actions.task_rows(con)})
+        check("rows: shown with include_closed",
+              c in {r["id"] for r in actions.task_rows(con, include_closed=True)})
+        check("rows: shown when the state filter names it",
+              [r["id"] for r in actions.task_rows(con, state="discarded")] == [c])
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list", "--owner", "manager"], as_agent="manager")
+    check("list: --owner narrows, and a row says who may close it",
+          rc == 0 and f"T{b}" in out
+          and not any(l.startswith(f"T{a} ") for l in out.splitlines()) and "may close: manager" in out
+          and f"blocked by T{a}" in out, out)
+
+
+def test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(home: Path) -> None:
+    """T68: `ocp task merge KEEP T...` - all or none, opener or founder."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        keep = db.new_task(con, "keep", "worker", "manager")
+        m1 = db.new_task(con, "one", "worker", "manager")
+        m2 = db.new_task(con, "two", "worker", "manager")
+        kid = db.new_task(con, "kid", "worker", "manager", parent_task=m1)
+        dep = db.new_task(con, "dep", "worker", "manager")
+        db.add_block(con, dep, m2)
+        r1 = _human_request()
+        db.link_request(con, m1, r1)
+        db.link_request(con, keep, r1)
+        done = db.new_task(con, "done one", "worker", "manager")
+        db.mark_task_done(con, done, "because")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "merge", f"T{keep}", f"T{m1}"], as_agent="worker")
+    check("merge: refused for a non-opener", rc == 1 and "opened it" in out, out)
+    rc, out = _cli(["task", "merge", f"T{keep}", f"T{done}"], as_agent="manager")
+    check("merge: a done task is refused", rc == 1 and "done" in out, out)
+    rc, out = _cli(["task", "merge", f"T{keep}", f"T{keep}"], as_agent="manager")
+    check("merge: into itself is refused", rc == 1, out)
+    rc, out = _cli(["task", "merge", f"T{keep}", f"T{m1}", "T9999"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("merge: one bad task leaves every task as it was",
+              rc == 1 and db.get_task(con, m1)["closed_by"] is None, out)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "merge", f"T{keep}", f"T{m1}", f"T{m2}"], as_agent="manager")
+    check("merge: the opener may", rc == 0 and f"T{m1}" in out, out)
+    con = db.connect()
+    try:
+        k = db.get_task(con, keep)
+        check("merge: the kept title carries the folded titles",
+              "one" in k["title"] and "two" in k["title"] and k["title"].startswith("keep"),
+              k["title"])
+        check("merge: the edit is stamped", k["edited_by"] == "manager")
+        row = db.get_task(con, m1)
+        check("merge: the rest close as merged into keep",
+              row["merged_into"] == keep and row["closed_by"] == "manager"
+              and actions.task_state(con, row) == "merged")
+        check("merge: requests moved, none duplicated",
+              [r["id"] for r in db.task_requests(con, keep)] == [r1]
+              and db.task_requests(con, m1) == [])
+        check("merge: a sub-task now sits under keep", db.get_task(con, kid)["parent_task"] == keep)
+        check("merge: a task waiting on a merged one waits on keep",
+              db.blocks_on_ids(con, dep) == [keep])
+        check("merge: hidden from the default list",
+              m1 not in {r["id"] for r in actions.task_rows(con)})
+        check("merge: shown as merged when asked",
+              [r["id"] for r in actions.task_rows(con, state="merged")] == [m1, m2])
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list", "--all"], as_agent="manager")
+    check("merge: the list says where it went", f"MERGED into T{keep}" in out, out)
+
+
+def test_the_priority_columns_migrate_an_old_tasks_table(home: Path) -> None:
+    """T68: a database made before priority and merged_into gains both, and
+    every existing task reads P2."""
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.db"
+    old = sqlite3.connect(p)
+    old.executescript("""
+        CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
+          owner TEXT NOT NULL, parent_task INTEGER, opened_by TEXT NOT NULL,
+          done_evidence TEXT, done_at INTEGER, done_via TEXT, edited_by TEXT,
+          edited_at INTEGER, created_at INTEGER NOT NULL, closed_by TEXT, closed_at INTEGER,
+          discarded_by TEXT, discard_reason TEXT);
+        INSERT INTO tasks(title, owner, opened_by, created_at) VALUES ('old', 'w', 'm', 5);
+    """)
+    old.commit()
+    old.close()
+    con = db.connect(p)
+    try:
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(tasks)")}
+        check("migration: priority and merged_into are added",
+              set(db.TASK_FIELDS) == cols, str(cols))
+        check("migration: an old task is P2", db.get_task(con, 1)["priority"] == 2)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -5508,6 +5685,10 @@ def main() -> int:
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
+        run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
+        run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
+        run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
+        run(lambda: test_the_priority_columns_migrate_an_old_tasks_table(Path(td) / 'taskprimig'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))

@@ -53,6 +53,14 @@ def _task_arg(text: str) -> int:
         raise argparse.ArgumentTypeError(str(e))
 
 
+def _priority_arg(text: str) -> int:
+    """argparse `type` for a priority: P1, P2 or P3."""
+    try:
+        return actions.parse_priority(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def cmd_close(args) -> int:
     """One verb, two things it can close: a task by its reference (`ocp close
     T7`) - the asker's own sign-off, once it is done (`ocp task done` first;
@@ -189,6 +197,7 @@ def cmd_task_new(args) -> int:
     if not _task_owner_ok(args.owner):
         print(f"no agent named {args.owner}")
         return 1
+    priority = args.priority if args.priority is not None else db.DEFAULT_PRIORITY
     title = textsafe.oneline(args.title).strip()
     if not title:
         print("a task needs a title")
@@ -208,7 +217,7 @@ def cmd_task_new(args) -> int:
         con.execute("BEGIN IMMEDIATE")
         tid = None
         try:
-            tid = db.new_task(con, title, args.owner, me, args.parent)
+            tid = db.new_task(con, title, args.owner, me, args.parent, priority)
             if args.blocked_by is not None:
                 ok, msg = actions.add_block(con, tid, args.blocked_by, me)
                 if not ok:
@@ -221,7 +230,7 @@ def cmd_task_new(args) -> int:
         con.execute("COMMIT")
     finally:
         con.close()
-    print(f"task T{tid} opened for {args.owner}")
+    print(f"task T{tid} opened for {args.owner} ({actions.priority_ref(priority)})")
     return 0
 
 
@@ -258,8 +267,9 @@ def cmd_task_edit(args) -> int:
     if me is None:
         print(_who_refusal("edit a task"))
         return 1
-    if args.owner is None and args.title is None and args.blocked_by is None and args.unblock is None:
-        print("edit needs a new owner, a new title, --blocked-by, or --unblock")
+    if (args.owner is None and args.title is None and args.priority is None
+            and args.blocked_by is None and args.unblock is None):
+        print("edit needs a new owner, a new title, --priority, --blocked-by, or --unblock")
         return 1
     con = db.connect()
     try:
@@ -267,8 +277,9 @@ def cmd_task_edit(args) -> int:
         ok = True
         msgs: list[str] = []
         try:
-            if args.owner is not None or args.title is not None:
-                ok, msg = actions.edit_task(con, args.task, me, owner=args.owner, title=args.title)
+            if args.owner is not None or args.title is not None or args.priority is not None:
+                ok, msg = actions.edit_task(con, args.task, me, owner=args.owner,
+                                            title=args.title, priority=args.priority)
                 msgs.append(msg)
             if ok and args.blocked_by is not None:
                 ok, msg = actions.add_block(con, args.task, args.blocked_by, me)
@@ -290,6 +301,21 @@ def cmd_task_edit(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_task_merge(args) -> int:
+    """Fold tasks into one: `ocp task merge T9 T10 T11` keeps T9."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("merge tasks"))
+        return 1
+    con = db.connect()
+    try:
+        ok, msg = actions.merge_tasks(con, args.keep, args.tasks, me)
+    finally:
+        con.close()
+    print(msg)
+    return 0 if ok else 1
+
+
 def _print_board(con, tasks: list) -> None:
     """Each task, then the requests linked to it as they stand now: state and
     date are read from the request, never held on the task. `state` (#71) is
@@ -307,8 +333,14 @@ def _print_board(con, tasks: list) -> None:
                   f"{textsafe.oneline(t['discard_reason'])}" if t["discarded_by"]
                   else f"  CLOSED by {textsafe.oneline(t['closed_by'])}" if t["closed_by"]
                   else "")
+        merged = f"  MERGED into T{t['merged_into']}" if t["merged_into"] else ""
+        blockers = [b["id"] for b in db.task_blockers(con, t["id"])]
+        waits = f"  blocked by {', '.join(f'T{b}' for b in blockers)}" if blockers else ""
+        active = timefmt.stamp(db.task_last_activity(con, t["id"]), timefmt.DATE_TIME)
         print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
-              f"{parent}{edited}{done}{closed}")
+              f"{parent}{edited}{done}{closed}{merged}  "
+              f"{actions.priority_ref(t['priority'])}  may close: {actions.task_asker(con, t)}"
+              f"{waits}  active {active}")
         for r in db.task_requests(con, t["id"]):
             when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
@@ -332,7 +364,9 @@ def _print_needing_close(con, tasks: list) -> None:
 def cmd_task_list(args) -> int:
     con = db.connect()
     try:
-        _print_board(con, db.all_tasks(con) if args.all else db.open_tasks(con))
+        rows = actions.task_rows(con, owner=args.owner, state=args.state,
+                                 include_closed=args.all)
+        _print_board(con, [r["row"] for r in rows])
         _print_needing_close(con, db.tasks_needing_close(con))
         gaps = actions.reason_gaps(con)
         print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "

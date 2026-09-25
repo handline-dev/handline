@@ -2572,6 +2572,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",
+        "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task edit": "writes a row; driven in "
                      "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "

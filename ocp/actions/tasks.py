@@ -162,12 +162,14 @@ def task_asker(con, row) -> str:
 
 
 def task_state(con, row) -> str:
-    """One of waiting, doing, done, closed (#71), or discarded (#85). done,
+    """One of waiting, doing, done, closed (#71), discarded (#85) or merged (T68). done,
     closed and discarded are written, once each; waiting and doing are never stored - read live from
     whether a request is currently queued against this task or an open child
     of it, the same live read the board already does for "who holds it now",
     so there is nothing here that a write path must remember to keep in
     sync."""
+    if row["merged_into"]:
+        return "merged"
     if row["discarded_by"]:
         return "discarded"
     if row["closed_by"]:
@@ -448,9 +450,27 @@ def _task_edit_guard(row, tid: int, by: str) -> str | None:
     return None
 
 
+PRIORITIES = (1, 2, 3)
+
+
+def priority_ref(n: int) -> str:
+    """How a priority is written wherever it is printed or typed: P2."""
+    return f"P{int(n)}"
+
+
+def parse_priority(text) -> int:
+    """The priority in `P1`, `p2` or a bare `3`; anything but 1 to 3 is refused."""
+    t = str(text).strip().upper()
+    if t.startswith("P"):
+        t = t[1:]
+    if t.isdigit() and int(t) in PRIORITIES:
+        return int(t)
+    raise ValueError(f"'{text}' is not a priority - write P1 (high), P2 (default) or P3 (low)")
+
+
 def edit_task(con, tid: int, by: str, owner: str | None = None,
-              title: str | None = None) -> tuple[bool, str]:
-    """Change a task's owner and/or title. Only the task's opener or the
+              title: str | None = None, priority: int | None = None) -> tuple[bool, str]:
+    """Change a task's owner, title and/or priority. Only the task's opener or the
     founder may - #1914: every orcapipe task is owned by orcapipe itself,
     members only link requests to it, so an owner change here is for fixing
     who was named by mistake, not for handing work along.
@@ -465,8 +485,8 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
-    if owner is None and title is None:
-        return False, "edit needs a new owner, a new title, or both"
+    if owner is None and title is None and priority is None:
+        return False, "edit needs a new owner, a new title, a new priority, or any of them"
     changes: dict = {}
     new_owner = None
     if owner is not None and owner != row["owner"]:
@@ -482,12 +502,137 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
         if t != row["title"]:
             new_title = t
             changes["title"] = {"old": row["title"], "new": new_title}
+    new_priority = None
+    if priority is not None:
+        if priority not in PRIORITIES:
+            return False, f"{priority} is not a priority - P1, P2 or P3"
+        if priority != row["priority"]:
+            new_priority = priority
+            changes["priority"] = {"old": priority_ref(row["priority"]),
+                                   "new": priority_ref(priority)}
     if not changes:
         return False, f"task T{tid} already reads that way - nothing to edit"
-    db.edit_task(con, tid, by, owner=new_owner, title=new_title)
+    db.edit_task(con, tid, by, owner=new_owner, title=new_title, priority=new_priority)
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
     said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
     return True, f"task T{tid} edited by {by}: {said}"
+
+
+def _under(con, tid: int, ancestor: int) -> bool:
+    """Is `ancestor` `tid` itself or somewhere up its parent chain."""
+    seen: set[int] = set()
+    while tid and tid not in seen:
+        if tid == ancestor:
+            return True
+        seen.add(tid)
+        row = db.get_task(con, tid)
+        tid = row["parent_task"] if row else None
+    return False
+
+
+def _merge_refusal(con, keep_row, row, by: str) -> str | None:
+    """Why `row` cannot be folded into `keep_row`, or None."""
+    tid, keep = row["id"], keep_row["id"]
+    guard = _task_edit_guard(row, tid, by)
+    if guard:
+        return guard
+    if row["closed_by"]:
+        return f"task T{tid} is already closed"
+    if row["done_evidence"]:
+        return f"task T{tid} is done - `ocp close T{tid}` signs it off, it is not merged"
+    if db.task_blockers(con, tid):
+        ids = ", ".join(f"T{b['id']}" for b in db.task_blockers(con, tid))
+        return f"task T{tid} is waiting on {ids} - it cannot be merged until they close"
+    if _under(con, keep, tid):
+        return f"task T{keep} is under T{tid} - folding T{tid} into it would loop them"
+    for dep in db.tasks_blocked_by(con, tid):
+        if dep["task_id"] != keep and _blocked_by_cycle(con, dep["task_id"], keep):
+            return (f"T{dep['task_id']} waits on T{tid}; waiting on T{keep} instead "
+                    "would be a cycle")
+    return None
+
+
+def merge_tasks(con, keep: int, others: list[int], by: str) -> tuple[bool, str]:
+    """Fold `others` into `keep` (T68): each one's title is added to the kept
+    title, its requests, sub-tasks and the tasks waiting on it move to `keep`,
+    and it closes as merged into `keep`. Whoever may edit a task may merge it
+    (its opener, or the founder), and the same goes for `keep`. All or none:
+    one refusal leaves every task as it was."""
+    keep_row = db.get_task(con, keep)
+    if keep_row is None:
+        return False, f"no task T{keep}"
+    if not others:
+        return False, "merge needs at least one task to fold in"
+    if len(set(others)) != len(others):
+        return False, "a task is named twice"
+    if keep in others:
+        return False, f"task T{keep} cannot merge into itself"
+    guard = _task_edit_guard(keep_row, keep, by)
+    if guard:
+        return False, guard
+    if keep_row["closed_by"]:
+        return False, f"task T{keep} is closed - nothing can merge into it"
+    rows = []
+    for tid in others:
+        row = db.get_task(con, tid)
+        if row is None:
+            return False, f"no task T{tid}"
+        why = _merge_refusal(con, keep_row, row, by)
+        if why:
+            return False, why
+        rows.append(row)
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        for row in rows:
+            if not db.merge_task(con, row["id"], keep, by):
+                con.execute("ROLLBACK")
+                return False, f"task T{row['id']} was done or closed by someone else just now"
+            db.move_task_links(con, row["id"], keep)
+            db.add_event(con, by, "merge_task", {"task_id": row["id"], "into": keep})
+        title = keep_row["title"] + "".join(
+            f" (+ T{r['id']}: {r['title']})" for r in rows)
+        db.edit_task(con, keep, by, title=title)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    ids = ", ".join(f"T{r['id']}" for r in rows)
+    return True, f"{ids} merged into T{keep} by {by}"
+
+
+def task_rows(con, owner: str | None = None, state: str | list[str] | None = None,
+              include_closed: bool = False) -> list[dict]:
+    """The board as data (T68): one dict per task, ordered by priority then by
+    number. What a screen or `ocp task list` draws from, so both say the same.
+
+    `ref` is T79, `priority` 1 to 3, `state` as `task_state`, `closer` who may
+    close it (`task_asker`), `blocked_by` the open tasks it waits on, and
+    `last_activity` the latest time anything happened to it or a request
+    linked to it. Closed, discarded and merged tasks are left out unless
+    `include_closed`, or unless `state` names one. `owner` and `state` narrow
+    the rows; `state` may be one name or several.
+    """
+    states = None if state is None else {state} if isinstance(state, str) else set(state)
+    ended = ("closed", "discarded", "merged")
+    show_ended = include_closed or bool(states and states & set(ended))
+    out = []
+    for t in (db.all_tasks(con) if show_ended else db.open_tasks(con)):
+        if owner is not None and t["owner"] != owner:
+            continue
+        st = task_state(con, t)
+        if states is not None and st not in states:
+            continue
+        out.append({
+            "id": t["id"], "ref": task_ref(t["id"]), "title": t["title"],
+            "owner": t["owner"], "opened_by": t["opened_by"],
+            "parent_task": t["parent_task"], "priority": t["priority"],
+            "priority_ref": priority_ref(t["priority"]), "state": st,
+            "closer": task_asker(con, t),
+            "blocked_by": [b["id"] for b in db.task_blockers(con, t["id"])],
+            "last_activity": db.task_last_activity(con, t["id"]),
+            "row": t,
+        })
+    return out
 
 
 def _blocked_by_cycle(con, tid: int, blocks_on: int, seen: set[int] | None = None) -> bool:

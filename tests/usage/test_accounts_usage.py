@@ -2856,7 +2856,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     clock to when it was closed) all share. Every classification is proven
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
-                    "mark_task_done", "reopen_task", "discard_task",
+                    "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "background_work_ended",
                     "block_task", "unblock_task", "task_unblocked",
                     "fold", "fold_failed",
