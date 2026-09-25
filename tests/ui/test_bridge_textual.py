@@ -930,6 +930,11 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.pause()
         await pilot.press("1", "enter")
         await pilot.pause(0.3)
+        from ocp.ui.components.confirm import Confirm
+        check("tasks: a batch asks once more, naming the tasks", isinstance(app.screen, Confirm)
+              and "2 tasks" in str(app.screen.query_one("#question").render()), type(app.screen).__name__)
+        await pilot.press("y")
+        await pilot.pause(0.3)
         con = db.connect()
         try:
             prios = [db.get_task(con, t)["priority"] for t in (a, b)]
@@ -937,6 +942,8 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
             con.close()
         check("tasks: p wrote P1 to both marked tasks", prios == [1, 1], prios)
         await pilot.press("c")
+        await pilot.pause(0.3)
+        await pilot.press("y")
         await pilot.pause(0.3)
         said = " ".join(n.message for n in app._notifications)
         check("tasks: c on tasks that are not done toasts a line per refusal, with the reason",

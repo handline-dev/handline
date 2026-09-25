@@ -17,6 +17,8 @@ from textual.widgets import Button, DataTable, Select, SelectionList, Static
 from ... import actions, db
 from ...infra import textsafe
 from ..chat_page import TaskPane, TaskTable
+from .action_bar import ActionBar
+from .confirm import Confirm
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
 
@@ -143,6 +145,9 @@ class TasksView(Vertical):
         with Horizontal(id="tasks_body"):
             yield TaskTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
             yield TaskPane(id="tasks_pane")
+        with ActionBar(id="tasks_actions"):
+            for verb in ("close", "discard", "owner", "priority", "merge"):
+                yield Button(verb.capitalize(), id=f"act_{verb}", compact=True)
         yield KeyGuide(self._keys(), id="tasks_foot")
 
     def on_resize(self) -> None:
@@ -260,8 +265,11 @@ class TasksView(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        if event.button.id == "f_state":
+        bid = event.button.id or ""
+        if bid == "f_state":
             self.action_states()
+        elif bid.startswith("act_"):
+            self.action_act(bid[4:])
 
     def action_states(self) -> None:
         self.app.push_screen(StatePicker(set(self.states)), self._set_states)
@@ -334,6 +342,21 @@ class TasksView(Vertical):
     def action_act(self, verb: str) -> None:
         self.run_worker(self._act(verb), exclusive=True, group="tasks_act")
 
+    def _confirm(self, verb: str, tids: list[int], arg: str) -> Confirm:
+        by_id = {r["id"]: r for r in self.rows}
+        if verb == "merge":
+            tids = [t for t in tids if t != self.rows[self.cur]["id"]]
+        lines = [f"{actions.task_ref(t)}  {textsafe.oneline(by_id[t]['title'])}" if t in by_id
+                 else actions.task_ref(t) for t in tids[:8]]
+        if len(tids) > 8:
+            lines.append(f"... and {len(tids) - 8} more")
+        what = {"close": "Close", "discard": "Discard", "owner": "Change the owner of",
+                "priority": "Set the priority of", "merge": "Merge"}[verb]
+        into = f" into {actions.task_ref(self.rows[self.cur]['id'])}" if verb == "merge" else ""
+        with_arg = f"\n{textsafe.oneline(arg)}" if arg else ""
+        return Confirm(f"{what} {len(tids)} task{'s' if len(tids) != 1 else ''}{into}?",
+                       "\n".join(lines) + with_arg, yes=what.split()[0], danger=verb in ("close", "discard", "merge"))
+
     async def _act(self, verb: str) -> None:
         tids = self._targets()
         if not tids:
@@ -345,6 +368,9 @@ class TasksView(Vertical):
             if not arg.strip():
                 self.notify("left alone")
                 return
+        if not await self.app.push_screen_wait(self._confirm(verb, tids, arg)):
+            self.notify("left alone")
+            return
         con = db.connect()
         try:
             if verb == "merge":
