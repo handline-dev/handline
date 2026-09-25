@@ -99,7 +99,9 @@ def messages_of(rows, agent: str) -> list[dict]:
             side = "you" if speaker == human else "agent" if speaker == agent else "other"
             queued = (part == 0 and speaker == human and r["target"] != human
                       and r["state"] == "queued")
-            waiting_to_go = queued and not r["delivered_at"]
+            held = (part == 0 and speaker != human and r["target"] != human
+                    and r["state"] == "queued" and not r["delivered_at"])
+            waiting_to_go = held or queued and not r["delivered_at"]
             if part == 0 and speaker == human and r["delivered_at"]:
                 at = r["delivered_at"]      # a message of yours sits where the agent read it
             who = ("you" if speaker == human else speaker) + (
@@ -110,6 +112,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "replyable": human in (r["requester"], r["target"]),
                          "answered": side == "agent" and part == 0 and bool(shown),
                          "queued": queued,
+                         "held": held,
                          "delivered": bool(r["delivered_at"]),
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
@@ -382,7 +385,7 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "") -> list:
     out: list = []
     line = False
     for m in msgs:
-        if m.get("queued") and not m.get("delivered") and not line:
+        if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
             out.append(QueueLine(working, why=why))
             line = True
         out.append(ChatMessage(m))
