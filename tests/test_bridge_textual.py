@@ -1056,7 +1056,7 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
         _, _, held = askmod.ask("reviewer", "second, not read yet", requester="backend")
         _, _, later = askmod.ask("backend", "asked after", requester="reviewer")
         con.commit()
-        rows = [db.get_request(con, i) for i in (first, held, later)]
+        rows = cp.requests_page(con, "reviewer", True)[0]
     finally:
         con.close()
     msgs = cp.messages_of(rows, "reviewer")
