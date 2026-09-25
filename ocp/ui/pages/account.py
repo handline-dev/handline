@@ -20,6 +20,7 @@ from ...infra import paths, textsafe
 from .. import tui
 from ...infra import timefmt
 from ..components import gauge
+from ..components.ime import ImeInput
 from ..components.account_actions import AccountActions
 from ..components.action_bar import ActionBar
 from ..components.page_header import page_header
@@ -69,7 +70,7 @@ class AccountPage(AccountActions, Screen):
                                      ("cap", "cap", "  most agents mid-turn on this account at once")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")
-                    yield Input(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None,
+                    yield ImeInput(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None,
                                 placeholder=self.account if key == "name" else "")
                     yield Static(hint, classes="fhint")
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
