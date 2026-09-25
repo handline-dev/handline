@@ -1438,6 +1438,46 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         con.close()
 
 
+def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
+    """T80: the delivery notice and `ocp read` name the parent of a request
+    that has one - first line only, cut at ASKED_SHOWN - and say nothing extra
+    for one without."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = orcamod.send
+    try:
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        parent = db.add_request(con, "backend", "human", "which port?\nsecond line", None,
+                                "peer", "async", None, 0, None)
+        reply = db.add_request(con, "human", "backend", "8080", None,
+                               "peer", "async", None, 0, parent)
+        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        check("reply notice: typed as 'from human (in reply to #M: first line)'",
+              f"#{reply} from human (in reply to #{parent}: which port?), waiting for you" in sent[-1],
+              sent[-1])
+        out = _capture(lambda: climod.main(["read", str(reply)]))
+        check("ocp read: shows what it is in reply to, as its own line",
+              f"\nin reply to #{parent}: which port?\n" in out, out)
+
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (reply,))
+        plain = db.add_request(con, "human", "backend", "hello", None,
+                               "peer", "async", None, 0, None)
+        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        check("reply notice: nothing extra for a request with no parent",
+              f"#{plain} from human, waiting for you" in sent[-1] and "in reply to" not in sent[-1],
+              sent[-1])
+
+        long_parent = db.add_request(con, "backend", "human", "q" * 100, None,
+                                     "peer", "async", None, 0, None)
+        cut = dmn_delivery.in_reply_to(con, {"parent_id": long_parent})
+        check("reply notice: a long first line is cut at the limit with an ellipsis",
+              cut == f"in reply to #{long_parent}: {'q' * dmn_delivery.ASKED_SHOWN}…", cut)
+    finally:
+        orcamod.send = real
+        con.close()
+
+
 def test_an_answer_line_says_what_it_answers(home: Path) -> None:
     """`#85 from human: done` cannot be placed by an agent that has asked
     several things; the start of its own question rides along."""
@@ -5382,6 +5422,7 @@ def main() -> int:
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_t80_a_reply_says_which_request_it_answers(Path(td) / 't80'))
         run(lambda: test_an_answer_line_says_what_it_answers(Path(td) / 'ansline'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))

@@ -15,6 +15,7 @@ from .. import paths
 from .. import textsafe
 from .. import waiting
 
+from ..daemon import delivery as dmn_delivery
 from .bridge import _bridge_textual_module
 
 
@@ -399,6 +400,9 @@ def cmd_read(args) -> int:
         when = timefmt.stamp(row["ts"], timefmt.DATE_TIME)
         print(f"#{row['id']}  {row['requester']} → {row['target']}  "
               f"{row['kind'] or 'ask'}  {row['state']}  {when}")
+        reply = dmn_delivery.in_reply_to(con, row)
+        if reply:
+            print(reply)
         print(f"relation {row['relation']}   response {row['response']}   "
               f"depth {row['chain_depth']}")
         print()
