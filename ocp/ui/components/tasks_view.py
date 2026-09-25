@@ -132,11 +132,10 @@ class TasksView(Vertical):
             table.add_row(*(Text(c, style="yellow" if stale else "") for c in cells), key=str(r["id"]))
         if self.rows:
             table.move_cursor(row=min(row, len(self.rows) - 1))
-        other = "priority" if self.by == "number" else "number"
-        self.query_one("#tasks_title", Static).update(
-            f"{'MY TASKS' if self.mine else 'TASKS'}  {'all' if self.show_closed else 'open'} "
-            f"{len(self.rows)} · agent: {self.owner or 'all'} (f) · sort: {self.by} (s: {other}) · "
-            f"a: {'hide' if self.show_closed else 'show'} closed")
+        title = Text(f"{'MY TASKS' if self.mine else 'TASKS'}  ", style="bold")
+        title.append(f"{len(self.rows)} {'incl. closed' if self.show_closed else 'open'}"
+                     f" · agent {self.owner or 'all'} · by {self.by}", style="dim")
+        self.query_one("#tasks_title", Static).update(title)
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
         shown = Text(self.flash + "\n" if self.flash else "", "yellow")
         shown.append_text(self.results)
