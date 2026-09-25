@@ -252,7 +252,8 @@ def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
     with `body` as its verdict, and an answer to the human's own request gets a
     new request and is marked read (both `actions.answer_ok`); anything else -
     a question already closed - is a new request under it to the agent on
-    that row, which in All chat is not always the agent whose page this is."""
+    that row - its target if the human asked it, else its requester - which in All chat
+    is not always the agent whose page this is."""
     if rid is None:
         return actions.chat_reply_ok(con, agent, body)
     row = db.get_request(con, rid)
