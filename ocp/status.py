@@ -338,7 +338,7 @@ class AccountStatus:
         """
         if not self.exists or self.error or self.pct_5h is None:
             return ""
-        now = time.time()
+        now = self._now()
         age = "unknown age" if self.age_s is None else f"{timefmt.ago(self.age_s)} old"
         gone = ", reset since" if self.reset_5h and self.reset_5h <= now else ""
         text = f"5h {self.pct_5h}% ({age}{gone})"
@@ -401,7 +401,7 @@ class AccountStatus:
         if not ok and self.rolled_over()[0]:
             # Its weekly figure is a floor unless the week itself has passed.
             ok, why = True, self.rolled_over()[1]
-            week = None if self.reset_7d and self.reset_7d <= time.time() else self.pct_7d
+            week = None if self.reset_7d and self.reset_7d <= self._now() else self.pct_7d
         if ok and week is not None and week >= PCT_7D_BLOCK:
             return False, f"7d usage {week}% >= {PCT_7D_BLOCK}%"
         return ok, why
@@ -414,7 +414,7 @@ class AccountStatus:
         if (not self.exists or self.error or self.rl7_lost or not self.stale
                 or self.age_s is None):
             return False, ""
-        now = time.time()
+        now = self._now()
         if self.reset_5h:
             passed = self.reset_5h <= now
         else:
@@ -464,7 +464,7 @@ class AccountStatus:
         if (not self.exists or self.error or self.rl_lost or not self.stale
                 or self.pct_5h is None or not self.pct_5h_readable or active > 0):
             return False, ""
-        now = time.time()
+        now = self._now()
         # Well-formed data cannot have reset_5h ahead of us while the snapshot
         # itself is already older than a window is wide - only a rewound clock
         # or a hand-edited file gets here, and that is not idle, it is unknown.
@@ -491,7 +491,7 @@ class AccountStatus:
             return self.trusted_pct_5h, mark(self.pct_5h_source)
         if (self.exists and not self.error and not self.rl_lost and self.stale
                 and self.pct_5h is not None and self.pct_5h_readable
-                and self.reset_5h and self.reset_5h > time.time()):
+                and self.reset_5h and self.reset_5h > self._now()):
             return self.pct_5h, IDLE_MARK
         return None, " "
 
