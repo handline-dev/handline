@@ -63,6 +63,10 @@ class Claude:
     def meters(self) -> bool:
         return True
 
+    def state_hooks(self):
+        from .claude_hooks import ClaudeHooks       # it imports this module
+        return ClaudeHooks()
+
     def is_resume(self, extra: list[str] | None) -> bool:
         """Three spellings, because reading `--resume=<id>` as "not a resume" picks an
         account by headroom and then hands claude a session id that exists under

@@ -24,51 +24,10 @@ from ..infra.yamlcompat import is_plain_text
 
 # The status line commands ocp used to install into shared/.claude (D11). The
 # slot is the human's now, so these are only ever removed.
-OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
-
-
-def ensure_shared() -> Path:
-    """Create shared/.claude and its settings.json.
-
-    Refuses, changing nothing, when settings.json exists but cannot be read
-    as a JSON object: it holds the human's settings too, and rewriting it
-    from {} would lose them.
-    """
-    shared = vendors.shared_dir("claude")
-    settings = shared / "settings.json"
-    current = {}
-    if settings.exists():
-        try:
-            current = json.loads(settings.read_text())
-        except (OSError, ValueError) as e:
-            raise ValueError(f"{settings} could not be read ({e}); ocp changed nothing. "
-                             "Fix or move it, then run this again.") from e
-        if not isinstance(current, dict):
-            raise ValueError(f"{settings} is not a JSON object; ocp changed nothing. "
-                             "Fix or move it, then run this again.")
-
-    shared.mkdir(parents=True, exist_ok=True)
-    for sub in ("skills", "agents", "commands"):
-        (shared / sub).mkdir(exist_ok=True)
-
-    ours = {str(shared / name) for name in OLD_STATUSLINES}
-
-    # A statusLine pointing at a script just deleted would error in every
-    # session. Anyone else's is left alone.
-    line = current.get("statusLine")
-    if isinstance(line, dict) and line.get("command") in ours:
-        del current["statusLine"]
-    # Ours overlaps Claude Code's own auto-continue, and section 4 says to pick
-    # one. We pick ours, and doctor enforces that the choice stays made.
-    current.setdefault("autoContinueAtUsageLimit", False)
-    tmp = settings.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(settings)
-    # Only once no setting points at them: deleted first, a failed write
-    # would leave every session running a script that is gone.
-    for cmd in ours:
-        Path(cmd).unlink(missing_ok=True)
-    return shared
+def ensure_shared() -> None:
+    """Create each vendor's shared config dir and the settings ocp keeps in it."""
+    for h in vendors.state_hooks():
+        h.ensure_shared()
 
 
 def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..team import accounts, agents
 from .. import db, vendors
-from ..session import hooks, launch, observe as obs, orca
+from ..session import launch, observe as obs, orca
 from ..usage import load as loadmod, status
 from . import paths, service, textsafe
 from . import timefmt
@@ -108,19 +108,9 @@ def _check_home(r: Report) -> None:
         return
     r.add(OK, f"OCP_HOME {h}")
 
-    s = vendors.shared_dir("claude") / "settings.json"
-    if not s.exists():
-        r.add(FAIL, "shared/.claude/settings.json missing")
-        return
-    try:
-        line = json.loads(s.read_text()).get("statusLine", {})
-    except json.JSONDecodeError:
-        line = {}
-    # ocp installs no status line (D11); one of its old ones left in the slot
-    # points at a script `ocp init` deletes.
-    old = {str(vendors.shared_dir("claude") / n) for n in accounts.OLD_STATUSLINES}
-    if isinstance(line, dict) and line.get("command") in old:
-        r.add(FAIL, "shared statusLine is an old ocp script", "run `ocp init` to remove it")
+    for sh in vendors.state_hooks():
+        for what, detail in sh.shared_problems():
+            r.add(FAIL, what, detail)
 
 
 def _check_mcp_config(r: Report) -> None:
@@ -139,16 +129,18 @@ def _check_mcp_config(r: Report) -> None:
 
 
 def _check_orca_hooks(r: Report) -> None:
-    src, dst, drift = hooks.plan()
-    if not src:
-        r.add(WARN, "no Orca hooks in ~/.claude/settings.json",
-              "Orca has never run here, or its integration is off")
-    elif drift:
-        r.add(WARN, "Orca hooks have drifted from shared",
-              f"{len(src)} events at source vs {len(dst)} in shared - "
-              "run `ocp hooks sync`, or let the watcher do it")
-    else:
-        r.add(OK, f"Orca hooks in sync ({len(src)} events)")
+    for h in vendors.state_hooks():
+        src, dst, drift = h.plan()
+        if not src:
+            where = "~/" + str(h.source_settings().relative_to(paths.user_home()))
+            r.add(WARN, f"no Orca hooks in {where}",
+                  "Orca has never run here, or its integration is off")
+        elif drift:
+            r.add(WARN, "Orca hooks have drifted from shared",
+                  f"{len(src)} events at source vs {len(dst)} in shared - "
+                  "run `ocp hooks sync`, or let the watcher do it")
+        else:
+            r.add(OK, f"Orca hooks in sync ({len(src)} events)")
 
 
 def _check_accounts(r: Report) -> None:

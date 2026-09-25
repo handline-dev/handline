@@ -8,7 +8,6 @@ import sys
 
 from ..team import accounts
 from ..team import guide
-from ..session import hooks
 from ..infra import paths
 from .. import vendors
 
@@ -77,14 +76,16 @@ def cmd_init(args) -> int:
     cfg = paths.config_file()
     if not cfg.exists():
         cfg.write_text("version: 1\n")
-    hooks.sync()
+    for sh in vendors.state_hooks():
+        sh.sync()
     cmd_hook_install(args)
-    changed, blockers = hooks.allow_home_writes()
-    if changed:
-        print(f"sandbox: agents may write under {h}")
-    for entry in blockers:
-        print(f"sandbox: denyWrite '{entry}' holds {h} and still blocks agents from it; "
-              f"remove it from {hooks.target_settings()} if that is not what you want")
+    for sh in vendors.state_hooks():
+        changed, blockers = sh.allow_home_writes()
+        if changed:
+            print(f"sandbox: agents may write under {h}")
+        for entry in blockers:
+            print(f"sandbox: denyWrite '{entry}' holds {h} and still blocks agents from it; "
+                  f"remove it from {sh.target_settings()} if that is not what you want")
 
     # Section 3 keeps the whole home in git, so digest generations, rollback
     # and change history come for free. accounts/ stays ignored.

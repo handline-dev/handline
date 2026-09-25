@@ -61,9 +61,13 @@ class Collector(Protocol):      # design/03 §5's output contract
     def collect(self, transcript: Path, config_dir: Path) -> Snapshot | None
 
 class StateHooks(Protocol):     # what hooks.py / cli/hooks / doctor do for claude
-    def install(self, acct: str) -> tuple[bool, str]
-    def status(self, acct: str) -> HookStatus
-    state_from_hooks: bool      # tui.py:875's fork, asked instead of assumed
+    source_settings()/target_settings() -> Path   # where the host's hooks are, the shared file
+    plan() / sync(quiet) / watch(interval, once)  # mirror the host's hooks into the shared file
+    install(exe, wanted) -> (added, pruned)       # ocp's own `hook <event>` entries
+    allow_home_writes() / ensure_shared() / shared_problems()
+                                                  # the sandbox grant, the bootstrap, doctor's view
+# Driver.state_hooks() -> StateHooks | None: None is "state comes off the screen"
+# (tui asks it in place of `== "opencode"`), the way meters() is asked.
 ```
 
 `Reading` and `Snapshot` are the dataclasses of design/03 §5: windows keyed by
@@ -121,8 +125,13 @@ audited before it is merged, as the four file splits were.
    list gives them a driver method to move behind, and `blocked.py`/
    `daemon/delivery.py` call them unconditionally for any vendor already - a
    second, larger step, not this one.
-4. `vendor-hooks` - `StateHooks`; `hooks.py` becomes claude's implementation,
-   `doctor` and `cli/hooks` ask the driver; `tui.py:875` reads `state_from_hooks`.
+4. `vendor-hooks` - `StateHooks`; `hooks.py` becomes `vendors/claude_hooks.py`,
+   claude's implementation, and takes with it what was claude's bootstrap of
+   `shared/.claude/settings.json` (`accounts.ensure_shared`, `OLD_STATUSLINES`),
+   `cli/hooks`' install and `doctor`'s shared-settings check. `doctor`,
+   `cli/hooks` and `ocp init` loop over `vendors.state_hooks()`; `tui.py`'s
+   state word asks `Driver.state_hooks()` where it named opencode. The hook
+   *recording* (`ocp hook`, `events`) is the same for any vendor and stays.
 5. `vendor-meter` - `Meter`; `usage_api.py` and `recover.py` move behind it;
    `daemon/usage_poll` and `cli/usage` call the driver. The keychain read is
    claude's only.
