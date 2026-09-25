@@ -680,6 +680,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # wake prompt waits behind it. Until it is past, the agent is not woken.
         ok, why = _clear_trust_prompt(con, agent, handle, log)
         if not ok:
+            if resumed and waiting:
+                # The session took the message as its first prompt and reads it
+                # once past the screen. Recorded now, after the close, so the
+                # `clear_closed` that follows when the sweep sees it running
+                # does not void it and have it told twice (T126).
+                waiting[1](session)
             return False, why
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)

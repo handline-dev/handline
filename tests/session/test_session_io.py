@@ -2885,6 +2885,124 @@ def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
         con.close()
 
 
+def test_a_resume_that_fails_falls_back_to_fresh_and_the_head_is_told_after(home: Path) -> None:
+    """T125: the head is marked delivered before the resume launches, with the
+    message as its prompt. When that resume fails and a fresh start follows,
+    the fresh session was not handed it: nothing is recorded as told, and the
+    next tick tells it the ordinary way."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    launched: list[str] = []
+    real = (orcamod.relaunch, orcamod.alive, orcamod.available, orcamod.send,
+            orcamod.typeable_now, dmn_delivery.wait_for_session)
+    table = sessions_are()
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+
+        def relaunch(handle, cmd, started=None):
+            launched.append(cmd)
+            if "--resume" in cmd:
+                return False, "the resume was refused"
+            table.update({"backend": 4242})
+            return True, "relaunched"
+        orcamod.relaunch = relaunch
+        dmn_delivery.wait_for_session = lambda agent, timeout=0, prompt=None: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        keep_handoff("backend", "# handoff · backend\n- was mid-way")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.set_closed(con, "backend", "sess-1")
+        head = db.add_request(con, "reviewer", "backend", "look at the picker", None,
+                              "peer", "async", None, 0, None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        check("fallback: the resume was tried, then a fresh start", ok
+              and len(launched) == 2 and "--resume sess-1" in launched[0]
+              and "--resume" not in launched[1], f"{why} {launched}")
+        check("fallback: the head is marked delivered but is not recorded as told",
+              db.get_request(con, head)["delivered_at"] is not None
+              and not db.get_cursor(con, "notify:backend")
+              and not db.get_notified_session(con, "backend"))
+        check("fallback: and the fresh session was not handed it as a prompt",
+              not any("look at the picker" in launched_prompt(c) for c in launched))
+        _session_file(home, "sess-new")
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("fallback: the next tick tells it, once",
+              len([t for t in sent if "look at the picker" in t]) == 1
+              and db.get_cursor(con, "notify:backend") == head, str(sent))
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("fallback: and not again",
+              len([t for t in sent if "look at the picker" in t]) == 1, str(sent))
+    finally:
+        (orcamod.relaunch, orcamod.alive, orcamod.available, orcamod.send,
+         orcamod.typeable_now, dmn_delivery.wait_for_session) = real
+        con.close()
+
+
+def test_a_message_launched_behind_the_trust_screen_is_not_told_twice(home: Path) -> None:
+    """T126: a resume launched with the message as its prompt, and then the
+    trust screen refuses the wake. The session reads the message once past the
+    screen; when the sweep later sees it running and clears the closed mark, that
+    must not send the head again."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    wt = home / "worktree"
+    wt.mkdir(parents=True, exist_ok=True)
+    screen = (f"Accessing workspace:\n{wt}\n"
+              f"Quick safety check: Is this a project you created or one you trust?\n"
+              f"No, exit\nYes, I trust this folder\n")
+    sent: list[str] = []
+    real = (orcamod.relaunch, orcamod.alive, orcamod.available, orcamod.send, orcamod.typeable_now,
+            orcamod.trust_prompt_showing, orcamod.screen_text, orcamod.wait_idle, trustmod.is_declared,
+            dmn_delivery.wait_for_session, orcamod.time.sleep)
+    table = sessions_are()
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, *a, **k: True
+        orcamod.time.sleep = lambda s: None
+        orcamod.relaunch = lambda h, cmd, started=None: (
+            table.update({"backend": 4242}), (True, "relaunched"))[1]
+        dmn_delivery.wait_for_session = lambda agent, timeout=0, prompt=None: True
+        orcamod.trust_prompt_showing = lambda h: True
+        orcamod.screen_text = lambda h: screen
+        trustmod.is_declared = lambda p: False
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        keep_handoff("backend", "# handoff · backend\n- carry on")
+        db.set_agent_state(con, "backend", dmn_states.PARKED, detail="parked")
+        db.set_closed(con, "backend", "sess-1")
+        con.execute("UPDATE agent_state SET closed_at = closed_at - 100 WHERE agent = 'backend'")
+        head = db.add_request(con, "reviewer", "backend", "look at the picker", None,
+                              "peer", "async", None, 0, None)
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        check("trust: the wake is refused at the trust screen", not ok, why)
+        check("trust: but the message it launched with is on record as told",
+              db.get_cursor(con, "notify:backend") == head
+              and db.get_notified_session(con, "backend") == "sess-1")
+        db.clear_closed(con, "backend")            # the sweep sees a session running
+        check("trust: and clearing the closed mark keeps it",
+              db.get_cursor(con, "notify:backend") == head)
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        _session_file(home, "sess-1")
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("trust: so it is not told again", not sent, str(sent))
+        # A tell made before the close is still voided, as T102 has it.
+        db.set_closed(con, "backend", "sess-1")
+        db.set_cursor(con, "notify:backend", head)
+        con.execute("UPDATE cursors SET updated = updated - 1000 WHERE name = 'notify:backend'")
+        db.clear_closed(con, "backend")
+        check("trust: a tell from before the close is still voided",
+              not db.get_cursor(con, "notify:backend"))
+    finally:
+        (orcamod.relaunch, orcamod.alive, orcamod.available, orcamod.send, orcamod.typeable_now,
+         orcamod.trust_prompt_showing, orcamod.screen_text, orcamod.wait_idle, trustmod.is_declared,
+         dmn_delivery.wait_for_session, orcamod.time.sleep) = real
+        con.close()
+
+
 def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
     """auditor's #1630 BLOCKING: a closed agent is woken by a relaunch that
     carries its prompt in --prompt-file, and a relaunch - on a moved agent, a
@@ -3330,6 +3448,8 @@ def main() -> int:
         run(lambda: test_a_parked_agent_with_queued_work_is_still_closed_while_idle(
             Path(td) / 'parkedqueuedclose'))
         run(lambda: test_a_wake_reads_the_screen_before_typing_into_it(Path(td) / 'trustscreen'))
+        run(lambda: test_a_resume_that_fails_falls_back_to_fresh_and_the_head_is_told_after(Path(td) / 'fbk1'))
+        run(lambda: test_a_message_launched_behind_the_trust_screen_is_not_told_twice(Path(td) / 'fbk2'))
         run(lambda: test_a_closed_agents_relaunch_stops_at_the_trust_screen(Path(td) / 'trustclosed'))
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))

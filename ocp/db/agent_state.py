@@ -105,8 +105,13 @@ def clear_closed(con, agent: str) -> None:
     """A session is running again, wherever it came from - a wake, a start for
     waiting work, a human's relaunch. It is a new process, so it is told about
     its queue afresh: what an earlier one was told may never have been read,
-    and a resume keeps the session id that would say otherwise."""
-    cursors.forget_told(con, agent)
+    and a resume keeps the session id that would say otherwise. A tell recorded
+    after the close is not one of those: it went to the session that came back,
+    as its launch prompt (`lifecycle._wake_agent`), and stands."""
+    row = con.execute("SELECT closed_at FROM agent_state WHERE agent = ?", (agent,)).fetchone()
+    told = cursors.cursor_updated(con, f"notify:{agent}")
+    if not (row and row["closed_at"] and told and told > row["closed_at"]):
+        cursors.forget_told(con, agent)
     con.execute(
         "UPDATE agent_state SET closed_at = NULL, resume_session = NULL, updated = ? "
         "WHERE agent = ?", (int(time.time()), agent),

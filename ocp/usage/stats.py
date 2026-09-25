@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .. import db
-from . import replay, status
+from . import prices as pricing, replay, status
 from ..infra import timefmt
 
 # How far back samples are read: a week, the longest window a sample is judged over.
@@ -234,12 +234,21 @@ def short_series(con, now: int) -> dict[str, dict]:
 
 @dataclass
 class Share:
+    """One agent's use of one account over one window, for a screen to draw.
+
+    `share` and `est_pct` are on the cost basis (T45): what the tokens cost at
+    list price, not how many there were. Cache reads are most of the tokens and
+    a tenth of the price, so a count of them would say who reads most, not who
+    spends most. `token_share` is the plain count's share, kept beside it."""
     agent: str
     account: str
     window: str
-    tokens: int
-    classes: dict[str, int] = field(default_factory=dict)
-    share: float = 0.0          # of the account's tokens in the window
+    tokens: int                  # logged: input, cache write, cache read, output (thinking is inside output)
+    classes: dict[str, int] = field(default_factory=dict)   # tokens by kind; thinking is "of which" of out
+    cost: float = 0.0            # USD at list price (prices.py)
+    costs: dict[str, float] = field(default_factory=dict)   # cost by kind, summing to `cost`
+    share: float = 0.0           # of the account's cost in the window
+    token_share: float = 0.0     # of the account's tokens in the window
     est_pct: float | None = None  # share x the account's reported pct: an estimate
     estimate: bool = True
 
@@ -261,50 +270,82 @@ def agent_for_cwd(cwd: str, worktrees: list[tuple[str, str]]) -> str:
     return UNATTRIBUTED
 
 
-def _by_agent(con, lo: int, hi: int, trees) -> dict[tuple[str, str], dict[str, int]]:
-    by: dict[tuple[str, str], dict[str, int]] = {}
+@dataclass
+class _Tally:
+    classes: dict[str, int] = field(default_factory=lambda: dict.fromkeys(_KINDS, 0))
+    costs: dict[str, float] = field(default_factory=lambda: dict.fromkeys(_KINDS, 0.0))
+
+    @property
+    def tokens(self) -> int:
+        return sum(v for k, v in self.classes.items() if k != "thinking")
+
+    @property
+    def cost(self) -> float:
+        return sum(self.costs.values())
+
+
+_KINDS = ("inp", "cc", "cr", "out", "thinking")
+
+
+def _by_agent(con, lo: int, hi: int, trees, prices) -> dict[tuple[str, str], _Tally]:
+    by: dict[tuple[str, str], _Tally] = {}
     for r in con.execute(
-            "SELECT account, cwd, inp, cc, cr, out, thinking FROM token_calls "
+            "SELECT account, cwd, model, inp, cc, cr, out, thinking FROM token_calls "
             "WHERE ts > ? AND ts <= ?", (lo, hi)):
-        c = by.setdefault((agent_for_cwd(r["cwd"], trees), r["account"]),
-                          dict.fromkeys(("inp", "cc", "cr", "out", "thinking"), 0))
-        for f in c:
-            c[f] += r[f]
+        t = by.setdefault((agent_for_cwd(r["cwd"], trees), r["account"]), _Tally())
+        priced = pricing.class_costs(r["model"], r["inp"], r["cc"], r["cr"], r["out"],
+                                     r["thinking"], prices)
+        for k in _KINDS:
+            t.classes[k] += r[k]
+            t.costs[k] += priced[k]
     return by
 
 
-def _shares(by) -> dict[tuple[str, str], float]:
-    totals: dict[str, int] = {}
-    for (_, acct), c in by.items():
-        totals[acct] = totals.get(acct, 0) + sum(c.values())
-    return {k: (sum(c.values()) / totals[k[1]] if totals[k[1]] else 0.0) for k, c in by.items()}
+def _shares(by, basis) -> dict[tuple[str, str], float]:
+    """Each entry's fraction of its account's total, on `basis` (a _Tally -> number)."""
+    totals: dict[str, float] = {}
+    for (_, acct), t in by.items():
+        totals[acct] = totals.get(acct, 0) + basis(t)
+    return {k: (basis(t) / totals[k[1]] if totals[k[1]] else 0.0) for k, t in by.items()}
 
 
-def token_share(con, now: int) -> list[Share]:
-    """Each agent's tokens per account over 5h, 24h and 7d, largest first.
+def _tokens_of(t: _Tally) -> int:
+    return t.tokens
+
+
+def _cost_of(t: _Tally) -> float:
+    return t.cost
+
+
+def token_share(con, now: int, prices: dict[str, float] | None = None) -> list[Share]:
+    """Each agent's use per account over 5h, 24h and 7d, largest cost first.
 
     The agent is the one whose worktree holds the call's cwd. `share` is exact
-    arithmetic over what was logged in that sliding span. `est_pct` is an
-    estimate: the agent's share of the account's tokens within the reported
-    window's own span (reset_at - 5h/7d up to now) times that window's reported
-    percent, because tokens are not what the plan charges. It is None when the
-    reset is unknown or for 24h, which has no reported percent."""
+    arithmetic over what was logged in that sliding span, priced by
+    `usage.prices` (`prices` overrides the per-family input prices; see
+    `prices.table_from_config`). `est_pct` is an estimate: the agent's cost share
+    of the account within the reported window's own span (reset_at - 5h/7d up to
+    now) times that window's reported percent, because what the plan charges is
+    not tokens. It is None when the reset is unknown or for 24h, which has no
+    reported percent."""
     trees = _worktrees(con)
     stats = {a.account: a for a in account_stats(con, now)}
     out: list[Share] = []
     for wname, span in SHARE_WINDOWS.items():
-        by = _by_agent(con, now - span, now, trees)
-        share = _shares(by)
+        by = _by_agent(con, now - span, now, trees, prices)
+        share = _shares(by, _cost_of)
+        by_tokens = _shares(by, _tokens_of)
         own: dict[tuple[str, str], float] = {}
         pcts: dict[str, int] = {}
         for acct, a in stats.items():
             w = next((x for x in (a.short, a.long) if x.minutes * 60 == span), None)
             if w is not None and w.reset_at and w.pct is not None:
                 pcts[acct] = w.pct
-                mine = _by_agent(con, w.reset_at - span, now, trees)
-                own.update(_shares({k: c for k, c in mine.items() if k[1] == acct}))
-        for (agent, acct), c in by.items():
+                mine = _by_agent(con, w.reset_at - span, now, trees, prices)
+                own.update(_shares({k: t for k, t in mine.items() if k[1] == acct}, _cost_of))
+        for (agent, acct), t in by.items():
             est = own.get((agent, acct), 0.0) * pcts[acct] if acct in pcts else None
-            out.append(Share(agent, acct, wname, sum(c.values()), c, share[(agent, acct)], est))
-    return sorted(out, key=lambda s: (list(SHARE_WINDOWS).index(s.window), -s.tokens,
+            out.append(Share(agent, acct, wname, t.tokens, t.classes, t.cost, t.costs,
+                             share[(agent, acct)], by_tokens[(agent, acct)], est))
+    return sorted(out, key=lambda s: (list(SHARE_WINDOWS).index(s.window), -s.cost, -s.tokens,
                                       s.agent, s.account))
