@@ -21,9 +21,14 @@ from .bridge import _bridge_textual_module
 
 def _refused_listing(target: str | None) -> bool:
     """Print why and return True when the caller may not list `target`."""
+    caller = askmod.asking_agent()
+    if caller is None:
+        print("cannot tell who is asking: OCP_AGENT is unset and this is not an "
+              "interactive shell, so nothing is listed.")
+        return True
     if not target:
         return False
-    why = actions.listing_refusal(askmod.current_agent(), target)
+    why = actions.listing_refusal(caller, target)
     if why:
         print(why)
     return bool(why)

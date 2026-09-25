@@ -1737,9 +1737,10 @@ edges:
           rc == 1 and "may not list manager's messages" in out, out)
     rc, out = _cli(["inbox", "marina", "--all"], as_agent=askmod.HUMAN)
     check("T39: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
-    rc, out = _cli(["handoff", "marina"], as_agent=None)
-    check("T39: a caller with no name is not refused by this rule",
-          "may not list" not in out, out)
+    for cmd in (["handoff", "marina"], ["digest", "marina"], ["inbox", "marina"], ["events"]):
+        rc, out = _cli(cmd, as_agent=None)
+        check(f"T39: a caller with no name is refused `ocp {' '.join(cmd)}`",
+              rc == 1 and "cannot tell who is asking" in out and "secret of marina" not in out, out)
     con = db.connect()
     try:
         first = con.execute("SELECT id FROM requests ORDER BY id LIMIT 1").fetchone()[0]

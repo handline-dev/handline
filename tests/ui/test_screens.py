@@ -3294,8 +3294,9 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
     calls: list[tuple] = []
     fake = types.ModuleType("ocp.ui.bridge_textual")
     fake.run = lambda once=False: calls.append(("textual",)) or 0
-    real_isatty = sys.stdout.isatty
+    real_isatty, real_in_isatty = sys.stdout.isatty, sys.stdin.isatty
     sys.stdout.isatty = lambda: True
+    sys.stdin.isatty = lambda: True  # a human at a prompt, as asking_agent reads it
     real_import = clibridge._import_bridge_textual
     real_human = cliask._human_inbox
     cliask._human_inbox = lambda all_: calls.append(("text",)) or 0
@@ -3318,7 +3319,7 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
         check("inbox routing: without the package it lists the mailbox as text",
               calls == [("text",)], calls)
     finally:
-        sys.stdout.isatty = real_isatty
+        sys.stdout.isatty, sys.stdin.isatty = real_isatty, real_in_isatty
         clibridge._import_bridge_textual = real_import
         cliask._human_inbox = real_human
 

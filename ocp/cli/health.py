@@ -149,7 +149,7 @@ def cmd_backup(args) -> int:
 def cmd_events(args) -> int:
     if _refused_listing(args.agent):
         return 1
-    only = None if args.agent else actions.listable_agents(askmod.current_agent())
+    only = None if args.agent else actions.listable_agents(askmod.asking_agent())
     con = db.connect()
     try:
         # Without --after this is "what just happened", so it starts at the
