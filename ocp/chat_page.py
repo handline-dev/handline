@@ -57,11 +57,8 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
-    params = (actions.HUMAN, *params)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at, "
-           "EXISTS (SELECT 1 FROM requests c WHERE c.parent_id = requests.id AND c.requester = ? "
-           f"AND c.state NOT IN {_GONE}) AS replied "
+           "dismissed_by, dismissed_reason, delivered_at "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
@@ -113,7 +110,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "text": (text or "").strip("\n") or "(empty)",
                          "waiting": part == 0 and r["state"] == "queued" and r["target"] == human,
                          "replyable": human in (r["requester"], r["target"]),
-                         "answered": side == "agent" and (part == 0 and bool(shown) or bool(r["replied"])),
+                         "answered": side == "agent" and part == 0 and bool(shown),
                          "queued": queued,
                          "held": held,
                          "delivered": bool(r["delivered_at"]),
