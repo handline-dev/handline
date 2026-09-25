@@ -15,6 +15,7 @@ from textual.widgets import DataTable, Select, Static
 
 from ... import actions, db
 from ...infra import textsafe
+from ..chat_page import TaskTable
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
 
@@ -47,7 +48,6 @@ class TasksView(Vertical):
         Binding("o", "act('owner')", "owner"),
         Binding("p", "act('priority')", "priority"),
         Binding("m", "act('merge')", "merge"),
-        Binding("s", "sort", "sort"),
         Binding("a", "closed", "closed"),
         Binding("f", "owner_filter", "agent"),
         Binding("question_mark", "key_help", "keys"),
@@ -67,10 +67,13 @@ class TasksView(Vertical):
         Key("o", "owner", 2, "change the owner to another agent"),
         Key("p", "priority", 2, "set the priority, 1 high to 3 low"),
         Key("m", "merge", 2, "fold the marked tasks into the row under the cursor"),
-        Key("s", "sort", 3, "sort by priority, or by number"),
+        Key("s", "sort", 3, "sort by the next column; S reverses; a click on a column head sorts by it"),
         Key("a", "closed", 3, "show or hide closed, discarded and merged tasks"),
         Key("f", "agent", 3, "show one agent's tasks, and the next agent on each press; or use the agent dropdown"),
     )
+
+    HEADS = (("", "mark"), ("#", "number"), ("P", "priority"), ("state", "state"), ("title", "title"),
+             ("owner", "owner"), ("idle", "idle"), ("may close", "closer"), ("blocked by", "blocked"))
 
     def __init__(self, mine: bool = False, back: bool = False, **kw) -> None:
         super().__init__(**kw)
@@ -78,29 +81,37 @@ class TasksView(Vertical):
         self.back = back
         self.checked: set[int] = set()
         self.by = "priority"
+        self.rev = False
         self.show_closed = False
         self.owner: str | None = None
         self.owners: list[str] = []
         self.rows: list[dict] = []
         self.flash = ""
         self.results = Text()
-        self._syncing = False
+        self._agent_owners: list[str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="tasks_title")
         with Horizontal(id="tasks_filters"):
             yield Select([("agent: all", "")], id="f_agent", allow_blank=False, compact=True)
-            yield Select([("by priority", "priority"), ("by number", "number")], id="f_sort",
+            yield Select([(f"sort: {c}", c) for c in actions.TASK_SORTS], id="f_sort",
                          allow_blank=False, compact=True)
             yield Select([("open only", "open"), ("incl. closed", "all")], id="f_closed",
                          allow_blank=False, compact=True)
-        yield DataTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
+        yield TaskTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
         yield Static(id="tasks_results")
         yield KeyGuide(self._keys(), id="tasks_foot")
 
+    def _set_columns(self) -> None:
+        """The heads, with an arrow on the sort column; a rebuild is how a head changes."""
+        table = self.table
+        table.clear(columns=True)
+        for label, key in self.HEADS:
+            arrow = (" ▼" if self.rev else " ▲") if key == self.by else ""
+            table.add_column(label + arrow, key=key)
+
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(
-            "", "#", "P", "state", "title", "owner", "idle", "may close", "blocked by")
+        self._set_columns()
         self.set_interval(2.0, self.refresh_rows)
         self.refresh_rows()
 
@@ -127,7 +138,7 @@ class TasksView(Vertical):
             self.owner = None
         if self.owner:
             rows = [r for r in rows if r["owner"] == self.owner]
-        self.rows = actions.sort_task_rows(rows, self.by)
+        self.rows = actions.sort_task_rows(rows, self.by, self.rev)
         now = time.time()
         table = self.table
         row = table.cursor_row
@@ -143,7 +154,7 @@ class TasksView(Vertical):
             table.move_cursor(row=min(row, len(self.rows) - 1))
         title = Text(f"{'MY TASKS' if self.mine else 'TASKS'}  ", style="bold")
         title.append(f"{len(self.rows)} {'incl. closed' if self.show_closed else 'open'}"
-                     f" · agent {self.owner or 'all'} · by {self.by}", style="dim")
+                     f" · agent {self.owner or 'all'} · by {self.by} {'desc' if self.rev else 'asc'}", style="dim")
         self.query_one("#tasks_title", Static).update(title)
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
@@ -152,26 +163,34 @@ class TasksView(Vertical):
         self.query_one("#tasks_results", Static).update(shown)
 
     def _sync_filters(self) -> None:
-        """Show the state in the dropdowns; `_syncing` keeps that from reading as a choice."""
-        self._syncing = True
+        """Show the state in the dropdowns, touching a dropdown only when it differs, so an
+        open one is not rebuilt under the user and no Changed is posted for our own state."""
         agent = self.query_one("#f_agent", Select)
-        agent.set_options([("agent: all", ""), *((f"agent: {o}", o) for o in self.owners)])
-        agent.value = self.owner or ""
-        self.query_one("#f_sort", Select).value = self.by
-        self.query_one("#f_closed", Select).value = "all" if self.show_closed else "open"
-        self.call_after_refresh(setattr, self, "_syncing", False)
+        if self.owners != self._agent_owners:
+            self._agent_owners = list(self.owners)
+            agent.set_options([("agent: all", ""), *((f"agent: {o}", o) for o in self.owners)])
+        for sel, want in ((agent, self.owner or ""), (self.query_one("#f_sort", Select), self.by),
+                          (self.query_one("#f_closed", Select), "all" if self.show_closed else "open")):
+            if sel.value != want:
+                sel.value = want
 
     def on_select_changed(self, event: Select.Changed) -> None:
         event.stop()
-        if self._syncing:
-            return
         v = event.value
         if event.select.id == "f_agent":
-            self.owner = v or None
+            new = ("owner", v or None)
         elif event.select.id == "f_sort":
-            self.by = str(v)
-        elif event.select.id == "f_closed":
-            self.show_closed = v == "all"
+            if v != self.by:
+                self._sort_by(str(v))
+                self._set_columns()
+                self.table.focus()
+                self.refresh_rows()
+            return
+        else:
+            new = ("show_closed", v == "all")
+        if getattr(self, new[0]) == new[1]:
+            return
+        setattr(self, *new)
         self.table.focus()
         self.refresh_rows()
 
@@ -192,9 +211,22 @@ class TasksView(Vertical):
     def action_key_help(self) -> None:
         self.app.push_screen(KeyHelp("MY TASKS keys" if self.mine else "TASKS keys", self._keys()))
 
-    def action_sort(self) -> None:
-        self.by = "number" if self.by == "priority" else "priority"
+    def on_task_table_sort(self, event: TaskTable.Sort) -> None:
+        event.stop()
+        names = list(actions.TASK_SORTS)
+        if event.column == "reverse":
+            self.rev = not self.rev
+        elif event.column == "next":
+            self._sort_by(names[(names.index(self.by) + 1) % len(names)])
+        elif event.column == self.by:
+            self.rev = not self.rev
+        elif event.column in names:
+            self._sort_by(event.column)
+        self._set_columns()
         self.refresh_rows()
+
+    def _sort_by(self, column: str) -> None:
+        self.by, self.rev = column, column == "idle"
 
     def action_closed(self) -> None:
         self.show_closed = not self.show_closed

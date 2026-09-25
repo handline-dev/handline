@@ -5639,7 +5639,15 @@ def test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(home: Path)
         by_prio = [r["id"] for r in actions.sort_task_rows(rows, "priority")]
         check("sort: number is numeric, T9 before T10", by_num == sorted(by_num))
         check("sort: priority puts P1 first, then by number", by_prio[0] == b and by_prio[1:] == sorted(by_prio[1:]))
+        by_num_rev = [r["id"] for r in actions.sort_task_rows(rows, "number", True)]
+        check("sort: reverse flips the order", by_num_rev == by_num[::-1])
+        for col in actions.TASK_SORTS:
+            got = [r["id"] for r in actions.sort_task_rows(rows, col)]
+            check(f"sort: {col} keeps every row once", sorted(got) == by_num)
         old = rows[0]
+        check("sort: idle puts the longest idle last, and first when reversed",
+              actions.sort_task_rows(rows, "idle", True, old["last_activity"] + 9)[0]["last_activity"]
+              == min(r["last_activity"] for r in rows))
         now = old["last_activity"] + 3 * 86400
         check("stale: a waiting task idle 3 days is flagged", actions.task_stale(old, now))
         check("stale: not at 2 days", not actions.task_stale(old, old["last_activity"] + 2 * 86400))

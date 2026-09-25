@@ -970,6 +970,18 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         view.query_one("#f_sort", Select).value = "number"
         await pilot.pause(0.2)
         check("tasks tab: the sort dropdown sets the sort", view.by == "number", view.by)
+        await pilot.press("S")
+        await pilot.pause(0.2)
+        check("tasks tab: S reverses the sort and the head shows it", view.rev
+              and "▼" in str(view.table.columns["number"].label), view.rev)
+        view.query_one("#tasks_table").focus()
+        await pilot.press("s")
+        await pilot.pause(0.2)
+        check("tasks tab: s sorts by the next column", view.by == "state", view.by)
+        opts = list(view.query_one("#f_agent", Select)._options)
+        await pilot.pause(2.3)
+        check("tasks tab: a refresh with the same agents leaves the agent dropdown alone",
+              list(view.query_one("#f_agent", Select)._options) == opts)
 
 
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
@@ -1004,6 +1016,17 @@ async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
         screen = app.screen
         check("checks: b opens the screen from the dashboard",
               isinstance(screen, TaskChecks), type(screen).__name__)
+        foot = str(screen.query_one("#foot").render())
+        check("checks: the guide is one line and ends with ?",
+              "\n" not in foot and foot.rstrip().endswith("? keys"), foot)
+        await pilot.press("question_mark")
+        await pilot.pause(0.2)
+        from ocp.ui.components.key_guide import KeyHelp
+        check("checks: ? opens the key box", isinstance(app.screen, KeyHelp), type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        check("checks: esc closes the box and stays on the screen", isinstance(app.screen, TaskChecks),
+              type(app.screen).__name__)
         listed = [t["id"] for t in screen.rows]
         check("checks: the founder's own done tasks are both listed",
               t_founder1 in listed and t_founder2 in listed, listed)

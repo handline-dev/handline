@@ -656,11 +656,22 @@ def task_related_to(row: dict, who: str) -> bool:
     return who in (row["owner"], row["opened_by"], row["closer"])
 
 
-def sort_task_rows(rows: list[dict], by: str) -> list[dict]:
-    """`priority` (P1 first, then by number) or `number` (T9 before T10)."""
-    if by == "number":
-        return sorted(rows, key=lambda r: r["id"])
-    return sorted(rows, key=lambda r: (r["priority"], r["id"]))
+TASK_SORTS = ("priority", "number", "state", "title", "owner", "idle")
+_STATE_ORDER = {"waiting": 0, "doing": 1, "done": 2, "closed": 3, "discarded": 4, "merged": 5}
+
+
+def sort_task_rows(rows: list[dict], by: str, reverse: bool = False, now: float | None = None) -> list[dict]:
+    """`rows` ordered by one of TASK_SORTS: `priority` (P1 first), `number` (T9 before
+    T10), `state` (waiting first), `title`, `owner`, `idle` (longest first when reversed);
+    ties fall to the number."""
+    now = time.time() if now is None else now
+    keys = {"priority": lambda r: (r["priority"], r["id"]),
+            "number": lambda r: r["id"],
+            "state": lambda r: (_STATE_ORDER.get(r["state"], 9), r["id"]),
+            "title": lambda r: (r["title"].lower(), r["id"]),
+            "owner": lambda r: (r["owner"].lower(), r["id"]),
+            "idle": lambda r: (task_idle_s(r, now), r["id"])}
+    return sorted(rows, key=keys.get(by, keys["priority"]), reverse=reverse)
 
 
 def batch_task(con, verb: str, tids: list[int], by: str, arg: str = "") -> list[tuple[int, bool, str]]:
