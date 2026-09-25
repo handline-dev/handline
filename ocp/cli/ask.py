@@ -488,6 +488,11 @@ def cmd_resolve(args) -> int:
             print(actions.answer(con, args.id, verdict))
             return 0
         if row["target"] != me:
+            if row["requester"] == me:
+                take_back = "cancel" if me == askmod.HUMAN else "withdraw"
+                print(f"#{args.id} is your own request, not one to answer. "
+                      f"`ocp {take_back} {args.id}` takes it back.")
+                return 1
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"answer. `ocp read {args.id}` shows it.")
             return 1

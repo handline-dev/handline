@@ -1626,6 +1626,9 @@ edges:
         mgr, dev = launch.context_for("manager"), launch.context_for("marina")
         check("team: a supervisor is told who its reports are, and that it hands them work",
               "`marina`" in mgr and "`keeper`" in mgr and "ocp ask <name>" in mgr, mgr)
+        check("team: a supervisor is given the manager rules, a report is not",
+              all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
+              and "--blocked-by" not in dev, mgr)
         check("team: a report is told who it reports to",
               "You report to `manager`" in dev and "Your reports" not in dev, dev)
         check("team: an agent nobody supervises reports to the founder",

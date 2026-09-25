@@ -451,7 +451,12 @@ def _your_team(agent: str) -> str:
                      "You do not implement - give one work with `ocp ask <name> "
                      "\"<task>\"`, and read what it sends back. One task at a "
                      "time; to correct one not yet delivered, `--replaces <id>` "
-                     "or `ocp withdraw <id>`, not a message behind it.")
+                     "or `ocp withdraw <id>`, not a message behind it. Withdraw an ask "
+                     "that has gone stale. Record a wait as `--blocked-by T<n>` on the "
+                     "task, not in prose. Check main before you assign, so nobody "
+                     "rebuilds what landed. Quote the founder's own words in the task "
+                     "you open for their request, and answer the founder through "
+                     "`ocp`, never in chat.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
                  "A decision or a block only the founder can clear: `ocp ask human`.")
     # A self-scheduled wakeup survives the park's /clear and fires into a

@@ -1746,6 +1746,9 @@ edges:
         first = con.execute("SELECT id FROM requests ORDER BY id LIMIT 1").fetchone()[0]
     finally:
         con.close()
+    rc, out = _cli(["resolve", str(first), "x"], as_agent="manager")
+    check("T46: the requester answering its own request is pointed at withdraw",
+          rc == 1 and "your own request" in out and f"`ocp withdraw {first}`" in out, out)
     rc, out = _cli(["read", str(first)], as_agent="dohyun")
     check("T39: `ocp read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
 
