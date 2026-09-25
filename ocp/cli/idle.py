@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .. import idle_close
+from ..session import idle_close
 
 
 def seconds_or_never(text: str) -> int:

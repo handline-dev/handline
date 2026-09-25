@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 
-from .. import ask as askmod
-from .. import timefmt
+from ..team import ask as askmod
+from ..infra import timefmt
 
 
 # Section 8.2 states.

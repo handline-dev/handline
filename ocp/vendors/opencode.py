@@ -256,7 +256,8 @@ class Opencode:
         """A permission request replaces the prompt box with its choices, the
         first already selected, so Enter answers it. Anything without the box
         cannot be typed into safely."""
-        from .. import orca, textsafe  # late: orca looks drivers up
+        from ..session import orca  # late: orca looks drivers up
+        from ..infra import textsafe  # late: orca looks drivers up
         rows = [str(x) for x in tail]
         low = max(0, len(rows) - _FOOTER_ROWS)
         ask = next((i for i in range(len(rows) - 1, low - 1, -1)

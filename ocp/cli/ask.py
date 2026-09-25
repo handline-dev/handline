@@ -6,14 +6,14 @@ import time
 from pathlib import Path
 
 from .. import actions
-from .. import timefmt
-from .. import ask as askmod
+from ..infra import timefmt
+from ..team import ask as askmod
 from .. import db
-from .. import fold as foldmod
-from .. import hr
-from .. import paths
-from .. import textsafe
-from .. import waiting
+from ..session import fold as foldmod
+from ..team import hr
+from ..infra import paths
+from ..infra import textsafe
+from ..session import waiting
 
 from ..daemon import delivery as dmn_delivery
 from .bridge import _bridge_textual_module

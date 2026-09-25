@@ -6,7 +6,9 @@ from typing import NamedTuple
 
 from rich.text import Text
 
-from ... import actions, db, load as loadmod, paths, status
+from ... import actions, db
+from ...usage import load as loadmod, status
+from ...infra import paths
 from ...daemon import locks as dmn_locks
 
 # Usage from which an account is worth a word in the header.

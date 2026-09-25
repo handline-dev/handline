@@ -8,7 +8,7 @@ from textual.screen import ModalScreen
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
-from ... import textsafe
+from ...infra import textsafe
 
 
 def confirm_answer(key: str, character: str | None) -> bool | None:

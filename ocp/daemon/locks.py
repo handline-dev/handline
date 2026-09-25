@@ -4,9 +4,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .. import lock
-from .. import observe as obs
-from .. import paths
+from ..infra import lock
+from ..session import observe as obs
+from ..infra import paths
 
 
 # ---------------------------------------------------------------- the lock

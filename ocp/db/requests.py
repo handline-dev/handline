@@ -196,7 +196,7 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     """
     if state == "queued":
         return False
-    from .. import ask as askmod, hr
+    from ..team import ask as askmod, hr
     row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
     if row is None or row["target"] != askmod.HUMAN:
         return False

@@ -1,9 +1,9 @@
 """The routing table as the daemon reads it, who supervises whom, and who may list whose messages."""
 from __future__ import annotations
 
-from .. import ask as askmod
-from .. import paths
-from .. import team
+from ..team import ask as askmod
+from ..infra import paths
+from ..team import team
 
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`

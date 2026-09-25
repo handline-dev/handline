@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..paths import user_home
+from ..infra.paths import user_home
 
 
 def keychain_service(config_dir: Path) -> str:
@@ -106,11 +106,11 @@ class Claude:
         return None
 
     def screen_blocker(self, tail: list[str]):
-        from .. import orca  # late: orca looks drivers up
+        from ..session import orca  # late: orca looks drivers up
         return _screen_blocker(orca, tail)
 
     def trust_screen(self, tail: list[str]) -> str | None:
-        from .. import orca  # late: orca looks drivers up
+        from ..session import orca  # late: orca looks drivers up
         return _trust_screen(orca, tail)
 
     def trust_answer(self) -> str:

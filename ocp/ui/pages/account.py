@@ -13,8 +13,12 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Header, Input, Static, Tabs
 
-from ... import accounts, actions, db, load as loadmod, paths, status, textsafe, tui
-from ... import timefmt
+from ...team import accounts
+from ... import actions, db
+from ...usage import load as loadmod, status
+from ...infra import paths, textsafe
+from .. import tui
+from ...infra import timefmt
 from ..components import gauge
 from ..components.account_actions import AccountActions
 from ..components.action_bar import ActionBar
@@ -188,7 +192,7 @@ class AccountPage(AccountActions, Screen):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
-        from ...chat_page import ChatPage   # chat_page imports the components this page uses
+        from ..chat_page import ChatPage  # chat_page imports the components this page uses
         self.app.push_screen(ChatPage(str(event.row_key.value)))
 
     def action_back(self) -> None:

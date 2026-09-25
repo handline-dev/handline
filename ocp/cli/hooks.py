@@ -7,11 +7,11 @@ import shutil
 import subprocess
 import sys
 
-from .. import ask as askmod
-from .. import drift
-from .. import events
-from .. import hooks
-from .. import paths
+from ..team import ask as askmod
+from ..session import drift
+from ..session import events
+from ..session import hooks
+from ..infra import paths
 
 
 # ---------------------------------------------------------------- hooks

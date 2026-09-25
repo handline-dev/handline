@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import agents, paths
+from ..team import agents
+from ..infra import paths
 from .base import Driver
 from .claude import Claude
 from .opencode import Opencode

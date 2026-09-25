@@ -6,15 +6,15 @@ import sys
 from pathlib import Path
 
 from .. import actions
-from .. import timefmt
-from .. import agents
-from .. import ask as askmod
+from ..infra import timefmt
+from ..team import agents
+from ..team import ask as askmod
 from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
-from .. import handoff as handoffmod
-from .. import paths
-from .. import status
-from .. import textsafe
+from ..session import handoff as handoffmod
+from ..infra import paths
+from ..usage import status
+from ..infra import textsafe
 
 from .ask import _who_refusal
 

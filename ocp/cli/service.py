@@ -3,9 +3,9 @@ from __future__ import annotations
 
 
 from ..daemon import locks as dmn_locks
-from .. import service
-from .. import textsafe
-from .. import venv as venvmod
+from ..infra import service
+from ..infra import textsafe
+from ..infra import venv as venvmod
 
 
 # ---------------------------------------------------------------- service

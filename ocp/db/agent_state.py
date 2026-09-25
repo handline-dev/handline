@@ -126,7 +126,7 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
 # already move (close_task is deliberately NOT here - see the daemon_kinds
 # comment in test_only_the_agents_own_events_move_its_activity_clock; #1565
 # SF3, the fourth event ocp could attribute to an agent that did nothing).
-# Of the hook events ocp captures (ocp/events.py CAPTURED),
+# Of the hook events ocp captures (ocp/session/events.py CAPTURED),
 # UserPromptSubmit, Stop and StopFailure are a live turn happening or ending;
 # SubagentStop and PostCompact only ever fire mid a live session, never from
 # anything ocp can trigger on its own; PermissionRequest and TeammateIdle both

@@ -3,16 +3,16 @@ from __future__ import annotations
 
 
 from .. import actions
-from .. import ask as askmod
+from ..team import ask as askmod
 from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
-from .. import launch
-from .. import orca
-from .. import paths
-from .. import spawn as spawnmod
-from .. import team
-from .. import tui
-from .. import waiting
+from ..session import launch
+from ..session import orca
+from ..infra import paths
+from ..team import spawn as spawnmod
+from ..team import team
+from ..ui import tui
+from ..session import waiting
 
 from .ask import _who_refusal
 from .health import _name_col

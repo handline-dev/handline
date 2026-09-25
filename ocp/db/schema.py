@@ -6,7 +6,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from .. import paths
+from ..infra import paths
 
 from .cursors import get_cursor, set_cursor
 
@@ -490,7 +490,7 @@ def _unhide_the_humans_answers(con) -> None:
     """
     if get_cursor(con, "migrated:human_answers"):
         return
-    from .. import ask
+    from ..team import ask
     con.execute("UPDATE requests SET announced_at = NULL WHERE requester = ? "
                 "AND state IN ('done', 'rejected')", (ask.HUMAN,))
     set_cursor(con, "migrated:human_answers", 1)
@@ -516,7 +516,8 @@ def _rename_orchestrator(con) -> None:
     """
     if get_cursor(con, "migrated:human_name"):
         return
-    from .. import ask, paths
+    from ..team import ask
+    from ..infra import paths
 
     new = ask.HUMAN
     if new != OLD_HUMAN:

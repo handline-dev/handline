@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import time
 
-from .. import ask as askmod
-from .. import timefmt
+from ..team import ask as askmod
+from ..infra import timefmt
 from .. import db
-from .. import waiting
+from ..session import waiting
 
 from .requests import _is_answer_to_human, answer, answer_ok, message_ok
 from .routing import HUMAN

@@ -6,10 +6,10 @@ import shutil
 import subprocess
 import sys
 
-from .. import accounts
-from .. import guide
-from .. import hooks
-from .. import paths
+from ..team import accounts
+from ..team import guide
+from ..session import hooks
+from ..infra import paths
 from .. import vendors
 
 from .hooks import cmd_hook_install

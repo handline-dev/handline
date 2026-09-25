@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import subprocess
 
-from ... import accounts, actions, db, load as loadmod
+from ...team import accounts
+from ... import actions, db
+from ...usage import load as loadmod
 from .text_prompt import TextPrompt
 
 

@@ -4,17 +4,17 @@ from __future__ import annotations
 import time
 
 from .. import actions
-from .. import timefmt
-from .. import blocked as blockedmod
+from ..infra import timefmt
+from ..session import blocked as blockedmod
 from ..daemon import devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
 from .. import db
-from .. import launch
-from .. import observe as obs
-from .. import orca
-from .. import service
-from .. import textsafe
-from .. import tui
-from .. import waiting
+from ..session import launch
+from ..session import observe as obs
+from ..session import orca
+from ..infra import service
+from ..infra import textsafe
+from ..ui import tui
+from ..session import waiting
 
 from .health import _name_col
 

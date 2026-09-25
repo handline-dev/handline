@@ -10,7 +10,7 @@ from textual.containers import Vertical
 from textual.message import Message
 from textual.widgets import Input, Static, TextArea
 
-from ... import textsafe
+from ...infra import textsafe
 
 
 def _committed(event: events.Key) -> str:

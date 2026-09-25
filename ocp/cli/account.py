@@ -6,18 +6,18 @@ import shutil
 import subprocess
 import sys
 
-from .. import accounts
-from .. import timefmt
+from ..team import accounts
+from ..infra import timefmt
 from .. import actions
-from .. import agents
+from ..team import agents
 from .. import db
-from .. import load
-from .. import orca
-from .. import paths
-from .. import recover as recovermod
-from .. import status
-from .. import textsafe
-from .. import tui
+from ..usage import load
+from ..session import orca
+from ..infra import paths
+from ..usage import recover as recovermod
+from ..usage import status
+from ..infra import textsafe
+from ..ui import tui
 from .. import vendors
 
 
