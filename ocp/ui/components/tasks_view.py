@@ -120,7 +120,6 @@ class TasksView(Vertical):
         self._agent_owners: list[str] | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static(id="tasks_title")
         with Horizontal(id="tasks_filters"):
             yield Select([("agent: all", "")], id="f_agent", allow_blank=False, compact=True)
             yield Select([(f"sort: {c}", c) for c in actions.TASK_SORTS], id="f_sort",
@@ -199,9 +198,6 @@ class TasksView(Vertical):
         if self.rows:
             table.move_cursor(row=min(row, len(self.rows) - 1))
         self._show_pane()
-        title = Text(f"{'MY TASKS' if self.mine else 'TASKS'}  ", style="bold")
-        title.append(str(len(self.rows)), style="dim")
-        self.query_one("#tasks_title", Static).update(title)
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
         shown = Text(self.flash + "\n" if self.flash else "", "yellow")
