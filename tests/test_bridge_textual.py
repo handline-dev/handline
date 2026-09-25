@@ -1543,6 +1543,13 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
         await pilot.click("#settings_save")
         await pilot.pause(0.2)
         check("home: the Settings tab saves the default cap", loadmod.default_cap() == 7, loadmod.default_cap())
+        for bad in ("0", ""):
+            screen.query_one("#default_cap", Input).value = bad
+            await pilot.click("#settings_save")
+            await pilot.pause(0.2)
+            check(f"home: a default cap of {bad!r} is refused and the saved one stays",
+                  loadmod.default_cap() == 7 and "at least 1" in str(screen.query_one("#settings_flash", Static).render()),
+                  str(screen.query_one("#settings_flash", Static).render()))
         screen.query_one("#scope", Tabs).active = "home"
         await pilot.pause(0.2)
         last = next(p for p in reversed(screen.PANELS) if tui._keys_of(p))
