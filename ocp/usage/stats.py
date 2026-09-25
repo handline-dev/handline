@@ -13,10 +13,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .. import db
-from . import replay
+from . import replay, status
 from ..infra import timefmt
 
-WINDOWS = {"5h": 5 * 3600, "7d": 7 * 86400}
+# How far back samples are read: a week, the longest window a sample is judged over.
+HISTORY_S = 7 * 86400
 BURN_LOOKBACK = 24 * 3600
 SHARE_WINDOWS = {"5h": 5 * 3600, "24h": 24 * 3600, "7d": 7 * 86400}
 UNATTRIBUTED = "(unattributed)"
@@ -39,16 +40,22 @@ def _status(row, as_of: float):
     return st
 
 
-def _measured(row, window: str) -> bool:
-    """The sample's figure was a real reading when it was taken: live or freshly
-    carried, not stale, lost, unreadable or too old to trust."""
+def _measured(row, role: str) -> int | None:
+    """The sample's figure when it was a real reading when it was taken: live or
+    freshly carried, not stale, lost, unreadable or too old to trust. `role` is
+    "short" or "long"."""
     st = _status(row, row["ts"])
-    src = st.pct_5h_source if window == "5h" else st.pct_7d_source
-    return src in ("live", "carried") and row[f"pct_{window}"] is not None
+    w, src = (st.short, st.short_source) if role == "short" else (st.long, st.long_source)
+    return w.pct if src in ("live", "carried") else None
 
 
-def _points(rows, window: str) -> list[tuple[int, int]]:
-    return [(r["ts"], r[f"pct_{window}"]) for r in rows if _measured(r, window)]
+def _points(rows, role: str) -> list[tuple[int, int]]:
+    out = []
+    for r in rows:
+        pct = _measured(r, role)
+        if pct is not None:
+            out.append((r["ts"], pct))
+    return out
 
 
 # ------------------------------------------------------------ burn rate
@@ -69,7 +76,9 @@ def _burn(points: list[tuple[int, int]]) -> float | None:
 
 @dataclass
 class Window:
-    """One account's one window (5h or 7d)."""
+    """One account's shortest or longest window."""
+    label: str                 # its length as a person says it: 5h, 7d
+    minutes: int
     pct: int | None            # None: no reading, or its window has ended
     reset_at: int | None       # the next reset, when it is still ahead
     frees: int | None          # percentage points that clear at reset_at
@@ -79,20 +88,23 @@ class Window:
     blocked_since: int | None  # start of the current stretch at 100%
 
 
-def _window(rows, window: str, now: int) -> Window:
-    pts = _points(rows, window)
+def _window(rows, role: str, now: int) -> Window:
+    pts = _points(rows, role)
     last = rows[-1] if rows else None
-    reset = last[f"reset_{window}"] if last else None
+    held = None
+    if last is not None:
+        held = status.windows_of(dict(last))[0 if role == "short" else 1]
+    reset = held.reset if held else None
     pct = fresh = None
     if last is not None and (reset is None or reset > now):
         st = _status(last, now)
-        if window == "5h":
-            fresh = st.pct_5h_source in ("live", "carried")
-            pct = st.trusted_pct_5h if fresh or st.pct_5h_source == "quiet" else None
+        if role == "short":
+            fresh = st.short_source in ("live", "carried")
+            pct = st.short_trusted if fresh or st.short_source == "quiet" else None
         else:
             # An old weekly figure is a floor, and a floor still blocks (status.py).
-            pct = st.trusted_pct_7d
-            fresh = st.pct_7d_source in ("live", "carried")
+            pct = st.long_trusted
+            fresh = st.long_source in ("live", "carried")
     reset_at = reset if pct is not None and reset else None
     rate = _burn([p for p in pts if p[0] >= now - BURN_LOOKBACK]) if fresh else None
     runs_out = before = None
@@ -109,49 +121,51 @@ def _window(rows, window: str, now: int) -> Window:
                 break
             since = ts
         since = since or now
-    return Window(pct, reset_at, pct if reset_at else None, rate, runs_out, before, since)
+    return Window(held.label if held else "?", held.minutes if held else 0, pct, reset_at,
+                  pct if reset_at else None, rate, runs_out, before, since)
 
 
 @dataclass
 class AccountStats:
     account: str
-    w5h: Window
-    w7d: Window
+    short: Window
+    long: Window
 
     @property
     def blocked(self) -> bool:
-        return any(w.blocked_since is not None for w in (self.w5h, self.w7d))
+        return any(w.blocked_since is not None for w in (self.short, self.long))
 
     @property
     def recovers_at(self) -> int | None:
         """When a blocked account is usable again: the last of its full windows' resets."""
-        ends = [w.reset_at for w in (self.w5h, self.w7d) if w.blocked_since is not None]
+        ends = [w.reset_at for w in (self.short, self.long) if w.blocked_since is not None]
         return max(ends) if ends and all(ends) else None
 
 
 def account_stats(con, now: int) -> list[AccountStats]:
-    since = now - max(BURN_LOOKBACK, WINDOWS["7d"])
+    since = now - max(BURN_LOOKBACK, HISTORY_S)
     out = []
     for acct in _accounts(con, since):
         rows = _samples(con, acct, since)
-        out.append(AccountStats(acct, _window(rows, "5h", now), _window(rows, "7d", now)))
+        out.append(AccountStats(acct, _window(rows, "short", now), _window(rows, "long", now)))
     return out
 
 
 def recovery_schedule(con, now: int) -> list[dict]:
-    """Per account, the next 5h and 7d reset and what clears then, soonest first."""
+    """Per account, the next reset of each window and what clears then, soonest first."""
     rows = []
     for a in account_stats(con, now):
-        for name, w in (("5h", a.w5h), ("7d", a.w7d)):
+        for w in (a.short, a.long):
             if w.reset_at:
-                rows.append({"account": a.account, "window": name, "reset_at": w.reset_at,
+                rows.append({"account": a.account, "window": w.label, "reset_at": w.reset_at,
                              "frees_pct": w.frees})
     return sorted(rows, key=lambda r: (r["reset_at"], r["account"], r["window"]))
 
 
 def burn_rates(con, now: int) -> dict[str, dict[str, float | None]]:
     """%/hour of each window over the last 24h, per account."""
-    return {a.account: {"5h": a.w5h.rate, "7d": a.w7d.rate} for a in account_stats(con, now)}
+    return {a.account: {a.short.label: a.short.rate, a.long.label: a.long.rate}
+            for a in account_stats(con, now)}
 
 
 def forecasts(con, now: int) -> list[dict]:
@@ -159,8 +173,8 @@ def forecasts(con, now: int) -> list[dict]:
     whether that comes before the window resets."""
     out = []
     for a in account_stats(con, now):
-        for name, w in (("5h", a.w5h), ("7d", a.w7d)):
-            out.append({"account": a.account, "window": name, "pct": w.pct, "rate": w.rate,
+        for w in (a.short, a.long):
+            out.append({"account": a.account, "window": w.label, "pct": w.pct, "rate": w.rate,
                         "runs_out_at": w.runs_out_at, "before_reset": w.before_reset,
                         "reset_at": w.reset_at})
     return out
@@ -182,13 +196,13 @@ def insight(con, now: int, clock=_clock) -> str:
         back = [(a.recovers_at, a.account) for a in blocked if a.recovers_at]
         soonest = f"; earliest recovery {min(back)[1]} {clock(min(back)[0])}" if back else ""
         if len(blocked) == len(accts):
-            at = max(w.blocked_since for a in blocked for w in (a.w5h, a.w7d)
+            at = max(w.blocked_since for a in blocked for w in (a.short, a.long)
                      if w.blocked_since is not None)
             return f"all accounts blocked at {clock(at)}{soonest}"
         names = ", ".join(a.account for a in blocked)
         return f"{len(blocked)} of {len(accts)} accounts blocked ({names}){soonest}"
-    early = sorted((w.runs_out_at, a.account, n) for a in accts
-                   for n, w in (("5h", a.w5h), ("7d", a.w7d))
+    early = sorted((w.runs_out_at, a.account, w.label) for a in accts
+                   for w in (a.short, a.long)
                    if w.runs_out_at and w.before_reset)
     if early:
         at, acct, n = early[0]
@@ -198,17 +212,17 @@ def insight(con, now: int, clock=_clock) -> str:
 
 # ------------------------------------------------------------ graph series
 
-def pct5h_series(con, now: int) -> dict[str, dict]:
-    """Per account: its pct_5h points over the last 24h, and the projected line
-    from now at the recent rate, ending at 100%, its reset, or 5h out."""
+def short_series(con, now: int) -> dict[str, dict]:
+    """Per account: its shortest window's points over the last 24h, and the projected
+    line from now at the recent rate, ending at 100%, its reset, or a window out."""
     since = now - BURN_LOOKBACK
     out = {}
     for a in account_stats(con, now):
-        pts = _points(_samples(con, a.account, since), "5h")
+        pts = _points(_samples(con, a.account, since), "short")
         proj: list[tuple[int, float]] = []
-        w = a.w5h
+        w = a.short
         if w.pct is not None and w.rate:
-            end = min(t for t in (w.runs_out_at, w.reset_at, now + WINDOWS["5h"]) if t)
+            end = min(t for t in (w.runs_out_at, w.reset_at, now + w.minutes * 60) if t)
             end = max(end, now)
             proj = [(now, float(w.pct)),
                     (end, min(100.0, w.pct + w.rate * (end - now) / 3600))]
@@ -283,13 +297,12 @@ def token_share(con, now: int) -> list[Share]:
         share = _shares(by)
         own: dict[tuple[str, str], float] = {}
         pcts: dict[str, int] = {}
-        if wname in WINDOWS:
-            for acct, a in stats.items():
-                w = a.w5h if wname == "5h" else a.w7d
-                if w.reset_at and w.pct is not None:
-                    pcts[acct] = w.pct
-                    mine = _by_agent(con, w.reset_at - span, now, trees)
-                    own.update(_shares({k: c for k, c in mine.items() if k[1] == acct}))
+        for acct, a in stats.items():
+            w = next((x for x in (a.short, a.long) if x.minutes * 60 == span), None)
+            if w is not None and w.reset_at and w.pct is not None:
+                pcts[acct] = w.pct
+                mine = _by_agent(con, w.reset_at - span, now, trees)
+                own.update(_shares({k: c for k, c in mine.items() if k[1] == acct}))
         for (agent, acct), c in by.items():
             est = own.get((agent, acct), 0.0) * pcts[acct] if acct in pcts else None
             out.append(Share(agent, acct, wname, sum(c.values()), c, share[(agent, acct)], est))

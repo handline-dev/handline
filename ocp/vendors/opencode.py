@@ -12,7 +12,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from .base import Reading
+from .base import Reading, Window
 
 # `opencode auth list`'s closing line, "<n> credentials", whether or not it is
 # given a terminal.
@@ -60,8 +60,9 @@ class _Meter:
         if windows is None:
             return None, False
         pct_5h, reset_5h, pct_7d, reset_7d = windows
-        return Reading(account=acct, pct_5h=pct_5h, reset_5h=reset_5h,
-                       pct_7d=pct_7d, reset_7d=reset_7d, at=int(time.time())), False
+        return Reading(account=acct, windows=(Window(300, pct_5h, reset_5h),
+                                              Window(10080, pct_7d, reset_7d)),
+                       at=int(time.time())), False
 
 
 class Opencode:

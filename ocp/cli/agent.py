@@ -72,8 +72,7 @@ def cmd_agent_show(args) -> int:
         "failed_attempts": (row["failed_attempts"] if row else 0),
         "continuations": (row["continuations"] if row else 0),
         "throttle_count": (row["throttle_count"] if row else 0),
-        "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
-        "pct_5h_source": st.pct_5h_source, "ctx_pct": st.ctx_pct,
+        "windows": st.window_report(), "ctx_pct": st.ctx_pct,
         "inbox_queued": queued,
         "budget": {fn: {"bytes": size, "limit": lim, "over": over}
                    for fn, size, lim, over in agents.budget_report(args.name)},

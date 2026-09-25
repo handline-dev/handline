@@ -1432,9 +1432,11 @@ def test_gauge_elapsed_fraction_bar_and_usage_cells() -> None:
     check("gauge: no elapsed, no mark", "│" not in gauge.bar(50, 10))
 
     now = time.time()
-    metered = SimpleNamespace(unmetered=False, reset_5h=int(now + 9000), reset_7d=int(now + 86400),
-                              trusted_pct_7d=40, pct_7d_source="live",
-                              shown_pct_5h=lambda: (70, status.mark("live")))
+    metered = SimpleNamespace(unmetered=False,
+                              short=status.Window(300, reset=int(now + 9000)),
+                              long=status.Window(10080, reset=int(now + 86400)),
+                              long_trusted=40, long_source="live",
+                              shown_short=lambda: (70, status.mark("live")))
     five, seven = gauge.usage_cells(metered, True, now=now)
     check("gauge: a metered account has a 5h and a 7d cell, each with its bar and figure",
           "70%" in _plain(five) and "40%" in _plain(seven) and "│" in _plain(five) and "│" in _plain(seven),
@@ -1604,6 +1606,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
 def test_summary_line_and_tightest_account() -> None:
     from types import SimpleNamespace
     from unittest import mock
+    from ocp.usage import status
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
     check("summary: the daemon word comes first, and a quiet team says only that",
@@ -1618,17 +1621,17 @@ def test_summary_line_and_tightest_account() -> None:
           sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.LIMIT_PCT))).spans[-2].style == "bold red"
           and sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.TIGHT_PCT))).spans[-2].style == "yellow")
 
-    reads = {"a": SimpleNamespace(trusted_pct_5h=50, trusted_pct_7d=81),
-             "b": SimpleNamespace(trusted_pct_5h=92, trusted_pct_7d=None),
-             "c": SimpleNamespace(trusted_pct_5h=None, trusted_pct_7d=None)}
+    reads = {"a": SimpleNamespace(short_trusted=50, long_trusted=81, short=status.Window(300), long=status.Window(10080)),
+             "b": SimpleNamespace(short_trusted=92, long_trusted=None, short=status.Window(300), long=status.Window(10080)),
+             "c": SimpleNamespace(short_trusted=None, long_trusted=None, short=status.Window(300), long=status.Window(10080))}
     with mock.patch.object(sm.paths, "list_accounts", lambda: list(reads)), \
             mock.patch.object(sm.status, "read", lambda n: reads[n]):
         check("summary: tightest is the fullest window at TIGHT_PCT or more",
               sm.tightest() == ("b", "5h", 92), sm.tightest())
-        reads["b"].trusted_pct_5h = 79
+        reads["b"].short_trusted = 79
         check("summary: the other window of another account can be the one",
               sm.tightest() == ("a", "7d", 81), sm.tightest())
-        reads["a"].trusted_pct_7d = 79
+        reads["a"].long_trusted = 79
         check("summary: nothing at TIGHT_PCT, and an unreadable figure, is None", sm.tightest() is None)
 
     _home("summarize")

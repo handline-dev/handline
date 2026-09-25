@@ -25,7 +25,7 @@ rolling window of live samples the daemon keeps and the same
 `triggers.burn_rate_per_s` (`reconstruct_burn`), and the week-per-5h ratio from
 `burnrate.costs` run on this same db, with no plan lookup since a plan is
 today's state on disk, not the tick's. Passing `load={}` was thrown out:
-`_no_week_room` needs `ld.costs` to ask anything, so the week gate could not
+`_no_long_room` needs `ld.costs` to ask anything, so the week gate could not
 fire and every row it would have moved read as agreement. Concurrency is what
 no row kept, so every replayed `Load` carries `active=0` and `cap=math.inf`:
 a tick the cap or a rival agent's presence would have decided cannot be
@@ -54,13 +54,10 @@ def status_from_row(row) -> status.AccountStatus:
     """The `AccountStatus` one recorded row describes - the same object
     `pick_account` would have been given, reconstructed from what was kept
     rather than re-derived from a guess."""
+    short, long = status.windows_of(dict(row))
     return status.AccountStatus(
         account=row["account"], exists=bool(row["exists_"]), error=row["error"],
-        pct_5h=row["pct_5h"], pct_5h_readable=bool(row["pct_5h_readable"]),
-        reset_5h=row["reset_5h"], rl_at=row["rl_at"], rl_carried=bool(row["rl_carried"]),
-        rl_lost=bool(row["rl_lost"]), pct_7d=row["pct_7d"], reset_7d=row["reset_7d"],
-        rl7_at=row["rl7_at"], rl7_carried=bool(row["rl7_carried"]), rl7_lost=bool(row["rl7_lost"]),
-        collected_at=row["collected_at"])
+        short=short, long=long, collected_at=row["collected_at"])
 
 
 def old_pick(statuses: dict[str, status.AccountStatus]) -> str | None:
@@ -73,8 +70,8 @@ def old_pick(statuses: dict[str, status.AccountStatus]) -> str | None:
         allowed, _ = st.takes_work(0)
         if not allowed:
             continue
-        deadline = float(st.reset_7d) if st.reset_7d and st.reset_7d > time.time() else float("inf")
-        usable.append((name, deadline, -(st.headroom() or 0)))
+        deadline = float(st.long.reset) if st.long.reset and st.long.reset > time.time() else float("inf")
+        usable.append((name, deadline, -(st.short_headroom() or 0)))
     if not usable:
         return None
     usable.sort(key=lambda t: (t[1], t[2]))
@@ -105,8 +102,9 @@ def reconstruct_burn(rows) -> dict[tuple[str, int], float]:
     hist: dict[str, list[tuple[int, int]]] = {}
     for row in sorted(rows, key=lambda r: (r["account"], r["ts"])):
         h = hist.setdefault(row["account"], [])
-        if _live_at_its_tick(row) and (not h or h[-1][0] != row["rl_at"]):
-            h.append((row["rl_at"], row["pct_5h"]))
+        short = status.windows_of(dict(row))[0]
+        if _live_at_its_tick(row) and (not h or h[-1][0] != short.at):
+            h.append((short.at, short.pct))
             del h[:-triggers.BURN_WINDOW]
         burns[(row["account"], row["ts"])] = triggers.burn_rate_per_s(h)
     return burns
@@ -129,7 +127,7 @@ def replay(con, account_filter=None, since: int | None = None,
     tick's comparison considers, when only some are of interest.
 
     Returns one dict per divergence: ts, old, new, and each candidate
-    account's pct_5h/pct_7d at that moment, for a human to read without
+    account's shortest and longest window figures at that moment, for a human to read without
     reopening the table, and "unasked": the accounts whose week the gate could
     not judge at that tick (no week ratio). When `unasked`
     is a list, every compared tick with any such account is appended to it as
@@ -155,13 +153,13 @@ def replay(con, account_filter=None, since: int | None = None,
             new_picked, _ = status.pick_account(list(statuses.keys()), load=tick_load,
                                                 read_status=statuses.get)
             old_picked = old_pick(statuses)
-            blind = sorted(n for n in tick_load if shared_costs.week_per_5h(n) is None)
+            blind = sorted(n for n in tick_load if shared_costs.long_per_short(n) is None)
             if blind and unasked is not None:
                 unasked.append((ts, blind))
             if new_picked != old_picked:
                 diffs.append({
                     "ts": ts, "old": old_picked, "new": new_picked, "unasked": blind,
-                    "accounts": {n: (s.pct_5h, s.pct_7d, s.reset_7d) for n, s in statuses.items()},
+                    "accounts": {n: (s.short.pct, s.long.pct, s.long.reset) for n, s in statuses.items()},
                 })
     finally:
         time.time = real_time

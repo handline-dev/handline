@@ -53,18 +53,18 @@ def usage_due(con, acct: str, st: status.AccountStatus, now: int) -> str | None:
     asked at all - until its cadence comes round, because the spending we cannot
     see leaves no event to go by.
     """
-    if not st.exists or st.rl_at is None:
+    if not st.exists or st.short.at is None:
         return "no reading yet"
-    if now - st.rl_at >= USAGE_MAX_AGE_S:
-        return f"last read {timefmt.ago(now - st.rl_at)} ago"
-    for window, reset in (("5h", st.reset_5h), ("7d", st.reset_7d)):
-        if reset is not None and reset <= now:
-            return f"its {window} window has ended"
+    if now - st.short.at >= USAGE_MAX_AGE_S:
+        return f"last read {timefmt.ago(now - st.short.at)} ago"
+    for w in (st.short, st.long):
+        if w.reset is not None and w.reset <= now:
+            return f"its {w.label} window has ended"
     last = db.last_account_activity(con, acct)
     # Both are whole seconds, so a turn inside the same second as the reading
     # cannot be placed on either side of it. Asked, not assumed: this gates
     # handing out work, and the cooldown above bounds what the tie costs.
-    if last is not None and last >= st.rl_at:
+    if last is not None and last >= st.short.at:
         return "a turn since the last reading"
     return None
 
@@ -118,14 +118,15 @@ def _ended_window(st, reading, now: int) -> tuple[str, int] | None:
     reset, whatever the older figure said, and a turn on it is the spend the
     wall exists to stop.
     """
-    for window, held, fresh_pct, fresh_reset, wall in (
-            ("5h", st.reset_5h, reading.pct_5h, reading.reset_5h, status.PCT_5H_BLOCK),
-            ("7d", st.reset_7d, reading.pct_7d, reading.reset_7d, status.PCT_7D_BLOCK)):
-        if held is None or held > now:
+    fresh = {w.minutes: w for w in reading.windows}
+    for held, wall in ((st.short, status.SHORT_BLOCK), (st.long, status.LONG_BLOCK)):
+        if held.reset is None or held.reset > now:
             continue
-        if fresh_pct is not None and fresh_pct >= wall and (fresh_reset is None or fresh_reset > now):
+        now_w = fresh.get(held.minutes)
+        if (now_w is not None and now_w.pct is not None and now_w.pct >= wall
+                and (now_w.reset is None or now_w.reset > now)):
             continue
-        return window, held
+        return held.label, held.reset
     return None
 
 
@@ -181,5 +182,5 @@ def _poll_account(con, acct: str, now: int, log) -> bool:
     db.set_meta(con, f"usage-fail:{acct}", None)
     db.set_cursor(con, f"usage-poll:{acct}", now + USAGE_POLL_S)
     usage_api.record(reading)
-    log(f"  usage: {acct}: {why} - 5h {reading.pct_5h}% 7d {reading.pct_7d}%")
+    log(f"  usage: {acct}: {why} - {usage_api.describe(reading)}")
     return True

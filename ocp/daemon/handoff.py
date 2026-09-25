@@ -79,7 +79,7 @@ def resume_handoff(con, row, log) -> None:
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     elif kind in USAGE_TRIGGERS or kind == BY_HAND_MARK:
         rst = status.read(reading.account)
-        wake = triggers.wake_after(kind, rst.reset_5h, rst.reset_7d)
+        wake = triggers.wake_after(kind, rst.short.reset, rst.long.reset)
     else:
         # Not a usage wall and not a park a person asked for: whatever this
         # trigger fired on (context) is already handled by the clear
@@ -272,18 +272,19 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
     if here is None:
         return None, "no account is recorded for it"
     now = time.time()
-    reset = status.read(here)
-    reset = reset.reset_7d if kind == "usage_7d" else reset.reset_5h
+    here_st = status.read(here)
+    reset = here_st.long.reset if kind == "usage_7d" else here_st.short.reset
     reset_in = max(0.0, reset - now) if reset else None
     work = bool(db.queued_for(con, agent) or db.unannounced_answers(con, agent))
     move, why = triggers.stay_or_move(
-        work, reset_in, triggers.stay_within_s(measure.cold_start_pct(con)))
+        work, reset_in,
+        triggers.stay_within_s(measure.cold_start_pct(con), here_st.short.minutes * 60))
     if not move:
         return None, why
     exclude = {here: "the account it is at the wall on"}
     left = _last_left(con, agent)
     if left and left != here:
-        left_reset = status.read(left).reset_5h
+        left_reset = status.read(left).short.reset
         if left_reset and left_reset > now:
             exclude[left] = "the account it just left, until it resets"
     # live_refresh=True: this decides whether a parked, walled agent actually
@@ -547,7 +548,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         wake = int(time.time()) + ASSUMED_ACCOUNT_RECHECK_S
     elif trigger.kind in USAGE_TRIGGERS or trigger.kind == BY_HAND_MARK:
         rst = status.read(reading.account)
-        wake = triggers.wake_after(trigger.kind, rst.reset_5h, rst.reset_7d)
+        wake = triggers.wake_after(trigger.kind, rst.short.reset, rst.long.reset)
     else:
         # Not a usage wall and not a park a person asked for by hand: whatever
         # this trigger fired on (context) is already handled by the

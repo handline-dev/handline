@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 
 from ..infra import paths
+from . import windows
 from .. import vendors
 from ..vendors.base import Reading
 
@@ -63,6 +64,12 @@ def read_detailed(acct: str, refresh: bool = True) -> tuple[Reading | None, bool
     return meter.read_usage(acct, refresh)
 
 
+def describe(reading: Reading) -> str:
+    """The reading as one line for a log: each window by length, shortest first."""
+    return " ".join(f"{windows.label(w.minutes)} {w.pct}%"
+                    for w in sorted(reading.windows, key=lambda w: w.minutes))
+
+
 def record(reading: Reading, path=None) -> bool:
     """Leave the reading where every existing reader already looks.
 
@@ -96,24 +103,20 @@ def record(reading: Reading, path=None) -> bool:
 
     snap = dict(prev)
     now = reading.at
-    for pct, reset, pk, rk, at_key, carried_key, lost_key in (
-            (reading.pct_5h, reading.reset_5h, "pct_5h", "reset_5h",
-             "rl_at", "rl_carried", "rl_lost"),
-            (reading.pct_7d, reading.reset_7d, "pct_7d", "reset_7d",
-             "rl7_at", "rl7_carried", "rl7_lost")):
-        value = pct
-        if pct is not None:
-            old, old_reset = prev.get(pk), prev.get(rk)
-            same_window = (isinstance(old_reset, int) and old_reset == reset
+    old = {e["minutes"]: e for e in windows.entries(prev)}
+    out = []
+    for w in sorted(reading.windows, key=lambda w: w.minutes):
+        value = w.pct
+        if w.pct is not None:
+            before = old.get(w.minutes, {})
+            old_pct, old_reset = before.get("used_percent"), before.get("resets_at")
+            same_window = (isinstance(old_reset, int) and old_reset == w.reset
                            and old_reset > now - CLOCK_SKEW_S)
-            if isinstance(old, int) and same_window and old > pct:
-                value = old
-        snap[pk] = value
-        snap[rk] = reset
+            if isinstance(old_pct, int) and same_window and old_pct > w.pct:
+                value = old_pct
         # Observed, now, first-hand: not carried, and not lost.
-        snap[at_key] = now
-        snap[carried_key] = False
-        snap[lost_key] = False
+        out.append(windows.entry(w.minutes, value, w.reset, now))
+    snap["windows"] = out
     snap["collected_at"] = now
     # So a reader can tell where a figure came from without guessing at the
     # absence of a session_id.

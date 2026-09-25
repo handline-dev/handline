@@ -507,7 +507,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # complete copy of the context.
             rescued = False
             acct, pct = wait.account, wait.pct
-            wait_kind = "usage_7d" if wait.window == "7d" else "usage"
+            wait_kind = "usage_7d" if wait.is_long else "usage"
             elsewhere = handoff._move_plan(con, agent, wait_kind)[0] if session and not wait.assumed \
                 and not handoff._handoff_backing_off(con, agent) else None
             if elsewhere:

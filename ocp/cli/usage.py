@@ -40,25 +40,27 @@ def cmd_usage(args) -> int:
             print(f"{acct:10} {'':4} unmetered")
             continue
         age = timefmt.span(time.time() - st.collected_at) if st.collected_at else "never"
-        trusted5 = str(st.trusted_pct_5h) if st.trusted_pct_5h is not None else "?"
-        trusted7 = str(st.trusted_pct_7d) if st.trusted_pct_7d is not None else "?"
+        trusted5 = str(st.short_trusted) if st.short_trusted is not None else "?"
+        trusted7 = str(st.long_trusted) if st.long_trusted is not None else "?"
         print(f"{acct:10} {'ocp':>4} {trusted5:>5} {trusted7:>5}  "
-              f"{timefmt.stamp(st.reset_7d, timefmt.SHORT, '-'):16}  snapshot {age} old"
-              f" ({st.pct_5h_source}/{st.pct_7d_source})")
+              f"{timefmt.stamp(st.long.reset, timefmt.SHORT, '-'):16}  snapshot {age} old"
+              f" ({st.short_source}/{st.long_source})")
         t0 = time.time()
         r = usage_api.read(acct, refresh=acct not in live)
         if r is None:
             print(f"{'':10} {'api':>4} {'could not ask':>11}")
             continue
         flags = []
-        if r.pct_5h != st.pct_5h:
-            flags.append(f"5h differs ({st.pct_5h} -> {r.pct_5h})")
-        if r.pct_7d != st.pct_7d:
-            flags.append(f"7d differs ({st.pct_7d} -> {r.pct_7d})")
+        rs, rl = r.short, r.long
+        rs_pct, rl_pct = (rs.pct if rs else None), (rl.pct if rl else None)
+        if rs_pct != st.short.pct:
+            flags.append(f"{st.short.label} differs ({st.short.pct} -> {rs_pct})")
+        if rl_pct != st.long.pct:
+            flags.append(f"{st.long.label} differs ({st.long.pct} -> {rl_pct})")
         if acct in live:
             flags.append("no renewal - session live")
-        print(f"{'':10} {'api':>4} {str(r.pct_5h):>5} {str(r.pct_7d):>5}  "
-              f"{timefmt.stamp(r.reset_7d, timefmt.SHORT, '-'):16}  {(time.time()-t0)*1000:.0f}ms"
+        print(f"{'':10} {'api':>4} {str(rs_pct):>5} {str(rl_pct):>5}  "
+              f"{timefmt.stamp(rl.reset if rl else None, timefmt.SHORT, '-'):16}  {(time.time()-t0)*1000:.0f}ms"
               + ("  " + "; ".join(flags) if flags else ""))
     return 0
 

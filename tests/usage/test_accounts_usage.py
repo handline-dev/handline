@@ -18,7 +18,7 @@ def test_pick_account_orders_by_weekly_pace(home: Path) -> None:
     """#1001, replacing the earliest-weekly-deadline rule (#166/#167/#169/
     #170/#254) this same function used to test: among accounts admitted by
     `takes_work`/`unfit`, the one furthest BEHIND its own weekly pace
-    (`status.pace_7d`) is picked - not simply the one with the most 5h room
+    (`status.long_pace`) is picked - not simply the one with the most 5h room
     right now, and not the one whose reset_7d timestamp happens to be soonest
     regardless of what its pct_7d actually is."""
     os.environ["OCP_HOME"] = str(home)
@@ -93,8 +93,8 @@ def test_pace_matches_the_worked_examples_that_were_written_backwards(home: Path
     now = int(time.time())
     write_status(home, "burns_fast", pct_5h=5, pct_7d=85, reset_7d=now + 6 * 86400)
     write_status(home, "comfortable", pct_5h=5, pct_7d=60, reset_7d=now + 4 * 3600)
-    fast_pace = status.pace_7d(status.read("burns_fast"))
-    comfortable_pace = status.pace_7d(status.read("comfortable"))
+    fast_pace = status.long_pace(status.read("burns_fast"))
+    comfortable_pace = status.long_pace(status.read("comfortable"))
     check("founder's examples: 85% with six days left is far ahead of a "
           "uniform pace (~5.95), not behind it",
           5.9 < fast_pace < 6.0, fast_pace)
@@ -243,7 +243,7 @@ def test_pick_account_degrades_when_every_account_would_hit_the_wall(home: Path)
 
 
 def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
-    """A stale or missing figure must never read as low usage: `pace_7d`
+    """A stale or missing figure must never read as low usage: `long_pace`
     returns infinity rather than 0 or a guess."""
     os.environ["OCP_HOME"] = str(home)
     now = int(time.time())
@@ -255,14 +255,14 @@ def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
                  collected_at=now - 3600)
     st = status.read("stale_idle")
     check("stale/unknown: a missing 7d figure is unknown pace, not 0",
-          status.pace_7d(st) == float("inf"), status.pace_7d(st))
+          status.long_pace(st) == float("inf"), status.long_pace(st))
 
     # A rolled-over 7d window (reset already past) is not a low pace either -
     # trusted_pct_7d is None for it, same as never having read one at all.
     write_status(home, "rolled_over", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
                  reset_7d=now - 10)
     check("stale/unknown: a rolled-over week reads as unknown pace, not 0",
-          status.pace_7d(status.read("rolled_over")) == float("inf"))
+          status.long_pace(status.read("rolled_over")) == float("inf"))
 
     # Unknown headroom_5h (stale, and past the idle-floor margin) still
     # refuses outright, the same as any other unfit account - pace is never
@@ -298,14 +298,14 @@ def test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(home: Path
                  collected_at=now)
     st = status.read("alpha")
     check("live_refresh setup: alpha is genuinely carried_old before any ask",
-          st.pct_5h_source == "carried_old", st.pct_5h_source)
+          st.short_source == "carried_old", st.short_source)
 
     real_read, real_login = usage_api.read, accounts.logged_in
     asked: list[str] = []
     try:
         def fake_read(acct, refresh=True):
             asked.append(acct)
-            return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+            return reading_of(acct, 10, now + 9000, 20, now + 90000, now)
         usage_api.read = fake_read
         accounts.logged_in = lambda acct: True
 
@@ -322,8 +322,8 @@ def test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(home: Path
               "room - the move is not given up on while it could answer",
               picked == "alpha", ranked)
         check("live_refresh: the fresh reading actually landed on disk, not "
-              "just in this decision", status.read("alpha").pct_5h == 10,
-              status.read("alpha").pct_5h)
+              "just in this decision", status.read("alpha").short.pct == 10,
+              status.read("alpha").short.pct)
     finally:
         usage_api.read, accounts.logged_in = real_read, real_login
 
@@ -350,7 +350,7 @@ def test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(home: Path) 
     try:
         def fake_read(acct, refresh=True):
             asked.append(acct)
-            return usage_api.Reading(acct, 100, now + 60, 40, now + 90000, now)
+            return reading_of(acct, 100, now + 60, 40, now + 90000, now)
         usage_api.read = fake_read
         accounts.logged_in = lambda acct: True
 
@@ -367,14 +367,14 @@ def test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(home: Path) 
               "the wall - not handed to an account already full",
               picked is None, ranked)
         check("live_refresh: the fresh reading actually landed on disk",
-              status.read("omega").pct_5h == 100, status.read("omega").pct_5h)
+              status.read("omega").short.pct == 100, status.read("omega").short.pct)
     finally:
         usage_api.read, accounts.logged_in = real_read, real_login
 
 
 def test_status_methods_all_honor_a_pinned_as_of() -> None:
     """T48: age_s, rl_age_s and pct_7d_source read as_of, but
-    takes_work, rolled_over, idle_floor, shown_pct_5h and last_known still
+    takes_work, rolled_over, idle_floor, shown_short and last_known still
     read time.time() directly - a caller that pins as_of (replay, stats) got
     a mix of the pinned clock and the wall clock.
 
@@ -388,22 +388,22 @@ def test_status_methods_all_honor_a_pinned_as_of() -> None:
               reset_5h=int(pinned + 1800), reset_7d=int(pinned + 100_000),
               collected_at=int(pinned - 1800), rl_at=int(pinned - 1800),
               rl7_at=int(pinned - 1800))
-    live = status.AccountStatus(**kw)             # as_of=None: reads time.time()
-    pinned_st = status.AccountStatus(as_of=pinned, **kw)
+    live = status_of(**kw)             # as_of=None: reads time.time()
+    pinned_st = status_of(as_of=pinned, **kw)
 
     real_time = time.time
     time.time = lambda: pinned
     try:
         want = (live.takes_work(), live.rolled_over(), live.idle_floor(),
-                live.shown_pct_5h(), live.last_known())
+                live.shown_short(), live.last_known())
     finally:
         time.time = real_time
     # The wall clock is back at its real, much later value; only a method
     # that actually reads as_of, not time.time(), can still match `want`.
     got = (pinned_st.takes_work(), pinned_st.rolled_over(), pinned_st.idle_floor(),
-           pinned_st.shown_pct_5h(), pinned_st.last_known())
+           pinned_st.shown_short(), pinned_st.last_known())
     for name, w, g in zip(
-            ("takes_work", "rolled_over", "idle_floor", "shown_pct_5h", "last_known"),
+            ("takes_work", "rolled_over", "idle_floor", "shown_short", "last_known"),
             want, got):
         check(f"status: {name} honors a pinned as_of", g == w, str((g, w)))
 
@@ -427,14 +427,14 @@ def test_live_refresh_asks_at_most_one_candidate_per_call(home: Path) -> None:
                      collected_at=now)
     for n in ("alpha", "beta", "gamma"):
         check(f"live_refresh cap setup: {n} is carried_old before any ask",
-              status.read(n).pct_5h_source == "carried_old", n)
+              status.read(n).short_source == "carried_old", n)
 
     real_read, real_login = usage_api.read, accounts.logged_in
     asked: list[str] = []
     try:
         def fake_read(acct, refresh=True):
             asked.append(acct)
-            return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+            return reading_of(acct, 10, now + 9000, 20, now + 90000, now)
         usage_api.read = fake_read
         accounts.logged_in = lambda acct: True
 
@@ -521,38 +521,38 @@ def test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(home: Pat
     now = int(time.time())
     try:
         _seed_week_history(con, "alpha", now, five=(10, 90), seven=(50, 60))
-        got = burnrate.week_ratios(db.usage_samples(con))
+        got = burnrate.long_ratios(db.usage_samples(con))
         check("ratio: 10 points of week over 80 of 5h is about an eighth",
               abs(got.get("alpha", 0) - 10 / 80) < 0.01 and abs(got.get("*", 0) - 10 / 80) < 0.01, str(got))
         _seed_week_history(con, "beta", now + 1, five=(10, 90), seven=(50, 53))
-        got = burnrate.week_ratios(db.usage_samples(con))
+        got = burnrate.long_ratios(db.usage_samples(con))
         check("ratio: an account whose week rose too little to divide takes the pooled ratio",
               "beta" not in got and "*" in got
-              and burnrate.Costs([], got).week_per_5h("beta") == got["*"]
-              and burnrate.Costs([], got).week_per_5h("alpha") == got["alpha"], str(got))
+              and burnrate.Costs([], got).long_per_short("beta") == got["*"]
+              and burnrate.Costs([], got).long_per_short("alpha") == got["alpha"], str(got))
         plan = {"alpha": "max", "beta": "pro"}.get
-        by_plan = burnrate.week_ratios(db.usage_samples(con), plan)
+        by_plan = burnrate.long_ratios(db.usage_samples(con), plan)
         check("ratio: a thin account takes its own plan's pool, never another plan's",
-              burnrate.Costs([], by_plan, plan).week_per_5h("beta") is None
-              and burnrate.Costs([], by_plan, plan).week_per_5h("alpha") == by_plan["alpha"], str(by_plan))
-        burnrate.refresh_week_ratios(con, now, force=True)
+              burnrate.Costs([], by_plan, plan).long_per_short("beta") is None
+              and burnrate.Costs([], by_plan, plan).long_per_short("alpha") == by_plan["alpha"], str(by_plan))
+        burnrate.refresh_long_ratios(con, now, force=True)
         db.set_meta(con, "weekratio", json.dumps({"at": now, "r": {"alpha": 9.0}}))
-        burnrate.refresh_week_ratios(con, now + 1)
+        burnrate.refresh_long_ratios(con, now + 1)
         check("ratio: a refresh inside the throttle leaves the kept ratios alone",
-              burnrate._load_week_ratios(con) == {"alpha": 9.0})
-        burnrate.refresh_week_ratios(con, now + burnrate.WEEK_RATIO_EVERY_S + 1)
+              burnrate._load_long_ratios(con) == {"alpha": 9.0})
+        burnrate.refresh_long_ratios(con, now + burnrate.WEEK_RATIO_EVERY_S + 1)
         check("ratio: and one after it recomputes them",
-              abs(burnrate._load_week_ratios(con).get("alpha", 0) - 10 / 80) < 0.01)
+              abs(burnrate._load_long_ratios(con).get("alpha", 0) - 10 / 80) < 0.01)
         check("ratio: nothing measured is None, not a guess",
-              burnrate.Costs([], {}).week_per_5h("alpha") is None)
+              burnrate.Costs([], {}).long_per_short("alpha") is None)
         # A rolled window, a fall and a carried figure are not a rate.
         con.execute("DELETE FROM usage_samples")
         for i, (p5, p7, r5, carried) in enumerate([(10, 50, 1, 0), (90, 60, 1, 1), (95, 62, 1, 0),
                                                    (5, 63, 2, 0), (60, 80, 2, 0)]):
-            st = status.AccountStatus("alpha", exists=True, pct_5h=p5, pct_7d=p7, reset_5h=r5,
+            st = status_of("alpha", exists=True, pct_5h=p5, pct_7d=p7, reset_5h=r5,
                                       reset_7d=99, rl_carried=bool(carried))
             db.record_usage_sample(con, "alpha", st, ts=now - 1000 + i)
-        got = burnrate.week_ratios(db.usage_samples(con))
+        got = burnrate.long_ratios(db.usage_samples(con))
         check("ratio: a carried reading, a new window and a fall add nothing; only the last pair counts",
               abs(got.get("alpha", 0) - 17 / 55) < 0.01, str(got))
     finally:
@@ -579,23 +579,23 @@ def test_an_account_the_week_is_about_to_close_is_not_usable_and_not_picked(home
               not allowed and why == said["gamma"], str((allowed, why)))
         rw = status.describe_runway(status.runway(st, status.read_burn("gamma"), None, loads["gamma"]))
         check("week: the runway column names the week, from the same stretch the pick judged",
-              rw == f"~{timefmt.span(status.week_stretch_s(st, loads['gamma']))} to 7d", rw)
+              rw == f"~{timefmt.span(status.long_stretch_s(st, loads['gamma']))} to 7d", rw)
         alone, why = status.pick_account(["gamma"], load=loads)
         check("week: gamma alone, #1233's shape, is refused for the week's runway",
               alone is None and "one more agent lasts" in dict(why)["gamma"], str((alone, why)))
         alpha = status.read("alpha")
         filling = types.SimpleNamespace(account="alpha", burn=5e-3, at_cap=False, costs=loads["alpha"].costs)
-        ratio = filling.costs.week_per_5h("alpha")
-        got = status.week_runway_s(alpha := status.read("alpha"), filling)
+        ratio = filling.costs.long_per_short("alpha")
+        got = status.long_runway_s(alpha := status.read("alpha"), filling)
         check("week: a filling account's figure is its week's headroom at its own fill, not the pick's",
               ratio is not None and got is not None
-              and abs(got - (100 - alpha.trusted_pct_7d) / (5e-3 * ratio)) < 1e-6, str((got, ratio)))
+              and abs(got - (100 - alpha.long_trusted) / (5e-3 * ratio)) < 1e-6, str((got, ratio)))
         check("week: an idle account the week does not close still says no recent burn",
               status.describe_runway(status.runway(alpha, None, None, loads["alpha"])) == "no recent burn")
         check("week: at the week's wall it says so",
-              status.describe_runway(status.Runway(50, 0, None, False, False)) == "at the 7d wall")
-        five_first = status.Runway(50, 10, 600.0, True, False, week_s=3600.0)
-        week_first = status.Runway(50, 10, 3600.0, True, False, week_s=600.0)
+              status.describe_runway(status.Runway(50, 0, None, False, False, None, "7d")) == "at the 7d wall")
+        five_first = status.Runway(50, 10, 600.0, True, False, long_s=3600.0, long_label="7d")
+        week_first = status.Runway(50, 10, 3600.0, True, False, long_s=600.0, long_label="7d")
         check("week: whichever window runs out first is the one shown",
               status.describe_runway(five_first) == "~10m to wall"
               and status.describe_runway(week_first) == "~10m to 7d")
@@ -625,16 +625,16 @@ def test_the_week_check_moves_the_pick_where_pace_alone_would_not(home: Path) ->
         con.close()
     tight, roomy = status.read("tight"), status.read("roomy")
     check("order: tight is further behind its pace, so pace alone would pick it",
-          status.pace_7d(tight) < status.pace_7d(roomy), str((status.pace_7d(tight), status.pace_7d(roomy))))
+          status.long_pace(tight) < status.long_pace(roomy), str((status.long_pace(tight), status.long_pace(roomy))))
     picked, reasons = status.pick_account(["tight", "roomy"], load=loads)
     check("order: with the week's runway, the account it closes is passed over",
           picked == "roomy" and "one more agent lasts" in dict(reasons)["tight"], str((picked, reasons)))
-    real = status._no_week_room
-    status._no_week_room = lambda *a, **k: None
+    real = status._no_long_room
+    status._no_long_room = lambda *a, **k: None
     try:
         without, _ = status.pick_account(["tight", "roomy"], load=loads)
     finally:
-        status._no_week_room = real
+        status._no_long_room = real
     check("order: with the week check removed the pick goes to tight - the control",
           without == "tight", str(without))
 
@@ -667,24 +667,29 @@ def test_usage_samples_round_trip_without_coercing_a_gap_to_zero(home: Path) -> 
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
     try:
-        known = status.AccountStatus("alpha", exists=True, pct_5h=40, pct_7d=60,
+        known = status_of("alpha", exists=True, pct_5h=40, pct_7d=60,
                                      reset_5h=1000, reset_7d=2000, rl_at=900, rl7_at=900,
                                      collected_at=900)
-        unknown = status.AccountStatus("beta", exists=True, pct_5h=None, pct_7d=None,
+        unknown = status_of("beta", exists=True, pct_5h=None, pct_7d=None,
                                        rl_lost=True, collected_at=900)
         db.record_usage_sample(con, "alpha", known, ts=1000)
         db.record_usage_sample(con, "beta", unknown, ts=1000)
         rows = {r["account"]: r for r in db.usage_samples(con)}
+        ka, ua = windows.entries(dict(rows["alpha"])), windows.entries(dict(rows["beta"]))
         check("usage_samples: a known figure reads back exactly",
-              rows["alpha"]["pct_5h"] == 40 and rows["alpha"]["pct_7d"] == 60, dict(rows["alpha"]))
+              [(e["minutes"], e["used_percent"]) for e in ka] == [(300, 40), (10080, 60)],
+              dict(rows["alpha"]))
         check("usage_samples: an unknown figure is NULL, not 0 - a gap is never a zero",
-              rows["beta"]["pct_5h"] is None and rows["beta"]["pct_7d"] is None
-              and bool(rows["beta"]["rl_lost"]), dict(rows["beta"]))
+              ua[0]["used_percent"] is None and ua[1]["used_percent"] is None
+              and ua[0]["lost"] is True, dict(rows["beta"]))
+        check("usage_samples: a new row leaves the old per-name columns alone",
+              rows["alpha"]["pct_5h"] is None and rows["alpha"]["reset_7d"] is None,
+              dict(rows["alpha"]))
 
         st_back = replaymod.status_from_row(rows["alpha"])
         check("usage_samples: the row reconstructs the same AccountStatus "
               "pick_account would have seen",
-              st_back.pct_5h == 40 and st_back.reset_7d == 2000 and st_back.rl_at == 900,
+              st_back.short.pct == 40 and st_back.long.reset == 2000 and st_back.short.at == 900,
               st_back)
 
         removed = db.prune_usage_samples(con, before_ts=500)
@@ -755,10 +760,10 @@ def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) ->
     con = db.connect()
     try:
         ts = 500_000_000
-        close_to_wall = status.AccountStatus("close_to_wall", exists=True, pct_5h=5, pct_7d=92,
+        close_to_wall = status_of("close_to_wall", exists=True, pct_5h=5, pct_7d=92,
                                              reset_5h=ts + 1800, reset_7d=ts + 3600,
                                              rl_at=ts, rl7_at=ts, collected_at=ts)
-        safe = status.AccountStatus("safe", exists=True, pct_5h=5, pct_7d=50,
+        safe = status_of("safe", exists=True, pct_5h=5, pct_7d=50,
                                     reset_5h=ts + 1800, reset_7d=ts + 90000,
                                     rl_at=ts, rl7_at=ts, collected_at=ts)
         db.record_usage_sample(con, "close_to_wall", close_to_wall, ts=ts)
@@ -781,7 +786,7 @@ def test_replay_finds_where_the_new_rule_and_the_old_one_disagree(home: Path) ->
 
 
 def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> None:
-    """#1400: `load={}` cannot ask `_no_week_room` anything (it needs
+    """#1400: `load={}` cannot ask `_no_long_room` anything (it needs
     `ld.costs`), so a replay under it agrees with the old deadline rule on
     every tick the week gate would have closed. `tight` (88% of its week, an hour left) is
     first on pace; one more agent alone lasts it 1920s, over the 1800s a start
@@ -794,10 +799,10 @@ def test_replay_reconstructs_burn_and_lets_the_week_gate_fire(home: Path) -> Non
         ts0, ts1 = 500_000_000, 500_000_600
         reset_5h = ts1 + 3 * 3600
         for ts, pct_5h in ((ts0, 20), (ts1, 25)):
-            tight = status.AccountStatus("tight", exists=True, pct_5h=pct_5h, pct_7d=88,
+            tight = status_of("tight", exists=True, pct_5h=pct_5h, pct_7d=88,
                                          reset_5h=reset_5h, reset_7d=ts1 + 3600,
                                          rl_at=ts, rl7_at=ts, collected_at=ts)
-            roomy = status.AccountStatus("roomy", exists=True, pct_5h=pct_5h, pct_7d=70,
+            roomy = status_of("roomy", exists=True, pct_5h=pct_5h, pct_7d=70,
                                          reset_5h=reset_5h, reset_7d=ts1 + 3 * 86400,
                                          rl_at=ts, rl7_at=ts, collected_at=ts)
             db.record_usage_sample(con, "tight", tight, ts=ts)
@@ -867,7 +872,7 @@ def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
     con = db.connect()
     try:
         def put(acct, ts, pct, **kw):
-            st = status.AccountStatus(acct, exists=kw.pop("exists", True), pct_5h=pct,
+            st = status_of(acct, exists=kw.pop("exists", True), pct_5h=pct,
                                       reset_5h=ts + 3600, rl_at=kw.pop("rl_at", ts),
                                       collected_at=ts, **kw)
             db.record_usage_sample(con, acct, st, ts=ts)
@@ -897,10 +902,10 @@ def test_replay_burn_is_the_daemons_burn(home: Path) -> None:
         put("i", 1600, 56, exists=False)
         put("j", 1000, 50)
         put("j", 1600, 56, pct_5h_readable=False)
-        st = status.AccountStatus("k", exists=True, pct_5h=50, reset_5h=9999, rl_at=1000,
+        st = status_of("k", exists=True, pct_5h=50, reset_5h=9999, rl_at=1000,
                                   collected_at=1000)
         db.record_usage_sample(con, "k", st, ts=1000)
-        st = status.AccountStatus("k", exists=True, pct_5h=56, reset_5h=9999, rl_at=1600,
+        st = status_of("k", exists=True, pct_5h=56, reset_5h=9999, rl_at=1600,
                                   collected_at=1600 - status.STALE_AFTER_S - 1)
         db.record_usage_sample(con, "k", st, ts=1600)
         burns = replaymod.reconstruct_burn(db.usage_samples(con))
@@ -975,24 +980,24 @@ def test_usage_api_reads_a_window_nothing_has_been_spent_in() -> None:
     try:
         r = usage_api.read("alpha")
         check("usage_api: a rolled-over window reads 0%, not None",
-              r is not None and r.pct_5h == 0, repr(r))
+              r is not None and r.short.pct == 0, repr(r))
         check("usage_api: a rolled-over window reports no reset",
-              r is not None and r.reset_5h is None, repr(r))
+              r is not None and r.short.reset is None, repr(r))
         check("usage_api: the other window is still read",
-              r is not None and r.pct_7d == 99 and r.reset_7d == 1790388000, repr(r))
+              r is not None and r.long.pct == 99 and r.long.reset == 1790388000, repr(r))
         check("usage_api: a refresh is asked for by default", calls["refresh"] == 1,
               str(calls))
 
         state["which"] = "mid"
         r = usage_api.read("alpha", refresh=False)
-        check("usage_api: utilisation rounds to a whole percent", r.pct_5h == 36, repr(r))
-        check("usage_api: a Z-suffixed reset parses", r.reset_5h == 1790002200, repr(r))
+        check("usage_api: utilisation rounds to a whole percent", r.short.pct == 36, repr(r))
+        check("usage_api: a Z-suffixed reset parses", r.short.reset == 1790002200, repr(r))
         check("usage_api: refresh=False does not renew", calls["refresh"] == 1, str(calls))
 
         state["which"] = "absent"
         r = usage_api.read("alpha", refresh=False)
         check("usage_api: an absent window is None, not 0",
-              r is not None and r.pct_5h is None and r.pct_7d is None, repr(r))
+              r is not None and r.short.pct is None and r.long.pct is None, repr(r))
 
         state["which"] = "notadict"
         check("usage_api: a payload that is not an object is not a reading",
@@ -1146,18 +1151,19 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
 
         r = usage_api.read("zai", refresh=False)
         check("zai meter: the 5-hour window reads pct and reset",
-              r is not None and r.pct_5h == 13
-              and r.reset_5h == reset5_ms // 1000, repr(r))
+              r is not None and r.short.pct == 13
+              and r.short.reset == reset5_ms // 1000, repr(r))
         check("zai meter: the weekly window reads pct and reset",
-              r is not None and r.pct_7d == 2
-              and r.reset_7d == reset7_ms // 1000, repr(r))
+              r is not None and r.long.pct == 2
+              and r.long.reset == reset7_ms // 1000, repr(r))
         check("zai meter: the endpoint was asked with the credential, once",
               asked == ["Bearer SECRET-ZAI-KEY"], str(asked))
 
         usage_api.record(r)
         snap = paths.status_file("zai").read_text()
         check("zai meter: the reading lands in the status file without the key",
-              "SECRET-ZAI-KEY" not in snap and '"pct_5h": 13' in snap, snap)
+              "SECRET-ZAI-KEY" not in snap and windows.entries(json.loads(snap))[0]["used_percent"] == 13,
+              snap)
 
         # A 200 is not an answer until it carries a figure: each of these
         # shapes is could-not-look, because recorded it would read as a fresh
@@ -1182,7 +1188,7 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
         }).encode()
         r = usage_api.read("zai", refresh=False)
         check("zai meter: a float percentage is taken and rounded down, not dropped",
-              r is not None and r.pct_5h == 87 and r.pct_7d == 2, repr(r))
+              r is not None and r.short.pct == 87 and r.long.pct == 2, repr(r))
         body["raw"] = json.dumps({"code": 500, "success": True, "data": {"limits": [
             {"type": "CREDIT_LIMIT", "unit": 3, "percentage": 87}]}
         }).encode()
@@ -1214,7 +1220,7 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
         r = usage_api.read("zai", refresh=False)
         check("zai meter: a reset already past reads the rolled window quiet - 0/None, "
               "never the ended window's 87",
-              r is not None and r.pct_5h == 0 and r.reset_5h is None, repr(r))
+              r is not None and r.short.pct == 0 and r.short.reset is None, repr(r))
         body["raw"] = http.client.IncompleteRead(b"x", 10)
         check("zai meter: a body cut off mid-read is could-not-look, not a crash",
               usage_api.read("zai", refresh=False) is None)
@@ -1258,7 +1264,7 @@ def test_a_reading_is_asked_of_the_accounts_own_drivers_meter(home: Path) -> Non
         oc.usage_reading = lambda cdir: (10, 111, 20, 222)
         r, failed = usage_api.read_detailed("zai", refresh=False)
         check("meter: opencode's reading carries its account and figures",
-              (r.account, r.pct_5h, r.reset_5h, r.pct_7d, r.reset_7d) == ("zai", 10, 111, 20, 222)
+              (r.account, r.short.pct, r.short.reset, r.long.pct, r.long.reset) == ("zai", 10, 111, 20, 222)
               and failed is False, repr(r))
         oc.usage_reading = lambda cdir: None
         check("meter: could not look is (None, False)",
@@ -1296,7 +1302,7 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
         "pct_7d": 50, "reset_7d": now + 99999, "collected_at": now - 4000,
     }))
 
-    ok = usage_api.record(usage_api.Reading(
+    ok = usage_api.record(reading_of(
         account="alpha", pct_5h=90, reset_5h=now + 600,
         pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
     got = json.loads(p_.read_text())
@@ -1304,32 +1310,39 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
     check("record: the session's own fields survive",
           got.get("session_id") == "sess-1" and got.get("transcript_path") == "/t/x.jsonl"
           and got.get("ctx_pct") == 42 and got.get("cost_usd") == 1.5, json.dumps(got))
-    check("record: a higher figure in the same window is taken", got["pct_5h"] == 90,
+    check("record: a higher figure in the same window is taken", _win(got)["used_percent"] == 90,
           json.dumps(got))
     check("record: the reading is marked observed, not carried",
-          got["rl_at"] == now and got["rl_carried"] is False and got["rl_lost"] is False,
+          _win(got)["observed_at"] == now and _win(got)["carried"] is False
+          and _win(got)["lost"] is False,
           json.dumps(got))
     check("record: collected_at moves, so staleness does not fail the account closed",
           got["collected_at"] == now, json.dumps(got))
     check("record: the source is named", got.get("rl_source") == "api", json.dumps(got))
 
     # Lower, same window: the collector's rule says usage only rises.
-    usage_api.record(usage_api.Reading(
+    usage_api.record(reading_of(
         account="alpha", pct_5h=70, reset_5h=now + 600,
         pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
     check("record: a lower figure inside the same window is refused",
-          json.loads(p_.read_text())["pct_5h"] == 90, p_.read_text())
+          _win(json.loads(p_.read_text()))["used_percent"] == 90, p_.read_text())
 
     # Lower, new window: alpha's case. The high-water must not survive it.
-    usage_api.record(usage_api.Reading(
+    usage_api.record(reading_of(
         account="alpha", pct_5h=0, reset_5h=None,
         pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
     rolled = json.loads(p_.read_text())
     check("record: a rollover replaces the high-water outright",
-          rolled["pct_5h"] == 0 and rolled["reset_5h"] is None, json.dumps(rolled))
+          _win(rolled)["used_percent"] == 0 and _win(rolled)["resets_at"] is None,
+          json.dumps(rolled))
     check("record: and the account reads assignable again",
           status.read("alpha", path=p_).assignable()[0],
           str(status.read("alpha", path=p_).assignable()))
+
+
+def _win(record: dict, minutes: int = 300) -> dict:
+    """The record's window of that length."""
+    return next(e for e in windows.entries(record) if e["minutes"] == minutes)
 
 
 def test_usage_recover_is_a_per_account_switch(home: Path) -> None:
@@ -1389,7 +1402,7 @@ def test_recover_spends_one_turn_and_rereads(home: Path) -> None:
         # --- happy path: the turn runs, the re-read succeeds -------------
         foldmod.run_model = lambda prompt, acct, model: (
             calls["run_model"].append((prompt, acct, model)) or (True, "hi yourself"))
-        usage_api.read_detailed = lambda acct, refresh=True: (usage_api.Reading(
+        usage_api.read_detailed = lambda acct, refresh=True: (reading_of(
             account=acct, pct_5h=1, reset_5h=int(time.time()) + 18000,
             pct_7d=10, reset_7d=None, at=int(time.time())), False)
         usage_api.record = lambda reading: calls["recorded"].append(reading) or True
@@ -1399,7 +1412,7 @@ def test_recover_spends_one_turn_and_rereads(home: Path) -> None:
               calls["run_model"] == [(recovermod.RECOVER_PROMPT, "omega", recovermod.RECOVER_MODEL)],
               str(calls["run_model"]))
         check("recover: the fresh reading is recorded",
-              len(calls["recorded"]) == 1 and calls["recorded"][0].pct_5h == 1,
+              len(calls["recorded"]) == 1 and calls["recorded"][0].short.pct == 1,
               str(calls["recorded"]))
         check("recover: no needs-relogin mark is left behind",
               not recovermod.needs_relogin("omega"))
@@ -1465,9 +1478,9 @@ def test_recover_spends_one_turn_and_rereads(home: Path) -> None:
               not ok and "boom" in msg and calls["recorded"] == [], msg)
 
         # --- at the 7d wall: refuses before spending anything ------------------
-        real_record(usage_api.Reading(
+        real_record(reading_of(
             account="omega", pct_5h=1, reset_5h=int(time.time()) + 18000,
-            pct_7d=status.PCT_7D_BLOCK, reset_7d=int(time.time()) + 500000,
+            pct_7d=status.LONG_BLOCK, reset_7d=int(time.time()) + 500000,
             at=int(time.time())))
         calls["run_model"].clear()
         foldmod.run_model = lambda prompt, acct, model: (
@@ -1743,7 +1756,7 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
         asked.append((acct, refresh))
         if not answers[0]:
             return None
-        return usage_api.Reading(acct, 7, None, 11, None, int(time.time()))
+        return reading_of(acct, 7, None, 11, None, int(time.time()))
 
     real_read, real_login, real_recover = usage_api.read, accounts.logged_in, recovermod.recover
     try:
@@ -1764,7 +1777,7 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
             check("poll: an account just read is not read again this minute",
                   len(asked) == 2, asked)
             check("poll: the reading lands where every reader looks",
-                  status.read("alpha").pct_5h == 7, status.read("alpha").pct_5h)
+                  status.read("alpha").short.pct == 7, status.read("alpha").short.pct)
 
             # Nothing has happened on either account since those readings, so
             # there is nothing to ask about - the cursors being clear is not a
@@ -1831,7 +1844,7 @@ def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
     def fake_read(acct, refresh=True):
         asked.append(acct)
         if acct == "omega":
-            return usage_api.Reading(acct, 5, None, 6, None, int(time.time()))
+            return reading_of(acct, 5, None, 6, None, int(time.time()))
         return None
 
     real_read, real_login, real_recover = usage_api.read, accounts.logged_in, recovermod.recover
@@ -1847,7 +1860,7 @@ def test_a_failing_account_never_blocks_the_ones_behind_it(home: Path) -> None:
                   "ahead of it in list_accounts order failing every time",
                   "omega" in asked, asked)
             check("starve: and its reading actually lands",
-                  status.read("omega").pct_5h == 5, status.read("omega").pct_5h)
+                  status.read("omega").short.pct == 5, status.read("omega").short.pct)
             check("starve: the four failing accounts were each tried too - "
                   "none of them silently dropped to make room",
                   {"alpha", "beta", "delta", "gamma"} <= set(asked), asked)
@@ -1871,7 +1884,7 @@ def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
         asked.append(acct)
         if acct == "alpha":
             raise http.client.IncompleteRead(b"par")
-        return usage_api.Reading(acct, 7, None, 11, None, int(time.time()))
+        return reading_of(acct, 7, None, 11, None, int(time.time()))
 
     real_read, real_login, real_recover = usage_api.read, accounts.logged_in, recovermod.recover
     real_poll = dmn_usage_poll.poll_usage
@@ -1886,7 +1899,7 @@ def test_one_accounts_usage_read_raising_is_contained(home: Path) -> None:
             check("poll raise: it does not leave poll_usage, and names the account",
                   any("alpha" in m and "IncompleteRead" in m for m in logs), str(logs))
             check("poll raise: the account behind it is read in the same tick",
-                  asked == ["alpha", "beta"] and status.read("beta").pct_5h == 7, str(asked))
+                  asked == ["alpha", "beta"] and status.read("beta").short.pct == 7, str(asked))
             check("poll raise: the failing account falls into its backoff",
                   db.get_meta(con, "usage-fail:alpha") == "1"
                   and db.get_cursor(con, "usage-poll:alpha") > int(time.time()), str(logs))
@@ -1986,12 +1999,12 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
         now = int(time.time())
         write_status(home, "alpha", pct_5h=90, pct_7d=10,
                      reset_5h=now - 60, rl_at=now - 60)
-        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
+        usage_api.read = lambda acct, refresh=True: reading_of(
             acct, 91, now + 18000, 11, None, now)
 
         def _recover_and_record(acct):
             recovered.append(acct)
-            real_record(usage_api.Reading(acct, 0, int(time.time()) + 18000, 11, None,
+            real_record(reading_of(acct, 0, int(time.time()) + 18000, 11, None,
                                           int(time.time())))
             return True, f"{acct}: recovered - 5h 0% 7d 11%"
         recovermod.recover = _recover_and_record
@@ -2007,7 +2020,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
                   "even though the plain read just succeeded",
                   recovered == ["alpha"], recovered)
             check("poll+recover: recover's own reading wins, not the stale plain one",
-                  status.read("alpha").pct_5h == 0, status.read("alpha").pct_5h)
+                  status.read("alpha").short.pct == 0, status.read("alpha").short.pct)
 
             # --- recover() refuses at the boundary: the plain reading still stands
             recovered.clear()
@@ -2022,7 +2035,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
             check("poll+recover: a refusal at the boundary still tried recover()",
                   recovered == ["alpha"], recovered)
             check("poll+recover: and falls back to the plain reading that already succeeded",
-                  status.read("alpha").pct_5h == 91
+                  status.read("alpha").short.pct == 91
                   and any("its 5h window has ended - 5h 91%" in m for m in logs), logs)
         finally:
             con.close()
@@ -2031,7 +2044,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
         recovered.clear()
         write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
-        usage_api.read = lambda acct, refresh=True: usage_api.Reading(
+        usage_api.read = lambda acct, refresh=True: reading_of(
             acct, 6, int(time.time()) + 1800, 11, None, int(time.time()))
         con = db.connect()
         try:
@@ -2068,7 +2081,7 @@ def test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(home: 
     try:
         accounts.logged_in = lambda acct: True
         recovermod.recover = fake_recover
-        usage_api.read = lambda acct, refresh=True: usage_api.Reading(acct, *reading["v"], now)
+        usage_api.read = lambda acct, refresh=True: reading_of(acct, *reading["v"], now)
         con = db.connect()
         try:
             # 7d ended, 5h fine: the week is what reset.
@@ -2113,7 +2126,7 @@ def test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(home: 
             real_model, real_detail = foldmod.run_model, usage_api.read_detailed
             foldmod.run_model = lambda prompt, acct, model: (spent.append(model) or (True, ""), )[-1]
             usage_api.read_detailed = lambda acct, refresh=False: (
-                usage_api.Reading(acct, 0, now + 3600, 0, now + 7 * 86400, now), False)
+                reading_of(acct, 0, now + 3600, 0, now + 7 * 86400, now), False)
             try:
                 loadmod.set_usage_recover("alpha", False)
                 write_status(home, "alpha", pct_5h=2, pct_7d=3, reset_5h=now + 3600,
@@ -2153,7 +2166,7 @@ def test_a_reading_past_the_carry_bound_is_carried_old_even_though_the_flag_is_f
     st = status.read("alpha")
     check("carried_old: a reading past the carry bound reads carried_old even "
           "with rl_carried False - the shape usage_api actually writes",
-          st.pct_5h_source == "carried_old", st.pct_5h_source)
+          st.short_source == "carried_old", st.short_source)
     check("carried_old: and it is not assignable",
           not st.assignable()[0], st.assignable()[1])
 
@@ -2174,9 +2187,9 @@ def test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
                  pct_7d=30, reset_7d=now + 90000, rl7_carried=True, rl7_at=None)
     st = status.read("alpha")
     check("no-age carry: rl_carried True with rl_at None reads carried_old, "
-          "not carried or live", st.pct_5h_source == "carried_old", st.pct_5h_source)
+          "not carried or live", st.short_source == "carried_old", st.short_source)
     check("no-age carry: the same holds for the weekly figure",
-          st.pct_7d_source == "carried_old", st.pct_7d_source)
+          st.long_source == "carried_old", st.long_source)
 
 
 def test_context_tokens_override_falls_back_on_garbage() -> None:
@@ -2260,7 +2273,7 @@ def test_a_stale_ctx_used_does_not_fire(home: Path) -> None:
     check("stale ctx_used: trusted_ctx_used is None while the snapshot is stale",
           st.trusted_ctx_used is None, str(st.trusted_ctx_used))
     limit = status.effective_context_limit(agents.read("keeper"), st.model_id)
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=limit)
+    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used, ctx_limit=limit)
     check("stale ctx_used: the trigger does not fire on an untrusted figure",
           not t.fired, t.reason)
 
@@ -2317,7 +2330,7 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
         accounts.logged_in = lambda a: True  # noqa: E731
         usage_api.read = lambda acct, refresh=True: (  # noqa: E731
             asked.append(acct)
-            or usage_api.Reading(acct, 3, int(time.time()) + 1800, 4, None, int(time.time())))
+            or reading_of(acct, 3, int(time.time()) + 1800, 4, None, int(time.time())))
         st = status.read("alpha")
         check("new account: the state under test - it exists and has no reading",
               "alpha" in paths.list_accounts() and not st.exists)
@@ -2376,13 +2389,13 @@ def test_status_edge_cases(home: Path) -> None:
         (d / "status.json").write_text(
             '{"session_id":"s","collected_at":%d,"pct_5h":%s}' % (int(time.time()), literal))
         st = status.read("nanny")
-        check(f"status: {label} reads as unknown, not a crash", st.pct_5h is None,
-              str(st.pct_5h))
+        check(f"status: {label} reads as unknown, not a crash", st.short.pct is None,
+              str(st.short.pct))
         check(f"status: {label} then refuses assignment", not st.assignable()[0])
 
     (d / "status.json").write_text(
         '{"session_id":"s","collected_at":%d,"pct_5h":"85"}' % int(time.time()))
-    check("status: a string percentage reads as unknown", status.read("nanny").pct_5h is None)
+    check("status: a string percentage reads as unknown", status.read("nanny").short.pct is None)
 
     # A millisecond timestamp is a plausible collector bug. Clamping it to
     # age 0 made it look permanently fresh.
@@ -2420,15 +2433,15 @@ def test_carry_bounds_and_losses(home: Path) -> None:
                  pct_7d=10, reset_7d=now + 99999, rl7_at=now)
     st = read()
     check("carry: a lost figure reads as unknown, not as a quiet window",
-          st.pct_5h_source == "unknown", st.pct_5h_source)
+          st.short_source == "unknown", st.short_source)
     check("carry: so it refuses assignment", not st.assignable()[0], st.assignable()[1])
 
     # And a first-hand reading is what takes the account out of that state.
-    usage_api.record(usage_api.Reading("carry", 7, now + 1800, 10, now + 99999, now),
+    usage_api.record(reading_of("carry", 7, now + 1800, 10, now + 99999, now),
                      path=path)
     st = read()
     check("carry: a first-hand reading clears the loss",
-          st.rl_lost is False and st.pct_5h == 7, f"{st.rl_lost} {st.pct_5h}")
+          st.short.lost is False and st.short.pct == 7, f"{st.short.lost} {st.short.pct}")
 
     # 2. The weekly gate is written as "block if the figure is high", so a lost
     #    7d is the absence of a refusal rather than one.
@@ -2447,12 +2460,12 @@ def test_carry_bounds_and_losses(home: Path) -> None:
                  rl7_at=now, rl_at=now - 4 * 3600, collected_at=now)
     st = read()
     check("carry: a fresh collected_at does not make an old figure fresh",
-          st.pct_5h_source == "carried_old", st.pct_5h_source)
+          st.short_source == "carried_old", st.short_source)
     check("carry: it refuses new work", not st.assignable()[0], st.assignable()[1])
     check("carry: the refusal says how old it is", "ago" in st.assignable()[1])
     check("carry: but the trigger still gets the floor, not a null",
-          st.trusted_pct_5h == 55, str(st.trusted_pct_5h))
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used)
+          st.short_trusted == 55, str(st.short_trusted))
+    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used)
     check("carry: so an idle agent is not handed off for usage_unknown",
           t.kind != "usage_unknown", t.reason)
 
@@ -2638,7 +2651,7 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
               foldmod._cheapest_account() == "old", str(foldmod._cheapest_account()))
         st = status.read("old")
         check("fold: even though it takes no new agents",
-              not st.assignable()[0] and st.pct_5h_source == "carried_old")
+              not st.assignable()[0] and st.short_source == "carried_old")
 
         # A stale reading is still an account this daemon cannot currently
         # read, and the fold must not prefer it over one with a genuinely
@@ -2748,9 +2761,9 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
     # a never-run agent's (unset) context to haiku's window, not the default.
     check("nor the account's last-seen model either", st.model_id is None,
           str(st.model_id))
-    check("but the account's rate limits still apply to it", st.pct_5h == 20)
+    check("but the account's rate limits still apply to it", st.short.pct == 20)
     check("so the trigger cannot fire on a context it does not have",
-          triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used).kind != "context")
+          triggers.evaluate(st.short_trusted, st.trusted_ctx_used).kind != "context")
     own = status.read_for_agent("has_session", "alpha")
     check("an agent with a session is judged on its own context", own.ctx_pct == 12,
           str(own.ctx_pct))
@@ -2800,7 +2813,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
                      collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         st = status.read_for_agent("backend", "alpha")
         check("wake: the reading it left behind is unknown, not a wall",
-              not triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used).fired)
+              not triggers.evaluate(st.short_trusted, st.trusted_ctx_used).fired)
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
@@ -3517,9 +3530,9 @@ def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick
         db.set_account(con, "keeper", "alpha")
 
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
-        t = triggers.evaluate(9, 10, pct_7d=100)
+        t = triggers.evaluate(9, 10, long_pct=100)
         check("7d wall: 5h 9% / 7d 100% fires a move trigger on the 7d figure",
-              t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
+              t.fired and t.kind == "usage_7d" and "longest window" in t.reason, t.reason)
 
         real = (orcamod.available, orcamod.alive, orcamod.close_session,
                orcamod.relaunch, orcamod.idle_now, dmn_delivery.wait_for_session)
@@ -3605,7 +3618,7 @@ def test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(
         table = sessions_are("keeper")
         db.set_account(con, "keeper", "alpha")
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
-        t = triggers.evaluate(9, 10, pct_7d=100)
+        t = triggers.evaluate(9, 10, long_pct=100)
         orca_idle()
         orcamod.close_session = exit_ends_session("keeper")
         orcamod.relaunch = lambda h, cmd, **kw: (table.__setitem__("keeper", 4200), (True, "ok"))[1]
@@ -4264,7 +4277,7 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     status.write_burn("alpha", per_s, now)
     r = status.runway(status.read("alpha"), status.read_burn("alpha"), now)
     check("runway: points left are counted to the wall",
-          r and r.left_5h == 45 and r.left_7d == 90, str(r))
+          r and r.left_short == 45 and r.left_long == 90, str(r))
     check("runway: time to the wall follows the measured burn",
           status.describe_runway(r) == "~1h30m to wall", status.describe_runway(r))
     write_status(home, "alpha", pct_5h=55, pct_7d=10, reset_5h=now + 1800)
@@ -4493,8 +4506,10 @@ def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> Non
         start(5, 25)
         check("measure: the middle of three starts is the cost",
               measure.cold_start_pct(con) == 20.0, str(measure.cold_start_pct(con)))
-        check("measure: T is that share of a 5h window", 
-              triggers.stay_within_s(20.0) == 60 * 60 and triggers.stay_within_s(None) == 39 * 60)
+        check("measure: T is that share of the shortest window",
+              triggers.stay_within_s(20.0, 5 * 3600) == 60 * 60
+              and triggers.stay_within_s(None, 5 * 3600) == 39 * 60
+              and triggers.stay_within_s(20.0) == 39 * 60)
 
         # A start with another agent spending on the account is not measured.
         start(30, 0, others=1)
@@ -4539,7 +4554,7 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     check("stale: the pick uses it, on the last figure seen",
           picked == "beta" and "5h 41%" in dict(ranked)["beta"], str(ranked))
     check("stale: nothing that decides reads the number directly",
-          st.trusted_pct_5h is None)
+          st.short_trusted is None)
     out = _capture(lambda: climod.main(["account", "list"]))
     check("stale: `ocp account list` shows it", "5h 41% (60m old)" in out, out)
     panel = tui._ANSI.sub("", _snap(200, 40))
@@ -4549,8 +4564,8 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     finally:
         con.close()
     check("stale: the account's own page draws the last figure, marked, and how old the snapshot is",
-          facts["status"].shown_pct_5h() == (41, status.IDLE_MARK)
-          and timefmt.ago(facts["status"].age_s) == "60m", str(facts["status"].shown_pct_5h()))
+          facts["status"].shown_short() == (41, status.IDLE_MARK)
+          and timefmt.ago(facts["status"].age_s) == "60m", str(facts["status"].shown_short()))
     check("stale: the panel keeps the sentence off the row", "5h 41% (60m old)" not in panel,
           panel[:400])
 

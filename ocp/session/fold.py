@@ -412,8 +412,8 @@ def _cheapest_account(vendor: str = agents.DEFAULT_VENDOR) -> str | None:
     for a in ours:
         if not accounts.logged_in(a):
             continue
-        pct = status.read(a).trusted_pct_5h
-        if pct is None or pct >= status.PCT_5H_BLOCK:
+        pct = status.read(a).short_trusted
+        if pct is None or pct >= status.SHORT_BLOCK:
             continue
         usable.append((pct, a))
     usable.sort()
@@ -434,10 +434,10 @@ def _account_reasons() -> str:
             out.append(f"{a} not logged in")
             continue
         st = status.read(a)
-        pct = st.trusted_pct_5h
+        pct = st.short_trusted
         if pct is None:
             out.append(f"{a} usage unreadable ({st.assignable()[1]})")
-        elif pct >= status.PCT_5H_BLOCK:
+        elif pct >= status.SHORT_BLOCK:
             out.append(f"{a} at {pct}%")
         else:
             out.append(f"{a} at {pct}% (usable)")

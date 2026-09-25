@@ -367,7 +367,7 @@ def test_display_agrees_with_the_daemon(home: Path) -> None:
     agents.register("quietone")
     write_status(home, "alpha", pct_5h=None, pct_7d=10, ctx_pct=5)
     st = status.read("alpha")
-    check("display: the account is quiet", st.pct_5h_source == "quiet")
+    check("display: the account is quiet", st.short_source == "quiet")
     check("display: a quiet window is marked", status.mark("quiet") == "*")
     check("display: a live one is not", status.mark("live") == " ")
     check("display: one carried past its bound is marked apart",
@@ -564,7 +564,7 @@ def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
         reset_at = int(time.time()) + 3 * 86400 + 3600
         dmn_lifecycle.would_wake = lambda con, row: True
         launch.wake_wait = lambda name, row, con: launch.WakeWait(
-            "alpha", 100, reset_at, window="7d")
+            "alpha", 100, reset_at, window="7d", is_long=True)
         line = next(ln for ln in tui._ANSI.sub("", _snap(200, 40)).splitlines()
                     if "backend" in ln)
         check("walled: the wake column dates a weekly wall, not a bare clock",
@@ -1089,8 +1089,8 @@ def test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(home: 
         check(f"account_cells: window {'open' if drawn else 'rolled over'} - "
               f"{'the last figure, marked ?' if drawn else 'no figure'}",
               ("40%" in cell) is drawn and ("40%?" in cell) is drawn, cell)
-        check("account_cells: agrees with shown_pct_5h",
-              (st.shown_pct_5h()[0] == 40) is drawn, str(st.shown_pct_5h()))
+        check("account_cells: agrees with shown_short",
+              (st.shown_short()[0] == 40) is drawn, str(st.shown_short()))
 
 
 def test_a_span_ends_in_its_unit(home: Path) -> None:

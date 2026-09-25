@@ -12,19 +12,35 @@ from typing import Protocol
 
 
 @dataclass(frozen=True)
-class Reading:
-    """One account's usage as its vendor's endpoint reported it.
+class Window:
+    """One usage window the vendor reports, named by its length and nothing else:
+    ocp finds the shortest and the longest and never asks what they are called.
 
-    `pct_*` is None when the endpoint returned no such window, which is a
-    reading and not an absence - it means nothing has been spent in it.
-    `status.py` draws the same distinction when it reads the file back.
+    `pct` is None when the endpoint returned no such window, which is a reading
+    and not an absence - it means nothing has been spent in it.
     """
+    minutes: int
+    pct: int | None
+    reset: int | None
+
+
+@dataclass(frozen=True)
+class Reading:
+    """One account's usage as its vendor's endpoint reported it. A vendor with
+    one window reports one, and one with three reports three."""
     account: str
-    pct_5h: int | None
-    reset_5h: int | None
-    pct_7d: int | None
-    reset_7d: int | None
+    windows: tuple[Window, ...]
     at: int
+
+    @property
+    def short(self) -> Window | None:
+        """The shortest window it reports, or None when it reports none."""
+        return min(self.windows, key=lambda w: w.minutes, default=None)
+
+    @property
+    def long(self) -> Window | None:
+        """The longest window, or None when it reports fewer than two."""
+        return max(self.windows, key=lambda w: w.minutes) if len(self.windows) > 1 else None
 
 
 @dataclass(frozen=True)

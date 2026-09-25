@@ -48,9 +48,6 @@ WALL_PCT = 100
 # wall announces itself.
 POLL_S = 30
 
-WINDOW_5H_S = 5 * 3600
-WINDOW_7D_S = 7 * 24 * 3600
-
 # T: an agent at the wall stays parked when its own account resets within this.
 # A move costs a cold start - the destination's window pays for a new session
 # to get back to where the old one was (measured on gamma: about 13% of a Pro
@@ -90,7 +87,7 @@ class Trigger:
     reason: str = ""
 
 
-# pct_5h arrives as a whole number, so the smallest change we can ever see is
+# A window's percent arrives as a whole number, so the smallest change we can ever see is
 # one point. Measured across a couple of seconds that single point reads as
 # 30%/min, which is quantization noise, not a burn rate - and it was enough to
 # hand off and clear a working agent. A rate is only meaningful once the window
@@ -119,7 +116,7 @@ def burn_rate_per_s(samples: list[tuple[int, int]]) -> float:
     return (p1 - p0) / span
 
 
-def evaluate(pct_5h: int | None, ctx_used: int | None, pct_7d: int | None = None,
+def evaluate(short_pct: int | None, ctx_used: int | None, long_pct: int | None = None,
              ctx_limit: int = CONTEXT_TOKENS) -> Trigger:
     """Should this agent hand off now?
 
@@ -134,24 +131,25 @@ def evaluate(pct_5h: int | None, ctx_used: int | None, pct_7d: int | None = None
     name, so it stays the one place both callers and every test can trust
     without re-deriving an agent's override or a model's window here too.
     """
-    if pct_5h is not None and pct_5h >= WALL_PCT:
-        return Trigger(True, "usage", f"pct_5h {pct_5h}% - at the wall")
-    if pct_7d is not None and pct_7d >= WALL_PCT:
-        return Trigger(True, "usage_7d", f"pct_7d {pct_7d}% - at the weekly wall")
+    if short_pct is not None and short_pct >= WALL_PCT:
+        return Trigger(True, "usage", f"shortest window {short_pct}% - at the wall")
+    if long_pct is not None and long_pct >= WALL_PCT:
+        return Trigger(True, "usage_7d", f"longest window {long_pct}% - at the wall")
     if ctx_used is not None and ctx_used >= ctx_limit:
         return Trigger(True, "context", f"context {ctx_used:,} >= {ctx_limit:,}")
-    return Trigger(False, "", f"pct_5h {'?' if pct_5h is None else str(pct_5h) + '%'} below "
+    return Trigger(False, "", f"shortest window {'?' if short_pct is None else str(short_pct) + '%'} below "
                               f"the wall, context "
                               f"{'?' if ctx_used is None else format(ctx_used, ',')} "
                               f"< {ctx_limit:,}")
 
 
-def stay_within_s(cold_start_pct: float | None = None) -> float:
-    """T. The measured cost of a cold start, as the seconds of window it
-    spends, when there is a measurement; the starting value otherwise."""
-    if cold_start_pct is None or cold_start_pct <= 0:
+def stay_within_s(cold_start_pct: float | None = None, window_s: float = 0) -> float:
+    """T. The measured cost of a cold start, as the seconds of the shortest
+    window it spends (`window_s` long), when there is a measurement; the
+    starting value otherwise."""
+    if cold_start_pct is None or cold_start_pct <= 0 or window_s <= 0:
         return STAY_WITHIN_S
-    return cold_start_pct / 100 * WINDOW_5H_S
+    return cold_start_pct / 100 * window_s
 
 
 def stay_or_move(work_waiting: bool, reset_in_s: float | None,
@@ -178,16 +176,17 @@ def stretch_s(headroom_pct: float, fill_per_s: float,
     return headroom_pct / rate if rate > 0 else float("inf")
 
 
-def next_reset(reset_5h: int | None, now: int | None = None) -> int:
-    """When the 5h window rolls over. Used as wake_at for a parked agent."""
+def next_reset(reset: int | None, now: int | None = None) -> int:
+    """When a window rolls over. Used as wake_at for a parked agent."""
     now = now or int(time.time())
-    if reset_5h and reset_5h > now:
-        return int(reset_5h)
+    if reset and reset > now:
+        return int(reset)
     return now + 300  # unknown: look again shortly rather than sleeping blind
 
 
-def wake_after(kind: str, reset_5h: int | None, reset_7d: int | None,
+def wake_after(kind: str, short_reset: int | None, long_reset: int | None,
                now: int | None = None) -> int:
     """When a parked agent should look again: the window its trigger fired on
-    has to roll over, and a weekly trigger outlasts every 5h reset."""
-    return next_reset(reset_7d if kind == "usage_7d" else reset_5h, now)
+    has to roll over, and a trigger on the longest outlasts every reset of the
+    shortest."""
+    return next_reset(long_reset if kind == "usage_7d" else short_reset, now)

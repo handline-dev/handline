@@ -281,20 +281,20 @@ def account_cells(name: str, st, now: float | None = None,
     # A last-seen figure is drawn at its value, dimmed and uncoloured, with its
     # "?", so it cannot be read as a live gauge at the same number and is not
     # drawn as an unknown either. Display only.
-    shown, src = st.shown_pct_5h()
+    shown, src = st.shown_short()
     five = _gauge(shown, ACCT_BAR_W["five"], src)
     return {
         "agents": agents_cell(counts, unplaced, at_cap),
         "five": five,
-        "reset5": countdown(st.reset_5h),
+        "reset5": countdown(st.short.reset),
         # The weekly figure carries its provenance like the 5h one. Drawn
         # bare, a number from a stale snapshot - or from a week that has since
         # rolled over - reads as this week's measurement.
-        "seven": _gauge(st.trusted_pct_7d, ACCT_BAR_W["seven"],
-                        status.mark(st.pct_7d_source)),
+        "seven": _gauge(st.long_trusted, ACCT_BAR_W["seven"],
+                        status.mark(st.long_source)),
         # The deadline the ordering spends against: when this window's
         # headroom is lost if nobody uses it.
-        "reset7": countdown(st.reset_7d),
+        "reset7": countdown(st.long.reset),
         "runway": runway_text,
     }
 
@@ -427,7 +427,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         # reading "—". A column that is empty or duplicated is a column
         # that trains a reader not to look at it.
         ctx_limit = status.effective_context_limit(cfg, st.model_id)
-        t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=ctx_limit)
+        t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used, ctx_limit=ctx_limit)
         fire = f"{YEL}⚠ {t.kind}{R}" if t.fired and dmn_lifecycle.triggers_apply(row) else ""
         ctxs = f"{pct(st.ctx_pct)}%"
         if st.ctx_used is not None and st.ctx_used >= ctx_limit:
@@ -547,7 +547,7 @@ def header_data(con) -> HeaderData:
     marks = set()
     for a in paths.list_accounts():
         st_ = status.read(a)
-        marks |= {status.mark(st_.pct_5h_source), status.mark(st_.pct_7d_source)}
+        marks |= {status.mark(st_.short_source), status.mark(st_.long_source)}
     return HeaderData(dmn_locks.running_elsewhere(), time.strftime("%H:%M:%S"),
                       any(m.strip() for m in marks), actions.founder_waits(con))
 

@@ -91,11 +91,11 @@ def cmd_triggers(args) -> int:
                 continue
             st = status.read_for_agent(a, acct)
             ctx_limit = status.effective_context_limit(cfg, st.model_id)
-            t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used, ctx_limit=ctx_limit)
+            t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used, ctx_limit=ctx_limit)
             cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
             # The figure the trigger used, not the raw one: a column saying "-"
             # beside a reason saying "0%" is the dashboard arguing with the daemon.
-            shown, src = st.shown_pct_5h()
+            shown, src = st.shown_short()
             five = f"{cell(shown)}{src}"
             row = db.get_agent_state(con, a)
             if dmn_lifecycle.triggers_apply(row):

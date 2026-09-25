@@ -127,17 +127,17 @@ def test_an_ended_window_and_unreadable_samples(home: Path) -> None:
         con.commit()
         st = {a.account: a for a in stats.account_stats(con, NOW)}
         check("stats: an ended window has no pct and no reset",
-              st["old"].w5h.pct is None and st["old"].w5h.reset_at is None, str(st["old"].w5h))
-        check("stats: a lost sample is not the reading", st["lossy"].w5h.pct is None)
-        w = st["frozen"].w5h
+              st["old"].short.pct is None and st["old"].short.reset_at is None, str(st["old"].short))
+        check("stats: a lost sample is not the reading", st["lossy"].short.pct is None)
+        w = st["frozen"].short
         check("stats: a reading gone stale is unknown: no pct, no forecast, not blocked",
               w.pct is None and w.runs_out_at is None and w.blocked_since is None
               and not st["frozen"].blocked, str(w))
-        w = st["oldcarry"].w5h
+        w = st["oldcarry"].short
         check("stats: a carried figure past the carry bound is unknown too",
               w.pct is None and not st["oldcarry"].blocked, str(w))
         check("stats: a recently carried figure is still a reading",
-              st["newcarry"].w5h.pct == 30)
+              st["newcarry"].short.pct == 30)
         check("stats: the insight does not call a frozen account blocked",
               "frozen" not in stats.insight(con, NOW), stats.insight(con, NOW))
     finally:
@@ -147,7 +147,7 @@ def test_an_ended_window_and_unreadable_samples(home: Path) -> None:
 def test_series(home: Path) -> None:
     con = _fixture(home)
     try:
-        s = stats.pct5h_series(con, NOW)
+        s = stats.short_series(con, NOW)
         check("stats: series has the last 24h of points",
               [p for _, p in s["alpha"]["points"]] == [10, 20, 30, 40], str(s["alpha"]))
         proj = s["alpha"]["projected"]

@@ -14,7 +14,7 @@ second way to do the same spend.
 This module is the mechanism only: what one recovery attempt does, and the
 two things that must stop it (the weekly wall, the account's own switch). Ocp
 has to notice a call is worth making, and that is `ocp/daemon/` (a poll whose
-read still fails after a renewal, or whose 5h window just ended) - a decision
+read still fails after a renewal, or whose shortest window just ended) - a decision
 that belongs where the poll already runs, and is not made here.
 """
 from __future__ import annotations
@@ -62,8 +62,8 @@ def recover(acct: str) -> tuple[bool, str]:
     Refuses on its own before spending anything: an account already marked
     needing re-login (nothing here would clear that without a human), one
     #1885 has been turned off for, one no vendor here reads usage for, one not
-    logged in, and one at its weekly wall - spending a turn there is the exact
-    thing the wall exists to stop, whatever state its 5h window is in.
+    logged in, and one at its longest window's wall - spending a turn there is the exact
+    thing the wall exists to stop, whatever state its shortest window is in.
     """
     if needs_relogin(acct):
         return False, f"{acct} needs re-login - not retrying"
@@ -78,15 +78,16 @@ def recover(acct: str) -> tuple[bool, str]:
         return False, f"{acct} is a {drv.name} account - no turn renews its credential"
     if not accounts.logged_in(acct):
         return False, f"{acct} is not logged in"
-    # trusted_pct_7d carries a stale reading as a floor until its own reset
+    # long_trusted carries a stale reading as a floor until its own reset
     # passes (status.py), so this still catches an account genuinely at the
     # wall even though this whole module exists for the case where the
     # reading is stale. When the figure is truly unknown (never read, or its
-    # window has already rolled over) trusted_pct_7d is None and a turn is
+    # window has already rolled over) long_trusted is None and a turn is
     # spent - the account is exactly the one #1885 exists to unstick.
-    week = status.read(acct).trusted_pct_7d
-    if week is not None and week >= status.PCT_7D_BLOCK:
-        return False, f"{acct}: 7d {week}% is at the wall - not spending a turn on it"
+    st = status.read(acct)
+    week = st.long_trusted
+    if week is not None and week >= status.LONG_BLOCK:
+        return False, f"{acct}: {st.long.label} {week}% is at the wall - not spending a turn on it"
 
     ok, out = fold.run_model(RECOVER_PROMPT, acct, RECOVER_MODEL)
     if not ok:
@@ -100,4 +101,4 @@ def recover(acct: str) -> tuple[bool, str]:
         return False, f"{acct}: still unreadable after a real turn - not marked, may be transient"
     clear_relogin(acct)
     usage_api.record(reading)
-    return True, f"{acct}: recovered - 5h {reading.pct_5h}% 7d {reading.pct_7d}%"
+    return True, f"{acct}: recovered - {usage_api.describe(reading)}"

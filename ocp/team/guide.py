@@ -29,7 +29,7 @@ command across hibernation and restore.""",
   ocp status                       why the pick chose the account it did
   ocp account list --json          machine-readable
 
-A pct_5h we cannot trust - no snapshot, unreadable, or too old - is not a full
+A usage figure we cannot trust - no snapshot, unreadable, or too old - is not a full
 tank, it is a refusal. Reading it as 0 makes a walled account look open forever: the
 feature is dead while the dashboard stays green.
 

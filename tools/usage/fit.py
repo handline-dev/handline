@@ -10,7 +10,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from ocp import db  # noqa: E402
-from ocp.usage import tokenlog  # noqa: E402
+from ocp.usage import tokenlog, windows  # noqa: E402
 
 B = int(sys.argv[1]) if len(sys.argv) > 1 else 1800
 con = db.connect()
@@ -21,17 +21,20 @@ for r in con.execute("SELECT * FROM usage_samples ORDER BY account, ts"):
 for a, rs in by.items():
     bk = {}
     for r in rs:
-        if r["pct_5h"] is not None and r["pct_5h_readable"] and not (r["rl_carried"] or r["rl_lost"]):
+        w = (windows.entries(dict(r)) or [{}])[0]
+        if (w.get("used_percent") is not None and w.get("readable") is not False
+                and not (w["carried"] or w["lost"])):
             bk[r["ts"] // B] = r
     ks = sorted(bk)
     for k0, k1 in zip(ks, ks[1:]):
         p, q = bk[k0], bk[k1]
         # Adjacent buckets in one window, and the figure did not fall.
-        if k1 != k0 + 1 or p["reset_5h"] != q["reset_5h"] or q["pct_5h"] < p["pct_5h"]:
+        pw, qw = windows.entries(dict(p))[0], windows.entries(dict(q))[0]
+        if k1 != k0 + 1 or pw["resets_at"] != qw["resets_at"] or qw["used_percent"] < pw["used_percent"]:
             continue
         t = tokenlog.totals(con, a, p["ts"], q["ts"])
         X.append([t["cc"], t["cr"], t["out"]])
-        y.append(q["pct_5h"] - p["pct_5h"])
+        y.append(qw["used_percent"] - pw["used_percent"])
 X, y = np.array(X, float), np.array(y, float)
 if len(y) < 10:
     sys.exit(f"{len(y)} intervals: too few to fit")

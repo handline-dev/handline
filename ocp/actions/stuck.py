@@ -52,9 +52,9 @@ def _delivery_state(con, agent: str, sessions: dict | None,
     if handles is not None and handle not in handles:
         return "terminal gone", f"{agent}'s terminal is gone - Orca no longer has it", False
     acct = agents.current_account(agent, con)
-    pct = status.read(acct).trusted_pct_5h if acct else None
+    pct = status.read(acct).short_trusted if acct else None
     if row["closed_at"]:
-        if pct is not None and pct >= status.PCT_5H_BLOCK:
+        if pct is not None and pct >= status.SHORT_BLOCK:
             return ("closed, account full", f"{agent} is closed and {acct} is at {pct}% - it cannot be "
                     f"launched into", False)
         if not alive:

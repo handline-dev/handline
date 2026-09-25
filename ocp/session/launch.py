@@ -98,27 +98,29 @@ def choose_account(agent: str, resuming: bool = False, con=None,
 class WakeWait:
     account: str
     pct: int
-    # When the walled window rolls over: the 5h one, or the weekly one.
+    # When the walled window rolls over: the shortest one, or the longest.
     reset: int | None
     # True when `account` is a guess (one written before a launch confirmed
     # it) rather than the account this resume is actually tied to -
     # `account_reading` prefers a fresher reported one first, so this is the
     # residual case where nothing has confirmed one at all.
     assumed: bool = False
-    window: str = "5h"
+    window: str = ""            # the walled window's length as a person says it
+    is_long: bool = False       # the longest window, not the shortest
 
 
 def _wall(acct: str, assumed: bool = False) -> WakeWait | None:
-    """The window this account is walled behind, the 5h one first: an account
-    walled on both reports the 5h rollover, and once that passes it is refused
-    again on the 7d one still standing - the sentence names a rollover that
+    """The window this account is walled behind, the shortest first: an account
+    walled on both reports the shortest one's rollover, and once that passes it is
+    refused again on the longest still standing - the sentence names a rollover that
     does not itself unblock it."""
     st = status.read(acct)
-    pct, week = st.trusted_pct_5h, st.trusted_pct_7d
-    if pct is not None and pct >= status.PCT_5H_BLOCK:
-        return WakeWait(acct, pct, st.reset_5h, assumed)
-    if week is not None and week >= status.PCT_7D_BLOCK:
-        return WakeWait(acct, week, st.reset_7d, assumed, window="7d")
+    pct, week = st.short_trusted, st.long_trusted
+    if pct is not None and pct >= status.SHORT_BLOCK:
+        return WakeWait(acct, pct, st.short.reset, assumed, window=st.short.label)
+    if week is not None and week >= status.LONG_BLOCK:
+        return WakeWait(acct, week, st.long.reset, assumed, window=st.long.label,
+                        is_long=True)
     return None
 
 
@@ -191,11 +193,11 @@ def wake_wait_reason(agent: str, row, con) -> str | None:
 
 
 def wait_clock(w: WakeWait, unknown: str = "?") -> str:
-    """When the walled window rolls over: a clock for the 5h one, a date and
-    clock for the weekly one, which is days away."""
+    """When the walled window rolls over: a clock for the shortest one, a date and
+    clock for the longest, which is days away."""
     if not w.reset:
         return unknown
-    return time.strftime("%H:%M" if w.window == "5h" else "%m-%d %H:%M", time.localtime(w.reset))
+    return time.strftime("%m-%d %H:%M" if w.is_long else "%H:%M", time.localtime(w.reset))
 
 
 def describe_wake_wait(w: WakeWait) -> str:
@@ -297,17 +299,17 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
         print(f"warning: account '{acct}' usage is {age} old and may be out of date; "
               f"the daemon will ask the endpoint about it on its next tick.",
               file=sys.stderr)
-    elif not force and st.exists and st.trusted_pct_5h is not None \
-            and st.trusted_pct_5h >= status.PCT_5H_BLOCK:
+    elif not force and st.exists and st.short_trusted is not None \
+            and st.short_trusted >= status.SHORT_BLOCK:
         # The carried figure counts here: inside a window usage only rises, so
         # a figure we carried is a floor and a floor at the wall is at the wall.
         # A reading we have no figure for at all still starts, deliberately -
         # the session we are about to launch is the only thing that can tell us
         # where the account stands.
         raise SystemExit(
-            f"account '{acct}' is at {st.trusted_pct_5h}% of the 5h limit "
-            f"(>= {status.PCT_5H_BLOCK}%) - refusing to start.\n"
-            f"resets at {st.reset_5h}; use --force to override"
+            f"account '{acct}' is at {st.short_trusted}% of the {st.short.label} limit "
+            f"(>= {status.SHORT_BLOCK}%) - refusing to start.\n"
+            f"resets at {st.short.reset}; use --force to override"
         )
 
     exe = drv.binary()
