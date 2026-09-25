@@ -579,29 +579,18 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
           app.result == "line one\nline two", repr(app.result))
 
 
-async def test_ctrl_v_puts_a_clipboard_picture_path_in_and_copy_reaches_pbcopy() -> None:
-    """T121: a picture on the clipboard is saved and its absolute path typed
-    in; Textual's copy also goes to the system clipboard, not only OSC 52."""
+async def test_copy_reaches_the_system_clipboard() -> None:
+    """T121: Textual's copy also goes to the system clipboard, not only OSC 52."""
     from ocp.infra import clipboard
-    saved, copied = Path("/abs/pasted/a.png"), []
-    real = clipboard.image_to_file, clipboard.copy
-    clipboard.image_to_file = lambda: saved
+    copied, real = [], clipboard.copy
     clipboard.copy = lambda text: copied.append(text) or True
     try:
-        class _HostApp(bt.ClipboardApp):
-            def on_mount(self):
-                self.push_screen(TextPrompt("to backend:", multi=True))
-
-        app = _HostApp()
-        async with app.run_test(size=(80, 20)) as pilot:
+        app = bt.ClipboardApp()
+        async with app.run_test(size=(40, 6)) as pilot:
             await pilot.pause()
-            await pilot.press("ctrl+ㅍ")
-            await pilot.pause(0.1)
-            text = app.screen.query_one("#box").text
             app.copy_to_clipboard("picked")
     finally:
-        clipboard.image_to_file, clipboard.copy = real
-    check("ctrl+v (typed as ctrl+ㅍ on a Korean layout): the saved picture's absolute path is in the box", text == str(saved), repr(text))
+        clipboard.copy = real
     check("copy: the text also went to the system clipboard", copied == ["picked"], repr(copied))
 
 
@@ -2044,7 +2033,7 @@ async def _run_all() -> None:
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
-    await test_ctrl_v_puts_a_clipboard_picture_path_in_and_copy_reaches_pbcopy()
+    await test_copy_reaches_the_system_clipboard()
     test_keymap_names_a_korean_key_by_the_latin_letter_on_it()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_task_checks_lists_and_acts_on_the_founders_own()

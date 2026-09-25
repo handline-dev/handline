@@ -10,7 +10,7 @@ from textual.containers import Vertical
 from textual.message import Message
 from textual.widgets import Input, Static, TextArea
 
-from ...infra import clipboard, textsafe
+from ...infra import textsafe
 from .ime import ImeInput, committed
 
 
@@ -28,8 +28,7 @@ class _LineBox(ImeInput):
 class _TextBox(TextArea):
     """A several-line box: Enter sends, Alt/Shift+Enter or Ctrl+J is a new line.
     A paste goes in as `textsafe.drawable` text: a widget draws a control
-    character raw. Ctrl+V with a picture on the clipboard puts its saved
-    file's absolute path in."""
+    character raw."""
 
     class Send(Message):
         pass
@@ -47,17 +46,6 @@ class _TextBox(TextArea):
             event.stop()
             self.post_message(self.Send())
             return
-        if event.key == "ctrl+v":
-            try:
-                path = clipboard.image_to_file()
-            except clipboard.ClipboardError as e:
-                self.app.notify(f"paste picture failed: {e}", severity="error")
-                path = None
-            if path:
-                event.prevent_default()
-                event.stop()
-                self.insert(str(path))
-                return
         if event.key in ("alt+enter", "shift+enter", "ctrl+j"):
             event.prevent_default()
             event.stop()
