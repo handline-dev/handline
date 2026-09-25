@@ -674,7 +674,74 @@ STATE_STYLE = {"waiting": "black on yellow", "doing": "white on blue",
                "done": "black on green", "closed": "white on grey37"}
 
 
-class TaskDetail(Screen):
+class TaskActions:
+    """Close, reopen and discard for the task `self.tid` (its `task_detail` in `self.d`): the
+    calls the human may make, asked for and reported the same wherever the buttons are.
+    The host says a refusal (`say`) and redraws after an action (`flash`)."""
+
+    tid: int
+    d: dict | None
+
+    def report(self, verb: str, ok: bool, said: str) -> None:
+        """Say what came of an action where it cannot be missed - a notice over
+        the page, not only the small line under it - and log it."""
+        log_action(f"task {actions.task_ref(self.tid)} {verb}: {'ok' if ok else 'refused'} - {said}")
+        self.notify(safe(said), title=f"{verb} {actions.task_ref(self.tid)}", severity="information" if ok else "error",
+                    timeout=10, markup=False)
+        self.flash(said)
+
+    def action_close_task(self) -> None:
+        if not (self.d and self.d["can_close"]):
+            self.say("only a done task that you asked for can be closed")
+            return
+
+        def answered(yes: bool | None) -> None:
+            log_action(f"task {actions.task_ref(self.tid)} close: answered {'yes' if yes else 'no'}")
+            if yes:
+                con = db.connect()
+                try:
+                    ok, said = actions.close_task(con, self.tid, actions.HUMAN)
+                finally:
+                    con.close()
+                self.report("close", ok, said)
+        self.app.push_screen(
+            Confirm(f"Close task {actions.task_ref(self.tid)}", "Your sign-off, and final: a closed task cannot be reopened.",
+                    yes="Close", danger=True), answered)
+
+    def action_reopen_task(self) -> None:
+        if not (self.d and self.d["can_reopen"]):
+            self.say("only a done task that you asked for can be reopened")
+            return
+
+        def answered(reason: str | None) -> None:
+            log_action(f"task {actions.task_ref(self.tid)} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
+            if reason and reason.strip():
+                con = db.connect()
+                try:
+                    ok, said = actions.reopen_task(con, self.tid, actions.HUMAN, reason)
+                finally:
+                    con.close()
+                self.report("reopen", ok, said)
+        self.app.push_screen(TextPrompt("reopen - why?"), answered)
+
+    def action_discard_task(self) -> None:
+        if not (self.d and self.d["can_discard"]):
+            self.say("only a task that you asked for, with nothing running on it, can be discarded")
+            return
+
+        def answered(reason: str | None) -> None:
+            log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
+            if reason and reason.strip():
+                con = db.connect()
+                try:
+                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
+                finally:
+                    con.close()
+                self.report("discard", ok, said)
+        self.app.push_screen(TextPrompt("discard - why?"), answered)
+
+
+class TaskDetail(TaskActions, Screen):
     """One task: its title and state, who has it, what it grew out of, its
     sub-tasks and requests, and the calls the human may make on it - close
     a done task, send it back with a reason, or discard one nothing is running on."""
@@ -741,67 +808,12 @@ class TaskDetail(Screen):
             out.append("\n")
         return out
 
-    def report(self, verb: str, ok: bool, said: str) -> None:
-        """Say what came of an action where it cannot be missed - a notice over
-        the page, not only the small line under it - and log it."""
-        log_action(f"task {actions.task_ref(self.tid)} {verb}: {'ok' if ok else 'refused'} - {said}")
-        self.notify(safe(said), title=f"{verb} {actions.task_ref(self.tid)}", severity="information" if ok else "error",
-                    timeout=10, markup=False)
-        self.flash(said)
+    def say(self, text: str) -> None:
+        self.query_one("#t_flash", Static).update(Text(safe(text)))
 
     def flash(self, text: str) -> None:
-        self.query_one("#t_flash", Static).update(Text(safe(text)))
+        self.say(text)
         self.load()
-
-    def action_close_task(self) -> None:
-        if not (self.d and self.d["can_close"]):
-            self.query_one("#t_flash", Static).update("only a done task that you asked for can be closed")
-            return
-
-        def answered(yes: bool | None) -> None:
-            log_action(f"task {actions.task_ref(self.tid)} close: answered {'yes' if yes else 'no'}")
-            if yes:
-                con = db.connect()
-                try:
-                    ok, said = actions.close_task(con, self.tid, actions.HUMAN)
-                finally:
-                    con.close()
-                self.report("close", ok, said)
-        self.app.push_screen(
-            Confirm(f"Close task {actions.task_ref(self.tid)}", "Your sign-off, and final: a closed task cannot be reopened.",
-                    yes="Close", danger=True), answered)
-
-    def action_reopen_task(self) -> None:
-        if not (self.d and self.d["can_reopen"]):
-            self.query_one("#t_flash", Static).update("only a done task that you asked for can be reopened")
-            return
-
-        def answered(reason: str | None) -> None:
-            log_action(f"task {actions.task_ref(self.tid)} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
-            if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.reopen_task(con, self.tid, actions.HUMAN, reason)
-                finally:
-                    con.close()
-                self.report("reopen", ok, said)
-        self.app.push_screen(TextPrompt("reopen - why?"), answered)
-
-    def action_discard_task(self) -> None:
-        if not (self.d and self.d["can_discard"]):
-            self.query_one("#t_flash", Static).update("only a task that you asked for, with nothing running on it, can be discarded")
-            return
-
-        def answered(reason: str | None) -> None:
-            log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
-            if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
-                finally:
-                    con.close()
-                self.report("discard", ok, said)
-        self.app.push_screen(TextPrompt("discard - why?"), answered)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()

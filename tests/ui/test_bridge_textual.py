@@ -984,6 +984,10 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.pause(0.3)
         check("tasks tab: a wide terminal shows the task under the cursor at the right",
               pane.display and view.rows[view.cur]["title"] in str(pane.query_one("#pane_text").render()), pane.display)
+        from textual.widgets import Button
+        check("tasks tab: the pane has Close, Reopen and Discard, enabled as the task page has them",
+              all(pane.query_one(f"#pane_{n}", Button).disabled == (not pane.d[f"can_{n}"])
+                  for n in ("close", "reopen", "discard")), pane.d)
         await pilot.resize_terminal(100, 24)
         await pilot.pause(0.3)
         check("tasks tab: a narrow one hides the pane", not pane.display)

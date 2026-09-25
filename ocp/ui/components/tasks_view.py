@@ -16,7 +16,7 @@ from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
 from ...infra import textsafe
-from ..chat_page import TaskTable, task_detail, task_page
+from ..chat_page import TaskActions, TaskTable, task_detail, task_page
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
 
@@ -42,17 +42,52 @@ def idle_text(row: dict, now: float) -> str:
 WIDE = 130
 
 
-class TaskPane(VerticalScroll):
+class TaskPane(TaskActions, Vertical):
     """The task under the cursor, beside the table when the terminal is wide: what its page
     (`chat_page.task_page`) says, the sub-tasks without links."""
 
-    DEFAULT_CSS = "TaskPane { width: 50; padding: 0 1; border-left: solid $primary; }"
+    DEFAULT_CSS = """
+    TaskPane { width: 50; padding: 0 1; border-left: solid $primary; }
+    TaskPane #pane_scroll { height: 1fr; }
+    TaskPane #pane_buttons { height: 1; }
+    TaskPane #pane_flash { height: auto; color: $warning; }
+    """
+
+    def __init__(self, **kw) -> None:
+        super().__init__(**kw)
+        self.tid = 0
+        self.d = None
 
     def compose(self) -> ComposeResult:
-        yield Static(id="pane_text")
+        with VerticalScroll(id="pane_scroll"):
+            yield Static(id="pane_text")
+        yield Static(id="pane_flash")
+        with Horizontal(id="pane_buttons"):
+            yield Button("Close", id="pane_close", variant="success", compact=True)
+            yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
+            yield Button("Discard", id="pane_discard", variant="error", compact=True)
+
+    def say(self, text: str) -> None:
+        self.query_one("#pane_flash", Static).update(Text(textsafe.oneline(text)))
+
+    def flash(self, text: str) -> None:
+        self.say(text)
+        self.show(self.tid)
+        self.query_ancestor(TasksView).refresh_rows()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        {"pane_close": self.action_close_task, "pane_reopen": self.action_reopen_task,
+         "pane_discard": self.action_discard_task}[event.button.id]()
 
     def show(self, tid: int | None) -> None:
         text = self.query_one("#pane_text", Static)
+        if tid != self.tid:
+            self.query_one("#pane_flash", Static).update("")
+        self.tid = tid or 0
+        self.d = None
+        for name in ("close", "reopen", "discard"):
+            self.query_one(f"#pane_{name}", Button).disabled = True
         if tid is None:
             text.update(Text("no task", style="dim"))
             return
@@ -64,6 +99,9 @@ class TaskPane(VerticalScroll):
         if d is None:
             text.update(Text(f"task {actions.task_ref(tid)} is gone", style="dim"))
             return
+        self.d = d
+        for name in ("close", "reopen", "discard"):
+            self.query_one(f"#pane_{name}", Button).disabled = not d[f"can_{name}"]
         page = task_page(d)
         out = Text()
         for part in (page["title"], page["badge"]):
