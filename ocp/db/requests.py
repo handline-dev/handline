@@ -165,6 +165,12 @@ def send_now_pending(con, target: str):
         (target,)).fetchall()
 
 
+def mark_told_out_of_turn(con, rid: int) -> None:
+    """Record that "send now" already told this row, ahead of its head, so
+    becoming the head later (T38) is not a second telling."""
+    con.execute("UPDATE requests SET told_out_of_turn = 1 WHERE id = ?", (rid,))
+
+
 def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> bool:
     """True when closing `rid` into `state` with `verdict` would answer a
     queued roster-proposal escalation with something that is not approve or

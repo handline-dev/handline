@@ -1513,6 +1513,10 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
               db.get_request(con, later)["delivered_at"] is not None)
         check("send now: the head's own notice is left as it was",
               db.get_cursor(con, "notify:backend") == head)
+        check("send now: being told out of turn is recorded on the row, not a cursor (T38)",
+              db.get_request(con, later)["told_out_of_turn"]
+              and con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
+                              ).fetchone() is None)
 
         sent.clear()
         check("send now: each is told once",

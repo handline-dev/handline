@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS requests (
   -- When the human pressed "send now" on this (still undelivered) request: it
   -- is told to its target at once, ahead of a head that is already open.
   send_now INTEGER,
+  -- Set once "send now" has told it out of turn, so becoming the head later
+  -- (T38) is not a second telling. A request column, not a cursor keyed by
+  -- id: it goes away with the row instead of sitting in `cursors` forever.
+  told_out_of_turn INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
   fyi INTEGER NOT NULL DEFAULT 0,
@@ -539,6 +543,8 @@ def _add_missing_columns(con) -> None:
     for col in ("dismissed_by", "dismissed_reason"):
         if col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
+    if "told_out_of_turn" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN told_out_of_turn INTEGER")
     task_cols = _cols(con, "tasks")
     for col in ("discarded_by", "discard_reason"):
         if col not in task_cols:
