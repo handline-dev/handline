@@ -47,11 +47,17 @@ class _TextBox(TextArea):
             event.stop()
             self.post_message(self.Send())
             return
-        if event.key == "ctrl+v" and (path := clipboard.image_to_file()):
-            event.prevent_default()
-            event.stop()
-            self.insert(str(path))
-            return
+        if event.key == "ctrl+v":
+            try:
+                path = clipboard.image_to_file()
+            except clipboard.ClipboardError as e:
+                self.app.notify(f"paste picture failed: {e}", severity="error")
+                path = None
+            if path:
+                event.prevent_default()
+                event.stop()
+                self.insert(str(path))
+                return
         if event.key in ("alt+enter", "shift+enter", "ctrl+j"):
             event.prevent_default()
             event.stop()
