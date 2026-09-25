@@ -292,6 +292,11 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                f"instead (`ocp ask {old['target']} \"...\" --parent "
                                f"{replaces}`)"), None
 
+        # A correction of a reply is still that reply: without its thread it is
+        # a new request, and waits behind the head it was written to follow.
+        if old is not None and parent_id is None:
+            parent_id = old["parent_id"]
+
         depth, chain_id = 0, None
         if parent_id:
             parent = db.get_request(con, parent_id)
