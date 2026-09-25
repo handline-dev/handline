@@ -783,6 +783,20 @@ async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
               states == ["queued"] * len(before) and not app.screen.jobs.running, (states, before))
 
 
+def test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark() -> None:
+    from ocp.ui.components.key_guide import Key, fit
+    keys = [Key("a", "alpha", 1), Key("b", "bravo", 3), Key("c", "charlie", 2), Key("d", "delta", 1)]
+    wide = fit(keys, 80).plain
+    check("key guide: with room, every key in the order given, then ?",
+          wide == "a alpha · b bravo · c charlie · d delta · ? keys", wide)
+    for width in (12, 24, 31, 40):
+        line = fit(keys, width)
+        check(f"key guide: {width} cells is one line that fits and ends with ?",
+              line.cell_len <= width and line.plain.endswith("? keys"), line.plain)
+    tight = fit(keys, 31).plain
+    check("key guide: the lowest rank goes first", "bravo" not in tight and "alpha" in tight and "delta" in tight, tight)
+
+
 async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
     """T69: T opens the tasks screen; space marks; p sets the priority of the
     marked tasks; c on tasks that are not done shows each refusal with its reason."""
@@ -807,13 +821,17 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
               isinstance(screen, TasksScreen) and {a, b, c} <= {r["id"] for r in view.rows},
               type(screen).__name__)
         foot = str(view.query_one("#tasks_foot").render())
-        check("tasks: the foot guides the core keys and points to ? for the rest",
-              "mark" in foot and "close" in foot and "?" in foot and "merge" not in foot, foot)
+        check("tasks: the foot guides keys on one line and ends with ?",
+              "mark" in foot and "close" in foot and foot.rstrip().endswith("? keys") and "\n" not in foot, foot)
         await pilot.press("question_mark")
         await pilot.pause(0.2)
-        check("tasks: ? shows the rest of the keys", "merge" in str(view.query_one("#tasks_foot").render()))
-        await pilot.press("question_mark")
+        from ocp.ui.components.key_guide import KeyHelp
+        check("tasks: ? opens a box with every key", isinstance(app.screen, KeyHelp)
+              and "merge" in str(app.screen.query_one("#keys").render()), type(app.screen).__name__)
+        await pilot.press("escape")
         await pilot.pause(0.2)
+        check("tasks: esc closes the box and stays on the screen", isinstance(app.screen, TasksScreen),
+              type(app.screen).__name__)
         await pilot.press("space", "down", "space")
         await pilot.pause()
         check("tasks: space marks the rows", len(view.checked) == 2, view.checked)
@@ -2117,6 +2135,7 @@ async def _run_all() -> None:
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
+    test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()

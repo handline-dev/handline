@@ -15,6 +15,7 @@ from textual.widgets import DataTable, Static
 
 from ... import actions, db
 from ...infra import textsafe
+from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
 
 _ASKS = {"discard": "discard - why:", "owner": "new owner (agent name):",
@@ -49,18 +50,25 @@ class TasksView(Vertical):
         Binding("s", "sort", "sort"),
         Binding("a", "closed", "closed"),
         Binding("f", "owner_filter", "agent"),
-        Binding("question_mark", "more", "keys"),
+        Binding("question_mark", "key_help", "keys"),
     ]
-    SHORT = (("space", "mark"), ("c", "close"), ("↵", "open"), ("?", "more keys"))
-    MORE = (("space", "mark"), ("c", "close"), ("d", "discard"), ("o", "owner"), ("p", "priority"),
-            ("m", "merge into the row"), ("s", "sort"), ("a", "closed"), ("f", "agent"), ("↵", "open"),
-            ("?", "fewer keys"))
+    KEYS = (
+        Key("space", "mark", 1, "mark or unmark the row; c d o p act on the marked rows"),
+        Key("c", "close", 1, "close the task (a done one, by whoever may close it)"),
+        Key("↵", "open", 1, "open the task's detail"),
+        Key("d", "discard", 2, "discard a task nothing is running on, with a reason"),
+        Key("o", "owner", 2, "change the owner to another agent"),
+        Key("p", "priority", 2, "set the priority, 1 high to 3 low"),
+        Key("m", "merge", 2, "fold the marked tasks into the row under the cursor"),
+        Key("s", "sort", 3, "sort by priority, or by number"),
+        Key("a", "closed", 3, "show or hide closed, discarded and merged tasks"),
+        Key("f", "agent", 3, "show one agent's tasks, and the next agent on each press"),
+    )
 
     def __init__(self, mine: bool = False, back: bool = False, **kw) -> None:
         super().__init__(**kw)
         self.mine = mine
         self.back = back
-        self.more = False
         self.checked: set[int] = set()
         self.by = "priority"
         self.show_closed = False
@@ -74,7 +82,7 @@ class TasksView(Vertical):
         yield Static(id="tasks_title")
         yield DataTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
         yield Static(id="tasks_results")
-        yield Static(id="tasks_foot")
+        yield KeyGuide(self._keys(), id="tasks_foot")
 
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns(
@@ -124,16 +132,7 @@ class TasksView(Vertical):
             f"{'MY TASKS' if self.mine else 'TASKS'}  {'all' if self.show_closed else 'open'} "
             f"{len(self.rows)} · agent: {self.owner or 'all'} (f) · sort: {self.by} (s: {other}) · "
             f"a: {'hide' if self.show_closed else 'show'} closed")
-        foot = Text()
-        for i, (k, label) in enumerate(self.MORE if self.more else self.SHORT):
-            foot.append(" · " if i else "", "dim")
-            foot.append(k, "bold")
-            foot.append(f" {label}", "dim")
-        if self.back:
-            foot.append(" · ", "dim")
-            foot.append("esc", "bold")
-            foot.append(" back", "dim")
-        self.query_one("#tasks_foot", Static).update(foot)
+        self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
         shown = Text(self.flash + "\n" if self.flash else "", "yellow")
         shown.append_text(self.results)
         self.query_one("#tasks_results", Static).update(shown)
@@ -149,9 +148,11 @@ class TasksView(Vertical):
             self.checked.symmetric_difference_update({self.rows[self.cur]["id"]})
         self.refresh_rows()
 
-    def action_more(self) -> None:
-        self.more = not self.more
-        self.refresh_rows()
+    def _keys(self) -> list[Key]:
+        return [*self.KEYS, *([Key("esc", "back", 1, "back")] if self.back else [])]
+
+    def action_key_help(self) -> None:
+        self.app.push_screen(KeyHelp("MY TASKS keys" if self.mine else "TASKS keys", self._keys()))
 
     def action_sort(self) -> None:
         self.by = "number" if self.by == "priority" else "priority"
