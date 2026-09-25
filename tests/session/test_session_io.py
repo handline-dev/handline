@@ -1289,7 +1289,7 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         keep_handoff("backend", "# handoff · backend\n- was mid-way through the routing fix")
         ok, _ = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("wake: a cleared agent gets its handoff", ok and "routing fix" in sent[-1],
+        check("wake: a cleared agent gets its handoff", ok and "routing fix" in support.pointed_record(sent[-1]),
               sent[-1][:120] if sent else "")
         check("wake: and is told its context was cleared",
               "context was cleared" in sent[-1])
@@ -1530,6 +1530,21 @@ def test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(home: 
         sent.clear()
         check("back: and only once",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        # A reply in the head's thread goes ahead of the queue, but a session
+        # that has read nothing hears the head before it (T111).
+        head = db.head_of_queue(con, "backend")["id"]
+        db.add_request(con, "reviewer", "backend", "a follow-up", None, "peer", "async",
+                       None, 0, head)
+        db.set_closed(con, "backend", "sess-A")
+        support.something_waiting(con, "backend")
+        db.clear_closed(con, "backend")
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("back: the restarted session is told the head before its follow-up",
+              len(sent) == 1 and "first" in sent[0] and "follow-up to" not in sent[0], str(sent))
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("back: and the follow-up on the next pass, naming the open head",
+              len(sent) == 2 and "a follow-up" in sent[1] and f"#{head}" in sent[1], str(sent))
     finally:
         con.close()
 

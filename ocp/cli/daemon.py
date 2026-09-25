@@ -1,6 +1,7 @@
 """`ocp daemon` and dev mode."""
 from __future__ import annotations
 
+import sys
 import time
 
 from .. import actions
@@ -13,6 +14,7 @@ from ..session import observe as obs
 from ..session import orca
 from ..infra import service
 from ..infra import textsafe
+from ..infra.yamlcompat import ConfigError
 from ..ui import tui
 from ..session import waiting
 
@@ -32,7 +34,11 @@ def cmd_dev_mode(args) -> int:
     if args.state is None:
         print("on" if dmn_devmode.dev_mode_enabled() else "off")
         return 0
-    dmn_devmode.set_dev_mode(args.state == "on")
+    try:
+        dmn_devmode.set_dev_mode(args.state == "on")
+    except ConfigError as e:
+        print(e, file=sys.stderr)
+        return 1
     print(f"dev-mode: {args.state}")
     return 0
 

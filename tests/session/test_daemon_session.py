@@ -1013,6 +1013,43 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
         con.close()
 
 
+def test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(home: Path) -> None:
+    from ocp.infra.yamlcompat import ConfigError
+    """T86: every writer of config.yaml read a file that failed to parse as
+    empty, and then wrote that one key over the whole of it."""
+    _daemon_home(home, 20)
+    cfg = paths.config_file()
+    writers = {
+        "cap": lambda: loadmod.set_cap("alpha", 3),
+        "default cap": lambda: loadmod.set_default_cap(3),
+        "label": lambda: loadmod.set_label("alpha", "Main"),
+        "recover": lambda: loadmod.set_usage_recover("alpha", False),
+        "park timeout": lambda: idle_close.set_close_timeout(120),
+        "cache expiry": lambda: idle_close.set_ignore_cache_expiry(True),
+        "flag": lambda: idle_close.set_config_flag("some_flag", True),
+        "dev mode": lambda: dmn_devmode.set_dev_mode(True),
+    }
+    for broken in ("keep: [unclosed\nother: 1\n", "- a\n- b\n"):
+        cfg.write_text(broken)
+        for name, write in writers.items():
+            try:
+                write()
+                raised = False
+            except ConfigError:
+                raised = True
+            check(f"config: {name} refuses a file that is not a mapping, and leaves it as it was",
+                  raised and cfg.read_text() == broken, repr(cfg.read_text()))
+    cfg.write_text("keep: 1\n")
+    loadmod.set_cap("alpha", 3)
+    check("config: a good file keeps every other setting",
+          loadmod._config() == {"keep": 1, "active_cap_alpha": 3}, str(loadmod._config()))
+    cfg.unlink()
+    idle_close.set_close_timeout(120)
+    check("config: no file yet is written from nothing", loadmod._config() == {"park_timeout_s": 120})
+    ok, why = (lambda: (cfg.write_text("keep: [unclosed\n"), actions.set_account_cap("alpha", "2"))[1])()
+    check("config: the screen's cap setter says why instead of failing", not ok and why, why)
+
+
 def test_t52_idle_timeout_and_cache_expiry_overrides(home: Path) -> None:
     """T52: config.yaml's global park timeout and cache-expiry-ignore switch,
     and agent.yaml's own override of either - the agent's own setting always
@@ -3626,7 +3663,7 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
         for _ in range(3):
             dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()) + 1, {}, [])
         check("context handoff: its own record is typed into the session",
-              any("Carry on from here" in t for t in typed), str(typed))
+              any("Carry on from here" in support.pointed_record(t) for t in typed), str(typed))
         row = db.get_agent_state(con, "backend")
         check("context handoff: settles into QUEUED or IDLE once delivered, not PARKED",
               row["state"] in (dmn_states.IDLE, dmn_states.QUEUED) and not row["wake_at"],
@@ -3682,13 +3719,20 @@ def test_wake_injects_handoff(home: Path) -> None:
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: nothing to resume from without a handoff", not ok, why)
 
-        keep_handoff("backend", "# handoff · backend\n## Next\n- finish the thing\n")
+        keep_handoff("backend", "# handoff · backend\n## Next\n- finish the thing\n- and the other\n\n## Done\n- a\n- b\n")
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: injects the handoff", ok and sent, why)
+        record = Path(sent[-1].split(" is in ")[1].split(" - ")[0]) if sent else None
+        check("wake: what is typed is one line naming a file, not the record (T106)",
+              sent and "\n" not in sent[-1] and record is not None and record.is_absolute(), repr(sent))
+        check("wake: and the file holds the whole record, structure kept",
+              record is not None and record.exists()
+              and "- finish the thing\n- and the other\n\n## Done\n- a\n- b" in record.read_text()
+              and "Carry on from here" in record.read_text(), record and record.read_text())
         check("wake: the agent is told its context was cleared",
               "context was cleared" in sent[-1], sent[-1][:80])
         check("wake: and gets its own record back",
-              "finish the thing" in sent[-1], sent[-1][:120])
+              "finish the thing" in (record.read_text() if record else ""), sent[-1][:120])
     finally:
         orcamod.resume_with, orcamod.alive = real_resume, real_alive
         con.close()
@@ -4127,6 +4171,7 @@ def main() -> int:
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
+        run(lambda: test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(Path(td) / 'cfgguard'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_send_now_reaches_an_agent_whose_head_is_already_open(Path(td) / 'sendnow'))
         run(lambda: test_the_founder_reaches_an_agent_past_an_open_head(Path(td) / 'bgfounder'))

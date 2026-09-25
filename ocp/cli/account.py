@@ -19,6 +19,7 @@ from ..usage import status
 from ..infra import textsafe
 from ..ui import tui
 from .. import vendors
+from ..infra.yamlcompat import ConfigError
 
 
 # ---------------------------------------------------------------- account
@@ -120,7 +121,7 @@ def cmd_account_cap(args) -> int:
         return 0
     try:
         load.set_cap(args.name, args.n)
-    except ValueError as e:
+    except (ValueError, ConfigError) as e:
         print(e, file=sys.stderr)
         return 1
     print(f"{args.name}: at most {args.n} agents mid-turn at once")
@@ -136,7 +137,11 @@ def cmd_account_recover(args) -> int:
     if args.clear_relogin:
         recovermod.clear_relogin(args.name)
     if args.state is not None:
-        load.set_usage_recover(args.name, args.state == "on")
+        try:
+            load.set_usage_recover(args.name, args.state == "on")
+        except ConfigError as e:
+            print(e, file=sys.stderr)
+            return 1
     if args.now:
         ok, msg = recovermod.recover(args.name)
         print(msg)

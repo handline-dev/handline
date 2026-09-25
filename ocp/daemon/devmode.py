@@ -25,10 +25,7 @@ def dev_mode_enabled() -> bool:
 
 
 def set_dev_mode(on: bool) -> None:
-    # load._config()'s own read: same file `active_cap` writes to
-    # (load.set_cap), same failure if it fails to parse - not new risk here,
-    # just a second writer of it.
-    cfg = load._config()
+    cfg = load.config_for_write()
     cfg[DEV_MODE_KEY] = bool(on)
     paths.config_file().write_text(dump(cfg))
 

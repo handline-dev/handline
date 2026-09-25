@@ -238,6 +238,15 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
          now if announced else None, rid))
 
 
+def pointed_record(typed: str) -> str:
+    """The record a one-line wake pointer names ("Your handoff is in <file> -
+    ..."): what the session reads when it follows it. "" for a line that names none."""
+    try:
+        return Path(typed.split(" is in ")[1].split(" - ")[0]).read_text()
+    except (IndexError, OSError):
+        return ""
+
+
 def something_waiting(con, agent: str) -> None:
     """Leave a request waiting for `agent`, unless one is: a closed agent is
     woken for a message and for nothing else (T124), so a test of how a wake

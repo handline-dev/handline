@@ -14,7 +14,8 @@ from __future__ import annotations
 from ..team import agents
 from ..infra import paths
 from ..daemon.states import IDLE_CLOSE_S
-from ..infra.yamlcompat import ConfigError, dump, load as load_yaml
+from ..infra.yamlcompat import dump
+from ..usage import load
 
 # A `park_timeout_s` of 0 - global or per-agent - is the explicit "never
 # close this window" override (T52): a real answer, not an absent key, so it
@@ -22,12 +23,8 @@ from ..infra.yamlcompat import ConfigError, dump, load as load_yaml
 NEVER = 0
 
 
-def _config() -> dict:
-    try:
-        data = load_yaml(paths.config_file().read_text())
-    except (OSError, ConfigError):
-        return {}
-    return data if isinstance(data, dict) else {}
+# The one reader of config.yaml, and the one guarded read for a write.
+_config = load._config
 
 
 def config_seconds(key: str, default: int) -> int:
@@ -46,7 +43,7 @@ def config_flag(key: str, default: bool) -> bool:
 
 def set_config_flag(key: str, value: bool) -> None:
     """One global setting, keeping every other."""
-    cfg = _config()
+    cfg = load.config_for_write()
     cfg[key] = value
     paths.config_file().write_text(dump(cfg))
 
@@ -60,15 +57,15 @@ def _agent_cfg(agent: str) -> dict:
         return {}
 
 
-def default_close_timeout_s(cfg: dict | None = None) -> int:
+def default_close_timeout_s() -> int:
     """The park timeout every agent without its own override follows."""
-    v = (_config() if cfg is None else cfg).get("park_timeout_s")
+    v = _config().get("park_timeout_s")
     if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
         return v
     return IDLE_CLOSE_S
 
 
-def close_timeout_s(agent: str, cfg: dict | None = None) -> int:
+def close_timeout_s(agent: str) -> int:
     """Seconds this agent may sit idle before the daemon closes it; NEVER (0)
     means it never does. The agent's own `park_timeout_s` wins when it is
     set, then config.yaml's global one, then IDLE_CLOSE_S's measured default
@@ -76,14 +73,14 @@ def close_timeout_s(agent: str, cfg: dict | None = None) -> int:
     v = _agent_cfg(agent).get("park_timeout_s")
     if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
         return v
-    return default_close_timeout_s(cfg)
+    return default_close_timeout_s()
 
 
 def set_close_timeout(seconds: int) -> None:
     """The global park timeout, keeping every other setting."""
     if seconds < 0:
         raise ValueError("a timeout is at least 0 (0 = never close)")
-    cfg = _config()
+    cfg = load.config_for_write()
     cfg["park_timeout_s"] = seconds
     paths.config_file().write_text(dump(cfg))
 
@@ -103,25 +100,25 @@ def set_agent_close_timeout(agent: str, seconds: int | None) -> None:
     agents.agent_file(agent).write_text(dump(cfg))
 
 
-def default_ignore_cache_expiry(cfg: dict | None = None) -> bool:
+def default_ignore_cache_expiry() -> bool:
     """Whether a resume may ignore the prompt cache's expiry when nothing
     agent-specific says otherwise. Off (today's behaviour) by default."""
-    return (_config() if cfg is None else cfg).get("ignore_cache_expiry") is True
+    return _config().get("ignore_cache_expiry") is True
 
 
-def ignore_cache_expiry(agent: str, cfg: dict | None = None) -> bool:
+def ignore_cache_expiry(agent: str) -> bool:
     """Whether this agent's resume may reuse its session past RESUME_WARM_S
     instead of starting fresh. The agent's own `ignore_cache_expiry` wins
     when it is set, then config.yaml's global one, off otherwise."""
     v = _agent_cfg(agent).get("ignore_cache_expiry")
     if isinstance(v, bool):
         return v
-    return default_ignore_cache_expiry(cfg)
+    return default_ignore_cache_expiry()
 
 
 def set_ignore_cache_expiry(on: bool) -> None:
     """The global switch, keeping every other setting."""
-    cfg = _config()
+    cfg = load.config_for_write()
     if on:
         cfg["ignore_cache_expiry"] = True
     else:
