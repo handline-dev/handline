@@ -656,9 +656,15 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               and not actions.can(con, "backend", "close")[0])
 
         said = actions.wake(con, "backend")
+        check("top: with nothing waiting for it, waking says so and resumes nothing",
+              "nothing is waiting" in said and db.get_agent_state(con, "backend")["closed_at"]
+              and not any("--resume" in t for t in sent), said)
+        support.something_waiting(con, "backend")
+        said = actions.wake(con, "backend")
         row = db.get_agent_state(con, "backend")
         check("top: waking from the screen resumes that same session",
               row["closed_at"] is None and any("--resume sess-6" in t for t in sent), said)
+        con.execute("UPDATE requests SET state = 'done'")
 
         # A stall is the one state the daemon will not leave on its own, so the
         # screen is where it is cleared - including the wake streak, or the

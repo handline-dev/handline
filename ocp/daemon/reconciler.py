@@ -99,7 +99,7 @@ def reconcile(con, log) -> list[str]:
         # deadline is cleared: a wake that failed - the dead terminal a reboot
         # leaves behind is the ordinary way - has to stay due, or due_agents
         # never selects it again and the agent sleeps until a human looks.
-        if row["closed_at"]:
+        if row["closed_at"] and lifecycle.waiting_for(con, agent):
             try:
                 ok, why = lifecycle.wake_agent(con, agent, log)
             except (ConfigError, UnicodeDecodeError, OSError) as e:

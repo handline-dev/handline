@@ -584,6 +584,7 @@ def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Pat
         af = agents.agent_file("backend")
         af.write_text(af.read_text().rstrip("\n") + '\nrepo: "unterminated\n')
         db.set_closed(con, "backend", 1)
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.PARKED,
                            wake_at=int(time.time()) - 10, detail="due")
     finally:
@@ -1677,11 +1678,12 @@ def test_an_agent_is_never_handed_another_agents_session(home: Path) -> None:
     con = db.connect()
     try:
         f.unlink()
-        told = dmn_lifecycle.wake_prompt("selfless", resumed=True)
+        told = dmn_lifecycle.wake_prompt("selfless", resumed=False, was_closed=True, con=con)
         check("wake: no transcript is named when none can be named confidently",
               "/tmp/marina.jsonl" not in told and "Grep it" not in told, told[:200])
-        check("wake: the agent is still told it lost nothing",
-              "Nothing was lost" in told, told[:120])
+        told = dmn_lifecycle.wake_prompt("selfless", resumed=True, waiting="#4 from marina, waiting for you:\nhi")
+        check("wake: a resume is handed the message and nothing else",
+              told == "#4 from marina, waiting for you:\nhi", told)
     finally:
         con.close()
 
@@ -1823,6 +1825,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
 
         # Past it: a fresh conversation that is handed the handoff.
         db.set_closed(con, "backend", "sess-7")
+        support.something_waiting(con, "backend")
         table.clear()
         cold_sent, cold_ctx = wake_after(dmn_states.RESUME_WARM_S + 60)
         check("cache: an agent idle past the cache's life is not resumed",
@@ -1883,6 +1886,7 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
         orcamod.relaunch = lambda handle, cmd, started=None: (False, "no session started")
         con.execute("DELETE FROM events WHERE agent = 'backend'")
         db.set_closed(con, "backend", "sess-7")
+        support.something_waiting(con, "backend")
         db.set_handoff(con, "backend", None)
         ok, _ = dmn_lifecycle.wake_agent(con, "backend", logs.append)
         check("cold wake: a failed launch is reported", not ok)
@@ -1903,6 +1907,7 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
         check("cold wake: the next wake at a live session types nothing", not ok2 and not typed,
               str(typed))
         db.set_closed(con, "backend", "sess-7")
+        support.something_waiting(con, "backend")
         check("cold wake: the closed mark and resume id survive",
               (db.get_agent_state(con, "backend") or {})["resume_session"] == "sess-7")
         check("cold wake: a transcript it could not find is logged and on the record",
@@ -2164,6 +2169,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-8")
+        support.something_waiting(con, "backend")
 
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
@@ -2210,6 +2216,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # at stake here is the resume pointer.
         sent.clear()
         db.set_closed(con, "backend", "sess-8")
+        support.something_waiting(con, "backend")
         table.clear()
         obsmod.live_sessions = lambda: None
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
@@ -2221,6 +2228,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # never work is a loop with no end and no report. 8.6 already has the
         # answer for that shape: stop, and leave it for a human.
         db.set_closed(con, "backend", "sess-8")
+        support.something_waiting(con, "backend")
         db.reset_counter(con, "backend", "wake_failures")
         table.clear()
         obsmod.live_sessions = lambda: dict(table)
@@ -2269,6 +2277,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # timeout to be told that, and counting it against the agent, is how a
         # window that rolls over in minutes took an agent out for hours.
         db.set_closed(con, "backend", "sess-8")
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="closed and at the wall")
         db.reset_counter(con, "backend", "wake_failures")
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5,
@@ -2289,6 +2298,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         check("wake: and it goes through once the window rolls over", ok, str(sent))
         table.clear()   # the session that wake started is closed again below
         db.set_closed(con, "backend", "sess-8")
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="closed again for the next case")
 
         # The same call, once the launch works.
@@ -2301,8 +2311,9 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         check("wake: a launch that starts a session is a wake", ok, why)
         check("wake: the closed mark is cleared only then",
               row["closed_at"] is None, str(dict(row)))
-        check("wake: and the agent is told it is back",
-              any("Nothing was lost" in t for t in sent), str(sent))
+        check("wake: and the agent is handed what is waiting for it, not told it is back",
+              any("something for you" in t for t in sent)
+              and not any("Nothing was lost" in t for t in sent), str(sent))
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
          orcamod.resume_with, dmn_delivery.WAKE_SESSION_TIMEOUT_S) = real
@@ -2337,6 +2348,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         orcamod.send = refused_while_someone_else_launches
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", None)
+        support.something_waiting(con, "backend")
 
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
@@ -2355,6 +2367,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         table.clear()
         sent.clear()
         db.set_closed(con, "backend", "sess-abc")
+        support.something_waiting(con, "backend")
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: nothing is typed into a session it did not start",
@@ -2367,6 +2380,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         table.clear()
         sent.clear()
         db.set_closed(con, "backend", "sess-abc")
+        support.something_waiting(con, "backend")
         realr = orcamod.relaunch
 
         def own_but_late(h, cmd, **kw):
@@ -2392,6 +2406,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         sent.clear()
         db.reset_counter(con, "backend", "wake_failures")
         db.set_closed(con, "backend", "sess-def")
+        support.something_waiting(con, "backend")
         table["backend"] = 4321        # live before this wake starts at all
         obsmod.live_sessions = lambda: dict(table)
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
@@ -2408,6 +2423,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         sent.clear()
         db.reset_counter(con, "backend", "wake_failures")
         db.set_closed(con, "backend", "sess-def")
+        support.something_waiting(con, "backend")
         calls = {"n": 0}
 
         def appears_before_the_second_attempt():
@@ -2442,6 +2458,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         sent.clear()
         db.reset_counter(con, "backend", "wake_failures")
         db.set_closed(con, "backend", "sess-def")
+        support.something_waiting(con, "backend")
         calls = {"n": 0}
 
         def appears_after_its_own_attempt_took_the_prompt():
@@ -2517,6 +2534,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         orcamod.available = lambda: True
         orcamod.live_terminals = lambda: None    # the bridge's stuck panel asks; this is about the wall
         db.set_closed(con, "backend", "sess-wall")
+        support.something_waiting(con, "backend")
         # A screen only shows the wall next to a wait that is real: queued
         # work is what would actually make the daemon try this wake.
         db.add_request(con, "reviewer", "backend", "look at this", None,
@@ -2631,6 +2649,7 @@ def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
     con = db.connect()
     try:
         db.set_closed(con, "backend", "sess-wall")
+        support.something_waiting(con, "backend")
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5)
@@ -2663,6 +2682,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        support.something_waiting(con, "keeper")
         keep_handoff("keeper", "# handoff · keeper\nprevious session: sess-old")
         db.set_account(con, "keeper", "alpha")
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
@@ -2708,6 +2728,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         sessions_are()
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-2")
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed")
         db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
@@ -2737,6 +2758,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed again")
         db.set_closed(con, "backend", "sess-2")
+        support.something_waiting(con, "backend")
         hooked = db.connect()
         table = sessions_are()
         launching = relaunching_send(sent, table)
@@ -3648,6 +3670,7 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
         # Recorded as if an earlier `build()` launched this session - one that
         # cannot be what `launch.fingerprint` computes now, whatever it is.
         db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
 
@@ -3663,9 +3686,9 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
               closed == ["term_x"], str(closed))
         check("wake: and relaunched with its own session id to come back to",
               launched and "--resume sess-old" in launched[0], str(launched))
-        check("wake: the fresh session is told it was resumed, cleanly - the "
-              "same message a closed agent's ordinary wake sends",
-              launched and "Nothing was lost" in launched_prompt(launched[0]), str(launched))
+        check("wake: the fresh session is handed what is waiting for it, and nothing else",
+              launched and "something for you" in launched_prompt(launched[0])
+              and "Nothing was lost" not in launched_prompt(launched[0]), str(launched))
         check("wake: nothing is typed at the terminal for it", not sent, str(sent))
         check("wake: the relaunch itself is reported as a success", ok, why)
         row = db.get_agent_state(con, "backend")
@@ -3704,6 +3727,7 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
         f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
                                  "session_id": "sess-old", "ctx_pct": 5}))
         keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
         # No db.set_launch_fingerprint call at all - the row this migrates
@@ -3791,7 +3815,14 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
 
         f.write_text(json.dumps({"account": "alpha", "collected_at": int(time.time()),
                                  "ctx_pct": 5}))
+        # Nothing waiting: a resume would have nothing to say, so the session
+        # is not ended for one; it is woken in place as before.
         logged: list[str] = []
+        dmn_lifecycle.wake_agent(con, "backend", logged.append)
+        check("drift wake: with nothing waiting the session is not ended to be resumed",
+              not any("recipe changed" in m for m in logged), str(logged))
+        support.something_waiting(con, "backend")
+        logged.clear()
         dmn_lifecycle.wake_agent(con, "backend", logged.append)
         check("drift wake: no session id to resume is logged, not silent",
               any("no session id" in m and "in place" in m for m in logged), str(logged))
@@ -3800,6 +3831,7 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
                                  "session_id": "sess-old", "ctx_pct": 5}))
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
+        support.something_waiting(con, "backend")
         orcamod.close_session = lambda h, **kw: (False, "would not close")
         logged.clear()
         dmn_lifecycle.wake_agent(con, "backend", logged.append)

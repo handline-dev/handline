@@ -1301,6 +1301,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
                 con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                             (int(time.time()) - idle_s,))
             db.set_closed(con, "backend", "sess-7")
+            support.something_waiting(con, "backend")
             db.set_handoff(con, "backend", None)
             table.clear()
             sent.clear()
@@ -1804,6 +1805,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
 
         # Another process is mid-wake on this agent.
         holder = subprocess.Popen(
@@ -2446,6 +2448,7 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
               not waits())
         db.set_agent_state(con, "backend", dmn_states.RUNNING)
         db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
         check("prompt: nor is a closed one", not waits())
     finally:
         os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)

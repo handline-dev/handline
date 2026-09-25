@@ -235,6 +235,15 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
          now if announced else None, rid))
 
 
+def something_waiting(con, agent: str) -> None:
+    """Leave a request waiting for `agent`, unless one is: a closed agent is
+    woken for a message and for nothing else (T124), so a test of how a wake
+    goes needs one to have something to wake it for."""
+    if not db.head_of_queue(con, agent):
+        db.add_request(con, "reviewer", agent, "something for you", None,
+                       "peer", "async", None, 0, None)
+
+
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
     """An orca.send that records, and starts a session when it is a relaunch.
 
