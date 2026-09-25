@@ -23,7 +23,7 @@ import os
 import time
 from pathlib import Path
 
-from ..infra import paths
+from ..infra import atomic, paths
 from .claude import Claude
 
 # ocp's own status line scripts, which it no longer installs (D11).
@@ -65,9 +65,7 @@ def write_settings(target: Path, data: dict) -> None:
     through here, so a half-written settings.json is not a state either of them
     can produce.
     """
-    tmp = target.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(target)
+    atomic.write_text(target, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def _within(child: Path, parent: Path) -> bool:
@@ -281,9 +279,7 @@ def ensure_shared() -> Path:
     for key in QUIET_NOTIFICATIONS:
         current.setdefault(key, False)
     if not settings.exists() or current != before:
-        tmp = settings.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
-        tmp.replace(settings)
+        write_settings(settings, current)
     # Only once no setting points at them: deleted first, a failed write
     # would leave every session running a script that is gone.
     for cmd in ours:

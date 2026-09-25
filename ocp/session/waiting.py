@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .. import db
 from . import orca
-from ..infra import paths
+from ..infra import atomic, paths
 
 # What of a tool's input is worth showing, in the order it is looked for.
 _INPUT_FIELDS = ("command", "file_path", "path", "pattern", "url", "query", "description")
@@ -76,10 +76,8 @@ def note(agent: str, tool: str | None, tool_input: object,
     """
     f = _file(agent)
     f.parent.mkdir(parents=True, exist_ok=True)
-    tmp = f.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"tool": tool or "", "command": summary(tool_input),
-                               "since": int(time.time()), "after_event_id": after_event_id}))
-    tmp.replace(f)
+    atomic.write_text(f, json.dumps({"tool": tool or "", "command": summary(tool_input),
+                                     "since": int(time.time()), "after_event_id": after_event_id}))
 
 
 def read(agent: str) -> dict | None:

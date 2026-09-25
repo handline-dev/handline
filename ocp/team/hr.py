@@ -34,7 +34,7 @@ from pathlib import Path
 
 from . import agents, ask as askmod, team
 from .. import db, vendors
-from ..infra import paths, textsafe
+from ..infra import atomic, paths, textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
@@ -68,9 +68,7 @@ def load_proposal(pid: str) -> dict | None:
 
 def save(prop: dict) -> Path:
     p = path_of(prop["id"])
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(dump(prop))
-    tmp.replace(p)
+    atomic.write_text(p, dump(prop))
     return p
 
 

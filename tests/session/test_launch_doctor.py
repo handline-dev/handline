@@ -1712,6 +1712,16 @@ edges:
           "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
 
 
+def test_atomic_write_replaces_the_file_and_leaves_no_temp(home: Path) -> None:
+    from ocp.infra import atomic
+    home.mkdir(parents=True, exist_ok=True)
+    f = home / "x.json"
+    f.write_text("old")
+    atomic.write_text(f, "new")
+    check("atomic: the file holds the new text", f.read_text() == "new")
+    check("atomic: no temp file is left beside it", sorted(p.name for p in home.iterdir()) == ["x.json"])
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -1756,6 +1766,7 @@ def main() -> int:
         run(lambda: test_jobs_lines_reports_state_honestly(Path(td) / 'jobslines'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_a_test_never_reaches_the_real_home(Path(td) / 'realhome'))
+        run(lambda: test_atomic_write_replaces_the_file_and_leaves_no_temp(Path(td) / 'atomic'))
         run(lambda: test_an_agent_cannot_read_a_peers_or_its_supervisors_transcripts(Path(td) / 'transcripts'))
         run(lambda: test_shared_settings_turn_claude_notifications_off_once(Path(td) / 'notif'))
     return run_area(tests)
