@@ -39,29 +39,34 @@ def idle_text(row: dict, now: float) -> str:
     return f"{s // 86400}d" if s >= 86400 else f"{s // 3600}h" if s >= 3600 else "<1h"
 
 
-class StatePicker(ModalScreen["set[str] | None"]):
-    """The states to show, as checkboxes. Each change is applied at once (`on_change`); esc closes."""
+class _StateList(SelectionList):
+    """Enter applies the picker instead of toggling the row; space toggles."""
 
-    BINDINGS = [Binding("escape", "dismiss(None)", "close")]
+    BINDINGS = [Binding("enter", "screen.apply", "apply", show=False)]
+
+
+class StatePicker(ModalScreen["set[str] | None"]):
+    """The states to show, as checkboxes: space marks, enter applies, esc leaves it."""
+
+    BINDINGS = [Binding("escape", "dismiss(None)", "cancel")]
     DEFAULT_CSS = """
     StatePicker { align: center middle; background: $background 60%; }
     StatePicker #dialog { width: 36; height: auto; padding: 1 2; border: thick $primary; background: $panel; }
     StatePicker #hint { margin-top: 1; color: $text-muted; }
     """
 
-    def __init__(self, chosen: set[str], on_change) -> None:
+    def __init__(self, chosen: set[str]) -> None:
         super().__init__()
         self.chosen = chosen
-        self.on_change = on_change
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
             yield Static(Text("show tasks in state", style="bold"))
-            yield SelectionList(*((s, s, s in self.chosen) for s in actions.TASK_STATES), id="states")
-            yield Static("space or enter toggles, applied at once · esc closes", id="hint")
+            yield _StateList(*((s, s, s in self.chosen) for s in actions.TASK_STATES), id="states")
+            yield Static("space marks · enter applies · esc cancels", id="hint")
 
-    def on_selection_list_selected_changed(self) -> None:
-        self.on_change(set(self.query_one(SelectionList).selected))
+    def action_apply(self) -> None:
+        self.dismiss(set(self.query_one(SelectionList).selected))
 
 
 class TasksView(Vertical):
@@ -257,11 +262,13 @@ class TasksView(Vertical):
             self.action_states()
 
     def action_states(self) -> None:
-        self.app.push_screen(StatePicker(set(self.states), self._set_states), lambda _: self.table.focus())
+        self.app.push_screen(StatePicker(set(self.states)), self._set_states)
 
-    def _set_states(self, chosen: set[str]) -> None:
-        self.states = chosen
-        self.refresh_rows()
+    def _set_states(self, chosen: "set[str] | None") -> None:
+        if chosen is not None:
+            self.states = chosen
+            self.refresh_rows()
+        self.table.focus()
 
     def _targets(self) -> list[int]:
         """The marked tasks, or the one under the cursor."""
