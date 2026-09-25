@@ -1,4 +1,4 @@
-"""ocp doctor - check the preconditions each phase rests on (KICKOFF rule 6).
+"""ocp doctor - check the preconditions each phase rests on (AGENTS.md rule 6).
 
 No phase is finished without it. Every check is read-only, and credentials are
 only ever checked for existence.

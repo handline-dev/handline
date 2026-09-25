@@ -1100,7 +1100,7 @@ def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None
 
 def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
     """#42 step 2: the opencode driver's meter path reads the account's
-    auth.json in memory for its one request - KICKOFF rule 1 as amended
+    auth.json in memory for its one request - AGENTS.md rule 1 as amended
     (#2010) - and turns the coding plan's two credit windows into the
     percentages every other metered account carries. The rule's other half is
     pinned with the same sentinel: the key reaches no agent - not the launch
@@ -2663,7 +2663,7 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
 def test_subscription_type_is_recorded_and_cached(home: Path) -> None:
     """Request #167/#170: subscriptionType comes from `claude auth status`,
     claude's own report of what it is signed in as - never a credential file
-    (KICKOFF rule 1) - and is cached so the panel does not shell out to
+    (AGENTS.md rule 1) - and is cached so the panel does not shell out to
     `claude` on every refresh."""
     use_home(home)
     accounts.register("gamma")

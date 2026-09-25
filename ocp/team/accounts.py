@@ -1,6 +1,6 @@
 """Account registration: directories and shared links.
 
-Credentials are never touched (KICKOFF rule 1). A refresh token rotates on
+Credentials are never touched (AGENTS.md rule 1). A refresh token rotates on
 single use, so two copies of one credential invalidate each other. Logging in
 is a one-time human action:
 
@@ -267,7 +267,7 @@ def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> 
     the other, or a file on disk would stop being loaded. The memory is the repo's, not one
     agent's, so every agent's notes for it travel together.
     Only ever copies regular files into projects/*/memory/, matching the same
-    restriction KICKOFF rule 1 states for the whole module.
+    restriction AGENTS.md rule 1 states for the whole module.
     Deletions do not propagate: a fact removed as wrong on one account can
     still come back from the other on a later move.
 
@@ -316,7 +316,7 @@ def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
 
     Separated from the doing because the doing is an exec: the human has to
     type the code into claude's own screen, and nothing about that can be
-    tested or automated. Credentials stay where claude puts them (KICKOFF
+    tested or automated. Credentials stay where claude puts them (AGENTS.md
     rule 1) - ocp only points the session at the right config directory.
     """
     if acct not in paths.list_accounts():
@@ -333,7 +333,7 @@ def identity(acct: str) -> str | None:
     """The Anthropic login behind this account, as claude reports it.
 
     Asked of `claude auth status`, which answers from its own records - ocp
-    reads no credential and no .claude.json to learn it (KICKOFF rule 1). None
+    reads no credential and no .claude.json to learn it (AGENTS.md rule 1). None
     when claude cannot say.
     """
     return vendors.for_account(acct).identity(env_for(acct))
@@ -469,7 +469,7 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
 def logout_argv(acct: str) -> tuple[list[str], dict]:
     """claude's own logout, run against this account's config directory.
 
-    claude removes its own credential; ocp never touches it (KICKOFF rule 1).
+    claude removes its own credential; ocp never touches it (AGENTS.md rule 1).
     Empty when there is nothing logged in to remove.
     """
     if not logged_in(acct):

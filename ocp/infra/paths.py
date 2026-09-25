@@ -58,7 +58,7 @@ def mcp_config() -> Path:
     """The MCP server registry every launch passes via `--mcp-config`.
 
     One file ocp owns, the founder fills in - never generated from
-    ~/.claude.json, which KICKOFF rule 1 forbids touching."""
+    ~/.claude.json, which AGENTS.md rule 1 forbids touching."""
     return home() / "shared" / "mcp.json"
 
 

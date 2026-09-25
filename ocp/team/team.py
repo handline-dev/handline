@@ -3,7 +3,7 @@
 An agent only ever knows a target and a message. Everything else - whether the
 edge is allowed, the priority, the account, what happens to
 the requester - is decided here, deterministically, with no model involved
-(KICKOFF rule 4).
+(AGENTS.md rule 4).
 
 Unlisted edges are denied. That is the whole point: agents cannot spray
 requests around, and they cannot infer policy or route around it.

@@ -17,6 +17,32 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 - A decision only the founder can make is `ocp ask human "..."`; a status
   report that needs nothing is `ocp ask human "..." --fyi`.
 
+## Hard rules
+
+1. Never read, write or copy a credential: `.credentials.json`, the Keychain,
+   `.claude.json`. Adding an account is one `CLAUDE_CONFIG_DIR=<dir> claude /login`
+   run by a person; a refresh token rotates once, so copies invalidate each other.
+   The one exception (#2010): a driver's meter path may read an opencode
+   `auth.json` in memory, once, for the usage question only. The key never reaches
+   an agent's env, prompt, terminal, log, db or any file ocp writes.
+2. Do not code on an assumption nobody verified. Probe it first.
+3. No logic in `SKILL.md`: it is a stub of at most 20 lines, and detail loads on
+   demand through `ocp guide <topic>`.
+4. No model in orchestration. Triggers, account picks and resume decisions are
+   deterministic and the daemon makes them. The one place a model spends tokens is
+   a fold.
+5. Never dump `--json` output whole into a log or the db (a token leak path):
+   take the fields with a reader, by allowlist.
+6. Do not finish a phase without `ocp doctor` checking its preconditions.
+
+Easy to get wrong:
+
+- A fold runs outside the session, so its input does not grow with the session.
+- A fold's cursor is a row id, never a time, and moves only after the output
+  validates (schema, and nothing `done` before is gone).
+- Triggers are level triggers: an edge trigger misses a crossing that happened
+  while the daemon was down.
+
 `ocp guide` lists the rest. Your role and standing context are injected per
 agent (ROLE.md, base.md); this file does not repeat them.
 

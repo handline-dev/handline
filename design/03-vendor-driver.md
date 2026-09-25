@@ -1,6 +1,6 @@
 # 03 - The vendor driver
 
-Draft (#1315). Steps 1 and 2 of §7 are built (`ocp/vendors/`, #1657); the rest is not.
+Reference design (#1315). Built: §7 steps 1 and 2 (`ocp/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks and meter seams. The rest is open.
 
 One place that answers, per vendor, the fifteen questions enumerated in
 `docs/vendor-extension-board.md` §11. Everything else in ocp stays where it is.
@@ -34,7 +34,7 @@ ocp/vendors/
     base.py         the Protocol below, and the shared dataclasses
     claude.py       today's behaviour, moved rather than rewritten
     codex.py        new
-    collect_claude.py   (today's ocp/collect.py - a puller already, D11)
+    collect_claude.py   (today's ocp/usage/collect.py - a puller already, D11)
     collect_codex.py    new - the same shape, over the rollout JSONL
 ```
 
@@ -87,7 +87,7 @@ class Driver(Protocol):
     def credential_present(self, config_dir: Path) -> bool:
         """Whether a credential exists. **Never returns or logs it.**
         Claude: a Keychain item, queried without -w. Codex: auth.json
-        exists. (§11.6 - KICKOFF rule 1)"""
+        exists. (§11.6 - AGENTS.md rule 1)"""
 
     def login_argv(self, account: str) -> tuple[list[str], dict]:
     def logout_argv(self, account: str) -> tuple[list[str], dict]:
@@ -175,7 +175,7 @@ class Driver(Protocol):
 | `screen_blocker` | `orca.claude_screen_blocker`; `idle_from_screen` false, Orca's tui-idle alone |
 | `read_dialog` | `orca.parse_dialog` |
 | `declining_key` | `orca.declining_key` |
-| `install_collector` | nothing to install - `ocp/collect.py` reads the transcript (D11) |
+| `install_collector` | nothing to install - `ocp/usage/collect.py` reads the transcript (D11) |
 | `collector_kind` | `pull` (it was `push`; the statusLine no longer collects) |
 | `probe` | `probe.py` |
 | `hook_events` | `events.CAPTURED`, identity map |

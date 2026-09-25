@@ -5,7 +5,7 @@ every minute, outside any agent's sandbox, and writes into a folder
 beside OCP_HOME that agents cannot write to either.
 
 accounts/*/.claude is never copied: it holds logins and transcripts, and
-credentials are never copied (KICKOFF rule 1). venv is rebuilt by `ocp venv`;
+credentials are never copied (AGENTS.md rule 1). venv is rebuilt by `ocp venv`;
 logs/ and locks/ are left out.
 The database is copied with SQLite's backup API, so a snapshot taken while the
 daemon writes is still consistent.

@@ -788,7 +788,7 @@ def test_doctor_says_one_thing_per_account(home: Path) -> None:
 
 def test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
         home: Path) -> None:
-    """doctor is the Phase 1 criterion's own surface (KICKOFF §3), so it must
+    """doctor is the Phase 1 criterion's own surface, so it must
     not print "assignable" about a stale account the pick refuses for having
     an agent of ours mid-turn on it - the five call sites idle_floor's active
     gate does not reach by default (doctor, actions, tui, the two cli list

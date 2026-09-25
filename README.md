@@ -192,7 +192,7 @@ unrelated request repeating what they had already answered.
 ~/.orcapipe/                 git repo; accounts/ and logs/ are ignored
   config.yaml team.yaml db.sqlite locks/
   logs/daemon.out.log logs/daemon.err.log   # launchd's StandardOut/ErrorPath
-  shared/.claude/            settings + status line, symlinked into each account
+  shared/.claude/            settings, symlinked into each account
   shared/mcp.json            MCP servers every launch passes via --mcp-config;
                              founder-filled, optional, never generated from ~/.claude.json
   accounts/<acct>/.claude/   CLAUDE_CONFIG_DIR; credentials stay here, untouched
@@ -216,7 +216,7 @@ file that does not reach that account.
 ## Tests
 
 ```bash
-python3 tests/test_ocp.py     # every area file in parallel, ~3800 checks, no network, no tokens
+python3 tests/test_ocp.py     # every area file in parallel, ~4590 checks, no network, no tokens
 python3 tests/session/test_daemon_session.py    # one area file on its own (tests/<group>/test_<area>.py)
 python3 tests/test_ocp.py -k reconcile --write-labels before.txt   # a subset, labels saved
 python3 tests/test_ocp.py --diff-labels before.txt after.txt       # labels that changed state

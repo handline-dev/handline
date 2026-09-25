@@ -72,7 +72,7 @@ TAIL_MAX_BYTES = 8 * 1024 * 1024
 # over the record, because the transcript's `usage` block holds far more -
 # `iterations`, `service_tier`, per-cache breakdowns - and a later version
 # adding one more top-level integer would silently inflate a total that gates
-# parking. Slimming it is also KICKOFF rule 5: only the fields with a reader.
+# parking. Slimming it is also AGENTS.md rule 5: only the fields with a reader.
 USAGE_KEYS = ("input_tokens", "output_tokens",
               "cache_creation_input_tokens", "cache_read_input_tokens")
 

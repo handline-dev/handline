@@ -1,4 +1,4 @@
-"""ocp guide <topic> - load detail on demand (KICKOFF rule 3, section 10).
+"""ocp guide <topic> - load detail on demand (AGENTS.md rule 3, section 10).
 
 No logic lives in SKILL.md. Agents read a short stub and pull the detail from
 here only when they actually need it, so it costs no tokens the rest of the time.

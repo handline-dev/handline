@@ -39,7 +39,7 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
     to a vendor whose credential does not expire; it is simply ignored.)
 
     Each vendor is asked at its own endpoint with its own credential, read in
-    memory for the one request by the driver's meter path (KICKOFF rule 1 as
+    memory for the one request by the driver's meter path (AGENTS.md rule 1 as
     amended, #2010). A vendor with no meter path is not asked.
     """
     return read_detailed(acct, refresh)[0]
