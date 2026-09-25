@@ -1316,6 +1316,28 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
         con.close()
 
 
+async def test_the_queue_line_says_why_an_agents_message_waits() -> None:
+    _home("heldwhy")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        db.add_request(con, "reviewer", "backend", "for the busy one", None, None, None, None, 0, None)
+        con.execute("UPDATE agent_state SET state = 'RUNNING', terminal = 'x' WHERE agent = 'backend'")
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause(0.3)
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.5)
+        app.screen.run_command("all")
+        await pilot.pause(0.5)
+        line = next(w for w in app.screen.query("QueueLine") if w.rule)
+        check("chat: with only an agent's message below the line, the line says why (its recipient's state)",
+              "backend" in line.why and "mid-turn" in line.why, repr(line.why))
+
+
 def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window() -> None:
     from ocp.ui import chat_page as cp
     _home("ctxset")
@@ -1969,6 +1991,7 @@ async def _run_all() -> None:
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_escape_does_not_cancel_a_queued_message()
     await test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter()
+    await test_the_queue_line_says_why_an_agents_message_waits()
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
 

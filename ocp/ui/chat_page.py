@@ -121,6 +121,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "answered": side == "agent" and (part == 0 and bool(shown) or bool(r["replied"])),
                          "queued": queued,
                          "held": held,
+                         "to": to,
                          "delivered": bool(r["delivered_at"]),
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
@@ -1014,11 +1015,18 @@ class ChatPage(Screen):
         pane.remove_children()
         msgs = messages_of(rows, self.agent)
         waiting = [m for m in msgs if m["queued"] and not m["delivered"]]
+        held = [m for m in msgs if m["held"]]
         why = ""
         if waiting and self.agent_state[0] != "RUNNING":     # the spinner already says it
             con = db.connect()
             try:
                 why = actions.queue_reason(con, self.agent, waiting[0]["rid"])
+            finally:
+                con.close()
+        elif not waiting and held:      # an agent's message waits on its recipient, not on this page's agent
+            con = db.connect()
+            try:
+                why = f"{held[0]['to']}: {actions.queue_reason(con, held[0]['to'], held[0]['rid'])}"
             finally:
                 con.close()
         widgets = transcript_widgets(msgs, self.agent_state[0] == "RUNNING", why)
