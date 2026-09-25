@@ -271,12 +271,16 @@ def deliver_queued(con, agent: str, log) -> bool:
     head = db.head_of_queue(con, agent)
     if not head:
         return False
+    # Ahead of an open head: what the human marked "send now", and a reply in
+    # the head's own thread - the follow-up to what the agent is working on.
     marked = [r for r in db.send_now_pending(con, agent) if r["id"] != head["id"]]
+    if head["delivered_at"]:
+        marked += [r for r in db.followups_pending(con, agent, int(head["id"]))
+                   if r["id"] not in {m["id"] for m in marked}]
     head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
         or _session_changed(con, agent)
-    if head_due and head["send_now"] and head["told_out_of_turn"] \
-            and not _session_changed(con, agent):
-        # Told already, out of turn, as "send now"; becoming the head is not news.
+    if head_due and head["told_out_of_turn"] and not _session_changed(con, agent):
+        # Told already, out of turn; becoming the head is not news.
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         head_due = False
     if not head_due and not marked:
@@ -564,7 +568,9 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
     tail = (f" [{more} more waiting - the next comes when you resolve or dismiss this one.]"
             if more else "")
     if ahead_of is not None:
-        tail = f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]"
+        tail = (f" [A follow-up to #{ahead_of['id']}, which is still open.]"
+                if head["parent_id"] == ahead_of["id"] else
+                f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]")
     # Before the send, not after: this is what closes withdraw/replace's race
     # against delivery (request #189). A send that then fails leaves the row
     # marked anyway - its requester can no longer withdraw it, but the cursor

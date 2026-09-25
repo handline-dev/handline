@@ -180,6 +180,16 @@ def send_now_pending(con, target: str):
         (target,)).fetchall()
 
 
+def followups_pending(con, target: str, head_id: int):
+    """Requests to `target` that reply in the thread of `head_id` - its open
+    head - and have not been shown to it yet, oldest first. What follows up the
+    request an agent is working on is not behind it in line."""
+    return con.execute(
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        "AND parent_id = ? AND delivered_at IS NULL ORDER BY queue_order, id",
+        (target, head_id)).fetchall()
+
+
 def mark_told_out_of_turn(con, rid: int) -> None:
     """Record that "send now" already told this row, ahead of its head, so
     becoming the head later (T38) is not a second telling."""
