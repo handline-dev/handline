@@ -35,9 +35,11 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     Closing is about the machine, not the account, so the question is whether
     anyone is using this session and whether we can bring it back. Seven things
     say no: it is working or being handed off, a human has to look at it,
-    someone is waiting on it (unless it is PARKED), it has been
-    busy recently, we cannot name the session we would resume, a close of
-    it failed within the last idle window, or this agent's own idle window
+    someone is waiting on it (unless it is PARKED, or the cache is already
+    gone - a resume then costs the same re-read a wake's cold start would, so
+    the queue is redelivered on that wake instead), it has been busy recently,
+    we cannot name the session we would resume, a close of it failed within
+    the last idle window, or this agent's own idle window
     (`idle_close.close_timeout_s`, T52) is NEVER. Anything else is a session
     whose only job right now is to occupy 250-500MB.
 
@@ -55,10 +57,11 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     # queue is no reason to hold the session open.
     if delivery.bg_holds(con, agent, now):
         return False          # not idle: work is still running behind the prompt
-    if db.queued_for(con, agent) and state != PARKED:
-        return False          # work is waiting; closing would only delay it
     if not st.session_id:
         return False          # nothing to resume; losing the context costs more
+    if db.queued_for(con, agent) and state != PARKED \
+            and not cache_expired(con, agent, st.session_id, now):
+        return False          # work is waiting and the cache is still warm; closing would only delay it
     timeout = idle_close.close_timeout_s(agent)
     if timeout == idle_close.NEVER:
         return False          # this agent's own override: never close its window
