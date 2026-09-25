@@ -57,7 +57,7 @@ class Meter(Protocol):          # replaces usage_api.py's claude code
     renews_by_turn: bool        # one real turn renews a dead credential (recover's job)
     def read_usage(self, acct, refresh=True) -> tuple[Reading | None, bool]
                                 # bool: the failure was the credential being refused
-# Driver.meter() -> Meter | None, asked the way state_hooks() is; meters() stays the bool.
+# Driver.meter() -> Meter | None, asked the way state_hooks() is; unmetered is `meter() is None`.
 
 class Collector(Protocol):      # design/03 §5's output contract
     def collect(self, transcript: Path, config_dir: Path) -> Snapshot | None
