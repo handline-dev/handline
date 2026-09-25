@@ -422,15 +422,15 @@ def test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(home: P
     from ocp import tokenlog
     _daemon_home(home, 20)
     now = int(time.time())
-    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
     proj.mkdir(parents=True)
     log = proj / "s1.jsonl"
     torn = _call_line("req_torn", 4)
-    secret = paths.account_claude("alpha") / ".credentials.json"
+    secret = vendors.config_dir("alpha") / ".credentials.json"
     secret.write_text(_call_line("req_secret", 999))
     # Decoys inside projects/ (a non-.jsonl name) catch the glob widening; a
     # .jsonl outside projects/ catches the root widening.
-    (paths.account_claude("alpha") / "history.jsonl").write_text(_call_line("req_outside", 999))
+    (vendors.config_dir("alpha") / "history.jsonl").write_text(_call_line("req_outside", 999))
     (proj / ".credentials.json").write_text(_call_line("req_secret_inproj", 999))
     (proj / "s1.json").write_text(_call_line("req_plainjson", 999))
     log.write_text(_call_line("req_a", 10) + _call_line("req_a", 30) + _call_line("req_b", 5)
@@ -2759,7 +2759,7 @@ def test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(home: Path) -> None
 def test_find_transcript_walks_accounts_and_takes_only_a_plain_id(home: Path) -> None:
     _daemon_home(home, 20)
     for acct, proj, sid in (("alpha", "-wt", "sess-7"), ("beta", "-other", "sess-9")):
-        f = paths.account_claude(acct) / "projects" / proj / f"{sid}.jsonl"
+        f = vendors.config_dir(acct) / "projects" / proj / f"{sid}.jsonl"
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text("{}\n")
     found = handoffmod.find_transcript("sess-9", "alpha")
@@ -5394,8 +5394,8 @@ def test_a_fold_with_no_account_says_which_and_why(home: Path) -> None:
     use_home(home)
     for name in ("full", "unreadable", "out"):
         accounts.register(name)
-    (paths.account_claude("full") / ".credentials.json").write_text("{}")
-    (paths.account_claude("unreadable") / ".credentials.json").write_text("{}")
+    (vendors.config_dir("full") / ".credentials.json").write_text("{}")
+    (vendors.config_dir("unreadable") / ".credentials.json").write_text("{}")
     write_status(home, "full", pct_5h=100, pct_7d=10, ctx_pct=5)
     # Stale, not quiet: a fresh snapshot with no figure is read as 0%, which is
     # a reading. What cannot be read at all is one nothing has refreshed.

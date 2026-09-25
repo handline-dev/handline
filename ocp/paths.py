@@ -54,10 +54,6 @@ def db_file() -> Path:
     return home() / "db.sqlite"
 
 
-def shared_claude() -> Path:
-    return home() / "shared" / ".claude"
-
-
 def mcp_config() -> Path:
     """The MCP server registry every launch passes via `--mcp-config`.
 
@@ -72,15 +68,6 @@ def accounts_dir() -> Path:
 
 def account_dir(acct: str) -> Path:
     return accounts_dir() / acct
-
-
-def account_claude(acct: str) -> Path:
-    """This path is the account's CLAUDE_CONFIG_DIR.
-
-    The collector derives the account name from the grandparent directory:
-      accounts/<acct>/.claude  ->  <acct>
-    """
-    return account_dir(acct) / ".claude"
 
 
 def status_file(acct: str) -> Path:

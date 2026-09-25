@@ -818,7 +818,7 @@ def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> No
 
             # What is linked into an account's config dir is the vendor's list,
             # less what it never touches - here "skills", which claude shares.
-            shared = paths.shared_claude()
+            shared = vendors.shared_dir("claude")
             (shared / "skills").mkdir(parents=True, exist_ok=True)
             accounts.register("gamma")
             check("accounts: an item the driver never touches is not linked",
@@ -1242,7 +1242,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
         wt = home / "wt"
         wt.mkdir()
         subprocess.run(["git", "init", "-q", str(wt)], check=True)
-        transcript = paths.account_claude("alpha") / "projects" / "-wt" / "sess-7.jsonl"
+        transcript = vendors.config_dir("alpha") / "projects" / "-wt" / "sess-7.jsonl"
         transcript.parent.mkdir(parents=True)
         transcript.write_text("{}\n")
         db.set_terminal(con, "backend", "term_x", str(wt))

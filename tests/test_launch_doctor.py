@@ -24,7 +24,7 @@ def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
     them, and leaves anyone else's statusLine where it is."""
     use_home(home)
     orcamod.live_terminals = lambda: None
-    shared = paths.shared_claude()
+    shared = vendors.shared_dir("claude")
     shared.mkdir(parents=True, exist_ok=True)
     settings = shared / "settings.json"
 
@@ -57,7 +57,7 @@ def test_a_failed_settings_write_keeps_the_old_scripts(home: Path) -> None:
     settings no longer point at them: a write that fails in between must leave
     every session with a script that still exists."""
     use_home(home)
-    shared = paths.shared_claude()
+    shared = vendors.shared_dir("claude")
     shared.mkdir(parents=True, exist_ok=True)
     old = shared / accounts.OLD_STATUSLINES[0]
     old.write_text("#!/bin/sh\n")
@@ -87,7 +87,7 @@ def test_an_unreadable_settings_file_is_refused_and_left_alone(home: Path) -> No
     that cannot be read as a JSON object is refused, naming the file, and
     nothing is changed - never rewritten from {}."""
     use_home(home)
-    shared = paths.shared_claude()
+    shared = vendors.shared_dir("claude")
     shared.mkdir(parents=True, exist_ok=True)
     old = shared / accounts.OLD_STATUSLINES[0]
     old.write_text("#!/bin/sh\n")
@@ -110,7 +110,7 @@ def test_a_settings_write_that_dies_leaves_the_old_file(home: Path) -> None:
     """The write goes through a temp file and a rename, so a write that dies
     half way leaves the previous settings.json whole, not half of the new one."""
     use_home(home)
-    shared = paths.shared_claude()
+    shared = vendors.shared_dir("claude")
     shared.mkdir(parents=True, exist_ok=True)
     settings = shared / "settings.json"
     before = json.dumps({"theme": "dark", "statusLine": {"command": "npx ccstatusline"}})
@@ -1120,9 +1120,9 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     accounts.register("alpha")
     accounts.register("beta")
     accounts.register("gamma")
-    alpha_claude = paths.account_claude("alpha") / "CLAUDE.md"
-    beta_claude = paths.account_claude("beta") / "CLAUDE.md"
-    gamma_claude = paths.account_claude("gamma") / "CLAUDE.md"
+    alpha_claude = vendors.config_dir("alpha") / "CLAUDE.md"
+    beta_claude = vendors.config_dir("beta") / "CLAUDE.md"
+    gamma_claude = vendors.config_dir("gamma") / "CLAUDE.md"
     check("relink: matches today - no CLAUDE.md link exists yet",
           not alpha_claude.exists() and not beta_claude.exists() and not gamma_claude.exists())
 
@@ -1132,7 +1132,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
 
     # The file is added the way the founder actually will: dropped straight
     # into shared/.claude, no `ocp` command run at all afterward.
-    shared_target = paths.shared_claude() / "CLAUDE.md"
+    shared_target = vendors.shared_dir("claude") / "CLAUDE.md"
     shared_target.write_text("policy text")
 
     done = accounts.relink_all()
@@ -1167,7 +1167,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     # straight from `register()`, with no relink pass needed.
     accounts.register("delta")
     check("relink: a freshly registered account is linked by register() itself",
-          (paths.account_claude("delta") / "CLAUDE.md").is_symlink())
+          (vendors.config_dir("delta") / "CLAUDE.md").is_symlink())
 
     # And the daemon does this without being told to, every tick - the actual
     # fix for "a human has to remember a command per account": nobody has to
@@ -1176,7 +1176,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     # Simulate epsilon predating CLAUDE.md ever landing in shared, the same
     # way alpha and beta did above - unlink what register() just linked, so
     # the tick has something of its own to catch up on.
-    (paths.account_claude("epsilon") / "CLAUDE.md").unlink()
+    (vendors.config_dir("epsilon") / "CLAUDE.md").unlink()
     orcamod.live_terminals = lambda: None    # tick's sweep asks Orca; this is about relink
     logs: list[str] = []
     con = db.connect()
@@ -1185,7 +1185,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     finally:
         con.close()
     check("relink: the daemon's own tick catches up an account with nothing to run for it",
-          (paths.account_claude("epsilon") / "CLAUDE.md").is_symlink()
+          (vendors.config_dir("epsilon") / "CLAUDE.md").is_symlink()
           and any("relinked epsilon" in ln for ln in logs), str(logs))
 
 

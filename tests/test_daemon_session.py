@@ -17,7 +17,7 @@ from support import *  # noqa: E402,F401,F403
 def test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(home: Path) -> None:
     from ocp import tokenlog
     _daemon_home(home, 20)
-    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
     proj.mkdir(parents=True)
     line = _call_line("r", 1)
     for name in ("s1", "s2"):
@@ -35,7 +35,7 @@ def test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(home: Pat
 def test_a_record_bigger_than_the_budget_is_read_whole_not_stalled_forever(home: Path) -> None:
     from ocp import tokenlog
     _daemon_home(home, 20)
-    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
     proj.mkdir(parents=True)
     log = proj / "s1.jsonl"
     huge = _call_line("req_huge", 1, cwd="x" * 5000)
@@ -56,7 +56,7 @@ def test_a_record_bigger_than_the_budget_is_read_whole_not_stalled_forever(home:
 def test_a_unicode_line_separator_inside_a_record_does_not_split_it(home: Path) -> None:
     from ocp import tokenlog
     _daemon_home(home, 20)
-    proj = paths.account_claude("alpha") / "projects" / "-w-purser"
+    proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
     proj.mkdir(parents=True)
     log = proj / "s1.jsonl"
     obj = json.loads(_call_line("req_sep", 8).rstrip("\n"))
