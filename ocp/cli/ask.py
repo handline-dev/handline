@@ -402,7 +402,7 @@ def cmd_read(args) -> int:
               f"{row['kind'] or 'ask'}  {row['state']}  {when}")
         reply = dmn_delivery.in_reply_to(con, row)
         if reply:
-            print(reply.strip()[1:-1])
+            print(reply)
         print(f"relation {row['relation']}   response {row['response']}   "
               f"depth {row['chain_depth']}")
         print()

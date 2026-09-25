@@ -1444,22 +1444,37 @@ def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
     for one without."""
     _daemon_home(home, 20)
     con = db.connect()
+    sent: list[str] = []
+    real = orcamod.send
     try:
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         parent = db.add_request(con, "backend", "human", "which port?\nsecond line", None,
                                 "peer", "async", None, 0, None)
         reply = db.add_request(con, "human", "backend", "8080", None,
                                "peer", "async", None, 0, parent)
+        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        check("reply notice: typed as 'from human (in reply to #M: first line)'",
+              f"#{reply} from human (in reply to #{parent}: which port?), waiting for you" in sent[-1],
+              sent[-1])
+        out = _capture(lambda: climod.main(["read", str(reply)]))
+        check("ocp read: shows what it is in reply to, as its own line",
+              f"\nin reply to #{parent}: which port?\n" in out, out)
+
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (reply,))
         plain = db.add_request(con, "human", "backend", "hello", None,
                                "peer", "async", None, 0, None)
-        check("reply notice: names the parent and its first line",
-              dmn_delivery.in_reply_to(con, db.get_request(con, reply))
-              == f" (in reply to #{parent}: which port?)")
-        check("reply notice: nothing for a request with no parent",
-              dmn_delivery.in_reply_to(con, db.get_request(con, plain)) == "")
-        out = _capture(lambda: climod.main(["read", str(reply)]))
-        check("ocp read: shows what it is in reply to",
-              f"in reply to #{parent}: which port?" in out, out)
+        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
+        check("reply notice: nothing extra for a request with no parent",
+              f"#{plain} from human, waiting for you" in sent[-1] and "in reply to" not in sent[-1],
+              sent[-1])
+
+        long_parent = db.add_request(con, "backend", "human", "q" * 100, None,
+                                     "peer", "async", None, 0, None)
+        cut = dmn_delivery.in_reply_to(con, {"parent_id": long_parent})
+        check("reply notice: a long first line is cut at the limit with an ellipsis",
+              cut == f"in reply to #{long_parent}: {'q' * dmn_delivery.ASKED_SHOWN}…", cut)
     finally:
+        orcamod.send = real
         con.close()
 
 

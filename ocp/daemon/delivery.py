@@ -496,9 +496,10 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
         # here. Typing a dead request into the target's terminal would be
         # worse than skipping it; the next tick picks up whatever is now head.
         return False
+    reply = in_reply_to(con, head)
     ok, _ = orca.send(
         handle,
-        f"#{head['id']} from {head['requester']}{in_reply_to(con, head)}, waiting for you:\n{shown}{tail}\n"
+        f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
         f"`ocp read {head['id']}` shows it whole; {_answer_verb(head)}, "
         f"or `ocp inbox` any time.")
     if ok:
@@ -520,8 +521,8 @@ ASKED_SHOWN = 40
 
 
 def in_reply_to(con, row) -> str:
-    """` (in reply to #M: <first line of M>)` for a request with a parent, so
-    a bare "#N from human" says what it answers; "" for one without, or whose
+    """`in reply to #M: <first line of M>` for a request with a parent, so a
+    bare "#N from human" says what it answers; "" for one without, or whose
     parent is gone."""
     if row["parent_id"] is None:
         return ""
@@ -532,7 +533,7 @@ def in_reply_to(con, row) -> str:
     first = textsafe.oneline(lines[0]).strip() if lines else ""
     if len(first) > ASKED_SHOWN:
         first = first[:ASKED_SHOWN].rstrip() + "…"
-    return f" (in reply to #{parent['id']}{': ' + first if first else ''})"
+    return f"in reply to #{parent['id']}{': ' + first if first else ''}"
 
 
 def answer_line(r) -> tuple[str, bool]:
