@@ -246,7 +246,7 @@ class HomePage(RowActions, JobsAware, Screen):
                 wall = f"{tui.YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{tui.R}"
             table.add_row(self._name_cell(r, x, self._on), Text(r.acct), Text(x.kind_short, style="dim"),
                           self._state_cell(r, x, self._on),
-                          Text.from_ansi(agent_rows.cache_cell(x.cache_left)),
+                          Text.from_ansi(agent_rows.cache_cell(x.cache_left, x.cache_ignored)),
                           Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
                           Text.from_ansi(r.fire or wall), key=r.name)
             if self._alarm(r, x) or self._fold_errs(r, x):
