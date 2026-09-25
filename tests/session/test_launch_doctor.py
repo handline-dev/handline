@@ -163,9 +163,16 @@ def test_launch(home: Path) -> None:
 
     # Existence of the credential file is all we check - never its contents.
     (cfg / ".credentials.json").write_text("{}")
+    shared_settings = home / "shared" / ".claude" / "settings.json"
+    shared_settings.parent.mkdir(parents=True, exist_ok=True)
+    shared_settings.write_text(json.dumps({"theme": "dark"}))  # an install from before
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "launch", "launchtest"],
                        capture_output=True, text=True, env=env)
     check("launch execs claude once logged in", r.returncode == 0, r.stderr)
+    got = json.loads(shared_settings.read_text())
+    check("launch turns Claude Code's notifications off on an existing install",
+          all(got.get(k) is False for k in hooks.QUIET_NOTIFICATIONS) and got.get("theme") == "dark",
+          got)
     check("launch sets CLAUDE_CONFIG_DIR to the account dir", f"CFG={cfg}" in r.stdout, r.stdout)
     check("launch sets OCP_ACCOUNT", "ACCT=gamma" in r.stdout, r.stdout)
     check("launch sets OCP_AGENT", "AGENT=launchtest" in r.stdout, r.stdout)
@@ -1645,6 +1652,24 @@ def test_venv(home: Path) -> None:
 
 
 
+def test_shared_settings_turn_claude_notifications_off_once(home: Path) -> None:
+    os.environ["OCP_HOME"] = str(home)
+    settings = home / "shared" / ".claude" / "settings.json"
+    accounts.ensure_shared()
+    got = json.loads(settings.read_text())
+    check("notifications: both are off in the shared settings",
+          all(got.get(k) is False for k in hooks.QUIET_NOTIFICATIONS), got)
+    stamp = settings.stat().st_mtime_ns
+    accounts.ensure_shared()
+    check("notifications: nothing to change, nothing rewritten",
+          settings.stat().st_mtime_ns == stamp)
+    got["inputNeededNotifEnabled"] = True
+    settings.write_text(json.dumps(got))
+    accounts.ensure_shared()
+    check("notifications: one turned on by hand stays on",
+          json.loads(settings.read_text())["inputNeededNotifEnabled"] is True, settings.read_text())
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -1689,21 +1714,10 @@ def main() -> int:
         run(lambda: test_jobs_lines_reports_state_honestly(Path(td) / 'jobslines'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_a_test_never_reaches_the_real_home(Path(td) / 'realhome'))
+        run(lambda: test_shared_settings_turn_claude_notifications_off_once(Path(td) / 'notif'))
     return run_area(tests)
 
 
 if __name__ == "__main__":
     sys.exit(main())
 
-
-def test_shared_settings_turn_claude_notifications_off_once(home: Path) -> None:
-    settings = home / "shared" / ".claude" / "settings.json"
-    accounts.ensure_shared()
-    got = json.loads(settings.read_text())
-    check("notifications: both are off in the shared settings",
-          all(got.get(k) is False for k in hooks.QUIET_NOTIFICATIONS), got)
-    got["inputNeededNotifEnabled"] = True
-    settings.write_text(json.dumps(got))
-    accounts.ensure_shared()
-    check("notifications: one turned on by hand stays on",
-          json.loads(settings.read_text())["inputNeededNotifEnabled"] is True, settings.read_text())
