@@ -69,7 +69,7 @@ def _confirmed_reading(con, agent: str, reading, log):
     return agents.AccountReading(actual, "recorded")
 
 
-def _queued_or_idle(con, agent: str, when: str) -> str:
+def queued_or_idle(con, agent: str, when: str) -> str:
     """Write QUEUED when there is a request still queued or an answer this
     agent asked for and has not been told about, IDLE otherwise - and return
     which. That is the project's one definition of work waiting, not this
@@ -173,10 +173,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             woke_now = woke_now or restored
             return
         # QUEUED is a claim about the queue, so the write has to look at it
-        # (`_queued_or_idle`) - a stale wake_at can come due after the turn it
+        # (`queued_or_idle`) - a stale wake_at can come due after the turn it
         # was set during already went idle on its own, since Stop only clears
         # RUNNING.
-        new_state = _queued_or_idle(con, agent, "wake_at reached")
+        new_state = queued_or_idle(con, agent, "wake_at reached")
         why_word = "window rolled over" if new_state == QUEUED else "nothing queued"
         actions.append(f"{agent}: {state} -> {new_state} ({why_word})")
         log(f"  {agent}: {state} -> {new_state} ({why_word})")
@@ -329,7 +329,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
                 actions.append(f"{agent}: moved off a parked account")
                 return
         if movable and not verdict.fired:
-            new_state = _queued_or_idle(con, agent, "usage recovered")
+            new_state = queued_or_idle(con, agent, "usage recovered")
             actions.append(f"{agent}: {state} -> {new_state} (usage recovered)")
             log(f"  {agent}: {state} -> {new_state} (usage recovered)")
             row = db.get_agent_state(con, agent)
