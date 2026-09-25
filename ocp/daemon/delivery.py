@@ -199,8 +199,10 @@ def _session_changed(con, agent: str) -> bool:
     """Is the session on screen a different one from the one the head was typed into?
 
     A delivery belongs to the session that read it. A resume keeps its id, so
-    it is not told twice; a fresh start has a new one and has read nothing. An
-    id that cannot be read is not a difference - nothing is retyped on a guess.
+    it is not told twice; a fresh start has a new one and has read nothing. A
+    session that was closed and comes back is told anyway: `clear_closed`
+    voids what it was told. An id that cannot be read is not a difference -
+    nothing is retyped on a guess.
     """
     live = _live_session(con, agent)
     return bool(live) and live != db.get_notified_session(con, agent)

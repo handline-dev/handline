@@ -1496,6 +1496,40 @@ def test_a_delivery_belongs_to_the_session_it_was_typed_into(home: Path) -> None
         con.close()
 
 
+def test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(home: Path) -> None:
+    """T102: the head was typed into a session that then died unread. What
+    starts or resumes next keeps the same session id, and is told all the same."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.add_request(con, "reviewer", "backend", "first", None, "peer", "async", None, 0, None)
+        db.add_request(con, "reviewer", "backend", "second", None, "peer", "async", None, 0, None)
+        _session_file(home, "sess-A")
+        check("back: the head is told to session A",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and "first" in sent[-1], str(sent))
+        sent.clear()
+
+        db.set_closed(con, "backend", "sess-A")
+        check("back: a closed agent is not told again",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        db.clear_closed(con, "backend")
+        check("back: the session that is running again, with A's id, is told the head and the depth",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and "first" in sent[-1] and "1 more waiting" in sent[-1], str(sent))
+        sent.clear()
+        check("back: and only once",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+    finally:
+        con.close()
+
+
 def test_nothing_is_typed_at_a_modal(home: Path) -> None:
     """Claude Code opens modals of its own at start; a typed line plus Enter
     answers whichever option is highlighted."""
@@ -2207,6 +2241,7 @@ def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) ->
         check("cold nudge: a forgotten head closes the cold session",
               dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is True, str(sent))
         db.clear_closed(con, "backend")
+        db.set_cursor(con, "notify:backend", rid)   # the woken session is told the head again
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         row = db.get_agent_state(con, "backend")
         check("cold nudge: the same head does not close it again",
@@ -3104,6 +3139,7 @@ def main() -> int:
             Path(td) / 'delivertrust'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
+        run(lambda: test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(Path(td) / 'sessback'))
         run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
         run(lambda: test_a_wake_types_nothing_at_a_shell_when_the_session_dies(Path(td) / 'shellwake'))
         run(lambda: test_a_launch_takes_its_prompt_once(Path(td) / 'takeprompt'))
