@@ -182,8 +182,7 @@ def send_now_pending(con, target: str):
 
 def founder_pending(con, target: str):
     """The founder's requests to `target` that have not been shown to it yet,
-    oldest first: what `deliver_queued` tells past an open head to an agent
-    that is only waiting on background work."""
+    oldest first: what `deliver_queued` tells past an open head."""
     return con.execute(
         "SELECT * FROM requests WHERE target = ? AND requester = 'human' "
         "AND state = 'queued' AND delivered_at IS NULL ORDER BY queue_order, id",
