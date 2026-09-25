@@ -144,12 +144,14 @@ class HomePage(RowActions, JobsAware, Screen):
         self.query_one("#settings_flash", Static).update(Text(said))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        event.stop()
-        self._save_settings()
+        if event.input.id == "default_cap":
+            event.stop()
+            self._save_settings()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        event.stop()
-        self._save_settings()
+        if event.button.id == "settings_save":
+            event.stop()
+            self._save_settings()
 
     # ------------------------------------------------------------------ drawing
 
