@@ -650,6 +650,7 @@ class TaskTable(DataTable):
             super().__init__()
             self.column = column
 
+    click_selects = True
     BINDINGS = [Binding("s", "sort('next')", "sort", show=False),
                 Binding("S", "sort('reverse')", "reverse", show=False)]
 
@@ -664,7 +665,8 @@ class TaskTable(DataTable):
             self.post_message(self.Sort(self.ordered_columns[meta["column"]].key.value))
         elif meta.get("row", -1) >= 0 and "column" in meta:
             self.cursor_coordinate = Coordinate(meta["row"], meta["column"])
-            self.action_select_cursor()
+            if self.click_selects:
+                self.action_select_cursor()
 
 
 STATE_STYLE_FG = {"waiting": "yellow", "doing": "blue", "done": "green", "closed": "dim"}

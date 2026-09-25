@@ -10,13 +10,13 @@ import time
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
 from ...infra import textsafe
-from ..chat_page import TaskTable
+from ..chat_page import TaskTable, task_detail, task_page
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
 
@@ -37,6 +37,49 @@ def result_lines(results: list[tuple[int, bool, str]]) -> Text:
 def idle_text(row: dict, now: float) -> str:
     s = actions.task_idle_s(row, now)
     return f"{s // 86400}d" if s >= 86400 else f"{s // 3600}h" if s >= 3600 else "<1h"
+
+
+WIDE = 130
+
+
+class TaskPane(VerticalScroll):
+    """The task under the cursor, beside the table when the terminal is wide: what its page
+    (`chat_page.task_page`) says, the sub-tasks without links."""
+
+    DEFAULT_CSS = "TaskPane { width: 50; padding: 0 1; border-left: solid $primary; }"
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="pane_text")
+
+    def show(self, tid: int | None) -> None:
+        text = self.query_one("#pane_text", Static)
+        if tid is None:
+            text.update(Text("no task", style="dim"))
+            return
+        con = db.connect()
+        try:
+            d = task_detail(con, tid)
+        finally:
+            con.close()
+        if d is None:
+            text.update(Text(f"task {actions.task_ref(tid)} is gone", style="dim"))
+            return
+        page = task_page(d)
+        out = Text()
+        for part in (page["title"], page["badge"]):
+            out.append_text(part)
+            out.append("\n")
+        out.append("\n")
+        out.append_text(page["meta"])
+        for title, lines in (("Sub-tasks", [Text(f"{actions.task_ref(i)}  {st}  {t}")
+                                            for i, t, st in d["children"]]), ("Requests", page["reqs"])):
+            out.append(f"\n{title}", style="bold")
+            out.append(f"  {len(lines)}\n", style="dim")
+            for line in lines or [Text("none", style="dim")]:
+                out.append("  ")
+                out.append_text(line)
+                out.append("\n")
+        text.update(out)
 
 
 class StatePicker(ModalScreen["set[str] | None"]):
@@ -80,7 +123,8 @@ class TasksView(Vertical):
     ]
     DEFAULT_CSS = """
     TasksView { height: 1fr; }
-    TasksView #tasks_table { height: 1fr; }
+    TasksView #tasks_body { height: 1fr; }
+    TasksView #tasks_table { width: 1fr; height: 1fr; }
     TasksView #tasks_results { height: auto; max-height: 6; }
     TasksView #tasks_filters { height: 1; }
     TasksView #tasks_filters Select { width: 1fr; }
@@ -125,9 +169,30 @@ class TasksView(Vertical):
             yield Select([(f"sort: {c}", c) for c in actions.TASK_SORTS], id="f_sort",
                          allow_blank=False, compact=True)
             yield Button(self._state_label(), id="f_state", compact=True)
-        yield TaskTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
+        with Horizontal(id="tasks_body"):
+            yield TaskTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
+            yield TaskPane(id="tasks_pane")
         yield Static(id="tasks_results")
         yield KeyGuide(self._keys(), id="tasks_foot")
+
+    @property
+    def wide(self) -> bool:
+        return self.size.width >= WIDE
+
+    def on_resize(self) -> None:
+        wide = self.wide
+        self.query_one("#tasks_pane").display = wide
+        self.table.click_selects = not wide
+        if wide:
+            self._show_pane()
+
+    def _show_pane(self) -> None:
+        if self.wide:
+            self.query_one(TaskPane).show(self.rows[self.cur]["id"] if self.cur < len(self.rows) else None)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        event.stop()
+        self._show_pane()
 
     def _set_columns(self) -> None:
         """The heads, with an arrow on the sort column; a rebuild is how a head changes."""
@@ -179,6 +244,7 @@ class TasksView(Vertical):
             table.add_row(*(Text(c, style="yellow" if stale else "") for c in cells), key=str(r["id"]))
         if self.rows:
             table.move_cursor(row=min(row, len(self.rows) - 1))
+        self._show_pane()
         title = Text(f"{'MY TASKS' if self.mine else 'TASKS'}  ", style="bold")
         title.append(f"{len(self.rows)} {self._state_label()}"
                      f" · agent {self.owner or 'all'} · by {self.by} {'desc' if self.rev else 'asc'}", style="dim")

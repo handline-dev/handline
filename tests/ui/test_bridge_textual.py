@@ -978,6 +978,15 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.press("s")
         await pilot.pause(0.2)
         check("tasks tab: s sorts by the next column", view.by == "state", view.by)
+        from ocp.ui.components.tasks_view import TaskPane
+        pane = view.query_one(TaskPane)
+        await pilot.resize_terminal(170, 40)
+        await pilot.pause(0.3)
+        check("tasks tab: a wide terminal shows the task under the cursor at the right",
+              pane.display and view.rows[view.cur]["title"] in str(pane.query_one("#pane_text").render()), pane.display)
+        await pilot.resize_terminal(100, 24)
+        await pilot.pause(0.3)
+        check("tasks tab: a narrow one hides the pane", not pane.display)
         from ocp.ui.components.tasks_view import StatePicker
         await pilot.press("v")
         await pilot.pause(0.2)
