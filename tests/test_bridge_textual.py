@@ -1008,6 +1008,11 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
         con.close()
 
 
+def _page_rows(con, rid: int) -> list:
+    from ocp import chat_page as cp
+    return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
+
+
 def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     from ocp import ask as askmod, chat_page as cp
     _home("reply")
@@ -1016,12 +1021,12 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     try:
         ok, _, rid = askmod.ask("human", "merge it?", requester="reviewer")
         check("reply: the agent's question is waiting for the human",
-              ok and cp.messages_of([db.get_request(con, rid)], "reviewer")[0]["waiting"])
+              ok and cp.messages_of(_page_rows(con, rid), "reviewer")[0]["waiting"])
         ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
         after = db.get_request(con, rid)
         check("reply: a reply to a waiting question is its verdict",
               ok1 and after["state"] == "done" and after["verdict"] == "yes", str(dict(after)))
-        check("reply: the question then reads as answered", cp.messages_of([after], "reviewer")[0]["answered"])
+        check("reply: the question then reads as answered", cp.messages_of(_page_rows(con, rid), "reviewer")[0]["answered"])
         ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
         child = db.get_request(con, rid + 1)
         check("reply: a second reply is a new request to the agent under it",
@@ -1038,9 +1043,18 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         kid5 = db.get_request(con, theirs + 1)
         check("reply: a reply from another agent's page (All chat) goes to the agent on that message, under it",
               ok5 and kid5["target"] == "reviewer" and kid5["parent_id"] == theirs, str(dict(kid5)))
-        got = cp.messages_of([db.get_request(con, mine), db.get_request(con, mine + 1)], "reviewer")
+        got = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
         check("reply: the message replied to reads answered",
               next(m for m in got if m["rid"] == mine and m["part"] == 1)["answered"], str(got))
+        for _ in range(cp.PAGE):
+            con.execute("INSERT INTO requests (ts, requester, target, state, body, parent_id) "
+                        "SELECT ts, requester, target, 'done', 'filler', NULL FROM requests WHERE id = ?", (rid,))
+        con.commit()
+        page, _more = cp.requests_page(con, "reviewer", False)
+        older, _ = cp.requests_page(con, "reviewer", False, before=page[0]["id"])
+        parent_older = [m for m in cp.messages_of(older, "reviewer") if m["rid"] == mine and m["part"] == 1]
+        check("reply: it still reads answered when scrolled up to, its reply on the newer page",
+              mine < page[0]["id"] and parent_older and parent_older[0]["answered"], str([r["id"] for r in older]))
         check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
         check("reply: a reply to a request that is gone is refused",
               cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
@@ -1181,7 +1195,7 @@ def test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the
     def row(i, ts, delivered):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": delivered, "parent_id": None}
+                "dismissed_reason": None, "delivered_at": delivered, "replied": 0}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
