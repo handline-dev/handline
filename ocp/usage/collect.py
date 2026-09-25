@@ -40,7 +40,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..infra import paths
+from ..infra import atomic, paths
 from .. import vendors
 
 
@@ -172,10 +172,8 @@ def write(agent: str, snap: dict, path: Path | None = None) -> bool:
             p.parent.mkdir(parents=True, exist_ok=True)
         except OSError:
             return False
-    tmp = p.with_suffix(".json.tmp")
     try:
-        tmp.write_text(json.dumps(snap, indent=2, ensure_ascii=False) + "\n")
-        tmp.replace(p)
+        atomic.write_text(p, json.dumps(snap, indent=2, ensure_ascii=False) + "\n")
     except OSError:
         return False
     return True

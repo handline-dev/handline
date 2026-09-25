@@ -396,17 +396,19 @@ def test_status_methods_all_honor_a_pinned_as_of() -> None:
     try:
         want = (live.takes_work(), live.rolled_over(), live.idle_floor(),
                 live.shown_short(), live.last_known(), status.long_pace(live),
-                status.unfit(live, None))
+                status.unfit(live, None), status._no_long_room(live, None),
+                status._pick_reason(live, None, None, False))
     finally:
         time.time = real_time
     # The wall clock is back at its real, much later value; only a method
     # that actually reads as_of, not time.time(), can still match `want`.
     got = (pinned_st.takes_work(), pinned_st.rolled_over(), pinned_st.idle_floor(),
            pinned_st.shown_short(), pinned_st.last_known(), status.long_pace(pinned_st),
-           status.unfit(pinned_st, None))
+           status.unfit(pinned_st, None), status._no_long_room(pinned_st, None),
+           status._pick_reason(pinned_st, None, None, False))
     for name, w, g in zip(
             ("takes_work", "rolled_over", "idle_floor", "shown_short", "last_known",
-             "long_pace", "unfit"),
+             "long_pace", "unfit", "_no_long_room", "_pick_reason"),
             want, got):
         check(f"status: {name} honors a pinned as_of", g == w, str((g, w)))
 
@@ -2625,6 +2627,39 @@ def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> Non
         con.close()
 
 
+def test_memory_is_one_folder_per_project_shared_by_every_account(home: Path) -> None:
+    """T74: each account kept its own copy of a project's memory, and the copies
+    drifted. share_memory merges them into shared/ and links each account."""
+    os.environ["OCP_HOME"] = str(home)
+    proj = "-Users-x-orcapipe"
+    mems = {a: home / "accounts" / a / ".claude" / "projects" / proj / "memory"
+            for a in ("alpha", "beta")}
+    for a, m in mems.items():
+        m.mkdir(parents=True)
+        (m / f"{a}.md").write_text(f"only on {a}\n")
+    shared = home / "shared" / "memory" / "claude" / proj
+    check("share: links the project's folder",
+          accounts.share_memory("alpha", "/Users/x/orcapipe") == [proj])
+    check("share: the account's memory is now the shared folder",
+          mems["alpha"].is_symlink() and mems["alpha"].resolve() == shared.resolve())
+    check("share: its own notes are in the shared folder", (shared / "alpha.md").exists())
+    check("share: the old folder is kept aside, not deleted",
+          (mems["alpha"].parent / "memory.before-shared" / "alpha.md").exists())
+    accounts.share_memory("beta")
+    check("share: another account's notes join it and it links the same folder",
+          (shared / "beta.md").exists() and mems["beta"].resolve() == shared.resolve())
+    check("share: a note written through one account shows through the other",
+          (mems["alpha"] / "beta.md").exists() and (mems["beta"] / "alpha.md").exists())
+    check("share: again changes nothing",
+          accounts.share_memory("alpha", "/Users/x/orcapipe") == [])
+    accounts.register("gamma")
+    gamma = home / "accounts" / "gamma" / ".claude" / "projects" / proj / "memory"
+    check("share: a new account is linked to every shared project",
+          gamma.is_symlink() and gamma.resolve() == shared.resolve())
+    check("share: migrate_memory has nothing to carry between linked accounts",
+          accounts.migrate_memory("alpha", "beta") == [])
+
+
 def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
     """A fold runs `claude -p`, which is headless and has no status line, so it
     is the one spender no collector ever sees. Choosing by the raw figure sent
@@ -2861,7 +2896,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "background_work_ended",
-                    "block_task", "unblock_task", "task_unblocked",
+                    "block_task", "unblock_task", "task_unblocked", "queue_task", "draft_task",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
@@ -5806,6 +5841,7 @@ def main() -> int:
         run(lambda: test_migrate_memory_carries_projects_between_accounts(Path(td) / 'memmig'))
         run(lambda: test_migrate_memory_merges_the_index_and_stays_in_scope(Path(td) / 'memmerge'))
         run(lambda: test_record_terminal_migrates_memory_on_an_account_change(Path(td) / 'memrec'))
+        run(lambda: test_memory_is_one_folder_per_project_shared_by_every_account(Path(td) / 'memshare'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import time
 
+# The founder's name as a requester or target; team.ask re-exports it.
+HUMAN = "human"
+
 
 def unannounced_answers(con, agent: str) -> list:
     """What this agent asked, that came back, that it has not been told about.
@@ -151,7 +154,7 @@ def timeboxed_open(con):
     return con.execute(
         "SELECT * FROM requests WHERE state = 'queued' AND delivered_at IS NOT NULL "
         "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
-        "AND target != ?", ("human",)).fetchall()
+        "AND target != ?", (HUMAN,)).fetchall()
 
 
 def mark_timebox_noticed(con, rid: int) -> None:
@@ -184,9 +187,9 @@ def founder_pending(con, target: str):
     """The founder's requests to `target` that have not been shown to it yet,
     oldest first: what `deliver_queued` tells past an open head."""
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND requester = 'human' "
+        "SELECT * FROM requests WHERE target = ? AND requester = ? "
         "AND state = 'queued' AND delivered_at IS NULL ORDER BY queue_order, id",
-        (target,)).fetchall()
+        (target, HUMAN)).fetchall()
 
 
 def followups_pending(con, target: str, head_id: int):
@@ -230,9 +233,9 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     """
     if state == "queued":
         return False
-    from ..team import ask as askmod, hr
+    from ..team import hr
     row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
-    if row is None or row["target"] != askmod.HUMAN:
+    if row is None or row["target"] != HUMAN:
         return False
     return hr.is_open_proposal(rid) and hr.decision(verdict) == "unclear"
 

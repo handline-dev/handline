@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import paths
+from ..infra import atomic, paths
 from . import team
 from ..infra import timefmt
 
@@ -54,7 +54,7 @@ REVIEW_PINGPONG_LIMIT = 3
 # Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
 # because `ocp launch` sets it before exec'ing claude - so an interactive shell
 # without it is a human at their own prompt, and that is who this is.
-HUMAN = "human"
+HUMAN = db.HUMAN
 
 
 def current_agent() -> str | None:
@@ -107,9 +107,7 @@ def deliver(rid: int, requester: str, target: str, body: str,
         "body": body,
     }
     p = _inbox(target) / f"{rid:06d}.json"
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(p)
+    atomic.write_text(p, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     return p
 
 

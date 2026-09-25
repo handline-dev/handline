@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import ask as askmod, hr
 from .. import db
-from ..infra import paths
+from ..infra import atomic, paths
 from ..infra.yamlcompat import dump, load
 
 # JSON, not yamlcompat: this file is a list of maps, and the bundled parser -
@@ -42,9 +42,7 @@ def list_roots() -> list[dict]:
 
 def _save(rows: list[dict]) -> None:
     p = _path()
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(rows, indent=2))
-    tmp.replace(p)
+    atomic.write_text(p, json.dumps(rows, indent=2))
 
 
 def _resolved(path) -> str | None:
@@ -93,9 +91,7 @@ def load_proposal(pid: str) -> dict | None:
 
 def _save_proposal(prop: dict) -> None:
     p = _proposal_path(prop["id"])
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(dump(prop))
-    tmp.replace(p)
+    atomic.write_text(p, dump(prop))
 
 
 def listing() -> list[dict]:

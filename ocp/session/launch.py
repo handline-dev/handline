@@ -252,6 +252,32 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
     return ["--mcp-config", str(p)], None
 
 
+def hidden_transcripts(agent: str, drv) -> list[str]:
+    """The transcript folders `agent` may not read (T40): every other agent's
+    except its own and its reports', in every account of this vendor, since
+    an agent moves between accounts. Only agents with a worktree on record
+    can be named, so one that has not started yet has nothing to hide."""
+    from .. import actions  # late: actions import this module
+    table = actions.routing()
+    con = db.connect()
+    try:
+        rows = db.all_agent_states(con)
+    finally:
+        con.close()
+    configs = [vendors.config_dir(a) for a in paths.list_accounts()
+               if vendors.account_vendor(a) == drv.name]
+    out: list[str] = []
+    for r in rows:
+        other = r["agent"]
+        if other == agent or actions.supervisor_of(table, other) == agent or not r["worktree"]:
+            continue
+        for cfg in configs:
+            d = drv.transcript_dir(cfg, r["worktree"].split("::", 1)[-1])
+            if d is not None:
+                out.append(str(d))
+    return out
+
+
 def build(agent: str, extra: list[str] | None = None, force: bool = False,
           account: str | None = None) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
@@ -342,7 +368,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     # every session - that is what its 2KB budget is a budget for - and the
     # handoff waiting for it is injected so it picks up where it left off.
     preamble = context_for(agent)
-    argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble)
+    argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
+                           hide=hidden_transcripts(agent, drv))
     argv += list(extra or [])
 
     env = accounts.env_for(acct, agent)
@@ -424,9 +451,18 @@ def _your_team(agent: str) -> str:
                      "You do not implement - give one work with `ocp ask <name> "
                      "\"<task>\"`, and read what it sends back. One task at a "
                      "time; to correct one not yet delivered, `--replaces <id>` "
-                     "or `ocp withdraw <id>`, not a message behind it.")
+                     "or `ocp withdraw <id>`, not a message behind it. Withdraw an ask "
+                     "that has gone stale. Record a wait as `--blocked-by T<n>` on the "
+                     "task, not in prose. Check main before you assign, so nobody "
+                     "rebuilds what landed. Quote the founder's own words in the task "
+                     "you open for their request, and answer the founder through "
+                     "`ocp`, never in chat.")
     lines.append("`ocp team` shows who you may ask and what each is doing now. "
                  "A decision or a block only the founder can clear: `ocp ask human`.")
+    lines.append("Write `ask` and `resolve` text with line breaks, not as one long line: "
+                 "one point per line, lists as `- ` lines. Pass anything longer than a "
+                 "sentence with `--file <path>` (or a quoted heredoc), which is safe to "
+                 "paste; a single-quoted one-liner is what makes it one line.")
     # A self-scheduled wakeup survives the park's /clear and fires into a
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
@@ -549,6 +585,11 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 spawn.register_worker(con, agent, handle)
                 db.set_launch_fingerprint(con, agent, fp)
             if acct:
+                repo = agents.repo_of(agent)
+                try:
+                    accounts.share_memory(acct, repo)
+                except OSError as e:  # noqa: BLE001 - memory is not worth a launch
+                    print(f"ocp launch: could not share memory for {acct}: {e}", file=sys.stderr)
                 # Every path that starts a session passes through here, so
                 # this is the one place a landing account differing from the
                 # last one is ever seen - and the one place to carry what
@@ -556,7 +597,6 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 # `set_account` overwrites the record.
                 previous = agents.current_account(agent, con)
                 if previous and previous != acct:
-                    repo = agents.repo_of(agent)
                     project = accounts.memory_project_dir(previous, repo) if repo else None
                     try:
                         carried = accounts.migrate_memory(previous, acct, project=project)

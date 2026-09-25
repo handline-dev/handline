@@ -80,7 +80,7 @@ def listing_refusal(caller: str | None, target: str) -> str | None:
     Another agent's queue, digest or handoff is context that agent's project
     owns: an agent reading it carries it into its own, and may leak it. The
     human, the agent itself and its supervisor may. A caller with no name is
-    not refused here; the commands that need one already say so.
+    refused by the command before it gets here.
     """
     if caller in (None, HUMAN, target):
         return None

@@ -163,6 +163,33 @@ def cmd_task_discard(args) -> int:
     return 0 if ok else 1
 
 
+def _cmd_task_queue(args, queued: bool) -> int:
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("queue a task" if queued else "draft a task"))
+        return 1
+    con = db.connect()
+    try:
+        failed = 0
+        for tid in args.tasks:
+            ok, msg = actions.set_queued(con, tid, me, queued)
+            print(msg)
+            failed += not ok
+    finally:
+        con.close()
+    return 1 if failed else 0
+
+
+def cmd_task_queue(args) -> int:
+    """Approve draft tasks to run - the founder or the owner's manager."""
+    return _cmd_task_queue(args, True)
+
+
+def cmd_task_draft(args) -> int:
+    """Send queued tasks back to draft - the founder or the owner's manager."""
+    return _cmd_task_queue(args, False)
+
+
 def cmd_task_reopen(args) -> int:
     """Send a done task back to doing (#71) - the asker's own call, needing
     a one-line reason."""
@@ -319,8 +346,8 @@ def cmd_task_merge(args) -> int:
 def _print_board(con, tasks: list) -> None:
     """Each task, then the requests linked to it as they stand now: state and
     date are read from the request, never held on the task. `state` (#71) is
-    one of waiting, doing, done, closed, discarded - waiting and doing read live
-    off those same requests, the rest off the task's own evidence."""
+    one of draft, queued, doing, done, closed, discarded - doing reads live
+    off those same requests, the rest off the task's own record."""
     if not tasks:
         print("no open tasks.")
         return
