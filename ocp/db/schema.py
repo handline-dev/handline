@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS requests (
   send_now INTEGER,
   -- Set once "send now" has told it out of turn, so becoming the head later
   -- (T38) is not a second telling. A request column, not a cursor keyed by
-  -- id: it goes away with the row instead of sitting in `cursors` forever.
+  -- id: a cursor for every request ever sent out of turn sat in `cursors`
+  -- forever, with nothing to ever clear it.
   told_out_of_turn INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
@@ -545,6 +546,14 @@ def _add_missing_columns(con) -> None:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
     if "told_out_of_turn" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN told_out_of_turn INTEGER")
+        # Carry over what the old sendnow_told:<id> cursors already knew - a
+        # request left NULL here that was in fact already told out of turn
+        # would be told a second time once it becomes the head.
+        con.execute(
+            "UPDATE requests SET told_out_of_turn = 1 WHERE id IN "
+            "(SELECT CAST(substr(name, 14) AS INTEGER) FROM cursors "
+            "WHERE name LIKE 'sendnow_told:%')")
+        con.execute("DELETE FROM cursors WHERE name LIKE 'sendnow_told:%'")
     task_cols = _cols(con, "tasks")
     for col in ("discarded_by", "discard_reason"):
         if col not in task_cols:
