@@ -372,6 +372,42 @@ def test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(home: Path) 
         usage_api.read, accounts.logged_in = real_read, real_login
 
 
+def test_status_methods_all_honor_a_pinned_as_of() -> None:
+    """T48: age_s, rl_age_s and pct_7d_source read as_of, but
+    takes_work, rolled_over, idle_floor, shown_pct_5h and last_known still
+    read time.time() directly - a caller that pins as_of (replay, stats) got
+    a mix of the pinned clock and the wall clock.
+
+    Built so the pin and the real wall clock disagree about everything a
+    fixed reading depends on (whether the snapshot is stale, whether either
+    window has rolled over): a method still reading time.time() would answer
+    differently once as_of is set than it does with no as_of and the clock
+    mocked to the same value."""
+    pinned = 1_000_000.0
+    kw = dict(account="a", exists=True, pct_5h=40, pct_7d=50,
+              reset_5h=int(pinned + 1800), reset_7d=int(pinned + 100_000),
+              collected_at=int(pinned - 1800), rl_at=int(pinned - 1800),
+              rl7_at=int(pinned - 1800))
+    live = status.AccountStatus(**kw)             # as_of=None: reads time.time()
+    pinned_st = status.AccountStatus(as_of=pinned, **kw)
+
+    real_time = time.time
+    time.time = lambda: pinned
+    try:
+        want = (live.takes_work(), live.rolled_over(), live.idle_floor(),
+                live.shown_pct_5h(), live.last_known())
+    finally:
+        time.time = real_time
+    # The wall clock is back at its real, much later value; only a method
+    # that actually reads as_of, not time.time(), can still match `want`.
+    got = (pinned_st.takes_work(), pinned_st.rolled_over(), pinned_st.idle_floor(),
+           pinned_st.shown_pct_5h(), pinned_st.last_known())
+    for name, w, g in zip(
+            ("takes_work", "rolled_over", "idle_floor", "shown_pct_5h", "last_known"),
+            want, got):
+        check(f"status: {name} honors a pinned as_of", g == w, str((g, w)))
+
+
 def test_live_refresh_asks_at_most_one_candidate_per_call(home: Path) -> None:
     """auditor #1821 should-fix: _move_plan/find_room pass every logged-in
     account as candidates, and a fleet-wide outage - several accounts
@@ -5657,6 +5693,7 @@ def main() -> int:
             Path(td) / 'liverefreshfloor'))
         run(lambda: test_live_refresh_asks_at_most_one_candidate_per_call(
             Path(td) / 'liverefreshcap'))
+        run(lambda: test_status_methods_all_honor_a_pinned_as_of())
         run(lambda: test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(
             Path(td) / 'tokencalls'))
         run(lambda: test_the_weeks_ratio_to_the_5h_window_is_measured_from_the_samples(Path(td) / 'weekratio'))
