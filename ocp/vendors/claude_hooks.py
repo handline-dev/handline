@@ -29,6 +29,9 @@ from .claude import Claude
 # ocp's own status line scripts, which it no longer installs (D11).
 OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
 
+# Claude Code's own notification switches, off in the shared settings only.
+QUIET_NOTIFICATIONS = ("inputNeededNotifEnabled", "agentPushNotifEnabled")
+
 # How we recognize a hook Orca installed. Every Orca hook command mentions one
 # of these paths or variables.
 ORCA_MARKERS = ("orca/agent-hooks", ".orca/agent-hooks", "ORCA_AGENT_HOOK", "orca-hook")
@@ -262,6 +265,7 @@ def ensure_shared() -> Path:
     for sub in ("skills", "agents", "commands"):
         (shared / sub).mkdir(exist_ok=True)
 
+    before = json.loads(json.dumps(current))
     ours = {str(shared / name) for name in OLD_STATUSLINES}
 
     # A statusLine pointing at a script just deleted would error in every
@@ -272,9 +276,14 @@ def ensure_shared() -> Path:
     # Ours overlaps Claude Code's own auto-continue, and section 4 says to pick
     # one. We pick ours, and doctor enforces that the choice stays made.
     current.setdefault("autoContinueAtUsageLimit", False)
-    tmp = settings.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(settings)
+    # Orca surfaces these for the human's own sessions; ours are worked through
+    # ocp, so they stay off here unless someone turns them on in this file.
+    for key in QUIET_NOTIFICATIONS:
+        current.setdefault(key, False)
+    if not settings.exists() or current != before:
+        tmp = settings.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n")
+        tmp.replace(settings)
     # Only once no setting points at them: deleted first, a failed write
     # would leave every session running a script that is gone.
     for cmd in ours:

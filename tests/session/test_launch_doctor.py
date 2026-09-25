@@ -1694,3 +1694,16 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def test_shared_settings_turn_claude_notifications_off_once(home: Path) -> None:
+    settings = home / "shared" / ".claude" / "settings.json"
+    accounts.ensure_shared()
+    got = json.loads(settings.read_text())
+    check("notifications: both are off in the shared settings",
+          all(got.get(k) is False for k in hooks.QUIET_NOTIFICATIONS), got)
+    got["inputNeededNotifEnabled"] = True
+    settings.write_text(json.dumps(got))
+    accounts.ensure_shared()
+    check("notifications: one turned on by hand stays on",
+          json.loads(settings.read_text())["inputNeededNotifEnabled"] is True, settings.read_text())
