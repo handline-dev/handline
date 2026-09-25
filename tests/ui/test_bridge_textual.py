@@ -262,7 +262,7 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
 
 async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
     from unittest import mock
-    from textual.widgets import Input, Select, Tabs
+    from textual.widgets import Input, Switch, Tabs
     from ocp.team import accounts as accountsmod
     from ocp.usage import load as loadmod
     _home("acctpage")
@@ -316,7 +316,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
             page.query_one("#a_cap", Input).value = "2"
             page.query_one("#a_name", Input).value = "Work"
-            page.query_one("#a_recover", Select).value = False
+            page.query_one("#a_recover", Switch).value = False
             await pilot.click("#a_save")
             await pilot.pause(0.3)
             flash = str(page.query_one("#a_flash", Static).render())
@@ -324,7 +324,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   loadmod.cap_of("alpha") == 2
                   and loadmod.label_of("alpha") == "Work" and "at most 2" in flash, flash)
             check("account page: Save writes the usage reset switch", not loadmod.usage_recover_enabled("alpha")
-                  and page.query_one("#a_recover", Select).value is False)
+                  and page.query_one("#a_recover", Switch).value is False)
             check("account page: the title shows the new name",
                   "Work" in str(page.query_one("#t_title", Static).render()))
             page.query_one("#a_cap", Input).value = ""

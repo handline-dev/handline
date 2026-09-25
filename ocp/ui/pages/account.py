@@ -11,7 +11,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Header, Input, Select, Static, Tabs
+from textual.widgets import Button, DataTable, Header, Input, Static, Switch, Tabs
 
 from ...team import accounts
 from ... import actions, db
@@ -40,7 +40,9 @@ class AccountPage(AccountActions, Screen):
     AccountPage .fhint { color: $text-muted; }
     AccountPage #a_name { width: 40; }
     AccountPage #a_cap { width: 8; }
-    AccountPage #a_recover { width: 12; }
+    AccountPage #a_recover { height: 1; border: none; padding: 0; background: transparent; }
+    AccountPage #a_recover > .switch--slider { background: $foreground 30%; color: $error; }
+    AccountPage #a_recover.-on > .switch--slider { color: $success; }
     AccountPage #a_flash { height: 1; padding: 0 3; color: $text-muted; }
     """
 
@@ -77,7 +79,7 @@ class AccountPage(AccountActions, Screen):
                     yield Static(hint, classes="fhint")
             with Horizontal(classes="frow"):
                 yield Static("usage reset", classes="flabel")
-                yield Select([("on", True), ("off", False)], id="a_recover", allow_blank=False, compact=True)
+                yield Switch(id="a_recover", value=True)
                 yield Static("  a turn that resets the usage window when it runs out", classes="fhint")
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
                 with Horizontal(classes="frow"):
@@ -135,7 +137,7 @@ class AccountPage(AccountActions, Screen):
             box = self.query_one(_INPUTS[key], Input)
             if box.value in (self._shown.get(key, ""), now):    # unedited: follow the config, never what is typed
                 box.value = self._shown[key] = now
-        box = self.query_one("#a_recover", Select)
+        box = self.query_one("#a_recover", Switch)
         if box.value == self._recover_shown:    # unedited: follow the config
             box.value = self._recover_shown = f["recover"]
         self.query_one("#a_cap", Input).placeholder = str(f["default_cap"])
@@ -214,9 +216,9 @@ class AccountPage(AccountActions, Screen):
     def _save(self) -> None:
         box = {k: self.query_one(sel, Input).value for k, sel in _INPUTS.items()}
         ok, self.flash = actions.save_account_settings(self.account, box["name"], box["cap"],
-                                                       bool(self.query_one("#a_recover", Select).value))
+                                                       bool(self.query_one("#a_recover", Switch).value))
         if ok:
-            self._recover_shown = bool(self.query_one("#a_recover", Select).value)
+            self._recover_shown = bool(self.query_one("#a_recover", Switch).value)
             self._shown.clear()     # a saved form shows the config again, even where a blank wrote nothing
         self._load()
 
@@ -264,7 +266,7 @@ class AccountPage(AccountActions, Screen):
             event.stop()
             tabs.focus()
         elif event.key in ("up", "down") and self.query_one("#a_settings").display \
-                and (isinstance(focused, (Input, Button, Select))):
+                and (isinstance(focused, (Input, Button, Switch))):
             event.stop()
             if event.key == "down" and focused is self.query_one("#a_remove"):
                 return      # the last button: stop here, do not wrap to the tab bar
