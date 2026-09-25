@@ -33,17 +33,17 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
                 verdict: str | None = None, chain_id: str | None = None,
                 first: bool = False, queue_order: float | None = None,
-                fyi: bool = False) -> int:
+                fyi: bool = False, timebox_s: int | None = None) -> int:
     """Insert a request. `queue_order`, not `id`, decides FIFO position - see
     `queued_for`. `first` and `queue_order` are request #189's --first and
     --replaces.
     """
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, timebox_s) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (int(time.time()), requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict, chain_id, int(fyi)),
+         chain_depth, parent_id, state, verdict, chain_id, int(fyi), timebox_s),
     )
     rid = int(cur.lastrowid)
     if chain_id is None:
@@ -142,6 +142,21 @@ def mark_delivered(con, rid: int) -> bool:
         "WHERE id = ? AND state = 'queued'",
         (int(time.time()), rid))
     return cur.rowcount > 0
+
+
+def timeboxed_open(con):
+    """Requests an agent has been shown and not closed, whose asker has not yet
+    been told they ran long. Reports ask nothing, so no clock runs on them, and
+    the human's rows are "delivered" when drawn, not worked on."""
+    return con.execute(
+        "SELECT * FROM requests WHERE state = 'queued' AND delivered_at IS NOT NULL "
+        "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
+        "AND target != ?", ("human",)).fetchall()
+
+
+def mark_timebox_noticed(con, rid: int) -> None:
+    con.execute("UPDATE requests SET timebox_noticed_at = COALESCE(timebox_noticed_at, ?) "
+                "WHERE id = ?", (int(time.time()), rid))
 
 
 def mark_send_now(con, rid: int) -> bool:

@@ -96,7 +96,8 @@ def cmd_ask(args) -> int:
     ok, msg, _ = askmod.ask(args.target, body, files=args.files,
                             requester=args.of, parent_id=args.parent,
                             mergeable=args.mergeable, first=args.first,
-                            replaces=args.replaces, fyi=args.fyi, reason=args.reason)
+                            replaces=args.replaces, fyi=args.fyi, reason=args.reason,
+                            timebox_s=args.timebox)
     # ask() already phrases its own refusals; do not prefix them again.
     print(msg)
     return 0 if ok else 1

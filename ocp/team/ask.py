@@ -228,15 +228,19 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False, first: bool = False,
         replaces: int | None = None, fyi: bool = False,
-        reason: str | None = None) -> tuple[bool, str, int | None]:
+        reason: str | None = None,
+        timebox_s: int | None = None) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
     `db.add_request` and `db.head_of_queue`. `reason` is what the retired
     request's verdict says after "replaced by #N", exactly as typed; it means
-    nothing without `replaces`.
+    nothing without `replaces`. `timebox_s` is how long after delivery the
+    asker is told it is still open (daemon.timebox); None follows config.yaml.
     """
     requester = requester or asking_agent()
+    if timebox_s is not None and (fyi or target == HUMAN):
+        return False, "--timebox does not apply to a report or to a request to the human", None
     if fyi and target != HUMAN:
         return False, f"--fyi is a report to {HUMAN}; {target} is not {HUMAN}", None
     # Nobody may send as the human. That name carries two
@@ -383,7 +387,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
                              decision.response, "report" if fyi else decision.kind, depth, parent_id,
-                             chain_id=chain_id, first=first, fyi=fyi,
+                             chain_id=chain_id, first=first, fyi=fyi, timebox_s=timebox_s,
                              queue_order=(old["queue_order"]
                                          if old is not None and old["target"] == target
                                          else None))

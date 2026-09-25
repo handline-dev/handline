@@ -75,6 +75,11 @@ def set_progress(con, agent: str, note: str) -> tuple[bool, str]:
     return True, f"#{head['id']}"
 
 
+def progress_of(con, request_id: int) -> str | None:
+    """The progress note kept on this request, whether or not it is the head."""
+    return db.get_meta(con, _progress_key(request_id)) or None
+
+
 def get_progress(con, agent: str) -> str | None:
     head = db.head_of_queue(con, agent)
     if head is None or not head["delivered_at"]:

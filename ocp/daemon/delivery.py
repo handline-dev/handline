@@ -388,6 +388,29 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     return {"head": head, "idle_s": idle, "behind": db.queue_depth(con, agent) - 1}
 
 
+def type_notice(con, agent: str, text: str) -> bool:
+    """Type one line at an agent's open session, if it may be typed at now.
+
+    The gates every unprompted line goes through: not at the wall, a live
+    session on a live terminal, nothing on screen that a line would answer, the
+    terminal lock held and the screen read again once it is. False for any of
+    them, or a send that failed; the caller decides when to try again. Nothing
+    here touches an attempt counter, so a notice cannot stall an agent.
+    """
+    handle = db.get_terminal(con, agent)
+    if wall_reason(con, agent) or not handle or not orca.available() \
+            or not orca.alive(handle) or not session_present(agent) \
+            or not orca.typeable_now(handle):
+        return False
+    with lock.terminal(agent) as mine:
+        if not mine or _type_gate(con, agent, handle):
+            return False
+        ok, _ = orca.send(handle, text)
+        if ok:
+            _mark_typed(con, agent)
+    return ok
+
+
 def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     """Type one reminder at an agent that has left its head request open.
 
@@ -404,29 +427,17 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
             or now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
         return False
     db.set_cursor(con, f"nudge_try:{agent}", now)
-    handle = db.get_terminal(con, agent)
-    if wall_reason(con, agent) or not handle or not orca.available() \
-            or not orca.alive(handle) or not session_present(agent) \
-            or not orca.typeable_now(handle):
-        return False
     behind = found["behind"]
-    with lock.terminal(agent) as mine:
-        if not mine:
-            return False
-        if _type_gate(con, agent, handle):
-            return False
-        what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
-                if head["kind"] == "report" else
-                f"If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
-                f"not, say what you are waiting on.")
-        ok, _ = orca.send(
-            handle,
-            f"#{head['id']} was delivered to you and is still open, and you have been "
-            f"idle {timefmt.ago(found['idle_s'])}"
-            + (f" with {behind} more waiting behind it" if behind else "")
-            + f". {what}")
-        if ok:
-            _mark_typed(con, agent)
+    what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
+            if head["kind"] == "report" else
+            f"If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
+            f"not, say what you are waiting on.")
+    ok = type_notice(
+        con, agent,
+        f"#{head['id']} was delivered to you and is still open, and you have been "
+        f"idle {timefmt.ago(found['idle_s'])}"
+        + (f" with {behind} more waiting behind it" if behind else "")
+        + f". {what}")
     if ok:
         db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
         db.add_event(con, agent, "nudged", {"request_id": head["id"],

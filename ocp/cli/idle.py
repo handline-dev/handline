@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ..infra import timefmt
 from ..session import idle_close
 
 
@@ -20,6 +21,14 @@ def seconds_or_never(text: str) -> int:
     if n < 0:
         raise argparse.ArgumentTypeError("a timeout is at least 0 (0 = never close)")
     return n
+
+
+def span_arg(text: str) -> int:
+    """An argparse type: a duration with its unit (`90m`), as seconds."""
+    try:
+        return timefmt.parse_span(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
 
 
 def _describe_timeout(seconds: int) -> str:
