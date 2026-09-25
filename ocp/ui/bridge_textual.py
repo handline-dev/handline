@@ -20,6 +20,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from textual import events
 from textual.app import App
 
 from ..infra import clipboard
@@ -28,7 +29,17 @@ from . import jobs as jobsmod, tui
 
 class ClipboardApp(App):
     """An app whose copy also reaches the system clipboard: Textual's own copy
-    is OSC 52, which iTerm2 and macOS Terminal drop unless told otherwise."""
+    is OSC 52, which iTerm2 and macOS Terminal drop unless told otherwise. A
+    drag-selection is copied when the mouse is let go: Cmd+C never reaches an
+    app in a terminal that does not send it, and Ctrl+C is not what a hand
+    reaches for after a drag."""
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        self.call_after_refresh(self._copy_selection)
+
+    def _copy_selection(self) -> None:
+        if text := self.screen.get_selected_text():
+            self.copy_to_clipboard(text)
 
     def copy_to_clipboard(self, text: str) -> None:
         super().copy_to_clipboard(text)
