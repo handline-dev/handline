@@ -272,7 +272,7 @@ def deliver_queued(con, agent: str, log) -> bool:
     marked = [r for r in db.send_now_pending(con, agent) if r["id"] != head["id"]]
     head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
         or _session_changed(con, agent)
-    if head_due and head["send_now"] and db.get_cursor(con, f"sendnow_told:{head['id']}") \
+    if head_due and head["send_now"] and head["told_out_of_turn"] \
             and not _session_changed(con, agent):
         # Told already, out of turn, as "send now"; becoming the head is not news.
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
@@ -507,7 +507,7 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
             db.set_cursor(con, f"notify:{agent}", int(head["id"]))
             db.set_notified_session(con, agent, _live_session(con, agent))
         else:
-            db.set_cursor(con, f"sendnow_told:{head['id']}", 1)
+            db.mark_told_out_of_turn(con, int(head["id"]))
         db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
         log(f"  {agent}: told about #{head['id']}"
             + (" (send now)" if ahead_of is not None else "")

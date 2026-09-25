@@ -306,6 +306,49 @@ def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
         con.close()
 
 
+def test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(home: Path) -> None:
+    """T38: told_out_of_turn replaced the sendnow_told:<id> cursor. A row an
+    old database already told out of turn must not lose that, or it would be
+    told a second time once it becomes the head - and the old cursor row
+    must not just sit there unread forever, which was the bug in the first
+    place."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "old.sqlite"
+    old = sqlite3.connect(p)
+    old.execute("""
+        CREATE TABLE requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
+          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
+          files TEXT, relation TEXT, response TEXT, kind TEXT,
+          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
+          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
+          announced_at INTEGER, resolved_at INTEGER
+        )
+    """)
+    old.execute("CREATE TABLE cursors (name TEXT PRIMARY KEY, row_id INTEGER NOT NULL, "
+                "updated INTEGER NOT NULL)")
+    now = int(time.time())
+    old.execute(
+        "INSERT INTO requests(ts, requester, target, body, state, chain_id) "
+        "VALUES(?,?,?,?,?,?)", (now, "human", "keeper", "urgent", "queued", "1"))
+    old.execute("INSERT INTO cursors(name, row_id, updated) VALUES('sendnow_told:1', 1, ?)",
+                (now,))
+    old.commit()
+    old.close()
+
+    con = db.connect(p)
+    try:
+        check("migration: the old cursor's fact lands on the row",
+              db.get_request(con, 1)["told_out_of_turn"] == 1,
+              db.get_request(con, 1)["told_out_of_turn"])
+        check("migration: and the cursor that carried it is gone",
+              con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
+                          ).fetchone() is None)
+    finally:
+        con.close()
+
+
 def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
     """Review of buddyron/one-task-at-a-time: --mergeable folded into an
     already-delivered row (changing what the target was already reading, with
@@ -5309,6 +5352,7 @@ def main() -> int:
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
+        run(lambda: test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(Path(td) / 'oldmig2'))
         run(lambda: test_replace_and_merge_respect_delivered_at(Path(td) / 'mergedeliv'))
         run(lambda: test_chain_members_excludes_a_row_about_to_be_replaced(Path(td) / 'chainexc'))
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
