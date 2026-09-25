@@ -806,6 +806,14 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         check("tasks: T opens the screen, every open task listed",
               isinstance(screen, TasksScreen) and {a, b, c} <= {r["id"] for r in view.rows},
               type(screen).__name__)
+        foot = str(view.query_one("#tasks_foot").render())
+        check("tasks: the foot guides the core keys and points to ? for the rest",
+              "mark" in foot and "close" in foot and "?" in foot and "merge" not in foot, foot)
+        await pilot.press("question_mark")
+        await pilot.pause(0.2)
+        check("tasks: ? shows the rest of the keys", "merge" in str(view.query_one("#tasks_foot").render()))
+        await pilot.press("question_mark")
+        await pilot.pause(0.2)
         await pilot.press("space", "down", "space")
         await pilot.pause()
         check("tasks: space marks the rows", len(view.checked) == 2, view.checked)

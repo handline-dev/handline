@@ -4,7 +4,6 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Footer
 
 from ..components.tasks_view import TasksView
 
@@ -14,8 +13,7 @@ class TasksScreen(Screen):
                 Binding("q,ctrl+c", "app.quit", "quit", show=False)]
 
     def compose(self) -> ComposeResult:
-        yield TasksView(id="tasks_view")
-        yield Footer()
+        yield TasksView(back=True, id="tasks_view")
 
     def on_mount(self) -> None:
         self.query_one("#tasks_table").focus()
