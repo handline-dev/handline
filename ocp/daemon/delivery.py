@@ -392,7 +392,10 @@ def bg_stale(con, agent: str, now: int) -> bool:
 
 
 def bg_may_stop(con, agent: str, now: int) -> bool:
-    """Stale, and told to its supervisor at least STALE_BG_VETO_S ago."""
+    """Stale, and told to its supervisor at least STALE_BG_VETO_S ago - and
+    not an agent whose close timeout is NEVER, the veto the notice promises."""
+    if idle_close.close_timeout_s(agent) == idle_close.NEVER:
+        return False
     told = db.get_cursor(con, f"stale_bg_told:{agent}")
     return bool(told) and now - told >= STALE_BG_VETO_S and bg_stale(con, agent, now)
 

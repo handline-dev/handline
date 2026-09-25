@@ -116,7 +116,8 @@ def sweep_stale_background(con, log, now: int) -> None:
     team = actions.routing()
     for agent in paths.list_agents():
         key = f"stale_bg_told:{agent}"
-        if not delivery.bg_stale(con, agent, now):
+        if not delivery.bg_stale(con, agent, now) \
+                or idle_close.close_timeout_s(agent) == idle_close.NEVER:
             db.clear_cursor(con, key)
             continue
         if db.get_cursor(con, key):

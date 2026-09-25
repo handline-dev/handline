@@ -291,8 +291,9 @@ def test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(home:
         check("stale: told and the window over, it may be stopped and the close is no longer held",
               probe(S, told_ago=V) == (True, True, True), str(probe(S, V)))
         idle_close.set_agent_close_timeout("marina", idle_close.NEVER)
-        check("stale: an agent set to never close is still never closed (the veto)",
-              probe(S, told_ago=V) == (True, True, False), str(probe(S, V)))
+        check("stale: an agent set to never close is never stopped, whichever path asks (the veto)",
+              probe(S, told_ago=V) == (True, False, False)
+              and dmn_delivery.bg_holds(con, "marina", _stale_bg(con, "marina", S, V)), str(probe(S, V)))
         idle_close.set_agent_close_timeout("marina", None)
         idle_close.paths.config_file().write_text("stale_background_s: 100\n")
         check("stale: config.yaml's stale_background_s moves the limit",
@@ -344,6 +345,10 @@ def test_the_supervisor_is_told_once_per_stale_stretch(home: Path) -> None:
               db.get_cursor(con, "stale_bg_told:marina") == 0)
         timebox.sweep_stale_background(con, lambda _m: None, now + 10 + S)
         check("stale notice: a later stale stretch is told again", len(sent) == 2, str(sent))
+        idle_close.set_agent_close_timeout("marina", idle_close.NEVER)
+        timebox.sweep_stale_background(con, lambda _m: None, now + 10 + S)
+        check("stale notice: an agent that never closes is not told it may be stopped",
+              len(sent) == 2 and not db.get_cursor(con, "stale_bg_told:marina"), str(sent))
     finally:
         con.close()
 
@@ -393,6 +398,15 @@ def test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_rea
           not ok and term.sent == [], f"{ok} {why} {term.sent}")
     con.close()
 
+    def never(con):
+        idle_close.set_agent_close_timeout("backend", idle_close.NEVER)
+        return stale(told)(con)
+
+    con, term, ok, why = _close_at(home / "g", EXIT_DIALOG, exits_on="", screen=composer_bg, prep=never)
+    check("stop: an agent set to never close is refused by the close itself, nothing typed",
+          not ok and term.sent == [] and "background work is running" in why, f"{ok} {why} {term.sent}")
+    con.close()
+
     other = [ln.replace("❯ 1. Exit and stop tasks", "  1. Exit and stop tasks")
              .replace("  2. Move to background and exit", "❯ 2. Move to background and exit")
              for ln in EXIT_DIALOG]
@@ -407,6 +421,26 @@ def test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_rea
         check(f"stop: {what} is declined with Esc, never chosen", not ok and keys == ["\x1b"],
               f"{ok} {why} {term.sent}")
         con.close()
+
+
+def test_stopping_key_presses_only_the_measured_dialog(home: Path) -> None:
+    def dialog(title="Background work is running", footer="Enter to confirm \u00b7 Esc to cancel",
+               marked=("\u276f 1. Exit and stop tasks", "  2. Move to background and exit", "  3. Stay")):
+        return orcamod.Dialog(title, (), footer, (title, *marked))
+
+    check("stopping_key: the measured dialog is pressed with Enter",
+          orcamod.stopping_key(dialog()) == (orcamod.ENTER, ""))
+    near = (
+        ("a different title", dialog(title="Something else is running")),
+        ("a footer without Enter to confirm", dialog(footer="Esc to cancel")),
+        ("the keep option highlighted", dialog(marked=("  1. Exit and stop tasks", "\u276f 3. Stay"))),
+        ("a highlighted option that only resembles it", dialog(marked=("\u276f 1. Exit and stop all tasks",))),
+        ("two marked lines", dialog(marked=("\u276f 1. Exit and stop tasks", "\u276f 3. Stay"))),
+        ("no marked line", dialog(marked=("  1. Exit and stop tasks", "  3. Stay"))),
+    )
+    for what, d in near:
+        key, why = orcamod.stopping_key(d)
+        check(f"stopping_key: {what} presses nothing", key is None and why, f"{key!r} {why}")
 
 
 def test_migration_adds_the_timebox_columns_to_an_older_requests_table(home: Path) -> None:
@@ -462,6 +496,7 @@ def main() -> int:
             run(lambda: test_the_row_says_how_long_and_when_stale(Path(td) / 'tb13'))
             run(lambda: test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_read(Path(td) / 'tb14'))
             run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb15'))
+            run(lambda: test_stopping_key_presses_only_the_measured_dialog(Path(td) / 'tb16'))
         finally:
             dmn_delivery.session_present = REAL_SESSION_PRESENT
     return run_area(tests)
