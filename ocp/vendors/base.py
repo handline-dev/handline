@@ -27,6 +27,28 @@ class Reading:
     at: int
 
 
+@dataclass(frozen=True)
+class Snapshot:
+    """What one session's transcript says: the model and its context. Where the
+    transcript is, and when it was last written, are the reader's to add
+    (`usage/collect.py`). `ctx_used` is the vendor's own count breakdown, whose
+    total is the sum of its values; `ctx_pct` is None when unknown."""
+    model_id: str | None
+    ctx_used: dict | None
+    ctx_size: int | None
+    ctx_pct: int | None
+    cost_usd: float | None
+    lines_added: int | None
+    lines_removed: int | None
+
+
+class Collector(Protocol):
+    """How ocp reads one session's context from what the vendor writes."""
+
+    def collect(self, transcript: Path, config_dir: Path) -> Snapshot | None:
+        """The transcript's snapshot, or None when it cannot be read."""
+
+
 class Meter(Protocol):
     """How ocp reads one vendor's usage for one account, without spending it."""
 
@@ -121,6 +143,15 @@ class Driver(Protocol):
     def meter(self) -> Meter | None:
         """This vendor's Meter, or None when its usage cannot be read (the
         same fact `meters()` states as a bool)."""
+
+    def collector(self) -> Collector | None:
+        """This vendor's Collector, or None when it writes no transcript ocp
+        can read."""
+
+    def context_window(self, model_id: str | None) -> int | None:
+        """The context window of `model_id` in tokens, None when this vendor
+        does not know it. Never a guess: a wrong size mis-fires the context
+        trigger."""
 
     def state_hooks(self) -> StateHooks | None:
         """This vendor's StateHooks, or None when its agents do not report

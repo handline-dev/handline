@@ -208,6 +208,13 @@ class Opencode:
     def meter(self):
         return _Meter(self)
 
+    def collector(self):
+        # No transcript files: sessions are rows in the db.
+        return None
+
+    def context_window(self, model_id: str | None) -> int | None:
+        return None
+
     def state_hooks(self):
         # It has no hooks to install: the screen is the only witness.
         return None

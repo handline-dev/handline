@@ -43,66 +43,15 @@ from pathlib import Path
 from ..infra import paths
 from .. import vendors
 
-# Context window size per model. The transcript does not carry it, and
-# `agent-context --json` has no field for it either (measured for D9: 236
-# commands, 0 mentions), so it is a table - seeded from what the statusLine
-# itself reported across the fleet on 2026-09-21, where every session on both
-# models said 1,000,000.
-#
-# An unrecognised model gets **no** figure rather than a guessed one. Too small
-# a guess parks every agent on the context trigger at a fifth of its real
-# window; the trigger is a rare backstop (5 of 271 parks) and is better silent
-# than wrong. Keyed by prefix, so a dated model id still matches.
-CTX_SIZE = (
-    ("claude-opus-5", 1_000_000),
-    ("claude-sonnet-5", 1_000_000),
-    ("claude-haiku-4-5", 200_000),
-)
-
-# How much of the transcript's tail to read looking for the last assistant
-# turn. Measured on the fleet: the record was within 13 lines of the end on
-# every agent. But one line can be a multi-megabyte tool result, so a tail that
-# finds nothing is doubled rather than believed - up to a ceiling, past which
-# this reports no figure instead of reading a 10MB file every 30 seconds.
-TAIL_BYTES = 256 * 1024
-TAIL_MAX_BYTES = 8 * 1024 * 1024
-
-# The four counts that make up a turn's context, and the whole of what the
-# statusLine's `context_window.current_usage` carried. Named rather than summed
-# over the record, because the transcript's `usage` block holds far more -
-# `iterations`, `service_tier`, per-cache breakdowns - and a later version
-# adding one more top-level integer would silently inflate a total that gates
-# parking. Slimming it is also AGENTS.md rule 5: only the fields with a reader.
-USAGE_KEYS = ("input_tokens", "output_tokens",
-              "cache_creation_input_tokens", "cache_read_input_tokens")
-
-# Claude Code's own name for a message it generated locally - an interrupt
-# notice, an API error. It carries a `usage` block of zeros, which would read as
-# "this session has no context" on an agent that has been running for hours.
-SYNTHETIC_MODEL = "<synthetic>"
-
-
-def slim_usage(usage: dict) -> dict:
-    """The four counts, as the statusLine wrote them."""
-    out = {}
-    for k in USAGE_KEYS:
-        v = usage.get(k)
-        if isinstance(v, int) and not isinstance(v, bool):
-            out[k] = v
-    return out
-
 
 def tokens(usage: dict | None) -> int:
-    return sum(slim_usage(usage or {}).values())
+    """A snapshot's context in tokens: the sum of the counts its collector kept."""
+    return sum(v for v in (usage or {}).values()
+               if isinstance(v, int) and not isinstance(v, bool))
 
 
 def ctx_size(model_id: str | None) -> int | None:
-    if not isinstance(model_id, str):
-        return None
-    for prefix, size in CTX_SIZE:
-        if model_id.startswith(prefix):
-            return size
-    return None
+    return vendors.context_window(model_id)
 
 
 def encode_cwd(account: str, cwd: str | Path) -> str:
@@ -169,103 +118,6 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
     return best
 
 
-def _tail(path: Path, nbytes: int) -> bytes:
-    with path.open("rb") as fh:
-        try:
-            fh.seek(-nbytes, 2)
-        except OSError:
-            fh.seek(0)
-        return fh.read()
-
-
-@dataclass(frozen=True)
-class Turn:
-    """The last assistant turn a transcript records.
-
-    `whole_file` separates the two ways there can be no turn, which have
-    opposite right answers: a session that has not answered yet has spent
-    nothing, and a search that gave up on a large file knows nothing.
-    """
-    usage: dict | None
-    model: str | None
-    whole_file: bool
-
-
-def last_turn(path: Path) -> Turn:
-    """The `usage` and model of the last real assistant turn in a transcript.
-
-    Scans backwards from the end. A record that will not parse is skipped
-    rather than trusted: the tail begins mid-line, and the line at the end may
-    be half-written by a session that is mid-turn right now.
-
-    One record, never a sum, which is what keeps this clear of the trap design
-    01-infra.md section 4 warns about: one API response's content blocks each
-    become a line and each **copies the same usage object**, so anything that
-    adds them up overcounts (measured at 2.4x, in `burnrate`). Reading the last
-    copy gives the same figure as reading any other.
-    """
-    size = TAIL_BYTES
-    while True:
-        try:
-            blob = _tail(path, size)
-            whole = size >= path.stat().st_size
-        except OSError:
-            return Turn(None, None, False)
-        for raw in reversed(blob.splitlines()):
-            if b'"usage"' not in raw:
-                continue
-            try:
-                rec = json.loads(raw)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
-            msg = rec.get("message") if isinstance(rec, dict) else None
-            if not isinstance(msg, dict):
-                continue
-            usage = msg.get("usage")
-            if not isinstance(usage, dict):
-                continue
-            model = msg.get("model")
-            # A synthetic turn, or any turn reporting nothing, is not the
-            # session's context - keep looking for the last one that is.
-            if tokens(usage) <= 0 or model == SYNTHETIC_MODEL:
-                continue
-            return Turn(slim_usage(usage),
-                        model if isinstance(model, str) else None, whole)
-        if whole or size >= TAIL_MAX_BYTES:
-            return Turn(None, None, whole)
-        size *= 2
-
-
-def cost_state(path: Path) -> dict | None:
-    """The session's own cost record, when it has written one.
-
-    Display only (`status.live_cost`), and not every Claude Code version writes
-    it, so its absence is not a failure of the pull.
-    """
-    try:
-        blob = _tail(path, TAIL_BYTES)
-    except OSError:
-        return None
-    for raw in reversed(blob.splitlines()):
-        if b'"cost-state"' not in raw:
-            continue
-        try:
-            rec = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            continue
-        if isinstance(rec, dict) and rec.get("type") == "cost-state":
-            return rec
-    return None
-
-
-def _pct(used: int, size: int | None) -> int | None:
-    if not size or used <= 0:
-        return None
-    # The statusLine rounds: 28.58% was reported as 29 and 6.17% as 6. Matching
-    # it is what lets the two be compared field for field.
-    return max(0, min(100, int(used * 100 / size + 0.5)))
-
-
 def snapshot(agent: str | None, cwd: str | Path, now: int | None = None,
              accounts: list[str] | None = None) -> dict | None:
     """One session's snapshot, in the shape every reader already expects.
@@ -277,17 +129,12 @@ def snapshot(agent: str | None, cwd: str | Path, now: int | None = None,
     if found is None:
         return None
     now = int(time.time()) if now is None else now
-    turn = last_turn(found.path)
-    usage, model = turn.usage, turn.model
-    size = ctx_size(model)
-    # A session with no turn in a file we read whole has answered nothing, so
-    # its context is its preamble and nothing else - 0, not unknown. A session
-    # whose file we could not search to the end is unknown, and says so. The
-    # two are one `/clear` apart on a live agent: the cleared session reads 0,
-    # which is the fact the clear was for.
-    pct = (_pct(tokens(usage), size) if usage is not None
-           else (0 if turn.whole_file else None))
-    cost = cost_state(found.path) or {}
+    drv = vendors.for_account(found.account)
+    collector = drv.collector()
+    read = (collector.collect(found.path, vendors.config_dir(found.account))
+            if collector else None)
+    if read is None:
+        return None
     return {
         "account": found.account,
         "agent": agent,
@@ -299,14 +146,14 @@ def snapshot(agent: str | None, cwd: str | Path, now: int | None = None,
         "pulled_at": now,
         "session_id": found.session_id,
         "transcript_path": str(found.path),
-        "model_id": model,
+        "model_id": read.model_id,
         "cwd": str(cwd),
-        "ctx_used": usage,
-        "ctx_size": size,
-        "ctx_pct": pct,
-        "cost_usd": cost.get("totalCostUSD"),
-        "lines_added": cost.get("totalLinesAdded"),
-        "lines_removed": cost.get("totalLinesRemoved"),
+        "ctx_used": read.ctx_used,
+        "ctx_size": read.ctx_size,
+        "ctx_pct": read.ctx_pct,
+        "cost_usd": read.cost_usd,
+        "lines_added": read.lines_added,
+        "lines_removed": read.lines_removed,
         "source": "pull",
     }
 

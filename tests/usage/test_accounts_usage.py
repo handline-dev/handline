@@ -1573,20 +1573,20 @@ def test_a_cleared_session_reads_zero_and_an_unsearchable_one_reads_unknown(home
 
     # The same file, with the search cut short before it can see the whole of
     # it. Nothing about the session changed; what changed is what we can know.
-    tail, ceiling = collect.TAIL_BYTES, collect.TAIL_MAX_BYTES
+    tail, ceiling = claude_collect.TAIL_BYTES, claude_collect.TAIL_MAX_BYTES
     try:
-        collect.TAIL_BYTES = collect.TAIL_MAX_BYTES = 8
+        claude_collect.TAIL_BYTES = claude_collect.TAIL_MAX_BYTES = 8
         snap = collect.snapshot("chat", cwd)
         check("unsearchable: a file we could not read to the end is unknown",
               snap["ctx_pct"] is None, snap["ctx_pct"])
         # And a turn further back than the first tail is still found, by
         # doubling - the case a fixed tail would have missed.
-        collect.TAIL_BYTES, collect.TAIL_MAX_BYTES = 8, 1 << 20
+        claude_collect.TAIL_BYTES, claude_collect.TAIL_MAX_BYTES = 8, 1 << 20
         snap = collect.snapshot("chat", cwd)
         check("doubling: the turn behind a short tail is still found",
               snap["ctx_pct"] == 0, snap["ctx_pct"])
     finally:
-        collect.TAIL_BYTES, collect.TAIL_MAX_BYTES = tail, ceiling
+        claude_collect.TAIL_BYTES, claude_collect.TAIL_MAX_BYTES = tail, ceiling
 
 
 def test_the_newest_transcript_across_accounts_is_the_session(home: Path) -> None:

@@ -34,6 +34,14 @@ def state_hooks() -> list:
     return [h for d in known() if (h := d.state_hooks()) is not None]
 
 
+def context_window(model_id: str | None) -> int | None:
+    """A model's context window from whichever vendor knows the model id."""
+    for d in known():
+        if (size := d.context_window(model_id)) is not None:
+            return size
+    return None
+
+
 def for_agent(name: str) -> Driver:
     return get(agent_vendor(name))
 

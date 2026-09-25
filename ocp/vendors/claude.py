@@ -67,6 +67,14 @@ class Claude:
         from .claude_meter import ClaudeMeter       # it imports this module
         return ClaudeMeter()
 
+    def collector(self):
+        from .claude_collect import ClaudeCollector
+        return ClaudeCollector()
+
+    def context_window(self, model_id: str | None) -> int | None:
+        from .claude_collect import context_window
+        return context_window(model_id)
+
     def state_hooks(self):
         from .claude_hooks import ClaudeHooks       # it imports this module
         return ClaudeHooks()
