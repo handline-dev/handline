@@ -1038,6 +1038,9 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         kid5 = db.get_request(con, theirs + 1)
         check("reply: a reply from another agent's page (All chat) goes to the agent on that message, under it",
               ok5 and kid5["target"] == "reviewer" and kid5["parent_id"] == theirs, str(dict(kid5)))
+        got = cp.messages_of([db.get_request(con, mine), db.get_request(con, mine + 1)], "reviewer")
+        check("reply: the message replied to reads answered",
+              next(m for m in got if m["rid"] == mine and m["part"] == 1)["answered"], str(got))
         check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
         check("reply: a reply to a request that is gone is refused",
               cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
@@ -1178,7 +1181,7 @@ def test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the
     def row(i, ts, delivered):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": delivered}
+                "dismissed_reason": None, "delivered_at": delivered, "parent_id": None}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))

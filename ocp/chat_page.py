@@ -58,7 +58,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at "
+           "dismissed_by, dismissed_reason, delivered_at, parent_id "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
@@ -88,6 +88,7 @@ def messages_of(rows, agent: str) -> list[dict]:
     answered, and whether the human can reply to it."""
     human = actions.HUMAN
     msgs = []
+    replied = {r["parent_id"] for r in rows if r["requester"] == human and r["parent_id"]}
     for r in rows:
         shown = db.shown_verdict(r)
         for part, speaker, to, text, at in (
@@ -108,7 +109,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "text": (text or "").strip("\n") or "(empty)",
                          "waiting": part == 0 and r["state"] == "queued" and r["target"] == human,
                          "replyable": human in (r["requester"], r["target"]),
-                         "answered": side == "agent" and part == 0 and bool(shown),
+                         "answered": side == "agent" and (part == 0 and bool(shown) or r["id"] in replied),
                          "queued": queued,
                          "delivered": bool(r["delivered_at"]),
                          "cancelled": part == 0 and cancelled,
