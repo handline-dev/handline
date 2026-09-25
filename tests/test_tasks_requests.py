@@ -1438,6 +1438,31 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         con.close()
 
 
+def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
+    """T80: the delivery notice and `ocp read` name the parent of a request
+    that has one - first line only, cut at ASKED_SHOWN - and say nothing extra
+    for one without."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        parent = db.add_request(con, "backend", "human", "which port?\nsecond line", None,
+                                "peer", "async", None, 0, None)
+        reply = db.add_request(con, "human", "backend", "8080", None,
+                               "peer", "async", None, 0, parent)
+        plain = db.add_request(con, "human", "backend", "hello", None,
+                               "peer", "async", None, 0, None)
+        check("reply notice: names the parent and its first line",
+              dmn_delivery.in_reply_to(con, db.get_request(con, reply))
+              == f" (in reply to #{parent}: which port?)")
+        check("reply notice: nothing for a request with no parent",
+              dmn_delivery.in_reply_to(con, db.get_request(con, plain)) == "")
+        out = _capture(lambda: climod.main(["read", str(reply)]))
+        check("ocp read: shows what it is in reply to",
+              f"in reply to #{parent}: which port?" in out, out)
+    finally:
+        con.close()
+
+
 def test_an_answer_line_says_what_it_answers(home: Path) -> None:
     """`#85 from human: done` cannot be placed by an agent that has asked
     several things; the start of its own question rides along."""
@@ -5382,6 +5407,7 @@ def main() -> int:
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
+        run(lambda: test_t80_a_reply_says_which_request_it_answers(Path(td) / 't80'))
         run(lambda: test_an_answer_line_says_what_it_answers(Path(td) / 'ansline'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
