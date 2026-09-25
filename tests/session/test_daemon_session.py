@@ -1193,6 +1193,34 @@ def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> Non
         holder.wait(timeout=30)
 
 
+def test_a_holder_this_process_cannot_signal_is_still_reported(home: Path) -> None:
+    """T146 (founder #737/#746): a real daemon, alive and holding the lock, read
+    from a sandbox that may not signal processes outside it (Claude Code's own
+    Bash tool, checked from any orcapipe agent's own session). `kill(pid, 0)`
+    there raises EPERM, not "no such process" - and reading that as a dead
+    holder's leftover name is what made a live daemon show as `not running` on
+    every check an agent ran of its own supervisor.
+    """
+    use_home(home)
+    env = {**os.environ, "OCP_HOME": str(home)}
+    holder, pid = _hold_daemon_lock_in_another_process(env)
+    orig_kill = os.kill
+    try:
+        def fake_kill(p, sig):
+            if p == pid:
+                raise PermissionError("denied")
+            return orig_kill(p, sig)
+        os.kill = fake_kill
+        check("lock: EPERM on kill(0) still names the real holder, not 0",
+              lock.holder(dmn_locks.DAEMON_LOCK) == pid)
+        check("daemon: still reported running from inside the sandbox",
+              dmn_locks.running_elsewhere() == pid)
+    finally:
+        os.kill = orig_kill
+        holder.kill()
+        holder.wait(timeout=30)
+
+
 def test_the_lock_names_only_its_current_holder(home: Path) -> None:
     use_home(home)
     check("lock: no file yet, no holder", lock.holder(dmn_locks.DAEMON_LOCK) is None)
@@ -4162,6 +4190,7 @@ def main() -> int:
         run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
         run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))
+        run(lambda: test_a_holder_this_process_cannot_signal_is_still_reported(Path(td) / 'd6b2'))
         run(lambda: test_the_lock_names_only_its_current_holder(Path(td) / 'd6c'))
         run(lambda: test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(Path(td) / 'd6d'))
         run(lambda: test_service_plist(Path(td) / 'svc1'))

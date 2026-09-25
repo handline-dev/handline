@@ -98,13 +98,25 @@ def holder(name: str) -> int | None:
     """PID of whoever holds singleton `name`; None when nobody does.
 
     0 when it is held by a process that has not written its name: the first
-    instant of a file's life, or a holder from before names were recorded.
+    instant of a file's life, or a holder from before names were recorded, or
+    one whose recorded pid is unreadable garbage.
 
     Asked of the lock itself, so the answer cannot outlive the holder - a name
     left in the file by a dead process is never read as a live one, and no boot
     time or pid check has to guess. The probe's shared hold is momentary, and
     a daemon starting in that instant is refused as if it had a rival, which
     the supervisor's next start undoes.
+
+    The exclusive flock already failing (above) is the proof that someone
+    holds it - `kill(pid, 0)` only checks whether the pid on file is stale.
+    Only `ProcessLookupError` (ESRCH) says that: no such process exists, so
+    the name is a dead holder's leftover. Anything else `kill` can raise -
+    `EPERM` chief among them, which this process meets whenever it is a caller
+    without permission to signal another user's process, or one a sandbox
+    (Claude Code's own Bash tool included) has walled off from signaling
+    processes outside it - answers "I could not ask", not "it is dead", and
+    must not read as one: a live daemon signalled from inside such a sandbox
+    would otherwise be reported not running on every check from it.
     """
     try:
         fd = os.open(paths.home() / "locks" / f"{name}.{SINGLETON}", os.O_RDONLY)
@@ -120,9 +132,14 @@ def holder(name: str) -> int | None:
             return None
         try:
             pid = int(os.pread(fd, _PID_WIDTH + 1, 0).split()[0])
-            os.kill(pid, 0)  # a name written by the previous holder, read before this one wrote
         except (OSError, ValueError, IndexError):
             return 0
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return 0
+        except OSError:
+            pass  # could not confirm either way; the flock already did
         return pid
     finally:
         os.close(fd)
