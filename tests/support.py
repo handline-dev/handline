@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import paths  # noqa: E402
+from ocp.infra import paths  # noqa: E402
 
 # The machine's venv, read once before the stand-in below hides the real home:
 # textual is only installed there (see _python_with_textual).
@@ -51,16 +51,12 @@ atexit.register(shutil.rmtree, TEST_ROOT, True)
 
 from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
                      health as clihealth, setup as clisetup, task as clitask)
-from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, db, hr,
-                 digest,
-                 doctor, drift, events as evmod, fold as foldmod,
-                 handoff as handoffmod, idle_close, jobs as jobsmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, recover as recovermod, rehome,
-                 replay as replaymod, service,
-                 spawn as spawnmod,
-                 status, team, textsafe, timefmt, triggers, trust as trustmod, tui, usage_api, vendors,
-                 venv as venvmod, waiting,
-                 yamlcompat)  # noqa: E402
+from ocp.team import accounts, agents, ask as askmod, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
+from ocp import actions, cli as climod, db, vendors  # noqa: E402
+from ocp.session import blocked as blockedmod, digest, drift, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
+from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
+from ocp.infra import doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
+from ocp.ui import jobs as jobsmod, tui  # noqa: E402
 from ocp.daemon import (delivery as dmn_delivery, devmode as dmn_devmode, evaluate as dmn_evaluate,  # noqa: E402
                         handoff as dmn_handoff, lifecycle as dmn_lifecycle, locks as dmn_locks,
                         loop as dmn_loop, reconciler as dmn_reconciler, states as dmn_states,
@@ -532,7 +528,7 @@ def _hold_daemon_lock_in_another_process(env: dict, write_name: bool = True):
     holder = subprocess.Popen(
         [sys.executable, "-c",
          f"import os, sys, time; sys.path.insert(0, {str(ROOT)!r})\n"
-         "from ocp import lock\n"
+         "from ocp.infra import lock\n"
          f"held = {take}\n"
          "held.__enter__()\n"
          "print(os.getpid(), flush=True)\n"
@@ -1384,9 +1380,8 @@ def _imports_textsafe(tree) -> bool:
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "textsafe":
             return True
-        if isinstance(node, ast.ImportFrom) and node.module is None:
-            if any(a.name == "textsafe" for a in node.names):
-                return True
+        if isinstance(node, ast.ImportFrom) and any(a.name == "textsafe" for a in node.names):
+            return True
         if isinstance(node, ast.Import) and any(a.name.endswith("textsafe") for a in node.names):
             return True
     return False
@@ -1519,7 +1514,7 @@ def run(one) -> None:
 
 def _python_with_textual() -> str | None:
     """A python3 that can import textual: the interpreter running the suite when
-    it can, else the real machine's venv (requirements.txt, ocp/venv.py) -
+    it can, else the real machine's venv (requirements.txt, ocp/infra/venv.py) -
     textual is only ever installed there, never assumed on whatever runs this
     suite."""
     candidates = [sys.executable, str(venvmod.venv_python(MACHINE_VENV))]

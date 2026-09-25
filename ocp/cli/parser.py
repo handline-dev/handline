@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .. import agents
-from .. import team
+from ..team import agents
+from ..team import team
 
 from .account import cmd_account_add, cmd_account_cap, cmd_account_list, cmd_account_recover, cmd_account_register, cmd_account_remove
 from .agent import cmd_agent_list, cmd_agent_move, cmd_agent_register, cmd_agent_show, cmd_base_promote, cmd_command, cmd_handoff_write, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall

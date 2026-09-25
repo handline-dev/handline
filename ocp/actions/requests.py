@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import time
 
-from .. import ask as askmod
-from .. import timefmt
-from .. import blocked
+from ..team import ask as askmod
+from ..infra import timefmt
+from ..session import blocked
 from .. import db
-from .. import hr
-from .. import waiting
+from ..team import hr
+from ..session import waiting
 
 from .routing import HUMAN
 

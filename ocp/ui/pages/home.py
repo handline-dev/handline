@@ -15,7 +15,9 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Input, Static, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
-from ... import actions, db, load as loadmod, status, tui
+from ... import actions, db
+from ...usage import load as loadmod, status
+from .. import tui
 from ..components import agent_rows, gauge
 from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header

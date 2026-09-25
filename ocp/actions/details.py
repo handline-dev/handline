@@ -4,19 +4,19 @@ from __future__ import annotations
 import shlex
 import time
 
-from .. import accounts
-from .. import timefmt
-from .. import agents
-from .. import collect
+from ..team import accounts
+from ..infra import timefmt
+from ..team import agents
+from ..usage import collect
 from .. import db
-from .. import load as loadmod
-from .. import orca
-from .. import paths
-from .. import spawn as spawnmod
-from .. import status
-from .. import textsafe
-from .. import triggers
-from .. import trust
+from ..usage import load as loadmod
+from ..session import orca
+from ..infra import paths
+from ..team import spawn as spawnmod
+from ..usage import status
+from ..infra import textsafe
+from ..session import triggers
+from ..team import trust
 from .. import vendors
 
 from .conversation import CHAT_TAB, Entry, Event, Fact, OTHERS_TAB, UNTOLD_TAB, chat_unread, conversation_and_drawn

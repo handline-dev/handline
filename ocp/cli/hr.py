@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import sys
 
-from .. import ask as askmod
+from ..team import ask as askmod
 from .. import db
-from .. import hr
-from .. import rehome
-from .. import trust
+from ..team import hr
+from ..team import rehome
+from ..team import trust
 
 from .ask import _who_refusal
 from .health import _name_col

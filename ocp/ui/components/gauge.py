@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 
-from ... import status, tui
+from ...usage import status
+from .. import tui
 
 BAR_W = 10
 

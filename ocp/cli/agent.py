@@ -6,16 +6,16 @@ import sys
 from pathlib import Path
 
 from .. import actions
-from .. import agents
+from ..team import agents
 from ..daemon import handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
-from .. import handoff as handoffmod
-from .. import launch
-from .. import load
-from .. import paths
-from .. import spawn as spawnmod
-from .. import status
-from .. import textsafe
+from ..session import handoff as handoffmod
+from ..session import launch
+from ..usage import load
+from ..infra import paths
+from ..team import spawn as spawnmod
+from ..usage import status
+from ..infra import textsafe
 
 
 def cmd_agent_move(args) -> int:

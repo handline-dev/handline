@@ -5,12 +5,13 @@ import re
 import time
 from pathlib import Path
 
-from .. import ask as askmod
-from .. import db, gitrun
-from .. import paths
-from .. import team
-from .. import textsafe
-from ..yamlcompat import ConfigError
+from ..team import ask as askmod
+from .. import db
+from ..infra import gitrun
+from ..infra import paths
+from ..team import team
+from ..infra import textsafe
+from ..infra.yamlcompat import ConfigError
 
 from .routing import HUMAN, supervisor_of
 

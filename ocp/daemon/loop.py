@@ -5,10 +5,10 @@ import signal
 import time
 
 from .. import db
-from .. import lock
-from .. import service
-from .. import textsafe
-from .. import triggers
+from ..infra import lock
+from ..infra import service
+from ..infra import textsafe
+from ..session import triggers
 
 from . import devmode, evaluate, locks, reconciler
 

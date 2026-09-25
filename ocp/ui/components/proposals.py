@@ -10,7 +10,9 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Static
 
-from ... import actions, db, hr, textsafe, timefmt
+from ... import actions, db
+from ...team import hr
+from ...infra import textsafe, timefmt
 from .confirm import Confirm
 from .text_prompt import TextPrompt
 from .action_bar import ActionBar

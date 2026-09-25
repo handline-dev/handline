@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import sys
 
-from .. import tui
+from ..ui import tui
 
 
 def _import_bridge_textual():
     """The one line that can raise - a name tests replace to force the
     failure `_bridge_textual_module` classifies, without a real broken
     import."""
-    from .. import bridge_textual
+    from ..ui import bridge_textual
     return bridge_textual
 
 

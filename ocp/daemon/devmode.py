@@ -6,10 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .. import load
-from .. import paths
-from .. import service
-from ..yamlcompat import dump
+from ..usage import load
+from ..infra import paths
+from ..infra import service
+from ..infra.yamlcompat import dump
 
 
 # ---------------------------------------------------------------- dev mode

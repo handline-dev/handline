@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import time
 
-from .. import collect
-from .. import timefmt
+from ..usage import collect
+from ..infra import timefmt
 from .. import db
-from .. import observe as obs
-from .. import paths
-from .. import spawn as spawnmod
-from .. import status
-from .. import usage_api
+from ..session import observe as obs
+from ..infra import paths
+from ..team import spawn as spawnmod
+from ..usage import status
+from ..usage import usage_api
 
 
 # ---------------------------------------------------------------- usage

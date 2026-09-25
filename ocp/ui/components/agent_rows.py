@@ -7,8 +7,13 @@ from __future__ import annotations
 import time
 from typing import NamedTuple
 
-from ...yamlcompat import ConfigError
-from ... import actions, agents, blocked, db, load as loadmod, textsafe, tui
+from ...infra.yamlcompat import ConfigError
+from ... import actions, db
+from ...team import agents
+from ...session import blocked
+from ...usage import load as loadmod
+from ...infra import textsafe
+from .. import tui
 from ...daemon import delivery as dmn_delivery, states as dmn_states
 
 

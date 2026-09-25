@@ -8,7 +8,8 @@ from textual.screen import ModalScreen
 from textual.containers import VerticalScroll
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from ... import textsafe, tui
+from ...infra import textsafe
+from .. import tui
 
 
 class ReadOnly(ModalScreen[None]):

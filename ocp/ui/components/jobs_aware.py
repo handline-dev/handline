@@ -1,7 +1,8 @@
 """What a screen needs to run a verb through `jobs.Jobs` and keep showing it."""
 from __future__ import annotations
 
-from ... import actions, tui, jobs as jobsmod
+from ... import actions
+from .. import tui, jobs as jobsmod
 from .confirm import Confirm
 from .text_prompt import TextPrompt
 

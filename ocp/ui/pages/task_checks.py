@@ -9,7 +9,9 @@ from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Static
 
-from ... import actions, db, status, textsafe
+from ... import actions, db
+from ...usage import status
+from ...infra import textsafe
 from ..components.text_prompt import TextPrompt
 from ..components.jobs_aware import JobsAware
 

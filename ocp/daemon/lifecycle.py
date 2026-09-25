@@ -6,21 +6,21 @@ import time
 import uuid
 from pathlib import Path
 
-from .. import agents
-from .. import ask as askmod
-from .. import blocked
+from ..team import agents
+from ..team import ask as askmod
+from ..session import blocked
 from .. import db
-from .. import handoff as handoffmod
-from .. import idle_close
-from .. import launch
-from .. import lock
-from .. import measure
-from .. import observe as obs
-from .. import orca
-from .. import paths
-from .. import spawn as spawnmod
-from .. import status
-from .. import trust
+from ..session import handoff as handoffmod
+from ..session import idle_close
+from ..session import launch
+from ..infra import lock
+from ..usage import measure
+from ..session import observe as obs
+from ..session import orca
+from ..infra import paths
+from ..team import spawn as spawnmod
+from ..usage import status
+from ..team import trust
 from .. import vendors
 
 from . import delivery, handoff

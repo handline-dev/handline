@@ -217,12 +217,12 @@ file that does not reach that account.
 
 ```bash
 python3 tests/test_ocp.py     # every area file in parallel, ~3800 checks, no network, no tokens
-python3 tests/test_daemon_session.py    # one area file on its own (tests/test_<area>.py)
+python3 tests/session/test_daemon_session.py    # one area file on its own (tests/<group>/test_<area>.py)
 python3 tests/test_ocp.py -k reconcile --write-labels before.txt   # a subset, labels saved
 python3 tests/test_ocp.py --diff-labels before.txt after.txt       # labels that changed state
 ```
 
-The tests live in `tests/test_<area>.py` over the shared fixtures in
+The tests live in `tests/<group>/test_<area>.py` over the shared fixtures in
 `tests/support.py`; `tests/test_ocp.py` runs every area file (`-j N` sets how
 many at once) and adds their counts.
 

@@ -2,7 +2,10 @@
 through `jobs.Jobs` (ACCOUNTS' login and add hand the terminal to another program instead)."""
 from __future__ import annotations
 
-from ... import accounts, actions, db, orca, tui
+from ...team import accounts
+from ... import actions, db
+from ...session import orca
+from .. import tui
 from .account_actions import AccountActions
 from .text_prompt import TextPrompt
 from .jobs_aware import dispatch_agent_verb
@@ -13,7 +16,7 @@ class RowActions(AccountActions):
     """Mixin for a screen that keeps `panel`, `sel` and `flash` and starts jobs (`JobsAware`)."""
 
     def open_chat(self, agent: str) -> None:
-        from ...chat_page import ChatPage   # chat_page imports the components this page uses
+        from ..chat_page import ChatPage  # chat_page imports the components this page uses
         self.app.push_screen(ChatPage(agent))
 
     async def _act_and_redraw(self, key: str) -> None:
