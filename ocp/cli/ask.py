@@ -321,6 +321,11 @@ def cmd_dismiss(args) -> int:
             print(_who_refusal("dismiss"))
             return 1
         mine = row["target"] == me or (row["requester"] == me and row["state"] != "queued")
+        if not mine and row["requester"] == me:
+            take_back = "cancel" if me == askmod.HUMAN else "withdraw"
+            print(f"#{args.id} is your own request, not one to dismiss. "
+                  f"`ocp {take_back} {args.id}` takes it back.")
+            return 1
         if not mine:
             print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
                   f"dismiss. `ocp read {args.id}` shows it.")

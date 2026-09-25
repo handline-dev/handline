@@ -3522,6 +3522,23 @@ def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path)
         con.close()
 
 
+def test_a_requester_dismissing_its_own_queued_request_is_pointed_at_withdraw(home: Path) -> None:
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    os.environ["OCP_AGENT"] = "a"
+    try:
+        out = _capture(lambda: climod.main(["dismiss", str(rid)]))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    con = db.connect()
+    try:
+        check("dismiss: a requester is pointed at withdraw and the row stays queued",
+              "ocp withdraw" in out and db.get_request(con, rid)["state"] == "queued", out)
+    finally:
+        con.close()
+
+
 def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
         home: Path) -> None:
     """Auditor's should-fix on #313: a TARGET dismissing a row it already
@@ -5461,6 +5478,8 @@ def main() -> int:
         run(lambda: test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(Path(td) / 'readwdrn'))
         run(lambda: test_dismissing_an_agents_own_answered_request_keeps_its_verdict(
             Path(td) / 'dismissverdict'))
+        run(lambda: test_a_requester_dismissing_its_own_queued_request_is_pointed_at_withdraw(
+            Path(td) / 'dismissownqueued'))
         run(lambda: test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
             Path(td) / 'dismissownanswer'))
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))

@@ -144,7 +144,8 @@ def account_facts(con, acct: str, logged_in=None) -> dict:
                          (row["detail"] if row else "") or ""))
     return {"status": st, "logged_in": is_in, "config": _config_line(acct),
             "vendor": vendors.account_vendor(acct), "assign": (allowed, why),
-            "cost": status.live_cost(acct), "cap": loadmod.cap_of(acct), "agents": rows}
+            "cost": status.live_cost(acct), "cap": loadmod.cap_of(acct), "own_cap": loadmod.own_cap(acct),
+            "default_cap": loadmod.default_cap(), "agents": rows}
 
 
 def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
@@ -159,22 +160,25 @@ def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
 
 def save_account_settings(acct: str, label: str, cap: str) -> tuple[bool, str]:
     """The account page's Settings form: its alias and its cap, each written only when it
-    differs from what is there. Nothing is written if either is refused."""
+    differs from what is there. A blank cap writes none, so an account with no cap of its
+    own keeps following the default. Nothing is written if either is refused."""
     label = label.strip()
     if textsafe.has_unsafe(label) or len(label) > 40:
         return False, "an alias is one plain line of at most 40 characters"
-    try:
-        n = int(cap.strip())
-    except ValueError:
-        n = 0
-    if n < 1:
-        return False, "the cap is a whole number, at least 1"
+    n = None
+    if cap.strip():
+        try:
+            n = int(cap.strip())
+        except ValueError:
+            n = 0
+        if n < 1:
+            return False, "the cap is a whole number, at least 1"
     now = loadmod.label_of(acct)
     said = []
     if label != ("" if now == acct else now):
         loadmod.set_label(acct, label)
         said.append(f"alias {label}" if label else "alias cleared")
-    if n != loadmod.cap_of(acct):
+    if n is not None and n != loadmod.own_cap(acct):
         loadmod.set_cap(acct, n)
         said.append(f"{acct}: at most {n} agents mid-turn")
     return True, "; ".join(said) or "nothing changed"
