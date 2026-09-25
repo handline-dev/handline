@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# What does this terminal send the app? Shows every key and paste event, and
+# what the system clipboard holds, then logs them to $TMPDIR/keyprobe.log.
+# Try Cmd+V and Ctrl+V with a screenshot on the clipboard. Ctrl+Q leaves.
+exec "${OCP_HOME:-$HOME/.orcapipe}/venv/bin/python3" - "$@" <<'PY'
+import os, subprocess, tempfile, time
+from textual import events
+from textual.app import App
+from textual.widgets import RichLog
+
+LOG = os.path.join(tempfile.gettempdir(), "keyprobe.log")
+
+
+def clip_info() -> str:
+    try:
+        return subprocess.run(["osascript", "-e", "clipboard info"], capture_output=True,
+                              text=True, timeout=5).stdout.strip() or "(empty)"
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"(no osascript: {e})"
+
+
+class Probe(App):
+    BINDINGS = [("ctrl+q", "quit", "quit")]
+
+    def compose(self):
+        yield RichLog(wrap=True, markup=False)
+
+    def note(self, line: str) -> None:
+        self.query_one(RichLog).write(line)
+        with open(LOG, "a") as f:
+            f.write(line + "\n")
+
+    def on_mount(self) -> None:
+        self.note(f"log: {LOG}. copy a screenshot, press Cmd+V then Ctrl+V. Ctrl+Q leaves.")
+
+    def on_paste(self, event: events.Paste) -> None:
+        self.note(f"{time.strftime('%T')} PASTE {len(event.text)} chars {event.text[:80]!r}"
+                  f" | clipboard: {clip_info()}")
+
+    def on_key(self, event: events.Key) -> None:
+        paste = event.key in ("ctrl+v", "super+v", "cmd+v")
+        self.note(f"{time.strftime('%T')} KEY key={event.key!r} char={event.character!r}"
+                  + (f" | clipboard: {clip_info()}" if paste else ""))
+
+
+Probe().run()
+PY
