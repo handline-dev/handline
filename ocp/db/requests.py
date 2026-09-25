@@ -180,6 +180,16 @@ def send_now_pending(con, target: str):
         (target,)).fetchall()
 
 
+def founder_pending(con, target: str):
+    """The founder's requests to `target` that have not been shown to it yet,
+    oldest first: what `deliver_queued` tells past an open head to an agent
+    that is only waiting on background work."""
+    return con.execute(
+        "SELECT * FROM requests WHERE target = ? AND requester = 'human' "
+        "AND state = 'queued' AND delivered_at IS NULL ORDER BY queue_order, id",
+        (target,)).fetchall()
+
+
 def followups_pending(con, target: str, head_id: int):
     """Requests to `target` that reply in the thread of `head_id` - its open
     head - and have not been shown to it yet, oldest first. What follows up the
