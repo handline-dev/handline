@@ -281,3 +281,11 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
         return result
     finally:
         orca.close_terminal(handle)
+
+
+def usage_shares(con, now: int, window: str) -> list:
+    """Each agent's use per account over `window` (5h, 24h or 7d), largest cost
+    first, priced as config.yaml's `token_prices` says: what the stats screen draws."""
+    from ..usage import prices, stats
+    table = prices.table_from_config(loadmod._config())
+    return [s for s in stats.token_share(con, now, table) if s.window == window]

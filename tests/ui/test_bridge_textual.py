@@ -797,6 +797,37 @@ def test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mar
     check("key guide: the lowest rank goes first", "bravo" not in tight and "alpha" in tight and "delta" in tight, tight)
 
 
+async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> None:
+    """T65b: S opens the stats screen; its rows are `token_share`'s for the window."""
+    from ocp.ui.pages.stats import StatsScreen, cells, short_tokens
+    from ocp.usage import stats as ustats
+    check("stats: tokens are short", [short_tokens(n) for n in (7, 1400, 12_345_678)] == ["7", "1.4k", "12.3M"])
+    got = cells(ustats.Share("writer", "alpha", "5h", 1500, cost=1.5, share=0.5, token_share=0.25, est_pct=20.0))
+    check("stats: a row's cells", got == ("writer", "alpha", "1.5k", "$1.50", "50%", "25%", "~20%"), got)
+    _home("statsscreen")
+    con = db.connect()
+    try:
+        now = int(time.time())
+        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES ('writer', 'IDLE', 0, '/w/writer')")
+        con.execute("INSERT INTO token_calls VALUES('alpha','p','p1',?,'claude-sonnet-5','/w/writer',0,1000,0,0,200,0)",
+                    (now - 3600,))
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        await pilot.press("S")
+        await pilot.pause(0.3)
+        screen = app.screen
+        check("stats: S opens the screen", isinstance(screen, StatsScreen), type(screen).__name__)
+        check("stats: an agent that used the account in the window is a row",
+              [r.agent for r in screen.rows] == ["writer"] and screen.window == "7d", [r.agent for r in screen.rows])
+        await pilot.press("w")
+        await pilot.pause(0.2)
+        check("stats: w steps the window", screen.window == "5h", screen.window)
+
+
 async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
     """T69: T opens the tasks screen; space marks; p sets the priority of the
     marked tasks; c on tasks that are not done shows each refusal with its reason."""
@@ -2136,6 +2167,7 @@ async def _run_all() -> None:
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
+    await test_stats_screen_draws_the_share_rows_and_w_steps_the_window()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()

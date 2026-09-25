@@ -28,6 +28,7 @@ from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
 from .task_checks import TaskChecks
+from .stats import StatsScreen
 from .tasks import TasksScreen
 
 DOUBLE_PRESS_S = 0.5     # two presses on one row this close are a double press
@@ -194,7 +195,9 @@ class HomePage(RowActions, JobsAware, Screen):
         foot.append("b", "bold")
         foot.append(" checks · ", "dim")
         foot.append("T", "bold")
-        foot.append(" tasks", "dim")
+        foot.append(" tasks · ", "dim")
+        foot.append("S", "bold")
+        foot.append(" stats", "dim")
         self.query_one("#foot", Static).update(foot)
         self._count_hr()
         if self.tab == "hr":
@@ -416,6 +419,9 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab != "home" or k is None:
             return
         event.stop()
+        if k == "S":     # T65b: token use per agent and account
+            self.app.push_screen(StatsScreen())
+            return
         if k == "T":     # T69: every open task - free on every panel
             self.app.push_screen(TasksScreen())
             return
