@@ -48,7 +48,8 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     if not row or row["closed_at"] or not row["terminal"]:
         return False
     # `deliver_queued` runs before this in the same tick, so a PARKED agent
-    # that reaches here was not delivered to (walled by `wall_reason`); its queue is no reason to hold the session open.
+    # that reaches here was not delivered to (walled by `wall_reason`); its
+    # queue is no reason to hold the session open.
     if delivery.has_background_work(con, agent):
         return False          # not idle: work is still running behind the prompt
     if db.queued_for(con, agent) and state != PARKED:
