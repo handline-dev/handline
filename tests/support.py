@@ -1214,7 +1214,7 @@ def _process_on(account: str | None):
     would show its CLAUDE_CONFIG_DIR. None: the environment cannot be read."""
     def env_of(pid, name):
         if name == "CLAUDE_CONFIG_DIR" and account:
-            return str(paths.account_claude(account))
+            return str(vendors.config_dir(account))
         return None
     obsmod.env_of = env_of
 
@@ -1287,7 +1287,7 @@ def _with_accounts(*names: str) -> None:
     """Registered accounts that count as logged in."""
     for n in names:
         accounts.register(n)
-        (paths.account_claude(n) / ".credentials.json").write_text("{}")
+        (vendors.config_dir(n) / ".credentials.json").write_text("{}")
 
 
 def _running_on(con, acct: str, *names: str) -> None:

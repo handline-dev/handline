@@ -529,7 +529,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
     new_wt = home / "wts" / "harbor.marina"
     new_key = accounts.memory_project_dir("alpha", str(new_wt))
     for acct in ("alpha", "beta"):
-        proj = paths.account_claude(acct) / "projects" / old_key
+        proj = vendors.config_dir(acct) / "projects" / old_key
         (proj / "memory").mkdir(parents=True)
         (proj / "memory" / "note.md").write_text(f"remember {acct}\n")
         (proj / "sess-1.jsonl").write_text("{}\n")
@@ -556,13 +556,13 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         new_wt.rmdir()
 
         # A destination in the way on one account: refused before anything moves.
-        blocker = paths.account_claude("beta") / "projects" / new_key
+        blocker = vendors.config_dir("beta") / "projects" / new_key
         blocker.mkdir(parents=True)
         ok, said = rehome.move(con, "harbor.marina", "marina")
         check("rehome: a memory dir already at the destination refuses, nothing moved",
               not ok and old_wt.is_dir() and (old_wt / "Strings.swift").exists()
               and not new_wt.exists()
-              and all((paths.account_claude(a) / "projects" / old_key).is_dir()
+              and all((vendors.config_dir(a) / "projects" / old_key).is_dir()
                       for a in ("alpha", "beta")), said)
         blocker.rmdir()
         # And a rename that fails on the SECOND account after the first went
@@ -580,8 +580,8 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         check("rehome: a failure on a later account undoes the earlier ones and the worktree",
               not ok and old_wt.is_dir() and (old_wt / "Strings.swift").exists()
               and not new_wt.exists()
-              and all((paths.account_claude(a) / "projects" / old_key).is_dir()
-                      and not (paths.account_claude(a) / "projects" / new_key).exists()
+              and all((vendors.config_dir(a) / "projects" / old_key).is_dir()
+                      and not (vendors.config_dir(a) / "projects" / new_key).exists()
                       for a in ("alpha", "beta")), said)
         # Orca as measured: the old entry has a comment and a parent; after the
         # move it knows the new path only as an automatic entry.
@@ -644,7 +644,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
               and "?? Strings.swift" in git("status", "--short", cwd=new_wt).stdout
               and git("branch", "--show-current", cwd=new_wt).stdout.strip() == "work")
         for acct in ("alpha", "beta"):
-            root = paths.account_claude(acct) / "projects"
+            root = vendors.config_dir(acct) / "projects"
             check(f"rehome: {acct}'s memory and transcript are under the new key",
                   (root / new_key / "memory" / "note.md").read_text() == f"remember {acct}\n"
                   and (root / new_key / "sess-1.jsonl").is_file() and not (root / old_key).exists())
@@ -1240,6 +1240,46 @@ def test_an_account_records_its_vendor(home: Path) -> None:
         (paths.account_dir("zeta") / "vendor").write_text("")
         check("vendor record: an empty record names no vendor, so the account is not usable",
               not accounts.logged_in("zeta") and status.pick_account(["zeta"], bootstrap=True)[0] is None)
+
+
+def test_shared_dir_is_named_by_the_vendors_own_config_dir_name(home: Path) -> None:
+    """shared/<config_dir_name> is where each vendor's shared items live;
+    claude's keeps its historical name (design/04 §3: nothing on disk is
+    renamed for the vendor already in use)."""
+    os.environ["OCP_HOME"] = str(home)
+    with second_vendor():
+        check("vendors.shared_dir: claude's is unchanged",
+              vendors.shared_dir("claude") == paths.home() / "shared" / ".claude")
+        check("vendors.shared_dir: another vendor gets its own",
+              vendors.shared_dir("zai") == paths.home() / "shared" / ".zai")
+
+
+def test_an_account_links_from_its_own_vendors_shared_dir(home: Path) -> None:
+    """register(), relink_all() and unlinked() read `drv.shared_items()` from
+    shared/<that account's own vendor>, not from claude's - a "skills" item
+    dropped into a second vendor's shared dir reaches that vendor's accounts,
+    never claude's shared/.claude (design/04 §4.1)."""
+    os.environ["OCP_HOME"] = str(home)
+    with second_vendor() as drv:
+        drv.never_touch = lambda: set()  # SecondVendor's own default excludes "skills"
+        accounts.register("zeta", vendor="zai")
+        link = vendors.config_dir("zeta") / "skills"
+        check("register: no link yet - the second vendor's shared dir is empty",
+              not link.exists())
+        (vendors.shared_dir("zai") / "skills").mkdir(parents=True)
+        (vendors.shared_dir("claude") / "skills").mkdir(parents=True, exist_ok=True)
+        accounts.register("zeta", vendor="zai")
+        check("register: linked from the second vendor's own shared dir",
+              link.is_symlink() and os.readlink(link) == str(vendors.shared_dir("zai") / "skills"))
+        link.unlink()
+        done = accounts.relink_all()
+        check("relink_all: catches it up from the same, vendor-owned, shared dir",
+              done.get("zeta") == ["skills"]
+              and os.readlink(link) == str(vendors.shared_dir("zai") / "skills"), str(done))
+        link.unlink()
+        link.symlink_to(home / "elsewhere")
+        check("unlinked: reports it against the second vendor's own shared dir",
+              ("zeta", "skills") in accounts.unlinked())
 
 
 def test_the_opencode_driver(home: Path) -> None:
@@ -2204,9 +2244,9 @@ def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> No
     check("login: one with no credentials gets the command that makes them",
           action == "login" and "claude /login" in msg, msg)
     check("login: pointed at that account's own config directory",
-          str(paths.account_claude("alpha")) in msg, msg)
+          str(vendors.config_dir("alpha")) in msg, msg)
 
-    (paths.account_claude("alpha") / ".credentials.json").write_text("{}")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
     action, msg = accounts.login_plan("alpha")
     check("login: an account already logged in is left alone", action == "already", msg)
     action, _ = accounts.login_plan("alpha", force=True)
@@ -2216,7 +2256,7 @@ def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> No
     # this decides; ocp never reads or copies what lands there.
     env = accounts.env_for("alpha")
     check("login: the session is pointed at that account's config directory",
-          env["CLAUDE_CONFIG_DIR"] == str(paths.account_claude("alpha"))
+          env["CLAUDE_CONFIG_DIR"] == str(vendors.config_dir("alpha"))
           and env["OCP_ACCOUNT"] == "alpha", env["CLAUDE_CONFIG_DIR"])
 
 
@@ -2388,6 +2428,8 @@ def main() -> int:
             Path(td) / 'vendorverdict'))
         run(lambda: test_an_unmetered_account_is_pinned_never_picked_or_polled(Path(td) / 'unmetered'))
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
+        run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
+        run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
         run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))

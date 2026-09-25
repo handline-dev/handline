@@ -64,6 +64,11 @@ def config_dir(acct: str) -> Path:
     return paths.account_dir(acct) / for_account(acct).config_dir_name
 
 
+def shared_dir(vendor: str) -> Path:
+    """The directory shared/ items for this vendor live under."""
+    return paths.home() / "shared" / get(vendor).config_dir_name
+
+
 def account_named_by(value: str) -> str | None:
     """The account a config-dir variable's value points into, or None for a
     directory that is not one of ours. Every account's config dir sits under

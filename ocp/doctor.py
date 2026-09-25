@@ -105,7 +105,7 @@ def _check_home(r: Report) -> None:
         return
     r.add(OK, f"OCP_HOME {h}")
 
-    s = paths.shared_claude() / "settings.json"
+    s = vendors.shared_dir("claude") / "settings.json"
     if not s.exists():
         r.add(FAIL, "shared/.claude/settings.json missing")
         return
@@ -115,7 +115,7 @@ def _check_home(r: Report) -> None:
         line = {}
     # ocp installs no status line (D11); one of its old ones left in the slot
     # points at a script `ocp init` deletes.
-    old = {str(paths.shared_claude() / n) for n in accounts.OLD_STATUSLINES}
+    old = {str(vendors.shared_dir("claude") / n) for n in accounts.OLD_STATUSLINES}
     if isinstance(line, dict) and line.get("command") in old:
         r.add(FAIL, "shared statusLine is an old ocp script", "run `ocp init` to remove it")
 
@@ -171,7 +171,7 @@ def _check_accounts(r: Report) -> None:
                   "a human runs this once: " + accounts.login_command(a))
 
         link = cdir / "settings.json"
-        want = paths.shared_claude() / "settings.json"
+        want = vendors.shared_dir("claude") / "settings.json"
         if "settings.json" not in drv.shared_items():
             pass
         elif link.is_symlink() and Path(os.readlink(link)) == want:
@@ -459,7 +459,7 @@ def _check_autocontinue(r: Report) -> None:
     """Claude Code's own autoContinueAtUsageLimit overlaps our resume logic
     (section 4). One of them has to own it; doctor keeps the choice explicit."""
     seen = []
-    for p in (paths.shared_claude() / "settings.json", paths.user_home() / ".claude" / "settings.json"):
+    for p in (vendors.shared_dir("claude") / "settings.json", paths.user_home() / ".claude" / "settings.json"):
         if not p.exists():
             continue
         try:

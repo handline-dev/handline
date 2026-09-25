@@ -32,7 +32,7 @@ def ensure_shared() -> Path:
     as a JSON object: it holds the human's settings too, and rewriting it
     from {} would lose them.
     """
-    shared = paths.shared_claude()
+    shared = vendors.shared_dir("claude")
     settings = shared / "settings.json"
     current = {}
     if settings.exists():
@@ -122,7 +122,7 @@ def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
     cdir = vendors.config_dir(acct)
     cdir.mkdir(parents=True, exist_ok=True)
 
-    shared = paths.shared_claude()
+    shared = vendors.shared_dir(drv.name)
     for item in drv.shared_items():
         _link_item(drv, cdir, shared, item, force=force, replace_link=True)
     return cdir
@@ -136,7 +136,6 @@ def relink_all(log=None) -> dict[str, list[str]]:
     `unlinked()` is how a human finds those. An account that errors is
     reported to `log` and skipped, so the rest are still caught up.
     """
-    shared = paths.shared_claude()
     done: dict[str, list[str]] = {}
     for acct in paths.list_accounts():
         try:
@@ -148,6 +147,7 @@ def relink_all(log=None) -> dict[str, list[str]]:
         cdir = vendors.config_dir(acct)
         if not cdir.is_dir():
             continue  # not an account `register()` ran on
+        shared = vendors.shared_dir(drv.name)
         try:
             linked = [item for item in drv.shared_items() if _link_item(drv, cdir, shared, item)]
         except OSError as e:
@@ -162,7 +162,6 @@ def relink_all(log=None) -> dict[str, list[str]]:
 def unlinked() -> list[tuple[str, str]]:
     """(account, item) for every shared item an account holds as something
     other than the shared link, which `relink_all` will not replace."""
-    shared = paths.shared_claude()
     out = []
     for acct in paths.list_accounts():
         try:
@@ -172,6 +171,7 @@ def unlinked() -> list[tuple[str, str]]:
         cdir = vendors.config_dir(acct)
         if not cdir.is_dir():
             continue
+        shared = vendors.shared_dir(drv.name)
         never = drv.never_touch()
         for item in drv.shared_items():
             if item in never or not (shared / item).exists():

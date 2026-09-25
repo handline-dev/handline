@@ -164,7 +164,7 @@ def _access_token_detailed(acct: str) -> tuple[str | None, bool]:
     "could not read it", not "it is not there", and carries missing=False -
     the same distinction `_read_claude` makes for the HTTPS side.
     """
-    service = claudemod.keychain_service(paths.account_claude(acct))
+    service = claudemod.keychain_service(vendors.config_dir(acct))
     try:
         r = subprocess.run(["security", "find-generic-password", "-w", "-s", service],
                            capture_output=True, text=True, timeout=15)

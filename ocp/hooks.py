@@ -19,7 +19,7 @@ import json
 import time
 from pathlib import Path
 
-from . import paths
+from . import paths, vendors
 
 # How we recognize a hook Orca installed. Every Orca hook command mentions one
 # of these paths or variables.
@@ -32,7 +32,7 @@ def source_settings() -> Path:
 
 
 def target_settings() -> Path:
-    return paths.shared_claude() / "settings.json"
+    return vendors.shared_dir("claude") / "settings.json"
 
 
 def _read_json(p: Path) -> dict:
