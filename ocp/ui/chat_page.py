@@ -29,6 +29,7 @@ from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
 from ..usage import status
 from . import tui
+from .bridge_textual import ClipboardApp
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
@@ -1497,7 +1498,7 @@ def os_theme() -> str:
     return "textual-dark" if out.strip() == "Dark" else "textual-light"
 
 
-class ChatApp(App):
+class ChatApp(ClipboardApp):
     CSS_PATH = Path(__file__).with_name("chat_page.tcss")
 
     def __init__(self, agent: str) -> None:

@@ -579,6 +579,45 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
           app.result == "line one\nline two", repr(app.result))
 
 
+async def test_copy_reaches_the_system_clipboard() -> None:
+    """T121: Textual's copy also goes to the system clipboard, not only OSC 52."""
+    from ocp.infra import clipboard
+    copied, real = [], clipboard.copy
+    clipboard.copy = lambda text: copied.append(text) or True
+    try:
+        app = bt.ClipboardApp()
+        async with app.run_test(size=(40, 6)) as pilot:
+            await pilot.pause()
+            app.copy_to_clipboard("picked")
+    finally:
+        clipboard.copy = real
+    check("copy: the text also went to the system clipboard", copied == ["picked"], repr(copied))
+
+
+async def test_a_drag_selection_is_copied_when_the_mouse_is_let_go() -> None:
+    """T121, founder: Cmd+C copied nothing. The selection is copied on release."""
+    from ocp.infra import clipboard
+    from textual.widgets import Static
+    copied, real = [], clipboard.copy
+    clipboard.copy = lambda text: copied.append(text) or True
+    try:
+        class _HostApp(bt.ClipboardApp):
+            def compose(self):
+                yield Static("hello world", id="s")
+
+        app = _HostApp()
+        async with app.run_test(size=(40, 6)) as pilot:
+            await pilot.pause()
+            await pilot.mouse_down("#s", offset=(0, 0))
+            await pilot.hover("#s", offset=(5, 0))
+            await pilot.mouse_up("#s", offset=(5, 0))
+            await pilot.pause(0.2)
+    finally:
+        clipboard.copy = real
+    check("drag: what was selected is copied on release", copied and copied[-1].startswith("hello"),
+          repr(copied))
+
+
 async def test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert() -> None:
     """A one-line prompt joins a pasted block into one line (Input alone would
     keep only its first), and a pasted escape sequence is never handed to the
@@ -2062,6 +2101,8 @@ async def _run_all() -> None:
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
+    await test_copy_reaches_the_system_clipboard()
+    await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
@@ -2106,3 +2147,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
