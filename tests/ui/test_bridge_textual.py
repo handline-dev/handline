@@ -1114,6 +1114,27 @@ async def test_escape_does_not_cancel_a_queued_message() -> None:
           state == "queued" and left, state)
 
 
+async def test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter() -> None:
+    from unittest import mock
+    from textual.widgets import Input as _Input
+    from ocp.team import accounts as accountsmod
+    _home("imeplain")
+    with mock.patch.object(accountsmod, "identity", lambda acct: "me@example.com"):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 34)) as pilot:
+            await pilot.pause(0.3)
+            app.push_screen(AccountPage("alpha"))
+            await pilot.pause(0.5)
+            page = app.screen
+            box = page.query_one("#a_name", _Input)
+            box.focus()
+            await pilot.press("안")
+            await app.on_event(events.Key("enter", "녕"))
+            await pilot.pause(0.3)
+            check("account page: the alias box takes a syllable the IME commits with enter, and saves it",
+                  box.value == "안녕" and "안녕" in page.flash, f"{box.value!r} {page.flash!r}")
+
+
 async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
     from ocp.team import ask as askmod
     _home("selreply")
@@ -1939,6 +1960,7 @@ async def _run_all() -> None:
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_escape_does_not_cancel_a_queued_message()
+    await test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter()
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
 

@@ -30,6 +30,7 @@ from ..infra import paths, textsafe
 from ..usage import status
 from . import tui
 from ..infra import timefmt
+from .components.ime import ImeInput
 from .components.confirm import Confirm
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
@@ -842,7 +843,7 @@ class ChatPage(Screen):
                         yield Static(id=f"s_{key}", classes="fvalue")
                 with Horizontal(classes="frow"):
                     yield Static("model", classes="flabel")
-                    yield Input(id="s_model", compact=True)
+                    yield ImeInput(id="s_model", compact=True)
                 with Horizontal(classes="frow"):
                     yield Static("effort", classes="flabel")
                     yield Select([(e, e) for e in agents.VALID_EFFORT], id="s_effort", allow_blank=False, compact=True)
@@ -851,10 +852,10 @@ class ChatPage(Screen):
                     yield Select([(w, w) for w in WEIGHTS], id="s_weight", allow_blank=False, compact=True)
                 with Horizontal(classes="frow"):
                     yield Static("repo", classes="flabel")
-                    yield Input(id="s_repo", compact=True, placeholder="where it works")
+                    yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
                 with Horizontal(classes="frow"):
                     yield Static("hand off at", classes="flabel")
-                    yield Input(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
+                    yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
                     yield Static("k tokens", classes="unit")
                     yield Static(id="s_context_share", classes="fvalue")
             yield Static(id="s_msg", classes="flash")

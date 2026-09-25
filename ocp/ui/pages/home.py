@@ -19,6 +19,7 @@ from ... import actions, db
 from ...usage import load as loadmod, status
 from .. import tui
 from ..components import agent_rows, gauge
+from ..components.ime import ImeInput
 from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
@@ -115,7 +116,7 @@ class HomePage(RowActions, JobsAware, Screen):
         with Vertical(id="settings_view"):
             with Horizontal(classes="frow"):
                 yield Static("default cap", classes="flabel")
-                yield Input(id="default_cap", compact=True, restrict=r"[0-9]*")
+                yield ImeInput(id="default_cap", compact=True, restrict=r"[0-9]*")
                 yield Static("  most agents mid-turn at once on an account with no cap of its own",
                              classes="fhint")
             yield Static(id="settings_flash")
