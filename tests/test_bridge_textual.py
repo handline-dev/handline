@@ -33,6 +33,7 @@ from ocp.daemon import states as dmn_states
 from ocp.chat_page import ChatPage  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from ocp.ui.components.read_only import ReadOnly  # noqa: E402
+from textual import events  # noqa: E402
 from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
 from ocp.ui.pages.account import AccountPage  # noqa: E402
 from ocp.ui.pages.home import HomePage  # noqa: E402
@@ -193,6 +194,15 @@ async def test_text_prompt_composer_sends_and_cancels() -> None:
 
     sent = await read(False, list("hi") + ["enter"])
     check("prompt: typed text is sent on enter", sent == "hi", repr(sent))
+    for multi in (True, False):
+        app_ = _HostApp(TextPrompt("to backend:", multi=multi))
+        async with app_.run_test(size=(80, 20)) as pilot:
+            await pilot.pause()
+            await pilot.press("안")
+            await app_.on_event(events.Key("enter", "녕"))      # what the founder's terminal sends
+            await pilot.pause(0.2)
+        check(f"prompt: a syllable the IME commits with enter is sent (multi={multi})",
+              app_.result == "안녕", repr(app_.result))
     cancelled = await read(False, list("hi") + ["escape"])
     check("prompt: escape cancels and sends nothing", cancelled is None, repr(cancelled))
 
