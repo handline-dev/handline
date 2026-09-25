@@ -42,6 +42,13 @@ class Claude:
     def config_dir_env(self) -> str:
         return "CLAUDE_CONFIG_DIR"
 
+    def headless_argv(self, exe: str, model: str | None, prompt: str) -> list[str] | None:
+        argv = [exe]
+        if model:
+            argv += ["--model", model]
+        argv += ["-p", prompt]
+        return argv
+
     def is_session(self, command: str) -> bool:
         """`claude` in the command line, headless runs excluded. Headless here
         is `-p`, which is claude's spelling and nobody else's."""
