@@ -938,9 +938,9 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         check("tasks: p wrote P1 to both marked tasks", prios == [1, 1], prios)
         await pilot.press("c")
         await pilot.pause(0.3)
-        said = str(screen.query_one("#tasks_results").render())
-        check("tasks: c on tasks that are not done shows a line per task, with the reason",
-              said.count("refused") >= 1 and "T" in said, said)
+        said = " ".join(n.message for n in app._notifications)
+        check("tasks: c on tasks that are not done toasts a line per refusal, with the reason",
+              "T" in said and any(n.severity == "error" for n in app._notifications), said)
         await pilot.press("enter")
         await pilot.pause(0.3)
         check("tasks: enter opens the task's detail", type(app.screen).__name__ == "TaskDetail", type(app.screen).__name__)
@@ -1503,11 +1503,11 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
         con.close()
 
 
-def test_batch_results_are_one_line_for_what_worked_and_one_per_refusal() -> None:
-    from ocp.ui.components.tasks_view import result_lines
-    got = result_lines([(14, True, "x"), (15, True, "y"), (16, False, "not done yet")], "close").plain
-    check("results: successes on one line, a refusal on its own with the reason",
-          got == "closed 2: T14 T15\nT16 refused: not done yet", got)
+def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() -> None:
+    from ocp.ui.components.tasks_view import result_notes
+    got = result_notes([(14, True, "x"), (15, True, "y"), (16, False, "not done yet")], "close")
+    check("results: successes in one toast, the refusals in another with the reason",
+          got == [("closed 2: T14 T15", "information"), ("T16: not done yet", "error")], got)
 
 
 async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
@@ -2307,7 +2307,7 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_the_tasks_table_lists_owned_and_opened_and_sorts()
-    test_batch_results_are_one_line_for_what_worked_and_one_per_refusal()
+    test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()

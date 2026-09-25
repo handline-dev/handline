@@ -24,23 +24,22 @@ _ASKS = {"discard": "discard - why:", "owner": "new owner (agent name):",
          "priority": "priority (1 high, 2, 3 low):"}
 
 
-_DONE = {"close": "closed", "discard": "discarded", "owner": "owner changed", "priority": "priority set",
-         "merge": "merged"}
+_DONE = {"close": "closed", "discard": "discarded", "owner": "owner changed", "priority": "priority set"}
 
 
-def result_lines(results: list[tuple[int, bool, str]], verb: str) -> Text:
-    """What was done, on one line for every task that worked; a refused task gets its own
-    line with the reason."""
-    out = Text()
+def result_notes(results: list[tuple[int, bool, str]], verb: str) -> list[tuple[str, str]]:
+    """The toasts for a batch, as (text, severity): one for every task that worked, one for
+    the refusals with a line each and its reason. A merge says what `merge_tasks` said."""
+    if verb == "merge":
+        _, ok, msg = results[0]
+        return [(textsafe.oneline(msg), "information" if ok else "error")]
+    out = []
     done = [actions.task_ref(t) for t, ok, _ in results if ok]
     if done:
-        out.append(f"{_DONE.get(verb, verb)} {len(done)}: ", "green")
-        out.append(" ".join(done))
-    for tid, ok, msg in results:
-        if not ok:
-            out.append("\n" if out else "")
-            out.append(f"{actions.task_ref(tid)} refused: ", "red")
-            out.append(textsafe.oneline(msg))
+        out.append((f"{_DONE.get(verb, verb)} {len(done)}: {' '.join(done)}", "information"))
+    refused = [f"{actions.task_ref(t)}: {textsafe.oneline(msg)}" for t, ok, msg in results if not ok]
+    if refused:
+        out.append(("\n".join(refused), "error"))
     return out
 
 
@@ -99,7 +98,6 @@ class TasksView(Vertical):
     TasksView { height: 1fr; }
     TasksView #tasks_body { height: 1fr; }
     TasksView #tasks_table { width: 1fr; height: 1fr; }
-    TasksView #tasks_results { height: auto; max-height: 6; }
     TasksView #tasks_filters { height: 1; }
     TasksView #tasks_filters Select { width: 1fr; }
     TasksView #tasks_filters Button { width: 1fr; }
@@ -134,8 +132,6 @@ class TasksView(Vertical):
         self.owners: list[str] = []
         self.rows: list[dict] = []
         self._mark_head = ""
-        self.flash = ""
-        self.results = Text()
         self._agent_owners: list[str] | None = None
 
     def compose(self) -> ComposeResult:
@@ -147,7 +143,6 @@ class TasksView(Vertical):
         with Horizontal(id="tasks_body"):
             yield TaskTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
             yield TaskPane(id="tasks_pane")
-        yield Static(id="tasks_results")
         yield KeyGuide(self._keys(), id="tasks_foot")
 
     def on_resize(self) -> None:
@@ -228,9 +223,6 @@ class TasksView(Vertical):
         self._show_pane()
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
-        shown = Text(self.flash + "\n" if self.flash else "", "yellow")
-        shown.append_text(self.results)
-        self.query_one("#tasks_results", Static).update(shown)
 
     def _state_label(self) -> str:
         if self.states == set(actions.TASK_STATES):
@@ -343,18 +335,15 @@ class TasksView(Vertical):
         self.run_worker(self._act(verb), exclusive=True, group="tasks_act")
 
     async def _act(self, verb: str) -> None:
-        self.flash = ""
         tids = self._targets()
         if not tids:
-            self.flash = "no tasks"
-            self.refresh_rows()
+            self.notify("no tasks", severity="warning")
             return
         arg = ""
         if verb in _ASKS:
             arg = await self.app.push_screen_wait(TextPrompt(_ASKS[verb])) or ""
             if not arg.strip():
-                self.flash = "left alone"
-                self.refresh_rows()
+                self.notify("left alone")
                 return
         con = db.connect()
         try:
@@ -366,7 +355,9 @@ class TasksView(Vertical):
                 results = actions.batch_task(con, verb, tids, actions.HUMAN, arg)
         finally:
             con.close()
-        self.results = result_lines(results, verb)
+        for text, severity in result_notes(results, verb):
+            self.notify(text, title=verb, severity=severity, timeout=5 if severity == "information" else 12,
+                        markup=False)
         self.checked -= {t for t, ok, _ in results if ok}
         if verb == "merge" and results[0][1]:
             self.checked.clear()
