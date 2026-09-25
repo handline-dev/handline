@@ -280,6 +280,12 @@ class Opencode:
         # Never called: trust_screen never names a folder to accept.
         return ""
 
+    def accepts_tool(self, tool: str | None) -> bool:
+        return False
+
+    def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:
+        return None, "this vendor's prompts are not auto-accepted"
+
     def credential_present(self, config_dir: Path) -> bool:
         """Asked of `opencode auth list`, which counts the credentials under
         this data dir without printing them. The file alone does not answer:

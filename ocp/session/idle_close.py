@@ -37,6 +37,20 @@ def config_seconds(key: str, default: int) -> int:
     return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else default
 
 
+def config_flag(key: str, default: bool) -> bool:
+    """A true/false setting from config.yaml, or `default` when it is absent
+    or not one."""
+    v = _config().get(key)
+    return v if isinstance(v, bool) else default
+
+
+def set_config_flag(key: str, value: bool) -> None:
+    """One global setting, keeping every other."""
+    cfg = _config()
+    cfg[key] = value
+    paths.config_file().write_text(dump(cfg))
+
+
 def _agent_cfg(agent: str) -> dict:
     """The agent's own config, or {} for one that cannot be read - closing
     must not stall on a bad agent.yaml; it just follows the global setting."""

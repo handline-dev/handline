@@ -384,6 +384,10 @@ def _track(con, agent: str, row, now: int, log):
     # An agent that is working may be waiting on a person for that very dialog;
     # only an idle one's is pressed.
     if rec["kind"] == orca.MODAL and row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF):
+        from ..daemon import lifecycle
+        if lifecycle.auto_trust(con, agent, log):
+            _end(con, agent, rec, "its folder-trust prompt was accepted", log)
+            return None
         return _decline(con, agent, rec, now, log)
     return rec
 

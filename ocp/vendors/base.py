@@ -104,6 +104,19 @@ class Driver(Protocol):
         """Keys sent, then Enter, to accept the folder `trust_screen` named.
         Never called for a vendor whose `trust_screen` never returns one."""
 
+    def accepts_tool(self, tool: str | None) -> bool:
+        """Is a permission prompt for this tool call one `accepting_key` may
+        say yes to? Asked of the hook's word before any screen is read."""
+
+    def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:
+        """(key, why not) - the key that says yes, once, to this vendor's
+        prompt to run `tool` (the tool call the agent's hook reported), when
+        `dialog` is exactly that prompt and the option highlighted is the plain
+        one-time yes. Never a key that says yes for good ("don't ask again"
+        writes the vendor's settings) and never for a dialog that is anything
+        else: no key, and the reason. A vendor with no such dialog returns no
+        key."""
+
     def credential_present(self, config_dir: Path) -> bool:
         """Whether a credential exists. Never reads or returns it."""
 

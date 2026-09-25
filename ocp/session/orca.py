@@ -761,6 +761,19 @@ def stop_work_and_exit(handle: str) -> tuple[str, str, str]:
     return _press_dialog(handle, stopping_key, "Enter")
 
 
+def accepts_tool(handle: str, tool: str | None) -> bool:
+    """May a permission prompt for `tool` on this terminal be said yes to?"""
+    return _driver_for(handle).accepts_tool(tool)
+
+
+def accept_dialog(handle: str, tool: str | None) -> tuple[str, str, str]:
+    """Press the vendor's one-time yes on its prompt to run `tool`, if - and
+    only if - the screen just read is exactly that prompt (`accepting_key`);
+    (outcome, title, why) as `decline_dialog`."""
+    driver = _driver_for(handle)
+    return _press_dialog(handle, lambda dialog: driver.accepting_key(dialog, tool), "Enter")
+
+
 # Claude Code's hint row under the composer counts what still runs in the
 # background as "<n> <noun>" segments between its mode and its key hints, e.g.
 # "⏵⏵ auto mode on · 2 monitors · ← for agents · ↓ to manage" (measured live
