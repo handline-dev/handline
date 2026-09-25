@@ -251,7 +251,9 @@ def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
     it goes when `rid` is None. A question the agent is waiting on is closed
     with `body` as its verdict, and an answer to the human's own request gets a
     new request and is marked read (both `actions.answer_ok`); anything else -
-    a question already closed - is a new request to the agent under it."""
+    a question already closed - is a new request under it to the agent on
+    that row - its target if the human asked it, else its requester - which in All chat
+    is not always the agent whose page this is."""
     if rid is None:
         return actions.chat_reply_ok(con, agent, body)
     row = db.get_request(con, rid)
@@ -261,7 +263,8 @@ def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
         return actions.answer_ok(con, rid, body)
     if not body.strip():
         return False, "nothing sent: no message typed"
-    ok, msg, _ = askmod.ask(agent, body, requester=actions.HUMAN, parent_id=rid)
+    other = row["target"] if row["requester"] == actions.HUMAN else row["requester"]
+    ok, msg, _ = askmod.ask(other, body, requester=actions.HUMAN, parent_id=rid)
     return ok, msg
 
 
