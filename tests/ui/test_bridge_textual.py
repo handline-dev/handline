@@ -797,6 +797,24 @@ def test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mar
     check("key guide: the lowest rank goes first", "bravo" not in tight and "alpha" in tight and "delta" in tight, tight)
 
 
+async def test_the_key_guide_stays_on_screen_when_the_table_is_long() -> None:
+    """founder #725: with many rows the table pushed the guide off the bottom."""
+    _home("guidefits")
+    con = db.connect()
+    try:
+        for i in range(40):
+            db.new_task(con, f"task {i}", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause(0.4)
+        foot = app.screen.query_one("#tasks_foot").region
+        check("tasks: the guide is on the last line of a screen with 40 tasks", foot.bottom <= 24, foot)
+
+
 async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> None:
     """T65b: S opens the stats screen; its rows are `token_share`'s for the window."""
     from ocp.ui.pages.stats import StatsScreen, cells, short_tokens
@@ -2168,6 +2186,7 @@ async def _run_all() -> None:
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     await test_stats_screen_draws_the_share_rows_and_w_steps_the_window()
+    await test_the_key_guide_stays_on_screen_when_the_table_is_long()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()

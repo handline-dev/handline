@@ -52,6 +52,11 @@ class TasksView(Vertical):
         Binding("f", "owner_filter", "agent"),
         Binding("question_mark", "key_help", "keys"),
     ]
+    DEFAULT_CSS = """
+    TasksView { height: 1fr; }
+    TasksView #tasks_table { height: 1fr; }
+    TasksView #tasks_results { height: auto; max-height: 6; }
+    """
     KEYS = (
         Key("space", "mark", 1, "mark or unmark the row; c d o p act on the marked rows"),
         Key("c", "close", 1, "close the task (a done one, by whoever may close it)"),

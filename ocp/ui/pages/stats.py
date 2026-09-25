@@ -41,6 +41,7 @@ def cells(s: stats.Share) -> tuple[str, ...]:
 
 
 class StatsScreen(Screen):
+    DEFAULT_CSS = "StatsScreen #stats_table { height: 1fr; }"
     BINDINGS = [Binding("w", "window", "window"),
                 Binding("question_mark", "key_help", "keys"),
                 Binding("escape", "app.pop_screen", "back"),
