@@ -157,7 +157,7 @@ class Claude:
 
     def identity(self, env: dict) -> str | None:
         """Asked of `claude auth status`, which answers from its own records - ocp
-        reads no credential and no .claude.json to learn it (KICKOFF rule 1).
+        reads no credential and no .claude.json to learn it (AGENTS.md rule 1).
         """
         claude = self.binary()
         if not claude:
@@ -189,7 +189,7 @@ class Claude:
 
     def never_touch(self) -> set[str]:
         # Named explicitly as a guard: the credential file the installs that do
-        # not use the Keychain keep (KICKOFF rule 1), claude's own config, and
+        # not use the Keychain keep (AGENTS.md rule 1), claude's own config, and
         # its machine state.
         return {".credentials.json", ".claude.json", "statsig", "backups"}
 

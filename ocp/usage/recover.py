@@ -8,7 +8,7 @@ forever, because nothing here has ever made Claude Code actually renew it.
 Done by hand on theta in #1885 (401 became 200): one real turn does, because
 that is the one thing that makes Claude Code renew the token it is about to
 spend. `fold.run_model` already is that one turn, on the account's own
-credential, spent once (KICKOFF rule 4) - reused here rather than opening a
+credential, spent once (AGENTS.md rule 4) - reused here rather than opening a
 second way to do the same spend.
 
 This module is the mechanism only: what one recovery attempt does, and the

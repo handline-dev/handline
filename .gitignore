@@ -1,2 +1,9 @@
 __pycache__/
 *.pyc
+
+# local only, kept on disk
+KICKOFF.md
+handoff.md
+phase0/
+docs/phase-reports.md
+docs/vendor-extension-board.md

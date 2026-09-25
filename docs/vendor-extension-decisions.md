@@ -3,7 +3,7 @@
 What is **settled**, so it is not re-argued or forgotten. Small on purpose.
 
 The two working documents move as the survey moves: `orca-cli-survey.md`
-(what Orca offers) and `vendor-extension-board.md` (seam-by-seam verdicts).
+(what Orca offers) and `vendor-extension-board.md` (local, not in the repo; seam-by-seam verdicts).
 This file does not move. A line leaves the OPEN list only when a measurement
 settles it, and then it moves up with its evidence.
 
@@ -428,7 +428,7 @@ mechanism that cannot exist on vendor two should not be load-bearing on vendor
 one.
 
 **Done.** The collector (`libexec/statusline-collect.sh`, 179 lines, half of it
-a carry rule written in jq) is deleted. `ocp/collect.py` reads the same fields
+a carry rule written in jq) is deleted. `ocp/usage/collect.py` reads the same fields
 out of the file the session is writing anyway. ocp installs no status line at
 all (see "The slot is left empty" below).
 
@@ -520,12 +520,14 @@ is load-bearing for the whole team model and must not be guessed at.
 
 ## Queued work
 
-Recorded so it is not lost. **Nothing here is started.** An item leaves this
-list by being done, or by being cancelled with a reason.
+Recorded so it is not lost. An item leaves this list by being done, or by being
+cancelled with a reason. Status checked against the code 2026-09-25.
 
 ### Q1. `orca.run_exists` - stop reading "could not ask" as "gone"
 
-**Trigger:** next time `ocp/orca.py` is opened for anything. Not worth a branch
+**Open.** `run_exists` still returns `ok and ...`, so a failed call reads as gone; D8 did not change it.
+
+**Trigger:** next time `ocp/session/orca.py` is opened for anything. Not worth a branch
 of its own (see D8: the org chart it would fix is drawn in a view nobody here
 opens).
 
@@ -541,7 +543,7 @@ resolved to `run_3b06fdd6d8e7`, bound and empty. This is the exact shape
 why.
 
 ```python
-# ocp/orca.py
+# ocp/session/orca.py
 def run_exists(run: str) -> bool | None:      # None = could not ask
     ok, out = _run(["orchestration", "run-show", "--id", run, "--json"])
     if not ok:
@@ -565,6 +567,8 @@ destroy the agents' own orchestration state.
 
 ### Q3. The hook mirror runs once and is never re-run (#1347)
 
+**Open.** `ocp hooks sync --watch` exists but is opt-in; the daemon does not call `sync`, and `configPath` is not read.
+
 **Measured 2026-09-21:** `hooks.plan()` returns `drifted=True` on this machine.
 Orca's `~/.claude/settings.json` carries **13** hook events; our
 `shared/.claude/settings.json` carries **12** - `SessionEnd` is missing.
@@ -586,6 +590,8 @@ does its other housekeeping, and let `hooks.py` take its source path from
 
 ### Q2. Build the vendor driver, steps 1-4
 
+**Partly done.** Steps 1 and 2 are built (#1657), and T57 built the dialogs, headless, hooks and meter seams (`design/04-vendor-decoupling.md`). The window model (step 3) is open as design/04 step 7.
+
 Drafted in `design/03-vendor-driver.md` §7. Steps 1-4 are **vendor-neutral
 refactors that need codex to exist for nothing**: move today's behaviour into
 `ocp/vendors/claude.py` unchanged; make `observe.account_of_process` read the
@@ -593,7 +599,7 @@ config-dir variable from the driver; reshape the window model (D2 - the 208
 lines across 16 files, writing both old and new keys for one release); and
 move the preamble to a file (D10).
 
-Not started. Step 3 is the one with real risk and should be its own branch.
+Step 3 is the one with real risk and should be its own branch.
 
 ### Q4. Pull rate limits over OAuth ourselves, for all five accounts (#1358)
 
@@ -794,7 +800,7 @@ session running is asked with `refresh=False`, because Claude Code is renewing
 its token anyway and two writers would race. That is Orca's own
 `deferredByLiveClaudeSession`, for the same reason.
 
-**Built:** `ocp/usage_api.py` (the read path) and `ocp usage [account]`, which
+**Built:** `ocp/usage/usage_api.py` (the read path) and `ocp usage [account]`, which
 prints the endpoint beside the snapshot and decides nothing. **Not wired into
 the daemon** - no placement decision reads it yet.
 

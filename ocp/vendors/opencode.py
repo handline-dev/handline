@@ -120,7 +120,7 @@ class Opencode:
         reads as quiet - an 87% account taking work on the strength of an
         answer that named no figure.
 
-        The credential is read in memory for this one request (KICKOFF rule 1
+        The credential is read in memory for this one request (AGENTS.md rule 1
         as amended, #2010). The key is never returned, logged, or written: it
         reaches no agent's env, prompt, terminal, logs, db, and no file ocp
         writes. Reset instants are epoch seconds; the percentage arrives

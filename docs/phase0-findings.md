@@ -222,7 +222,7 @@ usage_unknown` 이었던 게 이 상태다. 같은 원인이 대시보드 값이
 
 | # | 가정 | 왜 아직 못 닫았나 |
 |---|---|---|
-| **A** (장시간) | 계정 2개 **동시 장시간** 실행에서 토큰 refresh 충돌 없음 | 2번째 계정이 `CLAUDE_CONFIG_DIR` 에 로그인돼 있어야 한다. **사람이 `claude /login` 1회** 해야 함 (KICKOFF §1.1) |
+| **A** (장시간) | 계정 2개 **동시 장시간** 실행에서 토큰 refresh 충돌 없음 | 2번째 계정이 `CLAUDE_CONFIG_DIR` 에 로그인돼 있어야 한다. **사람이 `claude /login` 1회** 해야 함 (AGENTS.md rule 1) |
 | **D** | 헤드리스 주입 + clear | Phase 3 전까지 불필요 |
 | **G** | `CLAUDE_CODE_OAUTH_TOKEN` 경로에서 `rate_limits` | 토큰이 없다. 계정이 모자랄 때만 필요 |
 | **J4-full** | 래퍼로 띄운 에이전트를 Orca 가 **에이전트로 인식**하고 hibernate/restore 가 env 를 보존하는가 | A 와 같은 이유로 막혀 있다 |

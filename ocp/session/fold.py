@@ -200,7 +200,7 @@ Rules:
 
 
 def run_model(prompt: str, account: str, model: str | None = None) -> tuple[bool, str]:
-    """Run the single model call a fold is allowed (KICKOFF rule 4).
+    """Run the single model call a fold is allowed (AGENTS.md rule 4).
 
     `model` is a human's own choice (`--model`), or None to let the driver
     pick its own cheap default - never a literal fallen back to here, which

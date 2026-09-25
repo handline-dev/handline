@@ -1,6 +1,6 @@
 # 04 - Taking claude out of ocp's core
 
-Draft (T57). Design only; no code has moved.
+Status (T57): §4 steps 1-5 are merged; steps 6-8 (collect, windows, prose) are open.
 
 `design/03-vendor-driver.md` already decided the shape, and part of it is built:
 `ocp/vendors/` holds a `Driver` Protocol (`base.py`), `claude.py` and

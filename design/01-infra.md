@@ -1,8 +1,8 @@
 # Orca 기반 멀티 에이전트 파이프라인 — 인프라 설계서 v0.5
 
 > v0.5는 **v1 범위를 잘라낸 판**이다. 계정 동적 재배치를 v2로 미루면서 파생 기능 대부분이 v1에서 빠졌다(§0.5).
-> 실행은 Orca 네이티브 + direnv. tmux 하이브리드는 폐기. 기각 사유는 부록 A.
-> 팀 구성·관계·라우팅은 동반 문서 `orca-team-model.md`.
+> 실행은 Orca 네이티브 + `ocp launch` 래퍼. tmux 하이브리드는 폐기. 기각 사유는 부록 A.
+> 팀 구성·관계·라우팅은 동반 문서 `design/02-team.md`.
 
 ---
 
@@ -119,30 +119,21 @@ B 부류 중 `claude-profile-manager`는 우리 §3 레이아웃과 **독립적�
 
 베낄 것만 베낀다: 레이아웃과 심볼릭 대상 목록, `CLAUDE_CONFIG_DIR=... claude /login` 부트스트랩(=`ocp account add`, 10줄), 링크 무결성 `doctor`.
 
-### 실행 계층 — Orca 안에서, direnv로
+### 실행 계층 — Orca 안에서, `ocp launch` 로
 
 Orca는 **전역 스왑 부류**다. 근거는 공식 문서 두 문장인데, *"switching accounts works even with live Claude sessions running"* 과 *"a guard so you don't trigger overlapping auth refreshes"* 가 결정적이다. 전환이 실행 시 env 주입이었다면 이미 돌고 있는 세션이 영향받을 수 없고 guard도 필요 없다.
 
 그리고 Orca 이슈 트래커에 **우리와 똑같은 요청이 이미 올라와 있다** — [#11557 "Support multiple Claude Code subscriptions (separate config dirs / env vars)"](https://github.com/stablyai/orca/issues/11557). **미구현**이고, 요청자도 "터미널에서는 config dir을 나눠 쓰는데 Orca 안에서는 같은 걸 할 방법을 못 찾았다"고 적었다.
 
-그래서 Orca 안에서 되는 방법은 하나다: **worktree에 `.envrc`를 두고 direnv에 맡긴다.**
+그래서 Orca 안에서 되는 방법은 하나다: **`ocp launch <agent>` 가 `CLAUDE_CONFIG_DIR` 을 정하고 에이전트를 띄운다.** Orca 는 그 변수를 비워 두고 `--command` 가 임의 셸이라 래퍼로 충분하다 (J4, §12).
 
-```bash
-# agents/backend 의 worktree/.envrc
-export CLAUDE_CONFIG_DIR="$HOME/.orcapipe/accounts/alpha/.claude"
-```
-
-그러면 **Orca에서 평소처럼 에이전트를 띄우면 된다.** `worktree create --agent claude`도 쓸 수 있고, 터미널을 열어도 되고, hibernation·session restore·대시보드가 전부 그대로 동작한다. 우리가 실행 경로에 끼어들지 않는다.
-
-v1이 **고정 매핑**(§0.5)이라 `.envrc`가 정적이어도 문제가 없다. 이게 고정 매핑의 가장 큰 실익이다.
+그러면 hibernation·session restore·대시보드가 전부 그대로 동작한다. v1이 **고정 매핑**(§0.5)이라 계정은 에이전트마다 정적이다. 이게 고정 매핑의 가장 큰 실익이다.
 
 **보너스**: Orca의 agent hibernation은 재개 시 *"launch command, arguments, and environment"* 를 보존한다. 한 번 들어간 env가 재개 후에도 유지된다.
 
 **폐기**: tmux 하이브리드. PID 소유권이 필요했던 이유가 리스 회수(§6)였는데 v1에는 리스가 없다. v2에서 슬롯 모델을 켤 때 다시 꺼낸다.
 
-**남은 위험 둘** (`phase0/probe.sh`):
-- **J0** — Orca가 자기 statusLine을 CLI 플래그로 강제하면 §4 수집기가 죽는다. 여전히 최우선
-- **J4** — Orca가 에이전트를 로그인 셸 없이 spawn하면 direnv가 안 먹는다. 그러면 `.envrc` 대신 `orca.yaml`의 `environmentRecipes`를 시도하고(`orca skills get orca-per-workspace-env`로 형식 확인), 그것도 안 되면 그때 tmux로 간다
+**남은 위험**: **J0** — Orca가 자기 statusLine을 CLI 플래그로 강제하는가. 근거는 `docs/phase0-findings.md`.
 
 ### 도구 두 개가 `.claude.json`을 다르게 처리한다
 
@@ -200,12 +191,12 @@ Run       (Orca) ── 목표 단위
 
 ## 4. 데이터 출처 — 세션 파일 pull + 사용량 엔드포인트
 
-**2026-09-21 (#1402, D11) 에 출처가 바뀌었다.** 이 절의 원래 계약은 statusLine 스크립트의 stdin JSON 이었다 — 우리가 각 `CLAUDE_CONFIG_DIR` 의 `settings.json` 에 수집기를 심고, 그게 매 턴 payload 를 받아 `status.json` 을 썼다. 지금은 **아무것도 심지 않는다**: 세션이 어차피 쓰고 있는 파일을 읽는다. statusLine 슬롯은 사람이 읽는 줄을 그리는 데 쓴다 (`ocp/statusline.py`).
+**2026-09-21 (#1402, D11) 에 출처가 바뀌었다.** 이 절의 원래 계약은 statusLine 스크립트의 stdin JSON 이었다 — 우리가 각 `CLAUDE_CONFIG_DIR` 의 `settings.json` 에 수집기를 심고, 그게 매 턴 payload 를 받아 `status.json` 을 썼다. 지금은 **아무것도 심지 않는다**: 세션이 어차피 쓰고 있는 파일을 읽는다. statusLine 슬롯은 건드리지 않는다.
 
 `~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 벽 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다. 그래서 출처는 둘이고, 실패하는 방식이 다르다:
 
-- **세션의 transcript** (`ocp/collect.py`) — 컨텍스트·세션 신원·모델·비용. 우리 훅(`Stop` 등, 매 턴)이 쓰고, 훅이 말하지 못한 세션은 데몬 틱이 줍는다. 어느 계정인지도 **transcript 의 경로**가 말해준다 (`accounts/<acct>/.claude/...`) — `CLAUDE_CONFIG_DIR` 만큼 1차 정보다.
-- **사용량 엔드포인트** (`ocp/usage_api.py`) — 레이트리밋. transcript 에는 없다(벽에 부딪힌 뒤의 429 뿐). 틱당 한 계정, 그리고 변할 수 있었을 때만 묻는다.
+- **세션의 transcript** (`ocp/usage/collect.py`) — 컨텍스트·세션 신원·모델·비용. 우리 훅(`Stop` 등, 매 턴)이 쓰고, 훅이 말하지 못한 세션은 데몬 틱이 줍는다. 어느 계정인지도 **transcript 의 경로**가 말해준다 (`accounts/<acct>/.claude/...`) — `CLAUDE_CONFIG_DIR` 만큼 1차 정보다.
+- **사용량 엔드포인트** (`ocp/usage/usage_api.py`) — 레이트리밋. transcript 에는 없다(벽에 부딪힌 뒤의 429 뿐). 틱당 한 계정, 그리고 변할 수 있었을 때만 묻는다.
 
 파일이 여전히 `accounts/<acct>/status.json` 과 `agents/<agent>/status.json` 이고 필드 모양도 같아서, 판독기는 하나도 바뀌지 않았다.
 
@@ -237,7 +228,7 @@ Run       (Orca) ── 목표 단위
   - `unknown` — 스냅샷이 없거나·판독 불가(NaN·문자열·불리언)거나·**이월하지 못하고 잃었다**.
     이것만 fail-closed 다. 배정에서는 낡은 값을 unknown으로 거부하지 않는다 — 창 안에서는 하한(floor)이고,
     창이 끝나면 그 하한도 의미를 잃어 probe로 다시 묻는다 (`status.idle_floor`)
-- 그래서 **쓰는 쪽**이 지키는 규칙 넷. 원래 수집기의 jq 에 있었고, 지금은 `usage_api.record` 에 있는 것이 둘(고수위, 롤오버)이다. 나머지 둘 — 창을 보고하지 않는 payload 의 이월과 `rl_lost` — 은 **적용될 대상이 없어졌다**: 엔드포인트는 두 창을 다 말하거나 아무 답도 안 한다. 판독 규칙(아래 다섯 가지)은 전부 그대로다: 폴이 실패하거나 토큰이 죽으면 그게 남은 전부다
+- 그래서 **쓰는 쪽**이 지키는 규칙 넷. 원래 수집기의 jq 에 있었고, 지금은 `ocp/usage/usage_api.record` 에 있는 것이 둘(고수위, 롤오버)이다. 나머지 둘 — 창을 보고하지 않는 payload 의 이월과 `rl_lost` — 은 **적용될 대상이 없어졌다**: 엔드포인트는 두 창을 다 말하거나 아무 답도 안 한다. 판독 규칙(아래 다섯 가지)은 전부 그대로다: 폴이 실패하거나 토큰이 죽으면 그게 남은 전부다
   - 어떤 창을 보고하지 않는 페이로드는 **그 창의 이전 값을 지우지 않는다** (`resets_at`이 남아 있는 동안.
     로컬 시계 오차 60초는 봐준다 — `resets_at` 은 서버가 정하고 비교는 로컬 시계로 한다)
   - **창이 끝났는지 판단할 `resets_at` 자체가 없으면** 그 값을 버리되 `rl_lost` 로 표시한다. 잃은 값은
@@ -656,7 +647,7 @@ handoff·세션 id·트랜스크립트 경로를 **얼마든지 같이 줘도 �
 | H | `~/.claude.json` 이 `CLAUDE_CONFIG_DIR` 을 따라가는가 | **✔ 참.** 프로필 안에 생성되고 홈은 unchanged. 격리 완전 |
 | I | 컨텍스트 사용률을 statusLine 에서 얻을 수 있는가 | **✔ 참, 예상보다 좋다.** `context_window.used_percentage` 가 **직접** 온다. 계산 불필요. 턴 전에는 `null` → fail-closed 대상 |
 | **J0** | Orca 가 자기 statusLine 을 CLI 로 강제하는가 | **✘ 거짓 = 우리에게 유리.** argv 는 맨 `claude`. Orca 통합은 statusLine 이 아니라 **훅**이다. 수집기 실제 동작 확인 |
-| **J4** | worktree `.envrc`(direnv) 가 Orca 에이전트에 먹히는가 | **해당 없음 — direnv 불필요.** Orca 가 `CLAUDE_CONFIG_DIR` 을 비워 두고 `--command` 가 임의 셸이라 **런처 래퍼**로 끝난다. `environmentRecipes` 는 원격 머신 기능이라 대안이 아니었다 |
+| **J4** | Orca 에이전트에 `CLAUDE_CONFIG_DIR` 을 주입할 수 있는가 | **래퍼로 해결.** Orca 가 `CLAUDE_CONFIG_DIR` 을 비워 두고 `--command` 가 임의 셸이라 **런처 래퍼**로 끝난다. `environmentRecipes` 는 원격 머신 기능이라 대안이 아니었다 |
 | **J4-full** | 래퍼로 띄운 에이전트를 Orca 가 **에이전트로 인식**하는가 | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal create --command "ocp launch backend"` 로 띄우자 Orca 가 `agentIdentity: "claude"` 로 기록하고 탭 제목을 `✳ Claude Code` 로 바꿨다. 상태줄에 `alpha · 5h 0% · 7d 40%` — 우리 수집기가 그 안에서 동작 |
 | **L** | credential 저장 위치 (신규) | **macOS 는 Keychain, 설정 디렉토리별로 분리.** `Claude Code-credentials-<sha256(config_dir)[:8]>` (기본 디렉토리만 접미사 없음). `.credentials.json` 파일은 생기지 않는다 |
 | **K** | Orca 네이티브 멀티계정으로 대체 가능한가 | **✘ 거짓.** 구현은 됐으나 **런타임당 활성 계정 1개**(전역 스왑). `--account` 플래그 없음. `CLAUDE_CONFIG_DIR` 방식 유지 |
@@ -671,9 +662,9 @@ handoff·세션 id·트랜스크립트 경로를 **얼마든지 같이 줘도 �
 
 | Phase | 산출물 | 완료 기준 |
 |---|---|---|
-| **0** | `phase0/probe.sh` — H · I · J0~J3, 이어서 A(장시간) · D · E · F · G | 판정표 갱신. 실행 계층 확정 |
+| **0** | `phase0/probe.sh` (로컬, 저장소에 없음) — H · I · J0~J3, 이어서 A(장시간) · D · E · F · G | 판정표 갱신. 실행 계층 확정 |
 | **1** | statusLine 수집기, `agent register`, `doctor` | 계정 2개 상태가 status.json에 정확히. fail-closed 확인 |
-| **2** | `.envrc` 고정 매핑, `team.yaml`, `ocp ask` | 에이전트 3개가 각자 계정에서 서로 요청을 주고받음 |
+| **2** | 고정 매핑, `team.yaml`, `ocp ask` | 에이전트 3개가 각자 계정에서 서로 요청을 주고받음 |
 | **3** | 훅 이벤트, fold, 검증·롤백, 자정 롤오버 | 모델 토큰 0으로 이벤트 누락·중복 0 |
 | **4** | 데몬 — 레벨 트리거, handoff, park, 리셋 재개, THROTTLED | 데몬 SIGKILL 후 전 상태 복구. 90% 도달 시 무인으로 park·재개 |
 | **5** | TUI | — |
