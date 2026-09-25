@@ -651,14 +651,25 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("top: closing from the screen is the daemon's own close",
               row["closed_at"] is not None and row["resume_session"] == "sess-6", said)
-        check("top: and now it may be woken, not closed",
+        ok, why = actions.can(con, "backend", "wake")
+        check("top: with nothing waiting for it, a closed agent is not offered a wake, and why",
+              not ok and "nothing is waiting" in why, why)
+        support.something_waiting(con, "backend")
+        check("top: with something waiting it may be woken, not closed",
               actions.can(con, "backend", "wake")[0]
               and not actions.can(con, "backend", "close")[0])
+        con.execute("UPDATE requests SET state = 'done'")
 
+        said = actions.wake(con, "backend")
+        check("top: with nothing waiting for it, waking says so and resumes nothing",
+              "nothing is waiting" in said and db.get_agent_state(con, "backend")["closed_at"]
+              and not any("--resume" in t for t in sent), said)
+        support.something_waiting(con, "backend")
         said = actions.wake(con, "backend")
         row = db.get_agent_state(con, "backend")
         check("top: waking from the screen resumes that same session",
               row["closed_at"] is None and any("--resume sess-6" in t for t in sent), said)
+        con.execute("UPDATE requests SET state = 'done'")
 
         # A stall is the one state the daemon will not leave on its own, so the
         # screen is where it is cleared - including the wake streak, or the
@@ -666,6 +677,8 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="by hand")
         for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
             db.bump_counter(con, "backend", "wake_failures")
+        check("top: a stalled agent is still offered w, whatever is waiting",
+              actions.can(con, "backend", "wake")[0])
         said = actions.unstall(con, "backend")
         row = db.get_agent_state(con, "backend")
         check("top: unstall clears the state and every count behind it",
@@ -2852,7 +2865,7 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
     own does not (founder #1620/#1625/#1633 - forcing it early wakes the
     agent into an account that is still not there); a stalled (FATAL) one
     wakes too - `u`/unstall is gone, folded into `w` (founder #1620/#1631);
-    a closed one only wakes; an agent with no row yet still gets what a
+    a closed one wakes only when something is waiting for it; an agent with no row yet still gets what a
     never-launched agent can use. Fold and move are gone from every one of
     them - reached for rarely enough to cost more room than they earn - but a
     hidden key still does what it always did, because dispatch reads
@@ -2889,9 +2902,16 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
               set(got) == set(common) | {"wake"} and "unstall" not in got, got)
 
         got = labels(dmn_states.PARKED, closed=True, detail="usage; wakes at 16:40")
-        check("footer: a closed agent adds only wake, not close or park - "
-              "closed always wakes, whatever parked it",
+        check("footer: a closed agent with nothing waiting adds nothing - a wake "
+              "would only be refused (T124)",
+              set(got) == set(common), got)
+
+        support.something_waiting(con, "backend")
+        got = labels(dmn_states.PARKED, closed=True, detail="usage; wakes at 16:40")
+        check("footer: a closed agent with something waiting adds only wake, not "
+              "close or park - whatever parked it",
               set(got) == set(common) | {"wake"}, got)
+        con.execute("UPDATE requests SET state = 'done'")
 
         for got in (labels(dmn_states.RUNNING), labels(dmn_states.PARKED, detail="by hand; wakes at 16:40"),
                     labels(dmn_states.STALLED), labels(dmn_states.PARKED, closed=True)):

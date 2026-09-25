@@ -1118,8 +1118,12 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
               str(row["resume_session"]))
         check("close: and the terminal is kept", row["terminal"] == "term_x")
 
-        # Waking puts the agent back into the shell its session left behind.
+        # Waking puts the agent back into the shell its session left behind,
+        # and only for something waiting for it.
         sent.clear()
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        check("wake: with nothing waiting it stays closed", not ok and not sent, f"{why} {sent}")
+        support.something_waiting(con, "backend")
         ok, _ = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         launched = [t for _h, t in sent if t.startswith("ocp") or "launch" in t]
         check("wake: the agent is launched again", ok and launched, str(sent))
@@ -1128,10 +1132,8 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("wake: the closed mark is cleared", row["closed_at"] is None)
         told = launched_prompt(launched[0])
-        check("wake: a resumed agent is told nothing was lost", "Nothing was lost" in told, told[:120])
-        check("wake: and where its own record is", "/tmp/sess-1.jsonl" in told)
-        check("wake: with the warning that reading it whole undoes the point",
-              "do not read it whole" in told)
+        check("wake: a resumed agent is handed the message, not told it is back",
+              "something for you" in told and "Nothing was lost" not in told, told[:120])
     finally:
         orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
         con.close()
@@ -1318,6 +1320,7 @@ def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None
         orcamod.alive = lambda h: False  # the terminal a reboot leaves behind
         db.set_terminal(con, "backend", "term_gone", "wt")
         db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed, daemon was down since")
 
@@ -1517,6 +1520,7 @@ def test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(home: 
         sent.clear()
 
         db.set_closed(con, "backend", "sess-A")
+        support.something_waiting(con, "backend")
         check("back: a closed agent is not told again",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
         db.clear_closed(con, "backend")
@@ -1735,6 +1739,7 @@ def test_a_wake_types_nothing_at_a_shell_when_the_session_dies(home: Path) -> No
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.QUEUED)
         db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         table.clear()                           # ... and is gone before anything else
         check("wake: the launch was typed", ok and len(sent) == 1 and " launch " in sent[0],
@@ -1895,6 +1900,7 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
                         status.read_for_agent("backend", "alpha"))
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed")
+        support.something_waiting(con, "backend")
         row = db.get_agent_state(con, "backend")
         check("parked+closed: the state this is about is reachable",
               row["state"] == dmn_states.PARKED and row["closed_at"] is not None, str(dict(row)))
@@ -1951,6 +1957,7 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
                         status.read_for_agent("backend", "alpha"))
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed, daemon was down since")
+        support.something_waiting(con, "backend")
 
         sent.clear()
         dmn_reconciler.reconcile(con, lambda _m: None)
@@ -1960,6 +1967,47 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
         check("reconcile: closed_at is cleared, not stuck behind a nulled wake_at",
               row["closed_at"] is None, str(dict(row)))
         check("reconcile: triggers apply to it again", dmn_lifecycle.triggers_apply(row))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_a_due_park_with_nothing_waiting_stays_closed(home: Path) -> None:
+    """A closed session is resumed to be handed a message. A deadline that
+    comes due with none waiting spends the deadline and leaves the agent
+    closed, from a tick and from reconcile alike (T124)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-10", "pct_5h": 20}))
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        for step, run_it in (("tick", lambda: dmn_evaluate.tick(con, lambda _m: None)),
+                             ("reconcile", lambda: dmn_reconciler.reconcile(con, lambda _m: None))):
+            db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
+                               detail="parked and closed")
+            sent.clear()
+            run_it()
+            row = db.get_agent_state(con, "backend")
+            check(f"{step}: nothing is resumed for a deadline with nothing waiting",
+                  not any("--resume" in t for t in sent), str(sent))
+            check(f"{step}: the deadline is spent and the agent stays closed",
+                  row["wake_at"] is None and row["closed_at"] is not None
+                  and row["state"] != dmn_states.PARKED, str(dict(row)))
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context) = real
@@ -2080,6 +2128,7 @@ def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None
     con = db.connect()
     try:
         db.set_closed(con, "backend", "sess-stalled")
+        support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="ran out of attempts")
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
@@ -2485,6 +2534,7 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
     try:
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
+        support.something_waiting(con, "keeper")
         db.set_account(con, "keeper", "alpha")
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
         write_status(home, "alpha", pct_5h=100, pct_7d=5,
@@ -2860,6 +2910,7 @@ def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
             keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
             db.set_agent_state(con, "backend", dmn_states.PARKED, detail="parked")
             db.set_closed(con, "backend", "sess-1")
+            support.something_waiting(con, "backend")
 
         closed_with_a_handoff()
         trustmod.is_declared = lambda p: False
@@ -3227,6 +3278,7 @@ def main() -> int:
         run(lambda: test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(Path(td) / 'sessend'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
         run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))
+        run(lambda: test_a_due_park_with_nothing_waiting_stays_closed(Path(td) / 'pclosed3'))
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
         run(lambda: test_a_delivery_and_a_handoff_in_the_same_tick_the_handoff_must_not_type(

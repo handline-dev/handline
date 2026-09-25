@@ -148,7 +148,13 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
-        woke, why = lifecycle.wake_agent(con, agent, log)
+        if restored and not lifecycle.waiting_for(con, agent):
+            # The deadline is spent and nothing came for it: a closed session
+            # is not resumed to be told nothing. It stays closed, and what
+            # arrives next is what wakes it (the block below).
+            woke, restored = False, False
+        else:
+            woke, why = lifecycle.wake_agent(con, agent, log)
         if restored and not woke:
             # Same rule reconcile's step 2 writes: for an agent whose session
             # was closed, the wake is the whole point of the deadline, and the

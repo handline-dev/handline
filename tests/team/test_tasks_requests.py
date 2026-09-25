@@ -1301,6 +1301,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
                 con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                             (int(time.time()) - idle_s,))
             db.set_closed(con, "backend", "sess-7")
+            support.something_waiting(con, "backend")
             db.set_handoff(con, "backend", None)
             table.clear()
             sent.clear()
@@ -1557,13 +1558,16 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         check("waiting: the tick wakes it for the answer it asked for",
               any("--resume sess-4" in t for t in sent), str(sent))
+        check("waiting: and the resume's first prompt is that answer",
+              any("this way" in t for t in sent)
+              and not any("Nothing was lost" in t for t in sent), str(sent)[:160])
         check("waiting: and it is no longer closed",
               db.get_agent_state(con, "backend")["closed_at"] is None)
 
         sent.clear()
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("waiting: the next tick hands it the answer",
-              any("this way" in t for t in sent), str(sent)[:160])
+        check("waiting: the next tick does not hand it the answer again",
+              not any("this way" in t for t in sent), str(sent)[:160])
 
         # And when it can be reached, resolving is the delivery: the answer
         # does not wait for a tick that may be two seconds or a restart away.
@@ -1801,6 +1805,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
 
         # Another process is mid-wake on this agent.
         holder = subprocess.Popen(
@@ -2443,6 +2448,7 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
               not waits())
         db.set_agent_state(con, "backend", dmn_states.RUNNING)
         db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
         check("prompt: nor is a closed one", not waits())
     finally:
         os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)

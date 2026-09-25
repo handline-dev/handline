@@ -322,9 +322,24 @@ def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
     return last is None or now - last >= RESUME_WARM_S
 
 
+NOTHING_WAITING = "nothing is waiting for it; it is woken when something is sent to it"
+
+
+def waiting_for(con, agent: str) -> bool:
+    """Is anything waiting to be told to `agent`: a request at the head of its
+    queue, or an answer to something it asked. A closed agent is woken for
+    that and for nothing else."""
+    return bool(db.head_of_queue(con, agent) or db.unannounced_answers(con, agent))
+
+
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
-                moved_to: str | None = None, con=None, cold: bool = False) -> str:
+                moved_to: str | None = None, con=None, cold: bool = False,
+                waiting: str | None = None) -> str:
     """What an agent is told when it comes back.
+
+    A resume is started for a message and is handed that message, nothing
+    else (`waiting`, from `delivery.waiting_prompt`); there is no resume with
+    nothing to say.
 
     A resumed session already holds everything it knew, so it is told where it
     is rather than what it did. One that was parked is given its handoff here;
@@ -342,8 +357,7 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
                      f"{moved_to} instead of waiting for that window to roll over. Your "
                      f"handoff is in your system prompt above. Carry on from there.")
     elif resumed:
-        parts.append("Your session was closed while you were idle and has been resumed. "
-                     "Nothing was lost; carry on.")
+        return waiting or ""
     elif cold:
         # The handoff is in the system prompt, and carries the transcript's
         # path: nothing more is appended for it below.
@@ -468,7 +482,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
     if not closed and row and delivery.session_present(agent):
         # A drifted session is ended and takes the closed agent's wake path
         # below, with its own session id to resume; see `launch.fingerprint`.
-        if launch.drifted(agent, row):
+        # Ending it is only for the resume that follows, and nothing resumes
+        # without a message; with none waiting it is woken in place as before.
+        if launch.drifted(agent, row) and waiting_for(con, agent):
             acct = agents.current_account(agent, con)
             st = status.read_for_agent(agent, acct)
             if not st.session_id:
@@ -486,6 +502,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # Before anything is typed: an agent.yaml that will not read is this
         # agent's ConfigError, which the callers stall by name.
         agents.read(agent)
+        # A closed agent is brought back for a message. With none, there is
+        # nothing to tell it and no reason to spend a session on it; the
+        # message that arrives is what wakes it. A move is the exception: the
+        # agent was mid-work and its handoff is what it is started with.
+        if moved_to is None and not waiting_for(con, agent):
+            return False, NOTHING_WAITING
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
         # to be told what we already knew, and count a streak against an agent
@@ -594,9 +616,15 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
                 if foreign:
                     why = "a session it did not start is running"
                 break
+            # Only a resume reads it: a fresh start has read nothing of what the
+            # queue held, and is told the ordinary way once it is up.
+            waiting = delivery.waiting_prompt(con, agent, log) if resume else None
+            if resume and not waiting:
+                return False, "what was waiting for it is gone; nothing to resume it for"
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
-                                   moved_to=moved_to, con=con, cold=cold))
+                                   moved_to=moved_to, con=con, cold=cold,
+                                   waiting=waiting[0] if waiting else None))
             cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
                 f" -- --resume {session}" if resume else "")
             ok, why = orca.relaunch(
@@ -655,6 +683,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             return False, why
         db.reset_counter(con, agent, "wake_failures")
         db.clear_closed(con, agent)
+        if resumed and waiting:
+            # After `clear_closed`, which voids what a session was told.
+            waiting[1](session)
         db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None,
                                           **({"cache_expired": True} if cold else {})})
         db.set_handoff(con, agent, None)
