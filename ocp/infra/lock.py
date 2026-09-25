@@ -107,16 +107,9 @@ def holder(name: str) -> int | None:
     a daemon starting in that instant is refused as if it had a rival, which
     the supervisor's next start undoes.
 
-    The exclusive flock already failing (above) is the proof that someone
-    holds it - `kill(pid, 0)` only checks whether the pid on file is stale.
-    Only `ProcessLookupError` (ESRCH) says that: no such process exists, so
-    the name is a dead holder's leftover. Anything else `kill` can raise -
-    `EPERM` chief among them, which this process meets whenever it is a caller
-    without permission to signal another user's process, or one a sandbox
-    (Claude Code's own Bash tool included) has walled off from signaling
-    processes outside it - answers "I could not ask", not "it is dead", and
-    must not read as one: a live daemon signalled from inside such a sandbox
-    would otherwise be reported not running on every check from it.
+    Only ESRCH from `kill(pid, 0)` makes the name stale; EPERM (another user,
+    or a sandbox such as an agent's Bash tool) means we could not ask, and the
+    flock already proved it is held.
     """
     try:
         fd = os.open(paths.home() / "locks" / f"{name}.{SINGLETON}", os.O_RDONLY)

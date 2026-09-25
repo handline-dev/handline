@@ -1194,12 +1194,9 @@ def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> Non
 
 
 def test_a_holder_this_process_cannot_signal_is_still_reported(home: Path) -> None:
-    """T146 (founder #737/#746): a real daemon, alive and holding the lock, read
-    from a sandbox that may not signal processes outside it (Claude Code's own
-    Bash tool, checked from any orcapipe agent's own session). `kill(pid, 0)`
-    there raises EPERM, not "no such process" - and reading that as a dead
-    holder's leftover name is what made a live daemon show as `not running` on
-    every check an agent ran of its own supervisor.
+    """T146 (founder #737/#746): a daemon held from a sandbox that cannot
+    signal it (`kill(pid, 0)` raising EPERM, not ESRCH) must still read as
+    running, not as a dead holder's leftover.
     """
     use_home(home)
     env = {**os.environ, "OCP_HOME": str(home)}
