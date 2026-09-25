@@ -377,9 +377,9 @@ def test_a_rejected_fold_still_records_what_it_spent(home: Path) -> None:
         payload = json.loads(rows[-1]["payload"])
         check("fold: naming the account that was charged for it",
               payload.get("account") == "alpha", str(payload))
-        check("fold: and the model - None, since none was asked for by name "
-              "and the driver picked its own default",
-              payload.get("model") is None, str(payload))
+        check("fold: and the model that actually ran - claude's own default, "
+              "resolved even though nothing asked for one by name",
+              payload.get("model") == "haiku", str(payload))
     finally:
         foldmod.run_model = real
         con.close()

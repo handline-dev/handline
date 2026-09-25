@@ -40,7 +40,8 @@ Additions to `Driver` (every vendor answers):
 config_dir_path(account_dir: Path) -> Path     # accounts/<a>/.claude for claude; uses config_dir_name
 headless_argv(exe: str, model: str | None, prompt: str) -> list[str] | None
                                                # None: this vendor has no one-shot run, fold is refused
-trust_screen(tail: list[str]) -> str | None    # the folder shown when the screen is this vendor's trust dialog
+headless_model(model: str | None) -> str       # what headless_argv actually runs; fold's spend record asks this
+trust_screen(tail: list[str]) -> str | None    # "" showing/unparsed, None not showing; the folder otherwise
 trust_answer() -> str                          # keys that accept it (today: claude's "Yes" line)
 context_window(model_id: str) -> int | None    # the table now in collect.py
 ```

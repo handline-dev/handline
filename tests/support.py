@@ -1090,6 +1090,8 @@ class SecondVendor:
         return "ZAI_HOME"
     def headless_argv(self, exe, model, prompt):
         return [exe, "run", prompt]
+    def headless_model(self, model):
+        return model or "zai-default"
     def is_session(self, command):
         # Its own binary, and its own spelling of headless - neither word
         # appears in claude's answer, so a check that still carries claude's

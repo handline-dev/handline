@@ -65,6 +65,10 @@ class Opencode:
         # file was. Explicit None: fold refuses rather than guess.
         return None
 
+    def headless_model(self, model: str | None) -> str:
+        # Never called: headless_argv is always None.
+        return model or ""
+
     def is_session(self, command: str) -> bool:
         """The command line starts with the binary and goes on with an option,
         or ends there. Anchored to the start because a claude session's

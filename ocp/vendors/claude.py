@@ -48,7 +48,10 @@ class Claude:
     DEFAULT_HEADLESS_MODEL = "haiku"
 
     def headless_argv(self, exe: str, model: str | None, prompt: str) -> list[str] | None:
-        return [exe, "--model", model or self.DEFAULT_HEADLESS_MODEL, "-p", prompt]
+        return [exe, "--model", self.headless_model(model), "-p", prompt]
+
+    def headless_model(self, model: str | None) -> str:
+        return model or self.DEFAULT_HEADLESS_MODEL
 
     def is_session(self, command: str) -> bool:
         """`claude` in the command line, headless runs excluded. Headless here

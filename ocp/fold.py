@@ -285,10 +285,15 @@ def fold(agent: str, use_model: bool = True, model: str | None = None,
         candidate = ""
         used_model = False
         acct = None
+        spent_model = model
         if use_model:
             acct = fold_account or _cheapest_account(_headless_vendor_for(agent))
             if acct:
-                ok, out = run_model(build_prompt(agent, previous, events, day), acct, model)
+                # What actually runs, for the spend record below - `model`
+                # itself once the driver has looked at it, since a fold that
+                # asked for none still spends whatever the driver defaults to.
+                spent_model = vendors.for_account(acct).headless_model(model)
+                ok, out = run_model(build_prompt(agent, previous, events, day), acct, spent_model)
                 if ok:
                     candidate, used_model = _strip_fences(out), True
                 else:
@@ -320,7 +325,7 @@ def fold(agent: str, use_model: bool = True, model: str | None = None,
             # for the folds that worked and blank for the ones that went wrong.
             db.add_event(con, agent, "fold_failed",
                          {"problems": problems, "cursor": cursor,
-                          "model": model if used_model else None,
+                          "model": spent_model if used_model else None,
                           "account": acct})
             return False, (f"{agent}: fold rejected, kept the previous digest and left the "
                            f"cursor at {cursor}. Reason: {'; '.join(problems)[:300]}")
@@ -347,7 +352,7 @@ def fold(agent: str, use_model: bool = True, model: str | None = None,
             # A fold is the one spender no status line observes, so this event
             # is the only record that the account was charged at all.
             db.add_event(con, agent, "fold", {"through": top, "events": len(events),
-                                              "model": model if used_model else None,
+                                              "model": spent_model if used_model else None,
                                               "account": acct})
             con.execute("COMMIT")
         except Exception:
