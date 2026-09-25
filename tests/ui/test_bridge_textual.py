@@ -819,6 +819,29 @@ async def test_the_key_guide_stays_on_screen_when_the_table_is_long() -> None:
         check("tasks: the guide is on the last line of a screen with 40 tasks", foot.bottom <= 24, foot)
 
 
+async def test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit() -> None:
+    """T96: the Enter that commits a syllable goes through `Input.replace`, which checks
+    `restrict` against the whole new value, so a numeric field never takes a syllable."""
+    from textual.app import App
+    from textual.widgets import Input
+    from ocp.ui.components.ime import ImeInput
+
+    class _App(App):
+        def compose(self):
+            yield ImeInput(id="n", restrict=r"[0-9]*")
+
+    async with _App().run_test(size=(40, 6)) as pilot:
+        field = pilot.app.query_one("#n", Input)
+        field.focus()
+        await pilot.pause(0.1)
+        await pilot.press("7")
+        await field._on_key(events.Key("enter", "가"))
+        check("ime: a syllable is refused by a numeric field", field.value == "7", field.value)
+        field.insert_text_at_cursor("8")
+        check("ime: a digit is taken", field.value == "78", field.value)
+        await pilot.press("enter")
+
+
 async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> None:
     """T65b: S opens the stats screen; its rows are `token_share`'s for the window."""
     from ocp.ui.pages.stats import StatsScreen, cells, short_tokens
@@ -861,6 +884,7 @@ async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> Non
         app.screen.query_one("#scope", Tabs).active = "stats"
         await pilot.pause(0.3)
         tab = app.screen.query_one("#stats_view")
+        check("stats tab: the state line stays on top", app.screen.query_one("#header").display)
         check("stats tab: home has a Stats tab with the same rows", tab.display and [r.agent for r in tab.rows] == ["writer"],
               (tab.display, [r.agent for r in tab.rows]))
 
@@ -933,6 +957,7 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.pause(0.3)
         view = home.query_one("#tasks_view")
         ids = {r["id"] for r in view.rows}
+        check("tasks tab: the state line stays on top", home.query_one("#header").display)
         check("tasks tab: only the tasks that concern the founder", mine in ids and not ({a, b, c} & ids), ids)
         view.query_one("#tasks_table").focus()
         await pilot.press("f")
@@ -2213,6 +2238,7 @@ async def _run_all() -> None:
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
+    await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
     await test_stats_screen_draws_the_share_rows_and_w_steps_the_window()
     await test_the_key_guide_stays_on_screen_when_the_table_is_long()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()

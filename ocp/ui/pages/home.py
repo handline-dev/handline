@@ -40,8 +40,8 @@ _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 _TAB_WIDGETS = {
     "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot", "#home_keys"),
     "hr": ("#hr_view",),
-    "tasks": ("#tasks_view",),
-    "stats": ("#stats_view",),
+    "tasks": ("#header", "#tasks_view"),
+    "stats": ("#header", "#stats_view"),
     "settings": ("#settings_view",),
 }
 # The ACCOUNTS columns from the richest layout to the barest; the first that fits the
@@ -150,9 +150,9 @@ class HomePage(RowActions, JobsAware, Screen):
 
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         self.tab = event.tab.id
-        for tab, widgets in _TAB_WIDGETS.items():
-            for sel in widgets:
-                self.query_one(sel).display = tab == self.tab
+        shown = set(_TAB_WIDGETS[self.tab])
+        for sel in {sel for widgets in _TAB_WIDGETS.values() for sel in widgets}:
+            self.query_one(sel).display = sel in shown
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
         if self.tab == "tasks":
