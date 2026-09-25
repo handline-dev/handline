@@ -978,6 +978,13 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.press("s")
         await pilot.pause(0.2)
         check("tasks tab: s sorts by the next column", view.by == "state", view.by)
+        view.action_check_all()
+        await pilot.pause(0.2)
+        check("tasks tab: the head of the mark column marks every row shown",
+              {r["id"] for r in view.rows} <= view.checked and view._mark_head == "[x]", view.checked)
+        view.action_check_all()
+        await pilot.pause(0.2)
+        check("tasks tab: and unmarks them when all are marked", not view.checked, view.checked)
         from ocp.ui.components.tasks_view import TaskPane
         pane = view.query_one(TaskPane)
         await pilot.resize_terminal(170, 40)

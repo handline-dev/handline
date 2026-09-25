@@ -68,6 +68,7 @@ class TasksView(Vertical):
 
     BINDINGS = [
         Binding("space", "check", "mark"),
+        Binding("A", "check_all", "all"),
         Binding("c", "act('close')", "close"),
         Binding("d", "act('discard')", "discard"),
         Binding("o", "act('owner')", "owner"),
@@ -89,6 +90,7 @@ class TasksView(Vertical):
     """
     KEYS = (
         Key("space", "mark", 1, "mark or unmark the row; c d o p act on the marked rows"),
+        Key("A", "all", 3, "mark every row shown, or unmark them; the [ ] at the head of the column does the same"),
         Key("c", "close", 1, "close the task (a done one, by whoever may close it)"),
         Key("↵", "open", 1, "open the task's detail"),
         Key("d", "discard", 2, "discard a task nothing is running on, with a reason"),
@@ -115,6 +117,7 @@ class TasksView(Vertical):
         self.owner: str | None = None
         self.owners: list[str] = []
         self.rows: list[dict] = []
+        self._mark_head = ""
         self.flash = ""
         self.results = Text()
         self._agent_owners: list[str] | None = None
@@ -151,9 +154,15 @@ class TasksView(Vertical):
         """The heads, with an arrow on the sort column; a rebuild is how a head changes."""
         table = self.table
         table.clear(columns=True)
+        self._mark_head = self._mark_label()
         for label, key in self.HEADS:
+            label = self._mark_head if key == "mark" else label
             arrow = (" ▼" if self.rev else " ▲") if key == self.by else ""
             table.add_column(label + arrow, key=key)
+
+    def _mark_label(self) -> str:
+        ids = {r["id"] for r in self.rows}
+        return "[x]" if ids and ids <= self.checked else "[ ]"
 
     def on_mount(self) -> None:
         self._set_columns()
@@ -184,9 +193,12 @@ class TasksView(Vertical):
         if self.owner:
             rows = [r for r in rows if r["owner"] == self.owner]
         self.rows = actions.sort_task_rows(rows, self.by, self.rev)
+        keep = self.table.cursor_row
+        if self._mark_label() != self._mark_head:
+            self._set_columns()
         now = time.time()
         table = self.table
-        row = table.cursor_row
+        row = keep
         table.clear()
         for r in self.rows:
             stale = actions.task_stale(r, now)
@@ -263,6 +275,12 @@ class TasksView(Vertical):
             self.checked.symmetric_difference_update({self.rows[self.cur]["id"]})
         self.refresh_rows()
 
+    def action_check_all(self) -> None:
+        """The head of the mark column: mark every row shown, or unmark them when all are."""
+        ids = {r["id"] for r in self.rows}
+        self.checked = self.checked - ids if ids <= self.checked else self.checked | ids
+        self.refresh_rows()
+
     def _keys(self) -> list[Key]:
         return [*self.KEYS, *([Key("esc", "back", 1, "back")] if self.back else [])]
 
@@ -272,6 +290,9 @@ class TasksView(Vertical):
     def on_task_table_sort(self, event: TaskTable.Sort) -> None:
         event.stop()
         names = list(actions.TASK_SORTS)
+        if event.column == "mark":
+            self.action_check_all()
+            return
         if event.column == "reverse":
             self.rev = not self.rev
         elif event.column == "next":
