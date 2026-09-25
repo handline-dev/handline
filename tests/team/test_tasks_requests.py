@@ -5626,6 +5626,45 @@ def test_the_priority_columns_migrate_an_old_tasks_table(home: Path) -> None:
         con.close()
 
 
+def test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(home: Path) -> None:
+    """T69: what the tasks screen shows and does is decided here."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ids = [db.new_task(con, f"t{i}", "worker", "manager") for i in range(11)]
+        a, b = ids[9], ids[10]
+        actions.edit_task(con, b, "manager", priority=1)
+        rows = actions.task_rows(con)
+        by_num = [r["id"] for r in actions.sort_task_rows(rows, "number")]
+        by_prio = [r["id"] for r in actions.sort_task_rows(rows, "priority")]
+        check("sort: number is numeric, T9 before T10", by_num == sorted(by_num))
+        check("sort: priority puts P1 first, then by number", by_prio[0] == b and by_prio[1:] == sorted(by_prio[1:]))
+        old = rows[0]
+        now = old["last_activity"] + 3 * 86400
+        check("stale: a waiting task idle 3 days is flagged", actions.task_stale(old, now))
+        check("stale: not at 2 days", not actions.task_stale(old, old["last_activity"] + 2 * 86400))
+        check("stale: a task that is not waiting is never flagged",
+              not actions.task_stale({**old, "state": "done"}, now))
+        res = actions.batch_task(con, "priority", [a, b, 9999], "manager", "P3")
+        check("batch: each task gets its own result, a refusal says why",
+              [ok for _, ok, _ in res] == [True, True, False] and "no task T9999" in res[2][2], str(res))
+        check("batch: the priority was written", db.get_task(con, a)["priority"] == 3)
+        res = actions.batch_task(con, "priority", [a], "manager", "P9")
+        check("batch: a bad argument refuses without touching anything", not res[0][1] and "not a priority" in res[0][2], str(res))
+        res = actions.batch_task(con, "discard", [a], "manager", " ")
+        check("batch: discard needs a reason", not res[0][1] and "reason" in res[0][2], str(res))
+        res = actions.batch_task(con, "owner", [a], "manager", "nobody-here")
+        check("batch: an unknown owner is refused with the reason", not res[0][1] and "no agent" in res[0][2], str(res))
+        res = actions.batch_task(con, "discard", [a, b], "worker", "dup")
+        check("batch: the same permission rule as one at a time (a worker did not open them)",
+              all(not ok for _, ok, _ in res), str(res))
+        res = actions.batch_task(con, "discard", [a, b], "manager", "dup")
+        check("batch: discard writes for the opener", all(ok for _, ok, _ in res) and
+              a not in {r["id"] for r in actions.task_rows(con)}, str(res))
+    finally:
+        con.close()
+
+
 def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
     """T68 (auditor #616): a loop, a blocked folded task, a cycle through a
     waiting task, and a done keep are each refused with nothing changed."""
@@ -5769,6 +5808,7 @@ def main() -> int:
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
+        run(lambda: test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(Path(td) / 'taskscreenlogic'))
         run(lambda: test_requests_parent_id_is_indexed(Path(td) / 'parentidx'))
         run(lambda: test_the_priority_columns_migrate_an_old_tasks_table(Path(td) / 'taskprimig'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))

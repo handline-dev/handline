@@ -27,6 +27,7 @@ from ..components.row_actions import RowActions
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
 from .task_checks import TaskChecks
+from .tasks import TasksScreen
 
 DOUBLE_PRESS_S = 0.5     # two presses on one row this close are a double press
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": tui.MESSAGES}
@@ -185,7 +186,9 @@ class HomePage(RowActions, JobsAware, Screen):
             foot.append(f" {label}", "dim")
         foot.append(" · ←→ panel ↑↓ row · q quit · ", "dim")
         foot.append("b", "bold")
-        foot.append(" checks", "dim")
+        foot.append(" checks · ", "dim")
+        foot.append("T", "bold")
+        foot.append(" tasks", "dim")
         self.query_one("#foot", Static).update(foot)
         self._count_hr()
         if self.tab == "hr":
@@ -407,6 +410,9 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab != "home" or k is None:
             return
         event.stop()
+        if k == "T":     # T69: every open task - free on every panel
+            self.app.push_screen(TasksScreen())
+            return
         if k == "b":     # task #72: "done - waiting for check" - free on every panel
             self.app.push_screen(TaskChecks())
             return

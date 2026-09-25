@@ -743,6 +743,47 @@ async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
               states == ["queued"] * len(before) and not app.screen.jobs.running, (states, before))
 
 
+async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
+    """T69: T opens the tasks screen; space marks; p sets the priority of the
+    marked tasks; c on tasks that are not done shows each refusal with its reason."""
+    from ocp.ui.pages.tasks import TasksScreen
+    _home("tasksscreen")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "first", "worker", "manager")
+        b = db.new_task(con, "second", "worker", "manager")
+        c = db.new_task(con, "third", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        screen = app.screen
+        check("tasks: T opens the screen, every open task listed",
+              isinstance(screen, TasksScreen) and {a, b, c} <= {r["id"] for r in screen.rows},
+              type(screen).__name__)
+        await pilot.press("space", "down", "space")
+        await pilot.pause()
+        check("tasks: space marks the rows", len(screen.checked) == 2, screen.checked)
+        await pilot.press("p")
+        await pilot.pause()
+        await pilot.press("1", "enter")
+        await pilot.pause(0.3)
+        con = db.connect()
+        try:
+            prios = [db.get_task(con, t)["priority"] for t in (a, b)]
+        finally:
+            con.close()
+        check("tasks: p wrote P1 to both marked tasks", prios == [1, 1], prios)
+        await pilot.press("c")
+        await pilot.pause(0.3)
+        said = str(screen.query_one("#results").render())
+        check("tasks: c on tasks that are not done shows a line per task, with the reason",
+              said.count("refused") >= 1 and "T" in said, said)
+
+
 async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
     """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
     check' list (#71), reached with `b` from the dashboard - only the tasks
@@ -1998,6 +2039,7 @@ async def _run_all() -> None:
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
+    await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
