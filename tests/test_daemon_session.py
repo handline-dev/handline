@@ -1012,6 +1012,59 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
         con.close()
 
 
+def test_t52_idle_timeout_and_cache_expiry_overrides(home: Path) -> None:
+    """T52: config.yaml's global park timeout and cache-expiry-ignore switch,
+    and agent.yaml's own override of either - the agent's own setting always
+    wins over the global one, cleared it falls back to the global one, and
+    the global one unset is today's behaviour (IDLE_CLOSE_S, RESUME_WARM_S)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        st = types.SimpleNamespace(session_id="s")
+
+        check("idle timeout: today's behaviour is IDLE_CLOSE_S with nothing set",
+              idle_close.close_timeout_s("backend") == dmn_states.IDLE_CLOSE_S)
+        idle_close.set_close_timeout(120)
+        check("idle timeout: the global default is read back",
+              idle_close.default_close_timeout_s() == 120
+              and idle_close.close_timeout_s("backend") == 120)
+        idle_close.set_agent_close_timeout("backend", idle_close.NEVER)
+        check("idle timeout: the agent's own override wins over the global default",
+              idle_close.close_timeout_s("backend") == idle_close.NEVER
+              and idle_close.default_close_timeout_s() == 120)
+
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - 3600,))
+        row = db.get_agent_state(con, "backend")
+        check("idle timeout: never closes with the per-agent override set",
+              not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
+        idle_close.set_agent_close_timeout("backend", None)
+        check("idle timeout: clearing the override falls back to the global default",
+              idle_close.close_timeout_s("backend") == 120
+              and dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
+
+        for bad in (lambda: idle_close.set_close_timeout(-1),
+                   lambda: idle_close.set_agent_close_timeout("backend", -1)):
+            try:
+                bad()
+                check("idle timeout: a negative value is refused", False)
+            except ValueError:
+                check("idle timeout: a negative value is refused", True)
+
+        later = now + dmn_states.RESUME_WARM_S + 60
+        check("cache expiry: today's behaviour expires it past RESUME_WARM_S",
+              dmn_lifecycle.cache_expired(con, "backend", "sess", later))
+        idle_close.set_ignore_cache_expiry(True)
+        check("cache expiry: the global switch stops it expiring",
+              not dmn_lifecycle.cache_expired(con, "backend", "sess", later))
+        idle_close.set_agent_ignore_cache_expiry("backend", False)
+        check("cache expiry: an explicit per-agent 'off' wins over the global 'on'",
+              dmn_lifecycle.cache_expired(con, "backend", "sess", later))
+    finally:
+        con.close()
+
+
 def test_the_live_trust_screen_is_never_pressed(home: Path) -> None:
     """auditor's #1630 3.3: TRUST_DIALOG above is reconstructed - numbered,
     Yes first. The live screen has unnumbered options with "No, exit" first,
@@ -3947,6 +4000,7 @@ def main() -> int:
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
         run(lambda: test_an_agent_with_background_work_is_not_idle_until_it_ends(Path(td) / 'bgw0'))
+        run(lambda: test_t52_idle_timeout_and_cache_expiry_overrides(Path(td) / 'idletimeout'))
         run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
         run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))
