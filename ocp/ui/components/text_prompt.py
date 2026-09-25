@@ -13,6 +13,13 @@ from textual.widgets import Input, Static, TextArea
 from ... import textsafe
 
 
+def _committed(event: events.Key) -> str:
+    """The syllable an IME commits with the Enter that ends it: this terminal sends one
+    event, key 'enter' with the syllable as its character, and Textual would drop it."""
+    ch = event.character
+    return ch if ch and ch.isprintable() else ""
+
+
 class _LineBox(Input):
     """A one-line box that keeps a multi-line paste as one line: each line
     break is a space, where Input alone would keep only the first line. A paste
@@ -22,6 +29,15 @@ class _LineBox(Input):
         event.prevent_default()
         event.stop()
         self.insert_text_at_cursor(" ".join(textsafe.drawable(event.text)))
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "enter" and (ch := _committed(event)):
+            event.prevent_default()
+            event.stop()
+            self.insert_text_at_cursor(ch)
+            await self.action_submit()
+            return
+        await super()._on_key(event)
 
 
 class _TextBox(TextArea):
@@ -39,6 +55,8 @@ class _TextBox(TextArea):
 
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":
+            if ch := _committed(event):
+                self.insert(ch)
             event.prevent_default()
             event.stop()
             self.post_message(self.Send())
