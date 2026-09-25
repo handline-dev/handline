@@ -866,7 +866,7 @@ class ChatPage(Screen):
         with Vertical(id="dock"):
             yield OptionList(id="menu")
             with Vertical(id="composer"):
-                yield ChatBox(id="compose", placeholder="message, or / for a command")
+                yield ChatBox(id="compose", placeholder="message · ctrl+j new line, / for a command")
                 yield Static(self._status(), id="status")
 
     def _status(self) -> Text:
