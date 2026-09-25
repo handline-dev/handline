@@ -277,6 +277,10 @@ def deliver_queued(con, agent: str, log) -> bool:
     if head["delivered_at"]:
         marked += [r for r in db.followups_pending(con, agent, int(head["id"]))
                    if r["id"] not in {m["id"] for m in marked}]
+        # The founder's message is told as if he had pressed Send now: an open
+        # head is not a turn in progress, and only that holds him (T131).
+        marked += [r for r in db.founder_pending(con, agent)
+                   if r["id"] not in {m["id"] for m in marked}]
     head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
         or _session_changed(con, agent)
     if head_due and head["told_out_of_turn"] and not _session_changed(con, agent):

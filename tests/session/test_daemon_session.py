@@ -1451,6 +1451,61 @@ def test_service_log_rotation(tmp: Path) -> None:
               "keep this line" in f.read())
 
 
+def test_the_founder_reaches_an_agent_past_an_open_head(home: Path) -> None:
+    """T131: an open head is not a turn in progress, so the founder's message
+    is told at once, as if he had pressed Send now - whether or not the agent
+    also has background work. Only a turn in progress holds it; other senders
+    still wait behind an open head (#189)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    busy = [True]
+    real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
+    say = lambda _m: None
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: not busy[0]
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+
+        head = db.add_request(con, "reviewer", "backend", "the open one", None,
+                              "peer", "async", None, 0, None)
+        busy[0] = False
+        check("founder: the head is delivered as ever", dmn_delivery.deliver_queued(con, "backend", say))
+        peer = db.add_request(con, "orcapipe", "backend", "from a peer", None,
+                              "peer", "async", None, 0, None)
+        founder = db.add_request(con, "human", "backend", "from the founder", None,
+                                 "peer", "async", None, 0, None)
+        sent.clear()
+        busy[0] = True
+        check("founder: a turn in progress holds the message",
+              not dmn_delivery.deliver_queued(con, "backend", say) and not sent, str(sent))
+        busy[0] = False
+        check("founder: an agent that can be typed at is told, background work or not",
+              dmn_delivery.deliver_queued(con, "backend", say), str(sent))
+        check("founder: it is his message, ahead of the open head and not the peer's",
+              len(sent) == 1 and "from the founder" in sent[0] and f"#{head}" in sent[0]
+              and "from a peer" not in sent[0], str(sent))
+        check("founder: it counts as delivered and the peer's is still behind the head",
+              db.get_request(con, founder)["delivered_at"] is not None
+              and db.get_request(con, peer)["delivered_at"] is None)
+        sent.clear()
+        check("founder: told once",
+              not dmn_delivery.deliver_queued(con, "backend", say) and not sent, str(sent))
+
+        db.set_cursor(con, "bgwork:backend", 1)
+        later = db.add_request(con, "human", "backend", "with background work", None,
+                               "peer", "async", None, 0, None)
+        check("founder: and the same with background work behind the prompt",
+              dmn_delivery.deliver_queued(con, "backend", say) and "with background work" in sent[0]
+              and db.get_request(con, later)["delivered_at"] is not None, str(sent))
+    finally:
+        (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available) = real
+        con.close()
+
+
 def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
     """`ocp ask` writes a row and an inbox file; neither reaches the agent's
     screen. Without delivery, every request needs a human to nudge a terminal -
@@ -1523,7 +1578,9 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
 def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> None:
     """The chat's "send now": the head is delivered and unanswered, so the
     ordinary path has nothing to say - the marked request must still be told,
-    once, and only when the agent can be typed at."""
+    once, and only when the agent can be typed at. A peer's request stands in
+    for the marked one: the founder's is told past an open head without it
+    (`test_the_founder_reaches_an_agent_past_an_open_head`)."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -1542,7 +1599,7 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
                               "peer", "async", None, 0, None)
         busy[0] = False
         check("send now: the head is delivered as ever", dmn_delivery.deliver_queued(con, "backend", say))
-        later = db.add_request(con, "human", "backend", "urgent", None,
+        later = db.add_request(con, "orcapipe", "backend", "urgent", None,
                                "peer", "async", None, 0, None)
         sent.clear()
         check("send now: a request nobody marked stays behind an open head",
@@ -1578,9 +1635,9 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
 
         # Each send starts the agent's turn: two due at once go out one per pass,
         # the second only after the agent is idle again.
-        two = db.add_request(con, "human", "backend", "second urgent", None,
+        two = db.add_request(con, "orcapipe", "backend", "second urgent", None,
                              "peer", "async", None, 0, None)
-        three = db.add_request(con, "human", "backend", "third urgent", None,
+        three = db.add_request(con, "orcapipe", "backend", "third urgent", None,
                                "peer", "async", None, 0, None)
         db.mark_send_now(con, two)
         db.mark_send_now(con, three)
@@ -1597,7 +1654,7 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
               dmn_delivery.deliver_queued(con, "backend", say) and len(sent) == 2 and f"#{three}" in sent[1],
               str(sent))
         busy[0] = False
-        four = db.add_request(con, "human", "backend", "fourth urgent", None,
+        four = db.add_request(con, "orcapipe", "backend", "fourth urgent", None,
                               "peer", "async", None, 0, None)
         db.mark_send_now(con, four)
         db.clear_cursor(con, "notify:backend")          # the head is due again as well
@@ -1620,11 +1677,11 @@ def test_send_now_reaches_an_agent_whose_head_is_already_open(home: Path) -> Non
         check("send now: it is the head the resolve-nudge watches",
               db.get_cursor(con, "notify:backend") == later)
 
-        gone = db.add_request(con, "human", "backend", "never mind", None,
+        gone = db.add_request(con, "orcapipe", "backend", "never mind", None,
                               "peer", "async", None, 0, None)
         db.mark_delivered(con, gone)
         check("send now: a delivered request cannot be marked", not db.mark_send_now(con, gone))
-        withdrawn = db.add_request(con, "human", "backend", "withdrawn", None,
+        withdrawn = db.add_request(con, "orcapipe", "backend", "withdrawn", None,
                                    "peer", "async", None, 0, None)
         db.mark_send_now(con, withdrawn)
         askmod.resolve(later, "ok")
@@ -4072,6 +4129,7 @@ def main() -> int:
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_send_now_reaches_an_agent_whose_head_is_already_open(Path(td) / 'sendnow'))
+        run(lambda: test_the_founder_reaches_an_agent_past_an_open_head(Path(td) / 'bgfounder'))
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_resume_woken_for_a_message_is_handed_that_message(Path(td) / 'woketick'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
