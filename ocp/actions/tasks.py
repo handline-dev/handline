@@ -162,8 +162,9 @@ def task_asker(con, row) -> str:
 
 
 def task_state(con, row) -> str:
-    """One of waiting, doing, done, closed (#71), discarded (#85) or merged (T68). done,
-    closed and discarded are written, once each; waiting and doing are never stored - read live from
+    """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
+    done, closed and discarded are written, once each, and so is queued (T82: approved
+    to run; without it the task is a draft). doing is never stored - read live from
     whether a request is currently queued against this task or an open child
     of it, the same live read the board already does for "who holds it now",
     so there is nothing here that a write path must remember to keep in
@@ -182,7 +183,7 @@ def task_state(con, row) -> str:
            for c in db.open_child_tasks(con, row["id"])
            for r in db.task_requests(con, c["id"])):
         return "doing"
-    return "waiting"
+    return "queued" if row["queued_by"] else "draft"
 
 
 def _request_answered(row) -> bool:
@@ -448,6 +449,29 @@ def _task_edit_guard(row, tid: int, by: str) -> str | None:
         return (f"task T{tid} can only be edited by whoever opened it "
                f"({row['opened_by']}) or the founder")
     return None
+
+
+def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
+    """Approve a draft task to run (`queued`), or send a queued one back to
+    draft (T82). Its opener or the founder, as for every verb that reshapes a
+    task; refused for a task that is done or ended, or that already has a
+    request out (that is doing, and is not taken back by a word)."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task T{tid}"
+    guard = _task_edit_guard(row, tid, by)
+    if guard:
+        return False, guard
+    state = task_state(con, row)
+    want, other = ("queued", "draft") if queued else ("draft", "queued")
+    if state == want:
+        return False, f"task T{tid} is already {want}"
+    if state != other:
+        return False, f"task T{tid} is {state} - only a {other} task can be made {want}"
+    if not db.set_task_queued(con, tid, by if queued else None):
+        return False, f"task T{tid} changed under this call - read it again"
+    db.add_event(con, by, "queue_task" if queued else "draft_task", {"task_id": tid})
+    return True, f"task T{tid} is {want} ({by})"
 
 
 PRIORITIES = (1, 2, 3)

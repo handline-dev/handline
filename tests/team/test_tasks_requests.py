@@ -3699,7 +3699,7 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
         check("migration: an old open row is untouched - done_evidence and closed_by both NULL",
               open_row["done_evidence"] is None and open_row["closed_by"] is None,
               str(dict(open_row)))
-        check("migration: it reads as waiting", actions.task_state(con, open_row) == "waiting",
+        check("migration: it reads as a draft", actions.task_state(con, open_row) == "draft",
               actions.task_state(con, open_row))
 
         # A second connect (every ocp command, and the daemon) re-runs the
@@ -5523,7 +5523,7 @@ def test_task_rows_carry_who_closes_what_blocks_and_last_activity(home: Path) ->
         check("rows: filter by owner",
               {r["id"] for r in actions.task_rows(con, owner="worker")} == {a, c})
         check("rows: filter by state",
-              {r["id"] for r in actions.task_rows(con, state="waiting")} >= {c})
+              {r["id"] for r in actions.task_rows(con, state="draft")} >= {c})
         db.discard_task(con, c, "manager", "no")
         check("rows: a discarded task is hidden by default",
               c not in {r["id"] for r in actions.task_rows(con)})
@@ -5664,6 +5664,35 @@ def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
         con.close()
 
 
+def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: Path) -> None:
+    """T82: draft -> queued -> doing. A new task is a draft; its opener or the
+    founder queues it and drafts it again; a request out makes it doing."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "t", "worker", "manager")
+        st = lambda: actions.task_state(con, db.get_task(con, t))
+        check("states: a new task is a draft", st() == "draft", st())
+        ok, msg = actions.set_queued(con, t, "worker", True)
+        check("states: someone else cannot queue it", not ok and "can only be edited" in msg, msg)
+        ok, msg = actions.set_queued(con, t, "manager", True)
+        check("states: its opener queues it", ok and st() == "queued", msg)
+        check("states: queuing twice is refused", not actions.set_queued(con, t, "manager", True)[0])
+        check("states: the filter finds it",
+              [r["id"] for r in actions.task_rows(con, state="queued")] == [t])
+        ok, msg = actions.set_queued(con, t, actions.HUMAN, False)
+        check("states: the founder sends it back to draft", ok and st() == "draft", msg)
+        actions.set_queued(con, t, "manager", True)
+        db.link_request(con, t, _human_request())
+        check("states: a request out makes it doing", st() == "doing", st())
+        ok, msg = actions.set_queued(con, t, "manager", False)
+        check("states: a doing task is not drafted by a word", not ok and "doing" in msg, msg)
+        evs = [r["kind"] for r in con.execute("SELECT kind FROM events WHERE kind LIKE '%_task'")]
+        check("states: each move is an event", evs.count("queue_task") == 2 and "draft_task" in evs, evs)
+    finally:
+        con.close()
+
+
 def test_requests_parent_id_is_indexed(home: Path) -> None:
     """T92: the replied EXISTS looks a request up by parent_id once per row on
     the page; without an index that is a table scan each."""
@@ -5767,6 +5796,7 @@ def main() -> int:
             Path(td) / 'taskedit'))
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
+        run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
         run(lambda: test_requests_parent_id_is_indexed(Path(td) / 'parentidx'))

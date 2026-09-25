@@ -131,7 +131,7 @@ def messages_of(rows, agent: str) -> list[dict]:
     return msgs
 
 
-STATE_ORDER = {"waiting": 0, "doing": 1, "done": 2, "closed": 3, "discarded": 4}
+STATE_ORDER = {"draft": 0, "queued": 1, "doing": 2, "done": 3, "closed": 4, "discarded": 5}
 TASK_SORTS = {"task": lambda r: r[0], "role": lambda r: (r[1], r[0]),
               "state": lambda r: (STATE_ORDER.get(r[2], 9), r[0]),
               "updated": lambda r: r[5], "title": lambda r: (r[3].lower(), r[0]),
@@ -191,7 +191,7 @@ def task_detail(con, tid: int) -> dict | None:
             "children": kids, "requests": reqs, "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
-            "can_discard": state == "waiting" and mine}
+            "can_discard": state in ("draft", "queued") and mine}
 
 
 EDITABLE = ("model", "effort", "weight", "repo", "context_k")
@@ -656,8 +656,8 @@ class TaskTable(DataTable):
             self.action_select_cursor()
 
 
-STATE_STYLE_FG = {"waiting": "yellow", "doing": "blue", "done": "green", "closed": "dim"}
-STATE_STYLE = {"waiting": "black on yellow", "doing": "white on blue",
+STATE_STYLE_FG = {"draft": "dim", "queued": "yellow", "doing": "blue", "done": "green", "closed": "dim"}
+STATE_STYLE = {"draft": "white on grey37", "queued": "black on yellow", "doing": "white on blue",
                "done": "black on green", "closed": "white on grey37"}
 
 

@@ -12,7 +12,8 @@ import time
 TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
-               "discarded_by", "discard_reason", "priority", "merged_into")
+               "discarded_by", "discard_reason", "priority", "merged_into",
+               "queued_by", "queued_at")
 
 DEFAULT_PRIORITY = 2
 
@@ -83,6 +84,17 @@ def discard_task(con, tid: int, by: str, reason: str) -> bool:
         "UPDATE tasks SET closed_by = ?, closed_at = ?, discarded_by = ?, "
         "discard_reason = ? WHERE id = ? AND closed_by IS NULL AND done_evidence IS NULL",
         (by, int(time.time()), by, reason, tid))
+    return cur.rowcount > 0
+
+
+def set_task_queued(con, tid: int, by: str | None) -> bool:
+    """Approve a task to run (`by` set) or send it back to draft (None),
+    atomically. True only if it changed: a task already ended, or already in
+    that state, matches no row."""
+    cur = con.execute(
+        "UPDATE tasks SET queued_by = ?, queued_at = ? WHERE id = ? AND closed_by IS NULL "
+        "AND done_evidence IS NULL AND queued_by IS " + ("NULL" if by else "NOT NULL"),
+        (by, int(time.time()) if by else None, tid))
     return cur.rowcount > 0
 
 
