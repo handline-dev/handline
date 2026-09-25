@@ -787,9 +787,9 @@ def test_daemon_ignores_stale_status(home: Path) -> None:
                  collected_at=int(time.time()) - 100000)
     st = status.read("alpha")
     check("stale snapshot: assignable() refuses", not st.assignable()[0])
-    check("stale snapshot: pct is not trusted for triggers", st.trusted_pct_5h is None,
-          str(st.trusted_pct_5h))
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used)
+    check("stale snapshot: pct is not trusted for triggers", st.short_trusted is None,
+          str(st.short_trusted))
+    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used)
     check("stale snapshot: an unreadable figure is not a wall, so nothing fires on it",
           not t.fired, t.reason)
 

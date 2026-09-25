@@ -1,6 +1,6 @@
 """Account status and assignability (design 01-infra.md section 4).
 
-The governing rule is fail-closed. Section 4 puts it as: a pct_5h we cannot
+The governing rule is fail-closed. Section 4 puts it as: a shortest-window figure we cannot
 trust is not a full tank, it is a refusal to assign, plus a red light.
 
 Reading a missing value as 0 makes every account look perfectly fresh, which
@@ -40,7 +40,7 @@ live figure that lost to the high-water mark - the number is real and current,
 but it was reported by an earlier payload than this one. Only its age is
 understated, which is why it carries no mark of its own. It is old the moment the session
 that reported it goes idle, and collected_at cannot say so - an idle session
-keeps refreshing collected_at while reporting nothing new. rl_at is when the
+keeps refreshing collected_at while reporting nothing new. the window's `at` is when the
 figure was actually observed, and it, not collected_at, bounds the carry.
 Past that bound we still use the floor for triggers, because an idle session
 cannot be racing toward the wall, but we refuse to assign new work on it.
@@ -60,7 +60,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..team import accounts, agents
-from . import collect, usage_api
+from . import collect, usage_api, windows
 from ..infra import paths, timefmt
 from ..session import triggers
 
@@ -99,8 +99,8 @@ def mark(src: str) -> str:
 # The wall: at these nothing can run at all, and nothing is handed work.
 # Below them an account is judged by how long it would last (`pick_account`),
 # not by a line.
-PCT_5H_BLOCK = triggers.WALL_PCT
-PCT_7D_BLOCK = triggers.WALL_PCT
+SHORT_BLOCK = triggers.WALL_PCT
+LONG_BLOCK = triggers.WALL_PCT
 
 # A floor is a lower bound, not a measurement, and there is an unbounded
 # invisible spender even on an idle account: a human running `claude -p` by
@@ -142,6 +142,31 @@ def effective_context_limit(cfg: dict, model_id: str | None) -> int:
 
 
 @dataclass
+class Window:
+    """One usage window as read back: a figure, when it resets, and how far to
+    trust it. None is unknown - never coerced to 0."""
+    minutes: int = 0
+    pct: int | None = None
+    reset: int | None = None
+    # When the figure was actually observed, and whether it came from an earlier
+    # payload than this one. `collected_at` only says the collector is alive.
+    at: int | None = None
+    carried: bool = False
+    # True when the collector had a figure it could not carry because it could
+    # not tell whether that figure's window had ended. That is ignorance, and
+    # it must not read as a quiet window.
+    lost: bool = False
+    # False when the window is missing entirely, or present but unreadable (NaN,
+    # a string, a bool). An explicit null is readable: it is how the collector
+    # writes "this payload reported no such window".
+    readable: bool = True
+
+    @property
+    def label(self) -> str:
+        return windows.label(self.minutes)
+
+
+@dataclass
 class AccountStatus:
     account: str
     exists: bool = False
@@ -152,34 +177,14 @@ class AccountStatus:
     raw: dict = field(default_factory=dict)
     error: str | None = None
 
-    # None when unknown - never coerced to 0.
-    pct_5h: int | None = None
-    pct_7d: int | None = None
+    # The shortest and the longest window the vendor reported, found by length.
+    # A vendor with one window has no `long`; the core never asks either what
+    # it is called, only how long it is (`Window.label` when a person reads it).
+    short: "Window" = field(default_factory=lambda: Window())
+    long: "Window" = field(default_factory=lambda: Window())
     ctx_pct: int | None = None
     ctx_used: int | None = None
-    reset_5h: int | None = None
-    reset_7d: int | None = None
     cost_usd: float | None = None
-    # When pct_5h was actually observed, and whether it came from an earlier
-    # payload than this one. collected_at only says the collector is alive.
-    rl_at: int | None = None
-    rl_carried: bool = False
-    # False when the field is missing entirely, or present but unreadable (NaN,
-    # a string, a bool). An explicit null is readable: it is how the collector
-    # writes "this payload reported no such window".
-    pct_5h_readable: bool = True
-    # True when the collector had a figure it could not carry because it could
-    # not tell whether that figure's window had ended. That is ignorance, and
-    # it must not read as a quiet window.
-    rl_lost: bool = False
-    # The same three for the weekly window. It has no age bound - a week-wide
-    # window barely moves in the minutes a 5h figure goes stale in - but a 7d
-    # figure we lost still has to refuse, because the 95% gate is written as
-    # "block if we have a figure and it is high", so a missing one is not a
-    # refusal, it is the absence of one.
-    rl7_at: int | None = None
-    rl7_carried: bool = False
-    rl7_lost: bool = False
     # Which session this reading came from, and where that session's own record
     # lives. Both belong to the session, so read_for_agent carries the agent's
     # own or nothing - never the account file's, which is whichever agent on
@@ -217,11 +222,11 @@ class AccountStatus:
         return age is None or age > STALE_AFTER_S
 
     @property
-    def rl_age_s(self) -> float | None:
+    def short_age_s(self) -> float | None:
         """How long ago the 5h figure was observed, not when it was copied."""
-        if self.rl_at is None:
+        if self.short.at is None:
             return None
-        age = self._now() - self.rl_at
+        age = self._now() - self.short.at
         if age < -CLOCK_SKEW_GRACE_S:
             return None
         return max(0.0, age)
@@ -231,44 +236,44 @@ class AccountStatus:
         """A figure this payload actually reported, timestamped, not carried
         forward from an earlier one - the only kind a rate can be measured
         from."""
-        return self.pct_5h_source == "live" and self.pct_5h is not None and bool(self.rl_at)
+        return self.short_source == "live" and self.short.pct is not None and bool(self.short.at)
 
     @property
-    def pct_5h_source(self) -> str:
+    def short_source(self) -> str:
         """Which of the five cases this reading is: see the module docstring.
 
-        `rl_carried` says a *later* write found nothing new to report; it does
+        `carried` says a *later* write found nothing new to report; it does
         not age on its own, and the one writer that sets it (`usage_api`)
         always clears it back to False the moment a poll succeeds - so an
         account whose poll then goes quiet for hours (the endpoint itself
         421/429s at the wall, or the token is dead) keeps a False flag
-        forever. `rl_at` is what actually bounds the carry (module docstring),
+        forever. `at` is what actually bounds the carry (module docstring),
         so it is checked first: past `CARRY_MAX_AGE_S` this is carried_old
         regardless of the flag, collected_at's own freshness included - a
         session merely idling on the account must not keep an hours-old rate
         limit reading dressed as `live`.
         """
-        if not self.exists or self.error or self.stale or not self.pct_5h_readable:
+        if not self.exists or self.error or self.stale or not self.short.readable:
             return "unknown"
-        if self.rl_lost:
+        if self.short.lost:
             return "unknown"
-        if self.pct_5h is None:
+        if self.short.pct is None:
             return "quiet"
-        age = self.rl_age_s
+        age = self.short_age_s
         if age is not None and age > CARRY_MAX_AGE_S:
             return "carried_old"
-        if self.rl_carried:
+        if self.short.carried:
             # A carried figure with no age at all cannot be judged inside the
             # bound above - unknown age is not the same claim as a fresh one,
             # so it reads as too old to trust rather than as live (auditor
             # #1805 note 3; unreached today, since usage_api's only writer
-            # always sets rl_at alongside rl_carried, but a guard against a
+            # always sets `at` alongside `carried`, but a guard against a
             # payload that does not is cheap to keep honest).
             return "carried_old" if age is None else "carried"
         return "live"
 
     @property
-    def trusted_pct_5h(self) -> int | None:
+    def short_trusted(self) -> int | None:
         """What we may act on, or None when we genuinely do not know.
 
         A frozen status.json (the poll cannot reach the endpoint, the account's
@@ -282,13 +287,13 @@ class AccountStatus:
         outside ocp, on a config dir we do not collect from - is the same hole
         every other reading has.
         """
-        src = self.pct_5h_source
+        src = self.short_source
         if src == "unknown":
             return None
-        return 0 if src == "quiet" else self.pct_5h
+        return 0 if src == "quiet" else self.short.pct
 
     @property
-    def pct_7d_source(self) -> str:
+    def long_source(self) -> str:
         """Where the weekly figure comes from, on the same terms as the 5h one.
 
         The two are not trusted the same way and should not be, but they were
@@ -298,32 +303,32 @@ class AccountStatus:
 
         Inside one window weekly usage only rises, so an old reading is a floor
         and a floor is worth having - marked as carried, not as measured. Once
-        `reset_7d` has passed it is not even that: it describes a window that no
+        the longest window's reset has passed it is not even that: it describes a window that no
         longer exists, and reading it as the truth is how an account reads 60%
         for a week after the week ended.
 
-        `rl7_at`, not `collected_at`, bounds the carry here too (see
-        `pct_5h_source`): checked before the `live` case, so a poll gone quiet
+        The longest's `at`, not `collected_at`, bounds the carry here too (see
+        `short_source`): checked before the `live` case, so a poll gone quiet
         for hours cannot pass for fresh just because something else is still
         pinging `collected_at`.
         """
-        if not self.exists or self.error or self.rl7_lost or self.pct_7d is None:
+        if not self.exists or self.error or self.long.lost or self.long.pct is None:
             return "unknown"
         now = int(self._now())
-        if self.reset_7d and self.reset_7d <= now:
+        if self.long.reset and self.long.reset <= now:
             return "unknown"
-        age = None if self.rl7_at is None else now - self.rl7_at
+        age = None if self.long.at is None else now - self.long.at
         if age is not None and age > CARRY_MAX_AGE_S:
             return "carried_old"
-        if self.stale or self.rl7_carried:
-            # Same unknown-age case as pct_5h_source (auditor #1805 note 3).
+        if self.stale or self.long.carried:
+            # Same unknown-age case as short_source (auditor #1805 note 3).
             return "carried_old" if age is None else "carried"
         return "live"
 
     @property
-    def trusted_pct_7d(self) -> int | None:
+    def long_trusted(self) -> int | None:
         """The weekly figure we may act on: a floor, or None when there is none."""
-        return None if self.pct_7d_source == "unknown" else self.pct_7d
+        return None if self.long_source == "unknown" else self.long.pct
 
     @property
     def trusted_ctx_pct(self) -> int | None:
@@ -339,15 +344,15 @@ class AccountStatus:
         Display only: nothing that decides reads this. A window whose reset has
         passed is marked, since the real figure is then lower than the one shown.
         """
-        if not self.exists or self.error or self.pct_5h is None:
+        if not self.exists or self.error or self.short.pct is None:
             return ""
         now = self._now()
         age = "unknown age" if self.age_s is None else f"{timefmt.ago(self.age_s)} old"
-        gone = ", reset since" if self.reset_5h and self.reset_5h <= now else ""
-        text = f"5h {self.pct_5h}% ({age}{gone})"
-        if self.pct_7d is not None:
-            week_gone = " (reset since)" if self.reset_7d and self.reset_7d <= now else ""
-            text += f", 7d {self.pct_7d}%{week_gone}"
+        gone = ", reset since" if self.short.reset and self.short.reset <= now else ""
+        text = f"{self.short.label} {self.short.pct}% ({age}{gone})"
+        if self.long.pct is not None:
+            week_gone = " (reset since)" if self.long.reset and self.long.reset <= now else ""
+            text += f", {self.long.label} {self.long.pct}%{week_gone}"
         return text
 
     def assignable(self, active: int = 0) -> tuple[bool, str]:
@@ -373,40 +378,40 @@ class AccountStatus:
             shown = "unknown" if self.age_s is None else timefmt.ago(self.age_s)
             return False, (f"nothing has run on it for {shown} - the snapshot is "
                            f"stale (fail-closed)")
-        pct = self.trusted_pct_5h
+        pct = self.short_trusted
         if pct is None:
-            return False, "pct_5h is null - usage unknown (fail-closed)"
-        if pct >= PCT_5H_BLOCK:
-            return False, f"5h usage {pct}% >= {PCT_5H_BLOCK}%"
-        week = self.trusted_pct_7d
-        if week is not None and week >= PCT_7D_BLOCK:
-            return False, f"7d usage {week}% >= {PCT_7D_BLOCK}%"
-        if self.rl7_lost:
-            return False, "7d usage was lost - the weekly gate cannot be checked (fail-closed)"
-        src = self.pct_5h_source
+            return False, f"{self.short.label} usage unknown (fail-closed)"
+        if pct >= SHORT_BLOCK:
+            return False, f"{self.short.label} usage {pct}% >= {SHORT_BLOCK}%"
+        week = self.long_trusted
+        if week is not None and week >= LONG_BLOCK:
+            return False, f"{self.long.label} usage {week}% >= {LONG_BLOCK}%"
+        if self.long.lost:
+            return False, f"{self.long.label} usage was lost - the longest window's gate cannot be checked (fail-closed)"
+        src = self.short_source
         if src == "carried_old":
-            age = self.rl_age_s
+            age = self.short_age_s
             shown = "unknown" if age is None else f"{int(age / 60)}m"
-            return False, (f"5h {pct}% was observed {shown} ago and only ever rises "
+            return False, (f"{self.short.label} {pct}% was observed {shown} ago and only ever rises "
                            f"(carried past {CARRY_MAX_AGE_S}s)")
         if src == "quiet":
-            return True, "5h window quiet - nothing spent in it (inferred 0%)"
+            return True, f"{self.short.label} window quiet - nothing spent in it (inferred 0%)"
         if src == "carried":
-            return True, f"5h {pct}% (carried, still inside the window)"
-        return True, f"5h {pct}%"
+            return True, f"{self.short.label} {pct}% (carried, still inside the window)"
+        return True, f"{self.short.label} {pct}%"
 
     def takes_work(self, active: int = 0) -> tuple[bool, str]:
         """May a session be started here: assignable, or a rolled-over stale
         account, and under the weekly wall. The usage half of the question; `unfit`
         adds the cap and the stretch. `active` - see `assignable`."""
         ok, why = self.assignable(active)
-        week = self.trusted_pct_7d
+        week = self.long_trusted
         if not ok and self.rolled_over()[0]:
             # Its weekly figure is a floor unless the week itself has passed.
             ok, why = True, self.rolled_over()[1]
-            week = None if self.reset_7d and self.reset_7d <= self._now() else self.pct_7d
-        if ok and week is not None and week >= PCT_7D_BLOCK:
-            return False, f"7d usage {week}% >= {PCT_7D_BLOCK}%"
+            week = None if self.long.reset and self.long.reset <= self._now() else self.long.pct
+        if ok and week is not None and week >= LONG_BLOCK:
+            return False, f"{self.long.label} usage {week}% >= {LONG_BLOCK}%"
         return ok, why
 
     def rolled_over(self) -> tuple[bool, str]:
@@ -414,26 +419,26 @@ class AccountStatus:
         weekly reading had room: the session that starts there writes a fresh
         reading, and the move trigger takes the agent off if it is full.
         Returns (ok, reason)."""
-        if (not self.exists or self.error or self.rl7_lost or not self.stale
+        if (not self.exists or self.error or self.long.lost or not self.stale
                 or self.age_s is None):
             return False, ""
         now = self._now()
-        if self.reset_5h:
-            passed = self.reset_5h <= now
+        if self.short.reset:
+            passed = self.short.reset <= now
         else:
-            passed = self.age_s >= 5 * 3600
+            passed = bool(self.short.minutes) and self.age_s >= self.short.minutes * 60
         if not passed:
             return False, ""
-        week = self.pct_7d
-        week_over = bool(self.reset_7d and self.reset_7d <= now)
+        week = self.long.pct
+        week_over = bool(self.long.reset and self.long.reset <= now)
         if week is None and not week_over:
             return False, ""
-        if week is not None and week >= PCT_7D_BLOCK and not week_over:
+        if week is not None and week >= LONG_BLOCK and not week_over:
             return False, ""
         last = self.last_known()
         if last:
             return True, f"{last} - stale, window rolled over"
-        shown = "its week has rolled over" if week_over else f"7d {week}%"
+        shown = "its week has rolled over" if week_over else f"{self.long.label} {week}%"
         return True, f"stale, window rolled over, {shown}"
 
     def idle_floor(self, active: int = 0) -> tuple[bool, str]:
@@ -454,7 +459,7 @@ class AccountStatus:
           and it is what keeps every reader of a stale reading agreeing -
           `pick_account`, `doctor`, the bridge - not because the case it
           guards has been seen.
-        - `reset_5h` has not passed. Past it the figure describes a window
+        - The shortest window's reset has not passed. Past it the figure describes a window
           that no longer exists - `rolled_over` and the usage poll answer for
           that case, not this one.
         - The floor is a lower bound, not a measurement - there is an
@@ -464,25 +469,25 @@ class AccountStatus:
           below the wall (`IDLE_FLOOR_MARGIN_PCT`), never against the wall
           itself.
         """
-        if (not self.exists or self.error or self.rl_lost or not self.stale
-                or self.pct_5h is None or not self.pct_5h_readable or active > 0):
+        if (not self.exists or self.error or self.short.lost or not self.stale
+                or self.short.pct is None or not self.short.readable or active > 0):
             return False, ""
         now = self._now()
-        # Well-formed data cannot have reset_5h ahead of us while the snapshot
+        # Well-formed data cannot have its reset ahead of us while the snapshot
         # itself is already older than a window is wide - only a rewound clock
         # or a hand-edited file gets here, and that is not idle, it is unknown.
-        if self.age_s is not None and self.age_s >= 5 * 3600:
+        if self.age_s is not None and self.age_s >= self.short.minutes * 60:
             return False, ""
-        if not self.reset_5h or self.reset_5h <= now:
+        if not self.short.reset or self.short.reset <= now:
             return False, ""  # rolled_over's case, not this one
         last = self.last_known()
-        text = last or f"5h {self.pct_5h}%"
-        if self.pct_5h >= PCT_5H_BLOCK - IDLE_FLOOR_MARGIN_PCT:
+        text = last or f"{self.short.label} {self.short.pct}%"
+        if self.short.pct >= SHORT_BLOCK - IDLE_FLOOR_MARGIN_PCT:
             return False, (f"{text} when last seen - too close to "
-                           f"{PCT_5H_BLOCK}% to start on a stale reading")
+                           f"{SHORT_BLOCK}% to start on a stale reading")
         return True, f"{text} - stale but idle"
 
-    def shown_pct_5h(self) -> tuple[int | None, str]:
+    def shown_short(self) -> tuple[int | None, str]:
         """What a 5h column draws: the figure and its mark.
 
         The trusted figure where there is one. Otherwise the floor an idle
@@ -490,27 +495,39 @@ class AccountStatus:
         measurement, and a reader still needs to see whether the account they
         cannot assign was last at 1% or at 96%.
         """
-        if self.trusted_pct_5h is not None:
-            return self.trusted_pct_5h, mark(self.pct_5h_source)
-        if (self.exists and not self.error and not self.rl_lost and self.stale
-                and self.pct_5h is not None and self.pct_5h_readable
-                and self.reset_5h and self.reset_5h > self._now()):
-            return self.pct_5h, IDLE_MARK
+        if self.short_trusted is not None:
+            return self.short_trusted, mark(self.short_source)
+        if (self.exists and not self.error and not self.short.lost and self.stale
+                and self.short.pct is not None and self.short.readable
+                and self.short.reset and self.short.reset > self._now()):
+            return self.short.pct, IDLE_MARK
         return None, " "
 
-    def headroom(self) -> int | None:
+    def window_report(self) -> list[dict]:
+        """The shortest and, when the vendor has one, the longest window as a
+        machine reader wants them: the figure, what we may act on, and why."""
+        out = []
+        for w, trusted, source in ((self.short, self.short_trusted, self.short_source),
+                                   (self.long, self.long_trusted, self.long_source)):
+            if w is self.long and not w.minutes:
+                continue
+            out.append({"window": w.label, "minutes": w.minutes, "pct": w.pct,
+                        "effective": trusted, "source": source, "reset": w.reset})
+        return out
+
+    def short_headroom(self) -> int | None:
         """Remaining 5h headroom in percent, or None when unknown."""
-        pct = self.trusted_pct_5h
+        pct = self.short_trusted
         if pct is None:
             return None
-        return max(0, PCT_5H_BLOCK - pct)
+        return max(0, SHORT_BLOCK - pct)
 
-    def headroom_7d(self) -> int | None:
+    def long_headroom(self) -> int | None:
         """Remaining weekly headroom in percent, or None when unknown."""
-        week = self.trusted_pct_7d
+        week = self.long_trusted
         if week is None:
             return None
-        return max(0, PCT_7D_BLOCK - week)
+        return max(0, LONG_BLOCK - week)
 
 
 def _as_pct(v):
@@ -539,6 +556,28 @@ def _as_int(v):
 
 
 UNMETERED_WHY = "unmetered - its vendor reports no usage; only agents that name it run there"
+
+
+def _window_of(e: dict) -> Window:
+    pct = _as_pct(e.get("used_percent"))
+    # An explicit null means "no window in this payload", which is a reading.
+    # An unreadable value means the window cannot be believed at all, and that
+    # is the fail-closed case.
+    readable = (e.get("readable") is not False
+                and (e.get("used_percent") is None or pct is not None))
+    return Window(minutes=e["minutes"], pct=pct, reset=_as_int(e.get("resets_at")),
+                  at=_as_int(e.get("observed_at")), carried=e.get("carried") is True,
+                  lost=e.get("lost") is True, readable=readable)
+
+
+def windows_of(raw: dict) -> tuple[Window, Window]:
+    """The shortest and the longest window a record holds. A vendor with a single
+    window has no longest; a record with none has no shortest either, and that
+    reads as unreadable, never as a quiet window."""
+    got = [_window_of(e) for e in windows.entries(raw)]
+    if not got:
+        return Window(readable=False), Window()
+    return got[0], (got[-1] if len(got) > 1 else Window())
 
 
 def metered(acct: str) -> bool:
@@ -582,12 +621,7 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
         st.error = "top level is not an object"
         return st
     st.raw = raw
-    st.pct_5h = _as_pct(raw.get("pct_5h"))
-    # An explicit null means "no window in this payload", which is a reading.
-    # A missing key or an unreadable value means the snapshot cannot be
-    # believed at all, and that is the fail-closed case.
-    st.pct_5h_readable = "pct_5h" in raw and (raw["pct_5h"] is None or st.pct_5h is not None)
-    st.pct_7d = _as_pct(raw.get("pct_7d"))
+    st.short, st.long = windows_of(raw)
     st.ctx_pct = _as_pct(raw.get("ctx_pct"))
     # The snapshot's own field is the raw usage breakdown (collect.snapshot's
     # "ctx_used"), not a total - sum it the same way collect.tokens does, or
@@ -596,15 +630,7 @@ def read(acct: str, path: Path | None = None) -> AccountStatus:
     raw_ctx_used = raw.get("ctx_used")
     st.ctx_used = (collect.tokens(raw_ctx_used) if isinstance(raw_ctx_used, dict)
                   else _as_int(raw_ctx_used))
-    st.reset_5h = _as_int(raw.get("reset_5h"))
-    st.reset_7d = _as_int(raw.get("reset_7d"))
     st.collected_at = _as_int(raw.get("collected_at"))
-    st.rl_at = _as_int(raw.get("rl_at"))
-    st.rl_carried = raw.get("rl_carried") is True
-    st.rl_lost = raw.get("rl_lost") is True
-    st.rl7_at = _as_int(raw.get("rl7_at"))
-    st.rl7_carried = raw.get("rl7_carried") is True
-    st.rl7_lost = raw.get("rl7_lost") is True
     st.session_id = raw.get("session_id")
     st.transcript_path = raw.get("transcript_path")
     st.model_id = raw.get("model_id")
@@ -750,64 +776,65 @@ def read_burn(acct: str, now: float | None = None) -> float | None:
 
 @dataclass
 class Runway:
-    left_5h: int              # points of 5h usage left before the wall
-    left_7d: int | None
+    left_short: int           # points of the shortest window left before the wall
+    left_long: int | None
     eta_s: float | None       # seconds to the wall at the current burn
     burning: bool             # False: no burn reading, or an idle account
-    past_reset: bool          # the 5h window rolls over before the line is reached
-    # How long the week lasts (`week_runway_s`) when that is known and the week
+    past_reset: bool          # the shortest window rolls over before the line is reached
+    # How long the week lasts (`long_runway_s`) when that is known and the week
     # does not roll over first; None otherwise, and then the week is not what
     # runs out first.
-    week_s: float | None = None
+    long_s: float | None = None
+    long_label: str = ""      # what the longest window is called, for describe_runway
 
 
 def runway(st: "AccountStatus", burn: float | None, now: float | None = None,
            ld=None) -> Runway | None:
     """An estimate of how long this account's headroom lasts, whichever window
-    runs out first: the 5h one at the current burn, the week by `week_runway_s`
+    runs out first: the shortest at the current burn, the week by `long_runway_s`
     (`ld` is the account's load, which carries the plan's ratio; without it the
     week is not estimated). None when its reading is stale or
     unknown: no figure is better than one drawn from a reading that stopped
     describing the account."""
-    pct = st.trusted_pct_5h
+    pct = st.short_trusted
     if pct is None:
         return None
     now = now or time.time()
-    week = st.trusted_pct_7d
-    left = max(0, PCT_5H_BLOCK - pct)
-    left7 = None if week is None else max(0, PCT_7D_BLOCK - week)
-    week_s = week_runway_s(st, ld, now)
+    week = st.long_trusted
+    left = max(0, SHORT_BLOCK - pct)
+    left7 = None if week is None else max(0, LONG_BLOCK - week)
+    long_s = long_runway_s(st, ld, now)
     if not burn or burn <= 0:
-        return Runway(left, left7, None, False, False, week_s)
+        return Runway(left, left7, None, False, False, long_s, st.long.label)
     eta = left / burn
-    # A 5h window resets within 5h whether or not the collector told us when -
+    # A window resets within its own length whether or not the collector told us when -
     # an eta beyond that is not a long wait, it is the reset arriving first.
-    if st.reset_5h:
-        past_reset = now + eta > st.reset_5h
+    if st.short.reset:
+        past_reset = now + eta > st.short.reset
     else:
-        past_reset = eta > 5 * 3600
-    return Runway(left, left7, eta, True, past_reset, week_s)
+        past_reset = eta > st.short.minutes * 60 if st.short.minutes else False
+    return Runway(left, left7, eta, True, past_reset, long_s, st.long.label)
 
 
 def describe_runway(r: Runway | None) -> str:
     if r is None:
         return ""
-    if r.left_5h == 0:
+    if r.left_short == 0:
         return "at the wall"
-    if r.left_7d == 0:
-        return "at the 7d wall"
-    # The window that runs out first is the one shown; a 5h window whose reset
+    if r.left_long == 0:
+        return f"at the {r.long_label} wall"
+    # The window that runs out first is the one shown; a window whose reset
     # comes first does not run out at all.
     five = r.eta_s if r.burning and not r.past_reset else None
-    if r.week_s is not None and (five is None or r.week_s < five):
-        return f"~{timefmt.span(r.week_s)} to 7d"
+    if r.long_s is not None and (five is None or r.long_s < five):
+        return f"~{timefmt.span(r.long_s)} to {r.long_label}"
     if not r.burning:
         return "no recent burn"
     return "outlasts reset" if r.past_reset else f"~{timefmt.span(r.eta_s)} to wall"
 
 
 def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
-    """One line on whether the team's combined 5h headroom lasts to the next
+    """One line on whether the team's combined headroom lasts to the next
     reset at the pace it is burning now. Only accounts with a current reading
     count; blank when none has one."""
     now = now or time.time()
@@ -820,14 +847,14 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
             counted.append((st, r, burn or 0.0))
     if not counted:
         return ""
-    room = sum(r.left_5h for _, r, _ in counted)
+    room = sum(r.left_short for _, r, _ in counted)
     pace = sum(b for _, _, b in counted)
-    resets = [st.reset_5h for st, _, _ in counted if st.reset_5h and st.reset_5h > now]
+    resets = [st.short.reset for st, _, _ in counted if st.short.reset and st.short.reset > now]
     nxt = min(resets) if resets else None
     clock = lambda t: timefmt.stamp(t, timefmt.CLOCK)  # noqa: E731
     n = f"{len(counted)} account{'s' if len(counted) != 1 else ''}"
     if pace <= 0:
-        return f"estimate: {room} points of 5h headroom across {n}, no recent burn"
+        return f"estimate: {room} points of headroom across {n}, no recent burn"
     stops = now + room / pace
     if nxt and stops >= nxt:
         return f"estimate: at this pace {n} last past the next reset ({clock(nxt)})"
@@ -841,7 +868,7 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
 # window, capped at 100 whatever the plan, and agent_burn is one estimate
 # shared by every account (load.py: "shared by every account, built once at
 # load.py:154"). The only per-account figure is the week-per-5h ratio
-# (`week_stretch_s`), which converts one window's points into the other's and
+# (`long_stretch_s`), which converts one window's points into the other's and
 # says nothing of how many agents a plan can carry. So the
 # only thing that varied between accounts in that computation was the cap,
 # and "cap running flat out would not spend the headroom before reset" reduces
@@ -864,8 +891,8 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
 PACE_HYSTERESIS = 0.02
 
 
-def pace_7d(st: "AccountStatus") -> float:
-    """This account's weekly usage against its weekly timer: `pct_7d` as a
+def long_pace(st: "AccountStatus") -> float:
+    """This account's weekly usage against its weekly timer: its longest window's figure as a
     multiple of the usage a uniform pace through the week would have reached by
     now. Below 1 is behind that pace - the "use it or lose it" case, since
     whatever headroom is left unspent here is not carried past the reset - and
@@ -874,17 +901,18 @@ def pace_7d(st: "AccountStatus") -> float:
     catch up on its own gets the work while the work is still worth something
     to it.
 
-    Infinity for a `pct_7d` or a `reset_7d` we do not know, or a week already
+    Infinity for a figure or a reset we do not know, or a week already
     rolled over: never sorted as low usage, which reading it as 0 - or as
     ratio 0/0 - would do.
     """
-    week = st.trusted_pct_7d
-    if week is None or not st.reset_7d:
+    week = st.long_trusted
+    if week is None or not st.long.reset:
         return float("inf")
-    remaining = st.reset_7d - time.time()
+    remaining = st.long.reset - time.time()
     if remaining <= 0:
         return float("inf")
-    elapsed_frac = max(triggers.WINDOW_7D_S - remaining, 1.0) / triggers.WINDOW_7D_S
+    length = st.long.minutes * 60
+    elapsed_frac = max(length - remaining, 1.0) / length
     return week / (elapsed_frac * 100)
 
 
@@ -924,18 +952,18 @@ def unfit(st: "AccountStatus", ld, agent: str | None = None) -> str | None:
     choosing between accounts; this is the one for an agent whose own account
     is not known to be a bad place.
     """
-    pct, week = st.trusted_pct_5h, st.trusted_pct_7d
-    full = pct is not None and pct >= PCT_5H_BLOCK
+    pct, week = st.short_trusted, st.long_trusted
+    full = pct is not None and pct >= SHORT_BLOCK
     # A stale reading at the wall is still a floor until its window has rolled
     # over, but one older than 5h cannot describe the current window.
-    if not full and st.pct_5h is not None and st.pct_5h >= PCT_5H_BLOCK:
+    if not full and st.short.pct is not None and st.short.pct >= SHORT_BLOCK:
         now = time.time()
-        full = st.reset_5h > now if st.reset_5h else (
-            st.age_s is not None and st.age_s < 5 * 3600)
+        full = st.short.reset > now if st.short.reset else (
+            st.age_s is not None and st.age_s < st.short.minutes * 60)
     if full:
-        return f"5h usage at the wall ({st.pct_5h}%)"
-    if week is not None and week >= PCT_7D_BLOCK:
-        return f"7d usage {week}% at the wall"
+        return f"{st.short.label} usage at the wall ({st.short.pct}%)"
+    if week is not None and week >= LONG_BLOCK:
+        return f"{st.long.label} usage {week}% at the wall"
     if pct is not None and not st.stale:
         return _no_room(st, ld, pct, agent)[0]
     return _no_room(st, ld, None, agent)[0]
@@ -948,59 +976,59 @@ def agent_burn(ld, agent: str | None) -> float:
     return ld.costs.per_s(agent) if ld and ld.costs else triggers.TYPICAL_AGENT_BURN_PER_S
 
 
-def week_stretch_s(st: "AccountStatus", ld, agent: str | None = None) -> float | None:
+def long_stretch_s(st: "AccountStatus", ld, agent: str | None = None) -> float | None:
     """How long the week's headroom lasts with one more agent on this account,
     the 5h stretch's own arithmetic on the weekly window: its fill and the
     newcomer's cost, both measured in the 5h window's points, converted by the
-    plan's measured ratio (`burnrate.Costs.week_per_5h`). With no recent fill it
+    plan's measured ratio (`burnrate.Costs.long_per_short`). With no recent fill it
     is the newcomer's cost alone. None where the week or the ratio is unknown:
     no figure is better than one that guesses the plan."""
-    week = st.trusted_pct_7d
-    ratio = ld.costs.week_per_5h(ld.account) if ld and ld.costs else None
+    week = st.long_trusted
+    ratio = ld.costs.long_per_short(ld.account) if ld and ld.costs else None
     if week is None or ratio is None:
         return None
     fill = (ld.burn or 0.0) * ratio
-    return triggers.stretch_s(PCT_7D_BLOCK - week, fill, agent_burn(ld, agent) * ratio)
+    return triggers.stretch_s(LONG_BLOCK - week, fill, agent_burn(ld, agent) * ratio)
 
 
-def week_runway_s(st: "AccountStatus", ld, now: float | None = None) -> float | None:
+def long_runway_s(st: "AccountStatus", ld, now: float | None = None) -> float | None:
     """How long the week lasts, for the runway column: at the current fill when
     the account is filling, the question the 5h side answers. An idle account
     has no fill to run out at, so it shows the week only where the pick shut it
-    out on the week (`_no_week_room`, one more agent's cost). None where the
+    out on the week (`_no_long_room`, one more agent's cost). None where the
     week or the ratio is unknown, or the week rolls over first."""
     now = now or time.time()
-    week = st.trusted_pct_7d
-    ratio = ld.costs.week_per_5h(ld.account) if ld and ld.costs else None
+    week = st.long_trusted
+    ratio = ld.costs.long_per_short(ld.account) if ld and ld.costs else None
     if week is None or ratio is None:
         return None
     fill = (ld.burn or 0.0) * ratio
     if fill > 0:
-        lasts = (PCT_7D_BLOCK - week) / fill
-    elif _no_week_room(st, ld):
-        lasts = week_stretch_s(st, ld)
+        lasts = (LONG_BLOCK - week) / fill
+    elif _no_long_room(st, ld):
+        lasts = long_stretch_s(st, ld)
     else:
         return None
-    # A week resets within 7 days whether or not the collector told us when.
-    reset_in = (st.reset_7d - now) if st.reset_7d else 7 * 86400
+    # A window resets within its own length whether or not the collector told us when.
+    reset_in = (st.long.reset - now) if st.long.reset else st.long.minutes * 60
     return None if reset_in <= lasts else lasts
 
 
-def _no_week_room(st: "AccountStatus", ld, agent: str | None = None) -> str | None:
+def _no_long_room(st: "AccountStatus", ld, agent: str | None = None) -> str | None:
     """Why the week cannot carry one more agent: it would run out in less than
     a start is worth (`MIN_STRETCH_S`, the same line the 5h window is held to)
     and before the week rolls over. 99% of a week with a day and a half to go
     is such a week; 99% with minutes to go is not, because the reset arrives
-    first. A stale week reading is unknown here (`trusted_pct_7d`), so the week
+    first. A stale week reading is unknown here (`long_trusted`), so the week
     is not judged and only the 5h window is: no figure over a stale one."""
-    lasts = week_stretch_s(st, ld, agent)
+    lasts = long_stretch_s(st, ld, agent)
     if lasts is None or lasts >= triggers.MIN_STRETCH_S:
         return None
-    left = (st.reset_7d - time.time()) if st.reset_7d else None
+    left = (st.long.reset - time.time()) if st.long.reset else None
     if left is not None and left <= lasts:
         return None
     reset = f", resets in {timefmt.span(left)}" if left and left > 0 else ""
-    return (f"7d {st.trusted_pct_7d}%{reset}: one more agent lasts ~{timefmt.span(lasts)} of it - "
+    return (f"{st.long.label} {st.long_trusted}%{reset}: one more agent lasts ~{timefmt.span(lasts)} of it - "
             f"under the {timefmt.span(triggers.MIN_STRETCH_S)} a start is worth")
 
 
@@ -1012,12 +1040,12 @@ def _no_room(st: "AccountStatus", ld, pct: int | None,
     its own kind."""
     if ld and ld.at_cap:
         return f"at its cap: {ld.active} of {ld.cap} agents mid-turn", None
-    weekly = _no_week_room(st, ld, agent)
+    weekly = _no_long_room(st, ld, agent)
     if weekly:
         return weekly, None
     if pct is None:
         return None, None
-    lasts = triggers.stretch_s(PCT_5H_BLOCK - pct, ld.burn if ld and ld.burn else 0.0,
+    lasts = triggers.stretch_s(SHORT_BLOCK - pct, ld.burn if ld and ld.burn else 0.0,
                                agent_burn(ld, agent))
     if lasts < triggers.MIN_STRETCH_S:
         return (_stretch_reason(st, ld, lasts, pct, agent) + f" - under the "
@@ -1033,30 +1061,30 @@ def _stretch_reason(st: "AccountStatus", ld, lasts: float, pct: int,
                     agent: str | None = None) -> str:
     """`pct` is the figure the stretch was computed on - the trusted one for a
     live reading, or the floor idle_floor admitted for a stale one. Printing
-    `st.trusted_pct_5h` instead would read "None%" for exactly the accounts
+    `st.short_trusted` instead would read "None%" for exactly the accounts
     that reach here on a floor, since that property is None while stale."""
     fill = ld.burn if ld and ld.burn else 0.0
     agents_ = f", {ld.active}/{ld.cap} agents" if ld else ""
-    return (f"5h {pct}%, fill {_per_min(fill)}{agents_}, one more agent "
+    return (f"{st.short.label} {pct}%, fill {_per_min(fill)}{agents_}, one more agent "
             f"({_per_min(agent_burn(ld, agent), 2)}) lasts ~{timefmt.span(lasts)}")
 
 
 def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
                  agent: str | None = None) -> str:
     """Why this account sits where it does in the ordering."""
-    week = st.trusted_pct_7d
+    week = st.long_trusted
     week_s = "unknown" if week is None else f"{week}%"
     tag = " <- picked" if picked else ""
     for stale_ok, stale_why in (st.rolled_over(), st.idle_floor(ld.active if ld else 0)):
         if stale_ok:
             return stale_why + tag
-    when = "unknown" if not st.reset_7d else timefmt.ago(max(0.0, st.reset_7d - time.time()))
-    pace = pace_7d(st)
+    when = "unknown" if not st.long.reset else timefmt.ago(max(0.0, st.long.reset - time.time()))
+    pace = long_pace(st)
     pace_s = "unknown pace" if pace == float("inf") else f"{pace:.2f}x its weekly pace"
     # Neither early return above fired, so this account is live, not stale -
-    # trusted_pct_5h is never None here.
-    base = (_stretch_reason(st, ld, lasts, st.trusted_pct_5h, agent) if lasts is not None
-            else f"5h {st.trusted_pct_5h}%") + f"; 7d {week_s} (resets in {when}, {pace_s})"
+    # short_trusted is never None here.
+    base = (_stretch_reason(st, ld, lasts, st.short_trusted, agent) if lasts is not None
+            else f"{st.short.label} {st.short_trusted}%") + f"; {st.long.label} {week_s} (resets in {when}, {pace_s})"
     return base + tag
 
 
@@ -1070,7 +1098,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  vendor: str | None = None) -> tuple[str | None, list[tuple[str, str]]]:
     """Pick among the accounts that can take one more agent - any account that
     will not hit its own wall, the same test `unfit` already answers - the one
-    furthest behind its own weekly pace (`pace_7d`) goes first, since headroom
+    furthest behind its own weekly pace (`long_pace`) goes first, since headroom
     a slower account leaves unspent is lost at its reset and one already ahead
     of pace is not going to run out on its own.
 
@@ -1102,7 +1130,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     An account can take one more agent when it is not at the wall, is under its
     cap of agents mid-turn (`load`), and lasts at least `MIN_STRETCH_S` before
     its wall at its current fill plus one more agent of the kind `agent` names (a
-    typical one when it names none), and the same holds of its week (`_no_week_room`,
+    typical one when it names none), and the same holds of its week (`_no_long_room`,
     at the plan's measured week-per-5h ratio) unless the week rolls over first. How fast it is filling,
     not a fixed line, is what says it has room: an account at 60% and idle has
     more than one at 30% with three agents on it.
@@ -1180,8 +1208,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
             # specially - a carried_old reading (refused below) and a floor
             # idle_floor would admit on (sized below) - asked fresh exactly
             # once, in place, before either decision is made on the old one.
-            stale_here = (st.pct_5h_source == "carried_old"
-                          or (st.trusted_pct_5h is None and st.idle_floor(active)[0]))
+            stale_here = (st.short_source == "carried_old"
+                          or (st.short_trusted is None and st.idle_floor(active)[0]))
             if stale_here:
                 live_refresh_left -= 1
                 fresh = usage_api.read(n, refresh=False)
@@ -1201,10 +1229,10 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         # stale account still inside its window is judged on the floor it was
         # admitted on, not on a fill of 0 - that would prefer the account we
         # cannot see over one we can see has real room.
-        if st.trusted_pct_5h is not None:
-            pct = st.trusted_pct_5h
+        if st.short_trusted is not None:
+            pct = st.short_trusted
         elif st.idle_floor(active)[0]:
-            pct = st.pct_5h
+            pct = st.short.pct
         else:
             pct = 0
         no_room, lasts = _no_room(st, ld, None if st.rolled_over()[0] else pct, agent)
@@ -1217,7 +1245,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
 
     def sort_key(item):
         n, st, ld, _ = item
-        pace = pace_7d(st)
+        pace = long_pace(st)
         # A dead zone, not the raw figure: two paces this close are noise, not
         # a real difference in how far behind the accounts are (PACE_HYSTERESIS
         # docstring). Account name is the final tiebreak precisely because it
@@ -1243,7 +1271,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
         # that tie must still go to the incumbent, not to whichever of them
         # happens to have a hair more headroom this tick.
         return (bucket, 0 if n == prefer else 1,
-                -(st.headroom() or 0), -_CONFIDENCE.get(st.pct_5h_source, 0), n)
+                -(st.short_headroom() or 0), -_CONFIDENCE.get(st.short_source, 0), n)
 
     usable.sort(key=sort_key)
     picked = usable[0][0]

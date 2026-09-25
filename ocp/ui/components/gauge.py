@@ -14,7 +14,7 @@ def elapsed_fraction(reset: int | None, window_s: int, now: float | None = None)
     """How far through a usage window we are, from when it resets; None when the
     reset is unknown or already passed, where the window on the figure is gone."""
     left = (reset or 0) - (time.time() if now is None else now)
-    return None if not reset or left <= 0 else max(0.0, 1 - left / window_s)
+    return None if not reset or left <= 0 or window_s <= 0 else max(0.0, 1 - left / window_s)
 
 
 def bar(pct: int | None, width: int, last_seen: bool = False, elapsed: float | None = None) -> str:
@@ -46,10 +46,10 @@ def gauge(value: int | None, src: str, elapsed: float | None, show_pct: bool = T
 
 
 def usage_cells(st, show_pct: bool = True, now: float | None = None) -> tuple[str, str] | None:
-    """The 5h and 7d cells of an account, or None for one with no meter to draw."""
+    """The shortest and longest window's cells of an account, or None for one with no meter to draw."""
     if st.unmetered:
         return None
-    shown, src = st.shown_pct_5h()
-    return (gauge(shown, src, elapsed_fraction(st.reset_5h, 5 * 3600, now), show_pct),
-            gauge(st.trusted_pct_7d, status.mark(st.pct_7d_source),
-                  elapsed_fraction(st.reset_7d, 7 * 86400, now), show_pct))
+    shown, src = st.shown_short()
+    return (gauge(shown, src, elapsed_fraction(st.short.reset, st.short.minutes * 60, now), show_pct),
+            gauge(st.long_trusted, status.mark(st.long_source),
+                  elapsed_fraction(st.long.reset, st.long.minutes * 60, now), show_pct))

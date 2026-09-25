@@ -30,6 +30,7 @@ import statistics
 import time
 
 from ..team import agents
+from . import windows
 from .. import db
 from ..session import triggers
 
@@ -130,18 +131,18 @@ def observe(con, acct: str, active: list[str], st, firsts: "set[str]" = frozense
     if seg and seg["agents"] != who:
         _emit(con, acct, seg)
         seg = None
-    elif seg and live and (st.pct_5h < seg["p1"] or st.reset_5h != seg["reset"]):
+    elif seg and live and (st.short.pct < seg["p1"] or st.short.reset != seg["reset"]):
         # A reading below the last one, or a new reset time, is a rolled window:
         # nothing about the stretch before it is a rate.
         seg = None
     if who and live:
         if seg is None:
-            seg = {"agents": who, "t0": st.rl_at, "p0": st.pct_5h,
-                   "t1": st.rl_at, "p1": st.pct_5h, "reset": st.reset_5h, "cold": cold}
+            seg = {"agents": who, "t0": st.short.at, "p0": st.short.pct,
+                   "t1": st.short.at, "p1": st.short.pct, "reset": st.short.reset, "cold": cold}
         else:
             seg["cold"] = seg.get("cold", False) or cold
-            if st.rl_at > seg["t1"]:
-                seg["t1"], seg["p1"] = st.rl_at, st.pct_5h
+            if st.short.at > seg["t1"]:
+                seg["t1"], seg["p1"] = st.short.at, st.short.pct
         if seg["t1"] - seg["t0"] >= SEG_MAX_S:
             _emit(con, acct, seg)
             seg = {**seg, "t0": seg["t1"], "p0": seg["p1"], "cold": cold}
@@ -152,39 +153,49 @@ def _pool(plan: str | None) -> str:
     return POOLED + (plan or "")
 
 
-def week_ratios(rows, plan_of=lambda _a: None) -> dict[str, float]:
-    """Points of the week per point of the 5h window, by account and pooled
+def long_ratios(rows, plan_of=lambda _a: None) -> dict[str, float]:
+    """Points of the longest window per point of the shortest, by account and pooled
     per plan under `_pool(plan)`, from `usage_samples` rows in time order. Only a pair of
     consecutive rows of one account that are both live readings of both windows,
-    inside the same 5h window and the same week, and in which neither figure
+    inside the same shortest window and the same longest, and in which neither figure
     fell, says anything: a rolled window, a carried figure or a gap does not."""
     totals: dict[str, list[int]] = {}
     last: dict[str, object] = {}
 
-    def live(r) -> bool:
-        return (r["pct_5h"] is not None and r["pct_7d"] is not None and r["pct_5h_readable"]
-                and not (r["rl_carried"] or r["rl_lost"] or r["rl7_carried"] or r["rl7_lost"]))
+    def pair(r):
+        """(shortest, longest) window of the row, or None with fewer than two."""
+        es = windows.entries(dict(r))
+        return (es[0], es[-1]) if len(es) > 1 else None
+
+    def live(p) -> bool:
+        short, long = p
+        return (short["used_percent"] is not None and long["used_percent"] is not None
+                and short.get("readable") is not False
+                and not (short["carried"] or short["lost"] or long["carried"] or long["lost"]))
 
     for r in rows:
         a = r["account"]
+        cur = pair(r)
         prev = last.get(a)
-        last[a] = r
-        if prev is None or not (live(prev) and live(r)):
+        last[a] = cur
+        if prev is None or cur is None or not (live(prev) and live(cur)):
             continue
-        if r["reset_5h"] != prev["reset_5h"] or r["reset_7d"] != prev["reset_7d"]:
+        if (cur[0]["resets_at"] != prev[0]["resets_at"]
+                or cur[1]["resets_at"] != prev[1]["resets_at"]):
             continue
-        d5, d7 = r["pct_5h"] - prev["pct_5h"], r["pct_7d"] - prev["pct_7d"]
-        if d5 < 0 or d7 < 0:
+        ds = cur[0]["used_percent"] - prev[0]["used_percent"]
+        dl = cur[1]["used_percent"] - prev[1]["used_percent"]
+        if ds < 0 or dl < 0:
             continue
         for key in (a, _pool(plan_of(a))):
             t = totals.setdefault(key, [0, 0])
-            t[0] += d5
-            t[1] += d7
-    return {k: d7 / d5 for k, (d5, d7) in totals.items()
-            if d5 > 0 and d7 >= WEEK_RATIO_MIN_POINTS}
+            t[0] += ds
+            t[1] += dl
+    return {k: dl / ds for k, (ds, dl) in totals.items()
+            if ds > 0 and dl >= WEEK_RATIO_MIN_POINTS}
 
 
-def refresh_week_ratios(con, now: int | None = None, force: bool = False) -> None:
+def refresh_long_ratios(con, now: int | None = None, force: bool = False) -> None:
     """Recompute the ratios from the last WEEK_RATIO_WINDOW_S of samples and keep
     them, at most every WEEK_RATIO_EVERY_S: readers take them from here, so a
     screen redrawing every couple of seconds never scans the samples."""
@@ -197,12 +208,12 @@ def refresh_week_ratios(con, now: int | None = None, force: bool = False) -> Non
         return
     from ..team import accounts
 
-    ratios = week_ratios(db.usage_samples(con, since=now - WEEK_RATIO_WINDOW_S),
+    ratios = long_ratios(db.usage_samples(con, since=now - WEEK_RATIO_WINDOW_S),
                          accounts.recorded_subscription_type)
     db.set_meta(con, _WEEK_RATIO, json.dumps({"at": now, "r": ratios}))
 
 
-def _load_week_ratios(con) -> dict[str, float]:
+def _load_long_ratios(con) -> dict[str, float]:
     try:
         kept = json.loads(db.get_meta(con, _WEEK_RATIO) or "{}")
         return {k: float(v) for k, v in kept.get("r", {}).items()}
@@ -214,10 +225,10 @@ class Costs:
     """The estimate, read once from the samples and shared by every account's
     load, so a screen and the daemon price an agent the same."""
 
-    def __init__(self, samples: list[dict], week_ratios: dict[str, float] | None = None,
+    def __init__(self, samples: list[dict], long_ratios: dict[str, float] | None = None,
                  plan_of=lambda _a: None):
         self._samples = samples
-        self._week_ratios = week_ratios or {}
+        self._long_ratios = long_ratios or {}
         self._plan_of = plan_of
         self._plans: dict[str, str | None] = {}
 
@@ -227,11 +238,11 @@ class Costs:
             self._plans[account] = self._plan_of(account)
         return self._plans[account]
 
-    def week_per_5h(self, account: str) -> float | None:
+    def long_per_short(self, account: str) -> float | None:
         """Points of the week one point of the 5h window costs on this account:
         its own measured ratio, else its plan's pooled one, else None - nothing has
         measured it, and no 5h figure can be turned into the week's."""
-        return self._week_ratios.get(account, self._week_ratios.get(_pool(self._plan(account))))
+        return self._long_ratios.get(account, self._long_ratios.get(_pool(self._plan(account))))
 
     def _median(self, pick) -> tuple[float, int] | None:
         vals = [s["r"] for s in reversed(self._samples) if pick(s)][:KEEP]
@@ -278,5 +289,5 @@ def costs(con, plan_of=None) -> Costs:
     recorded on disk now, and a caller replaying history passes its own."""
     from ..team import accounts
 
-    return Costs(_load_samples(con), _load_week_ratios(con),
+    return Costs(_load_samples(con), _load_long_ratios(con),
                  plan_of or accounts.recorded_subscription_type)

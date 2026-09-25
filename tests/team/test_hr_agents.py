@@ -969,12 +969,12 @@ def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None
                 write_status(home, n, pct_5h=90, reset_5h=now - 60, rl_carried=False,
                              rl_at=now - status.CARRY_MAX_AGE_S - 300, collected_at=now)
                 check(f"vendor refresh: the premise - {n} is carried_old, so a refresh "
-                      "would ask about it", status.read(n).pct_5h_source == "carried_old",
-                      status.read(n).pct_5h_source)
+                      "would ask about it", status.read(n).short_source == "carried_old",
+                      status.read(n).short_source)
 
             def fake_read(acct, refresh=True):
                 asked.append(acct)
-                return usage_api.Reading(acct, 10, now + 9000, 20, now + 90000, now)
+                return reading_of(acct, 10, now + 9000, 20, now + 90000, now)
             usage_api.read = fake_read
             accounts.logged_in = lambda acct: True
 
@@ -1752,11 +1752,11 @@ def test_shared_account_context_isolation(home: Path) -> None:
     check("shared account: each agent keeps its own context",
           (a.ctx_pct, b.ctx_pct) == (70, 5), f"a={a.ctx_pct} b={b.ctx_pct}")
     check("shared account: rate limits are still shared",
-          a.pct_5h == b.pct_5h == 30, f"a={a.pct_5h} b={b.pct_5h}")
+          a.short.pct == b.short.pct == 30, f"a={a.short.pct} b={b.short.pct}")
 
     # The context trigger must fire for the full agent and not for the other.
-    ta = triggers.evaluate(a.pct_5h, a.ctx_used)
-    tb = triggers.evaluate(b.pct_5h, b.ctx_used)
+    ta = triggers.evaluate(a.short.pct, a.ctx_used)
+    tb = triggers.evaluate(b.short.pct, b.ctx_used)
     check("shared account: the full agent's context trigger fires",
           ta.fired and ta.kind == "context", ta.reason)
     check("shared account: the other agent's does not", not tb.fired, tb.reason)
@@ -1765,7 +1765,7 @@ def test_shared_account_context_isolation(home: Path) -> None:
     agents.register("ag_c")
     c = status.read_for_agent("ag_c", "shared")
     check("shared account: an agent with no session file falls back to the account",
-          c.pct_5h == 30)
+          c.short.pct == 30)
 
 
 def test_agent_rewrite_uses_parser(home: Path) -> None:

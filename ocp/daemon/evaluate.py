@@ -282,8 +282,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # account that was climbing.
     hist = samples.setdefault(acct, [])
     if st.is_live_reading:
-        if not hist or hist[-1][0] != st.rl_at:
-            hist.append((st.rl_at, st.pct_5h))
+        if not hist or hist[-1][0] != st.short.at:
+            hist.append((st.short.at, st.short.pct))
             del hist[:-triggers.BURN_WINDOW]
     burn = triggers.burn_rate_per_s(hist)
     # Stamped with the newest sample's time, so a pace nobody is keeping ages out.
@@ -301,8 +301,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             and state == PARKED and reading and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
-        verdict = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used,
-                                    pct_7d=st.trusted_pct_7d, ctx_limit=ctx_limit)
+        verdict = triggers.evaluate(st.short_trusted, st.trusted_ctx_used,
+                                    long_pct=st.long_trusted, ctx_limit=ctx_limit)
         movable = last and last["trigger_kind"] in handoff.MOVABLE_TRIGGERS
         # Still at the wall here, but another account may have rolled over or
         # freed a slot since the park: if the work is worth a cold start, move
@@ -349,8 +349,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # trusted_* is None only when we genuinely do not know: no snapshot, or
     # one too old to believe. Unknown is not a wall, so it does not fire; an
     # account whose window is merely quiet reads as 0, not as unknown.
-    t = triggers.evaluate(st.trusted_pct_5h, st.trusted_ctx_used,
-                          pct_7d=st.trusted_pct_7d, ctx_limit=ctx_limit)
+    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used,
+                          long_pct=st.long_trusted, ctx_limit=ctx_limit)
     # A turn that ended on the usage limit means the agent is at the wall
     # whatever the reading says (it can lag, or be the other window): move it
     # the same way a trigger would.
@@ -478,6 +478,6 @@ def observe_burn(con, log) -> None:
     except Exception as e:  # noqa: BLE001
         log(f"  tokens: prune failed: {e}")
     try:
-        burnrate.refresh_week_ratios(con)
+        burnrate.refresh_long_ratios(con)
     except Exception as e:  # noqa: BLE001 - no ratio only means the week is judged at its wall
         log(f"  sample: week ratio failed: {e}")

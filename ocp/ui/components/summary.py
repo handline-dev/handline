@@ -29,7 +29,7 @@ def tightest() -> tuple[str, str, int] | None:
     best: tuple[str, str, int] | None = None
     for name in paths.list_accounts():
         st = status.read(name)
-        for window, pct in (("5h", st.trusted_pct_5h), ("7d", st.trusted_pct_7d)):
+        for window, pct in ((st.short.label, st.short_trusted), (st.long.label, st.long_trusted)):
             if pct is not None and pct >= TIGHT_PCT and (best is None or pct > best[2]):
                 best = (name, window, pct)
     return best
@@ -74,4 +74,4 @@ def marks_on_screen() -> bool:
     """Is any usage figure drawn with a mark the legend explains?"""
     return any(status.mark(src).strip()
                for a in paths.list_accounts()
-               for src in (status.read(a).pct_5h_source, status.read(a).pct_7d_source))
+               for src in (status.read(a).short_source, status.read(a).long_source))

@@ -158,10 +158,12 @@ class AccountPage(AccountActions, Screen):
         self.query_one("#t_meta", Static).update(meta)
 
         usage = Text("Usage\n", style="bold")
-        shown, src = st.shown_pct_5h()
-        for name, pct, mark, reset, window in (
-                ("5h", shown, src, st.reset_5h, 5 * 3600),
-                ("7d", st.trusted_pct_7d, status.mark(st.pct_7d_source), st.reset_7d, 7 * 86400)):
+        shown, src = st.shown_short()
+        for w, pct, mark in ((st.short, shown, src),
+                             (st.long, st.long_trusted, status.mark(st.long_source))):
+            if w is st.long and not w.minutes:
+                continue        # a vendor with one window has no longest
+            name, reset, window = w.label, w.reset, w.minutes * 60
             bar = gauge.bar(pct, BAR_W, mark == status.IDLE_MARK, gauge.elapsed_fraction(reset, window))
             usage.append(f"  {name:<6}", style="dim")
             usage.append_text(Text.from_ansi(f"{bar} {tui.pct(pct)}%{mark}"))

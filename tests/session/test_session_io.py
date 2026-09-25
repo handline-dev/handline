@@ -23,8 +23,8 @@ def test_failclosed(home: Path) -> None:
     # spent in this window. Refusing here parked five idle agents once.
     write_status(home, "quiet", pct_5h=None, pct_7d=None)
     q = status.read("quiet")
-    check("no 5h window in a fresh snapshot reads as quiet", q.pct_5h_source == "quiet",
-          q.pct_5h_source)
+    check("no 5h window in a fresh snapshot reads as quiet", q.short_source == "quiet",
+          q.short_source)
     allowed, why = q.assignable()
     check("a quiet window assigns", allowed, why)
 
@@ -35,39 +35,39 @@ def test_failclosed(home: Path) -> None:
     write_status(home, "wk", pct_5h=10, pct_7d=60, reset_7d=int(time.time()) + 3600,
                  rl7_at=int(time.time()))
     w = status.read("wk")
-    check("a fresh weekly figure is live", w.pct_7d_source == "live"
-          and w.trusted_pct_7d == 60, w.pct_7d_source)
+    check("a fresh weekly figure is live", w.long_source == "live"
+          and w.long_trusted == 60, w.long_source)
     write_status(home, "wk", pct_5h=10, pct_7d=60, reset_7d=int(time.time()) + 3600,
                  rl7_at=int(time.time()), collected_at=int(time.time()) - 100000)
     w = status.read("wk")
     check("a stale one is a floor, and says so",
-          w.trusted_pct_7d == 60 and status.mark(w.pct_7d_source) in ("~", "!"),
-          f"{w.trusted_pct_7d} {w.pct_7d_source}")
+          w.long_trusted == 60 and status.mark(w.long_source) in ("~", "!"),
+          f"{w.long_trusted} {w.long_source}")
     write_status(home, "wk", pct_5h=10, pct_7d=60, reset_7d=int(time.time()) - 60,
                  rl7_at=int(time.time()))
     w = status.read("wk")
     check("and a window that has rolled over leaves no figure at all",
-          w.trusted_pct_7d is None, str(w.trusted_pct_7d))
+          w.long_trusted is None, str(w.long_trusted))
     check("so a finished week cannot block an account forever",
           w.assignable()[0] or "7d" not in w.assignable()[1], str(w.assignable()))
     check("and says the 0% was inferred", "inferred" in why, why)
-    check("quiet headroom is the full window", q.headroom() == 100, str(q.headroom()))
-    check("the raw reading stays null", q.pct_5h is None, repr(q.pct_5h))
+    check("quiet headroom is the full window", q.short_headroom() == 100, str(q.short_headroom()))
+    check("the raw reading stays null", q.short.pct is None, repr(q.short.pct))
 
     # Unknown is what fail-closed is for, and these are the shapes of it.
     write_status(home, "unreadable", pct_5h="lots")
     u = status.read("unreadable")
-    check("an unreadable pct_5h is unknown", u.pct_5h_source == "unknown", u.pct_5h_source)
+    check("an unreadable pct_5h is unknown", u.short_source == "unknown", u.short_source)
     allowed, why = u.assignable()
     check("and refuses assignment", not allowed, why)
-    check("headroom is None when unknown", u.headroom() is None)
+    check("headroom is None when unknown", u.short_headroom() is None)
 
     (home / "accounts" / "nofield").mkdir(parents=True, exist_ok=True)
     (home / "accounts" / "nofield" / "status.json").write_text(
         json.dumps({"account": "nofield", "collected_at": int(time.time()), "session_id": "s"}))
     nf = status.read("nofield")
     check("a snapshot with no pct_5h field at all is unknown",
-          nf.pct_5h_source == "unknown", nf.pct_5h_source)
+          nf.short_source == "unknown", nf.short_source)
     check("and refuses", not nf.assignable()[0])
 
     # A reading survives a payload that does not mention the window, while that
@@ -75,7 +75,7 @@ def test_failclosed(home: Path) -> None:
     write_status(home, "carried", pct_5h=40, reset_5h=int(time.time()) + 600,
                  rl_carried=True, rl_at=int(time.time()) - 300)
     c = status.read("carried")
-    check("a carried reading is used", c.trusted_pct_5h == 40, str(c.trusted_pct_5h))
+    check("a carried reading is used", c.short_trusted == 40, str(c.short_trusted))
     allowed, why = c.assignable()
     check("a carried reading assigns", allowed, why)
     check("and is labelled carried", "carried" in why, why)
@@ -83,8 +83,8 @@ def test_failclosed(home: Path) -> None:
     # The API returns these as floats, sometimes untidy ones. Rounding must go
     # up, so a rounding error triggers sooner rather than later.
     write_status(home, "floaty", pct_5h=28.999999999999996, pct_7d=10.0)
-    check("float percentage rounds up, not down", status.read("floaty").pct_5h == 29,
-          str(status.read("floaty").pct_5h))
+    check("float percentage rounds up, not down", status.read("floaty").short.pct == 29,
+          str(status.read("floaty").short.pct))
     write_status(home, "nearly", pct_5h=84.9, pct_7d=10)
     allowed, why = status.read("nearly").assignable()
     check("84.9% rounds to 85 and still assigns below the block", allowed, why)
@@ -98,7 +98,7 @@ def test_failclosed(home: Path) -> None:
     write_status(home, "fresh", pct_5h=10, pct_7d=20)
     allowed, why = status.read("fresh").assignable()
     check("healthy account is assignable", allowed, why)
-    check("headroom computed", status.read("fresh").headroom() == 90)
+    check("headroom computed", status.read("fresh").short_headroom() == 90)
 
     write_status(home, "hot", pct_5h=100, pct_7d=20)
     allowed, _ = status.read("hot").assignable()
@@ -1791,9 +1791,9 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
                      collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         st = status.read_for_agent("backend", "alpha")
         check("closed: its usage does read as unknown",
-              st.trusted_pct_5h is None, str(st.trusted_pct_5h))
+              st.short_trusted is None, str(st.short_trusted))
         check("closed: and an unknown figure is not a wall, so nothing would fire on it",
-              not triggers.evaluate(st.trusted_pct_5h, None).fired)
+              not triggers.evaluate(st.short_trusted, None).fired)
 
         sent.clear()
         dmn_evaluate.tick(con, lambda _m: None)
@@ -2767,7 +2767,7 @@ def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) 
         db.add_request(con, "marina", "backend", "carry on", None,
                        "peer", "async", None, 0, None)
         row = db.get_agent_state(con, "backend")
-        st = status.AccountStatus("alpha", exists=True, session_id="sess-1")
+        st = status_of("alpha", exists=True, session_id="sess-1")
         check("parked+queued close: an IDLE agent with queued work is not closed - "
               "it is about to be delivered to instead",
               not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, int(time.time()) + 10_000, st))

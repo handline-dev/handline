@@ -36,7 +36,7 @@ import urllib.error
 import urllib.request
 
 from ..team import accounts
-from .base import Reading
+from .base import Reading, Window
 from .claude import keychain_service
 from .. import vendors
 
@@ -54,6 +54,8 @@ REFRESH_TIMEOUT_S = 40
 # The two windows ocp gates on, by the duration the endpoint keys them under.
 FIVE_HOUR = "five_hour"
 SEVEN_DAY = "seven_day"
+FIVE_HOUR_MINUTES = 300
+SEVEN_DAY_MINUTES = 10080
 
 
 def _reset(window) -> int | None:
@@ -190,8 +192,8 @@ def _read_claude(acct: str, refresh: bool) -> tuple[Reading | None, bool]:
     five, seven = payload.get(FIVE_HOUR), payload.get(SEVEN_DAY)
     return Reading(
         account=acct,
-        pct_5h=_pct(five), reset_5h=_reset(five),
-        pct_7d=_pct(seven), reset_7d=_reset(seven),
+        windows=(Window(FIVE_HOUR_MINUTES, _pct(five), _reset(five)),
+                 Window(SEVEN_DAY_MINUTES, _pct(seven), _reset(seven))),
         at=int(time.time()),
     ), False
 

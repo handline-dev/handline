@@ -37,7 +37,7 @@ def forget(con, agent: str) -> None:
 
 def begin(con, agent: str, acct: str) -> None:
     """A session has just been started for `agent` on `acct` from nothing."""
-    pct = status.read(acct).trusted_pct_5h
+    pct = status.read(acct).short_trusted
     if pct is None or load.active_agents(con, exclude=agent).get(acct, 0):
         db.set_meta(con, _key(agent), None)
         return
@@ -60,7 +60,7 @@ def settle(con, agent: str) -> None:
     if not done:
         return
     db.set_meta(con, _key(agent), None)
-    after = status.read(m["account"]).trusted_pct_5h
+    after = status.read(m["account"]).short_trusted
     others = load.active_agents(con, exclude=agent).get(m["account"], 0)
     if after is None or others or after < m["before"]:
         return

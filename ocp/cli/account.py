@@ -177,9 +177,7 @@ def cmd_account_list(args) -> int:
                 "account": a, "logged_in": accounts.logged_in(a),
                 "agents_assigned": assigned, "agents_running": running,
                 "agents_unplaced": unplaced,
-                "pct_5h": st.pct_5h, "pct_5h_effective": st.trusted_pct_5h,
-                "pct_5h_source": st.pct_5h_source,
-                "pct_7d": st.pct_7d, "reset_7d": st.reset_7d, "ctx_pct": st.ctx_pct,
+                "windows": st.window_report(), "ctx_pct": st.ctx_pct,
                 "age_s": st.age_s, "assignable": allowed, "reason": why,
                 "subscription_type": accounts.subscription_type(a),
             })
@@ -194,15 +192,15 @@ def cmd_account_list(args) -> int:
         allowed, why = _can_start(st, loads.get(a))
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = timefmt.ago(st.age_s)
-        resets = "-" if not st.reset_7d else timefmt.stamp(st.reset_7d, timefmt.SHORT)
+        resets = "-" if not st.long.reset else timefmt.stamp(st.long.reset, timefmt.SHORT)
         plan = accounts.subscription_type(a) or "-"
         # A figure we inferred is marked, never dressed up as one we read.
-        shown, src = st.shown_pct_5h()
+        shown, src = st.shown_short()
         five = f"{cell(shown)}{src}"
         # The bridge's cell, in words only: one definition, one format.
         agents_ = textsafe.oneline(tui.agents_cell(roster.get(a, (0, 0)), unplaced))
         print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}{agents_:<{aw}}"
-              f"{five:>5}{cell(st.pct_7d):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
+              f"{five:>5}{cell(st.long.pct):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{status.describe_runway(status.runway(st, status.read_burn(a), None, loads.get(a))):<16}"
               f"{'yes' if allowed else 'NO':<4} {why}")
     outlook = status.team_outlook()

@@ -70,7 +70,7 @@ LIMIT_SETTLE_S = 30
 DEGRADED_RETRY_S = 600
 
 # A park computed against an assumed account has no real ceiling to sleep to
-# - `reset_5h` belongs to an account this agent may not even be on - so it
+# - the shortest window's reset belongs to an account this agent may not even be on - so it
 # gets a short re-look instead of a multi-hour wait, on the chance that the
 # next tick has a recorded or reported account to judge it by instead.
 ASSUMED_ACCOUNT_RECHECK_S = 300

@@ -278,8 +278,8 @@ def test_triggers() -> None:
     t = T.evaluate(100, 10)
     check("trigger: the wall fires", t.fired and t.kind == "usage", t.reason)
     check("trigger: the weekly wall fires on its own figure",
-          T.evaluate(9, 10, pct_7d=100).kind == "usage_7d")
-    check("trigger: 98% of the week is not a wall", not T.evaluate(9, 10, pct_7d=98).fired)
+          T.evaluate(9, 10, long_pct=100).kind == "usage_7d")
+    check("trigger: 98% of the week is not a wall", not T.evaluate(9, 10, long_pct=98).fired)
 
     # Unknown usage is not a wall: the wall announces itself, and moving an agent
     # off an account nobody can read spends a cold start on a guess.
@@ -293,7 +293,8 @@ def test_triggers() -> None:
     check("move: work waits and the reset is far", T.stay_or_move(True, 3 * 3600)[0])
     check("move: an unknown reset is not soon", T.stay_or_move(True, None)[0])
     check("stay: T follows a measured cold start",
-          T.stay_within_s(13) == 13 / 100 * T.WINDOW_5H_S
+          T.stay_within_s(13, 5 * 3600) == 13 / 100 * 5 * 3600
+          and T.stay_within_s(13) == T.STAY_WITHIN_S
           and T.stay_within_s(None) == T.STAY_WITHIN_S)
     check("stretch: an empty account lasts headroom over one agent's burn",
           abs(T.stretch_s(45, 0.0) - 45 / T.TYPICAL_AGENT_BURN_PER_S) < 1e-6)
@@ -317,13 +318,13 @@ def test_triggers() -> None:
           abs(T.burn_rate_per_s([(0, 60), (300, 75)]) * 60 - 3.0) < 0.01)
 
     # The weekly window is run to its own wall too.
-    t = T.evaluate(9, 10, pct_7d=100)
-    check("trigger: a 7d reading at its wall fires",
-          t.fired and t.kind == "usage_7d" and "pct_7d" in t.reason, t.reason)
+    t = T.evaluate(9, 10, long_pct=100)
+    check("trigger: a longest-window reading at its wall fires",
+          t.fired and t.kind == "usage_7d" and "longest window" in t.reason, t.reason)
     check("trigger: no 7d reading at all is not a 7d refusal",
-          not T.evaluate(9, 10, pct_7d=None).fired)
+          not T.evaluate(9, 10, long_pct=None).fired)
     check("trigger: a 5h wall wins when both are at theirs",
-          T.evaluate(100, 10, pct_7d=100).kind == "usage")
+          T.evaluate(100, 10, long_pct=100).kind == "usage")
 
 
 def test_fold_is_not_rejected_over_a_header_it_overwrites(home: Path) -> None:

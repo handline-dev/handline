@@ -56,6 +56,8 @@ from ocp import actions, cli as climod, db, vendors  # noqa: E402
 from ocp.session import blocked as blockedmod, digest, drift, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
 from ocp.vendors import claude_meter as claudemeter  # noqa: E402
 from ocp.vendors import claude_collect  # noqa: E402
+from ocp.vendors.base import Window  # noqa: E402
+from ocp.usage import windows  # noqa: E402
 from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from ocp.infra import doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from ocp.ui import jobs as jobsmod, tui  # noqa: E402
@@ -339,11 +341,42 @@ def check(name: str, cond: bool, detail: str = "") -> None:
     print(f"{'PASS' if cond else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not cond else ""))
 
 
+_OLD_WINDOW_KEYS = ("pct_5h", "pct_5h_readable", "reset_5h", "rl_at", "rl_carried", "rl_lost",
+                    "pct_7d", "reset_7d", "rl7_at", "rl7_carried", "rl7_lost")
+
+
+def old_to_windows(fields: dict) -> dict:
+    """`fields` with claude's two windows, spelled the way a test finds
+    easiest to read (`pct_5h=`, `rl_at=`, ...), turned into the `windows` list a
+    record holds now. Nothing else in `fields` changes."""
+    old = {k: fields[k] for k in _OLD_WINDOW_KEYS if k in fields}
+    out = {k: v for k, v in fields.items() if k not in old}
+    if old:
+        out["windows"] = windows.entries(old)
+    return out
+
+
+def status_of(account: str = "", **kw) -> "status.AccountStatus":
+    """An AccountStatus built from claude's window names. A window not named is
+    one the vendor reported as null, which is how an unset field always read."""
+    old = {k: kw.pop(k) for k in _OLD_WINDOW_KEYS if k in kw}
+    old.setdefault("pct_5h", None)
+    old.setdefault("pct_7d", None)
+    short, long = status.windows_of(old_to_windows(old))
+    return status.AccountStatus(account, short=short, long=long, **kw)
+
+
+def reading_of(account: str, pct_5h, reset_5h, pct_7d, reset_7d, at) -> "usage_api.Reading":
+    """A vendor Reading of claude's two windows."""
+    return usage_api.Reading(account, (Window(300, pct_5h, reset_5h),
+                                       Window(10080, pct_7d, reset_7d)), at)
+
+
 def write_status(home: Path, acct: str, **fields) -> None:
     d = home / "accounts" / acct
     d.mkdir(parents=True, exist_ok=True)
     payload = {"account": acct, "collected_at": int(time.time()), "session_id": "s"}
-    payload.update(fields)
+    payload.update(old_to_windows(fields))
     (d / "status.json").write_text(json.dumps(payload))
 
 
@@ -392,7 +425,7 @@ def _seed_week_history(con, account: str, now: int, five=(10, 90), seven=(50, 60
     from `five[0]` to `five[1]` and from `seven[0]` to `seven[1]`, one a minute."""
     n = 40
     for i in range(n):
-        st = status.AccountStatus(
+        st = status_of(
             account, exists=True,
             pct_5h=five[0] + (five[1] - five[0]) * i // (n - 1),
             pct_7d=seven[0] + (seven[1] - seven[0]) * i // (n - 1),
@@ -421,7 +454,7 @@ def _gamma_world(home: Path, gamma_week: int = 99, gamma_reset_in: int = 39 * 36
                  reset_7d=now + 3 * 86400)
     con = db.connect()
     _seed_week_history(con, "delta", now)
-    burnrate.refresh_week_ratios(con, now, force=True)
+    burnrate.refresh_long_ratios(con, now, force=True)
     return con, loadmod.read_all(con)
 
 
@@ -1284,8 +1317,8 @@ def _fire_hook(event: str, **fields) -> None:
 class _Reading:
     """What `burnrate.observe` reads of an account: a live figure and when it was seen."""
     def __init__(self, pct: int, at: int, reset: int = 9_999_999_999):
-        self.pct_5h, self.rl_at, self.reset_5h = pct, at, reset
-        self.pct_5h_source = "live"
+        self.short = status.Window(300, pct, reset, at)
+        self.short_source = "live"
         self.is_live_reading = True
 
 
@@ -1896,6 +1929,11 @@ __all__ = [
     'LABEL_LOG',
     'check',
     'write_status',
+    'status_of',
+    'reading_of',
+    'old_to_windows',
+    'Window',
+    'windows',
     'readable_agent',
     'keep_handoff',
     'kept_handoff',

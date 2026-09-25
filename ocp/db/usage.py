@@ -1,8 +1,11 @@
 """Usage samples, one row per account per tick."""
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
+
+from ..usage import windows
 
 
 # ---------------------------------------------------------------- usage_samples
@@ -17,16 +20,20 @@ def record_usage_sample(con, account: str, st, ts: int | None = None) -> None:
     by default). Every usage figure is written exactly as `st` has it -
     `None` stays `None`, never 0 - so a reader reconstructs the same
     AccountStatus this was taken from, not a guess at what it meant."""
+    got = [w for w in (st.short, st.long) if w.minutes or not w.readable]
     con.execute(
-        "INSERT INTO usage_samples(account, ts, exists_, error, pct_5h, "
-        "pct_5h_readable, reset_5h, rl_at, rl_carried, rl_lost, pct_7d, "
-        "reset_7d, rl7_at, rl7_carried, rl7_lost, collected_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO usage_samples(account, ts, exists_, error, collected_at, windows) "
+        "VALUES(?,?,?,?,?,?)",
         (account, ts or int(time.time()), int(bool(st.exists)), st.error,
-         st.pct_5h, int(bool(st.pct_5h_readable)), st.reset_5h, st.rl_at,
-         int(bool(st.rl_carried)), int(bool(st.rl_lost)), st.pct_7d, st.reset_7d,
-         st.rl7_at, int(bool(st.rl7_carried)), int(bool(st.rl7_lost)), st.collected_at),
+         st.collected_at, json.dumps([_entry(w) for w in got])),
     )
+
+
+def _entry(w) -> dict:
+    e = windows.entry(w.minutes, w.pct, w.reset, w.at, w.carried, w.lost)
+    if not w.readable:
+        e["readable"] = False
+    return e
 
 
 def prune_usage_samples(con, before_ts: int | None = None) -> int:

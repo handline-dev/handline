@@ -269,6 +269,8 @@ CREATE INDEX IF NOT EXISTS dialog_presses_agent ON dialog_presses(agent, at);
 -- on AccountStatus, so a replay reasons about it the same way pick_account
 -- does. A gap in `ts` - the daemon down, or a sleeping machine - is a gap:
 -- nothing backfills it.
+-- The pct_*/reset_*/rl_* columns are what rows written before `windows` hold;
+-- they are read (usage.windows) and never written or rewritten.
 CREATE TABLE IF NOT EXISTS usage_samples (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   account          TEXT    NOT NULL,
@@ -286,7 +288,8 @@ CREATE TABLE IF NOT EXISTS usage_samples (
   rl7_at           INTEGER,
   rl7_carried      INTEGER NOT NULL DEFAULT 0,
   rl7_lost         INTEGER NOT NULL DEFAULT 0,
-  collected_at     INTEGER
+  collected_at     INTEGER,
+  windows          TEXT
 );
 -- (account, ts) serves a read of one account; the prune and a `since` read
 -- filter on ts alone, which that index cannot serve (account leads it).
@@ -546,6 +549,10 @@ def _rename_orchestrator(con) -> None:
 
 
 def _add_missing_columns(con) -> None:
+    # usage_samples gained the windows list; the rows before it keep the columns
+    # they were written with, and `usage.windows` reads either.
+    if "windows" not in _cols(con, "usage_samples"):
+        con.execute("ALTER TABLE usage_samples ADD COLUMN windows TEXT")
     request_cols = _cols(con, "requests")
     for col in ("dismissed_by", "dismissed_reason"):
         if col not in request_cols:
