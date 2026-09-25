@@ -18,7 +18,6 @@ from ... import actions, db
 from ...usage import load as loadmod, status
 from ...infra import paths, textsafe
 from .. import tui
-from ..keymap import canonical
 from ...infra import timefmt
 from ..components import gauge
 from ..components.ime import ImeInput
@@ -274,8 +273,7 @@ class AccountPage(AccountActions, Screen):
             (self.focus_next if event.key == "down" else self.focus_previous)()
         if isinstance(focused, Input):
             return
-        char = canonical(event.character or "")
-        if self.query_one("#a_settings").display and char in ("l", "x"):
+        if self.query_one("#a_settings").display and event.character in ("l", "x"):
             event.stop()
-            self.run_worker(self._run(self._account_login if char == "l" else self._account_remove),
+            self.run_worker(self._run(self._account_login if event.character == "l" else self._account_remove),
                             exclusive=True, group="account")

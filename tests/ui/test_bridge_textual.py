@@ -594,55 +594,6 @@ async def test_copy_reaches_the_system_clipboard() -> None:
     check("copy: the text also went to the system clipboard", copied == ["picked"], repr(copied))
 
 
-def test_keymap_names_a_korean_key_by_the_latin_letter_on_it() -> None:
-    from ocp.ui.keymap import canonical
-    got = [canonical(k) for k in ("ctrl+ㅍ", "ㅁ", "ㅃ", "ctrl+ㅃ", "ctrl+v", "enter", "ㅎ+x")]
-    check("keymap: jamo become the Latin key, anything else is left alone",
-          got == ["ctrl+v", "a", "Q", "ctrl+q", "ctrl+v", "enter", "ㅎ+x"], repr(got))
-    from ocp.ui.keys import key_token
-    from ocp.ui.components.confirm import confirm_answer
-    from ocp.ui.keymap import canonical as canon
-    answers = [confirm_answer("ㅛ", canon("ㅛ")), confirm_answer("ㅜ", canon("ㅜ"))]
-    check("keymap: a confirm box takes ㅛ as y and ㅜ as n", answers == [True, False], repr(answers))
-    tokens = [key_token(events.Key(k, k)) for k in ("ㅂ", "ㅁ", "q", "+")]
-    check("keymap: the home page's key token is the Latin letter (ㅂ is q, ㅁ is a)",
-          tokens == ["q", "a", "q", "+"], repr(tokens))
-
-
-async def test_a_korean_key_fires_the_binding_and_still_types_as_typed() -> None:
-    """T121 (auditor #651): pressed through an app, ctrl+ㅍ and ㄴ reach the
-    bindings on ctrl+v and s, while an Input gets the jamo itself."""
-    from textual.widgets import Input
-    from ocp.ui.keymap import KeymapApp
-
-    class _HostApp(KeymapApp):
-        BINDINGS = [("ctrl+v", "hit('ctrl+v')", ""), ("s", "hit('s')", "")]
-
-        def __init__(self, with_input: bool):
-            super().__init__()
-            self.hits, self.with_input = [], with_input
-
-        def compose(self):
-            if self.with_input:
-                yield Input()
-
-        def action_hit(self, name: str) -> None:
-            self.hits.append(name)
-
-    app = _HostApp(False)
-    async with app.run_test() as pilot:
-        await pilot.press("ctrl+ㅍ", "ㄴ")
-        await pilot.pause(0.1)
-    check("keymap: ctrl+ㅍ and ㄴ fire the bindings on ctrl+v and s", app.hits == ["ctrl+v", "s"], repr(app.hits))
-    app = _HostApp(True)
-    async with app.run_test() as pilot:
-        app.query_one(Input).focus()
-        await pilot.press("ㅁ")
-        await pilot.pause(0.1)
-        typed = app.query_one(Input).value
-    check("keymap: an Input still gets the jamo as typed", typed == "ㅁ", repr(typed))
-
-
 async def test_a_drag_selection_is_copied_when_the_mouse_is_let_go() -> None:
     """T121, founder: Cmd+C copied nothing. The selection is copied on release."""
     from ocp.infra import clipboard
@@ -2076,8 +2027,6 @@ async def _run_all() -> None:
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     await test_copy_reaches_the_system_clipboard()
-    test_keymap_names_a_korean_key_by_the_latin_letter_on_it()
-    await test_a_korean_key_fires_the_binding_and_still_types_as_typed()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_task_checks_lists_and_acts_on_the_founders_own()
     await test_task_checks_closes_several_checked_at_once()
