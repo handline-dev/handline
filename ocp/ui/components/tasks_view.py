@@ -24,13 +24,23 @@ _ASKS = {"discard": "discard - why:", "owner": "new owner (agent name):",
          "priority": "priority (1 high, 2, 3 low):"}
 
 
-def result_lines(results: list[tuple[int, bool, str]]) -> Text:
-    """One line per task: what was done, or the refusal and its reason."""
+_DONE = {"close": "closed", "discard": "discarded", "owner": "owner changed", "priority": "priority set",
+         "merge": "merged"}
+
+
+def result_lines(results: list[tuple[int, bool, str]], verb: str) -> Text:
+    """What was done, on one line for every task that worked; a refused task gets its own
+    line with the reason."""
     out = Text()
-    for i, (tid, ok, msg) in enumerate(results):
-        out.append("\n" if i else "")
-        out.append(f"{actions.task_ref(tid)} {'ok' if ok else 'refused'}: ", "green" if ok else "red")
-        out.append(textsafe.oneline(msg))
+    done = [actions.task_ref(t) for t, ok, _ in results if ok]
+    if done:
+        out.append(f"{_DONE.get(verb, verb)} {len(done)}: ", "green")
+        out.append(" ".join(done))
+    for tid, ok, msg in results:
+        if not ok:
+            out.append("\n" if out else "")
+            out.append(f"{actions.task_ref(tid)} refused: ", "red")
+            out.append(textsafe.oneline(msg))
     return out
 
 
@@ -356,7 +366,7 @@ class TasksView(Vertical):
                 results = actions.batch_task(con, verb, tids, actions.HUMAN, arg)
         finally:
             con.close()
-        self.results = result_lines(results)
+        self.results = result_lines(results, verb)
         self.checked -= {t for t, ok, _ in results if ok}
         if verb == "merge" and results[0][1]:
             self.checked.clear()

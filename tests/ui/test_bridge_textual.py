@@ -1503,6 +1503,13 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
         con.close()
 
 
+def test_batch_results_are_one_line_for_what_worked_and_one_per_refusal() -> None:
+    from ocp.ui.components.tasks_view import result_lines
+    got = result_lines([(14, True, "x"), (15, True, "y"), (16, False, "not done yet")], "close").plain
+    check("results: successes on one line, a refusal on its own with the reason",
+          got == "closed 2: T14 T15\nT16 refused: not done yet", got)
+
+
 async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
     from textual.widgets import Tabs
     from ocp.ui import chat_page as cp
@@ -2300,6 +2307,7 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_the_tasks_table_lists_owned_and_opened_and_sorts()
+    test_batch_results_are_one_line_for_what_worked_and_one_per_refusal()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
