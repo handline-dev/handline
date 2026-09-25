@@ -309,7 +309,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("fold", help="fold events into the digest (the one model call)")
     p.add_argument("agent", nargs="?")
     p.add_argument("--no-model", action="store_true", help="deterministic fold only")
-    p.add_argument("--model", default="haiku")
+    p.add_argument("--model", default=None, help="default: the driver's own cheap model")
     p.add_argument("--account", default=None, help="account to run the fold call on")
     p.add_argument("--repo", default=None, help="repo to read git facts from")
     p.set_defaults(fn=cmd_fold)

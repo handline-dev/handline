@@ -46,9 +46,9 @@ Past that bound we still use the floor for triggers, because an idle session
 cannot be racing toward the wall, but we refuse to assign new work on it.
 
 The quiet inference has one known exception, and it is ours: `ocp fold` runs
-`claude -p`, which is headless and has no statusLine, so a fold spends quota
-that no collector will ever see. It is one small call, but it means quiet
-reads "no session reported spending", not "nothing was spent".
+its one model call headless, with no statusLine, so a fold spends quota that
+no collector will ever see. It is one small call, but it means quiet reads
+"no session reported spending", not "nothing was spent".
 """
 from __future__ import annotations
 

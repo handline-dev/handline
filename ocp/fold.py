@@ -196,8 +196,13 @@ Rules:
 """
 
 
-def run_model(prompt: str, account: str, model: str = "haiku") -> tuple[bool, str]:
-    """Run the single model call a fold is allowed (KICKOFF rule 4)."""
+def run_model(prompt: str, account: str, model: str | None = None) -> tuple[bool, str]:
+    """Run the single model call a fold is allowed (KICKOFF rule 4).
+
+    `model` is a human's own choice (`--model`), or None to let the driver
+    pick its own cheap default - never a literal fallen back to here, which
+    would be one vendor's model alias handed to whichever vendor answers.
+    """
     drv = vendors.for_account(account)
     exe = drv.binary()
     if not exe:
@@ -235,7 +240,7 @@ def _strip_fences(text: str) -> str:
     return t.strip()
 
 
-def fold(agent: str, use_model: bool = True, model: str = "haiku",
+def fold(agent: str, use_model: bool = True, model: str | None = None,
          fold_account: str | None = None, repo: Path | None = None) -> tuple[bool, str]:
     """Fold one agent's events into its digest.
 
@@ -281,7 +286,7 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         used_model = False
         acct = None
         if use_model:
-            acct = fold_account or _cheapest_account(vendors.agent_vendor(agent))
+            acct = fold_account or _cheapest_account(_headless_vendor_for(agent))
             if acct:
                 ok, out = run_model(build_prompt(agent, previous, events, day), acct, model)
                 if ok:
@@ -353,6 +358,19 @@ def fold(agent: str, use_model: bool = True, model: str = "haiku",
         con.close()
 
 
+def _headless_vendor_for(agent: str) -> str:
+    """Which vendor's account should pay for this agent's fold call: its own,
+    if that vendor can run one-shot at all, else claude's - the vendor every
+    fold reached before vendors existed, and the only one that can today.
+    Probed with placeholder arguments: whether a driver's `headless_argv`
+    exists at all does not depend on them for any driver measured so far, and
+    the real call that spends the turn passes its own real ones."""
+    own = vendors.agent_vendor(agent)
+    if vendors.get(own).headless_argv("_probe", None, "") is not None:
+        return own
+    return agents.DEFAULT_VENDOR
+
+
 def _cheapest_account(vendor: str = agents.DEFAULT_VENDOR) -> str | None:
     # Only an account with a genuinely current reading, never one pick_account
     # admitted on a stale floor (`status.idle_floor`, `rolled_over`): those are
@@ -360,8 +378,8 @@ def _cheapest_account(vendor: str = agents.DEFAULT_VENDOR) -> str | None:
     # tick and self-corrects, but a fold is the one spend nothing observes -
     # sending it to an account we already cannot read only deepens the
     # blindness. Same rule the fallback below applies.
-    # A fold runs headless, under the agent's own vendor - one account of
-    # that vendor, and one ocp can read.
+    # A fold runs headless, under whichever vendor can (`_headless_vendor_for`
+    # picks it) - one account of that vendor, and one ocp can read.
     ours = [a for a in paths.list_accounts() if status.not_for(a, vendor) is None]
     readable = [a for a in ours if accounts.logged_in(a) and not status.read(a).stale]
     picked, _ = status.pick_account(readable)

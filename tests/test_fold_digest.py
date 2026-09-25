@@ -377,8 +377,9 @@ def test_a_rejected_fold_still_records_what_it_spent(home: Path) -> None:
         payload = json.loads(rows[-1]["payload"])
         check("fold: naming the account that was charged for it",
               payload.get("account") == "alpha", str(payload))
-        check("fold: and the model that charged it",
-              payload.get("model") == "haiku", str(payload))
+        check("fold: and the model - None, since none was asked for by name "
+              "and the driver picked its own default",
+              payload.get("model") is None, str(payload))
     finally:
         foldmod.run_model = real
         con.close()
@@ -563,6 +564,37 @@ def test_fold_picks_an_account_of_the_agents_own_vendor(home: Path) -> None:
               seen == ["zeta"], str(seen))
 
 
+def test_fold_falls_back_to_claude_for_a_vendor_that_cannot_headless(home: Path) -> None:
+    """An opencode agent's auto-pick still reaches a claude account for its
+    fold call, as every fold did before vendors existed: opencode's driver
+    has no one-shot run, so `_headless_vendor_for` falls back to claude's
+    rather than picking an opencode account only to have `run_model` refuse
+    it (design/04 §4.2, auditor's #321 should-fix 1 - this is not a
+    behaviour change)."""
+    use_home(home)
+    agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
+    _with_vendor("glm", "opencode")
+    accounts.register("alpha")
+    write_status(home, "alpha", pct_5h=10)
+    accounts.register("zai", vendor="opencode")
+    write_status(home, "zai", pct_5h=10)
+    accounts.logged_in = lambda a: True
+    seen: list[str] = []
+    real = foldmod.run_model
+    try:
+        foldmod.run_model = lambda prompt, acct, model: (seen.append(acct), (False, "stop"))[1]
+        con = db.connect()
+        try:
+            db.add_event(con, "glm", "commit", {"sha": "a", "subject": "x"})
+        finally:
+            con.close()
+        foldmod.fold("glm", use_model=True)
+    finally:
+        foldmod.run_model = real
+    check("fold: an opencode agent's auto-pick still lands on a claude account",
+          seen == ["alpha"], str(seen))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -582,6 +614,8 @@ def main() -> int:
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_run_model_asks_the_vendor_for_its_headless_argv(Path(td) / 'headless'))
         run(lambda: test_fold_picks_an_account_of_the_agents_own_vendor(Path(td) / 'foldvendor'))
+        run(lambda: test_fold_falls_back_to_claude_for_a_vendor_that_cannot_headless(
+            Path(td) / 'foldfallback'))
     return run_area(tests)
 
 
