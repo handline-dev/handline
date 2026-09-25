@@ -131,6 +131,30 @@ def test_a_file_that_vanishes_or_a_failed_write_leaves_no_partial(home: Path) ->
           backupmod.snapshot(home, dest, now=1_000_600) is not None)
 
 
+def test_a_concurrent_prune_taking_the_same_file_first_is_not_an_error(home: Path) -> None:
+    """Two prune passes can race on the same expired file - a's stat firing
+    b's removal from under it, at whichever of b's own stat or unlink the
+    glob order leaves exposed. Either way it must not raise."""
+    now = time.mktime((2026, 9, 24, 12, 0, 0, 0, 0, -1))
+    made = _snapshots(home / "bk", now, [0, 60 * 86400, 90 * 86400])
+    kept, a, b = made[0], made[60 * 86400], made[90 * 86400]
+    real_stat = Path.stat
+
+    def stat_and_race(self):
+        st = real_stat(self)
+        if self == a:
+            b.unlink(missing_ok=True)  # the other prune's unlink beat this one's
+        return st
+    Path.stat = stat_and_race
+    try:
+        removed = backupmod.prune(home / "bk", now)
+    finally:
+        Path.stat = real_stat
+    check("backup: the file the other prune already took raises nothing, and is gone either way",
+          not b.exists(), str(removed))
+    check("backup: the survivor is untouched", kept.exists())
+
+
 def test_a_partial_from_a_killed_run_is_pruned_once_stale(home: Path) -> None:
     dest = home / "bk"
     dest.mkdir(parents=True)
@@ -312,6 +336,7 @@ def main() -> int:
         run(lambda: test_the_ladder_keeps_something_near_every_rung_over_a_month(Path(td) / 'b3'))
         run(lambda: test_the_ladder_has_no_gap_at_any_point_in_its_history(Path(td) / 'b6'))
         run(lambda: test_prune_reads_the_files_and_deletes_only_what_the_ladder_lets_go(Path(td) / 'b7'))
+        run(lambda: test_a_concurrent_prune_taking_the_same_file_first_is_not_an_error(Path(td) / 'b12'))
         run(lambda: test_a_file_that_vanishes_or_a_failed_write_leaves_no_partial(Path(td) / 'b8' / 'home'))
         run(lambda: test_a_partial_from_a_killed_run_is_pruned_once_stale(Path(td) / 'b9'))
         run(lambda: test_two_snapshots_in_one_second_keep_both(Path(td) / 'b10' / 'home'))
