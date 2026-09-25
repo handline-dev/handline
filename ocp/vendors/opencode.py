@@ -225,7 +225,8 @@ class Opencode:
                    for x in (extra or []))
 
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
-                    mcp: list[str], preamble: str | None) -> list[str]:
+                    mcp: list[str], preamble: str | None,
+                    hide: list[str] | None = None) -> list[str]:
         """The TUI takes the model, as `provider/model`, and nothing else ocp
         passes: it has no flag for effort (only `run --variant` does), tool
         denial, an MCP config or a system prompt. Those reach opencode through
@@ -234,6 +235,9 @@ class Opencode:
         if model:
             argv += ["-m", str(model)]
         return argv
+
+    def transcript_dir(self, config_dir: Path, worktree: str) -> Path | None:
+        return None  # its sessions are not kept per worktree in a folder we can name
 
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
         """A config of its own for this session, in OPENCODE_CONFIG_CONTENT,

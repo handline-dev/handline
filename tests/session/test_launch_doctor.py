@@ -1670,6 +1670,48 @@ def test_shared_settings_turn_claude_notifications_off_once(home: Path) -> None:
           json.loads(settings.read_text())["inputNeededNotifEnabled"] is True, settings.read_text())
 
 
+def test_an_agent_cannot_read_a_peers_or_its_supervisors_transcripts(home: Path) -> None:
+    """T40: launch hides every other agent's transcript folder, in every
+    account, except the agent's own and its reports'."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "team.yaml").write_text("""
+agents:
+  manager: {}
+  marina:  {}
+  dohyun:  {}
+edges:
+  - { from: "manager", to: "marina", relation: supervisor, response: fire_and_forget }
+  - { from: "manager", to: "dohyun", relation: supervisor, response: fire_and_forget }
+""")
+    for n in ("manager", "marina", "dohyun"):
+        agents.register(n)
+    for acct in ("alpha", "beta"):
+        (home / "accounts" / acct / ".claude").mkdir(parents=True)
+    con = db.connect()
+    try:
+        for n in ("manager", "marina", "dohyun"):
+            db.set_terminal(con, n, f"t-{n}", f"/w/{n}.x")
+    finally:
+        con.close()
+    drv = vendors.get("claude")
+
+    def hidden(agent):
+        return sorted(Path(p).parent.parent.parent.name + ":" + Path(p).name
+                      for p in launch.hidden_transcripts(agent, drv))
+    got = hidden("marina")
+    check("transcripts: a peer and the supervisor are hidden, in both accounts",
+          got == ["alpha:-w-dohyun-x", "alpha:-w-manager-x", "beta:-w-dohyun-x", "beta:-w-manager-x"], got)
+    got = hidden("manager")
+    check("transcripts: a supervisor is hidden nothing of its reports'", got == [], got)
+    argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None, hide=["/a", "/b"])
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    check("transcripts: claude gets them as sandbox denyRead",
+          settings["sandbox"]["filesystem"]["denyRead"] == ["/a", "/b"], argv)
+    check("transcripts: nothing to hide adds no --settings",
+          "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -1714,6 +1756,7 @@ def main() -> int:
         run(lambda: test_jobs_lines_reports_state_honestly(Path(td) / 'jobslines'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_a_test_never_reaches_the_real_home(Path(td) / 'realhome'))
+        run(lambda: test_an_agent_cannot_read_a_peers_or_its_supervisors_transcripts(Path(td) / 'transcripts'))
         run(lambda: test_shared_settings_turn_claude_notifications_off_once(Path(td) / 'notif'))
     return run_area(tests)
 
