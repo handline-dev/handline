@@ -55,6 +55,7 @@ from ocp.team import accounts, agents, ask as askmod, hr, rehome, spawn as spawn
 from ocp import actions, cli as climod, db, vendors  # noqa: E402
 from ocp.session import blocked as blockedmod, digest, drift, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
 from ocp.vendors import claude_meter as claudemeter  # noqa: E402
+from ocp.vendors import claude_collect  # noqa: E402
 from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from ocp.infra import doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from ocp.ui import jobs as jobsmod, tui  # noqa: E402
@@ -1102,6 +1103,10 @@ class SecondVendor:
         return self.metered
     def meter(self):
         return None
+    def collector(self):
+        return None
+    def context_window(self, model_id):
+        return None
     def state_hooks(self):
         return None
     def is_resume(self, extra):
@@ -1856,6 +1861,7 @@ __all__ = [
     'tui',
     'usage_api',
     'claudemeter',
+    'claude_collect',
     'vendors',
     'venvmod',
     'waiting',
