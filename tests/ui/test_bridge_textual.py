@@ -212,8 +212,8 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
     """ACCOUNTS' non-interactive actions (task #45's own third piece): `c`
     sets the cap through `loadmod` directly, `a`/`x` refuse through the same
     `accounts.add_account`/`remove_account` the CLI uses before either ever
-    needs a real login shell, and `enter` opens a read-only summary
-    (`actions.account_detail`)."""
+    needs a real login shell, and `enter` opens the account's page
+    (`AccountPage`)."""
     _home("accts")
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 30)) as pilot:
