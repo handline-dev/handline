@@ -435,6 +435,25 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     return {"head": head, "idle_s": idle, "behind": db.queue_depth(con, agent) - 1}
 
 
+# Claude Code hands typed text of four or more lines to the model as a paste,
+# inside <pasted_content>, whose instructions it follows only where the user's
+# own message asks. Every delivery of four or more lines in the agents'
+# transcripts arrived wrapped (9 of 9), none of three or fewer (66 of 66), and
+# orcapipe.ui declined a wrapped task as untrusted (T105).
+MAX_TYPED_LINES = 3
+
+
+def _send(handle: str, text: str) -> tuple[bool, str]:
+    """`orca.send` for text an agent is meant to act on: never more than
+    `MAX_TYPED_LINES` lines. Past that the middle lines are joined into one; a
+    sender still builds its own three lines so nothing important is squeezed."""
+    lines = text.split("\n")
+    if len(lines) > MAX_TYPED_LINES:
+        keep = MAX_TYPED_LINES - 2
+        lines = lines[:keep] + [" ".join(lines[keep:-1])] + lines[-1:]
+    return orca.send(handle, "\n".join(lines))
+
+
 def type_notice(con, agent: str, text: str) -> bool:
     """Type one line at an agent's open session, if it may be typed at now.
 
@@ -452,7 +471,7 @@ def type_notice(con, agent: str, text: str) -> bool:
     with lock.terminal(agent) as mine:
         if not mine or _type_gate(con, agent, handle):
             return False
-        ok, _ = orca.send(handle, text)
+        ok, _ = _send(handle, text)
         if ok:
             _mark_typed(con, agent)
     return ok
@@ -517,7 +536,7 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
         why = _type_gate(con, agent, handle)
         if why:
             return False, why
-        ok, _ = orca.send(
+        ok, _ = _send(
             handle,
             f"#{row['id']} from {row['requester']} was cancelled: {verdict}. Stop work "
             f"on it; it is closed and needs no resolve. `ocp read {row['id']}` shows it.")
@@ -538,13 +557,14 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
     """`ahead_of` is the head a "send now" request is jumping: it is told
     without touching the head's own cursor, so that head is not told twice."""
     more = depth - 1
-    body = head["body"] or "(empty)"
-    # Capped at 400; `ocp read` has the rest.
+    # One line, capped at 400; `ocp read` has the rest. The message is three
+    # lines at most (`MAX_TYPED_LINES`), so what follows the body rides on its line.
+    body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
     shown = body if len(body) <= 400 else body[:400] + "…"
-    tail = (f"\n{more} more waiting - the next comes when you resolve or dismiss this one."
+    tail = (f" [{more} more waiting - the next comes when you resolve or dismiss this one.]"
             if more else "")
     if ahead_of is not None:
-        tail = f"\nSent now, ahead of #{ahead_of['id']}, which is still open."
+        tail = f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]"
     # Before the send, not after: this is what closes withdraw/replace's race
     # against delivery (request #189). A send that then fails leaves the row
     # marked anyway - its requester can no longer withdraw it, but the cursor
@@ -555,7 +575,7 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
         # worse than skipping it; the next tick picks up whatever is now head.
         return False
     reply = in_reply_to(con, head)
-    ok, _ = orca.send(
+    ok, _ = _send(
         handle,
         f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
         f"`ocp read {head['id']}` shows it whole; {_answer_verb(head)}, "
@@ -655,8 +675,8 @@ def deliver_answers(con, agent: str, log) -> bool:
             return False
         if _type_gate(con, agent, handle):
             return False
-        ok, _ = orca.send(
-            handle, "Answers to what you asked:\n" + "\n".join(lines) + tail)
+        ok, _ = _send(
+            handle, "Answers to what you asked:\n" + " | ".join(lines) + tail)
         if ok:
             _mark_typed(con, agent)
     if ok:

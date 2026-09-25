@@ -1530,6 +1530,47 @@ def test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(home: 
         con.close()
 
 
+def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) -> None:
+    """T105: Claude Code wraps typed text of four or more lines in
+    <pasted_content>, and an agent may decline it as untrusted."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.add_request(con, "reviewer", "backend", "step one\n- a\n- b\n\nstep two", None,
+                       "peer", "async", None, 0, None)
+        db.add_request(con, "reviewer", "backend", "later", None, "peer", "async", None, 0, None)
+        _session_file(home, "sess-A")
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("lines: a multi-line body with more waiting behind it is typed in three lines",
+              len(sent) == 1 and sent[0].count("\n") == 2
+              and "step one - a - b" in sent[0] and "step two" in sent[0]
+              and "1 more waiting" in sent[0], repr(sent))
+        sent.clear()
+
+        for i in range(5):
+            rid = db.add_request(con, "backend", "reviewer", f"q{i} " + "x" * 50, None,
+                                 "peer", "async", None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
+                        (f"answer {i}\nmore", rid))
+        dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
+        check("lines: five answers, one of them cut, are typed in three lines",
+              len(sent) == 1 and sent[0].count("\n") <= 2 and "also answered" in sent[0], repr(sent))
+        sent.clear()
+
+        dmn_delivery._send("term_x", "a\nb\nc\nd\ne")
+        check("lines: whatever else is typed is squeezed to three, first and last kept",
+              sent == ["a\nb c d\ne"], repr(sent))
+    finally:
+        con.close()
+
+
 def test_nothing_is_typed_at_a_modal(home: Path) -> None:
     """Claude Code opens modals of its own at start; a typed line plus Enter
     answers whichever option is highlighted."""
@@ -3140,6 +3181,7 @@ def main() -> int:
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
         run(lambda: test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(Path(td) / 'sessback'))
+        run(lambda: test_what_is_typed_at_an_agent_is_never_more_than_three_lines(Path(td) / 'threelines'))
         run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
         run(lambda: test_a_wake_types_nothing_at_a_shell_when_the_session_dies(Path(td) / 'shellwake'))
         run(lambda: test_a_launch_takes_its_prompt_once(Path(td) / 'takeprompt'))
