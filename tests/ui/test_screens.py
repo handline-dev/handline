@@ -1635,6 +1635,9 @@ edges:
               "You report to `manager`" in dev and "Your reports" not in dev, dev)
         check("team: an agent nobody supervises reports to the founder",
               "You report to `human`" in launch.context_for("scout"))
+        check("team: every agent is told to write multi-line text with --file",
+              all("--file <path>" in c and "`- ` lines" in c
+                  for c in (mgr, dev, launch.context_for("scout"))))
         check("team: every agent is told not to schedule its own wakeup to wait",
               all("Never schedule your own wakeup" in c
                   for c in (mgr, dev, launch.context_for("scout"))))
