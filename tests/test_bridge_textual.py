@@ -1045,6 +1045,31 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         con.close()
 
 
+def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None:
+    from ocp import ask as askmod, chat_page as cp
+    _home("heldbelow")
+    agents.register("reviewer")
+    _, _, first = askmod.ask("reviewer", "hello", requester="backend")
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET delivered_at = ts WHERE id = ?", (first,))
+        _, _, held = askmod.ask("reviewer", "second, not read yet", requester="backend")
+        _, _, later = askmod.ask("backend", "asked after", requester="reviewer")
+        con.commit()
+        rows = [db.get_request(con, i) for i in (first, held, later)]
+    finally:
+        con.close()
+    msgs = cp.messages_of(rows, "reviewer")
+    widgets = cp.transcript_widgets(msgs, False)
+    texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in widgets]
+    check("chat: an agent's undelivered message sits below the queue line, after the delivered ones",
+          texts.index("--") == texts.index("second, not read yet") - 1
+          and texts.index("hello") < texts.index("--") and texts.index("asked after") > texts.index("--"),
+          str(texts))
+    check("chat: it has no Cancel / Send now buttons", not any(
+        m["queued"] for m in msgs if m["text"] == "second, not read yet"))
+
+
 async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
     from ocp import ask as askmod
     _home("selreply")
@@ -1865,6 +1890,7 @@ async def _run_all() -> None:
     test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
+    test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
 
