@@ -200,8 +200,7 @@ class TasksView(Vertical):
             table.move_cursor(row=min(row, len(self.rows) - 1))
         self._show_pane()
         title = Text(f"{'MY TASKS' if self.mine else 'TASKS'}  ", style="bold")
-        title.append(f"{len(self.rows)} {self._state_label()}"
-                     f" · agent {self.owner or 'all'} · by {self.by} {'desc' if self.rev else 'asc'}", style="dim")
+        title.append(str(len(self.rows)), style="dim")
         self.query_one("#tasks_title", Static).update(title)
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
