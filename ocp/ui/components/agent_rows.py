@@ -10,7 +10,7 @@ from typing import NamedTuple
 from ...infra.yamlcompat import ConfigError
 from ... import actions, db
 from ...team import agents
-from ...session import blocked
+from ...session import blocked, idle_close
 from ...usage import load as loadmod
 from ...infra import textsafe
 from .. import tui
@@ -24,6 +24,7 @@ class Extra(NamedTuple):
     stuck: str                      # why it is not moving, or its usage limit; or ""
     asks: int                       # its open asks to the founder
     urgency: tuple[str, int, str] | None   # what the reports a fold hides need: (glyph, n, colour)
+    cache_ignored: bool = False     # its resume ignores cache expiry, so the countdown means nothing
 
 
 def kind_short(cfg: dict) -> str:
@@ -42,9 +43,12 @@ def cache_left(con, agent: str, now: int | None = None) -> int | None:
     return dmn_states.PROMPT_CACHE_S - ((int(time.time()) if now is None else now) - last)
 
 
-def cache_cell(left: int | None) -> str:
+def cache_cell(left: int | None, ignored: bool = False) -> str:
     """ANSI: `58m`, then `m:ss` in the last ten minutes, yellow from there; `gone` once
-    the cache has lapsed, `·` with nothing to measure from."""
+    the cache has lapsed, `·` with nothing to measure from; `ignored` when the agent
+    resumes its session whatever the cache did."""
+    if ignored:
+        return f"{tui.DIM}ignored{tui.R}"
     if left is None:
         return f"{tui.DIM}·{tui.R}"
     if left <= 0:
@@ -116,5 +120,6 @@ def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
                            "AND state = 'queued'", (r.name, actions.HUMAN)).fetchone()[0]
         out[r.name] = Extra(textsafe.oneline(kind_short(cfg)), cache_left(con, r.name), block,
                             why.removeprefix(f"{r.name} is ")[:tui.DETAIL_CAP], asks,
-                            fold_urgency(con, hidden.get(r.name, []), stuck) if r.under else None)
+                            fold_urgency(con, hidden.get(r.name, []), stuck) if r.under else None,
+                            idle_close.ignore_cache_expiry(r.name))
     return out

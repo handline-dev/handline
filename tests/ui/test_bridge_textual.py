@@ -1438,6 +1438,8 @@ def test_agent_rows_short_model_cache_and_founder_block() -> None:
         check("agent_rows: the cache cell is minutes, then m:ss in the last ten, then gone",
               cell(3480) == "58m" and cell(600) == "10m" and cell(599) == "9:59"
               and cell(65) == "1:05" and cell(0) == "gone" and cell(-30) == "gone" and cell(None) == "·")
+        check("agent_rows: an agent that ignores cache expiry shows that, not a countdown",
+              _plain(ar.cache_cell(3480, True)) == "ignored" and _plain(ar.cache_cell(-30, True)) == "ignored")
         check("agent_rows: the last ten minutes are yellow, the rest plain",
               tui.YEL in ar.cache_cell(599) and tui.YEL not in ar.cache_cell(3480))
 
@@ -1462,6 +1464,12 @@ def test_agent_rows_collect_carries_the_agents_own_model_and_effort() -> None:
         extra = ar.collect(con, [row])["opusy"]
         check("agent_rows: collect shows the agent's own model and effort, not the defaults",
               extra[0] == ar.kind_short(agents.read("opusy")) and "opus" in extra[0], str(extra))
+        from ocp.session import idle_close
+        check("agent_rows: collect flags cache expiry as ignored only for the agent whose switch is on",
+              extra.cache_ignored is False)
+        idle_close.set_agent_ignore_cache_expiry("opusy", True)
+        check("agent_rows: ... and it does once the agent's ignore switch is on",
+              ar.collect(con, [row])["opusy"].cache_ignored is True)
     finally:
         con.close()
 
