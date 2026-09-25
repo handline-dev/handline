@@ -47,8 +47,9 @@ class TaskPane(TaskActions, Vertical):
     (`chat_page.task_page`) says, the sub-tasks without links."""
 
     DEFAULT_CSS = """
-    TaskPane { width: 50; padding: 0 1; border-left: solid $primary; }
+    TaskPane { width: 50; height: 100%; padding: 0 1; border-left: solid $primary; }
     TaskPane #pane_scroll { height: 1fr; }
+    TaskPane #pane_foot { dock: bottom; height: auto; }
     TaskPane #pane_buttons { height: 1; }
     TaskPane #pane_flash { height: auto; color: $warning; }
     """
@@ -61,11 +62,12 @@ class TaskPane(TaskActions, Vertical):
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="pane_scroll"):
             yield Static(id="pane_text")
-        yield Static(id="pane_flash")
-        with Horizontal(id="pane_buttons"):
-            yield Button("Close", id="pane_close", variant="success", compact=True)
-            yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
-            yield Button("Discard", id="pane_discard", variant="error", compact=True)
+        with Vertical(id="pane_foot"):
+            yield Static(id="pane_flash")
+            with Horizontal(id="pane_buttons"):
+                yield Button("Close", id="pane_close", variant="success", compact=True)
+                yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
+                yield Button("Discard", id="pane_discard", variant="error", compact=True)
 
     def say(self, text: str) -> None:
         self.query_one("#pane_flash", Static).update(Text(textsafe.oneline(text)))
