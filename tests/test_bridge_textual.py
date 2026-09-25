@@ -1023,11 +1023,50 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         ok4, _ = cp.send_reply(con, "reviewer", mine, "thanks, now ship it")
         check("reply: an answer to the human's own request is marked read, as the mailbox does",
               ok3 and ok4 and db.get_request(con, mine)["announced_at"], str(dict(db.get_request(con, mine))))
+        _, _, theirs = askmod.ask("reviewer", "status again?", requester=actions.HUMAN)
+        ok5, _ = cp.send_reply(con, "backend", theirs, "and the date?")
+        kid5 = db.get_request(con, theirs + 1)
+        check("reply: a reply from another agent's page (All chat) goes to the agent on that message, under it",
+              ok5 and kid5["target"] == "reviewer" and kid5["parent_id"] == theirs, str(dict(kid5)))
         check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
         check("reply: a reply to a request that is gone is refused",
               cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
     finally:
         con.close()
+
+
+async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
+    from ocp import ask as askmod
+    _home("selreply")
+    agents.register("reviewer")
+    _, _, mine = askmod.ask("reviewer", "status?", requester=actions.HUMAN)
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET state = 'done', verdict = 'fine' WHERE id = ?", (mine,))
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        page = app.screen
+        msg = next(w for w in page.query("ChatMessage") if w.m["rid"] == mine and w.m["part"] == 1)
+        await pilot.click(msg)
+        await pilot.pause(0.1)
+        check("reply: clicking a message selects it", page.replying is msg, str(page.replying))
+        for ch in "ok":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+    con = db.connect()
+    try:
+        kid = con.execute("SELECT parent_id, target FROM requests WHERE requester = ? AND id > ?",
+                          (actions.HUMAN, mine)).fetchone()
+    finally:
+        con.close()
+    check("reply: the send carries the selected message's request as its parent",
+          kid is not None and kid["parent_id"] == mine, str(dict(kid)) if kid else "none")
 
 
 def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
@@ -1816,6 +1855,7 @@ async def _run_all() -> None:
     test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
+    await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
 
 
