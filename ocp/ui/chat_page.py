@@ -957,7 +957,7 @@ class ChatPage(Screen):
                 with Horizontal(classes="frow"):
                     yield Static("skip prompts", classes="flabel")
                     yield Switch(id="s_skip", value=False)
-                    yield Static("claude --dangerously-skip-permissions, from the next launch", classes="note")
+                    yield Static("  claude --dangerously-skip-permissions, from the next launch", classes="fhint")
                 with Horizontal(classes="frow"):
                     yield Static("hand off at", classes="flabel")
                     yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
