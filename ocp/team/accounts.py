@@ -11,6 +11,7 @@ All we do is create the directory and symlink the shared settings.
 from __future__ import annotations
 
 import json
+import filecmp
 import os
 import re
 import shutil
@@ -29,8 +30,8 @@ def ensure_shared() -> None:
 
 
 class AdoptRefused(ValueError):
-    """A real directory holds something that cannot be moved into shared
-    without deleting a copy; nothing was changed."""
+    """A real file or directory in an account cannot be replaced by the shared
+    link without losing something; nothing was changed."""
 
 
 def _adopt_plan(src: Path, dest: Path, moves: list, clashes: list) -> None:
@@ -78,35 +79,65 @@ def _adopt(src: Path, dest: Path) -> None:
         os.rmdir(d)
 
 
-def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
-               replace_link: bool = False) -> bool:
-    """Symlink one shared item into an account's .claude dir; True if it changed.
+def _plan_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
+                replace_link: bool = False) -> tuple[str, list[str]]:
+    """What linking one shared item would do, and what stops it, changing nothing.
+
+    The action is `skip`, `link`, `replace` (a link elsewhere, or a real file
+    identical to shared's) or `adopt` (a real directory whose contents move into
+    shared). A real file or directory that would lose something is never
+    replaced: the second value names why, and the action is `skip`.
 
     A link pointing elsewhere is a human's override or a break they are
     already looking at, so only a human's call may replace it: `register`
     passes `replace_link` (a foreign symlink) and `force` (a real file or dir).
     """
     if item in drv.never_touch():
-        return False
+        return "skip", []
     target = shared / item
     link = cdir / item
     if not target.exists():
-        return False
+        return "skip", []
     if link.is_symlink():
         if os.readlink(link) == str(target):
-            return False
-        if not (force or replace_link):
-            return False
+            return "skip", []
+        return ("replace" if force or replace_link else "skip"), []
+    if not link.exists():
+        return "link", []
+    if not force:
+        return "skip", []
+    if link.is_dir():
+        if not target.is_dir():
+            return "skip", [f"{item}: a real directory here, a file in shared"]
+        moves: list = []
+        clashes: list = []
+        _adopt_plan(link, target, moves, clashes)
+        return ("skip", [f"{item}/{c.relative_to(link)}: shared has a different item "
+                         "of that name" for c in clashes]) if clashes else ("adopt", [])
+    if target.is_file() and filecmp.cmp(link, target, shallow=False):
+        return "replace", []
+    return "skip", [f"{item}: a real file that differs from shared's"]
+
+
+def _apply_item(action: str, cdir: Path, shared: Path, item: str) -> bool:
+    link = cdir / item
+    if action == "skip":
+        return False
+    if action == "adopt":
+        _adopt(link, shared / item)  # removes the emptied directory, or raises
+    elif action == "replace":
         link.unlink()
-    elif link.exists():
-        if not force:
-            return False
-        if link.is_dir() and target.is_dir():
-            _adopt(link, target)  # leaves nothing behind, or raises
-        else:
-            shutil.rmtree(link) if link.is_dir() else link.unlink()
-    link.symlink_to(target)
+    link.symlink_to(shared / item)
     return True
+
+
+def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
+               replace_link: bool = False) -> bool:
+    """Symlink one shared item into an account's .claude dir; True if it changed."""
+    action, why = _plan_item(drv, cdir, shared, item, force, replace_link)
+    if why:
+        raise AdoptRefused("; ".join(why))
+    return _apply_item(action, cdir, shared, item)
 
 
 def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
@@ -135,8 +166,21 @@ def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
     cdir.mkdir(parents=True, exist_ok=True)
 
     shared = vendors.shared_dir(drv.name)
-    for item in drv.shared_items():
-        _link_item(drv, cdir, shared, item, force=force, replace_link=True)
+    plans = [(item, *_plan_item(drv, cdir, shared, item, force, True))
+             for item in drv.shared_items()]
+    refused = [w for _i, _a, why in plans for w in why]
+    if refused:
+        raise AdoptRefused(
+            f"nothing was changed for '{acct}'. Move or remove one side by hand, "
+            "then run this again: " + "; ".join(refused))
+    done: list[str] = []
+    for item, action, _why in plans:
+        try:
+            if _apply_item(action, cdir, shared, item):
+                done.append(item)
+        except OSError as e:
+            raise OSError(f"{item} failed ({e}); already linked before it: "
+                          f"{', '.join(done) or 'nothing'}; nothing was deleted") from e
     share_memory(acct)
     return cdir
 

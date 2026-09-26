@@ -1365,6 +1365,88 @@ def test_register_force_keeps_what_a_real_skills_dir_held(home: Path) -> None:
           and not any((shared / n).exists() for n in ("a", "b")))
 
 
+def test_register_force_plans_every_item_before_changing_one(home: Path) -> None:
+    """A real file is replaced only when identical to shared's; otherwise the
+    whole registration is refused and nothing at all is changed - not even an
+    item earlier in the list that would have been fine."""
+    import shutil
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    root = vendors.shared_dir("claude")
+    cdir = vendors.config_dir("gamma")
+    (root / "CLAUDE.md").write_text("shared rules")
+    settings, claude_md, skills = cdir / "settings.json", cdir / "CLAUDE.md", cdir / "skills"
+    (root / "skills").mkdir(exist_ok=True)
+    settings.unlink()
+    settings.write_text((root / "settings.json").read_text())
+    claude_md.write_text("my own rules")
+    skills.unlink()
+    (skills / "synced" / "b1").mkdir(parents=True)
+    (skills / "synced" / "b1" / "m.json").write_text("{}")
+
+    def refusal() -> str | None:
+        try:
+            accounts.register("gamma", force=True)
+        except accounts.AdoptRefused as e:
+            return str(e)
+        return None
+
+    msg = refusal()
+    check("file: a real file that differs is refused, naming it and saying nothing changed",
+          msg is not None and "CLAUDE.md" in msg and "nothing was changed" in msg, str(msg))
+    check("file: nothing changed, not even the identical settings.json or the skills dir",
+          not settings.is_symlink() and not skills.is_symlink()
+          and claude_md.read_text() == "my own rules"
+          and (skills / "synced" / "b1" / "m.json").exists()
+          and not (root / "skills" / "synced").exists())
+    accounts.register("gamma", force=False)
+    check("file: without --force the same files are left alone, no refusal",
+          claude_md.read_text() == "my own rules" and not settings.is_symlink())
+
+    claude_md.write_text("shared rules")
+    accounts.register("gamma", force=True)
+    check("file: a real file identical to shared's is replaced by the link",
+          claude_md.is_symlink() and settings.is_symlink())
+    check("file: and the directory's bucket moved into shared",
+          (root / "skills" / "synced" / "b1" / "m.json").exists() and skills.is_symlink())
+
+    claude_md.unlink()
+    claude_md.write_text("mine")
+    settings.unlink()
+    settings.write_text((root / "settings.json").read_text())
+    skills.unlink()
+    (skills / "n1").mkdir(parents=True)
+    (skills / "n1" / "f").write_text("x")
+    real_move, calls = shutil.move, []
+
+    def failing(a, b, *rest):
+        raise OSError("disk full")
+    shutil.move = failing
+    try:
+        accounts.register("gamma", force=True)
+        said = None
+    except (accounts.AdoptRefused, OSError) as e:
+        said = str(e)
+    finally:
+        shutil.move = real_move
+    check("file: a differing file refuses before any move is tried", said is not None
+          and "CLAUDE.md" in said and "nothing was changed" in said, str(said))
+    claude_md.write_text("shared rules")
+    shutil.move = failing
+    try:
+        accounts.register("gamma", force=True)
+        said = None
+    except OSError as e:
+        said = str(e)
+    finally:
+        shutil.move = real_move
+    check("partial: a failure after earlier items says what was already linked",
+          said is not None and "skills failed" in said and "already linked before it" in said
+          and "nothing was deleted" in said, str(said))
+    check("partial: the failed directory and its file are intact",
+          (skills / "n1" / "f").read_text() == "x" and not skills.is_symlink())
+
+
 def test_the_opencode_driver(home: Path) -> None:
     """The opencode driver's answers, each from what 1.18.32 was measured to
     do (design/03 §4.3). Nothing here runs opencode: `auth list` is replaced
@@ -3026,6 +3108,7 @@ def main() -> int:
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
         run(lambda: test_register_force_keeps_what_a_real_skills_dir_held(Path(td) / 'forceadopt'))
+        run(lambda: test_register_force_plans_every_item_before_changing_one(Path(td) / 'planall'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
         run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))

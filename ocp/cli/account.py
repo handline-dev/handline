@@ -26,7 +26,7 @@ from ..infra.yamlcompat import ConfigError
 def cmd_account_register(args) -> int:
     try:
         d = accounts.register(args.name, force=args.force)
-    except accounts.AdoptRefused as e:
+    except (accounts.AdoptRefused, OSError) as e:
         print(f"not registered: {e}")
         return 1
     print(f"registered account '{args.name}': {d}")
