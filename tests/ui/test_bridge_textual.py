@@ -2121,7 +2121,7 @@ async def test_the_bridge_follows_the_os_light_dark_setting_while_open() -> None
 
 
 class _FakeRules:
-    """Stands in for `ocp.team.dialog_rules` (core's T199) until it lands."""
+    """Stands in for `ocp.team.dialog_rules`, whose store is the founder-only protected dir."""
 
     def __init__(self) -> None:
         self.rules: list[dict] = []
