@@ -1811,6 +1811,9 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     spare = cp.transcript_widgets(msgs[:2], True)
     check("chat: nothing queued leaves a spare row at the bottom, without a rule",
           type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
+    waits = [type(w).__name__ for w in cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")]
+    check("chat: what the agent waits on sits just above the queue line",
+          waits == ["ChatMessage", "ChatMessage", "Static", "QueueLine", "ChatMessage"], str(waits))
 
 
 def test_a_delivery_changes_the_chat_signature() -> None:

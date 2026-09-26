@@ -373,18 +373,21 @@ class QueueLine(Static):
         return Text("─" * left + mid + "─" * (side - left), style="dim")
 
 
-def transcript_widgets(msgs: list[dict], working: bool, why: str = "") -> list:
+def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str = "") -> list:
     """The messages as widgets, the queue line ahead of the first message the
     agent has not read yet; with none unread, a spare row at the bottom that
-    only shows the spinner."""
+    only shows the spinner. `wait` (what the agent waits on) sits just above that line."""
     out: list = []
     line = False
+    note = lambda: Static(safe(wait), classes="waitnote") if wait else None
     for m in msgs:
         if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
+            out += [w for w in (note(),) if w]
             out.append(QueueLine(working, why=why))
             line = True
         out.append(ChatMessage(m, working))
     if not line:
+        out += [w for w in (note(),) if w]
         out.append(QueueLine(working, rule=False))
     return out
 
@@ -1109,7 +1112,9 @@ class ChatPage(Screen):
                 why = f"{held[0]['to']}: {actions.queue_reason(con, held[0]['to'], held[0]['rid'])}"
             finally:
                 con.close()
-        widgets = transcript_widgets(msgs, self.agent_state[0] == "RUNNING", why)
+        state, detail = self.agent_state
+        widgets = transcript_widgets(msgs, state == "RUNNING", why,
+                                     detail if detail.startswith("waiting for") else "")
         pane.mount(*widgets)
         pane.scroll_end(animate=False)
         self.replying = None
