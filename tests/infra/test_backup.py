@@ -15,7 +15,7 @@ from ocp.infra import backup as backupmod  # noqa: E402
 
 def _world(home: Path) -> Path:
     use_home(home)
-    (home / "team.yaml").write_text("agents: {}\n")
+    hand_edit_team("agents: {}\n")
     (home / "agents" / "a").mkdir(parents=True)
     (home / "agents" / "a" / "ROLE.md").write_text("# a\n")
     (home / "accounts" / "alpha" / ".claude").mkdir(parents=True)
@@ -65,7 +65,7 @@ def test_an_unchanged_home_writes_no_second_snapshot(home: Path) -> None:
     con.close()
     second = backupmod.snapshot(home, dest, now=1_000_600)
     check("backup: a new database row is a change", second is not None and second != first)
-    (home / "team.yaml").write_text("agents: {x: {}}\n")
+    hand_edit_team("agents: {x: {}}\n")
     check("backup: an edited file is a change",
           backupmod.snapshot(home, dest, now=1_000_900) is not None)
 
@@ -110,7 +110,7 @@ def test_a_file_that_vanishes_or_a_failed_write_leaves_no_partial(home: Path) ->
 
     # Any other failure: the partial is removed, nothing is recorded as taken,
     # so the next run tries again.
-    (home / "team.yaml").write_text("agents: {y: {}}\n")
+    hand_edit_team("agents: {y: {}}\n")
     import tarfile
     real_add = tarfile.TarFile.add
 
@@ -187,12 +187,12 @@ def test_two_snapshots_in_one_second_keep_both(home: Path) -> None:
     dest = home.parent / "bk"
     first = backupmod.snapshot(home, dest, now=1_000_000)
     body = first.read_bytes()
-    (home / "team.yaml").write_text("agents: {z: {}}\n")
+    hand_edit_team("agents: {z: {}}\n")
     second = backupmod.snapshot(home, dest, now=1_000_000)
     check("backup: a second snapshot in the same second is a different file",
           second is not None and second != first and second.exists(), str((first, second)))
     check("backup: the first is untouched", first.read_bytes() == body)
-    (home / "team.yaml").write_text("agents: {w: {}}\n")
+    hand_edit_team("agents: {w: {}}\n")
     third = backupmod.snapshot(home, dest, now=1_000_000)
     # (Retention may drop the middle one by now - what matters is no reuse.)
     check("backup: and a third gets its own name too",

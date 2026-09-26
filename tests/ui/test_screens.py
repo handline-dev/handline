@@ -695,7 +695,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               "denied" in said and not db.queued_for(con, "backend"), said)
 
         escalate = '  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }'
-        (home / "team.yaml").write_text(DESIGN_TEAM.replace(
+        hand_edit_team(DESIGN_TEAM.replace(
             escalate,
             escalate + chr(10)
             + '  - { from: "human", to: "*", relation: supervisor, '
@@ -862,7 +862,7 @@ def test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(hom
     orcapipe-manager. Display only: the prefix goes when it is the drawn
     parent's own name, never on the dot alone, and every key stays whole."""
     _daemon_home(home, 20)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
   orcapipe-manager: {}
   orcapipe-manager.chat: {}
@@ -917,7 +917,7 @@ def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> Non
     try:
         accounts.register("beta")
         agents.register("hr")
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 agents:
   hr: {}
 edges:
@@ -1325,7 +1325,7 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
 def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
     """One condition per check, so removing any one guard fails a test."""
     use_home(home)
-    (home / "team.yaml").write_text("agents:\n  backend: {}\n")
+    hand_edit_team("agents:\n  backend: {}\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
     agents.register("backend")
@@ -1592,7 +1592,7 @@ def test_the_team_is_drawn_the_way_it_is_routed(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [marina, keeper]
 
@@ -1710,7 +1710,7 @@ edges:
 
         # A supervisor nobody registered is not a row, and the agent under it
         # must not disappear with it.
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [marina]
 
@@ -1725,7 +1725,7 @@ edges:
               dict(actions.agent_tree())["marina"] == 0, str(actions.agent_tree()))
 
         # A cycle in the routing table is a typo, not a reason to hang.
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams: {}
 
 agents:
@@ -1743,7 +1743,7 @@ edges:
 
         # And a routing table that will not parse does not take the screen down
         # with it - `ocp doctor` is where that is a finding.
-        (home / "team.yaml").write_text("teams: [this is not a map\n")
+        hand_edit_team("teams: [this is not a map\n")
         check("tree: a broken team.yaml still draws every agent",
               sorted(n for n, _d in actions.agent_tree()) == sorted(paths.list_agents()))
         frame = tui._ANSI.sub("", _snap(120, 40))
@@ -1811,7 +1811,7 @@ def test_a_folded_row_says_what_its_reports_are_doing(home: Path) -> None:
     con = db.connect()
     real_wall = dmn_delivery.wall_reason
     try:
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [marina, keeper]
 agents:
@@ -1864,7 +1864,7 @@ edges:
 
         # A hidden agent is counted under one row: the manager's fold does not
         # claim what hangs under a report that is drawn and has a fold of its own.
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [idle1, lead]
   sub: [worker]
@@ -2483,7 +2483,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         # is noticed: it is driven here, or it is skipped with a reason.
         driven = {
             "status": [["status"], ["status", "--json"]], "doctor": [["doctor", "--no-color"]],
-            "team check": [["team", "check"]], "ps": [["ps"]], "triggers": [["triggers"]],
+            "team check": [["team", "check"]], "team seal": [["team", "seal"]], "ps": [["ps"]], "triggers": [["triggers"]],
             "events": [["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"]],
             "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
                       ["inbox", "human", "--all"]],

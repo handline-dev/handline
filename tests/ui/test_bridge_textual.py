@@ -1664,6 +1664,7 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     check("settings: turning it off removes it", ok and not agents.skip_permissions(agents.read("backend")), said)
     with open(agents.agent_file("backend"), "a") as f:
         f.write("skip_permissions: true\n")
+    t.reseal(agents.agent_file("backend"))
     unhinted = cp.settings_of("backend")
     check("settings: a key in agent.yaml with no grant shows off, as the launch ignores it",
           agents.skip_permissions(agents.read("backend")) and not agents.skip_permissions_granted("backend")

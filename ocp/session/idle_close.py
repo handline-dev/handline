@@ -97,7 +97,7 @@ def set_agent_close_timeout(agent: str, seconds: int | None) -> None:
         cfg.pop("park_timeout_s", None)
     else:
         cfg["park_timeout_s"] = seconds
-    agents.agent_file(agent).write_text(dump(cfg))
+    agents.write(agent, cfg)
 
 
 def default_ignore_cache_expiry() -> bool:
@@ -134,4 +134,4 @@ def set_agent_ignore_cache_expiry(agent: str, on: bool | None) -> None:
         cfg.pop("ignore_cache_expiry", None)
     else:
         cfg["ignore_cache_expiry"] = on
-    agents.agent_file(agent).write_text(dump(cfg))
+    agents.write(agent, cfg)

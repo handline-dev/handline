@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp.infra import paths  # noqa: E402
+from ocp.infra import paths, sealed  # noqa: E402
 
 # The machine's venv, read once before the stand-in below hides the real home:
 # textual is only installed there (see _python_with_textual).
@@ -541,7 +541,7 @@ limits:
 def _reconcile_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     agents.register("backend")
 
 
@@ -550,7 +550,7 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     restore_world()
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     agents.register("backend")
     write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
@@ -1226,6 +1226,23 @@ def second_vendor(**kw):
 def _with_vendor(agent: str, vendor: str) -> None:
     with agents.agent_file(agent).open("a") as f:
         f.write(f"vendor: {vendor}\n")
+    sealed.seal(sealed.agent_key(agent), agents.agent_file(agent).read_text())
+
+
+def hand_edit_team(text: str) -> None:
+    """Write team.yaml the way the founder's own session would, seal and all."""
+    paths.team_file().write_text(text)
+    sealed.seal(sealed.TEAM, text)
+
+
+def reseal(path: Path) -> None:
+    """Seal an agent.yaml a test has just written by hand."""
+    sealed.seal(sealed.agent_key(path.parent.name), path.read_text())
+
+
+def hand_edit_agent(name: str, text: str) -> None:
+    agents.agent_file(name).write_text(text)
+    sealed.seal(sealed.agent_key(name), text)
 
 
 # `opencode auth list`'s whole output, measured on 1.18.32 with stdout a pipe.
@@ -1513,7 +1530,7 @@ LIVE_TRUST_PROMPT_FOLDER = (
 def _two_agents_one_slot(home: Path, cap: int = 2) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(
+    hand_edit_team(
         "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         f"limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: {cap}\n"
@@ -1615,7 +1632,7 @@ def _python_with_textual() -> str | None:
 def _board_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
   manager: {}
   worker:  {}
@@ -1699,7 +1716,7 @@ def _done_and_close(tid: int, owner: str, evidence: str = "done",
 
 def _two_lanes(home: Path) -> None:
     """manager leads worker; boss leads reviewer, in a second lane."""
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 teams:
   manager: [worker]
   boss: [reviewer]
@@ -1853,6 +1870,10 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    'hand_edit_team',
+    'hand_edit_agent',
+    'reseal',
+    'sealed',
     'argparse',
     'atexit',
     'contextlib',

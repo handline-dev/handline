@@ -14,7 +14,7 @@ import fnmatch
 import time
 from dataclasses import dataclass
 
-from ..infra import paths
+from ..infra import paths, sealed
 from ..infra.yamlcompat import ConfigError, load
 
 DEFAULT_MAX_CHAIN_DEPTH = 4
@@ -60,7 +60,9 @@ class Team:
         p = path or paths.team_file()
         if not p.exists():
             raise FileNotFoundError(f"{p} not found - run `ocp team init`")
-        data = load(p.read_text())
+        text = p.read_text()
+        sealed.check(sealed.TEAM, text, p)
+        data = load(text)
         if not isinstance(data, dict):
             raise ConfigError(f"{p}: top level is not a map")
         return cls(data)

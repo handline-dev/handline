@@ -542,7 +542,7 @@ def _rename_orchestrator(con) -> None:
     if get_cursor(con, "migrated:human_name"):
         return
     from ..team import ask
-    from ..infra import paths
+    from ..infra import paths, sealed
 
     new = ask.HUMAN
     if new != OLD_HUMAN:
@@ -561,7 +561,10 @@ def _rename_orchestrator(con) -> None:
                 old_dir.rename(dest)
         t = paths.team_file()
         if t.exists() and OLD_HUMAN in t.read_text():
-            t.write_text(t.read_text().replace(OLD_HUMAN, new))
+            before = t.read_text()
+            after = before.replace(OLD_HUMAN, new)
+            t.write_text(after)
+            sealed.follow(sealed.TEAM, before, after)
     set_cursor(con, "migrated:human_name", 1)
 
 

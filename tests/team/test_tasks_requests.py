@@ -90,7 +90,7 @@ def test_db_dedup(home: Path) -> None:
 
 def test_ask_flow(home: Path) -> None:
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     for name in ("backend", "reviewer", "archivist", "marketing"):
         agents.register(name)
 
@@ -167,7 +167,7 @@ def test_one_request_at_a_time(home: Path) -> None:
     Before delivery its own requester may still replace or withdraw it;
     once delivered, neither applies."""
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     for name in ("backend", "reviewer"):
         agents.register(name)
     con = db.connect()
@@ -370,7 +370,7 @@ def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
     nobody told), and --replaces --mergeable together returned before the
     replaced row was retired."""
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     for name in ("backend", "reviewer"):
         agents.register(name)
     con = db.connect()
@@ -447,7 +447,7 @@ def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path)
 
 def test_ask_rate_limit(home: Path) -> None:
     use_home(home)
-    (home / "team.yaml").write_text(
+    hand_edit_team(
         "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 3\n"
@@ -463,7 +463,7 @@ def test_cycle_and_escalation(home: Path) -> None:
     """A runaway must be stopped AND escalated - a request that silently
     vanishes leaves the team stuck with nobody knowing why."""
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     for n in ("backend", "reviewer", "product", "marketing", "archivist"):
         agents.register(n)
 
@@ -491,7 +491,7 @@ def test_cycle_and_escalation(home: Path) -> None:
 
 def test_review_pingpong(home: Path) -> None:
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     for n in ("backend", "reviewer", "product"):
         agents.register(n)
 
@@ -523,7 +523,7 @@ def test_rate_limit_throttles(home: Path) -> None:
     """Too many asks is a resource problem: it throttles and clears itself,
     rather than needing a human the way a task defect does (section 8.6)."""
     use_home(home)
-    (home / "team.yaml").write_text(
+    hand_edit_team(
         "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 2\n"
@@ -552,7 +552,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
     all yet. Either way the store already knows; the fold has to check it
     directly rather than wait for an event that may never name the id."""
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     agents.register("backend")
 
     con = db.connect()
@@ -805,7 +805,7 @@ def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> No
 
 def test_ask_respects_terminal_state(home: Path) -> None:
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     for n in ("backend", "reviewer"):
         agents.register(n)
     con = db.connect()
@@ -1684,7 +1684,7 @@ def test_an_agent_may_not_list_another_agents_messages(home: Path) -> None:
     """T39: inbox, digest, handoff and events naming another agent are refused
     to an agent, unless it is that agent's supervisor; the human is exempt."""
     _daemon_home(home, 20)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 teams:
   dev: [marina, dohyun]
 agents:
@@ -1879,7 +1879,7 @@ def test_growing_the_team_needs_a_person(home: Path) -> None:
     try:
         accounts.register("beta")
         agents.register("manager")
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [marina]
 agents:
@@ -1993,7 +1993,7 @@ edges:
         # An edge the text edit cannot rewrite is refused, not guessed at: the
         # table is what routing runs on, and a rename that dropped an edge
         # would leave the renamed supervisor supervising nobody.
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [marina]
 agents:
@@ -2050,7 +2050,7 @@ def test_the_founder_does_not_approve_their_own_request(home: Path) -> None:
     real_env, real_stdin = os.environ.pop("OCP_AGENT", None), sys.stdin
     try:
         accounts.register("beta")
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [marina]
 agents:
@@ -2101,7 +2101,7 @@ edges:
 
         # A change that fails halfway is recorded as having failed, and leaves
         # no agent the routing table does not know.
-        (home / "team.yaml").write_text("teams:\n  dev: [marina]\n")
+        hand_edit_team("teams:\n  dev: [marina]\n")
         ok, said = hr.enact("add", "halfborn", why="w", team_name="dev")
         rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
         check("hr: a refused edit registers nobody",
@@ -2302,7 +2302,7 @@ def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) ->
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("hr")
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
   hr: {}
 edges:
@@ -4361,7 +4361,7 @@ def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
         con.close()
 
     ok, _, rid6 = askmod.ask("reviewer", "unmanaged lane", requester="worker")
-    (home / "team.yaml").write_text((home / "team.yaml").read_text().replace(
+    hand_edit_team((home / "team.yaml").read_text().replace(
         "from: \"boss\", to: \"reviewer\"", "from: \"ghost\", to: \"reviewer\""))
     rc, out = _cli(["resolve", str(rid6), "PASS", "--finding", "fnd D"], as_agent="reviewer")
     con = db.connect()
@@ -5190,7 +5190,7 @@ def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> No
     this - `ocp withdraw` and `ask --replaces` - and only this third one
     did not."""
     use_home(home)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
   reviewer: {}
   backend:  {}
@@ -5354,7 +5354,7 @@ def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
         # than in the shared fixture every other test using _board_world also
         # gets, makes the ask actually land so the real supersede loop
         # (ask.py's own retire, not a hand-built row) is what is measured.
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 agents:
   manager: {}
   worker:  {}

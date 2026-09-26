@@ -34,7 +34,7 @@ REAL_SESSION_PRESENT = dmn_delivery.session_present
 def _world(home: Path) -> list[str]:
     """Three agents with open sessions, and a `send` that records what is typed."""
     _daemon_home(home, 20)
-    (home / "team.yaml").write_text(TEAM)
+    hand_edit_team(TEAM)
     sent: list[tuple[str, str]] = []
     orca_seen()
     dmn_delivery.session_present = lambda a: True

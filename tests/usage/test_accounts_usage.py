@@ -4797,7 +4797,7 @@ def test_replaying_0919_makes_fewer_moves_than_the_old_rules(home: Path) -> None
     destination 13%."""
     restore_world()
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     orcamod.available = lambda: False
     obsmod.live_sessions = lambda: None
     base = int(time.time())
