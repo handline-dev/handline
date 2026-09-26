@@ -77,7 +77,7 @@ class HomePage(RowActions, JobsAware, Screen):
     HomePage #agents-box { height: auto; max-height: 50%; border: round $panel; }
     HomePage #messages-box { height: 1fr; border: round $panel; }
     HomePage #accounts-box.focused, HomePage #agents-box.focused,
-    HomePage #messages-box.focused { border: round cyan; }
+    HomePage #messages-box.focused { border: round $accent; }
     HomePage #accounts, HomePage #agents { height: auto; }
     HomePage #acct-notes, HomePage #agent-notes, HomePage #message-notes { height: auto; padding: 0 1; }
     HomePage #foot { height: auto; }
@@ -98,9 +98,10 @@ class HomePage(RowActions, JobsAware, Screen):
         super().__init__()
         self.panel = tui.AGENTS
         self.sel: dict = {}
-        self.flash = ""
         tui._enter(self.panel, self.sel)
         self.tab = "home"
+        self._checks_shown = False      # the Tasks tab is showing them now
+        self._checks = False            # the next Tasks tab opens on the founder's done tasks
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
         self._pressed: tuple | None = None      # the last row a mouse press picked, and when
@@ -132,7 +133,6 @@ class HomePage(RowActions, JobsAware, Screen):
                 yield ImeInput(id="default_cap", compact=True, restrict=r"[0-9]*")
                 yield Static("  most agents mid-turn at once on an account with no cap of its own",
                              classes="fhint")
-            yield Static(id="settings_flash")
             yield Button("Save", id="settings_save", variant="primary", compact=True)
 
     def on_mount(self) -> None:
@@ -155,15 +155,32 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
         if self.tab == "tasks":
-            self.query_one("#tasks_view", TasksView).refresh_rows()
+            view = self.query_one("#tasks_view", TasksView)
+            if self._checks or self._checks_shown:      # the view is left as the founder set it
+                view.show_checks(self._checks)          # unless `to check` sent us here, or it did last time
+            else:
+                view.refresh_rows()
+            self._checks_shown, self._checks = self._checks, False
         if self.tab == "stats":
             self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
             self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
 
+    def action_checks(self) -> None:
+        """The founder's done tasks waiting for a sign-off: the `b` key and the header's `to check`
+        go to the Tasks tab with them filtered."""
+        self._checks = True
+        tabs = self.query_one("#scope", Tabs)
+        if tabs.active == "tasks":
+            self.query_one("#tasks_view", TasksView).show_checks(True)
+            self._checks = False
+            self._checks_shown = True
+        else:
+            tabs.active = "tasks"
+
     def _save_settings(self) -> None:
-        _, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
-        self.query_one("#settings_flash", Static).update(Text(said))
+        ok, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
+        self.toast(said, ok)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "default_cap":
@@ -195,8 +212,6 @@ class HomePage(RowActions, JobsAware, Screen):
         foot = Text()
         for jl in self.jobs.lines():
             foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
-        if self.flash:
-            foot.append(tui.oneline(self.flash) + "\n")
         self.query_one("#foot", Static).update(foot)
         self.query_one("#home_keys", KeyGuide).set_keys(self._keys(agent_keys))
         self._count_hr()
@@ -442,7 +457,7 @@ class HomePage(RowActions, JobsAware, Screen):
             self.app.push_screen(TasksScreen())
             return
         if k == "b":     # the founder's done tasks waiting for a sign-off - free on every panel
-            self.app.push_screen(TasksScreen(states={"done"}, closer=actions.HUMAN))
+            self.action_checks()
             return
         if k in tui.NEXT_ROW and self._on_bottom_row():
             return      # the last row is the end: ↓ does not wrap round to the top
@@ -460,7 +475,6 @@ class HomePage(RowActions, JobsAware, Screen):
         return [Key(k, label, 1 if i < 3 else 3, label) for i, (k, label) in enumerate(own)] + list(_GLOBAL_KEYS)
 
     def _press(self, k: str) -> None:
-        self.flash = ""
         # `_act` can open a modal (`push_screen_wait`), which Textual only allows from
         # inside a worker - not straight from an event handler.
         self.run_worker(self._act_and_redraw(k), exclusive=True, group="act")

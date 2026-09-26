@@ -41,13 +41,11 @@ class AccountPage(AccountActions, Screen):
     AccountPage .fhint { color: $text-muted; }
     AccountPage #a_name { width: 40; }
     AccountPage #a_cap { width: 8; }
-    AccountPage #a_flash { height: 1; padding: 0 3; color: $text-muted; }
     """
 
     def __init__(self, name: str) -> None:
         super().__init__(classes="chat_page")     # the task page's styles (chat_page.tcss)
         self.account = name
-        self.flash = ""
         self.email: str | None = None       # asked of the vendor once: it is a subprocess
         self.facts: dict | None = None
         self._recover_shown = True          # what it last drew from the config
@@ -81,7 +79,6 @@ class AccountPage(AccountActions, Screen):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")
                     yield Static(id=f"a_{key}")
-        yield Static(id="a_flash", classes="flash")
         with ActionBar(id="a_buttons"):
             yield Button("Save", id="a_save", variant="primary", compact=True)
             yield Button("Login  l", id="a_login", compact=True)
@@ -137,7 +134,6 @@ class AccountPage(AccountActions, Screen):
         if box.value == self._recover_shown:    # unedited: follow the config
             box.value = self._recover_shown = f["recover"]
         self.query_one("#a_cap", Input).placeholder = str(f["default_cap"])
-        self.query_one("#a_flash", Static).update(Text(textsafe.oneline(self.flash)))
 
     def _draw_overview(self, f: dict, row) -> None:
         st = f["status"]
@@ -213,8 +209,9 @@ class AccountPage(AccountActions, Screen):
 
     def _save(self) -> None:
         box = {k: self.query_one(sel, Input).value for k, sel in _INPUTS.items()}
-        ok, self.flash = actions.save_account_settings(self.account, box["name"], box["cap"],
-                                                       bool(self.query_one("#a_recover", Switch).value))
+        ok, said = actions.save_account_settings(self.account, box["name"], box["cap"],
+                                                 bool(self.query_one("#a_recover", Switch).value))
+        self.toast(said, ok)
         if ok:
             self._recover_shown = bool(self.query_one("#a_recover", Switch).value)
             self._shown.clear()     # a saved form shows the config again, even where a blank wrote nothing

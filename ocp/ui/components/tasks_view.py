@@ -342,6 +342,13 @@ class TasksView(Vertical):
         self.states = self.states - ended if self.states & ended else self.states | ended
         self.refresh_rows()
 
+    def show_checks(self, on: bool) -> None:
+        """The founder's done tasks waiting for a sign-off (`on`), or the view as it opens."""
+        self.closer = actions.HUMAN if on else None
+        self.states = {"done"} if on else set(actions.OPEN_STATES)
+        self.owner = None
+        self.refresh_rows()
+
     def sort_named(self, column: str) -> None:
         """Sort by `column`, or reverse the order when it already is."""
         if column == self.by:

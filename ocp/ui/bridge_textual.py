@@ -24,6 +24,7 @@ from textual.app import App
 
 from . import jobs as jobsmod, tui
 from .clipboard_app import ClipboardApp
+from .theme import follow_os_theme
 
 
 class BridgeApp(ClipboardApp):
@@ -39,6 +40,7 @@ class BridgeApp(ClipboardApp):
 
     def on_mount(self) -> None:
         from .pages.home import HomePage
+        follow_os_theme(self)
         self.push_screen(HomePage())
 
 

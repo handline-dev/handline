@@ -50,6 +50,12 @@ def check(name: str, cond: bool, detail: str = "") -> None:
     print(f"{'PASS' if cond else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not cond else ""))
 
 
+def _said(screen) -> str:
+    """The newest toast the app has shown."""
+    notes = list(screen.app._notifications)
+    return notes[-1].message if notes else ""
+
+
 def _home(tag: str) -> Path:
     """`t._daemon_home`, minus the daemon-trigger fixture (a percentage, a
     Stop event) this screen has no use for: registers `backend` on `alpha`
@@ -76,7 +82,7 @@ async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None
         await pilot.press("w")
         await pilot.pause(0.2)
         check("dashboard: a refused verb says why, as `actions.can` does",
-              "not parked or closed" in screen.flash, screen.flash)
+              "not parked or closed" in _said(screen), _said(screen))
 
 
 async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
@@ -141,7 +147,7 @@ async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
             while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
                 await pilot.pause(0.1)
             check("act: once it answers, the line is replaced by what it said",
-                  "closed backend (stub)" in screen.flash and not screen.jobs.running, screen.flash)
+                  "closed backend (stub)" in _said(screen) and not screen.jobs.running, _said(screen))
     finally:
         jobsmod.ACT_COMMAND = real_command
 
@@ -171,8 +177,8 @@ async def test_confirm_rechecks_can_if_the_state_changed_while_it_was_open() -> 
         await pilot.press("y")
         await pilot.pause(0.2)
         check("recheck: a yes rechecks actions.can rather than trusting the first read",
-              "HANDOFF" in screen.flash and "changed while you looked" in screen.flash,
-              screen.flash)
+              "HANDOFF" in _said(screen) and "changed while you looked" in _said(screen),
+              _said(screen))
         check("recheck: and does not start the job", not screen.jobs.running, "")
 
 
@@ -234,7 +240,7 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.press("enter")
         await pilot.pause(0.2)
         check("accounts: c sets the cap through loadmod",
-              "at most 3 agents mid-turn" in screen.flash, screen.flash)
+              "at most 3 agents mid-turn" in _said(screen), _said(screen))
 
         await pilot.press("a")
         await pilot.pause(0.1)
@@ -243,15 +249,15 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.press("enter")
         await pilot.pause(0.2)
         check("accounts: adding one that exists refuses through accounts.add_account, "
-              "never reaching a real login", screen.flash == "account 'alpha' already exists",
-              screen.flash)
+              "never reaching a real login", _said(screen) == "account 'alpha' already exists",
+              _said(screen))
 
         await pilot.press("x")
         await pilot.pause(0.2)
         check("accounts: removing one an agent is on refuses through remove_plan, "
               "before the human is ever asked to type its name",
-              "session open" in screen.flash and not isinstance(app.screen, TextPrompt),
-              screen.flash)
+              "session open" in _said(screen) and not isinstance(app.screen, TextPrompt),
+              _said(screen))
 
         await pilot.press("enter")
         await pilot.pause(0.2)
@@ -325,7 +331,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   page.query_one("#a_recover", Switch).value is False)
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            flash = str(page.query_one("#a_flash", Static).render())
+            flash = _said(page)
             check("account page: a save that changes the cap leaves recovery off",
                   not loadmod.usage_recover_enabled("alpha") and page.query_one("#a_recover", Switch).value is False)
             check("account page: Save writes the alias and the cap",
@@ -341,7 +347,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             page.query_one("#a_cap", Input).value = ""
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            flash = str(page.query_one("#a_flash", Static).render())
+            flash = _said(page)
             check("account page: an empty cap writes nothing", loadmod.cap_of("alpha") == 2, flash)
             check("account page: and the box shows the account's own cap again",
                   page.query_one("#a_cap", Input).value == "2", page.query_one("#a_cap", Input).value)
@@ -380,7 +386,7 @@ async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
         check("accounts: a wrong typed name leaves it",
               "beta" in accountsmod.paths.list_accounts(),
               str(accountsmod.paths.list_accounts()))
-        check("accounts: and says nothing was removed", "not removed" in screen.flash, screen.flash)
+        check("accounts: and says nothing was removed", "not removed" in _said(screen), _said(screen))
 
         await pilot.press("x")
         await pilot.pause(0.1)
@@ -391,7 +397,7 @@ async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
         check("accounts: the exact typed name removes it",
               "beta" not in accountsmod.paths.list_accounts(),
               str(accountsmod.paths.list_accounts()))
-        check("accounts: and says so", "removed account 'beta'" in screen.flash, screen.flash)
+        check("accounts: and says so", "removed account 'beta'" in _said(screen), _said(screen))
 
 
 async def test_messages_panel_open_reaches_the_agents_page() -> None:
@@ -490,7 +496,7 @@ async def test_wake_on_a_stalled_agent_asks_first() -> None:
         while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
             await pilot.pause(0.1)
         check("wake: confirming it clears the stall",
-              "STALLED -> QUEUED" in screen.flash, screen.flash)
+              "STALLED -> QUEUED" in _said(screen), _said(screen))
 
 
 async def test_messages_panel_acts_on_a_folded_row() -> None:
@@ -553,7 +559,7 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
         while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
             await pilot.pause(0.1)
         check("messages: it dismissed the row's latest, not a literal 'agent:reviewer'",
-              "dismiss" in screen.flash.lower() or "#" in screen.flash, screen.flash)
+              "dismiss" in _said(screen).lower() or "#" in _said(screen), _said(screen))
 
 
 async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
@@ -1131,8 +1137,10 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         check("tasks tab: a refresh with the same agents does not rebuild the agent dropdown", not rebuilt, len(rebuilt))
 
 
-async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
-    from ocp.ui.pages.tasks import TasksScreen
+async def test_b_opens_the_tasks_tab_on_the_founders_done_tasks() -> None:
+    from textual.widgets import Tabs
+    from ocp.ui.components import summary as sm
+    from ocp.ui.components.tasks_view import TasksView
     _home("checks")
     agents.register("reviewer")
     con = db.connect()
@@ -1147,12 +1155,34 @@ async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
     app = bt.BridgeApp()
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
+        page = app.screen
+        view = page.query_one("#tasks_view", TasksView)
         await pilot.press("b")
         await pilot.pause(0.3)
-        screen = app.screen
-        ids = {r["id"] for r in screen.query_one("#tasks_view").rows}
-        check("checks: b opens the tasks screen on the done tasks the founder signs off",
-              isinstance(screen, TasksScreen) and mine in ids and theirs not in ids, ids)
+        ids = {r["id"] for r in view.rows}
+        check("checks: b goes to the Tasks tab, filtered to the done tasks the founder signs off",
+              app.screen is page and page.query_one("#scope", Tabs).active == "tasks"
+              and mine in ids and theirs not in ids, ids)
+        page.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        page.query_one("#scope", Tabs).active = "tasks"
+        await pilot.pause(0.3)
+        check("checks: the tab opened by hand is not filtered", view.closer is None and "doing" in view.states)
+        view.states = {"queued"}
+        page.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        page.query_one("#scope", Tabs).active = "tasks"
+        await pilot.pause(0.3)
+        check("checks: a filter the founder set stays when the tab is left and come back to", view.states == {"queued"})
+        page.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        text = sm.summary_text(True, "t", sm.Summary(0, 0, 1))
+        check("checks: the to-check part of the header is a link to the screen's checks action",
+              any(getattr(sp.style, "meta", {}).get("@click") == "screen.checks" for sp in text.spans))
+        await page.run_action("checks")
+        await pilot.pause(0.3)
+        check("checks: that action goes to the same filtered tab",
+              page.query_one("#scope", Tabs).active == "tasks" and {r["id"] for r in view.rows} == {mine})
 
 
 async def test_read_only_page_shows_foreign_text_inert() -> None:
@@ -1447,7 +1477,7 @@ async def test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter() -> N
             await app.on_event(events.Key("enter", "녕"))
             await pilot.pause(0.3)
             check("account page: the alias box takes a syllable the IME commits with enter, and saves it",
-                  box.value == "안녕" and "안녕" in page.flash, f"{box.value!r} {page.flash!r}")
+                  box.value == "안녕" and "안녕" in _said(page), f"{box.value!r} {_said(page)!r}")
 
 
 async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
@@ -1896,9 +1926,9 @@ def test_agent_rows_short_model_cache_and_founder_block() -> None:
               ar.cache_left(con, "nobody", now=last + dmn_states.PROMPT_CACHE_S + 5) == -5)
 
         cell = lambda left: _plain(ar.cache_cell(left))
-        check("agent_rows: the cache cell is minutes, then m:ss in the last ten, then gone",
+        check("agent_rows: the cache cell is minutes, then m:ss in the last ten, then a dash",
               cell(3480) == "58m" and cell(600) == "10m" and cell(599) == "9:59"
-              and cell(65) == "1:05" and cell(0) == "gone" and cell(-30) == "gone" and cell(None) == "·")
+              and cell(65) == "1:05" and cell(0) == "-" and cell(-30) == "-" and cell(None) == "-")
         check("agent_rows: an agent that ignores cache expiry shows that, not a countdown",
               _plain(ar.cache_cell(3480, True)) == "ignored" and _plain(ar.cache_cell(-30, True)) == "ignored")
         check("agent_rows: the last ten minutes are yellow, the rest plain",
@@ -2029,45 +2059,84 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         con.close()
 
 
-def test_summary_line_and_tightest_account() -> None:
+async def test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot() -> None:
+    from ocp.ui.pages.home import HomePage
+    _home("toasts")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        page = app.screen
+        page.toast("done it")
+        page.toast("refused it", False)
+        page.toast("  ")
+        await pilot.pause(0.1)
+        notes = list(app._notifications)
+        check("toast: a result is a toast, a refusal an error one, blank says nothing",
+              [(n.message, n.severity) for n in notes] == [("done it", "information"), ("refused it", "error")],
+              str([(n.message, n.severity) for n in notes]))
+        check("toast: the foot line holds no message", not hasattr(page, "flash") and isinstance(page, HomePage))
+
+
+async def test_starting_an_agent_asks_for_a_repo_only_when_it_has_none() -> None:
     from types import SimpleNamespace
+    from ocp.ui.components.jobs_aware import dispatch_agent_verb
+    home = _home("startrepo")
+    agents.register("withrepo", repo=str(home))
+    agents.register("norepo")
+    asked, started = [], []
+
+    async def push_screen_wait(screen):
+        asked.append(screen.prompt)
+        return None
+    fake = SimpleNamespace(app=SimpleNamespace(push_screen_wait=push_screen_wait),
+                           toast=lambda *a: None,
+                           _start=lambda verb, target, what, args, *k: started.append(args) or "")
+    con = db.connect()
+    try:
+        await dispatch_agent_verb(fake, con, "withrepo", "terminal")
+        check("start: an agent with a repo set is not asked, and starts in it",
+              asked == [] and started == [("withrepo", str(home))], str((asked, started)))
+        await dispatch_agent_verb(fake, con, "norepo", "terminal")
+        check("start: one without a repo is asked plainly for the path",
+              asked == ["repo path for norepo:"] and len(started) == 1, str((asked, started)))
+    finally:
+        con.close()
+
+
+async def test_the_bridge_follows_the_os_light_dark_setting_while_open() -> None:
     from unittest import mock
-    from ocp.usage import status
+    from ocp.ui import theme
+    _home("theme")
+    which = ["textual-light"]
+    with mock.patch.object(theme, "os_theme", lambda: which[0]), mock.patch.object(theme, "POLL_S", 0.1):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(100, 24)) as pilot:
+            await pilot.pause(0.2)
+            check("theme: the bridge opens in the OS's theme", app.theme == "textual-light", app.theme)
+            which[0] = "textual-dark"
+            await pilot.pause(0.4)
+            check("theme: and switches when the OS changes while it is open", app.theme == "textual-dark", app.theme)
+    with mock.patch.object(theme.subprocess, "run", side_effect=OSError):
+        check("theme: an unreadable setting is dark", theme.os_theme() == "textual-dark")
+
+
+def test_summary_line() -> None:
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
     check("summary: the daemon word comes first, and a quiet team says only that",
-          text(True, sm.Summary(0, 0, 0, None)) == "daemon running · 12:00:00")
-    check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0, None)))
+          text(True, sm.Summary(0, 0, 0)) == "daemon running · 12:00:00")
+    check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0)))
     check("summary: working, to decide and to check follow, in that order, each only when not zero",
-          text(True, sm.Summary(1, 2, 3, None)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
-          and "working" not in text(True, sm.Summary(0, 2, 0, None)))
-    check("summary: the tight account is named with its window and figure",
-          text(True, sm.Summary(0, 0, 0, ("sigma", "5h", 87))) == "daemon running · sigma 5h 87% · 12:00:00")
-    check("summary: past LIMIT_PCT it is bold red, below it yellow",
-          sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.LIMIT_PCT))).spans[-2].style == "bold red"
-          and sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.TIGHT_PCT))).spans[-2].style == "yellow")
-
-    reads = {"a": SimpleNamespace(short_trusted=50, long_trusted=81, short=status.Window(300), long=status.Window(10080)),
-             "b": SimpleNamespace(short_trusted=92, long_trusted=None, short=status.Window(300), long=status.Window(10080)),
-             "c": SimpleNamespace(short_trusted=None, long_trusted=None, short=status.Window(300), long=status.Window(10080))}
-    with mock.patch.object(sm.paths, "list_accounts", lambda: list(reads)), \
-            mock.patch.object(sm.status, "read", lambda n: reads[n]):
-        check("summary: tightest is the fullest window at TIGHT_PCT or more",
-              sm.tightest() == ("b", "5h", 92), sm.tightest())
-        reads["b"].short_trusted = 79
-        check("summary: the other window of another account can be the one",
-              sm.tightest() == ("a", "7d", 81), sm.tightest())
-        reads["a"].long_trusted = 79
-        check("summary: nothing at TIGHT_PCT, and an unreadable figure, is None", sm.tightest() is None)
+          text(True, sm.Summary(1, 2, 3)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
+          and "working" not in text(True, sm.Summary(0, 2, 0)))
 
     _home("summarize")
     con = db.connect()
     try:
-        with mock.patch.object(sm, "tightest", lambda: None):
-            check("summary: nothing running or waiting counts zero",
-                  sm.summarize(con) == sm.Summary(0, 0, 0, None), sm.summarize(con))
-            db.set_agent_state(con, "backend", "RUNNING")
-            check("summary: a running agent counts", sm.summarize(con).running == 1)
+        check("summary: nothing running or waiting counts zero",
+              sm.summarize(con) == sm.Summary(0, 0, 0), sm.summarize(con))
+        db.set_agent_state(con, "backend", "RUNNING")
+        check("summary: a running agent counts", sm.summarize(con).running == 1)
     finally:
         con.close()
 
@@ -2165,8 +2234,8 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
             await pilot.click("#settings_save")
             await pilot.pause(0.2)
             check(f"home: a default cap of {bad!r} is refused and the saved one stays",
-                  loadmod.default_cap() == 7 and "at least 1" in str(screen.query_one("#settings_flash", Static).render()),
-                  str(screen.query_one("#settings_flash", Static).render()))
+                  loadmod.default_cap() == 7 and "at least 1" in _said(screen),
+                  _said(screen))
         screen.query_one("#default_cap", Input).value = "9"
         screen.query_one("#scope", Tabs).active = "home"
         await pilot.pause(0.2)
@@ -2447,7 +2516,7 @@ async def _run_all() -> None:
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
-    await test_b_opens_the_tasks_screen_on_the_founders_done_tasks()
+    await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
     await test_dashboard_messages_table_is_fed_by_messages_data()
@@ -2462,7 +2531,10 @@ async def _run_all() -> None:
     test_fold_urgency_ranks_what_a_fold_hides()
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
-    test_summary_line_and_tightest_account()
+    test_summary_line()
+    await test_the_bridge_follows_the_os_light_dark_setting_while_open()
+    await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
+    await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
     await test_home_tab_bar_focus_mouse_and_columns()

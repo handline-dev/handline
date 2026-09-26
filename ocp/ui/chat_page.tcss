@@ -52,5 +52,4 @@ ChatPage { overflow: hidden; }
     .frow #s_context_k { width: 10; }
     .frow .unit { width: 10; padding-left: 1; }
     .fhint { color: $text-muted; }
-    .flash { height: 1; padding: 0 3; color: $text-muted; }
 }

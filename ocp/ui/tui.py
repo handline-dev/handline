@@ -143,7 +143,7 @@ def agent_footer_keys(con, agent: str | None) -> list[tuple[str, str]]:
 # getter the same thing would have one clobber the other in the command dict,
 # so this reads the handle, not the terminal, and is named for that.
 INFO_COMMANDS = ("where", "worktree")
-# Read-only too, but too long for the flash line: each opens a page over the
+# Read-only too, but too long for a toast: each opens a page over the
 # conversation, and esc comes back to it.
 PAGE_COMMANDS = ("knows", "done")
 

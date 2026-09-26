@@ -13,7 +13,7 @@ from .read_only import ReadOnly
 
 
 class RowActions(AccountActions):
-    """Mixin for a screen that keeps `panel`, `sel` and `flash` and starts jobs (`JobsAware`)."""
+    """Mixin for a screen that keeps `panel` and `sel` and starts jobs (`JobsAware`)."""
 
     def open_chat(self, agent: str) -> None:
         from ..chat_page import ChatPage  # chat_page imports the components this page uses
@@ -69,11 +69,11 @@ class RowActions(AccountActions):
     async def _account_add(self) -> None:
         name = await self.app.push_screen_wait(TextPrompt("new account name:"))
         if not name or not name.strip():
-            self.flash = "not added"
+            self.toast("not added")
             return
         name = name.strip()
         ok, msg = accounts.add_account(name, lambda argv, env: self._run_suspended(argv, env)[0])
-        self.flash = msg
+        self.toast(msg, ok)
         if not ok or not orca.available():
             return
         # 156 item 1c: the CLI and this screen share the one trusting sequence.
@@ -85,7 +85,9 @@ class RowActions(AccountActions):
                                            if skipped else "")
         yn = await self.app.push_screen_wait(TextPrompt(prompt))
         if (yn or "").strip().lower() in ("y", "yes"):
-            self.flash = msg + " · " + "; ".join(actions.trust_worktrees(name, declared))
+            trusted = actions.trust_worktrees(name, declared)
+            self.toast(msg + " · " + "; ".join(trusted),
+                       all(": trusted" in t or "no trust prompt" in t for t in trusted))
 
     async def _act_agent(self, con, name: str, key: str) -> None:
         if key in ("\r", "\n"):    # "↵" in AGENT_KEYS is a display label, never a lookup key
@@ -94,7 +96,7 @@ class RowActions(AccountActions):
         if key == "?":
             # The footer (`tui.panel_keys`) folds fold/move out of a filtered
             # row's own keys - `?` is the one place every AGENT_KEYS verb is named.
-            self.flash = tui.agent_help_line()
+            self.toast(tui.agent_help_line())
             return
         label = dict(tui.AGENT_KEYS).get(key)
         if not label or label == "open":
@@ -108,12 +110,12 @@ class RowActions(AccountActions):
         # (the row's id is what the action is given).
         row_m = next((m for m in actions.messages(con) if m["key"] == target), None)
         if row_m is None:
-            self.flash = f"{target} is gone"
+            self.toast(f"{target} is gone", False)
             return
         rid = row_m["id"]
         row = con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
         if not row:
-            self.flash = f"#{rid} is gone"
+            self.toast(f"#{rid} is gone", False)
             return
         if key in ("\r", "\n"):
             actions.opened_by_human(con, rid)
@@ -123,18 +125,18 @@ class RowActions(AccountActions):
                 return
             detail = actions.message_detail(con, rid)
             if detail is None:
-                self.flash = f"#{rid} is gone"
+                self.toast(f"#{rid} is gone", False)
                 return
             title, sections = detail
             await self.app.push_screen_wait(ReadOnly(title, sections))
             return
         if key == "x":
-            self.flash = self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),
-                                     {"me": actions.HUMAN})
+            self.toast(self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),
+                                   {"me": actions.HUMAN}), False)
             return
         if key in ("a", "e"):
             text = await self.app.push_screen_wait(TextPrompt(f"answer #{rid}:", multi=key == "e"))
             if not text:
-                self.flash = "nothing sent: a or e again to retry"
+                self.toast("nothing sent: a or e again to retry")
                 return
-            self.flash = self._start("answer", f"#{rid}", f"answering #{rid}", (rid, text))
+            self.toast(self._start("answer", f"#{rid}", f"answering #{rid}", (rid, text)), False)

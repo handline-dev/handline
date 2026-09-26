@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 import threading
 import time
@@ -30,6 +29,7 @@ from ..infra import paths, textsafe
 from ..usage import status
 from . import tui
 from .clipboard_app import ClipboardApp
+from .theme import follow_os_theme
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
@@ -661,18 +661,20 @@ STATE_STYLE = {"draft": "white on grey30", "queued": "black on yellow", "doing":
 class TaskActions:
     """Close, reopen and discard for the task `self.tid` (its `task_detail` in `self.d`): the
     calls the human may make, asked for and reported the same wherever the buttons are.
-    The host says a refusal (`say`) and redraws after an action (`flash`)."""
+    The host redraws after an action (`redraw`); a refusal is a toast (`say`)."""
 
     tid: int
     d: dict | None
 
+    def say(self, text: str) -> None:
+        self.notify(safe(text), severity="error", timeout=10, markup=False)
+
     def report(self, verb: str, ok: bool, said: str) -> None:
-        """Say what came of an action where it cannot be missed - a notice over
-        the page, not only the small line under it - and log it."""
+        """Say what came of an action in a toast, log it, and redraw."""
         log_action(f"task {actions.task_ref(self.tid)} {verb}: {'ok' if ok else 'refused'} - {said}")
         self.notify(safe(said), title=f"{verb} {actions.task_ref(self.tid)}", severity="information" if ok else "error",
                     timeout=10, markup=False)
-        self.flash(said)
+        self.redraw()
 
     def action_close_task(self) -> None:
         if not (self.d and self.d["can_close"]):
@@ -736,7 +738,6 @@ class TaskPane(TaskActions, Vertical):
     TaskPane #pane_scroll {{ height: 1fr; }}
     TaskPane #pane_foot {{ dock: bottom; height: auto; }}
     TaskPane #pane_buttons {{ height: 1; }}
-    TaskPane #pane_flash {{ height: auto; color: $warning; }}
     """
 
     class Changed(Message):
@@ -759,17 +760,12 @@ class TaskPane(TaskActions, Vertical):
         with VerticalScroll(id="pane_scroll"):
             yield Static(id="pane_text")
         with Vertical(id="pane_foot"):
-            yield Static(id="pane_flash")
             with Horizontal(id="pane_buttons"):
                 yield Button("Close", id="pane_close", variant="success", compact=True)
                 yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
                 yield Button("Discard", id="pane_discard", variant="error", compact=True)
 
-    def say(self, text: str) -> None:
-        self.query_one("#pane_flash", Static).update(Text(safe(text)))
-
-    def flash(self, text: str) -> None:
-        self.say(text)
+    def redraw(self) -> None:
         self.show(self.tid)
         self.post_message(self.Changed())
 
@@ -780,8 +776,6 @@ class TaskPane(TaskActions, Vertical):
 
     def show(self, tid: int | None) -> None:
         text = self.query_one("#pane_text", Static)
-        if tid != self.tid:
-            self.query_one("#pane_flash", Static).update("")
         self.tid = tid or 0
         self.d = None
         for name in ("close", "reopen", "discard"):
@@ -842,7 +836,6 @@ class TaskDetail(TaskActions, Screen):
             yield Static(id="t_meta")
             yield Static(id="t_kids", classes="section")
             yield Static(id="t_reqs", classes="section")
-        yield Static(id="t_flash", classes="flash")
         with ActionBar(id="t_actions"):
             yield Button("Close  c", id="close", variant="success", compact=True)
             yield Button("Reopen  r", id="reopen", variant="warning", compact=True)
@@ -885,11 +878,7 @@ class TaskDetail(TaskActions, Screen):
             out.append("\n")
         return out
 
-    def say(self, text: str) -> None:
-        self.query_one("#t_flash", Static).update(Text(safe(text)))
-
-    def flash(self, text: str) -> None:
-        self.say(text)
+    def redraw(self) -> None:
         self.load()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -961,7 +950,6 @@ class ChatPage(Screen):
                     yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
                     yield Static("k tokens", classes="unit")
                     yield Static(id="s_context_share", classes="fvalue")
-            yield Static(id="s_msg", classes="flash")
             with ActionBar(id="s_buttons"):
                 yield Button("Save", id="s_save", variant="primary", compact=True)
                 yield Button("Reset", id="s_reset", compact=True)
@@ -1293,14 +1281,12 @@ class ChatPage(Screen):
 
     def load_settings(self) -> None:
         """Fill the settings form from the agent's file."""
-        msg = self.query_one("#s_msg", Static)
         try:
             self.settings = cfg = settings_of(self.agent)
         except (OSError, agents.ConfigError) as e:
             self.settings = None
-            msg.update(Text(f"cannot read this agent's settings: {safe(e)}", style="red"))
+            self.notify(f"cannot read this agent's settings: {safe(e)}", severity="error", timeout=10, markup=False)
             return
-        msg.update("")
         for key in ("session_account", "vendor"):
             self.query_one(f"#s_{key}", Static).update(Text(safe(cfg[key])))
         self.query_one("#s_enabled", Static).update("yes" if cfg["enabled"] else "no")
@@ -1332,17 +1318,16 @@ class ChatPage(Screen):
 
     def save_form(self) -> None:
         """Save what the form changes, after showing exactly what that is."""
-        msg = self.query_one("#s_msg", Static)
         if self.settings is None:
             return
         form = self.form()
         problem = settings_problem(form)
         if problem:
-            msg.update(Text(problem, style="red"))
+            self.notify(safe(problem), severity="error", timeout=10, markup=False)
             return
         changes = settings_changes(self.settings, form)
         if not changes:
-            msg.update(Text("nothing changed", style="dim"))
+            self.notify("nothing changed", timeout=5, markup=False)
             return
         detail = "\n".join(f"{k}:  {old or '(none)'}  →  {new}" for k, old, new in changes)
 
@@ -1352,13 +1337,12 @@ class ChatPage(Screen):
                 return
             ok, said = save_settings(self.agent, changes)
             log_action(f"settings {self.agent}: {'ok' if ok else 'refused'} - {said}")
-            self.notify(safe(said), title=f"settings {self.agent}", severity="information" if ok else "error",
+            skip = ok and any(k == "skip_permissions" for k, _, _ in changes)
+            self.notify(safe(said) + ("\n(a running session is not restarted"
+                                      + ("; skip prompts applies from its next launch)" if skip else ")") if ok else ""),
+                        title=f"settings {self.agent}", severity="information" if ok else "error",
                         timeout=10, markup=False)
             self.load_settings()
-            msg.update(Text(safe(said) + ("  (a running session is not restarted; skip prompts applies from its next launch)"
-                                          if ok and any(k == "skip_permissions" for k, _, _ in changes)
-                                          else "  (a running session is not restarted)" if ok else ""),
-                            style="green" if ok else "red"))
         self.app.push_screen(Confirm(f"Change {self.agent}'s settings", detail,
                                      yes="Save", no="Cancel",
                                      danger=any(k == "skip_permissions" and new == "on" for k, _, new in changes)),
@@ -1530,18 +1514,6 @@ class ChatPage(Screen):
             self._spin()
 
 
-def os_theme() -> str:
-    """The Textual theme that matches the OS's light or dark setting (macOS);
-    dark where it cannot be read. The stylesheet uses theme variables only, so
-    every colour follows this."""
-    try:
-        out = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"],
-                             capture_output=True, text=True, timeout=2).stdout
-    except (OSError, subprocess.SubprocessError):
-        return "textual-dark"
-    return "textual-dark" if out.strip() == "Dark" else "textual-light"
-
-
 class ChatApp(ClipboardApp):
     CSS_PATH = Path(__file__).with_name("chat_page.tcss")
 
@@ -1550,7 +1522,7 @@ class ChatApp(ClipboardApp):
         self.agent = agent
 
     def on_mount(self) -> None:
-        self.theme = os_theme()
+        follow_os_theme(self)
         self.push_screen(ChatPage(self.agent))
 
 
