@@ -16,7 +16,7 @@ from ..team import accounts, agents
 from .. import db, vendors
 from ..session import launch, observe as obs, orca
 from ..usage import load as loadmod, status
-from . import paths, service, textsafe
+from . import paths, protected, service, textsafe
 from . import timefmt
 from ..daemon import reconciler as dmn_reconciler
 
@@ -189,6 +189,15 @@ def _check_accounts(r: Report) -> None:
             r.add(OK, f"account {a}: assignable", why)
         else:
             r.add(WARN, f"account {a}: not assignable", why)
+
+
+def _check_protected(r: Report) -> None:
+    problems = protected.exposure()
+    if problems:
+        for why in problems:
+            r.add(WARN, "protected store is not out of the agents' reach", why)
+    else:
+        r.add(OK, "protected store", str(protected.root()))
 
 
 def _check_agents(r: Report) -> None:
@@ -494,6 +503,7 @@ def run() -> Report:
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)
+    _check_protected(r)
     _check_stuck_running(r)
     _check_launch_drift(r)
     _check_session_matches_the_record(r)

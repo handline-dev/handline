@@ -515,9 +515,22 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
             check("skip: an agent's own session cannot turn it on",
                   rc == 1 and "founder's" in err.getvalue()
                   and "skip_permissions" not in agents.read("backend"), err.getvalue())
+            os.environ.pop("OCP_AGENT")
             agents.register("backend", skip_permissions=True)
-            _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))
-            check("skip: but it can turn it off", "skip_permissions" not in agents.read("backend"))
+            os.environ["OCP_AGENT"] = "backend"
+            with contextlib.redirect_stderr(io.StringIO()):
+                rc = climod.main(["agent", "register", "backend", "--skip-permissions", "off"])
+            check("skip: nor off - the grant is the founder's both ways",
+                  rc == 1 and agents.read("backend").get("skip_permissions") is True
+                  and agents.skip_permissions_granted("backend"))
+            try:
+                agents.register("backend", skip_permissions=False)
+                check("skip: and the call itself refuses an agent, not just the CLI", False)
+            except PermissionError:
+                check("skip: and the call itself refuses an agent, not just the CLI",
+                      agents.skip_permissions_granted("backend"))
+            os.environ.pop("OCP_AGENT")
+            agents.register("backend", skip_permissions=False)
         finally:
             if real is None:
                 os.environ.pop("OCP_AGENT", None)
@@ -580,6 +593,80 @@ def test_skip_permissions_needs_the_founders_grant_not_just_the_file(home: Path)
               not agents.skip_permissions_granted("backend"))
     finally:
         del cdrv.binary
+
+
+def test_the_protected_store_is_outside_what_agents_write(home: Path) -> None:
+    """T175 (founder #994): what only the founder may say is kept outside
+    ~/.orcapipe, which every agent's sandbox can write; a write from an agent's
+    session is refused, by ocp where the sandbox is off and by the OS where it is on."""
+    use_home(home)
+    from ocp.infra import protected
+    check("protected: nothing there yet", protected.get("ns", "x") is None)
+    protected.put("ns", "x", "granted")
+    check("protected: put then get", protected.get("ns", "x") == "granted")
+    check("protected: outside OCP_HOME, in a folder of its own for this home",
+          home.resolve() not in protected.root().resolve().parents
+          and protected.root().resolve() != home.resolve()
+          and protected.root().resolve().parent.name == "protected", str(protected.root()))
+    check("protected: private to its owner", not (protected.root().stat().st_mode & 0o077),
+          oct(protected.root().stat().st_mode))
+    for bad in ("../x", "a/b", ".hidden", "", "x y"):
+        try:
+            protected.get("ns", bad)
+            check(f"protected: {bad!r} is refused as a name", False)
+        except ValueError:
+            check(f"protected: {bad!r} is refused as a name", True)
+    other = home.parent / (home.name + "-other")
+    other.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(other)
+    check("protected: another OCP_HOME keeps its own", protected.get("ns", "x") is None)
+    os.environ["OCP_HOME"] = str(home)
+
+    real = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        for label, call in (("put", lambda: protected.put("ns", "y", "granted")),
+                            ("delete", lambda: protected.delete("ns", "x"))):
+            try:
+                call()
+                check(f"protected: an agent's {label} is refused", False)
+            except protected.NotTheFounder:
+                check(f"protected: an agent's {label} is refused",
+                      protected.get("ns", "y") is None and protected.get("ns", "x") == "granted")
+    finally:
+        if real is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real
+    if os.getuid() != 0:
+        folder = protected.root() / "ns"
+        folder.chmod(0o500)
+        try:
+            try:
+                protected.put("ns", "z", "granted")
+                check("protected: a folder the caller cannot write refuses at the OS", False)
+            except PermissionError:
+                check("protected: a folder the caller cannot write refuses at the OS",
+                      protected.get("ns", "z") is None)
+        finally:
+            folder.chmod(0o700)
+    protected.delete("ns", "x")
+    check("protected: delete", protected.get("ns", "x") is None)
+    check("protected: a sound store reports no exposure", protected.exposure() == [],
+          str(protected.exposure()))
+
+    inside = home / "sub"
+    inside.mkdir()
+    os.environ["OCP_HOME"] = str(paths.user_home() / ".config")
+    try:
+        check("protected: a store inside OCP_HOME is named by doctor",
+              any("every agent can write" in why for why in protected.exposure()),
+              str(protected.exposure()))
+        r = doctor.Report()
+        doctor._check_protected(r)
+        check("protected: as a warning", any(lv == doctor.WARN for lv, _n, _d in r.rows), str(r.rows))
+    finally:
+        os.environ["OCP_HOME"] = str(home)
 
 
 def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
@@ -1858,6 +1945,7 @@ def main() -> int:
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
         run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))
+        run(lambda: test_the_protected_store_is_outside_what_agents_write(Path(td) / 'protstore'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
