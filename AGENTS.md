@@ -57,9 +57,11 @@ agent (ROLE.md, base.md); this file does not repeat them.
 ## How we work
 
 - Tests: when you change code, write unit tests for the change in the same
-  commit. Work is not done until they pass. Run the whole suite with
-  `tools/suite.sh`, in the foreground with a 600000 ms Bash timeout, never in the
-  background.
+  commit. Work is not done until they pass. While iterating, run only the
+  tests you touched (`python3 tests/test_ocp.py -k <name>`); run the whole
+  suite once, right before `ocp ask orcapipe.auditor`, with `tools/suite.sh`, in
+  the foreground with a 600000 ms Bash timeout, never in the background. The
+  auditor reruns it at the exact sha; a count you quote is not a verdict.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.
@@ -70,3 +72,6 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - Permission prompts: edit files with the Edit tool, never `sed -i`, which can
   write any file and so always prompts. Don't start a command with `cd`; use
   paths or `git -C` instead.
+- Text to `ocp resolve` and `ocp ask` goes in single quotes (a literal `'` as
+  `'"'"'`): in double quotes the shell runs backticked words and they vanish
+  from the message. `--task T<n>` / `--no-task 'reason'` come after the text.

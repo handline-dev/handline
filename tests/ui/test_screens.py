@@ -2634,6 +2634,10 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task board": "own open tasks and who holds each; driven in "
                        "test_task_board_shows_who_holds_each_open_task, not this scene",
         "base promote": "writes base.md; prints sizes and a path",
+        "memory status": "prints each agent's memory against budget; driven in "
+                         "test_agent_memory_budget_migration_and_team_layer, not this scene",
+        "memory migrate": "a dry run, or --apply copies files; driven in "
+                          "test_agent_memory_budget_migration_and_team_layer, not this scene",
         "hr relabel": "calls Orca directly, no proposal; driven in "
                       "test_a_rename_names_the_agents_orca_worktree, not this scene",
         "hr rehome": "moves a git worktree and Claude's project directories; driven in "

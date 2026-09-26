@@ -446,6 +446,25 @@ def _check_shared_links(r: Report) -> None:
           ", ".join(f"{a}: {i}" for a, i in bad))
 
 
+def _check_memory(r: Report) -> None:
+    """Every agent's memory against its budget; candidates are reported, never
+    deleted. An agent with no memory yet is not a problem."""
+    from ..team import memory
+    from .. import actions
+
+    bad = []
+    for a in paths.list_agents():
+        st = memory.status(a)
+        if st["over"] or st["unindexed"] or st["stale"]:
+            bad.append(memory.summary(st))
+    t = actions.routing()
+    bad += memory.team_problems(t.teams if t else {})
+    if bad:
+        r.add(WARN, "memory over budget or with files to prune", "; ".join(bad))
+    else:
+        r.add(OK, "memory within budget")
+
+
 def _check_one_daemon(r: Report) -> None:
     """Exactly one supervisor, counted in the process table.
 
@@ -546,6 +565,7 @@ def _run() -> Report:
     _check_session_matches_the_record(r)
     _check_one_daemon(r)
     _check_shared_links(r)
+    _check_memory(r)
     _check_service(r)
     _check_autocontinue(r)
     return r

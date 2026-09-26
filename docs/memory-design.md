@@ -1,6 +1,8 @@
 # Agent memory (T229)
 
-Design only; nothing here is built. Founder #1272-#1274: each agent keeps its
+Core is built (T231: `ocp memory status|migrate`, the doctor check, `agents/<name>/memory`
+on register, the team-layer file, the `AGENTS.md` promotion). The daemon part
+(T230: launch setting, hooks) is not. Founder #1272-#1274: each agent keeps its
 own memory and works from it, and memory must not pile up ("too much is worse
 than none").
 
@@ -119,8 +121,26 @@ until each agent has confirmed its own entries once; then the links are removed.
 - **ui:** a read-only memory line per agent (bytes and entries against budget,
   candidates with last use). Shape agreed with the founder before it is built.
 
-## Open for the founder
+## Open for the founder - decided (#1287)
 
-1. Team layer as a file in the appendix (proposed), or only `AGENTS.md`?
-2. 28 days: the candidate age, or shorter while the team is this young?
-3. Should the cap deny writes (proposed) or only warn?
+1. **Team layer: a separate file** in the appendix, `shared/team/<team>.md`,
+   injected beside `base.md` for each team the agent is in. `ocp doctor` warns
+   past 10 rules or 2KB.
+2. **Pruning candidates: 28 days** (`memory.STALE_DAYS`).
+3. **Over budget, the write is denied** and the reason shown (T230's
+   PreToolUse hook); it is not a warning.
+
+## Built by core (T231)
+
+- `ocp memory status [agent]`: bytes and entries against budget, files not in
+  the index, files unused 28+ days (last use from `memory-use.json`, the file's
+  mtime for one never read), and identical text in two agents' memory as a
+  promotion candidate.
+- `ocp memory migrate`: dry run; `--apply` copies each topic file verbatim to
+  its owner's `agents/<name>/memory/` with a pointer line in `MEMORY.md`, never
+  overwriting. Merges (3 to 1) are the owner's to do; ocp does not summarise.
+  `shared/memory` is never touched: the links come off after each agent has
+  confirmed its entries, by hand.
+- Contract with T230: memory dir `agents/<name>/memory/`, sidecar
+  `agents/<name>/memory-use.json` = `{path relative to the memory dir: unix
+  seconds}`, budget constants and `memory.status()` in `ocp/team/memory.py`.
