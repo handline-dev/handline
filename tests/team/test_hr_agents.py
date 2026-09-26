@@ -1885,7 +1885,7 @@ deny:
         ok, said = hr.apply(pid, con)
         check("link: a verdict written into the db alone, with no recorded answer, applies nothing",
               not ok and "no answer from the founder is on record" in said, said)
-        decisions.record("hr", pid, prop["request"], "approved")
+        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid, con)
         check("link: apply after approval adds the edge",
               ok and team.Team.load().route("marina", "keeper").allowed, said)
@@ -1948,12 +1948,35 @@ edges:
               "vendor opencode" in req["body"], req["body"])
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
                    (prop["request"],))
-        decisions.record("hr", pid, prop["request"], "approved")
+        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid, con)
         check("hr add: applying an approved proposal succeeds", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
         check("hr add: apply writes the vendor the proposal recorded",
               cfg.get("vendor") == "opencode", str(cfg))
+
+        # T182: the founder's answer is for the draft as they were shown it.
+        # An approve whose first apply did not go through leaves the proposal
+        # open, and a draft an agent edits before the retry is not what was
+        # approved.
+        ok, said = hr.propose("add", "glm3", requester="marina", why="w", vendor="opencode")
+        pid3 = said.split()[1]
+        rid3 = hr.load_proposal(pid3)["request"]
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (rid3,))
+        subject, _why = hr.answered(hr.load_proposal(pid3), db.get_request(con, rid3))
+        decisions.record("hr", pid3, rid3, "approved", subject)
+        edited = hr.load_proposal(pid3)
+        edited["repo"] = "/somewhere/else"
+        hr.save(edited)
+        ok, said = hr.apply(pid3, con)
+        check("hr bind: a draft edited after the answer is refused, not applied",
+              not ok and "changed after the founder answered" in said, said)
+        edited["repo"] = None
+        edited.pop("repo")
+        hr.save(edited)
+        ok, said = hr.apply(pid3, con)
+        check("hr bind: put back as approved, it gets past the answer check to its own",
+              "changed after" not in said, said)
     finally:
         con.close()
 

@@ -198,6 +198,10 @@ def _check_protected(r: Report) -> None:
             r.add(WARN, "protected store is not out of the agents' reach", why)
     else:
         r.add(OK, "protected store", str(protected.root()))
+    roots = trust.stored_roots()
+    r.add(OK, f"declared trust roots: {len(roots)}",
+          "; ".join(f"{x.get('root')} ({x.get('added_by', '?')})" for x in roots
+                    if isinstance(x, dict)) or "none")
     if trust.legacy_path().exists():
         if protected.get("trust", "migrated") is None:
             r.add(WARN, "declared trust roots are not moved yet",

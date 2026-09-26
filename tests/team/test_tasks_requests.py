@@ -1930,7 +1930,7 @@ edges:
 
         # Approved, and the two writes a human would have made.
         con.execute("UPDATE requests SET verdict = ? WHERE id = ?", ("approve", rid[0]))
-        decisions.record("hr", pid, rid[0], "approved")
+        decisions.record("hr", pid, rid[0], "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid)
         table = yamlcompat.load((home / "team.yaml").read_text())
         check("hr: an approved proposal registers the agent", ok and "dohyun" in paths.list_agents(), said)
@@ -2763,7 +2763,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
 
         rid = hr.load_proposal(pid)["request"]
         _set_request_state(con, rid, "done", "approve")  # answered, apply not yet run
-        decisions.record("hr", pid, rid, "approved")
+        decisions.record("hr", pid, rid, "approved", hr.subject_of(hr.load_proposal(pid)))
         w = waits("proposal")
         check("hr wait: approved but not applied it stays, no longer red",
               len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))

@@ -273,6 +273,30 @@ def _escalation(prop: dict) -> str:
     return "\n".join(lines)
 
 
+_SUBJECT_FIELDS = ("kind", "agent", "to", "team", "repo", "model", "effort", "vendor",
+                   "response", "relation", "requested_by", "why")
+
+
+def subject_of(prop: dict) -> str:
+    """What the founder is deciding on: every field of the draft that changes
+    what applying it does, as a digest."""
+    return decisions.digest({k: prop.get(k) for k in _SUBJECT_FIELDS})
+
+
+def answered(prop: dict, row) -> tuple[str | None, str | None]:
+    """(subject, refusal) for the answer given on `row`: what was decided on,
+    or why this draft is not what the founder was asked - the escalation's
+    first line must name this draft's change and asker."""
+    first = (row["body"] or "").split("\n", 1)[0]
+    want = (f"[roster] {prop.get('kind')} {prop.get('agent')}"
+            + (f" -> {prop.get('to')}" if prop.get("kind") in EDGE_KINDS else "")
+            + f" - asked by {prop.get('requested_by')}")
+    if first != want:
+        return None, (f"the draft ({want!r}) is not what #{row['id']} asked the founder "
+                      f"to approve - raise it again")
+    return subject_of(prop), None
+
+
 def decision(verdict: str | None) -> str:
     """approved / rejected / unclear, from the first word of the verdict."""
     first = (verdict or "").strip().split()
@@ -312,7 +336,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         verdict = row["verdict"]
         call = decision(verdict)
         if call in ("approved", "rejected"):
-            why_not = decisions.refusal("hr", pid, row["id"])
+            why_not = decisions.refusal("hr", pid, row["id"], subject_of(prop))
             if why_not or decisions.get("hr", pid)["call"] != call:
                 return False, why_not or (f"the founder's recorded answer for proposal {pid} "
                                           f"does not match #{row['id']}'s verdict")
