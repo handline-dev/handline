@@ -2854,13 +2854,43 @@ def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out
         check("edge: the daemon refuses it for differing from the founder's table",
               row["state"] == "denied" and "refused at delivery" in (row["verdict"] or ""),
               str(dict(row)))
-        ok2, said2, rid2 = askmod.ask("keeper", "honest", requester="scout")
+        os.environ["OCP_AGENT"] = "scout"
+        root.chmod(0)
+        try:
+            ok2, said2, rid2 = askmod.ask("keeper", "honest", requester="scout")
+        finally:
+            root.chmod(0o700)
+            if saved is None:
+                os.environ.pop("OCP_AGENT", None)
+            else:
+                os.environ["OCP_AGENT"] = saved
+        check("edge: an honest request written in the agent session waits for the daemon",
+              db.head_of_queue(con, "keeper") is None)
         delivery.enforce_edges(con, "keeper", lambda _m: None)
         head = db.head_of_queue(con, "keeper")
         check("edge: an honest request is cleared and handed out",
               ok2 and head is not None and int(head["id"]) == rid2, said2)
     finally:
         con.close()
+
+
+def test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(home: Path) -> None:
+    """T189: what the founder reads names every field apply uses."""
+    _daemon_home(home, 20)
+    agents.register("marina")
+    hand_edit_team("teams:\n  eng: [marina]\nagents:\n  marina: {}\nedges:\n"
+                   "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    ok, said = hr.propose("add", "dohyun", requester="marina", why="hands", effort="high",
+                          team_name="eng")
+    check("escalation: the add was raised", ok, said)
+    pid = said.split()[1]
+    text = hr._escalation(hr.load_proposal(pid))
+    check("escalation: an add shows its effort", ok and ", effort high" in text, text)
+    ok, said = hr.propose("rename", "marina", requester="marina", why="new name", to="mari",
+                          team_name="eng")
+    check("escalation: the rename was raised", ok, said)
+    text = hr._escalation(hr.load_proposal(said.split()[1]))
+    check("escalation: a rename shows its team", ok and "would become mari in team eng" in text, text)
 
 
 def cliteam_seal() -> tuple[int, str]:
@@ -2878,6 +2908,7 @@ def main() -> int:
         run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
         run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
+        run(lambda: test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
         run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
