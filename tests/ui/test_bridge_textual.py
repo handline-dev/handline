@@ -905,6 +905,11 @@ async def test_stats_screen_draws_the_weekly_graph() -> None:
         check("stats: S opens the screen", isinstance(screen, StatsScreen), type(screen).__name__)
         view = screen.query_one("#stats_view")
         check("stats: the recorded week is drawn", view.outlook.accounts == 1 and view.outlook.past, view.outlook.accounts)
+        await pilot.press("r")
+        await pilot.pause(0.3)
+        check("stats: r steps the date range and the graph follows",
+              view.range == "3d" and view.outlook.future[-1][0] - view.outlook.past[-1][0] >= 71 * 3600,
+              (view.range, view.outlook.future[-1][0] - view.outlook.past[-1][0]))
         await pilot.press("escape")
         await pilot.pause(0.2)
         from textual.widgets import Tabs

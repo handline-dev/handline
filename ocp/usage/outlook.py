@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from . import windows
 
-STEP_S = 1800
+POINTS = 96                 # over the whole range, past and future
 MAX_AGE_S = 2 * 3600        # a sample older than this no longer says what the account held
 MIN_SPAN_S = 3600           # less than this is not a pace
 
@@ -63,7 +63,8 @@ def weekly_outlook(rows, now: int, hours: int = 24) -> Outlook:
     out = Outlook(accounts=len(by))
     if not by:
         return out
-    grid = range(now - hours * 3600, now + hours * 3600 + 1, STEP_S)
+    step = max(900, hours * 3600 * 2 // POINTS)
+    grid = range(now - hours * 3600, now + hours * 3600 + 1, step)
     paces = {a: _pace(s) for a, s in by.items()}
     for t in grid:
         left = []

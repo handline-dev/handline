@@ -14,3 +14,6 @@ class StatsScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield OutlookView(back=True, id="stats_view")
+
+    def on_mount(self) -> None:
+        self.query_one("#stats_view").focus()

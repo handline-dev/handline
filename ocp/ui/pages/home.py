@@ -475,6 +475,8 @@ class HomePage(RowActions, JobsAware, Screen):
             self.query_one("#hr_table").focus()
         elif self.tab == "tasks":
             self.query_one("#tasks_table").focus()
+        elif self.tab == "stats":
+            self.query_one("#stats_view").focus()
         else:
             self.set_focus(None)
 

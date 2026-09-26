@@ -9,18 +9,19 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Static
+from textual.widgets import Select, Static
 
 from ... import actions, db
 from ...usage.outlook import Outlook
 from .key_guide import Key, KeyGuide, KeyHelp
 
+RANGES = (("12h", 12), ("24h", 24), ("3d", 72), ("7d", 168), ("14d", 336))
 BLOCKS = " ▁▂▃▄▅▆▇█"
 AXIS_W = 6
 HEIGHT = 12
 
 
-def chart(o: Outlook, width: int, height: int = HEIGHT) -> Text:
+def chart(o: Outlook, width: int, height: int = HEIGHT, span: str = "24h") -> Text:
     """The graph as text: a column of eighth-blocks per time slot, the past in one colour, the
     guess in another, a `now` mark under the point between them."""
     points = o.past + o.future
@@ -41,7 +42,7 @@ def chart(o: Outlook, width: int, height: int = HEIGHT) -> Text:
         out.append("\n")
     now_col = next((c for c, f in enumerate(is_future) if f), cols)
     axis = [" "] * cols
-    for c, ch in ((0, "-24h"), (max(0, now_col - 2), "now"), (max(0, cols - 4), "+24h")):
+    for c, ch in ((0, f"-{span}"), (max(0, now_col - 2), "now"), (max(0, cols - 1 - len(span)), f"+{span}")):
         for k, x in enumerate(ch):
             if c + k < cols:
                 axis[c + k] = x
@@ -50,7 +51,8 @@ def chart(o: Outlook, width: int, height: int = HEIGHT) -> Text:
 
 
 class OutlookView(Vertical):
-    BINDINGS = [Binding("question_mark", "key_help", "keys")]
+    can_focus = True
+    BINDINGS = [Binding("r", "range", "range"), Binding("question_mark", "key_help", "keys")]
     DEFAULT_CSS = """
     OutlookView { height: 1fr; padding: 0 1; }
     OutlookView #outlook_chart { height: 1fr; }
@@ -61,12 +63,16 @@ class OutlookView(Vertical):
         super().__init__(**kw)
         self.back = back
         self.outlook = Outlook()
+        self.range = "24h"
 
     def _keys(self) -> list[Key]:
-        return [*([Key("esc", "back", 1, "back")] if self.back else [])]
+        return [Key("r", "range", 1, "step through the date range: 12h, 24h, 3d, 7d, 14d"),
+                *([Key("esc", "back", 1, "back")] if self.back else [])]
 
     def compose(self) -> ComposeResult:
         yield Static(id="outlook_title")
+        yield Select([(f"range: ±{name}", name) for name, _ in RANGES], id="o_range", value=self.range,
+                     allow_blank=False, compact=True)
         yield Static(id="outlook_chart")
         yield Static(id="outlook_note")
         yield KeyGuide(self._keys(), id="outlook_foot")
@@ -83,7 +89,7 @@ class OutlookView(Vertical):
             return
         con = db.connect()
         try:
-            self.outlook = actions.weekly_outlook(con, int(time.time()))
+            self.outlook = actions.weekly_outlook(con, int(time.time()), dict(RANGES)[self.range])
         finally:
             con.close()
         self._draw()
@@ -94,10 +100,20 @@ class OutlookView(Vertical):
             ("WEEK LEFT  ", "bold"), (f"{o.accounts} account{'s' if o.accounts != 1 else ''} together", "dim")))
         width = self.size.width - 2
         self.query_one("#outlook_chart", Static).update(
-            chart(o, width, max(4, min(HEIGHT, self.size.height - 5))) if width > 0 else Text(""))
+            chart(o, width, max(4, min(HEIGHT, self.size.height - 6)), self.range) if width > 0 else Text(""))
         self.query_one("#outlook_note", Static).update(
             "cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
             "week resets what it had used comes back")
+
+    def action_range(self) -> None:
+        names = [n for n, _ in RANGES]
+        self.query_one("#o_range", Select).value = names[(names.index(self.range) + 1) % len(names)]
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        event.stop()
+        if event.value != self.range:
+            self.range = str(event.value)
+            self.refresh_rows()
 
     def action_key_help(self) -> None:
         self.app.push_screen(KeyHelp("WEEK LEFT keys", self._keys()))

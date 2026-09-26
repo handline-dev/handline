@@ -283,7 +283,7 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
         orca.close_terminal(handle)
 
 
-def weekly_outlook(con, now: int):
-    """The weekly headroom of all accounts together, the last 24h and a guess at the next 24h."""
+def weekly_outlook(con, now: int, hours: int = 24):
+    """The weekly headroom of all accounts together, the last `hours` and a guess at the next."""
     from ..usage import outlook
-    return outlook.weekly_outlook(db.usage_samples(con, since=now - 26 * 3600), now)
+    return outlook.weekly_outlook(db.usage_samples(con, since=now - hours * 3600 - 7200), now, hours)
