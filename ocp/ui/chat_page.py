@@ -29,6 +29,7 @@ from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
 from ..usage import status
 from . import tui
+from .clipboard_app import ClipboardApp
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
@@ -397,16 +398,18 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "") -> list:
         if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
             out.append(QueueLine(working, why=why))
             line = True
-        out.append(ChatMessage(m))
+        out.append(ChatMessage(m, working))
     if not line:
         out.append(QueueLine(working, rule=False))
     return out
 
 
 class ChatMessage(Vertical):
-    """One message; a click makes it what the next thing typed replies to."""
+    """One message; a click makes it what the next thing typed replies to. Its send
+    now button is shown only while the agent is `working` (mid-turn): with the agent
+    idle the message goes on its own."""
 
-    def __init__(self, m: dict) -> None:
+    def __init__(self, m: dict, working: bool = True) -> None:
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
         head, body_text, note = message_parts(m)
         parts = [Static(body_text, classes="text")]
@@ -414,15 +417,23 @@ class ChatMessage(Vertical):
             parts.insert(0, Static(head, classes="who"))
         if note is not None:
             parts.append(Static(note, classes="qstate"))
+        self._send_now: Button | None = None
         if m.get("queued"):
+            buttons = []
+            if not m.get("delivered"):
+                self._send_now = Button("⚡ send now", classes="sendnow", compact=True)
+                buttons = [self._send_now, Button("✕ cancel", classes="cancel", compact=True)]
             parts.append(Horizontal(
                 Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
                        classes="qstate"),
-                *([Button("⚡ send now", classes="sendnow", compact=True),
-                   Button("✕ cancel", classes="cancel", compact=True)] if not m.get("delivered") else []),
-                classes="qrow"))
+                *buttons, classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}")
         self.m = m
+        self.set_working(working)
+
+    def set_working(self, working: bool) -> None:
+        if self._send_now is not None:
+            self._send_now.display = working
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
@@ -639,6 +650,7 @@ class TaskTable(DataTable):
             super().__init__()
             self.column = column
 
+    click_selects = True
     BINDINGS = [Binding("s", "sort('next')", "sort", show=False),
                 Binding("S", "sort('reverse')", "reverse", show=False)]
 
@@ -653,15 +665,176 @@ class TaskTable(DataTable):
             self.post_message(self.Sort(self.ordered_columns[meta["column"]].key.value))
         elif meta.get("row", -1) >= 0 and "column" in meta:
             self.cursor_coordinate = Coordinate(meta["row"], meta["column"])
-            self.action_select_cursor()
+            if self.click_selects:
+                self.action_select_cursor()
 
 
-STATE_STYLE_FG = {"doing": "blue", "done": "green", "closed": "dim"}
-STATE_STYLE = {"doing": "white on blue",
+STATE_STYLE_FG = {"draft": "dim", "queued": "yellow", "doing": "blue", "done": "green", "closed": "dim"}
+STATE_STYLE = {"draft": "white on grey30", "queued": "black on yellow", "doing": "white on blue",
                "done": "black on green", "closed": "white on grey37"}
 
 
-class TaskDetail(Screen):
+class TaskActions:
+    """Close, reopen and discard for the task `self.tid` (its `task_detail` in `self.d`): the
+    calls the human may make, asked for and reported the same wherever the buttons are.
+    The host says a refusal (`say`) and redraws after an action (`flash`)."""
+
+    tid: int
+    d: dict | None
+
+    def report(self, verb: str, ok: bool, said: str) -> None:
+        """Say what came of an action where it cannot be missed - a notice over
+        the page, not only the small line under it - and log it."""
+        log_action(f"task {actions.task_ref(self.tid)} {verb}: {'ok' if ok else 'refused'} - {said}")
+        self.notify(safe(said), title=f"{verb} {actions.task_ref(self.tid)}", severity="information" if ok else "error",
+                    timeout=10, markup=False)
+        self.flash(said)
+
+    def action_close_task(self) -> None:
+        if not (self.d and self.d["can_close"]):
+            self.say("only a done task that you asked for can be closed")
+            return
+
+        def answered(yes: bool | None) -> None:
+            log_action(f"task {actions.task_ref(self.tid)} close: answered {'yes' if yes else 'no'}")
+            if yes:
+                con = db.connect()
+                try:
+                    ok, said = actions.close_task(con, self.tid, actions.HUMAN)
+                finally:
+                    con.close()
+                self.report("close", ok, said)
+        self.app.push_screen(
+            Confirm(f"Close task {actions.task_ref(self.tid)}", "Your sign-off, and final: a closed task cannot be reopened.",
+                    yes="Close", danger=True), answered)
+
+    def action_reopen_task(self) -> None:
+        if not (self.d and self.d["can_reopen"]):
+            self.say("only a done task that you asked for can be reopened")
+            return
+
+        def answered(reason: str | None) -> None:
+            log_action(f"task {actions.task_ref(self.tid)} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
+            if reason and reason.strip():
+                con = db.connect()
+                try:
+                    ok, said = actions.reopen_task(con, self.tid, actions.HUMAN, reason)
+                finally:
+                    con.close()
+                self.report("reopen", ok, said)
+        self.app.push_screen(TextPrompt("reopen - why?"), answered)
+
+    def action_discard_task(self) -> None:
+        if not (self.d and self.d["can_discard"]):
+            self.say("only a task that you asked for, with nothing running on it, can be discarded")
+            return
+
+        def answered(reason: str | None) -> None:
+            log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
+            if reason and reason.strip():
+                con = db.connect()
+                try:
+                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
+                finally:
+                    con.close()
+                self.report("discard", ok, said)
+        self.app.push_screen(TextPrompt("discard - why?"), answered)
+
+
+class TaskPane(TaskActions, Vertical):
+    """The task under the cursor, beside a table when the terminal is wide: what its page
+    (`chat_page.task_page`) says, the sub-tasks without links."""
+
+    WIDE = 130
+    WIDTH = 50
+    DEFAULT_CSS = f"""
+    TaskPane {{ width: {WIDTH}; height: 100%; padding: 0 1; border-left: solid $primary; }}
+    TaskPane #pane_scroll {{ height: 1fr; }}
+    TaskPane #pane_foot {{ dock: bottom; height: auto; }}
+    TaskPane #pane_buttons {{ height: 1; }}
+    TaskPane #pane_flash {{ height: auto; color: $warning; }}
+    """
+
+    class Changed(Message):
+        """An action changed the task: the host redraws its table."""
+
+    def __init__(self, **kw) -> None:
+        super().__init__(**kw)
+        self.tid = 0
+        self.d = None
+
+    def fit(self, width: int, table: "TaskTable") -> bool:
+        """Show beside `table` when `width` allows; then a click on a row only moves the
+        cursor, and the pane says what is under it."""
+        wide = width >= self.WIDE
+        self.display = wide
+        table.click_selects = not wide
+        return wide
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="pane_scroll"):
+            yield Static(id="pane_text")
+        with Vertical(id="pane_foot"):
+            yield Static(id="pane_flash")
+            with Horizontal(id="pane_buttons"):
+                yield Button("Close", id="pane_close", variant="success", compact=True)
+                yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
+                yield Button("Discard", id="pane_discard", variant="error", compact=True)
+
+    def say(self, text: str) -> None:
+        self.query_one("#pane_flash", Static).update(Text(safe(text)))
+
+    def flash(self, text: str) -> None:
+        self.say(text)
+        self.show(self.tid)
+        self.post_message(self.Changed())
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        {"pane_close": self.action_close_task, "pane_reopen": self.action_reopen_task,
+         "pane_discard": self.action_discard_task}[event.button.id]()
+
+    def show(self, tid: int | None) -> None:
+        text = self.query_one("#pane_text", Static)
+        if tid != self.tid:
+            self.query_one("#pane_flash", Static).update("")
+        self.tid = tid or 0
+        self.d = None
+        for name in ("close", "reopen", "discard"):
+            self.query_one(f"#pane_{name}", Button).disabled = True
+        if tid is None:
+            text.update(Text("no task", style="dim"))
+            return
+        con = db.connect()
+        try:
+            d = task_detail(con, tid)
+        finally:
+            con.close()
+        if d is None:
+            text.update(Text(f"task {actions.task_ref(tid)} is gone", style="dim"))
+            return
+        self.d = d
+        for name in ("close", "reopen", "discard"):
+            self.query_one(f"#pane_{name}", Button).disabled = not d[f"can_{name}"]
+        page = task_page(d)
+        out = Text()
+        for part in (page["title"], page["badge"]):
+            out.append_text(part)
+            out.append("\n")
+        out.append("\n")
+        out.append_text(page["meta"])
+        for title, lines in (("Sub-tasks", [Text(f"{actions.task_ref(i)}  {st}  {t}")
+                                            for i, t, st in d["children"]]), ("Requests", page["reqs"])):
+            out.append(f"\n{title}", style="bold")
+            out.append(f"  {len(lines)}\n", style="dim")
+            for line in lines or [Text("none", style="dim")]:
+                out.append("  ")
+                out.append_text(line)
+                out.append("\n")
+        text.update(out)
+
+
+class TaskDetail(TaskActions, Screen):
     """One task: its title and state, who has it, what it grew out of, its
     sub-tasks and requests, and the calls the human may make on it - close
     a done task, send it back with a reason, or discard one nothing is running on."""
@@ -728,67 +901,12 @@ class TaskDetail(Screen):
             out.append("\n")
         return out
 
-    def report(self, verb: str, ok: bool, said: str) -> None:
-        """Say what came of an action where it cannot be missed - a notice over
-        the page, not only the small line under it - and log it."""
-        log_action(f"task {actions.task_ref(self.tid)} {verb}: {'ok' if ok else 'refused'} - {said}")
-        self.notify(safe(said), title=f"{verb} {actions.task_ref(self.tid)}", severity="information" if ok else "error",
-                    timeout=10, markup=False)
-        self.flash(said)
+    def say(self, text: str) -> None:
+        self.query_one("#t_flash", Static).update(Text(safe(text)))
 
     def flash(self, text: str) -> None:
-        self.query_one("#t_flash", Static).update(Text(safe(text)))
+        self.say(text)
         self.load()
-
-    def action_close_task(self) -> None:
-        if not (self.d and self.d["can_close"]):
-            self.query_one("#t_flash", Static).update("only a done task that you asked for can be closed")
-            return
-
-        def answered(yes: bool | None) -> None:
-            log_action(f"task {actions.task_ref(self.tid)} close: answered {'yes' if yes else 'no'}")
-            if yes:
-                con = db.connect()
-                try:
-                    ok, said = actions.close_task(con, self.tid, actions.HUMAN)
-                finally:
-                    con.close()
-                self.report("close", ok, said)
-        self.app.push_screen(
-            Confirm(f"Close task {actions.task_ref(self.tid)}", "Your sign-off, and final: a closed task cannot be reopened.",
-                    yes="Close", danger=True), answered)
-
-    def action_reopen_task(self) -> None:
-        if not (self.d and self.d["can_reopen"]):
-            self.query_one("#t_flash", Static).update("only a done task that you asked for can be reopened")
-            return
-
-        def answered(reason: str | None) -> None:
-            log_action(f"task {actions.task_ref(self.tid)} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
-            if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.reopen_task(con, self.tid, actions.HUMAN, reason)
-                finally:
-                    con.close()
-                self.report("reopen", ok, said)
-        self.app.push_screen(TextPrompt("reopen - why?"), answered)
-
-    def action_discard_task(self) -> None:
-        if not (self.d and self.d["can_discard"]):
-            self.query_one("#t_flash", Static).update("only a task that you asked for, with nothing running on it, can be discarded")
-            return
-
-        def answered(reason: str | None) -> None:
-            log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
-            if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
-                finally:
-                    con.close()
-                self.report("discard", ok, said)
-        self.app.push_screen(TextPrompt("discard - why?"), answered)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
@@ -834,7 +952,9 @@ class ChatPage(Screen):
                                 ("Settings", "settings")], back=True)
         with Horizontal(id="body"):
             yield VerticalScroll(id="transcript")
-        yield TaskTable(id="task_table", cursor_type="row", zebra_stripes=True)
+        with Horizontal(id="tasks_body"):
+            yield TaskTable(id="task_table", cursor_type="row", zebra_stripes=True)
+            yield TaskPane(id="task_pane")
         with Vertical(id="settings_view"):
             with VerticalScroll(id="settings_pane"):
                 for key, label in (("session_account", "session runs on"),
@@ -884,7 +1004,7 @@ class ChatPage(Screen):
         self.sub_title = f"agent {self.agent}"
         table = self.query_one("#task_table", DataTable)
         self.set_columns()
-        table.display = False
+        self.query_one("#tasks_body").display = False
         self.query_one("#compose", ChatBox).menu = self.query_one("#menu", OptionList)
         self.query_one("#compose", ChatBox).focus()
         self.refresh_view()
@@ -901,7 +1021,8 @@ class ChatPage(Screen):
         table.clear(columns=True)
         with_w = self.TASK_WITH_W if self.size.width >= 100 else self.TASK_WITH_NARROW
         fixed = sum(w for _, w in self.TASK_COLS) + with_w
-        self.title_w = max(8, self.size.width - fixed - 2 * 6 - 3)
+        beside = TaskPane.WIDTH if self.size.width >= TaskPane.WIDE else 0
+        self.title_w = max(8, self.size.width - beside - fixed - 2 * 6 - 3)
 
         def label(name: str) -> str:
             return name + (" ▼" if self.sort_rev else " ▲") if name == self.sort_col else name
@@ -932,6 +1053,24 @@ class ChatPage(Screen):
             self.set_columns()
             if self.showing_tasks:
                 self.refresh_tasks()
+            self.show_pane()
+
+    def show_pane(self) -> None:
+        pane = self.query_one(TaskPane)
+        table = self.query_one("#task_table", TaskTable)
+        if pane.fit(self.size.width, table) and self._tasks:
+            pane.show(self._tasks[min(table.cursor_row, len(self._tasks) - 1)][0])
+        elif not self._tasks:
+            pane.show(None)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        event.stop()
+        self.show_pane()
+
+    def on_task_pane_changed(self, event: TaskPane.Changed) -> None:
+        event.stop()
+        self._tasks = None
+        self.refresh_tasks()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "leave":
@@ -958,6 +1097,8 @@ class ChatPage(Screen):
             self.agent_state = state
             for line in self.query(QueueLine):
                 line.working = state[0] == "RUNNING"
+            for msg in self.query(ChatMessage):
+                msg.set_working(state[0] == "RUNNING")
             self._sig = None                # the reason a message waits follows the agent's state
             self.query_one("#status", Static).update(self._status())
 
@@ -992,6 +1133,7 @@ class ChatPage(Screen):
         table.clear()
         for row in rows:
             table.add_row(*task_cells(row), key=str(row[0]))
+        self.show_pane()
 
     def refresh_conversation(self, force: bool = False) -> None:
         """Bring what is on screen up to date. Unchanged, this is one small
@@ -1243,7 +1385,7 @@ class ChatPage(Screen):
         if self.is_mounted:
             self.query_one("#body").display = chat
             self.query_one("#dock").display = chat
-            self.query_one("#task_table").display = self.showing_tasks
+            self.query_one("#tasks_body").display = self.showing_tasks
             self.query_one("#settings_view").display = self.showing_settings
             if self.showing_settings:
                 self.load_settings()
@@ -1497,7 +1639,7 @@ def os_theme() -> str:
     return "textual-dark" if out.strip() == "Dark" else "textual-light"
 
 
-class ChatApp(App):
+class ChatApp(ClipboardApp):
     CSS_PATH = Path(__file__).with_name("chat_page.tcss")
 
     def __init__(self, agent: str) -> None:

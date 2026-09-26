@@ -24,17 +24,23 @@ from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
+from ..components.key_guide import Key, KeyGuide, KeyHelp
+from ..components.outlook_view import OutlookView
+from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
-from .task_checks import TaskChecks
+from .stats import StatsScreen
+from .tasks import TasksScreen
 
 DOUBLE_PRESS_S = 0.5     # two presses on one row this close are a double press
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": tui.MESSAGES}
 _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
 # Each tab's widgets: what it shows and the others hide.
 _TAB_WIDGETS = {
-    "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot"),
+    "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot", "#home_keys"),
     "hr": ("#hr_view",),
+    "tasks": ("#tasks_view",),
+    "stats": ("#stats_view",),
     "settings": ("#settings_view",),
 }
 # The ACCOUNTS columns from the richest layout to the barest; the first that fits the
@@ -45,6 +51,10 @@ _ACCT_TIERS = (
     (("five", "agents", "seven", "runway"), True),
     (("five", "agents", "seven", "runway"), False),
 )
+# The keys every panel answers to, after the panel's own.
+_GLOBAL_KEYS = (Key("←→", "panel", 3, "move between the panels"), Key("↑↓", "row", 3, "move between the rows"),
+                Key("q", "quit", 2, "quit the bridge"), Key("b", "checks", 2, "done tasks waiting for your check"),
+                Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "the week left, last and next 24h"))
 _AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
 _MESSAGE_HEADS = ("", "", "from", "message")
 
@@ -98,7 +108,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._blinking: dict = {}       # agent -> (its AgentRow, its Extra), for the rows that blink
 
     def compose(self) -> ComposeResult:
-        yield from page_header([("Home", "home"), ("HR", "hr"), ("Settings", "settings")])
+        yield from page_header([("Home", "home"), ("Tasks", "tasks"), ("Stats", "stats"), ("HR", "hr"), ("Settings", "settings")])
         yield Static(id="header")
         with Vertical(id="accounts-box") as box:
             box.border_title = "ACCOUNTS"
@@ -112,6 +122,9 @@ class HomePage(RowActions, JobsAware, Screen):
             yield DataTable(id="messages", cursor_type="row", show_cursor=False)
             yield Static(id="message-notes")
         yield Static(id="foot")
+        yield KeyGuide(id="home_keys")
+        yield TasksView(mine=True, id="tasks_view")
+        yield OutlookView(id="stats_view")
         yield ProposalsView(id="hr_view")
         with Vertical(id="settings_view"):
             with Horizontal(classes="frow"):
@@ -128,17 +141,23 @@ class HomePage(RowActions, JobsAware, Screen):
             self.query_one(table, DataTable).can_focus = False
         self.set_interval(self.BLINK_S, self._blink)
         self.query_one("#hr_view").display = False
+        self.query_one("#tasks_view").display = False
+        self.query_one("#stats_view").display = False
         self.query_one("#settings_view").display = False
         self._retime()
         self._redraw()
 
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         self.tab = event.tab.id
-        for tab, widgets in _TAB_WIDGETS.items():
-            for sel in widgets:
-                self.query_one(sel).display = tab == self.tab
+        shown = set(_TAB_WIDGETS[self.tab])
+        for sel in {sel for widgets in _TAB_WIDGETS.values() for sel in widgets}:
+            self.query_one(sel).display = sel in shown
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
+        if self.tab == "tasks":
+            self.query_one("#tasks_view", TasksView).refresh_rows()
+        if self.tab == "stats":
+            self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
             self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
 
@@ -178,15 +197,8 @@ class HomePage(RowActions, JobsAware, Screen):
             foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
         if self.flash:
             foot.append(tui.oneline(self.flash) + "\n")
-        foot.append(f"{tui.PANEL_NAME[self.panel]}: ", "dim")
-        for i, (k, label) in enumerate(tui.panel_keys(self.panel, agent_keys)):
-            foot.append(" · " if i else "", "dim")
-            foot.append(k, "bold")
-            foot.append(f" {label}", "dim")
-        foot.append(" · ←→ panel ↑↓ row · q quit · ", "dim")
-        foot.append("b", "bold")
-        foot.append(" checks", "dim")
         self.query_one("#foot", Static).update(foot)
+        self.query_one("#home_keys", KeyGuide).set_keys(self._keys(agent_keys))
         self._count_hr()
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
@@ -407,8 +419,17 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab != "home" or k is None:
             return
         event.stop()
-        if k == "b":     # task #72: "done - waiting for check" - free on every panel
-            self.app.push_screen(TaskChecks())
+        if k == "?":
+            self.app.push_screen(KeyHelp(f"{tui.PANEL_NAME[self.panel]} keys", self._keys()))
+            return
+        if k == "S":     # T65b: token use per agent and account
+            self.app.push_screen(StatsScreen())
+            return
+        if k == "T":     # T69: every open task - free on every panel
+            self.app.push_screen(TasksScreen())
+            return
+        if k == "b":     # the founder's done tasks waiting for a sign-off - free on every panel
+            self.app.push_screen(TasksScreen(states={"done"}, closer=actions.HUMAN))
             return
         if k in tui.NEXT_ROW and self._on_bottom_row():
             return      # the last row is the end: ↓ does not wrap round to the top
@@ -418,6 +439,12 @@ class HomePage(RowActions, JobsAware, Screen):
             self._redraw()
             return
         self._press(k)
+
+    def _keys(self, agent_keys=None) -> list[Key]:
+        """The panel's own keys, then the ones every panel has; `agent_keys` are the
+        ones the row under the cursor allows, none meaning all the panel has."""
+        own = [(k, label) for k, label in tui.panel_keys(self.panel, agent_keys) if k != "?"]
+        return [Key(k, label, 1 if i < 3 else 3, label) for i, (k, label) in enumerate(own)] + list(_GLOBAL_KEYS)
 
     def _press(self, k: str) -> None:
         self.flash = ""
@@ -429,6 +456,10 @@ class HomePage(RowActions, JobsAware, Screen):
         """Is the cursor on the first row of the tab, so that ↑ has nowhere to go?"""
         if self.tab == "hr":
             return self.query_one("#hr_table", DataTable).cursor_row == 0
+        if self.tab == "tasks":
+            return self.query_one("#tasks_table", DataTable).cursor_row == 0
+        if self.tab == "stats":
+            return self.query_one("#outlook_table", DataTable).cursor_row == 0
         if self.tab != "home":
             return True
         first = next((p for p in self.PANELS if tui._keys_of(p)), None)
@@ -444,6 +475,10 @@ class HomePage(RowActions, JobsAware, Screen):
         """Take the focus from the tab bar into the tab's content."""
         if self.tab == "hr":
             self.query_one("#hr_table").focus()
+        elif self.tab == "tasks":
+            self.query_one("#tasks_table").focus()
+        elif self.tab == "stats":
+            self.query_one("#outlook_table").focus()
         else:
             self.set_focus(None)
 

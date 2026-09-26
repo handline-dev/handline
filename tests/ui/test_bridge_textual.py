@@ -32,13 +32,13 @@ from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
 from ocp.infra import timefmt  # noqa: E402
 from ocp.daemon import states as dmn_states
 from ocp.ui.chat_page import ChatPage  # noqa: E402
+from ocp.ui.clipboard_app import ClipboardApp  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from ocp.ui.components.read_only import ReadOnly  # noqa: E402
 from textual import events  # noqa: E402
 from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
 from ocp.ui.pages.account import AccountPage  # noqa: E402
 from ocp.ui.pages.home import HomePage  # noqa: E402
-from ocp.ui.pages.task_checks import TaskChecks  # noqa: E402
 from textual.widgets import DataTable, Static  # noqa: E402
 
 PASS: list[str] = []
@@ -91,10 +91,14 @@ async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
         screen = app.screen
         await pilot.press("?")
         await pilot.pause(0.1)
-        check("help: `?` shows the full AGENT_KEYS legend, not nothing",
-              screen.flash == t.tui.agent_help_line(), screen.flash)
-        check("help: the legend names a key the footer can fold away (move)",
-              "v move" in screen.flash, screen.flash)
+        from ocp.ui.components.key_guide import KeyHelp
+        box = app.screen
+        listed = str(box.query_one("#keys").render()) if isinstance(box, KeyHelp) else ""
+        check("help: `?` opens the box with the full AGENT_KEYS legend, not nothing",
+              isinstance(box, KeyHelp) and all(label in listed for _, label in t.tui.AGENT_KEYS if label != "open"), listed)
+        check("help: the legend names a key the footer can fold away (move)", "move" in listed, listed)
+        await pilot.press("escape")
+        await pilot.pause(0.1)
 
 
 async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
@@ -317,7 +321,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
             page.query_one("#a_cap", Input).value = "2"
             page.query_one("#a_name", Input).value = "Work"
-            check("account page: the usage reset switch is drawn from the config, off",
+            check("account page: the usage recovery switch is drawn from the config, off",
                   page.query_one("#a_recover", Switch).value is False)
             await pilot.click("#a_save")
             await pilot.pause(0.3)
@@ -330,7 +334,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             page.query_one("#a_recover", Switch).value = True
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            check("account page: Save writes the usage reset switch", loadmod.usage_recover_enabled("alpha")
+            check("account page: Save writes the usage recovery switch", loadmod.usage_recover_enabled("alpha")
                   and page.query_one("#a_recover", Switch).value is True)
             check("account page: the title shows the new name",
                   "Work" in str(page.query_one("#t_title", Static).render()))
@@ -579,6 +583,45 @@ async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
           app.result == "line one\nline two", repr(app.result))
 
 
+async def test_copy_reaches_the_system_clipboard() -> None:
+    """T121: Textual's copy also goes to the system clipboard, not only OSC 52."""
+    from ocp.infra import clipboard
+    copied, real = [], clipboard.copy
+    clipboard.copy = lambda text: copied.append(text) or True
+    try:
+        app = ClipboardApp()
+        async with app.run_test(size=(40, 6)) as pilot:
+            await pilot.pause()
+            app.copy_to_clipboard("picked")
+    finally:
+        clipboard.copy = real
+    check("copy: the text also went to the system clipboard", copied == ["picked"], repr(copied))
+
+
+async def test_a_drag_selection_is_copied_when_the_mouse_is_let_go() -> None:
+    """T121, founder: Cmd+C copied nothing. The selection is copied on release."""
+    from ocp.infra import clipboard
+    from textual.widgets import Static
+    copied, real = [], clipboard.copy
+    clipboard.copy = lambda text: copied.append(text) or True
+    try:
+        class _HostApp(ClipboardApp):
+            def compose(self):
+                yield Static("hello world", id="s")
+
+        app = _HostApp()
+        async with app.run_test(size=(40, 6)) as pilot:
+            await pilot.pause()
+            await pilot.mouse_down("#s", offset=(0, 0))
+            await pilot.hover("#s", offset=(5, 0))
+            await pilot.mouse_up("#s", offset=(5, 0))
+            await pilot.pause(0.2)
+    finally:
+        clipboard.copy = real
+    check("drag: what was selected is copied on release", copied and copied[-1].startswith("hello"),
+          repr(copied))
+
+
 async def test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert() -> None:
     """A one-line prompt joins a pasted block into one line (Input alone would
     keep only its first), and a pasted escape sequence is never handed to the
@@ -743,128 +786,373 @@ async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
               states == ["queued"] * len(before) and not app.screen.jobs.running, (states, before))
 
 
-async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
-    """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
-    check' list (#71), reached with `b` from the dashboard - only the tasks
-    the founder is the asker of (`actions.task_asker`, the bridge always
-    acting as `actions.HUMAN`), never a task someone else opened and asks
-    for themselves. `c` closes the row under the cursor, `r` reopens it with
-    a typed one-line reason, and space + `C` close several at once."""
-    _home("checks")
+def test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark() -> None:
+    from ocp.ui.components.key_guide import Key, fit
+    keys = [Key("a", "alpha", 1), Key("b", "bravo", 3), Key("c", "charlie", 2), Key("d", "delta", 1)]
+    wide = fit(keys, 80).plain
+    check("key guide: with room, every key in the order given, then ?",
+          wide == "a alpha · b bravo · c charlie · d delta · ? keys", wide)
+    for width in (12, 24, 31, 40):
+        line = fit(keys, width)
+        check(f"key guide: {width} cells is one line that fits and ends with ?",
+              line.cell_len <= width and line.plain.endswith("? keys"), line.plain)
+    tight = fit(keys, 31).plain
+    check("key guide: the lowest rank goes first", "bravo" not in tight and "alpha" in tight and "delta" in tight, tight)
+
+
+async def test_the_key_guide_stays_on_screen_when_the_table_is_long() -> None:
+    """founder #725: with many rows the table pushed the guide off the bottom."""
+    _home("guidefits")
     con = db.connect()
     try:
-        t_mine = db.new_task(con, "manager's own", "worker", "manager")
-        t_founder1 = db.new_task(con, "founder's first", "worker", "manager")
-        t_founder2 = db.new_task(con, "founder's second", "worker", "manager")
-        t_open = db.new_task(con, "not done yet", "worker", "manager")
-        r1 = db.add_request(con, actions.HUMAN, "manager", "please", None, None, None, None, 0, None)
-        db.link_request(con, t_founder1, r1)
-        r2 = db.add_request(con, actions.HUMAN, "manager", "please too", None, None, None, None, 0, None)
-        db.link_request(con, t_founder2, r2)
-        db.mark_task_done(con, t_mine, "shipped it")
-        db.mark_task_done(con, t_founder1, "shipped that too")
-        db.mark_task_done(con, t_founder2, "and this")
+        for i in range(40):
+            db.new_task(con, f"task {i}", "worker", "manager")
     finally:
         con.close()
-
     app = bt.BridgeApp()
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
-        await pilot.press("b")
-        await pilot.pause()
-        screen = app.screen
-        check("checks: b opens the screen from the dashboard",
-              isinstance(screen, TaskChecks), type(screen).__name__)
-        listed = [t["id"] for t in screen.rows]
-        check("checks: the founder's own done tasks are both listed",
-              t_founder1 in listed and t_founder2 in listed, listed)
-        check("checks: not the manager's own, and not the still-open one",
-              t_mine not in listed and t_open not in listed, listed)
+        await pilot.press("T")
+        await pilot.pause(0.4)
+        foot = app.screen.query_one("#tasks_foot").region
+        check("tasks: the guide is on the last line of a screen with 40 tasks", foot.bottom <= 24, foot)
 
-        await pilot.press("c")
-        await pilot.pause()
-        con = db.connect()
-        try:
-            row = db.get_task(con, t_founder1)
-        finally:
-            con.close()
-        check("checks: c closes the row under the cursor",
-              row["closed_by"] == actions.HUMAN, dict(row))
-        check("checks: a closed row drops off the list",
-              t_founder1 not in [t["id"] for t in screen.rows], screen.rows)
 
-        await pilot.press("r")
-        await pilot.pause()
-        for ch in "not really done":
-            await pilot.press(ch)
+async def test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit() -> None:
+    """T96: the Enter that commits a syllable goes through `Input.replace`, which checks
+    `restrict` against the whole new value, so a numeric field never takes a syllable."""
+    from textual.app import App
+    from textual.widgets import Input
+    from ocp.ui.components.ime import ImeInput
+
+    class _App(App):
+        def compose(self):
+            yield ImeInput(id="n", restrict=r"[0-9]*")
+
+    async with _App().run_test(size=(40, 6)) as pilot:
+        field = pilot.app.query_one("#n", Input)
+        field.focus()
+        await pilot.pause(0.1)
+        await pilot.press("7")
+        await field._on_key(events.Key("enter", "가"))
+        check("ime: a syllable is refused by a numeric field", field.value == "7", field.value)
+        field.insert_text_at_cursor("8")
+        check("ime: a digit is taken", field.value == "78", field.value)
         await pilot.press("enter")
-        await pilot.pause()
-        con = db.connect()
-        try:
-            row = db.get_task(con, t_founder2)
-        finally:
-            con.close()
-        check("checks: r reopens the row under the cursor",
-              row["done_evidence"] is None and row["closed_by"] is None, dict(row))
-        con = db.connect()
-        try:
-            payload = con.execute(
-                "SELECT payload FROM events WHERE kind = 'reopen_task' "
-                "ORDER BY id DESC LIMIT 1").fetchone()
-        finally:
-            con.close()
-        check("checks: the typed reason is recorded, not silently dropped",
-              payload and json.loads(payload["payload"])["reason"] == "not really done", payload)
 
 
-async def test_task_checks_closes_several_checked_at_once() -> None:
-    """Founder #2154's own worry: on a day with more of these than are worth
-    doing one at a time, space marks several rows and `C` closes them all in
-    one key, not one at a time."""
-    _home("checks2")
+def _week_sample(con, account: str, ts: int, used: int, reset: int) -> None:
+    import json as _json
+    con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)",
+                (account, ts, _json.dumps([
+                    {"minutes": 300, "used_percent": 10, "resets_at": ts + 3600, "observed_at": ts},
+                    {"minutes": 10080, "used_percent": used, "resets_at": reset, "observed_at": ts}])))
+
+
+def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
+    from ocp.usage import outlook
+    _home("outlook")
     con = db.connect()
     try:
-        tids = []
-        for i in range(3):
-            tid = db.new_task(con, f"founder's #{i}", "worker", "manager")
-            rid = db.add_request(con, actions.HUMAN, "manager", "please", None, None, None,
-                                 None, 0, None)
-            db.link_request(con, tid, rid)
-            db.mark_task_done(con, tid, f"shipped {i}")
-            tids.append(tid)
+        now = 1_800_000_000
+        for h in range(24, -1, -1):
+            _week_sample(con, "alpha", now - h * 3600, 50 - h, now + 6 * 3600)     # 1 point an hour
+            _week_sample(con, "beta", now - h * 3600, 20, now + 3 * 86400)         # idle
+        con.commit()
+        o = actions.weekly_outlook(con, now)
     finally:
         con.close()
+    now_left = o.past[-1][1]
+    check("outlook: two accounts are counted", o.accounts == 2, o.accounts)
+    check("outlook: the headroom now is the mean of what is left (alpha 50 used, beta 20)",
+          now_left == 65, now_left)
+    at_reset = dict(o.future)[now + 6 * 3600] if (now + 6 * 3600) in dict(o.future) else None
+    check("outlook: after alpha's week resets what it used comes back", at_reset is not None and at_reset > now_left - 5,
+          (at_reset, now_left))
+    check("outlook: the guess ends inside 24h", o.future[-1][0] <= now + 24 * 3600, o.future[-1][0])
+    con = db.connect()
+    try:
+        used = outlook.week_consumed(db.usage_samples(con), now - 24 * 3600, now)
+    finally:
+        con.close()
+    check("outlook: the points used are the rises (alpha 26 to 50 = 24, beta idle = 0)",
+          used == {"alpha": 24.0, "beta": 0.0}, used)
+    flat = outlook.weekly_outlook([], now)
+    check("outlook: no samples, no points", not flat.past and not flat.future and flat.accounts == 0)
 
+
+def test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up() -> None:
+    from ocp.ui.components.outlook_view import chart
+    from ocp.usage.outlook import Outlook
+    o = Outlook(past=[(0, 50.0), (1, 50.0)], future=[(2, 50.0)], accounts=1)
+    plain = chart(o, 30, 8, "24h")
+    over = chart(o, 30, 8, "24h", [20.0, 20.0])
+    check("overlay: without it there is no magenta", not any("magenta" in str(sp.style) for sp in plain.spans))
+    check("overlay: with it the agent's part is drawn in magenta in front of the headroom",
+          any("magenta" in str(sp.style) for sp in over.spans))
+    _home("agentseries")
+    con = db.connect()
+    try:
+        now = 1_800_000_000
+        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES ('writer', 'IDLE', 0, '/w/writer')")
+        con.execute("INSERT INTO token_calls VALUES('alpha','p','p1',?,'claude-sonnet-5','/w/writer',0,1000,0,0,200,0)",
+                    (now - 3600,))
+        con.execute("INSERT INTO token_calls VALUES('alpha','p','p2',?,'claude-sonnet-5','/w/other',0,1000,0,0,200,0)",
+                    (now - 3600,))
+        con.commit()
+        uses = {u.agent: u for u in actions.agent_use(con, now, 24)}
+    finally:
+        con.close()
+    from ocp.usage import stats as ustats
+    con = db.connect()
+    try:
+        est = {u.agent: u.est_pct for u in ustats.agent_use(con, now - 86400, now, None, {"alpha": 10.0})}
+    finally:
+        con.close()
+    check("agent use: an agent's share of the week is its cost share times the account's points",
+          abs(est["writer"] - 5.0) < 1e-6 and abs(est["(unattributed)"] - 5.0) < 1e-6, est)
+    check("agent use: the table splits the same calls between the agents",
+          set(uses) == {"writer", "(unattributed)"} and abs(uses["writer"].share - 0.5) < 1e-6, uses)
+
+
+def test_the_agents_table_is_a_tree_with_the_group_total_on_top() -> None:
+    from ocp.usage.stats import AgentUse, group_uses
+    uses = [AgentUse("orcapipe.ui", 10, 3.0, 0.3, 1.0, {"a": 0.3}), AgentUse("orcapipe", 5, 6.0, 0.6, 2.0, {"a": 0.6}),
+            AgentUse("harbor", 1, 1.0, 0.1, 0.5, {"a": 0.1})]
+    rows = group_uses(uses)
+    got = [(r.key, r.label, r.depth) for r in rows]
+    check("tree: the group with the most cost first, its total on top, then self and the children",
+          got == [("grp:orcapipe", "orcapipe", 0), ("orcapipe.ui", "ui", 1), ("orcapipe", "self", 1),
+                  ("harbor", "harbor", 0)], got)
+    top = rows[0].use
+    check("tree: the group row is the sum of its members", top.tokens == 15 and abs(top.cost - 9.0) < 1e-9
+          and abs(top.est_pct - 3.0) < 1e-9 and abs(top.fracs["a"] - 0.9) < 1e-9, top)
+
+
+def test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart() -> None:
+    from ocp.ui.components.outlook_view import chart
+    from ocp.usage.outlook import Outlook
+    o = Outlook(past=[(0, 100.0), (1, 50.0)], future=[(2, 25.0), (3, 0.0)], accounts=1)
+    text = chart(o, 40, 8)
+    check("chart: one line per row and an axis", len(text.plain.split("\n")) == 9, text.plain)
+    styles = {str(sp.style) for sp in text.spans}
+    check("chart: the recorded part and the guess have their own colours", {"cyan", "yellow"} <= styles, styles)
+
+
+async def test_stats_screen_draws_the_weekly_graph() -> None:
+    """Founder #824: S opens the weekly headroom graph, and the Stats tab shows the same."""
+    from ocp.ui.pages.stats import StatsScreen
+    _home("statsscreen")
+    con = db.connect()
+    try:
+        now = int(time.time())
+        for h in range(6, -1, -1):
+            _week_sample(con, "alpha", now - h * 3600, 40 + h, now + 86400)
+        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES ('writer', 'IDLE', 0, '/w/writer')")
+        con.execute("INSERT INTO token_calls VALUES('alpha','p','p1',?,'claude-sonnet-5','/w/writer',0,1000,0,0,200,0)",
+                    (now - 3600,))
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        await pilot.press("S")
+        await pilot.pause(0.3)
+        screen = app.screen
+        check("stats: S opens the screen", isinstance(screen, StatsScreen), type(screen).__name__)
+        view = screen.query_one("#stats_view")
+        check("stats: the recorded week is drawn", view.outlook.accounts == 1 and view.outlook.past, view.outlook.accounts)
+        await pilot.press("r")
+        await pilot.pause(0.3)
+        check("stats: r steps the date range and the graph follows",
+              view.range == "3d" and view.outlook.future[-1][0] - view.outlook.past[-1][0] >= 71 * 3600,
+              (view.range, view.outlook.future[-1][0] - view.outlook.past[-1][0]))
+        table = view.query_one("#outlook_table")
+        check("stats: the agents' use is a table under the graph", table.row_count == len(view.uses) and len(view.uses) >= 1,
+              table.row_count)
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("stats: enter on an agent overlays what it ate on the same graph, on the same screen",
+              view.picked == "writer" and app.screen is screen and len(view.over) == len(view.outlook.past), (view.picked, type(app.screen).__name__))
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("stats: enter on it again goes back to the week", view.picked is None, view.picked)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        from textual.widgets import Tabs
+        app.screen.query_one("#scope", Tabs).active = "stats"
+        await pilot.pause(0.3)
+        tab = app.screen.query_one("#stats_view")
+        check("stats tab: home has a Stats tab with the same graph", tab.display and tab.outlook.accounts == 1,
+              (tab.display, tab.outlook.accounts))
+
+
+async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
+    """T69: T opens the tasks screen; space marks; p sets the priority of the
+    marked tasks; c on tasks that are not done shows each refusal with its reason."""
+    from ocp.ui.pages.tasks import TasksScreen
+    from textual.widgets import Tabs
+    _home("tasksscreen")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "first", "worker", "manager")
+        b = db.new_task(con, "second", "worker", "manager")
+        c = db.new_task(con, "third", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        screen = app.screen
+        view = screen.query_one('#tasks_view')
+        check("tasks: T opens the screen, every open task listed",
+              isinstance(screen, TasksScreen) and {a, b, c} <= {r["id"] for r in view.rows},
+              type(screen).__name__)
+        foot = str(view.query_one("#tasks_foot").render())
+        check("tasks: the foot guides keys on one line and ends with ?",
+              "mark" in foot and "close" in foot and foot.rstrip().endswith("? keys") and "\n" not in foot, foot)
+        await pilot.press("question_mark")
+        await pilot.pause(0.2)
+        from ocp.ui.components.key_guide import KeyHelp
+        check("tasks: ? opens a box with every key", isinstance(app.screen, KeyHelp)
+              and "merge" in str(app.screen.query_one("#keys").render()), type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        check("tasks: esc closes the box and stays on the screen", isinstance(app.screen, TasksScreen),
+              type(app.screen).__name__)
+        await pilot.press("space", "down", "space")
+        await pilot.pause()
+        check("tasks: space marks the rows", len(view.checked) == 2, view.checked)
+        await pilot.press("p")
+        await pilot.pause()
+        await pilot.press("1", "enter")
+        await pilot.pause(0.3)
+        from ocp.ui.components.confirm import Confirm
+        check("tasks: a batch asks once more, naming the tasks", isinstance(app.screen, Confirm)
+              and "2 tasks" in str(app.screen.query_one("#question").render()), type(app.screen).__name__)
+        await pilot.press("y")
+        await pilot.pause(0.3)
+        con = db.connect()
+        try:
+            prios = [db.get_task(con, t)["priority"] for t in (a, b)]
+        finally:
+            con.close()
+        check("tasks: p wrote P1 to both marked tasks", prios == [1, 1], prios)
+        await pilot.press("c")
+        await pilot.pause(0.3)
+        await pilot.press("y")
+        await pilot.pause(0.3)
+        said = " ".join(n.message for n in app._notifications)
+        check("tasks: c on tasks that are not done toasts a line per refusal, with the reason",
+              "T" in said and any(n.severity == "error" for n in app._notifications), said)
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("tasks: enter opens the task's detail", type(app.screen).__name__ == "TaskDetail", type(app.screen).__name__)
+        await pilot.press("escape", "escape")
+        await pilot.pause(0.2)
+        con = db.connect()
+        try:
+            mine = db.new_task(con, "founder's own", "worker", actions.HUMAN)
+        finally:
+            con.close()
+        home = app.screen
+        home.query_one("#scope", Tabs).active = "tasks"
+        await pilot.pause(0.3)
+        view = home.query_one("#tasks_view")
+        ids = {r["id"] for r in view.rows}
+        check("tasks tab: only the tasks that concern the founder", mine in ids and not ({a, b, c} & ids), ids)
+        view.query_one("#tasks_table").focus()
+        await pilot.press("f")
+        await pilot.pause(0.2)
+        check("tasks tab: f steps to an agent's own tasks", view.owner == "worker", view.owner)
+        from textual.widgets import Select
+        dd = view.query_one("#f_agent", Select)
+        check("tasks tab: the agent dropdown follows f", dd.value == "worker", dd.value)
+        dd.value = ""
+        await pilot.pause(0.2)
+        check("tasks tab: choosing all in the dropdown clears the agent", view.owner is None, view.owner)
+        view.query_one("#f_sort", Select).value = "number"
+        await pilot.pause(0.2)
+        check("tasks tab: the sort dropdown sets the sort", view.by == "number", view.by)
+        await pilot.press("S")
+        await pilot.pause(0.2)
+        check("tasks tab: S reverses the sort and the head shows it", view.rev
+              and "▼" in str(view.table.columns["number"].label), view.rev)
+        view.query_one("#tasks_table").focus()
+        await pilot.press("s")
+        await pilot.pause(0.2)
+        check("tasks tab: s sorts by the next column", view.by == "state", view.by)
+        view.action_check_all()
+        await pilot.pause(0.2)
+        check("tasks tab: the head of the mark column marks every row shown",
+              {r["id"] for r in view.rows} <= view.checked and view._mark_head == "[x]", view.checked)
+        view.action_check_all()
+        await pilot.pause(0.2)
+        check("tasks tab: and unmarks them when all are marked", not view.checked, view.checked)
+        from ocp.ui.components.tasks_view import TaskPane
+        pane = view.query_one(TaskPane)
+        await pilot.resize_terminal(170, 40)
+        await pilot.pause(0.3)
+        check("tasks tab: a wide terminal shows the task under the cursor at the right",
+              pane.display and view.rows[view.cur]["title"] in str(pane.query_one("#pane_text").render()), pane.display)
+        from textual.widgets import Button
+        check("tasks tab: the pane has Close, Reopen and Discard, enabled as the task page has them",
+              all(pane.query_one(f"#pane_{n}", Button).disabled == (not pane.d[f"can_{n}"])
+                  for n in ("close", "reopen", "discard")), pane.d)
+        await pilot.resize_terminal(100, 24)
+        await pilot.pause(0.3)
+        check("tasks tab: a narrow one hides the pane", not pane.display)
+        from ocp.ui.components.tasks_view import StatePicker
+        await pilot.press("v")
+        await pilot.pause(0.2)
+        check("tasks tab: v opens the state checkboxes", isinstance(app.screen, StatePicker), type(app.screen).__name__)
+        await pilot.press("space")
+        await pilot.pause(0.2)
+        check("tasks tab: space marks without applying", "draft" in view.states and isinstance(app.screen, StatePicker))
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        check("tasks tab: enter applies the checkboxes and closes (draft now unmarked)",
+              not isinstance(app.screen, StatePicker) and "draft" not in view.states
+              and {"queued", "doing", "done"} <= view.states, view.states)
+        await pilot.press("a")
+        await pilot.pause(0.2)
+        check("tasks tab: a adds the closed states", {"closed", "discarded", "merged"} <= view.states, view.states)
+        agent_dd = view.query_one("#f_agent", Select)
+        rebuilt = []
+        real = agent_dd.set_options
+        agent_dd.set_options = lambda *a, **k: (rebuilt.append(1), real(*a, **k))[1]
+        await pilot.pause(2.3)
+        view.refresh_rows()
+        await pilot.pause(0.2)
+        agent_dd.set_options = real
+        check("tasks tab: a refresh with the same agents does not rebuild the agent dropdown", not rebuilt, len(rebuilt))
+
+
+async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
+    from ocp.ui.pages.tasks import TasksScreen
+    _home("checks")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        mine = db.new_task(con, "founder's done", "worker", actions.HUMAN)
+        theirs = db.new_task(con, "someone else's done", "worker", "orcapipe")
+        for t in (mine, theirs):
+            con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (t,))
+        con.commit()
+    finally:
+        con.close()
     app = bt.BridgeApp()
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
         await pilot.press("b")
-        await pilot.pause()
+        await pilot.pause(0.3)
         screen = app.screen
-
-        await pilot.press("space")
-        await pilot.press("down")
-        await pilot.press("space")
-        await pilot.press("down")
-        await pilot.press("space")
-        await pilot.press("space")             # space again: unchecks the same row
-        await pilot.pause()
-        check("checks: space toggles - two stay checked, the third toggled back off",
-              len(screen.checked) == 2, screen.checked)
-
-        await pilot.press("C")
-        await pilot.pause()
-        con = db.connect()
-        try:
-            rows = {tid: db.get_task(con, tid) for tid in tids}
-        finally:
-            con.close()
-        check("checks: both checked rows closed, the third left alone",
-              rows[tids[0]]["closed_by"] == actions.HUMAN
-              and rows[tids[1]]["closed_by"] == actions.HUMAN
-              and rows[tids[2]]["closed_by"] is None,
-              {k: v["closed_by"] for k, v in rows.items()})
-        check("checks: checked is cleared once acted on", not screen.checked, screen.checked)
+        ids = {r["id"] for r in screen.query_one("#tasks_view").rows}
+        check("checks: b opens the tasks screen on the done tasks the founder signs off",
+              isinstance(screen, TasksScreen) and mine in ids and theirs not in ids, ids)
 
 
 async def test_read_only_page_shows_foreign_text_inert() -> None:
@@ -1216,6 +1504,38 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
         con.close()
 
 
+def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() -> None:
+    from ocp.ui.components.tasks_view import result_notes
+    got = result_notes([(14, True, "x"), (15, True, "y"), (16, False, "not done yet")], "close")
+    check("results: successes in one toast, the refusals in another with the reason",
+          got == [("closed 2: T14 T15", "information"), ("T16: not done yet", "error")], got)
+
+
+async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
+    from textual.widgets import Tabs
+    from ocp.ui import chat_page as cp
+    _home("agentpane")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        db.new_task(con, "pane subject", "reviewer", "orcapipe")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(170, 40)) as pilot:
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        page = app.screen
+        page.query_one(Tabs).active = "tasks"
+        await pilot.pause(0.5)
+        pane = page.query_one(cp.TaskPane)
+        check("agent tasks: a wide terminal shows the pane with the task under the cursor",
+              pane.display and "pane subject" in str(pane.query_one("#pane_text").render()), pane.display)
+        await pilot.resize_terminal(100, 30)
+        await pilot.pause(0.3)
+        check("agent tasks: a narrow one hides it", not pane.display)
+
+
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -1323,6 +1643,14 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
                     for b in row._pending_children if type(b).__name__ == "Button"]
         check("chat: send now and cancel are gone once delivered",
               len(buttons(False)) == 2 and buttons(True) == [], f"{buttons(False)} {buttons(True)}")
+        m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "text": "x", "waiting": False,
+             "replyable": False, "answered": False, "queued": True, "delivered": False}
+        idle, busy = cp.ChatMessage(m, working=False), cp.ChatMessage(m, working=True)
+        check("chat (T133): send now is offered only while the agent is mid-turn",
+              idle._send_now.display is False and busy._send_now.display is True,
+              (idle._send_now.display, busy._send_now.display))
+        idle.set_working(True)
+        check("chat (T133): and appears when the agent starts a turn", idle._send_now.display is True)
     finally:
         con.close()
 
@@ -1710,7 +2038,7 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
         check("home: up from the very first row does", isinstance(screen.focused, Tabs), screen.focused)
         await pilot.press("right")
         await pilot.pause(0.2)
-        check("home: right on the tab bar changes tab", screen.tab == "hr", screen.tab)
+        check("home: right on the tab bar changes tab", screen.tab == "tasks", screen.tab)
         await pilot.press("left")
         await pilot.pause(0.2)
         check("home: left changes it back", screen.tab == "home", screen.tab)
@@ -1735,6 +2063,14 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
             check(f"home: a default cap of {bad!r} is refused and the saved one stays",
                   loadmod.default_cap() == 7 and "at least 1" in str(screen.query_one("#settings_flash", Static).render()),
                   str(screen.query_one("#settings_flash", Static).render()))
+        screen.query_one("#default_cap", Input).value = "9"
+        screen.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        screen.query_one("#scope", Tabs).active = "settings"
+        await pilot.pause(0.2)
+        check("home: a cap typed and not saved (T67) is left unsaved by changing tab, and the field shows the saved one",
+              loadmod.default_cap() == 7 and screen.query_one("#default_cap", Input).value == "7",
+              (loadmod.default_cap(), screen.query_one("#default_cap", Input).value))
         screen.query_one("#scope", Tabs).active = "home"
         await pilot.pause(0.2)
         last = next(p for p in reversed(screen.PANELS) if tui._keys_of(p))
@@ -1972,6 +2308,8 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_the_tasks_table_lists_owned_and_opened_and_sorts()
+    test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
+    await test_the_agent_tasks_tab_shows_the_pane_when_wide()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
@@ -1990,8 +2328,18 @@ async def _run_all() -> None:
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
-    await test_task_checks_lists_and_acts_on_the_founders_own()
-    await test_task_checks_closes_several_checked_at_once()
+    test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
+    await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
+    test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
+    test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
+    test_the_agents_table_is_a_tree_with_the_group_total_on_top()
+    test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
+    await test_stats_screen_draws_the_weekly_graph()
+    await test_the_key_guide_stays_on_screen_when_the_table_is_long()
+    await test_tasks_screen_marks_batches_and_shows_each_refusal()
+    await test_copy_reaches_the_system_clipboard()
+    await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
+    await test_b_opens_the_tasks_screen_on_the_founders_done_tasks()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
     await test_dashboard_messages_table_is_fed_by_messages_data()

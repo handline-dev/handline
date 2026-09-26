@@ -682,6 +682,76 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     return out
 
 
+TASK_STATES = ("draft", "queued", "doing", "done", "closed", "discarded", "merged")
+OPEN_STATES = TASK_STATES[:4]
+STALE_AFTER_S = 3 * 86400
+BATCH_VERBS = ("close", "discard", "owner", "priority")
+
+
+def task_idle_s(row: dict, now: float) -> int:
+    """Seconds since anything happened to this `task_rows` row."""
+    return max(0, int(now - row["last_activity"]))
+
+
+def task_stale(row: dict, now: float) -> bool:
+    """A task waiting to be approved or to run that nothing has touched for 3 days: the screen highlights it."""
+    return row["state"] in ("draft", "queued") and task_idle_s(row, now) >= STALE_AFTER_S
+
+
+def task_related_to(row: dict, who: str) -> bool:
+    """Does `who` own this `task_rows` row, open it, or have to close it?"""
+    return who in (row["owner"], row["opened_by"], row["closer"])
+
+
+TASK_SORTS = ("priority", "number", "state", "title", "owner", "idle")
+_STATE_ORDER = {"draft": 0, "queued": 1, "doing": 2, "done": 3, "closed": 4, "discarded": 5, "merged": 6}
+
+
+def sort_task_rows(rows: list[dict], by: str, reverse: bool = False, now: float | None = None) -> list[dict]:
+    """`rows` ordered by one of TASK_SORTS: `priority` (P1 first), `number` (T9 before
+    T10), `state` (drafts first), `title`, `owner`, `idle` (longest first when reversed);
+    ties fall to the number."""
+    now = time.time() if now is None else now
+    keys = {"priority": lambda r: (r["priority"], r["id"]),
+            "number": lambda r: r["id"],
+            "state": lambda r: (_STATE_ORDER.get(r["state"], 9), r["id"]),
+            "title": lambda r: (r["title"].lower(), r["id"]),
+            "owner": lambda r: (r["owner"].lower(), r["id"]),
+            "idle": lambda r: (task_idle_s(r, now), r["id"])}
+    return sorted(rows, key=keys.get(by, keys["priority"]), reverse=reverse)
+
+
+def batch_task(con, verb: str, tids: list[int], by: str, arg: str = "") -> list[tuple[int, bool, str]]:
+    """`verb` on each task in `tids`, one (id, ok, message) per task: a refusal
+    carries its reason and does not stop the others. `arg` is the reason for
+    discard, the agent for owner, the priority for priority. A bad `arg` refuses
+    every task the same way, before any is touched."""
+    if verb not in BATCH_VERBS:
+        return [(t, False, f"no such action: {verb}") for t in tids]
+    if verb == "discard" and not arg.strip():
+        return [(t, False, "discard needs a one-line reason") for t in tids]
+    if verb == "owner" and not arg.strip():
+        return [(t, False, "owner needs an agent name") for t in tids]
+    prio = None
+    if verb == "priority":
+        try:
+            prio = parse_priority(arg)
+        except ValueError as e:
+            return [(t, False, str(e)) for t in tids]
+    out = []
+    for tid in tids:
+        if verb == "close":
+            ok, msg = close_task(con, tid, by)
+        elif verb == "discard":
+            ok, msg = discard_task(con, tid, by, arg)
+        elif verb == "owner":
+            ok, msg = edit_task(con, tid, by, owner=arg.strip())
+        else:
+            ok, msg = edit_task(con, tid, by, priority=prio)
+        out.append((tid, ok, msg))
+    return out
+
+
 def _blocked_by_cycle(con, tid: int, blocks_on: int, seen: set[int] | None = None) -> bool:
     """True if `tid` waiting on `blocks_on` would close a loop: walking from
     `blocks_on` through what it itself waits on reaches `tid` again. Walks
