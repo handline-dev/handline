@@ -167,10 +167,18 @@ def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
     with orca.driver_scope():
         if not orca.trust_prompt_gone(row["terminal"]):
             return
-    db.set_agent_state(con, agent, IDLE, detail="the folder-trust prompt is answered; the stall is lifted")
+    # Escalation first, row second: a lift whose close failed would strand the
+    # escalation, and a kept stall is retried on the next tick.
     for rid in (r for prefix in lifecycle.trust_escalation_prefixes(agent)
                 for r in db.open_escalation_ids(con, agent, prefix)):
-        askmod.resolve(rid, "cleared - its folder-trust prompt is answered", state="done", notify=False)
+        try:
+            askmod.resolve(rid, "cleared - its folder-trust prompt is answered", state="done", notify=False)
+        except Exception as e:
+            log(f"  {agent}: could not close escalation {rid} ({e}); the stall stays")
+    if any(db.open_escalation_ids(con, agent, prefix)
+           for prefix in lifecycle.trust_escalation_prefixes(agent)):
+        return
+    db.set_agent_state(con, agent, IDLE, detail="the folder-trust prompt is answered; the stall is lifted")
     actions.append(f"{agent}: STALLED -> IDLE (its folder-trust prompt is answered)")
     log(f"  {agent}: its folder-trust prompt is answered; the stall is lifted")
 
@@ -250,19 +258,25 @@ def sweep(con, log, actions: list[str]) -> None:
             # landed that we never recorded. Believing our own note here would
             # close it a second time on top of a live session.
             db.clear_closed(con, agent)
+            row = db.get_agent_state(con, agent)
             actions.append(f"{agent}: a session is running; the closed mark was wrong")
             log(f"  {agent}: running again (pid {o.session_pid}); cleared the closed mark")
+            # Judged before the streak is reset: the reset is what refutes it.
+            wake_stall = (row["state"] == STALLED and row["wake_failures"] >= MAX_FAILED_ATTEMPTS
+                          and lifecycle.TRUST_STALL not in (row["detail"] or ""))
             if row["wake_failures"]:
                 # A session is running, which refutes a streak of launches that
                 # started nothing - whatever state the row is in by now.
                 db.reset_counter(con, agent, "wake_failures")
-            if row["state"] == STALLED and row["wake_failures"] >= MAX_FAILED_ATTEMPTS:
+                row = db.get_agent_state(con, agent)
+            if wake_stall:
                 # This stall is ours: we stopped because our launches started
                 # nothing, and a session is running now. 8.6 keeps a human in
                 # the loop for a stall the agent cannot refute - this one the
                 # world just refuted, on the same evidence that cleared the
                 # closed mark, and leaving it would hide a live agent from
-                # every delivery.
+                # every delivery. Not a trust stall: a session sitting at the
+                # prompt is running too, and only the screen refutes that one.
                 db.set_agent_state(con, agent, IDLE,
                                    detail="a session is running; the wake stall is lifted")
                 actions.append(f"{agent}: STALLED -> IDLE (it is running after all)")

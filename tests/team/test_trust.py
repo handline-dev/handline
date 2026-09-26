@@ -709,6 +709,53 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
               sum("STALLED -> IDLE" in a for a in said) == 1
               and not any("wake stall" in a or "running after all" in a for a in said), str(said))
 
+        # The same agent while the prompt is still up: its running session is the one sitting at
+        # the prompt, so the wake-stall branch must not lift a stall the screen has not refuted.
+        screen["v"] = trust_screen
+        rid = stalled_on_the_trust_screen()
+        db.set_closed(con, "backend", "sess-1")
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("trust stall: a running session at the unanswered prompt keeps the stall and its detail",
+              row["state"] == dmn_states.STALLED and dmn_lifecycle.TRUST_STALL in row["detail"], str(dict(row)))
+        check("trust stall: ...and its escalation stays open, nothing said of a wake stall",
+              db.get_request(con, rid)["state"] == "queued"
+              and not any("STALLED -> IDLE" in a for a in said), str(said))
+        check("trust stall: ...while the closed mark it refutes is still cleared",
+              not db.get_agent_state(con, "backend")["closed_at"])
+
+        # An escalation that will not close keeps the stall: the row moves only after it.
+        real_resolve = askmod.resolve
+        def refuse(*_a, **_k):
+            raise RuntimeError("db locked")
+        askmod.resolve = refuse
+        screen["v"] = "an ordinary claude screen"
+        try:
+            sweep()
+        finally:
+            askmod.resolve = real_resolve
+        check("trust stall: a failed close of the escalation leaves the stall in place",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED
+              and db.get_request(con, rid)["state"] == "queued")
+        sweep()
+        check("trust stall: ...and the next tick closes both",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
+              and db.get_request(con, rid)["state"] == "done")
+
+        # A wake stall - the streak at its cap, no trust prompt behind it - is lifted by a running
+        # session, once.
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="3 failed attempts: x")
+        db.set_closed(con, "backend", "sess-1")
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("wake stall: a running session lifts it and clears the streak",
+              row["state"] == dmn_states.IDLE and row["wake_failures"] == 0 and not row["closed_at"], str(dict(row)))
+        check("wake stall: ...said once", sum("STALLED -> IDLE" in a for a in said) == 1, str(said))
+
         # A stall for another reason is not this one's to lift, however the screen reads.
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="3 failed attempts: x")
         sweep()
