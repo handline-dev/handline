@@ -21,7 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import paths, service
+from . import paths, protected, service
 from . import timefmt
 
 LABEL = "dev.orcapipe.backup"
@@ -77,6 +77,13 @@ def _copy_db(home: Path, dest: Path) -> None:
 
 def _fingerprint(home: Path, db_copy: Path | None) -> str:
     h = hashlib.sha256()
+    base = protected.root_for(home)
+    for rel in protected.files(home):
+        try:
+            st = (base / rel).stat()
+        except FileNotFoundError:
+            continue
+        h.update(f"protected/{rel}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
     for rel in _files(home):
         if rel.name == "status.json":
             continue  # rewritten by every live session; kept in the snapshot, not a change
@@ -113,6 +120,15 @@ def _write(home: Path, dest: Path, db_copy: Path | None, now: float) -> Path:
             for rel in _files(home):
                 try:
                     tar.add(home / rel, arcname=str(rel), recursive=False)
+                except FileNotFoundError:
+                    continue
+            # The founder's decisions live outside OCP_HOME (infra/protected.py),
+            # so a snapshot of OCP_HOME alone would lose them; they ride along
+            # under protected/.
+            base = protected.root_for(home)
+            for rel in protected.files(home):
+                try:
+                    tar.add(base / rel, arcname=f"protected/{rel}", recursive=False)
                 except FileNotFoundError:
                     continue
             if db_copy is not None:

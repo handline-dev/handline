@@ -14,9 +14,9 @@ import time
 import uuid
 from pathlib import Path
 
-from . import ask as askmod, hr
+from . import ask as askmod, decisions, hr
 from .. import db
-from ..infra import atomic, paths, textsafe
+from ..infra import atomic, paths, protected, textsafe
 from ..infra.yamlcompat import dump, load
 
 # JSON, not yamlcompat: this file is a list of maps, and the bundled parser -
@@ -24,25 +24,59 @@ from ..infra.yamlcompat import dump, load
 # Proposal files below stay flat, so they still use it like hr.py's do.
 
 
-def _path() -> Path:
+# The declared roots are the founder's alone to change, so they live in the
+# protected store, not in a file every agent can write. `legacy_path` is where
+# they used to be; it is read once, by the founder's own session, to move them.
+_NS = "trust"
+_ROOTS = "roots.json"
+_MIGRATED = "migrated"
+
+
+def legacy_path() -> Path:
     return paths.home() / "trust_roots.json"
+
+
+def migrate_legacy() -> str | None:
+    """Move the old trust_roots.json into the protected store, once. Returns
+    what was done, or None when there was nothing to do or this is an agent's
+    session (which cannot write there). The marker makes it once: a file put
+    back afterwards by anything is never read as the founder's."""
+    if protected.get(_NS, _MIGRATED) is not None:
+        return None
+    old = legacy_path()
+    if not old.exists():
+        return None
+    try:
+        rows = json.loads(old.read_text())
+        if not isinstance(rows, list):
+            rows = []
+    except (OSError, json.JSONDecodeError):
+        rows = []
+    try:
+        protected.put(_NS, _ROOTS, json.dumps(rows, indent=2))
+        protected.put(_NS, _MIGRATED, "1")
+    except PermissionError:
+        return None
+    old.unlink(missing_ok=True)
+    return f"moved {len(rows)} declared root(s) out of {old} into the protected store"
 
 
 def list_roots() -> list[dict]:
     """Every declared root, as {root, why, added_by, added_at}."""
-    p = _path()
-    if not p.exists():
+    migrate_legacy()
+    raw = protected.get(_NS, _ROOTS)
+    if raw is None:
         return []
     try:
-        data = json.loads(p.read_text())
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(raw)
+    except json.JSONDecodeError:
         return []
     return data if isinstance(data, list) else []
 
 
 def _save(rows: list[dict]) -> None:
-    p = _path()
-    atomic.write_text(p, json.dumps(rows, indent=2))
+    protected.put(_NS, _ROOTS, json.dumps(rows, indent=2))
+    protected.put(_NS, _MIGRATED, "1")
 
 
 def _resolved(path) -> str | None:
@@ -152,7 +186,10 @@ def enact(root: str, why: str) -> tuple[bool, str]:
     rows = list_roots()
     rows.append({"root": resolved, "why": (why or "").strip() or "added by the founder",
                  "added_by": askmod.HUMAN, "added_at": int(time.time())})
-    _save(rows)
+    try:
+        _save(rows)
+    except PermissionError as e:
+        return False, str(e)
     return True, f"{resolved} is now a declared root"
 
 
@@ -174,6 +211,11 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
                            f"`ocp bridge`, top panel.")
         verdict = row["verdict"]
         call = hr.decision(verdict)
+        if call in ("approved", "rejected"):
+            why_not = decisions.refusal("trust", pid, row["id"])
+            if why_not or decisions.get("trust", pid)["call"] != call:
+                return False, why_not or (f"the founder's recorded answer for proposal {pid} "
+                                          f"does not match #{row['id']}'s verdict")
         if call == "rejected":
             prop["state"] = "rejected"
             prop["verdict"] = textsafe.oneline(verdict or "")
@@ -194,7 +236,10 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         rows = list_roots()
         rows.append({"root": prop["root"], "why": prop["why"],
                      "added_by": prop["requested_by"], "added_at": prop["created"]})
-        _save(rows)
+        try:
+            _save(rows)
+        except PermissionError as e:
+            return False, f"{e}. The founder's session applies it when they answer"
         prop["state"] = "applied"
         prop["applied"] = int(time.time())
         prop["verdict"] = textsafe.oneline(verdict or "")
@@ -212,5 +257,8 @@ def remove(root: str) -> tuple[bool, str]:
     kept = [r for r in rows if _resolved(r.get("root")) != resolved]
     if len(kept) == len(rows):
         return False, f"{resolved} is not a declared root"
-    _save(kept)
+    try:
+        _save(kept)
+    except PermissionError as e:
+        return False, str(e)
     return True, f"{resolved} is no longer a declared root"

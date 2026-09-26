@@ -32,7 +32,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import agents, ask as askmod, team
+from . import agents, ask as askmod, decisions, team
 from .. import db, vendors
 from ..infra import atomic, paths, textsafe
 from ..infra import timefmt
@@ -311,6 +311,11 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
                            f"`ocp bridge`, top panel.")
         verdict = row["verdict"]
         call = decision(verdict)
+        if call in ("approved", "rejected"):
+            why_not = decisions.refusal("hr", pid, row["id"])
+            if why_not or decisions.get("hr", pid)["call"] != call:
+                return False, why_not or (f"the founder's recorded answer for proposal {pid} "
+                                          f"does not match #{row['id']}'s verdict")
         if call == "rejected":
             prop["state"] = "rejected"
             prop["verdict"] = textsafe.oneline(verdict or "")

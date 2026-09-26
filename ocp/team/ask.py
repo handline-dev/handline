@@ -745,16 +745,21 @@ def _apply_answered(con, row, mod, pid: str, verdict: str | None) -> str:
     the proposer is about to be told; a failed apply is also reported to the
     founder, and the proposal stays `proposed` so `apply` or `withdraw` can
     still settle it. A reject is only recorded on the proposal's file."""
-    from . import hr, trust
+    from . import decisions, hr, trust
 
     call = hr.decision(verdict)
+    kind = "trust" if mod is trust else "hr"
+    if call in ("approved", "rejected"):
+        try:
+            decisions.record(kind, pid, row["id"], call)
+        except PermissionError as e:
+            return f"proposal {pid} was not applied: {e}"
     if call == "rejected":
         mod.apply(pid, con)
         return ""
     if call != "approved":
         return ""
     ok, said = mod.apply(pid, con)
-    kind = "trust" if mod is trust else "hr"
     line = f"proposal {pid} " + ("applied: " if ok else "could not be applied: ") + said
     db.append_verdict(con, row["id"], line)
     if not ok:

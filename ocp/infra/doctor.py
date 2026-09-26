@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ..team import accounts, agents
+from ..team import accounts, agents, trust
 from .. import db, vendors
 from ..session import launch, observe as obs, orca
 from ..usage import load as loadmod, status
@@ -198,6 +198,15 @@ def _check_protected(r: Report) -> None:
             r.add(WARN, "protected store is not out of the agents' reach", why)
     else:
         r.add(OK, "protected store", str(protected.root()))
+    if trust.legacy_path().exists():
+        if protected.get("trust", "migrated") is None:
+            r.add(WARN, "declared trust roots are not moved yet",
+                  f"{trust.legacy_path()} is still the only copy; `ocp trust migrate` "
+                  "from your own terminal moves it into the protected store")
+        else:
+            r.add(WARN, "a trust_roots.json is back in OCP_HOME",
+                  f"{trust.legacy_path()} is ignored - the roots are in the protected "
+                  "store now; delete it")
 
 
 def _check_agents(r: Report) -> None:
