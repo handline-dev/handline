@@ -72,7 +72,7 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> 
         return
     if label == "terminal" and tui._needs_a_terminal(con, name):
         repo = await screen.app.push_screen_wait(
-            TextPrompt(f"{name} has nowhere to run - repo to start it in:"))
+            TextPrompt(f"repo path for {name}:"))
         if not repo:
             screen.toast("not started")
             return
