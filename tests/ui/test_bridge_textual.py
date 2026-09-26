@@ -1120,10 +1120,15 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         await pilot.press("a")
         await pilot.pause(0.2)
         check("tasks tab: a adds the closed states", {"closed", "discarded", "merged"} <= view.states, view.states)
-        opts = list(view.query_one("#f_agent", Select)._options)
+        agent_dd = view.query_one("#f_agent", Select)
+        rebuilt = []
+        real = agent_dd.set_options
+        agent_dd.set_options = lambda *a, **k: (rebuilt.append(1), real(*a, **k))[1]
         await pilot.pause(2.3)
-        check("tasks tab: a refresh with the same agents leaves the agent dropdown alone",
-              list(view.query_one("#f_agent", Select)._options) == opts)
+        view.refresh_rows()
+        await pilot.pause(0.2)
+        agent_dd.set_options = real
+        check("tasks tab: a refresh with the same agents does not rebuild the agent dropdown", not rebuilt, len(rebuilt))
 
 
 async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
