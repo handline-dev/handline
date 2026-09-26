@@ -1031,7 +1031,27 @@ def test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(home:
               drv.credential_present(cdir) is False)
         os.environ["SANDBOX_RUNTIME"] = "1"
         check("inside it the same answer is unknown", drv.credential_present(cdir) is None)
-        check("and an unknown login does not refuse a launch", accounts.logged_in("alpha"))
+        check("an unknown login does not refuse a launch", accounts.may_start("alpha"))
+        check("but it is not reported as a login", not accounts.logged_in("alpha")
+              and accounts.login_state("alpha") is None)
+        from ocp import cli as climod, doctor as doctormod
+        check("the listing says unknown, not yes or no",
+              climod._login_word(None) == "unknown (sandboxed)"
+              and climod._login_word(None, short=True) == "?")
+        accounts.register("alpha")
+        rep = doctormod.Report()
+        doctormod._check_accounts(rep)
+        check("doctor warns on unknown rather than passing it",
+              any(lv == doctormod.WARN and "login unknown" in n for lv, n, _ in rep.rows), rep.rows)
+        agents.register("sbx", "alpha")
+        try:
+            launch.build("sbx")
+            refused = ""
+        except SystemExit as e:
+            refused = str(e)
+        check("launch goes past the login check on an unknown login",
+              "not logged in" not in refused, refused)
+        R.returncode = 44
         R.returncode = 0
         check("a present item is still yes in the sandbox", drv.credential_present(cdir) is True)
     finally:

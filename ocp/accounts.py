@@ -183,17 +183,29 @@ def unlinked() -> list[tuple[str, str]]:
     return out
 
 
-def logged_in(acct: str) -> bool:
+def login_state(acct: str) -> bool | None:
     """Whether this account has credentials, as its driver's
     `credential_present` answers: a file's existence for claude, a run of
     `opencode auth list` (about 0.6s) for opencode. An account whose vendor
-    has no driver cannot be driven, so it is not. Only a confirmed absence
-    is "not logged in": a driver that cannot tell (None) is not a refusal."""
+    has no driver cannot be driven, so it is not. None when this process
+    cannot tell (a sandboxed one cannot see the keychain)."""
     try:
         drv = vendors.for_account(acct)
     except vendors.UnknownVendor:
         return False
-    return drv.credential_present(vendors.config_dir(acct)) is not False
+    return drv.credential_present(vendors.config_dir(acct))
+
+
+def logged_in(acct: str) -> bool:
+    """A confirmed login. Unknown is not one: a caller that would report or
+    act on a login it cannot see uses this."""
+    return login_state(acct) is True
+
+
+def may_start(acct: str) -> bool:
+    """False only for a confirmed absence: a launch is refused for that, and
+    for nothing it merely cannot see."""
+    return logged_in(acct) or login_state(acct) is None
 
 
 def login_command(acct: str) -> str:

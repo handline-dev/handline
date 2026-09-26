@@ -163,8 +163,11 @@ def _check_accounts(r: Report) -> None:
         if not cdir.is_dir():
             r.add(FAIL, f"account {a}: {drv.config_dir_env()} missing", str(cdir))
             continue
-        if accounts.logged_in(a):
+        state = accounts.login_state(a)
+        if state:
             r.add(OK, f"account {a}: logged in")
+        elif state is None:
+            r.add(WARN, f"account {a}: login unknown (sandboxed)")
         else:
             r.add(FAIL, f"account {a}: not logged in",
                   "a human runs this once: " + accounts.login_command(a))
