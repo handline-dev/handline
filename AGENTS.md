@@ -62,3 +62,5 @@ agent (ROLE.md, base.md); this file does not repeat them.
   finish UI work.
 - Language: agents write to each other, write tasks, code and comments in
   English. Only a reply to the founder may be in Korean.
+- Run `ocp` as its own Bash call with literal text: no `$(...)`, no `$VAR`, no
+  `&&`, `;` or pipe. A value such as a sha comes from a separate call first.
