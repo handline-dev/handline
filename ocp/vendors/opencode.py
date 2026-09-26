@@ -12,6 +12,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from .base import Reading, Window
+
 # `opencode auth list`'s closing line, "<n> credentials", whether or not it is
 # given a terminal.
 _CREDENTIALS = re.compile(r"\b(\d+) credentials\b")
@@ -43,6 +45,26 @@ _OPENER = urllib.request.build_opener(_RefuseRedirect)
 
 
 
+class _Meter:
+    """`Opencode.meter()`: its `usage_reading`, as the Meter Protocol names it."""
+
+    # A coding-plan key does not expire, so there is nothing a turn renews.
+    renews_by_turn = False
+
+    def __init__(self, drv: "Opencode") -> None:
+        self._drv = drv
+
+    def read_usage(self, acct: str, refresh: bool = True) -> tuple[Reading | None, bool]:
+        from . import config_dir       # the package imports this module
+        windows = self._drv.usage_reading(config_dir(acct))
+        if windows is None:
+            return None, False
+        pct_5h, reset_5h, pct_7d, reset_7d = windows
+        return Reading(account=acct, windows=(Window(300, pct_5h, reset_5h),
+                                              Window(10080, pct_7d, reset_7d)),
+                       at=int(time.time())), False
+
+
 class Opencode:
     name = "opencode"
     min_version = (1, 18, 32)
@@ -58,18 +80,25 @@ class Opencode:
         adds a config dir and moves nothing; config and state stay shared."""
         return "XDG_DATA_HOME"
 
+    def headless_argv(self, exe: str, model: str | None, prompt: str) -> list[str] | None:
+        # `opencode run` exists (it is one of `is_session`'s own headless
+        # subcommands), but its prompt and model flags are unmeasured here -
+        # no live run has confirmed them the way every other argv in this
+        # file was. Explicit None: fold refuses rather than guess.
+        return None
+
+    def can_headless(self) -> bool:
+        return False
+
+    def headless_model(self, model: str | None) -> str:
+        # Never called: headless_argv is always None.
+        return model or ""
+
     def is_session(self, command: str) -> bool:
         """The command line starts with the binary and goes on with an option,
         or ends there. Anchored to the start because a claude session's
         preamble can say "opencode" anywhere in its own command line."""
         return _SESSION.match(command) is not None
-
-    def meters(self) -> bool:
-        # The coding-plan credential answers a usage endpoint, so ocp can read
-        # how much of the plan's limit is spent. A credential of some other
-        # provider never answers it - the same fail-closed "could not look"
-        # as a dead token is on any metered vendor.
-        return True
 
     # The coding plan's quota endpoint, measured live against the console the
     # founder reads (task #42, 2026-09-23): same totals, same reset instants,
@@ -88,7 +117,7 @@ class Opencode:
         reads as quiet - an 87% account taking work on the strength of an
         answer that named no figure.
 
-        The credential is read in memory for this one request (KICKOFF rule 1
+        The credential is read in memory for this one request (AGENTS.md rule 1
         as amended, #2010). The key is never returned, logged, or written: it
         reaches no agent's env, prompt, terminal, logs, db, and no file ocp
         writes. Reset instants are epoch seconds; the percentage arrives
@@ -173,12 +202,31 @@ class Opencode:
             return None
         return tuple(out)
 
+    def meter(self):
+        # The coding-plan credential answers a usage endpoint, so ocp can read
+        # how much of the plan's limit is spent. A credential of some other
+        # provider never answers it - the same fail-closed "could not look"
+        # as a dead token is on any metered vendor.
+        return _Meter(self)
+
+    def collector(self):
+        # No transcript files: sessions are rows in the db.
+        return None
+
+    def context_window(self, model_id: str | None) -> int | None:
+        return None
+
+    def state_hooks(self):
+        # It has no hooks to install: the screen is the only witness.
+        return None
+
     def is_resume(self, extra: list[str] | None) -> bool:
         return any(x in ("-s", "--session", "-c", "--continue") or x.startswith("--session=")
                    for x in (extra or []))
 
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
-                    mcp: list[str], preamble: str | None) -> list[str]:
+                    mcp: list[str], preamble: str | None,
+                    hide: list[str] | None = None) -> list[str]:
         """The TUI takes the model, as `provider/model`, and nothing else ocp
         passes: it has no flag for effort (only `run --variant` does), tool
         denial, an MCP config or a system prompt. Those reach opencode through
@@ -187,6 +235,12 @@ class Opencode:
         if model:
             argv += ["-m", str(model)]
         return argv
+
+    def skip_permissions_argv(self) -> list[str]:
+        return []
+
+    def transcript_dir(self, config_dir: Path, worktree: str) -> Path | None:
+        return None  # its sessions are not kept per worktree in a folder we can name
 
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
         """A config of its own for this session, in OPENCODE_CONFIG_CONTENT,
@@ -245,7 +299,8 @@ class Opencode:
         """A permission request replaces the prompt box with its choices, the
         first already selected, so Enter answers it. Anything without the box
         cannot be typed into safely."""
-        from .. import orca, textsafe  # late: orca looks drivers up
+        from ..session import orca  # late: orca looks drivers up
+        from ..infra import textsafe  # late: orca looks drivers up
         rows = [str(x) for x in tail]
         low = max(0, len(rows) - _FOOTER_ROWS)
         ask = next((i for i in range(len(rows) - 1, low - 1, -1)
@@ -259,6 +314,20 @@ class Opencode:
         if self._footer(tail) is None:
             return orca.Blocker(orca.UNREADABLE)
         return None
+
+    def trust_screen(self, tail: list[str]) -> str | None:
+        # No folder-trust dialog of its own to detect.
+        return None
+
+    def trust_answer(self) -> str:
+        # Never called: trust_screen never names a folder to accept.
+        return ""
+
+    def accepts_tool(self, tool: str | None) -> bool:
+        return False
+
+    def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:
+        return None, "this vendor's prompts are not auto-accepted"
 
     def credential_present(self, config_dir: Path) -> bool:
         """Asked of `opencode auth list`, which counts the credentials under

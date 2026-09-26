@@ -1,6 +1,6 @@
 # 팀 모델 — 역할 · 관계 · 라우팅 · 컨텍스트 예산
 
-> 인프라(슬롯·트리거·기록)는 `orca-pipeline-design.md` 참조. 이 문서는 그 위에서 **팀이 어떻게 일하는가**만 다룬다.
+> 인프라(슬롯·트리거·기록)는 `design/01-infra.md` 참조. 이 문서는 그 위에서 **팀이 어떻게 일하는가**만 다룬다.
 > 설계 목표 한 줄: **에이전트는 "누구에게 무엇을"만 말하고, "어떻게"는 전부 시스템이 정한다.**
 
 ---
@@ -129,9 +129,9 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 
 ---
 
-## 2. 관계 — 3개 축의 선언
+## 2. 관계 — relation 과 response, 두 축의 선언
 
-에이전트 사이 관계를 세 축으로 선언한다. 에이전트는 이 값을 **알 필요조차 없다.**
+에이전트 사이 관계를 두 축으로 선언한다. 에이전트는 이 값을 **알 필요조차 없다.**
 
 ### 축 1 — relation: 요청의 성격
 
@@ -139,34 +139,11 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 |---|---|---|---|---|
 | `supervisor → subordinate` | 명령 | ✘ | 높음 | 대상의 현재 작업을 선점 |
 | `peer ↔ peer` | 요청 | ✔ | 보통 | 거부 사유를 회신 |
-| `subordinate → supervisor` | 에스컬레이션 | — | 즉시 | Orca `gate-create` |
+| `subordinate → supervisor` | 에스컬레이션 | — | 즉시 | 게이트(`creates_gate`) |
 
 상하관계의 실질적 차이는 호칭이 아니라 **거부권과 선점권**이다. 그것만 다르다.
 
-### 축 2 — intake: 요청이 들어왔을 때 어떻게 처리하나
-
-| 값 | 동작 | 적합한 역할 |
-|---|---|---|
-| `serial` | 동시성 1. 요청은 큐에 쌓이고 하나씩 | **리뷰어** |
-| `ephemeral` | 요청마다 새 인스턴스, 끝나면 폐기 | **archivist**, 일회성 조사 |
-| `dedicated` | 장기 단일 세션. 상태를 계속 들고 감 | backend, frontend |
-
-### 리뷰어가 왜 `serial`이 맞는가 (질문하신 부분)
-
-맞습니다. 이유는 셋입니다.
-
-1. **캐시가 산다.** 리뷰 기준(ROLE + base = 3KB)이 이미 프리필된 상태라 두 번째 리뷰부터 그 부분이 캐시 히트다. ephemeral이면 매 요청마다 3KB를 새로 프리필한다
-2. **일관성.** 같은 세션이 앞 리뷰를 기억하므로 "아까 지적한 것과 같은 패턴"을 알아본다. 병렬 리뷰어 3개는 서로 다른 기준으로 판단한다
-3. **리뷰는 짧다.** 직렬이어도 큐 대기가 길지 않다. 대기가 문제가 되면 리뷰어를 하나 더 두면 되지만, 그때 1번과 2번을 잃는다는 걸 알고 늘려야 한다
-
-### `ephemeral`이 맞는 경우
-
-**상태가 있으면 오히려 해로운 일**이다.
-
-- `archivist`(fold): 매 fold가 독립적이어야 한다. 이전 fold의 인상이 남으면 요약이 편향된다
-- 독립 검증, 일회성 조사, 대량 병렬 작업
-
-### 축 3 — response: 요청자는 어떻게 되나
+### 축 2 — response: 요청자는 어떻게 되나
 
 | 값 | 요청자 상태 | 비용 |
 |---|---|---|
@@ -176,7 +153,13 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 `blocking`(요청자가 대기)은 **두지 않았다.** 요청자가 리뷰를 기다리며 슬롯과 계정 할당을 물고 노는 게 계정이 유한한 시스템에서 가장 아까운 낭비다. 옵션으로 남겨두면 누군가 쓴다.
 
 기본은 `async` — 요청자는 handoff하고 park한다. 인프라 설계서 §8 상태머신과 맞물린다.
-(v1 고정 매핑에서는 그 계정이 놀게 되지만, v2에서 슬롯 모델을 켜면 즉시 다른 에이전트에게 간다.)
+(에이전트는 한도에 닿으면 pick이 고른 계정으로 한 번 옮겨 가고, 놀던 계정은 다음 pick에서 쓰인다.)
+
+코드에서 에지는 `relation`(`supervisor` 만 특별 취급, 나머지는 peer), `response`(`async` | `fire_and_forget`, 그 밖의 값은 로드 실패), `kind`(`escalate` 는 게이트를 만든다, `verdict`, `report`) 를 가진다. 요청은 `--fyi` 로 보고가 되며, 보고는 사람이 열면 닫힌다.
+
+### 작업 (task)
+
+요청 위에 작업이 있다: `ocp task new|list|queue|draft|link|edit|merge|done|reopen|discard|board`. 작업은 draft(기록만) → queued(창업자나 소유자의 매니저가 승인) → doing(요청이 나가 있음) → done → closed 로 간다. 작업은 제목·소유자·연 사람·부모를 갖고, 요청을 연결해 두면 누가 지금 들고 있는지 보인다. `done` 은 근거 하나를 요구한다 (main 에 있는 merge sha, 결과가 이미 보고된 요청 id, 또는 커밋이 남지 않는 일의 사실 한 줄). 닫는 건 소유자나 연결된 요청의 대상, 재개·폐기는 연 사람이다.
 
 ---
 
@@ -192,11 +175,10 @@ ocp ask <target> "<요청>" [--files a.ts,b.ts]
 
 ```
 관계 허용 여부 → 거부면 즉시 실패, 이유와 함께
-intake 모드    → serial이면 큐, ephemeral이면 새 인스턴스 발급
 우선순위       → relation + 요청자의 크리티컬패스 위치
-계정            → v1: `.envrc` 고정 매핑 / v2: §7 게이트
+계정            → 측정한 번레이트로 pick (인프라 §0.5, §6·§7 은 만들지 않음)
 요청자 처리    → async면 handoff + park
-응답 경로      → Orca orchestration message
+응답 경로      → 요청자의 inbox 파일, 데몬이 세션에 입력해 알림
 체인 깊이      → 순환 방지
 ```
 
@@ -214,13 +196,13 @@ teams:
   ops:     [archivist]
 
 agents:
-  product:    { intake: dedicated, model: mid,   weight: light }
-  backend:    { intake: dedicated, model: high,  weight: heavy }
-  frontend:   { intake: dedicated, model: high,  weight: heavy }
-  marketing:  { intake: dedicated, model: mid,   weight: light }
-  analytics:  { intake: dedicated, model: mid,   weight: light }
-  archivist:  { intake: ephemeral, model: cheap, weight: light }
-  reviewer:   { intake: serial,    model: mid,   weight: light, reviews: [eng, growth, product] }
+  product:    { model: mid,   weight: light }
+  backend:    { model: high,  weight: heavy }
+  frontend:   { model: high,  weight: heavy }
+  marketing:  { model: mid,   weight: light }
+  analytics:  { model: mid,   weight: light }
+  archivist:  { model: cheap, weight: light }
+  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }
 
 edges:
   - { from: "*",         to: "reviewer",     relation: peer,  response: async }
@@ -253,8 +235,8 @@ limits:
 우리 설계에서 `orchestrator`는 **에이전트가 아니라 데몬이다.**
 
 ```
-태스크 의존성 해소  → Orca orchestration의 DAG
-계정 배정          → v1: 고정 매핑 (§0.5) / v2: §7 게이트
+태스크 의존성 해소  → 작업의 `--blocked-by` (막던 작업이 닫히면 알림)
+계정 배정          → 측정한 번레이트로 pick (인프라 §0.5)
 요청 라우팅        → team.yaml (선언)
 handoff 시점 판단  → 인프라 §8 트리거 (조건식)
 재개 판단          → 인프라 §8.6 reconciliation
@@ -275,9 +257,8 @@ handoff 시점 판단  → 인프라 §8 트리거 (조건식)
 ### 그 외 비용 장치
 
 - **ask 병합**: 같은 대상에 대한 연속 요청은 큐에서 병합 가능(`--mergeable`). 리뷰는 커밋 단위가 아니라 **PR 단위로 1회**
-- **리뷰어 serial**로 캐시 재사용 (§2)
 - **`blocking` 금지**로 유휴 슬롯 제거 (§2)
-- **fold는 cheap 티어 ephemeral**로 (인프라 §5)
+- **fold는 cheap 티어**로 (인프라 §5)
 - **base 예산제**로 고정비 억제 (§1)
 
 ---
@@ -300,16 +281,13 @@ depth > max_chain_depth → orchestrator 에스컬레이션 (gate)
 
 ```
 ~/.orcapipe/agents/<name>/
-  agent.yaml           # intake, model, weight, account affinity
+  agent.yaml           # model, weight, account affinity
   ROLE.md              # ≤1KB
   base.md              # ≤2KB  ← 신규
   journal/
     2026-09-15.md        # 세대 보존은 git이 한다 (~/.orcapipe는 git repo)
-  inbox/               # 수신 요청 큐 (serial 에이전트용)
   state.json
 ```
-
-`ephemeral` 에이전트도 폴더를 갖는다. 인스턴스는 사라지지만 ROLE/base/journal은 남는다 — 그래야 archivist가 매번 새로 태어나도 같은 기준으로 fold한다.
 
 ---
 
@@ -323,7 +301,7 @@ depth > max_chain_depth → orchestrator 에스컬레이션 (gate)
 | **2** | `+ frontend`, `+ product` | 팀 간 요청과 에스컬레이션 경로 검증 |
 | **3** | `+ marketing`, `+ analytics` | growth 팀 |
 
-`archivist`는 `ephemeral`이라 계정을 오래 잡지 않고 `reviewer`는 `serial`이라 하나면 충분해서, 둘을 한 계정에 묶을 수 있다. 실질적으로 계정을 오래 점유하는 건 `backend`·`frontend`뿐이다.
+`archivist`와 `reviewer`는 계정을 오래 잡지 않아 한 계정에 묶을 수 있다. 실질적으로 계정을 오래 점유하는 건 `backend`·`frontend`뿐이다.
 
 ## 9. 열린 결정
 

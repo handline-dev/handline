@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Run `ocp bridge` from this checkout and restart it whenever a .py or .tcss file under
+# ocp/ changes. Needs fswatch (brew install fswatch). Quit with Ctrl-C.
+set -uo pipefail
+
+root="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd)"
+command -v fswatch >/dev/null || { echo "bridge-watch needs fswatch: brew install fswatch" >&2; exit 1; }
+
+pid=""
+stop() {
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null
+  pid=""
+  stty sane 2>/dev/null
+}
+trap 'stop; exit 0' INT TERM
+
+while true; do
+  PYTHONDONTWRITEBYTECODE=1 "$root/bin/ocp" bridge "$@" </dev/tty &
+  pid=$!
+  # One batch of events (0.3s debounce) means an edit landed. -E: without it the
+  # pattern is a basic regex, where (py|tcss) is literal text and nothing ever matches.
+  fswatch -1 -E -l 0.3 -e '.*' -i '\.(py|tcss)$' "$root/ocp" >/dev/null
+  stop
+done

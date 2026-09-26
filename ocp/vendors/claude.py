@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..infra.paths import user_home
+
 
 def keychain_service(config_dir: Path) -> str:
     """The macOS Keychain service name Claude Code uses for this config dir.
@@ -19,7 +21,7 @@ def keychain_service(config_dir: Path) -> str:
     that name plus the first 8 hex of the sha256 of its path. Verified against a
     live login: ~/.orcapipe/accounts/alpha/.claude -> ...-c4b0821c.
     """
-    if config_dir == Path.home() / ".claude":
+    if config_dir == user_home() / ".claude":
         return "Claude Code-credentials"
     digest = hashlib.sha256(str(config_dir).encode()).hexdigest()[:8]
     return f"Claude Code-credentials-{digest}"
@@ -41,6 +43,20 @@ class Claude:
     def config_dir_env(self) -> str:
         return "CLAUDE_CONFIG_DIR"
 
+    # fold's own cheap default when nobody asked for a model by name - a
+    # human's --model always wins; this is only ever what a driver-agnostic
+    # caller falls back to for its one, small headless call.
+    DEFAULT_HEADLESS_MODEL = "haiku"
+
+    def headless_argv(self, exe: str, model: str | None, prompt: str) -> list[str] | None:
+        return [exe, "--model", self.headless_model(model), "-p", prompt]
+
+    def can_headless(self) -> bool:
+        return True
+
+    def headless_model(self, model: str | None) -> str:
+        return model or self.DEFAULT_HEADLESS_MODEL
+
     def is_session(self, command: str) -> bool:
         """`claude` in the command line, headless runs excluded. Headless here
         is `-p`, which is claude's spelling and nobody else's."""
@@ -48,8 +64,21 @@ class Claude:
             return False
         return " -p " not in command and not command.endswith(" -p")
 
-    def meters(self) -> bool:
-        return True
+    def meter(self):
+        from .claude_meter import ClaudeMeter       # it imports this module
+        return ClaudeMeter()
+
+    def collector(self):
+        from .claude_collect import ClaudeCollector
+        return ClaudeCollector()
+
+    def context_window(self, model_id: str | None) -> int | None:
+        from .claude_collect import context_window
+        return context_window(model_id)
+
+    def state_hooks(self):
+        from .claude_hooks import ClaudeHooks       # it imports this module
+        return ClaudeHooks()
 
     def is_resume(self, extra: list[str] | None) -> bool:
         """Three spellings, because reading `--resume=<id>` as "not a resume" picks an
@@ -59,8 +88,15 @@ class Claude:
         return any(x == "--resume" or x.startswith("--resume=") or x == "-r"
                    for x in (extra or []))
 
+    def transcript_dir(self, config_dir: Path, worktree: str) -> Path:
+        """Where the sessions run in `worktree` are recorded: claude names the
+        folder after the path, every character that is not a letter or digit
+        becoming a dash."""
+        return config_dir / "projects" / re.sub(r"[^A-Za-z0-9]", "-", worktree)
+
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
-                    mcp: list[str], preamble: str | None) -> list[str]:
+                    mcp: list[str], preamble: str | None,
+                    hide: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -69,7 +105,15 @@ class Claude:
         argv += mcp
         if preamble:
             argv += ["--append-system-prompt", preamble]
+        if hide:
+            # denyRead binds Bash; the Read tool is a permission, so deny it there too.
+            settings = {"sandbox": {"filesystem": {"denyRead": hide}},
+                        "permissions": {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}}
+            argv += ["--settings", json.dumps(settings)]
         return argv
+
+    def skip_permissions_argv(self) -> list[str]:
+        return ["--dangerously-skip-permissions"]
 
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
         return {}
@@ -94,8 +138,22 @@ class Claude:
         return None
 
     def screen_blocker(self, tail: list[str]):
-        from .. import orca  # late: orca looks drivers up
-        return orca.claude_screen_blocker(tail)
+        from ..session import orca  # late: orca looks drivers up
+        return _screen_blocker(orca, tail)
+
+    def trust_screen(self, tail: list[str]) -> str | None:
+        from ..session import orca  # late: orca looks drivers up
+        return _trust_screen(orca, tail)
+
+    def trust_answer(self) -> str:
+        return TRUST_PROMPT_DOWN_ARROW
+
+    def accepts_tool(self, tool: str | None) -> bool:
+        return _browser_tool(tool)
+
+    def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:
+        from ..session import orca  # late: orca looks drivers up
+        return _accepting_key(orca, dialog, tool)
 
     def credential_present(self, config_dir: Path) -> bool | None:
         """Never reads the secret: `security find-generic-password` is called without
@@ -128,7 +186,7 @@ class Claude:
 
     def identity(self, env: dict) -> str | None:
         """Asked of `claude auth status`, which answers from its own records - ocp
-        reads no credential and no .claude.json to learn it (KICKOFF rule 1).
+        reads no credential and no .claude.json to learn it (AGENTS.md rule 1).
         """
         claude = self.binary()
         if not claude:
@@ -160,7 +218,7 @@ class Claude:
 
     def never_touch(self) -> set[str]:
         # Named explicitly as a guard: the credential file the installs that do
-        # not use the Keychain keep (KICKOFF rule 1), claude's own config, and
+        # not use the Keychain keep (AGENTS.md rule 1), claude's own config, and
         # its machine state.
         return {".credentials.json", ".claude.json", "statsig", "backups"}
 
@@ -171,3 +229,203 @@ class Claude:
         """Claude Code's own path encoding: every non-alphanumeric character
         mapped to '-'."""
         return re.sub(r"[^A-Za-z0-9]", "-", repo)
+
+
+# --------------------------------------------------------------- screen text
+# The markers below read claude's own screens; the reader they feed on
+# (Orca's terminal client, its Blocker/Dialog vocabulary, the composer-box and
+# dialog-panel parsing every vendor's screen_blocker shares) stays generic in
+# orca.py, reached here the same late way (design/04 §4.3: orca.py carries no
+# vendor's own screen text).
+
+# claude's folder-trust screen ("Quick safety check: Is this a project you
+# created or one you trust?").
+TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
+# The line the prompt names its folder under. Wrapped at terminal width with
+# no separator, so its continuation lines are joined bare, not with a space.
+WORKSPACE_MARKER = "Accessing workspace:"
+# Verified against a live prompt: one Down off the default cursor ("No,
+# exit") lands on "Yes, I trust this folder"; a bare Enter then confirms it.
+# A bare Enter with no Down confirms "No, exit" instead.
+TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
+
+
+def _trust_screen(orca, tail: list[str]) -> str | None:
+    """`Driver.trust_screen`'s contract: "" for a shown dialog whose folder a
+    missing workspace line, a cut-off or a mid-redraw screen leaves unparsed."""
+    text = "\n".join(str(x) for x in tail)
+    if TRUST_PROMPT_MARKER not in text:
+        return None
+    lines = text.split("\n")
+    try:
+        start = next(i for i, ln in enumerate(lines) if WORKSPACE_MARKER in ln) + 1
+    except StopIteration:
+        return ""
+    parts = []
+    for ln in lines[start:]:
+        stripped = ln.strip()
+        if not stripped or TRUST_PROMPT_MARKER in stripped:
+            break
+        parts.append(stripped)
+    return "".join(parts)
+
+
+# Claude Code's permission prompt for one tool call ("Do you want to proceed?",
+# "1. Yes" highlighted first, "2. Yes, and don't ask again ...", "3. No ...").
+# Reconstructed from its wording, not measured on a live screen: the match below
+# is as narrow as the wording allows, so a layout that differs is not pressed.
+BROWSER_TOOL_PREFIX = "mcp__claude-in-chrome__"
+BROWSER_SERVER = "claude-in-chrome"
+PROCEED_QUESTION = "do you want to proceed?"
+YES_LABEL = "yes"
+
+
+def _browser_tool(tool: str | None) -> bool:
+    return bool(tool) and tool.startswith(BROWSER_TOOL_PREFIX)
+
+
+def _accepting_key(orca, dialog, tool: str | None) -> tuple[str | None, str]:
+    """`Driver.accepting_key` for the browser extension's tool calls: Enter on
+    the one-time "Yes" of the prompt that names this very tool. The hook said
+    which tool waits and the screen must say it too - both, since the prompt's
+    own text is painted from the tool call's input."""
+    if not _browser_tool(tool):
+        return None, "the tool waiting is not one of the browser's"
+    short = tool[len(BROWSER_TOOL_PREFIX):]
+    if "Esc to cancel" not in dialog.footer:
+        return None, "its footer does not say Esc cancels"
+    if not any(ln.strip().lower() == PROCEED_QUESTION for ln in dialog.body):
+        return None, "it does not ask 'Do you want to proceed?'"
+    if not any(BROWSER_SERVER in ln.lower() and short.lower() in ln.lower()
+               for ln in dialog.body if not orca._OPTION_LABEL.match(ln)):
+        return None, f"it does not name {BROWSER_SERVER} and {short}"
+    marked = [ln for ln in dialog.body if ln.startswith("\u276f")]
+    m = orca._OPTION_LABEL.match(marked[0]) if len(marked) == 1 else None
+    if not m or orca._norm_label(m[2]) != YES_LABEL:
+        return None, "its highlighted option is not the plain 'Yes'"
+    return orca.ENTER, ""
+
+
+# Claude Code's backgrounded-session picker: the conversation moved to the
+# background and the screen is a list of sessions. Its new-session box has the
+# ordinary composer shape - rule/marker/rule - so the shape alone cannot tell it
+# from the agent's own prompt, and text typed there goes to a new session, not
+# the conversation. Its hint line does, where the conversation's own says
+# "shift+tab to cycle". The picker's hint has two forms, found in a scratch
+# tmux session on Claude Code 2.1.278 (purser's #1294, three runs, one
+# session in the list): "enter to open" when another session is selected,
+# "enter to return" when the current one is - which is what Left gives - so
+# "enter to return" is not a marker. "space to reply" is in both, and a
+# separate #1294 fleet read (31 live terminals, 2026-09-21) found it on 1 of
+# them, with the banner. The one earlier case where it appeared with no
+# banner (#1144, harbor) is not a hole in that: it is the picker with its
+# banner scrolled out of the window, and the miss fails closed to UNREADABLE
+# there, never to a false BACKGROUNDED (see _hint_below_box: the position
+# guard is the same code path for both markers).
+#
+# "enter to open" alone is not enough: it is ordinary English, and any agent that
+# reports on this feature (this docstring, a review of it) writes it in its
+# own transcript, which sits in the same rows the naive search covered - #1252,
+# measured on all 8 live agents where the window reached 1-2 rows of the
+# agent's own output. So the hint is required at or below the composer's own
+# box, never above it in the transcript.
+#
+# That alone still under-determines it (auditor's #1285 B1): a screen where
+# the box's own hint happens to say a picker phrase for some other reason
+# would pass a position check alone, and reading nothing there as "in the
+# way" is exactly the bug 7f01f52 exists to fix. So the picker's own banner -
+# "...conversation moved to the background...", specific text neither an
+# ordinary composer's hint nor a session's own summary line would produce -
+# is required above the box too. A session list's own shape (a bullet, a
+# gap, a summary column) was tried first and dropped: auditor measured three
+# real-picker variants - a short title with no summary gap, a bullet outside
+# the two guessed at, a cursor glyph ahead of the selected row - that the
+# column-alignment guess missed, while the banner is the one thing all of
+# them, and both fixtures here, say word for word.
+_BACKGROUNDED_HINTS = ("enter to open", "space to reply")
+_BACKGROUND_BANNER = "moved to the background"
+
+
+def _has_picker_hint(row: str) -> bool:
+    return any(h in row for h in _BACKGROUNDED_HINTS)
+
+
+def _picker_box(orca, tail: list) -> tuple[int, int] | None:
+    """(banner_top, hint) when the composer's own hint carries a picker
+    phrase ("enter to open" or "space to reply") and the picker's own banner
+    is above it - the picker, unambiguously.
+    None when neither is there - an ordinary composer, whose own hint never
+    says this and whose transcript quoting the words is above the box, not
+    below it (auditor's #1285 S2/S3).
+
+    A third case - the hint is there but the banner is not - is not this
+    function's to decide: it is a screen shaped like the picker that this
+    code does not otherwise recognise, and `screen_blocker` fails closed on
+    it rather than reading it as nothing in the way (#1285 B1).
+    """
+    box = orca._composer_box(tail)
+    if box is None:
+        return None
+    top, bottom = box
+    hint = next((i for i in range(bottom, len(tail))
+                 if _has_picker_hint(str(tail[i]))), None)
+    if hint is None:
+        return None
+    if not any(_BACKGROUND_BANNER in str(x) for x in tail[:top]):
+        return None
+    return top, hint
+
+
+def _hint_below_box(orca, tail: list) -> bool:
+    """Whether the composer's own hint says a picker phrase ("enter to
+    open" or "space to reply"), whether or not its banner confirms it. Used
+    only to tell an unconfirmed match from a clean composer: the hint alone
+    is the one thing an ordinary conversation's composer never says
+    (auditor's #1285 B1)."""
+    box = orca._composer_box(tail)
+    if box is None:
+        return False
+    _top, bottom = box
+    return any(_has_picker_hint(str(tail[i])) for i in range(bottom, len(tail)))
+
+
+def _describe_backgrounded(orca, tail: list, top: int) -> str:
+    """The picker's banner and session list above its own box, quoted - the
+    same hostile-text care as describe_modal, since the agent paints this
+    screen too. Never the box or the hint themselves, which say nothing
+    about the conversation. Called only once `_picker_box` has confirmed the
+    banner is there - not a guarantee against every false match (auditor's
+    #1285 N4: an agent's own transcript can quote this exact fixture, banner
+    and all), but that case clears itself on the next read, unlike a false
+    BACKGROUNDED that never scrolls."""
+    lines = [orca.textsafe.oneline(str(x).strip()) for x in tail[:top]]
+    shown = [ln for ln in lines if ln and not orca._COMPOSER_RULE.match(ln) and ln != "❯"]
+    return " / ".join(shown[:3])[:orca.DETAIL_CHARS]
+
+
+def _screen_blocker(orca, tail: list) -> "orca.Blocker | None":
+    """`Driver.screen_blocker` on Claude Code's layout, from rows already read."""
+    footer = orca._footer_row(tail)
+    if footer is not None:
+        dialog = orca.parse_dialog(tail, footer)
+        return orca.Blocker(orca.MODAL, orca.describe_modal(tail, footer),
+                            title=dialog.title if dialog else "")
+    picker = _picker_box(orca, tail)
+    if picker is not None:
+        top, _hint = picker
+        return orca.Blocker(orca.BACKGROUNDED, _describe_backgrounded(orca, tail, top))
+    if _hint_below_box(orca, tail):
+        # The composer's own hint says the picker's words but its banner is
+        # not above the box: a picker shaped differently than the two we
+        # have measured, not a clean composer. Fail closed rather than read
+        # it as nothing in the way and type into what might be its
+        # new-session box (auditor's #1285 B1) - the same failure 7f01f52
+        # exists to fix, reopened by trusting a guess about session-row shape.
+        return orca.Blocker(orca.UNREADABLE)
+    if orca._composer_shape(tail):
+        return None
+    # Not the composer's shape either - a screen mid-scroll, a different
+    # layout, a read that landed somewhere else. UNREADABLE goes through the
+    # same escalation as any other block and clears the moment a read
+    # recognises the shape again.
+    return orca.Blocker(orca.UNREADABLE)

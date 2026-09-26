@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import agents, paths
+from ..team import agents
+from ..infra import paths
 from .base import Driver
 from .claude import Claude
 from .opencode import Opencode
@@ -26,6 +27,19 @@ def get(vendor: str) -> Driver:
 
 def known() -> list[Driver]:
     return list(_REGISTRY.values())
+
+
+def state_hooks() -> list:
+    """The StateHooks of every vendor that has them."""
+    return [h for d in known() if (h := d.state_hooks()) is not None]
+
+
+def context_window(model_id: str | None) -> int | None:
+    """A model's context window from whichever vendor knows the model id."""
+    for d in known():
+        if (size := d.context_window(model_id)) is not None:
+            return size
+    return None
 
 
 def for_agent(name: str) -> Driver:
@@ -62,6 +76,11 @@ def for_account(acct: str) -> Driver:
 def config_dir(acct: str) -> Path:
     """The directory the account's `config_dir_env` names."""
     return paths.account_dir(acct) / for_account(acct).config_dir_name
+
+
+def shared_dir(vendor: str) -> Path:
+    """The directory shared/ items for this vendor live under."""
+    return paths.home() / "shared" / get(vendor).config_dir_name
 
 
 def account_named_by(value: str) -> str | None:

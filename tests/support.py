@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp import paths  # noqa: E402
+from ocp.infra import paths, sealed  # noqa: E402
 
 # The machine's venv, read once before the stand-in below hides the real home:
 # textual is only installed there (see _python_with_textual).
@@ -49,23 +49,35 @@ os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
 atexit.register(shutil.rmtree, TEST_ROOT, True)
 
-from ocp import (accounts, actions, agents, ask as askmod, blocked as blockedmod, burnrate, cli as climod, collect, daemon as dmn, db, hr,
-                 digest,
-                 doctor, drift, events as evmod, fold as foldmod,
-                 handoff as handoffmod, jobs as jobsmod, launch, load as loadmod, lock, measure,
-                 observe as obsmod, orca as orcamod, paths, recover as recovermod, rehome,
-                 replay as replaymod, service,
-                 spawn as spawnmod,
-                 status, team, textsafe, triggers, trust as trustmod, tui, usage_api, vendors,
-                 venv as venvmod, waiting,
-                 yamlcompat)  # noqa: E402
+from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
+                     health as clihealth, setup as clisetup, task as clitask)
+from ocp.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
+from ocp import actions, cli as climod, db, vendors  # noqa: E402
+from ocp.session import blocked as blockedmod, digest, drift, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
+from ocp.vendors import claude_meter as claudemeter  # noqa: E402
+from ocp.vendors import claude_collect  # noqa: E402
+from ocp.vendors.base import Window  # noqa: E402
+from ocp.usage import windows  # noqa: E402
+from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
+from ocp.infra import doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
+from ocp.ui import jobs as jobsmod, tui  # noqa: E402
+from ocp.daemon import (delivery as dmn_delivery, devmode as dmn_devmode, evaluate as dmn_evaluate,  # noqa: E402
+                        handoff as dmn_handoff, lifecycle as dmn_lifecycle, locks as dmn_locks,
+                        loop as dmn_loop, reconciler as dmn_reconciler, states as dmn_states,
+                        usage_poll as dmn_usage_poll)
 from ocp.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
 
 # A stand-in `close_session` that does not also end the session in the fake
 # process table would otherwise wait out the real minute before failing.
-dmn.END_WAIT_S, dmn.END_POLL_S = 0.3, 0.05
+dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
+
+# No test reaches the machine's Keychain or the usage endpoint: asked for a
+# reading, it gets "could not look". A test that drives usage_api sets its own.
+REAL_ACCESS_TOKEN = claudemeter._access_token_detailed
+claudemeter._access_token_detailed = lambda acct: (None, False)
+claudemeter.refresh_credential = lambda acct, timeout=0: False
 
 # Every test that needs an Orca stands in for one, and a restore tuple that
 # forgot a name used to leak that stand-in into every test after it. Captured
@@ -153,8 +165,12 @@ def _guarded_popen_init(self, args, *a, **kw):
     _REAL_POPEN_INIT(self, args, *a, **kw)
 
 
+REAL_LOGGED_IN = accounts.logged_in
+
+
 def restore_world() -> None:
     subprocess.Popen.__init__ = _guarded_popen_init
+    accounts.logged_in = REAL_LOGGED_IN
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
     # This process itself may be running inside an Orca-launched terminal -
@@ -187,8 +203,8 @@ def restore_world() -> None:
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
     # world does not answer the next test's question.
-    dmn._seen.clear()
-    dmn._seen_at["t"] = 0.0
+    dmn_delivery._seen.clear()
+    dmn_delivery._seen_at["t"] = 0.0
     actions._WORLD["at"] = 0.0
 
 
@@ -213,7 +229,7 @@ def _snap(*_geometry, **_cursor) -> str:
 def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
                        announced: bool = False) -> None:
     """Force a request row to any state, for setup only - never a production
-    closer, so it carries none of `db.py`'s chokepoint guard (#2024): tests
+    closer, so it carries none of `ocp/db/`'s chokepoint guard (#2024): tests
     that need to reach a row's own defense-in-depth past that guard (past
     `_would_strand_a_proposal`, for one) use this to get there."""
     now = int(time.time())
@@ -223,6 +239,24 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
         "announced_at = COALESCE(announced_at, ?) WHERE id = ?",
         (state, verdict, now if state != "queued" else None,
          now if announced else None, rid))
+
+
+def pointed_record(typed: str) -> str:
+    """The record a one-line wake pointer names ("Your handoff is in <file> -
+    ..."): what the session reads when it follows it. "" for a line that names none."""
+    try:
+        return Path(typed.split(" is in ")[1].split(" - ")[0]).read_text()
+    except (IndexError, OSError):
+        return ""
+
+
+def something_waiting(con, agent: str) -> None:
+    """Leave a request waiting for `agent`, unless one is: a closed agent is
+    woken for a message and for nothing else (T124), so a test of how a wake
+    goes needs one to have something to wake it for."""
+    if not db.head_of_queue(con, agent):
+        db.add_request(con, "reviewer", agent, "something for you", None,
+                       "peer", "async", None, 0, None)
 
 
 def relaunching_send(sent: list, table: dict[str, int]) -> object:
@@ -328,11 +362,42 @@ def check(name: str, cond: bool, detail: str = "") -> None:
     print(f"{'PASS' if cond else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not cond else ""))
 
 
+_OLD_WINDOW_KEYS = ("pct_5h", "pct_5h_readable", "reset_5h", "rl_at", "rl_carried", "rl_lost",
+                    "pct_7d", "reset_7d", "rl7_at", "rl7_carried", "rl7_lost")
+
+
+def old_to_windows(fields: dict) -> dict:
+    """`fields` with claude's two windows, spelled the way a test finds
+    easiest to read (`pct_5h=`, `rl_at=`, ...), turned into the `windows` list a
+    record holds now. Nothing else in `fields` changes."""
+    old = {k: fields[k] for k in _OLD_WINDOW_KEYS if k in fields}
+    out = {k: v for k, v in fields.items() if k not in old}
+    if old:
+        out["windows"] = windows.entries(old)
+    return out
+
+
+def status_of(account: str = "", **kw) -> "status.AccountStatus":
+    """An AccountStatus built from claude's window names. A window not named is
+    one the vendor reported as null, which is how an unset field always read."""
+    old = {k: kw.pop(k) for k in _OLD_WINDOW_KEYS if k in kw}
+    old.setdefault("pct_5h", None)
+    old.setdefault("pct_7d", None)
+    short, long = status.windows_of(old_to_windows(old))
+    return status.AccountStatus(account, short=short, long=long, **kw)
+
+
+def reading_of(account: str, pct_5h, reset_5h, pct_7d, reset_7d, at) -> "usage_api.Reading":
+    """A vendor Reading of claude's two windows."""
+    return usage_api.Reading(account, (Window(300, pct_5h, reset_5h),
+                                       Window(10080, pct_7d, reset_7d)), at)
+
+
 def write_status(home: Path, acct: str, **fields) -> None:
     d = home / "accounts" / acct
     d.mkdir(parents=True, exist_ok=True)
     payload = {"account": acct, "collected_at": int(time.time()), "session_id": "s"}
-    payload.update(fields)
+    payload.update(old_to_windows(fields))
     (d / "status.json").write_text(json.dumps(payload))
 
 
@@ -381,7 +446,7 @@ def _seed_week_history(con, account: str, now: int, five=(10, 90), seven=(50, 60
     from `five[0]` to `five[1]` and from `seven[0]` to `seven[1]`, one a minute."""
     n = 40
     for i in range(n):
-        st = status.AccountStatus(
+        st = status_of(
             account, exists=True,
             pct_5h=five[0] + (five[1] - five[0]) * i // (n - 1),
             pct_7d=seven[0] + (seven[1] - seven[0]) * i // (n - 1),
@@ -410,7 +475,7 @@ def _gamma_world(home: Path, gamma_week: int = 99, gamma_reset_in: int = 39 * 36
                  reset_7d=now + 3 * 86400)
     con = db.connect()
     _seed_week_history(con, "delta", now)
-    burnrate.refresh_week_ratios(con, now, force=True)
+    burnrate.refresh_long_ratios(con, now, force=True)
     return con, loadmod.read_all(con)
 
 
@@ -449,13 +514,13 @@ teams:
   ops:     [archivist]
 
 agents:
-  product:    { intake: dedicated, model: mid,   weight: light }
-  backend:    { intake: dedicated, model: high,  weight: heavy }
-  frontend:   { intake: dedicated, model: high,  weight: heavy }
-  marketing:  { intake: dedicated, model: mid,   weight: light }
-  analytics:  { intake: dedicated, model: mid,   weight: light }
-  archivist:  { intake: ephemeral, model: cheap, weight: light }
-  reviewer:   { intake: serial,    model: mid,   weight: light, reviews: [eng, growth, product] }
+  product:    { model: mid,   weight: light }
+  backend:    { model: high,  weight: heavy }
+  frontend:   { model: high,  weight: heavy }
+  marketing:  { model: mid,   weight: light }
+  analytics:  { model: mid,   weight: light }
+  archivist:  { model: cheap, weight: light }
+  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }
 
 edges:
   - { from: "*",         to: "reviewer",     relation: peer,  response: async }
@@ -479,8 +544,8 @@ limits:
 def _reconcile_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
+    hand_edit_team(DESIGN_TEAM)
+    agents.register("backend")
 
 
 # ---------------------------------------------------------------- daemon
@@ -488,8 +553,8 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     restore_world()
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
-    agents.register("backend", "alpha")
+    hand_edit_team(DESIGN_TEAM)
+    agents.register("backend")
     write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
     # An agent the daemon acts on has somewhere to run: nothing is folded,
@@ -498,6 +563,7 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
         # It has been heard from a moment ago, so a closed session's cache is
         # warm: an agent with no clock at all is treated as cold.
         db.add_event(con, "backend", "Stop", {})
@@ -511,10 +577,6 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     obsmod.live_sessions = lambda: None
 
 
-def _pt_epoch(y: int, m: int, d: int, h: int, mi: int) -> int:
-    return int(datetime(y, m, d, h, mi, tzinfo=dmn.QUIET_HOURS_TZ).timestamp())
-
-
 def _hold_daemon_lock_in_another_process(env: dict, write_name: bool = True):
     """A separate process holding the daemon lock, as launchd's daemon does.
     An in-process hold would pass on a lock that never leaves the process."""
@@ -522,7 +584,7 @@ def _hold_daemon_lock_in_another_process(env: dict, write_name: bool = True):
     holder = subprocess.Popen(
         [sys.executable, "-c",
          f"import os, sys, time; sys.path.insert(0, {str(ROOT)!r})\n"
-         "from ocp import lock\n"
+         "from ocp.infra import lock\n"
          f"held = {take}\n"
          "held.__enter__()\n"
          "print(os.getpid(), flush=True)\n"
@@ -662,7 +724,7 @@ def _blocked_world(home: Path):
     orcamod.alive = lambda h: True
     sessions_are("backend")
     con = db.connect()
-    db.set_agent_state(con, "backend", dmn.IDLE)
+    db.set_agent_state(con, "backend", dmn_states.IDLE)
     db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
     return con
 
@@ -781,10 +843,12 @@ class _ExitTerm:
         return True, ""
 
 
-def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None):
+def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None, prep=None):
     restore_world()
     con = _blocked_world(home)
     db.set_terminal(con, "backend", "term_x", "wt")
+    if prep:
+        prep(con)
     table = sessions_are("backend")
     term = _ExitTerm(dialog, exits_on, table)
     term.torn = torn
@@ -792,7 +856,7 @@ def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None):
         term.screen = list(screen)
     term.install()
     st = types.SimpleNamespace(session_id="sess-1", ctx_pct=8)
-    ok, why = dmn._end_session(con, "backend", lambda m: None, st, resume="sess-1")
+    ok, why = dmn_lifecycle._end_session(con, "backend", lambda m: None, st, resume="sess-1")
     return con, term, ok, why
 
 
@@ -1060,6 +1124,14 @@ class FakeOrca:
             "path": path, "displayName": self.names[path]}}})
 
 
+class _StubMeter:
+    """A metered second vendor's Meter: it exists, and reads nothing."""
+    renews_by_turn = False
+
+    def read_usage(self, acct, refresh):
+        return None, False
+
+
 class SecondVendor:
     """A second vendor, registered for real: a single-vendor suite cannot see
     a literal left behind, or an account handed to the wrong kind of agent -
@@ -1078,6 +1150,12 @@ class SecondVendor:
         return "/opt/zai/bin/glmcode"
     def config_dir_env(self):
         return "ZAI_HOME"
+    def headless_argv(self, exe, model, prompt):
+        return [exe, "run", prompt]
+    def can_headless(self):
+        return True
+    def headless_model(self, model):
+        return model or "zai-default"
     def is_session(self, command):
         # Its own binary, and its own spelling of headless - neither word
         # appears in claude's answer, so a check that still carries claude's
@@ -1085,12 +1163,22 @@ class SecondVendor:
         if "glmcode" not in command:
             return False
         return " run " not in command and not command.endswith(" run")
-    def meters(self):
-        return self.metered
+    def meter(self):
+        return _StubMeter() if self.metered else None
+    def collector(self):
+        return None
+    def context_window(self, model_id):
+        return None
+    def state_hooks(self):
+        return None
     def is_resume(self, extra):
-        return False
-    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble):
+        return "--resume" in (extra or [])
+    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None):
         return [exe]
+    def skip_permissions_argv(self):
+        return ["--yolo"]
+    def transcript_dir(self, config_dir, worktree):
+        return None
     def launch_env(self, preamble, disallowed, state_dir):
         return {"ZAI_DENY": disallowed}
     def prompt_argv(self, prompt):
@@ -1104,6 +1192,10 @@ class SecondVendor:
         return True
     def screen_blocker(self, tail):
         return None
+    def trust_screen(self, tail):
+        return None
+    def trust_answer(self):
+        return ""
     def credential_present(self, config_dir):
         return self.logged_in
     def login_argv(self):
@@ -1137,6 +1229,23 @@ def second_vendor(**kw):
 def _with_vendor(agent: str, vendor: str) -> None:
     with agents.agent_file(agent).open("a") as f:
         f.write(f"vendor: {vendor}\n")
+    sealed.seal(sealed.agent_key(agent), agents.agent_file(agent).read_text())
+
+
+def hand_edit_team(text: str) -> None:
+    """Write team.yaml the way the founder's own session would, seal and all."""
+    paths.team_file().write_text(text)
+    sealed.seal(sealed.TEAM, text)
+
+
+def reseal(path: Path) -> None:
+    """Seal an agent.yaml a test has just written by hand."""
+    sealed.seal(sealed.agent_key(path.parent.name), path.read_text())
+
+
+def hand_edit_agent(name: str, text: str) -> None:
+    agents.agent_file(name).write_text(text)
+    sealed.seal(sealed.agent_key(name), text)
 
 
 # `opencode auth list`'s whole output, measured on 1.18.32 with stdout a pipe.
@@ -1204,7 +1313,7 @@ def _process_on(account: str | None):
     would show its CLAUDE_CONFIG_DIR. None: the environment cannot be read."""
     def env_of(pid, name):
         if name == "CLAUDE_CONFIG_DIR" and account:
-            return str(paths.account_claude(account))
+            return str(vendors.config_dir(account))
         return None
     obsmod.env_of = env_of
 
@@ -1225,7 +1334,7 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     """keeper is at its 5h wall with no account to go to, behind `tail`."""
     _daemon_home(home, 20)
     con = db.connect()
-    agents.register("keeper", "alpha")
+    agents.register("keeper")
     db.set_account(con, "keeper", "alpha")
     write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=int(time.time()) + 3 * 3600)
     keep_handoff("keeper", "# handoff · keeper\n## next\n- carry on\n")
@@ -1233,7 +1342,7 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     if ends_at_limit:
         db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
-                    (int(time.time()) - dmn.LIMIT_SETTLE_S - 60,))
+                    (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 60,))
     orcamod.available = lambda: True
     orcamod.alive = lambda h: True
     orcamod.wait_idle = lambda h, timeout_ms=0: True
@@ -1258,8 +1367,8 @@ def _fire_hook(event: str, **fields) -> None:
 class _Reading:
     """What `burnrate.observe` reads of an account: a live figure and when it was seen."""
     def __init__(self, pct: int, at: int, reset: int = 9_999_999_999):
-        self.pct_5h, self.rl_at, self.reset_5h = pct, at, reset
-        self.pct_5h_source = "live"
+        self.short = status.Window(300, pct, reset, at)
+        self.short_source = "live"
         self.is_live_reading = True
 
 
@@ -1277,14 +1386,14 @@ def _with_accounts(*names: str) -> None:
     """Registered accounts that count as logged in."""
     for n in names:
         accounts.register(n)
-        (paths.account_claude(n) / ".credentials.json").write_text("{}")
+        (vendors.config_dir(n) / ".credentials.json").write_text("{}")
 
 
 def _running_on(con, acct: str, *names: str) -> None:
     for n in names:
-        agents.register(n, acct)
+        agents.register(n)
         db.set_account(con, n, acct)
-        db.set_agent_state(con, n, dmn.RUNNING)
+        db.set_agent_state(con, n, dmn_states.RUNNING)
 
 
 def _reference_text(text: str) -> str:
@@ -1324,7 +1433,9 @@ def _leaks(dirty: dict[str, str], clean: dict[str, str], skip_counts: tuple = ()
 def _touches_subprocess_text(tree) -> bool:
     """Calls `subprocess.run`/`Popen` and reads `.stdout` or `.stderr` off the
     result - somewhere in the module, not necessarily the same function: the
-    two together are what makes foreign bytes reachable at all."""
+    two together are what makes foreign bytes reachable at all. A call to
+    `gitrun.run` is the same thing on its own: it hands git's text back as a
+    tuple, with no attribute to read."""
     import ast
     calls = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                and n.func.attr in ("run", "Popen")
@@ -1332,7 +1443,23 @@ def _touches_subprocess_text(tree) -> bool:
                for n in ast.walk(tree))
     reads = any(isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr")
                for n in ast.walk(tree))
-    return calls and reads
+    mods, funcs = {"gitrun"}, set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                if a.name == "gitrun":
+                    mods.add(a.asname or a.name)
+                elif a.name == "run" and (n.module or "").split(".")[-1] == "gitrun":
+                    funcs.add(a.asname or a.name)
+        elif isinstance(n, ast.Import):
+            mods.update(a.asname for a in n.names
+                        if a.name.split(".")[-1] == "gitrun" and a.asname)
+    via_gitrun = any(isinstance(n, ast.Call) and (
+        (isinstance(n.func, ast.Attribute) and n.func.attr == "run"
+         and isinstance(n.func.value, ast.Name) and n.func.value.id in mods)
+        or (isinstance(n.func, ast.Name) and n.func.id in funcs))
+        for n in ast.walk(tree))
+    return (calls and reads) or via_gitrun
 
 
 def _builds_a_returned_message(tree) -> bool:
@@ -1360,9 +1487,8 @@ def _imports_textsafe(tree) -> bool:
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "textsafe":
             return True
-        if isinstance(node, ast.ImportFrom) and node.module is None:
-            if any(a.name == "textsafe" for a in node.names):
-                return True
+        if isinstance(node, ast.ImportFrom) and any(a.name == "textsafe" for a in node.names):
+            return True
         if isinstance(node, ast.Import) and any(a.name.endswith("textsafe") for a in node.names):
             return True
     return False
@@ -1407,13 +1533,13 @@ LIVE_TRUST_PROMPT_FOLDER = (
 def _two_agents_one_slot(home: Path, cap: int = 2) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(
-        "agents:\n  a: { intake: dedicated }\n  b: { intake: dedicated }\n"
+    hand_edit_team(
+        "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         f"limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: {cap}\n"
     )
-    agents.register("a", "alpha")
-    agents.register("b", "alpha")
+    agents.register("a")
+    agents.register("b")
 
 
 # The endpoint's answer, measured live on the founder's own plan (task #42,
@@ -1495,7 +1621,7 @@ def run(one) -> None:
 
 def _python_with_textual() -> str | None:
     """A python3 that can import textual: the interpreter running the suite when
-    it can, else the real machine's venv (requirements.txt, ocp/venv.py) -
+    it can, else the real machine's venv (requirements.txt, ocp/infra/venv.py) -
     textual is only ever installed there, never assumed on whatever runs this
     suite."""
     candidates = [sys.executable, str(venvmod.venv_python(MACHINE_VENV))]
@@ -1509,10 +1635,10 @@ def _python_with_textual() -> str | None:
 def _board_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
-  manager: { intake: dedicated }
-  worker:  { intake: dedicated }
+  manager: {}
+  worker:  {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
@@ -1523,7 +1649,7 @@ limits:
   ask_rate_per_hour: 50
 """)
     for n in ("manager", "worker"):
-        agents.register(n, "alpha")
+        agents.register(n)
 
 
 def _cli(argv: list[str], as_agent: str | None = "manager") -> tuple[int, str]:
@@ -1593,18 +1719,18 @@ def _done_and_close(tid: int, owner: str, evidence: str = "done",
 
 def _two_lanes(home: Path) -> None:
     """manager leads worker; boss leads reviewer, in a second lane."""
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 teams:
   manager: [worker]
   boss: [reviewer]
   halim: [lane.x]
 
 agents:
-  manager:  { intake: dedicated }
-  worker:   { intake: dedicated }
-  boss:     { intake: dedicated }
-  reviewer: { intake: dedicated }
-  lane.x:   { intake: dedicated }
+  manager:  {}
+  worker:   {}
+  boss:     {}
+  reviewer: {}
+  lane.x:   {}
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
@@ -1619,7 +1745,7 @@ limits:
   ask_rate_per_hour: 50
 """)
     for n in ("boss", "reviewer", "lane.x"):
-        agents.register(n, "alpha")
+        agents.register(n)
 
 
 def write_labels(path: str) -> None:
@@ -1692,9 +1818,9 @@ WRITE_LABELS_TO: str | None = None  # set by --write-labels
 def _states_written_in(path) -> set[str]:
     """Every literal state name a call to `set_agent_state` writes in one
     source file, however it spells the state: a bare constant (already equal
-    to its own name in daemon.py, e.g. `PARKED = "PARKED"`), a quoted literal
+    to its own name in ocp/daemon/, e.g. `PARKED = "PARKED"`), a quoted literal
     (ask.py's own style), or one qualified by its module (`daemon.QUEUED` in
-    actions.py, `daemonmod.QUEUED` in cli.py - a miss here read both of those
+    ocp/actions/, `dmn_states.QUEUED` in ocp/cli/ - a miss here read both of those
     real call sites as writing nothing, which defeats the guard exactly where
     a state without one would be silent). Not a full parser - a regex over
     source text - but the one property this needs is only ever a name right
@@ -1747,6 +1873,10 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    'hand_edit_team',
+    'hand_edit_agent',
+    'reseal',
+    'sealed',
     'argparse',
     'atexit',
     'contextlib',
@@ -1781,16 +1911,34 @@ __all__ = [
     'blockedmod',
     'burnrate',
     'climod',
+    'cliaccount',
+    'cliask',
+    'clibridge',
+    'clidaemon',
+    'clihealth',
+    'clisetup',
+    'clitask',
     'collect',
-    'dmn',
+    'dmn_delivery',
+    'dmn_devmode',
+    'dmn_evaluate',
+    'dmn_handoff',
+    'dmn_lifecycle',
+    'dmn_locks',
+    'dmn_states',
+    'dmn_reconciler',
+    'dmn_loop',
+    'dmn_usage_poll',
     'db',
     'hr',
+    'decisions',
     'digest',
     'doctor',
     'drift',
     'evmod',
     'foldmod',
     'handoffmod',
+    'idle_close',
     'jobsmod',
     'launch',
     'loadmod',
@@ -1807,10 +1955,13 @@ __all__ = [
     'status',
     'team',
     'textsafe',
+    'timefmt',
     'triggers',
     'trustmod',
     'tui',
     'usage_api',
+    'claudemeter',
+    'claude_collect',
     'vendors',
     'venvmod',
     'waiting',
@@ -1845,6 +1996,11 @@ __all__ = [
     'LABEL_LOG',
     'check',
     'write_status',
+    'status_of',
+    'reading_of',
+    'old_to_windows',
+    'Window',
+    'windows',
     'readable_agent',
     'keep_handoff',
     'kept_handoff',
@@ -1858,7 +2014,6 @@ __all__ = [
     'DESIGN_TEAM',
     '_reconcile_world',
     '_daemon_home',
-    '_pt_epoch',
     '_hold_daemon_lock_in_another_process',
     'EXIT_DIALOG',
     'PASTED_DRAFT',
@@ -1917,6 +2072,7 @@ __all__ = [
     '_raises',
     '_session_file',
     '_park_via_handoff',
+    'REAL_ACCESS_TOKEN',
     '_process_on',
     'LIMIT_DIALOG',
     '_park_behind',

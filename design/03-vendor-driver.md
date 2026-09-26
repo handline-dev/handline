@@ -1,9 +1,9 @@
 # 03 - The vendor driver
 
-Draft (#1315). Steps 1 and 2 of §7 are built (`ocp/vendors/`, #1657); the rest is not.
+Reference design (#1315). Built: §7 steps 1 and 2 (`ocp/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks, meter, collect and windows seams. The interface of record is `Driver` in `ocp/vendors/base.py`; §3 below is the original proposal.
 
 One place that answers, per vendor, the fifteen questions enumerated in
-`docs/vendor-extension-board.md` §11. Everything else in ocp stays where it is.
+`docs/vendor-extension-board.md` (local, not in the repo) §11. Everything else in ocp stays where it is.
 
 Sources: the survey (`docs/orca-cli-survey.md`), the seam board, and the
 decisions (`docs/vendor-extension-decisions.md`, D1-D10). Where codex's answer
@@ -34,7 +34,7 @@ ocp/vendors/
     base.py         the Protocol below, and the shared dataclasses
     claude.py       today's behaviour, moved rather than rewritten
     codex.py        new
-    collect_claude.py   (today's ocp/collect.py - a puller already, D11)
+    collect_claude.py   (today's ocp/usage/collect.py - a puller already, D11)
     collect_codex.py    new - the same shape, over the rollout JSONL
 ```
 
@@ -44,6 +44,8 @@ drawn on the bridge; nothing reads it yet except `burnrate`, which already
 prices by `vendor/model`.
 
 ## 3. The interface
+
+> The code differs from this proposal: `Driver` in `ocp/vendors/base.py` has `collector()`, `meter()` and `state_hooks()`, and no `install_collector`, `collector_kind`, `hook_events`, `preamble_file`, `memory_dir` or `read_dialog`. Read `base.py` for what is built.
 
 ```python
 # ocp/vendors/base.py
@@ -87,7 +89,7 @@ class Driver(Protocol):
     def credential_present(self, config_dir: Path) -> bool:
         """Whether a credential exists. **Never returns or logs it.**
         Claude: a Keychain item, queried without -w. Codex: auth.json
-        exists. (§11.6 - KICKOFF rule 1)"""
+        exists. (§11.6 - AGENTS.md rule 1)"""
 
     def login_argv(self, account: str) -> tuple[list[str], dict]:
     def logout_argv(self, account: str) -> tuple[list[str], dict]:
@@ -164,7 +166,7 @@ class Driver(Protocol):
 | `binary` | `shutil.which("claude")`, 7 call sites |
 | `config_dir_env` | `CLAUDE_CONFIG_DIR` (`accounts.env_for`) |
 | `launch_argv` | `launch.build` |
-| `is_resume` | `launch._is_resume` |
+| `is_resume` | was `launch._is_resume`, now `Driver.is_resume` |
 | `identity` | `accounts.identity` |
 | `credential_present` | `accounts.logged_in` / `keychain_service` |
 | `login/logout_argv` | `accounts.login_command`, `logout_argv` |
@@ -172,10 +174,10 @@ class Driver(Protocol):
 | `memory_dir` | `accounts.memory_project_dir` |
 | `preamble_file` | new - `("CLAUDE.local.md", ADDITIVE)` |
 | `clear/exit_command` | `/clear` / `/exit`, moved out of `orca.clear_context` / `close_session` |
-| `screen_blocker` | `orca.claude_screen_blocker`; `idle_from_screen` false, Orca's tui-idle alone |
+| `screen_blocker` | was `orca.claude_screen_blocker`, now `Driver.screen_blocker`; `idle_from_screen` false, Orca's tui-idle alone |
 | `read_dialog` | `orca.parse_dialog` |
 | `declining_key` | `orca.declining_key` |
-| `install_collector` | nothing to install - `ocp/collect.py` reads the transcript (D11) |
+| `install_collector` | nothing to install - `ocp/usage/collect.py` reads the transcript (D11) |
 | `collector_kind` | `pull` (it was `push`; the statusLine no longer collects) |
 | `probe` | `probe.py` |
 | `hook_events` | `events.CAPTURED`, identity map |
@@ -210,7 +212,7 @@ ChatGPT account, so `launch_argv` must not inherit `config.toml`'s default.
 | `binary` | `opencode` | ✅ |
 | `config_dir_env` | `XDG_DATA_HOME`, pointed at `<account>/xdg-data`; opencode keeps auth.json, its db and logs under `opencode/` inside it. `OPENCODE_CONFIG_DIR` moves nothing. Config and state stay shared | ✅ #1751 |
 | `is_session` | the command line starts with the binary, then an option or nothing; `run`, `serve`, `auth` and the rest are not sessions | ✅ `ps` of a live TUI |
-| `meters` | false: the db tallies spend, nothing says what is left | ✅ docs/vendor-extension-board §12.4 |
+| `meters` | false: the db tallies spend, nothing says what is left | ✅ vendor-extension-board §12.4 (local, not in the repo) |
 | `is_resume` | `-s`/`--session`, `-c`/`--continue` | ✅ `--help` |
 | `launch_argv` | `-m provider/model` only. The TUI has no flag for effort, tool denial, MCP config or a system prompt | ✅ |
 | `launch_env` | `OPENCODE_CONFIG_CONTENT`: the preamble as an `instructions` file (`<agent>/opencode-preamble.md`), added to the system prompt and reread for every session, a `/new`'s included; `Agent` denied as `permission.task`, which takes the tool out of the model's list. SendMessage, ScheduleWakeup and CronCreate have no opencode tool | ✅ #1926, a live session named the file's codeword and had no task tool |
@@ -300,8 +302,9 @@ Each step is independently shippable and leaves the tree green.
    right companion to the account-vendor change below, which is the other thing
    that has to know which vendor an account is.
 3. **The window model (§5).** The big one: 208 lines, 16 files, five of which
-   never mention `claude`. Do it with both `pct_5h` and `windows` written for
-   one release so a bad read is visible, then drop the old keys.
+   never mention `claude`. Built as a hard cut (founder #587): records are
+   written as a `windows` list, and old records and `usage_samples` rows convert
+   on read (`ocp/usage/windows.py`), never rewritten.
 4. **The preamble writer (D10).** Shared code, two-row table.
 5. **`codex.py`**, collector first (§11.14) - without context ocp cannot park.
 6. **Tool denial (§6).** Blocking for a codex agent that does real work.

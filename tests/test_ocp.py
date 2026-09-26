@@ -1,13 +1,13 @@
 """Runs every area test file, in parallel, and reports one count.
 
 Run: python3 tests/test_ocp.py            (all areas)
-     python3 tests/test_<area>.py         (one area on its own)
+     python3 tests/<group>/test_<area>.py         (one area on its own)
      python3 tests/test_ocp.py -k reconcile --write-labels before.txt
      python3 tests/test_ocp.py --diff-labels before.txt after.txt
      python3 tests/test_ocp.py -j 2       (at most two areas at once)
 
-The tests live in tests/test_<area>.py over the shared tests/support.py, which
-this module also re-exports for tests/test_bridge_textual.py. That file needs
+The tests live in tests/<group>/test_<area>.py over the shared tests/support.py, which
+this module also re-exports for tests/ui/test_bridge_textual.py. That file needs
 `textual`, so it runs under whichever python can import it (this one, else the
 venv's) and is reported as skipped, loudly, when none can.
 """
@@ -28,12 +28,12 @@ from support import diff_labels  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 NOT_AREAS = {"test_ocp.py", "test_bridge_textual.py"}
-BRIDGE = HERE / "test_bridge_textual.py"
+BRIDGE = HERE / "ui" / "test_bridge_textual.py"
 
 
 def area_files() -> list[Path]:
     """Every area file, the biggest first so the longest runs start earliest."""
-    files = [p for p in HERE.glob("test_*.py") if p.name not in NOT_AREAS]
+    files = [p for p in HERE.glob("*/test_*.py") if p.name not in NOT_AREAS]
     return sorted(files, key=lambda p: -p.stat().st_size)
 
 
