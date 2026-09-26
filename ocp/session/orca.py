@@ -774,6 +774,27 @@ def accept_dialog(handle: str, tool: str | None) -> tuple[str, str, str]:
     return _press_dialog(handle, lambda dialog: driver.accepting_key(dialog, tool), "Enter")
 
 
+def answer_dialog(handle: str, choose) -> tuple[str, str, str]:
+    """Press the number of the option `choose(vendor, dialog)` names on the
+    dialog on this terminal's screen; (outcome, title, why) as `decline_dialog`.
+
+    The number is read off the screen just read, never remembered. A vendor's
+    folder-trust screen is never answered here, whatever `choose` says: that
+    stays with the trust roots. A number over 9 is not one key and is refused."""
+    driver = _driver_for(handle)
+
+    def pick(dialog: Dialog) -> tuple[str | None, str]:
+        if driver.trust_screen(list(dialog.body)) is not None:
+            return None, "a folder-trust screen is answered by the trust roots only"
+        number = choose(driver.name, dialog)
+        if number is None:
+            return None, "no standing answer for this dialog"
+        if not 1 <= number <= 9:
+            return None, f"option {number} is not a single key"
+        return str(number), ""
+    return _press_dialog(handle, pick, "the option's number")
+
+
 # Claude Code's hint row under the composer counts what still runs in the
 # background as "<n> <noun>" segments between its mode and its key hints, e.g.
 # "⏵⏵ auto mode on · 2 monitors · ← for agents · ↓ to manage" (measured live

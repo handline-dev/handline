@@ -234,6 +234,130 @@ def test_a_wake_meeting_a_declared_trust_screen_escalates_with_the_setting_off(h
     finally:
         con.close()
 
+RULE_DIALOG = [
+    "  earlier output", "▔" * 60, "   Enable auto mode for this session?",
+    "   ❯ 1. Yes, enable", "     2. No, not now",
+    "   Enter to confirm · Esc to cancel"]
+RULE_TITLE = "Enable auto mode for this session?"
+
+
+class _KeyTerm:
+    """A terminal showing `tail` until the key `clears` is sent, counting reads."""
+
+    def __init__(self, tail, clears=None):
+        self.tail, self.clears, self.sent, self.reads = list(tail), clears, [], 0
+
+    def install(self):
+        def read(handle):
+            self.reads += 1
+            return support._screen_of(self.tail)
+        orcamod._screen = read
+        orcamod.send = self.send
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+
+    def send(self, handle, text, enter=True):
+        self.sent.append((text, enter))
+        if text == self.clears:
+            self.tail = list(CLEARED_SCREEN)
+        return True, ""
+
+
+def _rule_world(home: Path, tail, rules=(("claude", RULE_TITLE, "No, not now"),), clears="2"):
+    """backend is running with no tool waiting, behind `tail`."""
+    from ocp.team import dialog_rules
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_x", "wt")
+    db.set_agent_state(con, "backend", dmn_states.RUNNING)
+    for rule in rules:
+        check(f"rule world: {rule[2]!r} is added", dialog_rules.add(*rule)[0])
+    term = _KeyTerm(tail, clears)
+    term.install()
+    return con, term
+
+
+def test_a_dialog_a_rule_names_is_answered_by_its_number_on_the_screen(home: Path) -> None:
+    con, term = _rule_world(home, RULE_DIALOG)
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: the number of the rule's label is pressed, alone", term.sent == [("2", False)], str(term.sent))
+        row = con.execute("SELECT payload FROM events WHERE kind = 'dialog_accepted'").fetchone()
+        check("rule: the answer is on the record with the title and label",
+              row is not None and RULE_TITLE in row[0] and "No, not now" in row[0] and "rule" in row[0],
+              str(row and row[0]))
+    finally:
+        con.close()
+    reordered = RULE_DIALOG[:3] + ["   ❯ 1. No, not now", "     2. Ask me later", "     3. Yes, enable"] + RULE_DIALOG[-1:]
+    con, term = _rule_world(home / "reordered", reordered,
+                             rules=(("claude", RULE_TITLE, "Yes, enable"),), clears="3")
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: the number is the live screen's, not a remembered one", term.sent == [("3", False)], str(term.sent))
+    finally:
+        con.close()
+
+
+def test_a_dialog_no_rule_covers_is_left_alone_and_costs_no_read(home: Path) -> None:
+    con, term = _rule_world(home / "none", RULE_DIALOG, rules=())
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: with no rule no screen is read and nothing is pressed",
+              term.sent == [] and term.reads == 0, f"{term.sent} {term.reads}")
+    finally:
+        con.close()
+    near = (
+        ("another title", (("claude", "Something else?", "No, not now"),)),
+        ("another vendor", (("opencode", RULE_TITLE, "No, not now"),)),
+        ("a label the dialog does not offer", (("claude", RULE_TITLE, "Maybe"),)),
+    )
+    for what, rules in near:
+        con, term = _rule_world(home / what.replace(" ", "_"), RULE_DIALOG, rules=rules)
+        try:
+            autoaccept.sweep(con, lambda _m: None)
+            check(f"rule: {what} presses nothing", term.sent == [], str(term.sent))
+        finally:
+            con.close()
+    con, term = _rule_world(home / "off", RULE_DIALOG)
+    try:
+        autoaccept.set_enabled(False)
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: the setting off presses nothing", term.sent == [], str(term.sent))
+    finally:
+        con.close()
+
+
+def test_a_rule_never_answers_a_folder_trust_screen_or_a_number_over_nine(home: Path) -> None:
+    trust = ["  earlier output", "▔" * 60, "   Quick safety check: Is this a project you created or one you trust?",
+             "   ❯ 1. Yes, I trust this folder", "     2. No, exit", "   Enter to confirm · Esc to cancel"]
+    title = "Quick safety check: Is this a project you created or one you trust?"
+    con, term = _rule_world(home / "trust", trust, rules=(("claude", title, "Yes, I trust this folder"),), clears="1")
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: the trust screen stays on the trust roots", term.sent == [], str(term.sent))
+    finally:
+        con.close()
+    many = RULE_DIALOG[:3] + [f"     {n}. Option {n}" for n in range(1, 11)] + RULE_DIALOG[-1:]
+    con, term = _rule_world(home / "ten", many, rules=(("claude", RULE_TITLE, "Option 10"),), clears="10")
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: option 10 is not one key and is not typed", term.sent == [], str(term.sent))
+    finally:
+        con.close()
+
+
+def test_a_rule_press_that_does_not_close_the_dialog_is_not_repeated(home: Path) -> None:
+    con, term = _rule_world(home, RULE_DIALOG, clears="never")
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: a dialog still open after the press is pressed once, not every tick",
+              term.sent == [("2", False)], str(term.sent))
+        check("rule: and the failure is on the record", _kinds(con).count("dialog_accept_failed") == 1, str(_kinds(con)))
+    finally:
+        con.close()
+
 
 def test_auto_accept_config_round_trips(home: Path) -> None:
     _daemon_home(home, 20)
@@ -255,6 +379,10 @@ def main() -> int:
         run(lambda: test_a_declared_folders_trust_screen_is_accepted_by_the_blocked_sweep(Path(td) / 'aa4'))
         run(lambda: test_the_trust_screen_is_left_alone_when_consent_or_the_setting_is_missing(Path(td) / 'aa5'))
         run(lambda: test_a_wake_meeting_a_declared_trust_screen_escalates_with_the_setting_off(Path(td) / 'aa7'))
+        run(lambda: test_a_dialog_a_rule_names_is_answered_by_its_number_on_the_screen(Path(td) / 'aa9'))
+        run(lambda: test_a_dialog_no_rule_covers_is_left_alone_and_costs_no_read(Path(td) / 'aa10'))
+        run(lambda: test_a_rule_never_answers_a_folder_trust_screen_or_a_number_over_nine(Path(td) / 'aa11'))
+        run(lambda: test_a_rule_press_that_does_not_close_the_dialog_is_not_repeated(Path(td) / 'aa12'))
         run(lambda: test_auto_accept_config_round_trips(Path(td) / 'aa6'))
     return run_area(tests)
 
