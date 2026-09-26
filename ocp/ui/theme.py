@@ -25,8 +25,10 @@ def follow_os_theme(app: App) -> None:
     """Set the theme now and again whenever the OS setting changes."""
     app.theme = os_theme()
 
-    def check() -> None:
-        want = os_theme()
+    def apply(want: str) -> None:
         if app.theme != want:
             app.theme = want
-    app.set_interval(POLL_S, check)
+
+    def probe() -> None:        # `defaults` is a subprocess: not on the event loop
+        app.call_from_thread(apply, os_theme())
+    app.set_interval(POLL_S, lambda: app.run_worker(probe, thread=True, exclusive=True, group="os_theme"))

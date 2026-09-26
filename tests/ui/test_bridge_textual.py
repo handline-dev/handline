@@ -1168,6 +1168,12 @@ async def test_b_opens_the_tasks_tab_on_the_founders_done_tasks() -> None:
         page.query_one("#scope", Tabs).active = "tasks"
         await pilot.pause(0.3)
         check("checks: the tab opened by hand is not filtered", view.closer is None and "doing" in view.states)
+        view.states = {"queued"}
+        page.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        page.query_one("#scope", Tabs).active = "tasks"
+        await pilot.pause(0.3)
+        check("checks: a filter the founder set stays when the tab is left and come back to", view.states == {"queued"})
         page.query_one("#scope", Tabs).active = "home"
         await pilot.pause(0.2)
         text = sm.summary_text(True, "t", sm.Summary(0, 0, 1))

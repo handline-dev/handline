@@ -73,11 +73,7 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> 
         return
     if label == "terminal" and tui._needs_a_terminal(con, name):
         # Its own `repo:` says where; only an agent without one is asked.
-        try:
-            repo = str(agents.read(name).get("repo") or "").strip()
-        except (OSError, agents.ConfigError):
-            repo = ""
-        repo = repo or await screen.app.push_screen_wait(TextPrompt(f"repo path for {name}:"))
+        repo = agents.repo_of(name) or await screen.app.push_screen_wait(TextPrompt(f"repo path for {name}:"))
         if not repo:
             screen.toast("not started")
             return

@@ -85,7 +85,9 @@ class RowActions(AccountActions):
                                            if skipped else "")
         yn = await self.app.push_screen_wait(TextPrompt(prompt))
         if (yn or "").strip().lower() in ("y", "yes"):
-            self.toast(msg + " · " + "; ".join(actions.trust_worktrees(name, declared)))
+            trusted = actions.trust_worktrees(name, declared)
+            self.toast(msg + " · " + "; ".join(trusted),
+                       all(": trusted" in t or "no trust prompt" in t for t in trusted))
 
     async def _act_agent(self, con, name: str, key: str) -> None:
         if key in ("\r", "\n"):    # "↵" in AGENT_KEYS is a display label, never a lookup key

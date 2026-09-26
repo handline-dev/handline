@@ -100,6 +100,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self.sel: dict = {}
         tui._enter(self.panel, self.sel)
         self.tab = "home"
+        self._checks_shown = False      # the Tasks tab is showing them now
         self._checks = False            # the next Tasks tab opens on the founder's done tasks
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
@@ -155,8 +156,11 @@ class HomePage(RowActions, JobsAware, Screen):
             self.query_one("#hr_view", ProposalsView).refresh_rows()
         if self.tab == "tasks":
             view = self.query_one("#tasks_view", TasksView)
-            view.show_checks(self._checks)      # the tab opens plain unless `to check` sent us here
-            self._checks = False
+            if self._checks or self._checks_shown:      # the view is left as the founder set it
+                view.show_checks(self._checks)          # unless `to check` sent us here, or it did last time
+            else:
+                view.refresh_rows()
+            self._checks_shown, self._checks = self._checks, False
         if self.tab == "stats":
             self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
@@ -169,6 +173,8 @@ class HomePage(RowActions, JobsAware, Screen):
         tabs = self.query_one("#scope", Tabs)
         if tabs.active == "tasks":
             self.query_one("#tasks_view", TasksView).show_checks(True)
+            self._checks = False
+            self._checks_shown = True
         else:
             tabs.active = "tasks"
 
