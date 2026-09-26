@@ -350,7 +350,9 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
               and after["to read"] - before.get("to read", 0) == 3,
               f"{before_title!r} -> {after_title!r}")
         want = len(actions.mailbox_rows(con))
+        os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        os.environ.pop("OCP_AGENT", None)
         check("fold: `ocp inbox` counts every message in the mailbox, not every line",
               int(out.splitlines()[0].split()[0]) == want, out.splitlines()[0])
     finally:
@@ -964,7 +966,7 @@ edges:
         check("answer: an open proposal refuses a non-decision",
               "approve" in actions.answer(con, rid3, "later")
               and db.get_request(con, rid3)["state"] == "queued")
-        actions.answer(con, rid3, "approve")
+        support._set_request_state(con, rid3, "done", "approve")  # answered, apply not yet run
         ok, said = hr.withdraw(pid3, actions.HUMAN)
         check("withdraw: an approved proposal is not withdrawn - the founder answered first",
               not ok and "already answered" in said and "apply" in said, said)
@@ -1626,6 +1628,9 @@ edges:
         mgr, dev = launch.context_for("manager"), launch.context_for("marina")
         check("team: a supervisor is told who its reports are, and that it hands them work",
               "`marina`" in mgr and "`keeper`" in mgr and "ocp ask <name>" in mgr, mgr)
+        check("team: a supervisor is given the manager rules, a report is not",
+              all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
+              and "--blocked-by" not in dev, mgr)
         check("team: a report is told who it reports to",
               "You report to `manager`" in dev and "Your reports" not in dev, dev)
         check("team: an agent nobody supervises reports to the founder",
@@ -2094,12 +2099,16 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         for i in range(8):
             db.add_event(con, "backend", "Stop", {"i": i})
         db.add_event(con, "backend", "wake", {"resumed_session": "sess-1"})
+        os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["events", "--agent", "backend", "--limit", "20"]))
+        os.environ.pop("OCP_AGENT", None)
         check("events: a decision is shown", "wake" in out, out[:160])
         check("events: and the turn edges are not", "Stop" not in out, out[:160])
-        check("events: unless they are asked for",
-              "Stop" in _capture(lambda: climod.main(
-                  ["events", "--agent", "backend", "--limit", "20", "--all"])))
+        os.environ["OCP_AGENT"] = actions.HUMAN
+        with_all = _capture(lambda: climod.main(
+            ["events", "--agent", "backend", "--limit", "20", "--all"]))
+        os.environ.pop("OCP_AGENT", None)
+        check("events: unless they are asked for", "Stop" in with_all)
 
     finally:
         dmn_locks.running_elsewhere = was_running
@@ -2491,6 +2500,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
 
         def run_it(argv: list[str], env: dict | None = None, key: str | None = None) -> None:
             buf, err = io.StringIO(), io.StringIO()
+            if env is None and argv[0] in ("inbox", "digest", "handoff", "events"):
+                env = {"OCP_AGENT": "human"}  # listings refuse a caller with no name (T39)
             saved = {k: os.environ.get(k) for k in (env or {})}
             os.environ.update(env or {})
             try:
@@ -2585,6 +2596,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",
+        "task queue": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out, not this scene",
+        "task draft": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out, not this scene",
         "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task edit": "writes a row; driven in "
@@ -3294,8 +3307,9 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
     calls: list[tuple] = []
     fake = types.ModuleType("ocp.ui.bridge_textual")
     fake.run = lambda once=False: calls.append(("textual",)) or 0
-    real_isatty = sys.stdout.isatty
+    real_isatty, real_in_isatty = sys.stdout.isatty, sys.stdin.isatty
     sys.stdout.isatty = lambda: True
+    sys.stdin.isatty = lambda: True  # a human at a prompt, as asking_agent reads it
     real_import = clibridge._import_bridge_textual
     real_human = cliask._human_inbox
     cliask._human_inbox = lambda all_: calls.append(("text",)) or 0
@@ -3318,7 +3332,7 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
         check("inbox routing: without the package it lists the mailbox as text",
               calls == [("text",)], calls)
     finally:
-        sys.stdout.isatty = real_isatty
+        sys.stdout.isatty, sys.stdin.isatty = real_isatty, real_in_isatty
         clibridge._import_bridge_textual = real_import
         cliask._human_inbox = real_human
 

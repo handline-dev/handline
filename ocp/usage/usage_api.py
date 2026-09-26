@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 
-from ..infra import paths
+from ..infra import atomic, paths
 from . import windows
 from .. import vendors
 from ..vendors.base import Reading
@@ -122,10 +122,8 @@ def record(reading: Reading, path=None) -> bool:
     # absence of a session_id.
     snap["rl_source"] = "api"
 
-    tmp = p.with_suffix(".json.tmp")
     try:
-        tmp.write_text(json.dumps(snap, indent=2, ensure_ascii=False) + "\n")
-        tmp.replace(p)
+        atomic.write_text(p, json.dumps(snap, indent=2, ensure_ascii=False) + "\n")
     except OSError:
         return False
     return True

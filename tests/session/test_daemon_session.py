@@ -1014,9 +1014,9 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
 
 
 def test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(home: Path) -> None:
-    from ocp.infra.yamlcompat import ConfigError
     """T86: every writer of config.yaml read a file that failed to parse as
     empty, and then wrote that one key over the whole of it."""
+    from ocp.infra.yamlcompat import ConfigError
     _daemon_home(home, 20)
     cfg = paths.config_file()
     writers = {
@@ -1202,6 +1202,30 @@ def test_the_lock_names_only_its_current_holder(home: Path) -> None:
         with lock.singleton(dmn_locks.DAEMON_LOCK) as second:
             check("lock: a refused second taker does not overwrite the name", not second)
         check("lock: ...the holder is still named", lock.holder(dmn_locks.DAEMON_LOCK) == os.getpid())
+
+        # T153: a held lock whose file still names the previous holder, dead,
+        # reads as held-but-nameless (0), never as that dead pid - whether the
+        # kernel says no such process or a sandbox says not permitted.
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        path = home / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}"
+        fd = os.open(path, os.O_WRONLY)
+        os.pwrite(fd, str(gone.pid).ljust(lock._PID_WIDTH).encode(), 0)
+        os.close(fd)
+        check("lock: a dead pid left in the file is read as nameless", lock.holder(dmn_locks.DAEMON_LOCK) == 0)
+        real_kill = os.kill
+
+        def refused(pid, sig):
+            raise PermissionError(1, "Operation not permitted")
+        os.kill = refused
+        try:
+            check("lock: a sandbox refusing the signal never turns the name into a pid",
+                  lock.holder(dmn_locks.DAEMON_LOCK) == 0)
+        finally:
+            os.kill = real_kill
+        fd = os.open(path, os.O_WRONLY)
+        os.pwrite(fd, str(os.getpid()).ljust(lock._PID_WIDTH).encode(), 0)
+        os.close(fd)
     check("lock: released, nobody is named although the file still holds the pid",
           lock.holder(dmn_locks.DAEMON_LOCK) is None)
     with lock.terminal("agent-x") as t:

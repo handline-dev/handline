@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import paths
+from ..infra import atomic, paths
 from . import team
 from ..infra import timefmt
 
@@ -54,7 +54,7 @@ REVIEW_PINGPONG_LIMIT = 3
 # Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
 # because `ocp launch` sets it before exec'ing claude - so an interactive shell
 # without it is a human at their own prompt, and that is who this is.
-HUMAN = "human"
+HUMAN = db.HUMAN
 
 
 def current_agent() -> str | None:
@@ -107,9 +107,7 @@ def deliver(rid: int, requester: str, target: str, body: str,
         "body": body,
     }
     p = _inbox(target) / f"{rid:06d}.json"
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(p)
+    atomic.write_text(p, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     return p
 
 
@@ -703,6 +701,11 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
+        from . import hr, trust
+        proposal = None
+        if row["state"] == "queued":
+            proposal = next(((m, i) for m, i in ((hr, hr.open_proposal_of(rid)),
+                                                 (trust, trust.open_proposal_of(rid))) if i), None)
         if open_tasks is not None:
             con.execute("BEGIN IMMEDIATE")
         try:
@@ -730,6 +733,33 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
                 # here.
                 return False, f"#{rid} was not resolved - it is still queued"
             return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
-        return True, _after_close(con, rid, row, state, notify)
+        applied = _apply_answered(con, row, *proposal, verdict) if proposal else ""
+        return True, (applied + "\n" if applied else "") + _after_close(con, rid, row, state, notify)
     finally:
         con.close()
+
+
+def _apply_answered(con, row, mod, pid: str, verdict: str | None) -> str:
+    """The founder answered roster or trust proposal `pid` (`mod` is `hr` or
+    `trust`). An approve is carried out now, and the outcome goes on the answer
+    the proposer is about to be told; a failed apply is also reported to the
+    founder, and the proposal stays `proposed` so `apply` or `withdraw` can
+    still settle it. A reject is only recorded on the proposal's file."""
+    from . import hr, trust
+
+    call = hr.decision(verdict)
+    if call == "rejected":
+        mod.apply(pid, con)
+        return ""
+    if call != "approved":
+        return ""
+    ok, said = mod.apply(pid, con)
+    kind = "trust" if mod is trust else "hr"
+    line = f"proposal {pid} " + ("applied: " if ok else "could not be applied: ") + said
+    db.append_verdict(con, row["id"], line)
+    if not ok:
+        report(con, row["requester"], f"{line}\nThe proposal is still open; "
+               f"`ocp {kind} apply {pid}` retries it"
+               + (f", `ocp hr withdraw {pid}` drops it." if kind == "hr" else "."),
+               "proposal approved, apply failed")
+    return line

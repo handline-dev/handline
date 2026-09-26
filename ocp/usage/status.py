@@ -55,14 +55,13 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..team import accounts, agents
 from . import collect, usage_api, windows
-from ..infra import paths, timefmt
+from ..infra import atomic, paths, timefmt
 from ..session import triggers
 
 # statusLine only refreshes while a session is alive, so a snapshot older than
@@ -760,9 +759,7 @@ def write_burn(acct: str, burn: float, at: int) -> None:
     path = _burn_path(acct)
     if not path.parent.is_dir():
         return
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"burn_per_s": burn, "at": at}))
-    os.replace(tmp, path)
+    atomic.write_text(path, json.dumps({"burn_per_s": burn, "at": at}))
 
 
 def read_burn(acct: str, now: float | None = None) -> float | None:

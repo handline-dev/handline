@@ -149,7 +149,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority     INTEGER NOT NULL DEFAULT 2,
   -- The task this one was merged into. Written with closed_by/closed_at, so
   -- a merged task leaves every open set the way a close does.
-  merged_into  INTEGER REFERENCES tasks(id)
+  merged_into  INTEGER REFERENCES tasks(id),
+  -- Task T82: NULL is a draft (recorded, not approved to run); set, it is
+  -- queued - approved, and the manager pulls it to its owner. `doing` is not
+  -- stored: it is read live from a request out against the task.
+  queued_by    TEXT,
+  queued_at    INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -439,6 +444,11 @@ def _pre_schema_migrate(con) -> None:
                 "SELECT id, closed_by FROM tasks WHERE closed_by IS NOT NULL").fetchall():
             via = "sha" if re.fullmatch(r"[0-9a-fA-F]{4,40}", r["closed_by"]) else "reason"
             con.execute("UPDATE tasks SET closed_via = ? WHERE id = ?", (via, r["id"]))
+    if task_cols and "queued_by" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN queued_by TEXT")
+        con.execute("ALTER TABLE tasks ADD COLUMN queued_at INTEGER")
+        # No backfill: an existing waiting task was never approved, so it
+        # reads as a draft.
     if task_cols and "edited_by" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN edited_by TEXT")
         # No backfill: no existing installation has ever edited a task
