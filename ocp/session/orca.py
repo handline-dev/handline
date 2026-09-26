@@ -215,6 +215,15 @@ def trust_prompt_showing(handle: str) -> bool:
     return text is not None and _driver_for(handle).trust_screen(text.split("\n")) is not None
 
 
+def trust_prompt_gone(handle: str) -> bool:
+    """True only when the screen was read and it is not a folder-trust screen.
+    `trust_prompt_showing` answers False for an unreadable screen too, which
+    is fine for a gate that then types nothing but not for one that lets go
+    of a stall."""
+    text = screen_text(handle)
+    return text is not None and _driver_for(handle).trust_screen(text.split("\n")) is None
+
+
 def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
                           poll_s: float = 0.5) -> bool:
     """Poll until `trust_prompt_showing(handle)` is `showing`, or give up.

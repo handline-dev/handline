@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from ..team import agents
+from ..team import ask as askmod
 from .. import db
 from ..session import observe as obs
 from ..session import orca
@@ -155,6 +156,24 @@ def _resumable_session(con, agent: str) -> str | None:
     return session
 
 
+def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
+    """A stall raised for a folder-trust screen is lifted once the screen has
+    been read and is not there. The stall was the daemon's own, made on that
+    screen, and the world has refuted it - a standing-consent press by the
+    blocked sweep, a person at the keyboard, or the vendor itself answered it,
+    and a running session is not something a person needs to clear. Its
+    escalation closes with it. An unreadable screen changes nothing.
+    """
+    with orca.driver_scope():
+        if not orca.trust_prompt_gone(row["terminal"]):
+            return
+    db.set_agent_state(con, agent, IDLE, detail="the folder-trust prompt is answered; the stall is lifted")
+    for rid in db.open_escalation_ids(con, agent, lifecycle.TRUST_ESCALATION):
+        askmod.resolve(rid, "cleared - its folder-trust prompt is answered", state="done", notify=False)
+    actions.append(f"{agent}: STALLED -> IDLE (its folder-trust prompt is answered)")
+    log(f"  {agent}: its folder-trust prompt is answered; the stall is lifted")
+
+
 def sweep(con, log, actions: list[str]) -> None:
     """Ask the world what is true, and correct the record where it is not.
 
@@ -220,6 +239,9 @@ def sweep(con, log, actions: list[str]) -> None:
 
         alive = o.session_pid is not None
         closed = bool(row["closed_at"])
+
+        if alive and row["state"] == STALLED and lifecycle.TRUST_STALL in (row["detail"] or ""):
+            _lift_trust_stall(con, agent, row, log, actions)
 
         if alive and closed:
             # It came back without us - a human relaunched it, or a resume

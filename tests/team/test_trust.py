@@ -610,6 +610,75 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         con.close()
 
 
+def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_runs(home: Path) -> None:
+    """founder #1212: the trust prompt was accepted (standing consent from the
+    blocked sweep, a person, or the vendor) and the agent works, but the row
+    stayed FATAL - STALLED is left for a person, and nothing looked again. The
+    sweep reads the screen: gone means lifted and the escalation closed; still
+    up, unreadable, or a stall for another reason means untouched."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    trust_screen = ("Accessing workspace:\nwt\n"
+                    "Quick safety check: Is this a project you created or one you trust?\n"
+                    "...\nNo, exit\nYes, I trust this folder\n")
+    screen = {"v": trust_screen}
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions, orcamod.screen_text)
+
+    def stalled_on_the_trust_screen() -> int:
+        db.set_agent_state(con, "backend", dmn_states.QUEUED, detail="reset")
+        dmn_lifecycle._escalate_trust_prompt(con, "backend", "term_x", lambda _m: None, "wt", "wt")
+        return db.open_escalation_ids(con, "backend", dmn_lifecycle.TRUST_ESCALATION)[0]
+
+    def sweep() -> list[str]:
+        said: list[str] = []
+        dmn_reconciler.sweep(con, lambda _m: None, said)
+        return said
+
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {"backend": 4242}
+        orcamod.screen_text = lambda h: screen["v"]
+        rid = stalled_on_the_trust_screen()
+        check("trust stall: the prompt raised a stall and one escalation",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED, rid)
+
+        sweep()
+        check("trust stall: the prompt still up leaves the stall",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+
+        screen["v"] = None
+        sweep()
+        check("trust stall: a screen that cannot be read leaves the stall",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+
+        screen["v"] = "an ordinary claude screen"
+        obsmod.live_sessions = lambda: {}
+        sweep()
+        check("trust stall: no running session leaves the stall",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+
+        obsmod.live_sessions = lambda: {"backend": 4242}
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("trust stall: the prompt gone and a session running lifts it",
+              row["state"] == dmn_states.IDLE, str(dict(row)))
+        check("trust stall: ...says so", any("STALLED -> IDLE" in a for a in said), str(said))
+        check("trust stall: ...and closes the escalation",
+              db.get_request(con, rid)["state"] == "done"
+              and not db.open_escalation_ids(con, "backend", dmn_lifecycle.TRUST_ESCALATION))
+
+        # A stall for another reason is not this one's to lift, however the screen reads.
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="3 failed attempts: x")
+        sweep()
+        check("trust stall: a stall for another reason is left for a person",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions, orcamod.screen_text = real
+        con.close()
+
+
 def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
     """Should-fix 5 (auditor's #304): the y/N question names exactly the
     worktrees a yes will press, and reports the rest as skipped rather than
@@ -709,6 +778,8 @@ def main() -> int:
         run(lambda: test_trust_prompt_showing_stays_true_when_the_folder_cannot_be_read(
             Path(td) / 'trustunreadable'))
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
+        run(lambda: test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_runs(
+            Path(td) / 'truststall'))
         run(lambda: test_offer_to_trust_worktrees_lists_paths_and_skips(
             Path(td) / 'offertrust'))
     return run_area(tests)

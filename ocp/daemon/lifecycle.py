@@ -830,6 +830,7 @@ def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -
 
 
 TRUST_STALL = "folder-trust prompt"
+TRUST_ESCALATION = "[trust]"   # the escalation's opening, which `sweep` finds it by when the stall is lifted
 
 
 def _escalate_trust_prompt(con, agent: str, handle: str, log,
@@ -850,7 +851,7 @@ def _escalate_trust_prompt(con, agent: str, handle: str, log,
     why = (f"{agent}'s terminal is showing {vendor}'s {TRUST_STALL} for "
            f"{shown or 'an unreadable folder'} (account {acct or 'none'}, recorded "
            f"worktree {recorded or 'unknown'}) - nothing was typed into it")
-    askmod.escalate(con, agent, f"[trust] {why}", why)
+    askmod.escalate(con, agent, f"{TRUST_ESCALATION} {why}", why)
     db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
     log(f"  {agent}: {why}")
     return False, why
