@@ -77,7 +77,7 @@ class HomePage(RowActions, JobsAware, Screen):
     HomePage #agents-box { height: auto; max-height: 50%; border: round $panel; }
     HomePage #messages-box { height: 1fr; border: round $panel; }
     HomePage #accounts-box.focused, HomePage #agents-box.focused,
-    HomePage #messages-box.focused { border: round cyan; }
+    HomePage #messages-box.focused { border: round $accent; }
     HomePage #accounts, HomePage #agents { height: auto; }
     HomePage #acct-notes, HomePage #agent-notes, HomePage #message-notes { height: auto; padding: 0 1; }
     HomePage #foot { height: auto; }

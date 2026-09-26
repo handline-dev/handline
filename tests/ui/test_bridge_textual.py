@@ -2096,6 +2096,23 @@ async def test_starting_an_agent_asks_for_a_repo_only_when_it_has_none() -> None
         con.close()
 
 
+async def test_the_bridge_follows_the_os_light_dark_setting_while_open() -> None:
+    from unittest import mock
+    from ocp.ui import theme
+    _home("theme")
+    which = ["textual-light"]
+    with mock.patch.object(theme, "os_theme", lambda: which[0]), mock.patch.object(theme, "POLL_S", 0.1):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(100, 24)) as pilot:
+            await pilot.pause(0.2)
+            check("theme: the bridge opens in the OS's theme", app.theme == "textual-light", app.theme)
+            which[0] = "textual-dark"
+            await pilot.pause(0.4)
+            check("theme: and switches when the OS changes while it is open", app.theme == "textual-dark", app.theme)
+    with mock.patch.object(theme.subprocess, "run", side_effect=OSError):
+        check("theme: an unreadable setting is dark", theme.os_theme() == "textual-dark")
+
+
 def test_summary_line() -> None:
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
@@ -2508,6 +2525,7 @@ async def _run_all() -> None:
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
+    await test_the_bridge_follows_the_os_light_dark_setting_while_open()
     await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
     await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()
     test_key_token_translates_textual_keys()

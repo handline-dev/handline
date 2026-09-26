@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 import threading
 import time
@@ -30,6 +29,7 @@ from ..infra import paths, textsafe
 from ..usage import status
 from . import tui
 from .clipboard_app import ClipboardApp
+from .theme import follow_os_theme
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
@@ -1514,18 +1514,6 @@ class ChatPage(Screen):
             self._spin()
 
 
-def os_theme() -> str:
-    """The Textual theme that matches the OS's light or dark setting (macOS);
-    dark where it cannot be read. The stylesheet uses theme variables only, so
-    every colour follows this."""
-    try:
-        out = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"],
-                             capture_output=True, text=True, timeout=2).stdout
-    except (OSError, subprocess.SubprocessError):
-        return "textual-dark"
-    return "textual-dark" if out.strip() == "Dark" else "textual-light"
-
-
 class ChatApp(ClipboardApp):
     CSS_PATH = Path(__file__).with_name("chat_page.tcss")
 
@@ -1534,7 +1522,7 @@ class ChatApp(ClipboardApp):
         self.agent = agent
 
     def on_mount(self) -> None:
-        self.theme = os_theme()
+        follow_os_theme(self)
         self.push_screen(ChatPage(self.agent))
 
 
