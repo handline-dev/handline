@@ -29,7 +29,7 @@ def cmd_login(args) -> int:
             print("no accounts registered. `ocp account add <name>` first.")
             return 1
         for a in names:
-            state = "logged in" if accounts.logged_in(a) else "NOT logged in"
+            state = accounts.login_word(accounts.login_state(a))
             try:
                 where = str(vendors.config_dir(a))
             except vendors.UnknownVendor as e:

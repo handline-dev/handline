@@ -253,8 +253,9 @@ class Driver(Protocol):
         else: no key, and the reason. A vendor with no such dialog returns no
         key."""
 
-    def credential_present(self, config_dir: Path) -> bool:
-        """Whether a credential exists. Never reads or returns it."""
+    def credential_present(self, config_dir: Path) -> bool | None:
+        """Whether a credential exists. Never reads or returns it. None when
+        this process cannot tell, which is not the same as no."""
 
     def login_argv(self) -> list[str]:
         """The login a human finishes, run with `config_dir_env` set."""

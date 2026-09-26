@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -154,9 +155,12 @@ class Claude:
         from ..session import orca  # late: orca looks drivers up
         return _accepting_key(orca, dialog, tool)
 
-    def credential_present(self, config_dir: Path) -> bool:
+    def credential_present(self, config_dir: Path) -> bool | None:
         """Never reads the secret: `security find-generic-password` is called without
         -w, so it reports the item's presence and nothing else.
+
+        None when the keychain cannot be seen from here: a sandboxed process gets
+        "not found" for an item that exists, so its "absent" is not evidence.
         """
         # File-backed storage (Linux, and macOS installs that opt out of Keychain).
         if (config_dir / ".credentials.json").exists():
@@ -170,6 +174,8 @@ class Claude:
             )
         except (OSError, subprocess.SubprocessError):
             return False
+        if r.returncode != 0 and os.environ.get("SANDBOX_RUNTIME"):
+            return None
         return r.returncode == 0
 
     def login_argv(self) -> list[str]:

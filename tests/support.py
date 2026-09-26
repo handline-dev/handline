@@ -184,6 +184,9 @@ def restore_world() -> None:
     # again when done, the same as every other piece of state this resets.
     for var in ("ORCA_TERMINAL_HANDLE", "ORCA_WORKTREE_ID"):
         os.environ.pop(var, None)
+    # Whether the suite runs sandboxed must not change what a missing
+    # keychain item means: the fixtures' logged-out accounts rely on it.
+    os.environ.pop("SANDBOX_RUNTIME", None)
     # No screen to read in a fixture; a test about a modal says so itself.
     orcamod.modal_open = lambda handle: False
     orcamod.screen_blocker = lambda handle: None

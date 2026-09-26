@@ -63,7 +63,7 @@ def find_room(agent: str) -> str | None:
     # agent, not a screen asking what would happen - the only place worth the
     # network cost of asking a carried_old or idle-floored candidate fresh
     # before it decides the answer (#1811 part 2, #1816).
-    candidates = [a for a in paths.list_accounts() if accounts.logged_in(a)]
+    candidates = [a for a in paths.list_accounts() if accounts.may_start(a)]
     picked = status.pick_account(candidates, bootstrap=True, load=load, agent=agent,
                                  live_refresh=True)[0]
     vendor = vendors.agent_vendor(agent)
@@ -129,7 +129,7 @@ def frees_first(agent: str) -> WakeWait | None:
     lifts first, or None when none is walled (capped, unreadable, or none
     of the agent's vendor)."""
     walls = [w for a in paths.list_accounts()
-             if accounts.logged_in(a) and not status.not_for(a, vendors.agent_vendor(agent))
+             if accounts.may_start(a) and not status.not_for(a, vendors.agent_vendor(agent))
              for w in [_wall(a)] if w]
     return min(walls, key=lambda w: w.reset or float("inf"), default=None)
 
@@ -137,7 +137,7 @@ def frees_first(agent: str) -> WakeWait | None:
 def no_room(agent: str) -> str:
     """Why no account can take this agent, naming the one that frees up first."""
     named = paths.list_accounts()
-    if not any(accounts.logged_in(a) for a in named):
+    if not any(accounts.may_start(a) for a in named):
         return ("no account is registered - `ocp account add <name>` first" if not named else
                 "no account is logged in. A human has to do this once (ocp never "
                 f"touches credentials):\n\n  {accounts.login_command(named[0])}\n")
@@ -303,7 +303,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
             hooks.ensure_shared()  # settings ocp keeps, e.g. notifications off
         except ValueError:
             pass  # an unreadable settings file is doctor's to report, not a reason not to start
-    if not accounts.logged_in(acct):
+    if not accounts.may_start(acct):
         raise SystemExit(
             f"account '{acct}' is not logged in.\n"
             f"A human has to do this once (ocp never touches credentials):\n\n"

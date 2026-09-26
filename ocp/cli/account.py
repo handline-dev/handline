@@ -179,7 +179,7 @@ def cmd_account_list(args) -> int:
             allowed, why = _can_start(st, loads.get(a))
             assigned, running = roster.get(a, (0, 0))
             out.append({
-                "account": a, "logged_in": accounts.logged_in(a),
+                "account": a, "logged_in": accounts.login_state(a),
                 "agents_assigned": assigned, "agents_running": running,
                 "agents_unplaced": unplaced,
                 "windows": st.window_report(), "ctx_pct": st.ctx_pct,
@@ -204,7 +204,7 @@ def cmd_account_list(args) -> int:
         five = f"{cell(shown)}{src}"
         # The bridge's cell, in words only: one definition, one format.
         agents_ = textsafe.oneline(tui.agents_cell(roster.get(a, (0, 0)), unplaced))
-        print(f"{a:<14}{'yes' if accounts.logged_in(a) else 'no':<8}{plan:<6}{agents_:<{aw}}"
+        print(f"{a:<14}{accounts.login_word(accounts.login_state(a), short=True):<8}{plan:<6}{agents_:<{aw}}"
               f"{five:>5}{cell(st.long.pct):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{status.describe_runway(status.runway(st, status.read_burn(a), None, loads.get(a))):<16}"
               f"{'yes' if allowed else 'NO':<4} {why}")
