@@ -1340,6 +1340,29 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
           rows == {"idle-not-free": "copy", "ocp-cli-habits": "promote",
                    "project-ocp-home-wipe": "delete", "unknown": "no-owner",
                    "feedback-testing": "merge"}, str(rows))
+    long_src = src / "long.md"
+    long_src.write_text("---\nname: long\ndescription: " + "d" * 300 + "\n---\nb")
+    line = memory._index_line(long_src)
+    check("index line: a long hook is cut after the link, which stays whole",
+          len(line) <= memory.INDEX_LINE and line.startswith("- [long](long.md) — d")
+          and line.endswith("…"), line)
+    long_src.write_text("---\nname: " + "n" * 200 + "\n---\nb")
+    line = memory._index_line(long_src)
+    check("index line: a long title is shortened, the link target is intact",
+          len(line) <= memory.INDEX_LINE and line.endswith("](long.md)"), line)
+    long_src.unlink()
+    promote = [r for r in memory.plan_migration() if r["file"].stem == "ocp-cli-habits"]
+    check("migrate: a promoted file names AGENTS.md, apart from agent names",
+          promote[0]["action"] == "promote" and promote[0]["to"] == "AGENTS.md"
+          and not set(memory.OWNERS.values()) & {"AGENTS.md", "delete"})
+    (home / "agents" / "orcapipe.ui" / "memory" / "a.md").write_text("rule a")
+    said = _capture(lambda: climemory.cmd_memory_status(argparse.Namespace(agent="orcapipe.ui")))
+    check("status: named for an agent, only its own duplicate groups are shown",
+          "orcapipe/a.md" in said and "orcapipe.ui/a.md" in said, said)
+    agents.register("orcapipe.auditor")
+    (home / "agents" / "orcapipe.auditor" / "memory" / "z.md").write_text("only mine")
+    lone = _capture(lambda: climemory.cmd_memory_status(argparse.Namespace(agent="orcapipe.auditor")))
+    check("status: an agent in no duplicate group sees none", "same text" not in lone, lone)
     check("migrate: another repo's folder is not read",
           all(r["file"].parent == src for r in memory.plan_migration()))
     args = argparse.Namespace(apply=False)

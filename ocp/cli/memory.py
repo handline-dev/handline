@@ -12,7 +12,7 @@ def cmd_memory_status(args) -> int:
         return 1
     for a in agents:
         print(memory.summary(memory.status(a)))
-    for _key, files in memory.promotion_candidates():
+    for _key, files in memory.promotion_candidates(args.agent):
         print("same text in more than one agent, a candidate for AGENTS.md or ROLE.md: "
               + ", ".join(files))
     return 0

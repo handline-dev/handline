@@ -491,7 +491,8 @@ def fingerprint(agent: str) -> str:
     """What `build()` would launch this agent with right now, boiled down to
     the pieces a running session cannot pick up on its own: the model, the
     effort level, the disallowed-tools list, the shared mcp.json, and the
-    static preamble (team line, ROLE.md, base.md). Never the account or the
+    static preamble (team line, ROLE.md, base.md, the rules file of each
+    team it is in). Never the account or the
     handoff - the account is chosen fresh on every real launch regardless of
     what last time picked, and the handoff is supposed to be different every
     time this agent is parked, so hashing either would call a session stale
