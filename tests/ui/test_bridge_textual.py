@@ -2120,6 +2120,143 @@ async def test_the_bridge_follows_the_os_light_dark_setting_while_open() -> None
         check("theme: an unreadable setting is dark", theme.os_theme() == "textual-dark")
 
 
+class _FakeRules:
+    """Stands in for `ocp.team.dialog_rules`, whose store is the founder-only protected dir."""
+
+    def __init__(self) -> None:
+        self.rules: list[dict] = []
+
+    def list_rules(self):
+        return list(self.rules)
+
+    def add(self, vendor, title, label):
+        self.rules.append({"vendor": vendor, "title": title, "label": label})
+        return True, "saved"
+
+    def remove(self, vendor, title, label):
+        self.rules = [r for r in self.rules if (r["vendor"], r["title"], r["label"]) != (vendor, title, label)]
+        return True, "removed"
+
+
+async def test_a_dialog_on_an_agent_terminal_is_answered_from_its_page() -> None:
+    import sys
+    from unittest import mock
+    from ocp.session import orca as orcamod
+    from ocp.team import trust
+    from ocp.ui.components.dialog_modal import DialogModal
+    home = _home("dialogmodal")
+    agents.register("reviewer")
+    rules = _FakeRules()
+    con = db.connect()
+    db.set_terminal(con, "reviewer", "term_d", "wt")
+    con.commit()
+    con.close()
+    dialog = orcamod.Dialog("Do you want to proceed?", ((1, "Yes"), (2, "Yes, and don't ask again"), (3, "No")), "Esc to cancel")
+    screen = {"dialog": dialog, "folder": None}
+    pressed = []
+
+    def press(handle, number):
+        pressed.append((handle, number))
+        screen["dialog"] = None
+        return orcamod.CLEARED, dialog.title, ""
+    with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}), \
+            mock.patch.object(orcamod, "dialog_on_screen", lambda h: screen["dialog"]), \
+            mock.patch.object(orcamod, "trust_prompt_folder", lambda h: screen["folder"]), \
+            mock.patch.object(orcamod, "confirm_trust", lambda h: (True, "trusted")), \
+            mock.patch.object(orcamod, "press_option", press):
+        import ocp.team as teampkg
+        teampkg.dialog_rules = rules
+        con = db.connect()
+        try:
+            d = actions.dialog_of(con, "reviewer")
+            check("dialog: a dialog on the terminal is read as title and numbered options",
+                  d and d["kind"] == "dialog" and d["title"] == dialog.title and d["options"][1][1].startswith("Yes, and"), str(d))
+            screen["dialog"] = orcamod.Dialog(dialog.title, dialog.options, dialog.footer,
+                                              (dialog.title, "Edit /tmp/x.py", "1. Yes", "2. Yes, and don't ask again", "3. No"))
+            check("dialog: the panel's other lines ride along, not the title or the options",
+                  actions.dialog_of(con, "reviewer")["body"] == ["Edit /tmp/x.py"])
+            screen["dialog"] = dialog
+            ok, said = actions.answer_dialog(con, "reviewer", "Some other title", 1)
+            check("dialog: a changed dialog is not pressed", not ok and not pressed, said)
+            screen["dialog"] = dialog
+            ok, said = actions.answer_dialog(con, "reviewer", dialog.title, 2, always=True)
+            check("dialog: the pick is pressed and 'always' saves a rule on the exact title and label",
+                  ok and pressed == [("term_d", 2)] and rules.rules == [
+                      {"vendor": "claude", "title": dialog.title, "label": "Yes, and don't ask again"}], str((said, rules.rules)))
+            screen["folder"] = str(home)
+            with mock.patch.object(orcamod, "screen_text", lambda h: "old\n" + "\u2500" * 20 + "\n Accessing workspace:\n\n /x/y\n\n \u276f No, exit\n   Yes, I trust this folder\n\n Enter to confirm \u00b7 Esc to cancel"):
+                check("dialog: the trust screen's own words ride along, without its two choices or key hint",
+                      actions.dialog_of(con, "reviewer")["body"] == ["Accessing workspace:", "/x/y"],
+                      str(actions.dialog_of(con, "reviewer")["body"]))
+            ok, said = actions.answer_dialog(con, "reviewer", f"Trust {home}?", 1, always=True)
+            check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
+                  ok and trust.is_declared(home) and len(rules.rules) == 1, said)
+            screen["folder"] = None
+            answers = actions.standing_answers()
+            check("dialog: the standing answers list the rule", any(a["kind"] == "dialog" for a in answers), str(answers))
+            ok, _ = actions.remove_answer("dialog", ("claude", dialog.title, "Yes, and don't ask again"))
+            check("dialog: and it can be removed", ok and rules.rules == [])
+        finally:
+            con.close()
+
+        screen["dialog"] = dialog
+        pressed.clear()
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            page = ChatPage("reviewer")
+            await app.push_screen(page)
+            await pilot.pause(1.0)
+            check("dialog: the agent's page shows the modal", isinstance(app.screen, DialogModal), type(app.screen).__name__)
+            await pilot.press("escape")
+            await pilot.pause(0.3)
+            page._dialog_at = 0.0
+            page.poll_dialog()
+            await pilot.pause(0.8)
+            check("dialog: closed by hand, it is not offered again while it stays", app.screen is page)
+            screen["dialog"] = None
+            page._dialog_at = 0.0
+            page.poll_dialog()
+            await pilot.pause(0.5)
+            screen["dialog"] = dialog
+            page._dialog_at = 0.0
+            page.poll_dialog()
+            await pilot.pause(0.8)
+            check("dialog: gone and back, it is offered again", isinstance(app.screen, DialogModal))
+            await pilot.click("#opt_1")
+            await pilot.pause(0.8)
+            check("dialog: a click on an option presses it", pressed == [("term_d", 1)], str(pressed))
+    del teampkg.dialog_rules
+
+
+async def test_home_settings_lists_the_standing_answers_and_removes_one() -> None:
+    import sys
+    from unittest import mock
+    from textual.widgets import DataTable, Tabs
+    _home("answerslist")
+    rules = _FakeRules()
+    rules.add("claude", "Do you want to proceed?", "Yes")
+    import ocp.team as teampkg
+    teampkg.dialog_rules = rules
+    try:
+        with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}):
+            app = bt.BridgeApp()
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                page = app.screen
+                page.query_one("#scope", Tabs).active = "settings"
+                await pilot.pause(0.4)
+                table = page.query_one("#answers", DataTable)
+                check("answers: the settings tab lists the saved rule",
+                      table.row_count == 1 and "Do you want to proceed?" in str(table.get_row_at(0)[0]),
+                      str(table.row_count))
+                page._remove_answer()
+                await pilot.pause(0.2)
+                check("answers: remove deletes it and the list says none",
+                      rules.rules == [] and "none" in str(table.get_row_at(0)[0]))
+    finally:
+        del teampkg.dialog_rules
+
+
 def test_summary_line() -> None:
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
@@ -2532,6 +2669,8 @@ async def _run_all() -> None:
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
+    await test_home_settings_lists_the_standing_answers_and_removes_one()
+    await test_a_dialog_on_an_agent_terminal_is_answered_from_its_page()
     await test_the_bridge_follows_the_os_light_dark_setting_while_open()
     await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
     await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()

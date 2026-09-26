@@ -16,6 +16,7 @@ from textual.widgets import Button, DataTable, Input, Static, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
 from ... import actions, db
+from ...infra import textsafe
 from ...usage import load as loadmod, status
 from .. import tui
 from ..components import agent_rows, gauge
@@ -84,6 +85,8 @@ class HomePage(RowActions, JobsAware, Screen):
     HomePage DataTable > .datatable--hover { background: transparent; }
     HomePage DataTable { overflow-x: hidden; }
     HomePage #settings_view { height: 1fr; padding: 1 3; }
+    HomePage #answers { height: auto; max-height: 12; margin-top: 1; }
+    HomePage #answer_remove { margin-top: 1; }
     HomePage .frow { height: 1; margin-bottom: 1; }
     HomePage .flabel { width: 16; color: $text-muted; }
     HomePage .fhint { color: $text-muted; }
@@ -100,6 +103,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self.sel: dict = {}
         tui._enter(self.panel, self.sel)
         self.tab = "home"
+        self._answers: list[dict] = []
         self._checks_shown = False      # the Tasks tab is showing them now
         self._checks = False            # the next Tasks tab opens on the founder's done tasks
         self._hr_dot = False            # whether the HR tab wears its dot
@@ -134,6 +138,11 @@ class HomePage(RowActions, JobsAware, Screen):
                 yield Static("  most agents mid-turn at once on an account with no cap of its own",
                              classes="fhint")
             yield Button("Save", id="settings_save", variant="primary", compact=True)
+            yield Static(Text("auto-answers", style="bold"), id="answers_head")
+            yield Static("what ocp answers by itself on an agent's terminal; the modal's \"always\" adds one",
+                         classes="fhint")
+            yield DataTable(id="answers", cursor_type="row")
+            yield Button("Remove selected", id="answer_remove", compact=True)
 
     def on_mount(self) -> None:
         self.sub_title = "home"
@@ -165,6 +174,7 @@ class HomePage(RowActions, JobsAware, Screen):
             self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
             self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
+            self._draw_answers()
 
     def action_checks(self) -> None:
         """The founder's done tasks waiting for a sign-off: the `b` key and the header's `to check`
@@ -177,6 +187,30 @@ class HomePage(RowActions, JobsAware, Screen):
             self._checks_shown = True
         else:
             tabs.active = "tasks"
+
+    def _draw_answers(self) -> None:
+        table = self.query_one("#answers", DataTable)
+        table.clear(columns=True)
+        table.add_column("auto-answer", key="text")
+        try:
+            self._answers = actions.standing_answers()
+        except (OSError, ImportError) as e:
+            self._answers = []
+            self.toast(f"cannot read the auto-answers: {e}", False)
+        for i, a in enumerate(self._answers):
+            table.add_row(Text(textsafe.oneline(a["text"])), key=str(i))
+        if not self._answers:
+            table.add_row(Text("none - ocp asks you when a dialog shows", style="dim"), key="none")
+
+    def _remove_answer(self) -> None:
+        table = self.query_one("#answers", DataTable)
+        row = table.cursor_row
+        if not self._answers or row >= len(self._answers):
+            return
+        picked = self._answers[row]
+        ok, said = actions.remove_answer(picked["kind"], picked["key"])
+        self.toast(said, ok)
+        self._draw_answers()
 
     def _save_settings(self) -> None:
         ok, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
@@ -191,6 +225,9 @@ class HomePage(RowActions, JobsAware, Screen):
         if event.button.id == "settings_save":
             event.stop()
             self._save_settings()
+        elif event.button.id == "answer_remove":
+            event.stop()
+            self._remove_answer()
 
     # ------------------------------------------------------------------ drawing
 
