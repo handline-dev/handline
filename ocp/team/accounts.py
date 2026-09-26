@@ -28,6 +28,18 @@ def ensure_shared() -> None:
         h.ensure_shared()
 
 
+def _adopt(src: Path, dest: Path) -> None:
+    """Move what a real directory holds into the shared one, so replacing it
+    with the link loses nothing. Claude writes there (`skills/synced`) before
+    the link exists. Where both have the same name, shared wins."""
+    for child in src.iterdir():
+        if not (dest / child.name).exists():
+            shutil.move(str(child), str(dest / child.name))
+            continue
+        if child.is_dir() and not child.is_symlink() and (dest / child.name).is_dir():
+            _adopt(child, dest / child.name)
+
+
 def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
                replace_link: bool = False) -> bool:
     """Symlink one shared item into an account's .claude dir; True if it changed.
@@ -51,6 +63,8 @@ def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
     elif link.exists():
         if not force:
             return False
+        if link.is_dir() and target.is_dir():
+            _adopt(link, target)
         shutil.rmtree(link) if link.is_dir() else link.unlink()
     link.symlink_to(target)
     return True

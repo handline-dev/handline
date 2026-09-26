@@ -1282,6 +1282,33 @@ def test_an_account_links_from_its_own_vendors_shared_dir(home: Path) -> None:
               ("zeta", "skills") in accounts.unlinked())
 
 
+def test_register_force_keeps_what_a_real_skills_dir_held(home: Path) -> None:
+    """Claude can create skills/synced before the link exists. `register
+    --force` links it anyway, and the bucket moves into shared instead of
+    being deleted; a name shared already has is not overwritten."""
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    shared = vendors.shared_dir("claude") / "skills"
+    (shared / "synced" / "old").mkdir(parents=True)
+    (shared / "synced" / "old" / "keep").write_text("shared")
+    link = vendors.config_dir("gamma") / "skills"
+    link.unlink()
+    (link / "synced" / "b1").mkdir(parents=True)
+    (link / "synced" / "b1" / "manifest.json").write_text("{}")
+    (link / "synced" / ".bucket-b1").write_text("")
+    (link / "synced" / "old").mkdir()
+    (link / "synced" / "old" / "keep").write_text("account")
+    check("relink_all: a real directory is left alone", not accounts.relink_all())
+    accounts.register("gamma", force=True)
+    check("force: the directory is now the shared link",
+          link.is_symlink() and os.readlink(link) == str(shared))
+    check("force: the bucket and its marker moved into shared",
+          (shared / "synced" / "b1" / "manifest.json").exists()
+          and (shared / "synced" / ".bucket-b1").exists())
+    check("force: shared's own copy of a name it already had wins",
+          (shared / "synced" / "old" / "keep").read_text() == "shared")
+
+
 def test_the_opencode_driver(home: Path) -> None:
     """The opencode driver's answers, each from what 1.18.32 was measured to
     do (design/03 §4.3). Nothing here runs opencode: `auth list` is replaced
