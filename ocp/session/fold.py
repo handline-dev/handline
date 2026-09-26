@@ -28,7 +28,7 @@ from pathlib import Path
 from ..team import accounts, agents
 from .. import db, vendors
 from . import digest, events as evmod
-from ..infra import gitrun, paths, textsafe, timefmt
+from ..infra import atomic, gitrun, paths, textsafe, timefmt
 from ..usage import status
 
 FOLD_TIMEOUT_S = 180
@@ -458,9 +458,7 @@ def _degraded(agent: str, previous: digest.Digest, events, day: str, facts: str)
 
 
 def _publish(agent: str, path: Path, text: str, commit_msg: str) -> None:
-    tmp = path.with_suffix(".md.tmp")
-    tmp.write_text(text)
-    tmp.replace(path)
+    atomic.write_text(path, text)
     home = paths.home()
     if (home / ".git").exists():
         # Section 3 keeps the home in git so digest generations and rollback

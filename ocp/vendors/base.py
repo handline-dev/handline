@@ -180,8 +180,14 @@ class Driver(Protocol):
         """Does this argv carry a session to resume?"""
 
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
-                    mcp: list[str], preamble: str | None) -> list[str]:
-        """argv for one session, before any caller-supplied extras."""
+                    mcp: list[str], preamble: str | None,
+                    hide: list[str] | None = None) -> list[str]:
+        """argv for one session, before any caller-supplied extras. `hide` is
+        paths the session may not read."""
+
+    def transcript_dir(self, config_dir: Path, worktree: str) -> Path | None:
+        """The folder holding the transcripts of sessions run in `worktree`,
+        or None when the vendor keeps none we can name."""
 
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
         """Environment one session needs beyond its account's, for what its

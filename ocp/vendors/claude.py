@@ -87,8 +87,15 @@ class Claude:
         return any(x == "--resume" or x.startswith("--resume=") or x == "-r"
                    for x in (extra or []))
 
+    def transcript_dir(self, config_dir: Path, worktree: str) -> Path:
+        """Where the sessions run in `worktree` are recorded: claude names the
+        folder after the path, every character that is not a letter or digit
+        becoming a dash."""
+        return config_dir / "projects" / re.sub(r"[^A-Za-z0-9]", "-", worktree)
+
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
-                    mcp: list[str], preamble: str | None) -> list[str]:
+                    mcp: list[str], preamble: str | None,
+                    hide: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -97,6 +104,11 @@ class Claude:
         argv += mcp
         if preamble:
             argv += ["--append-system-prompt", preamble]
+        if hide:
+            # denyRead binds Bash; the Read tool is a permission, so deny it there too.
+            settings = {"sandbox": {"filesystem": {"denyRead": hide}},
+                        "permissions": {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}}
+            argv += ["--settings", json.dumps(settings)]
         return argv
 
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:

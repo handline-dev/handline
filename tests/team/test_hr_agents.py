@@ -1998,6 +1998,66 @@ edges:
         con.close()
 
 
+def test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(home: Path) -> None:
+    """T156: an approve on a roster proposal's escalation carries it out right
+    then, and the proposer's answer says how it went. A failed apply is put in
+    front of the founder as a report and leaves the proposal open; a reject
+    changes nothing but the record."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        accounts.register("beta")
+        agents.register("hr")
+        (home / "team.yaml").write_text("""
+agents:
+  hr: {}
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands")
+        pid = said.split()[1]
+        rid = int(said.split("#")[1].split(".")[0])
+        ok, said = askmod.resolve(rid, "approve")
+        check("approve: the agent exists with no `ocp hr apply`",
+              ok and "dohyun" in paths.list_agents(), said)
+        check("approve: the file record says applied, with the verdict",
+              hr.load_proposal(pid)["state"] == "applied"
+              and hr.load_proposal(pid)["verdict"] == "approve")
+        check("approve: the proposer's answer carries the outcome",
+              f"proposal {pid} applied" in db.get_request(con, rid)["verdict"]
+              and db.get_request(con, rid)["verdict"].startswith("approve"),
+              db.get_request(con, rid)["verdict"])
+
+        # The apply fails: the table no longer lists the agent to be retired.
+        ok, said = hr.propose("retire", "dohyun", requester="hr", why="gone")
+        pid2 = said.split()[1]
+        (home / "team.yaml").write_text("""
+agents:
+  hr: {}
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+        rid2 = int(said.split("#")[1].split(".")[0])
+        ok, said = askmod.resolve(rid2, "approve")
+        row = db.get_request(con, rid2)
+        check("approve: a failed apply is still an answer, and says it failed",
+              ok and "could not be applied" in row["verdict"], row["verdict"])
+        check("approve: and the proposal stays open to retry or withdraw",
+              hr.load_proposal(pid2)["state"] == "proposed")
+        check("approve: and the founder gets a report of it",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE fyi = 1 AND body LIKE ?",
+                          (f"%{pid2}%could not be applied%",)).fetchone()["c"] == 1)
+
+        ok, said = hr.propose("add", "yerin", requester="hr", why="two")
+        pid3 = said.split()[1]
+        rid3 = int(said.split("#")[1].split(".")[0])
+        askmod.resolve(rid3, "reject - no")
+        check("reject: nothing is applied", "yerin" not in paths.list_agents()
+              and db.get_request(con, rid3)["verdict"] == "reject - no")
+    finally:
+        con.close()
+
+
 def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
     """#1893 SF1, #1908, #1919, #1938, #1943: `answer()` (the bridge's key)
     is not the only door onto a queued proposal escalation - `ocp resolve`,
@@ -2032,8 +2092,9 @@ edges:
         con.close()
     rc, out = _cli(["resolve", str(rid), "approve"], as_agent=askmod.HUMAN)
     check("resolve: approve still goes through", rc == 0, out)
-    ok, said = hr.apply(pid)
-    check("resolve: and apply carries it out", ok and "dohyun" in paths.list_agents(), said)
+    check("resolve: and carries it out at once, saying so", "dohyun" in paths.list_agents()
+          and "applied" in out and hr.load_proposal(pid)["state"] == "applied", out)
+    check("resolve: so a later apply has nothing left to do", not hr.apply(pid)[0])
 
     # #1908 should-fix: the same escalation can be closed a third way, through
     # --retires on an unrelated resolve - "replaced by #N" is not a decision
@@ -2471,6 +2532,8 @@ def main() -> int:
             Path(td) / 'registervendor'))
         run(lambda: test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(
             Path(td) / 'dismissedhr'))
+        run(lambda: test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(
+            Path(td) / 'hrapplyonapprove'))
         run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
             Path(td) / 'hrresolveguard'))
         run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(

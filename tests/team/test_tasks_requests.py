@@ -1737,14 +1737,18 @@ edges:
           rc == 1 and "may not list manager's messages" in out, out)
     rc, out = _cli(["inbox", "marina", "--all"], as_agent=askmod.HUMAN)
     check("T39: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
-    rc, out = _cli(["handoff", "marina"], as_agent=None)
-    check("T39: a caller with no name is not refused by this rule",
-          "may not list" not in out, out)
+    for cmd in (["handoff", "marina"], ["digest", "marina"], ["inbox", "marina"], ["events"]):
+        rc, out = _cli(cmd, as_agent=None)
+        check(f"T39: a caller with no name is refused `ocp {' '.join(cmd)}`",
+              rc == 1 and "cannot tell who is asking" in out and "secret of marina" not in out, out)
     con = db.connect()
     try:
         first = con.execute("SELECT id FROM requests ORDER BY id LIMIT 1").fetchone()[0]
     finally:
         con.close()
+    rc, out = _cli(["resolve", str(first), "x"], as_agent="manager")
+    check("T46: the requester answering its own request is pointed at withdraw",
+          rc == 1 and "your own request" in out and f"`ocp withdraw {first}`" in out, out)
     rc, out = _cli(["read", str(first)], as_agent="dohyun")
     check("T39: `ocp read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
 
@@ -1941,8 +1945,7 @@ edges:
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
         pid2 = said.split()[1]
         rid2 = [m["id"] for m in actions.messages(con) if "retire dohyun" in (m["body"] or "")]
-        askmod.resolve(rid2[0], "approve")
-        ok, said = hr.apply(pid2)
+        ok, said = askmod.resolve(rid2[0], "approve")
         table = yamlcompat.load((home / "team.yaml").read_text())
         archived = list((home / "agents" / "archive").glob("*dohyun*"))
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
@@ -2333,10 +2336,9 @@ edges:
         hr.load_proposal = orig_load
         check("race 1: the founder's approve went through", got and got[0][0], str(got))
         check("race 1: so the withdraw refuses and says so",
-              not ok and "already answered" in said, said)
-        ok, said = hr.apply(pid)
+              not ok and "already" in said, said)
         check("race 1: and the approve is enacted, not lost",
-              ok and "racer" in paths.list_agents(), said)
+              "racer" in paths.list_agents() and hr.load_proposal(pid)["state"] == "applied")
 
         # 2. The founder answers while the withdraw is mid-way. The withdraw
         # holds the write lock, so the answer can only land after it.
@@ -2759,7 +2761,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
               "hr retire backend" in tui._ANSI.sub("", _snap(120, 40)))
 
         rid = hr.load_proposal(pid)["request"]
-        askmod.resolve(rid, "approve", notify=False)
+        _set_request_state(con, rid, "done", "approve")  # answered, apply not yet run
         w = waits("proposal")
         check("hr wait: approved but not applied it stays, no longer red",
               len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))
@@ -3168,8 +3170,9 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
 
         # And the CLI holds the same rows, or clearing one leaves the other
         # still asking.
-        os.environ.pop("OCP_AGENT", None)
+        os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
+        os.environ.pop("OCP_AGENT", None)
         check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
 
         # Whose row it is is checked against who is asking, and a caller we
@@ -3699,7 +3702,7 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
         check("migration: an old open row is untouched - done_evidence and closed_by both NULL",
               open_row["done_evidence"] is None and open_row["closed_by"] is None,
               str(dict(open_row)))
-        check("migration: it reads as waiting", actions.task_state(con, open_row) == "waiting",
+        check("migration: it reads as a draft", actions.task_state(con, open_row) == "draft",
               actions.task_state(con, open_row))
 
         # A second connect (every ocp command, and the daemon) re-runs the
@@ -5078,6 +5081,8 @@ def test_a_corrected_reply_stays_in_its_thread(home: Path) -> None:
         check("replaces: a corrected reply keeps its parent",
               ok and row["parent_id"] == head and row["chain_depth"] == 1, str(dict(row)))
         ok, _, other = askmod.ask("worker", "an aside", requester="manager", parent_id=fixed)
+        check("replaces: a request under the corrected reply is its child",
+              ok and db.get_request(con, other)["parent_id"] == fixed)
         ok, _, plain = askmod.ask("worker", "first", requester="manager")
         ok, _, plain2 = askmod.ask("worker", "first, again", requester="manager", replaces=plain)
         check("replaces: a top-level request stays top-level",
@@ -5523,7 +5528,7 @@ def test_task_rows_carry_who_closes_what_blocks_and_last_activity(home: Path) ->
         check("rows: filter by owner",
               {r["id"] for r in actions.task_rows(con, owner="worker")} == {a, c})
         check("rows: filter by state",
-              {r["id"] for r in actions.task_rows(con, state="waiting")} >= {c})
+              {r["id"] for r in actions.task_rows(con, state="draft")} >= {c})
         db.discard_task(con, c, "manager", "no")
         check("rows: a discarded task is hidden by default",
               c not in {r["id"] for r in actions.task_rows(con)})
@@ -5626,6 +5631,28 @@ def test_the_priority_columns_migrate_an_old_tasks_table(home: Path) -> None:
         con.close()
 
 
+def test_a_merge_says_when_it_drops_the_kept_tasks_wait_on_a_folded_one(home: Path) -> None:
+    """T129: keep waiting on a task folded into it would wait on itself, so
+    that edge goes - and the merge event names it."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        keep = db.new_task(con, "keep", "worker", "manager")
+        gone = db.new_task(con, "gone", "worker", "manager")
+        plain = db.new_task(con, "plain", "worker", "manager")
+        db.add_block(con, keep, gone)
+        ok, msg = actions.merge_tasks(con, keep, [gone], "manager")
+        check("merge wait: the merge goes through", ok, msg)
+        check("merge wait: the wait is gone", db.blocks_on_ids(con, keep) == [])
+        ok, msg = actions.merge_tasks(con, keep, [plain], "manager")
+        ev = [json.loads(r["payload"]) for r in con.execute(
+            "SELECT payload FROM events WHERE kind = 'merge_task' ORDER BY id")]
+        check("merge wait: the event names the dropped wait, and only where there was one",
+              ev[0].get("dropped_wait") is True and "dropped_wait" not in ev[1], str(ev))
+    finally:
+        con.close()
+
+
 def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
     """T68 (auditor #616): a loop, a blocked folded task, a cycle through a
     waiting task, and a done keep are each refused with nothing changed."""
@@ -5660,6 +5687,38 @@ def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
             ok, msg = actions.merge_tasks(con, args_[0], args_[1], "manager")
             check(f"merge refusal: {label}", not ok and want in msg, msg)
             check(f"merge refusal: {label} - nothing changed", snap() == before)
+    finally:
+        con.close()
+
+
+def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: Path) -> None:
+    """T82: draft -> queued -> doing. A new task is a draft; its owner's manager or the
+    founder queues it and drafts it again; a request out makes it doing."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "t", "worker", "manager")
+        st = lambda: actions.task_state(con, db.get_task(con, t))
+        check("states: a new task is a draft", st() == "draft", st())
+        ok, msg = actions.set_queued(con, t, "worker", True)
+        check("states: the owner cannot queue its own task", not ok and "manager" in msg, msg)
+        opened = db.new_task(con, "u", "manager", "worker")
+        ok, msg = actions.set_queued(con, opened, "worker", True)
+        check("states: an opener that is not the owner's manager cannot queue it", not ok, msg)
+        ok, msg = actions.set_queued(con, t, "manager", True)
+        check("states: the owner's manager queues it", ok and st() == "queued", msg)
+        check("states: queuing twice is refused", not actions.set_queued(con, t, "manager", True)[0])
+        check("states: the filter finds it",
+              [r["id"] for r in actions.task_rows(con, state="queued")] == [t])
+        ok, msg = actions.set_queued(con, t, actions.HUMAN, False)
+        check("states: the founder sends it back to draft", ok and st() == "draft", msg)
+        actions.set_queued(con, t, "manager", True)
+        db.link_request(con, t, _human_request())
+        check("states: a request out makes it doing", st() == "doing", st())
+        ok, msg = actions.set_queued(con, t, "manager", False)
+        check("states: a doing task is not drafted by a word", not ok and "doing" in msg, msg)
+        evs = [r["kind"] for r in con.execute("SELECT kind FROM events WHERE kind LIKE '%_task'")]
+        check("states: each move is an event", evs.count("queue_task") == 2 and "draft_task" in evs, evs)
     finally:
         con.close()
 
@@ -5767,8 +5826,10 @@ def main() -> int:
             Path(td) / 'taskedit'))
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
+        run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
+        run(lambda: test_a_merge_says_when_it_drops_the_kept_tasks_wait_on_a_folded_one(Path(td) / 'mergewait'))
         run(lambda: test_requests_parent_id_is_indexed(Path(td) / 'parentidx'))
         run(lambda: test_the_priority_columns_migrate_an_old_tasks_table(Path(td) / 'taskprimig'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))

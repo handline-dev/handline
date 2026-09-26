@@ -57,3 +57,8 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.
+- Run `ocp` as its own command. Chained (`&&`, `;`) or piped, the shell runs it
+  inside the sandbox, where the database is read-only and it fails with
+  "readonly database".
+- Language: agents write to each other, write tasks, code and comments in
+  English. Only a reply to the founder may be in Korean.

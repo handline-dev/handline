@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import paths
+from ..infra import atomic, paths
 from . import team
 from ..infra import timefmt
 
@@ -54,7 +54,7 @@ REVIEW_PINGPONG_LIMIT = 3
 # Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
 # because `ocp launch` sets it before exec'ing claude - so an interactive shell
 # without it is a human at their own prompt, and that is who this is.
-HUMAN = "human"
+HUMAN = db.HUMAN
 
 
 def current_agent() -> str | None:
@@ -107,9 +107,7 @@ def deliver(rid: int, requester: str, target: str, body: str,
         "body": body,
     }
     p = _inbox(target) / f"{rid:06d}.json"
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(p)
+    atomic.write_text(p, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     return p
 
 
@@ -703,6 +701,8 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
+        from . import hr
+        pid = hr.open_proposal_of(rid) if row["state"] == "queued" else None
         if open_tasks is not None:
             con.execute("BEGIN IMMEDIATE")
         try:
@@ -730,6 +730,26 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
                 # here.
                 return False, f"#{rid} was not resolved - it is still queued"
             return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
-        return True, _after_close(con, rid, row, state, notify)
+        applied = _apply_approved(con, row, pid, verdict) if pid else ""
+        return True, (applied + "\n" if applied else "") + _after_close(con, rid, row, state, notify)
     finally:
         con.close()
+
+
+def _apply_approved(con, row, pid: str, verdict: str | None) -> str:
+    """The founder approved roster proposal `pid`: carry it out now, and put
+    the outcome on the answer the proposer is about to be told. A failed apply
+    is also reported to the founder; the proposal stays `proposed` so
+    `ocp hr apply` or `ocp hr withdraw` can still settle it."""
+    from . import hr
+
+    if hr.decision(verdict) != "approved":
+        return ""
+    ok, said = hr.apply(pid, con)
+    line = f"proposal {pid} " + ("applied: " if ok else "could not be applied: ") + said
+    db.append_verdict(con, row["id"], line)
+    if not ok:
+        report(con, row["requester"], f"{line}\nThe proposal is still open; "
+               f"`ocp hr apply {pid}` retries it, `ocp hr withdraw {pid}` drops it.",
+               "roster proposal approved, apply failed")
+    return line

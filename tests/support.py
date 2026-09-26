@@ -1170,8 +1170,10 @@ class SecondVendor:
         return None
     def is_resume(self, extra):
         return "--resume" in (extra or [])
-    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble):
+    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None):
         return [exe]
+    def transcript_dir(self, config_dir, worktree):
+        return None
     def launch_env(self, preamble, disallowed, state_dir):
         return {"ZAI_DENY": disallowed}
     def prompt_argv(self, prompt):
