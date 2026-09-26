@@ -57,8 +57,9 @@ def _entry(namespace: str, name: str) -> Path:
 
 def get(namespace: str, name: str) -> str | None:
     """The entry, or None when there is none - or when the store cannot be read at
-    all, which is what an agent's sandbox says (EPERM, not "no such file"): to
-    that session nothing is on record, the answer that grants nothing."""
+    all, which is what an agent's sandbox says (EPERM, not "no such file"). For a
+    decision or a grant that is the answer that grants nothing; for a seal it is
+    not - an agent session cannot verify team.yaml or agent.yaml (T202)."""
     try:
         return _entry(namespace, name).read_text()
     except (FileNotFoundError, NotADirectoryError, PermissionError):
