@@ -1945,8 +1945,7 @@ edges:
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
         pid2 = said.split()[1]
         rid2 = [m["id"] for m in actions.messages(con) if "retire dohyun" in (m["body"] or "")]
-        askmod.resolve(rid2[0], "approve")
-        ok, said = hr.apply(pid2)
+        ok, said = askmod.resolve(rid2[0], "approve")
         table = yamlcompat.load((home / "team.yaml").read_text())
         archived = list((home / "agents" / "archive").glob("*dohyun*"))
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
@@ -2337,10 +2336,9 @@ edges:
         hr.load_proposal = orig_load
         check("race 1: the founder's approve went through", got and got[0][0], str(got))
         check("race 1: so the withdraw refuses and says so",
-              not ok and "already answered" in said, said)
-        ok, said = hr.apply(pid)
+              not ok and "already" in said, said)
         check("race 1: and the approve is enacted, not lost",
-              ok and "racer" in paths.list_agents(), said)
+              "racer" in paths.list_agents() and hr.load_proposal(pid)["state"] == "applied")
 
         # 2. The founder answers while the withdraw is mid-way. The withdraw
         # holds the write lock, so the answer can only land after it.
@@ -2763,7 +2761,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
               "hr retire backend" in tui._ANSI.sub("", _snap(120, 40)))
 
         rid = hr.load_proposal(pid)["request"]
-        askmod.resolve(rid, "approve", notify=False)
+        _set_request_state(con, rid, "done", "approve")  # answered, apply not yet run
         w = waits("proposal")
         check("hr wait: approved but not applied it stays, no longer red",
               len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))

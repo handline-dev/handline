@@ -181,7 +181,7 @@ def propose(kind: str, name: str, requester: str, why: str,
     prop["request"] = rid
     save(prop)
     return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
-                  f"founder answers it; then `ocp hr apply {prop['id']}`.")
+                  f"founder answers it; an approve is applied then, and you are told how it went.")
 
 
 def enact(kind: str, name: str, why: str,
@@ -331,7 +331,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             return False, said
         prop["state"] = "applied"
         prop["applied"] = int(time.time())
-        prop["verdict"] = verdict
+        prop["verdict"] = textsafe.oneline(verdict or "")
         save(prop)
         return True, said
     finally:
@@ -412,10 +412,17 @@ def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
             con.close()
 
 
+def open_proposal_of(rid: int) -> str | None:
+    """The id of the proposal still waiting on approve or reject whose escalation is request `rid`."""
+    for p in listing():
+        if p.get("state") == "proposed" and int(p.get("request") or 0) == rid:
+            return p["id"]
+    return None
+
+
 def is_open_proposal(rid: int) -> bool:
     """Is request `rid` the escalation of a proposal still waiting on approve or reject?"""
-    return any(p.get("state") == "proposed" and int(p.get("request") or 0) == rid
-               for p in listing())
+    return open_proposal_of(rid) is not None
 
 
 def _add(prop: dict, con) -> tuple[bool, str]:

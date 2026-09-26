@@ -701,6 +701,8 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
+        from . import hr
+        pid = hr.open_proposal_of(rid) if row["state"] == "queued" else None
         if open_tasks is not None:
             con.execute("BEGIN IMMEDIATE")
         try:
@@ -728,6 +730,26 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
                 # here.
                 return False, f"#{rid} was not resolved - it is still queued"
             return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
-        return True, _after_close(con, rid, row, state, notify)
+        applied = _apply_approved(con, row, pid, verdict) if pid else ""
+        return True, (applied + "\n" if applied else "") + _after_close(con, rid, row, state, notify)
     finally:
         con.close()
+
+
+def _apply_approved(con, row, pid: str, verdict: str | None) -> str:
+    """The founder approved roster proposal `pid`: carry it out now, and put
+    the outcome on the answer the proposer is about to be told. A failed apply
+    is also reported to the founder; the proposal stays `proposed` so
+    `ocp hr apply` or `ocp hr withdraw` can still settle it."""
+    from . import hr
+
+    if hr.decision(verdict) != "approved":
+        return ""
+    ok, said = hr.apply(pid, con)
+    line = f"proposal {pid} " + ("applied: " if ok else "could not be applied: ") + said
+    db.append_verdict(con, row["id"], line)
+    if not ok:
+        report(con, row["requester"], f"{line}\nThe proposal is still open; "
+               f"`ocp hr apply {pid}` retries it, `ocp hr withdraw {pid}` drops it.",
+               "roster proposal approved, apply failed")
+    return line

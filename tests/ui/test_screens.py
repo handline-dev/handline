@@ -966,7 +966,7 @@ edges:
         check("answer: an open proposal refuses a non-decision",
               "approve" in actions.answer(con, rid3, "later")
               and db.get_request(con, rid3)["state"] == "queued")
-        actions.answer(con, rid3, "approve")
+        support._set_request_state(con, rid3, "done", "approve")  # answered, apply not yet run
         ok, said = hr.withdraw(pid3, actions.HUMAN)
         check("withdraw: an approved proposal is not withdrawn - the founder answered first",
               not ok and "already answered" in said and "apply" in said, said)
