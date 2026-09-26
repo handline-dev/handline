@@ -56,9 +56,12 @@ def _entry(namespace: str, name: str) -> Path:
 
 
 def get(namespace: str, name: str) -> str | None:
+    """The entry, or None when there is none - or when the store cannot be read at
+    all, which is what an agent's sandbox says (EPERM, not "no such file"): to
+    that session nothing is on record, the answer that grants nothing."""
     try:
         return _entry(namespace, name).read_text()
-    except (FileNotFoundError, NotADirectoryError):
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
         return None
 
 
