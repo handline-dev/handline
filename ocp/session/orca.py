@@ -854,14 +854,17 @@ def confirmation_on_screen(handle: str):
     return None if dialog is None else _driver_for(handle).confirmation(dialog)
 
 
-def answer_confirmation(handle: str, yes: bool, seen: tuple[str, ...]) -> tuple[str, str, str]:
+def answer_confirmation(handle: str, yes: bool, seen: tuple[str, ...],
+                        same_wait=lambda: True) -> tuple[str, str, str]:
     """Send a person's Yes or No to the permission prompt on this terminal;
     (outcome, title, why) as `decline_dialog`.
 
     Pressed only when the screen just read is a recognized prompt whose lines
-    are exactly `seen`, the lines the person answered: a prompt that changed
-    since is not the one they said yes to. The key is the number of the plain
-    Yes or of the No - never "don't ask again" - through `answer_dialog`."""
+    are exactly `seen`, the lines the person answered, and `same_wait()` - asked
+    at that same moment - says it is still the very prompt they were shown:
+    identical words are not identity, a second prompt for a repeat command
+    reads the same as the first. The key is the number of the plain Yes or of
+    the No - never "don't ask again" - through `answer_dialog`."""
     driver = _driver_for(handle)
     refused: list[str] = []
 
@@ -869,7 +872,7 @@ def answer_confirmation(handle: str, yes: bool, seen: tuple[str, ...]) -> tuple[
         found = driver.confirmation(dialog)
         if found is None:
             refused.append("the screen is not a permission prompt ocp recognizes")
-        elif found.lines != tuple(seen):
+        elif found.lines != tuple(seen) or not same_wait():
             refused.append("the prompt is not the one that was answered")
         else:
             return found.yes if yes else found.no

@@ -68,7 +68,8 @@ def summary(tool_input: object) -> str:
 def reason(tool_input: object) -> str:
     """The tool call's own stated reason - a Bash call's `description` - beside the
     command it explains, or "" when the call carries none or *is* only that text."""
-    if not isinstance(tool_input, dict) or not isinstance(tool_input.get("command"), str):
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not (isinstance(command, str) and command.strip()):
         return ""
     v = tool_input.get("description")
     return "".join(c if c.isprintable() else " " for c in v)[:SHOWN_CHARS] if isinstance(v, str) else ""

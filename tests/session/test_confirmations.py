@@ -105,7 +105,7 @@ def test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(hom
     con, term = _world(home, PROMPT)
     try:
         check("pending: none without a hook record", confirmations.pending_all(con) == [])
-        waiting.note("backend", "Bash", {"command": "rm -rf build", "description": "Remove the build directory"})
+        waiting.note("backend", "Bash", {"command": "rm -rf build", "description": "Remove the build directory"}, 7)
         found = confirmations.pending_all(con)
         check("pending: listed once the hook says the agent waits",
               len(found) == 1 and found[0]["agent"] == "backend", str(found))
@@ -115,18 +115,22 @@ def test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(hom
               str(p))
         check("pending: and the panel's own lines", p["lines"] == ["rm -rf build", "Remove the build directory"]
               and p["title"] == "Bash command", str(p))
-        check("pending: reading it presses nothing", term.sent == [])
+        check("pending: reading it presses nothing, and it carries the wait record's id",
+              term.sent == [] and p["wait"] == 7, str((term.sent, p)))
         check("pending: the actions package exposes it for the UI",
               actions.pending_confirmations(con) == found and actions.pending_confirmation(con, "backend") == p)
 
-        waiting.note("backend", "Bash", {"command": "rm -rf build", "description": "something the screen lacks"})
+        waiting.note("backend", "Bash", {"command": "rm -rf build", "description": "something the screen lacks"}, 8)
         p = confirmations.pending(con, "backend")
         check("pending: a reason the screen does not carry is dropped", p["reason"] == "", str(p))
-        waiting.note("backend", "Bash", {"command": "ls"})
+        waiting.note("backend", "Bash", {"command": "ls"}, 9)
         p = confirmations.pending(con, "backend")
         check("pending: a command the screen does not carry falls back to its first line",
               p["command"] == "rm -rf build", str(p))
 
+        check("pending: a blank command has no reason to show",
+              waiting.reason({"command": "  ", "description": "why"}) == ""
+              and waiting.reason({"command": "ls", "description": "why"}) == "why")
         term.tail = list(CLEARED_SCREEN)
         check("pending: a screen with no prompt has none", confirmations.pending(con, "backend") is None)
         check("pending: and a closed terminal has none",
@@ -139,6 +143,7 @@ def test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(h
     orcamod.PRESS_SETTLE_S = 0
     con, term = _world(home, PROMPT)
     try:
+        waiting.note("backend", "Bash", {"command": "rm -rf build"}, 7)
         shown = confirmations.pending(con, "backend")
         ok, said = actions.answer_confirmation(con, "backend", True, shown)
         check("founder: Yes to the prompt they saw is sent and confirmed",
@@ -150,6 +155,25 @@ def test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(h
               not ok and not term.sent and "not the one" in said, str((ok, said, term.sent)))
         ok, said = actions.answer_confirmation(con, "backend", True, {})
         check("founder: an answer that names no prompt is refused", not ok and not term.sent, said)
+
+        # An identically worded prompt B has replaced prompt A: same words, new wait record.
+        term = _Term(PROMPT)
+        waiting.note("backend", "Bash", {"command": "rm -rf build"}, 8)
+        ok, said = actions.answer_confirmation(con, "backend", True, shown)
+        check("founder: an identical prompt for a later tool call is not the one they answered",
+              not ok and not term.sent and "not the one" in said, str((ok, said, term.sent)))
+        shown_b = confirmations.pending(con, "backend")
+        ok, said = actions.answer_confirmation(con, "backend", False, shown_b)
+        check("founder: and answering B itself, as shown, goes through",
+              ok and term.sent == [("3", False)], str((ok, said, term.sent)))
+
+        # No record to pin the prompt to: nothing is pressed.
+        term = _Term(PROMPT)
+        waiting.note("backend", "Bash", {"command": "rm -rf build"}, None)
+        unpinned = confirmations.pending(con, "backend")
+        ok, said = actions.answer_confirmation(con, "backend", True, unpinned)
+        check("founder: a prompt with no wait record to pin it to is not answered",
+              unpinned["wait"] is None and not ok and not term.sent, str((ok, said, term.sent)))
     finally:
         con.close()
 
