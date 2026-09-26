@@ -990,7 +990,7 @@ def screen_state(con, row) -> tuple[str, str]:
         return "PENDING", ""
     if state in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED):
         if detail.startswith(askmod.AWAIT_REPLY_MARK):
-            return "IDLE", _waiting_for(detail[len(askmod.AWAIT_REPLY_MARK):])[:DETAIL_CAP]
+            return "IDLE", _waiting_for(detail[len(askmod.AWAIT_REPLY_MARK):])   # a sentence, not free text: never cut
         if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
         if not row["wake_at"]:
