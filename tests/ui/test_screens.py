@@ -3044,6 +3044,10 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
               state(state=dmn_states.PARKED, wake_at=wake,
                    detail=askmod.await_reply_detail(1627, "keeper"))
               == ("IDLE", "waiting for keeper's reply (#1627)"))
+        check("map: waiting on the human's reply is not spelled out",
+              state(state=dmn_states.PARKED, wake_at=wake,
+                   detail=askmod.await_reply_detail(1628, "human"))
+              == ("IDLE", ""))
         check("map: FATAL is today's STALLED, with its own detail",
               state(state=dmn_states.STALLED, detail="ran out of attempts")
               == ("FATAL", "ran out of attempts"))

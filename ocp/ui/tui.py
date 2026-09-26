@@ -932,9 +932,12 @@ def _background_detail(con, agent: str) -> str:
 
 def _waiting_for(held: str) -> str:
     """`#1054 orcapipe.auditor` (what `ask.await_reply_detail` wrote) as a sentence:
-    `waiting for orcapipe.auditor's reply (#1054)`. Anything else is drawn as it is."""
+    `waiting for orcapipe.auditor's reply (#1054)`; nothing when it waits on the human,
+    who sees that in their own inbox. Anything else is drawn as it is."""
     rid, _, target = held.strip().partition(" ")
     if rid.startswith("#") and rid[1:].isdigit() and target.strip():
+        if target.strip() == actions.HUMAN:
+            return ""
         return oneline(f"waiting for {target.strip()}'s reply ({rid})")
     return oneline(held)
 
