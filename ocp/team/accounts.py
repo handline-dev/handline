@@ -29,9 +29,10 @@ def ensure_shared() -> None:
 
 
 def _adopt(src: Path, dest: Path) -> None:
-    """Move what a real directory holds into the shared one, so replacing it
-    with the link loses nothing. Claude writes there (`skills/synced`) before
-    the link exists. Where both have the same name, shared wins."""
+    """Move what a real directory holds into the shared one before it is
+    replaced by the link. Claude writes there (`skills/synced`) when it runs
+    before `register` does. A file both have is not overwritten: shared's copy
+    stays and the account's is dropped with the directory."""
     for child in src.iterdir():
         if not (dest / child.name).exists():
             shutil.move(str(child), str(dest / child.name))

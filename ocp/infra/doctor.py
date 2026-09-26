@@ -443,9 +443,9 @@ def _check_shared_links(r: Report) -> None:
         r.add(OK, "shared files reach every account")
         return
     r.add(WARN, "shared files that do not reach an account",
-          ", ".join(f"{a}: {i}" for a, i in bad),
-          "ocp account register --force <account> links it and keeps what the "
-          "real directory held")
+          ", ".join(f"{a}: {i}" for a, i in bad)
+          + " - `ocp account register --force <account>` links it and keeps "
+          "what a real directory held")
 
 
 def _check_one_daemon(r: Report) -> None:
