@@ -881,14 +881,14 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
     check("outlook: no samples, no points", not flat.past and not flat.future and flat.accounts == 0)
 
 
-def test_the_overlay_stacks_what_the_agent_ate_on_the_headroom_and_shares_add_up() -> None:
+def test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up() -> None:
     from ocp.ui.components.outlook_view import chart
     from ocp.usage.outlook import Outlook
     o = Outlook(past=[(0, 50.0), (1, 50.0)], future=[(2, 50.0)], accounts=1)
     plain = chart(o, 30, 8, "24h")
     over = chart(o, 30, 8, "24h", [20.0, 20.0])
     check("overlay: without it there is no magenta", not any("magenta" in str(sp.style) for sp in plain.spans))
-    check("overlay: with it the agent's part is drawn in magenta above the headroom",
+    check("overlay: with it the agent's part is drawn in magenta in front of the headroom",
           any("magenta" in str(sp.style) for sp in over.spans))
     _home("agentseries")
     con = db.connect()
@@ -2312,7 +2312,7 @@ async def _run_all() -> None:
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
     test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
-    test_the_overlay_stacks_what_the_agent_ate_on_the_headroom_and_shares_add_up()
+    test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
     await test_stats_screen_draws_the_weekly_graph()
     await test_the_key_guide_stays_on_screen_when_the_table_is_long()

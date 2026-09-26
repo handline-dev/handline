@@ -34,22 +34,23 @@ HEIGHT = 12
 def _grid(vals: list[float | None], fut: list[bool], over: list[float], ylabels: tuple[str, str, str],
           height: int, axis: str) -> Text:
     """Rows of eighth-blocks, one column per value (0 to 100), `ylabels` (top, middle, zero) at the
-    left, and the `axis` line below; a value in the guess has its own colour. `over` is stacked on
-    top of each value in magenta: what the picked agent ate."""
+    left, and the `axis` line below; a value in the guess has its own colour. `over` is drawn in
+    front, from the bottom, in magenta: what the picked agent ate, with the headroom behind it."""
     out = Text()
     for row in range(height - 1, -1, -1):
         label = {height - 1: ylabels[0], (height - 1) // 2: ylabels[1], 0: ylabels[2]}.get(row, "")
         out.append(label.rjust(AXIS_W - 1)[-(AXIS_W - 1):] + "│", style="dim")
         for v, f, o in zip(vals, fut, over):
             base = 0 if v is None else round(v / 100 * height * 8) - row * 8
-            top = 0 if v is None else round(min(100.0, v + o) / 100 * height * 8) - row * 8
+            mine = round(o / 100 * height * 8) if o > 0 else 0
+            mine = max(1, mine) - row * 8 if o > 0 and v is not None else 0
             colour = "yellow" if f else "cyan"
-            if base >= 8 or (base <= 0 and top <= 0):
-                out.append(BLOCKS[max(0, min(8, base))], style=colour)
-            elif base > 0:
-                out.append(BLOCKS[base], style=f"{colour} on magenta" if top >= 8 else colour)
+            if mine >= 8:
+                out.append("█", style="magenta")
+            elif mine > 0:
+                out.append(BLOCKS[mine], style="magenta on " + colour if base >= 8 else "magenta")
             else:
-                out.append(BLOCKS[max(0, min(8, top))], style="magenta")
+                out.append(BLOCKS[max(0, min(8, base))], style=colour)
         out.append("\n")
     out.append(" " * (AXIS_W - 1) + "└" + axis, style="dim")
     return out
@@ -171,8 +172,8 @@ class OutlookView(Vertical):
             chart(o, width, height, self.range, self.over if self.picked else None) if width > 0 else Text(""))
         self.query_one("#outlook_note", Static).update(
             "cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
-            "week resets what it had used comes back. Enter or a click on an agent overlays what it ate (magenta), "
-            "again to remove. ~ week % is an estimate: the agent's cost share of each account times the points "
+            "week resets what it had used comes back. Enter or a click on an agent draws what it ate (magenta, in "
+            "front of the headroom), again to remove. ~ week % is an estimate: the agent's cost share of each account times the points "
             "of the week that account used in the range, averaged over the accounts")
 
     def _picked_pct(self) -> str:
