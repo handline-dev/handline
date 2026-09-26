@@ -968,9 +968,10 @@ class ChatPage(Screen):
     def _status(self) -> Text:
         """The line under the box: what the next message will be, and to whom."""
         reply = self.replying
+        word, detail = self.agent_state
         return Text.assemble(
             ("Reply" if reply else "Chat", "bold blue"), (" · ", "dim"), self.agent, "  ",
-            agent_badge(*self.agent_state),
+            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the wait note above the queue line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
             (f"   {safe(reply.m['who'])}: {safe(reply.m['text'])[:40]}" if reply else "", "dim"),

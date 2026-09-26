@@ -1892,6 +1892,20 @@ def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
                        ("not cancelled - gone", "error"), ("cancelled", "information")], str(s.toasts))
 
 
+def test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on() -> None:
+    from ocp.ui import chat_page as cp
+
+    class Stub:
+        replying, agent, sending, _frame = None, "x", 0, 0
+        SPINNER = "-"
+    s = Stub()
+    s.agent_state = ("IDLE", "waiting for y's reply (#1)")
+    waiting = cp.ChatPage._status(s).plain
+    s.agent_state = ("IDLE", "10:30")
+    check("chat: the wait is not in the status line, other details still are",
+          "waiting for" not in waiting and "10:30" in cp.ChatPage._status(s).plain, waiting)
+
+
 def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
     from ocp.team import ask as askmod
     _home("qwhy")
@@ -2807,6 +2821,7 @@ async def _run_all() -> None:
     await test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone()
     await test_merge_lands_in_the_task_the_confirm_named_after_a_reorder()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
+    test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()
