@@ -12,6 +12,17 @@ from typing import Protocol
 
 
 @dataclass(frozen=True)
+class Confirmation:
+    """A permission prompt read off a vendor's screen, in the one shape the rest
+    of ocp sees: what the tool call is (`title`, `lines` verbatim from the
+    panel) and the option numbers that say a plain one-time yes and no."""
+    title: str
+    lines: tuple[str, ...]
+    yes: int
+    no: int
+
+
+@dataclass(frozen=True)
 class Window:
     """One usage window the vendor reports, named by its length and nothing else:
     ocp finds the shortest and the longest and never asks what they are called.
@@ -252,6 +263,11 @@ class Driver(Protocol):
         writes the vendor's settings) and never for a dialog that is anything
         else: no key, and the reason. A vendor with no such dialog returns no
         key."""
+
+    def confirmation(self, dialog) -> Confirmation | None:
+        """This vendor's one-time permission prompt, when `dialog` is exactly
+        that: a `Confirmation`. None for anything else, and for a vendor with no
+        such prompt. Only ever answered by a person (`orca.answer_confirmation`)."""
 
     def credential_present(self, config_dir: Path) -> bool | None:
         """Whether a credential exists. Never reads or returns it. None when

@@ -65,6 +65,16 @@ def summary(tool_input: object) -> str:
     return "".join(c if c.isprintable() else " " for c in text)[:SHOWN_CHARS]
 
 
+def reason(tool_input: object) -> str:
+    """The tool call's own stated reason - a Bash call's `description` - beside the
+    command it explains, or "" when the call carries none or *is* only that text."""
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not (isinstance(command, str) and command.strip()):
+        return ""
+    v = tool_input.get("description")
+    return "".join(c if c.isprintable() else " " for c in v)[:SHOWN_CHARS] if isinstance(v, str) else ""
+
+
 def note(agent: str, tool: str | None, tool_input: object,
          after_event_id: int | None = None) -> None:
     """The agent is at a permission prompt for this tool call.
@@ -77,7 +87,7 @@ def note(agent: str, tool: str | None, tool_input: object,
     f = _file(agent)
     f.parent.mkdir(parents=True, exist_ok=True)
     atomic.write_text(f, json.dumps({"tool": tool or "", "command": summary(tool_input),
-                                     "since": int(time.time()), "after_event_id": after_event_id}))
+                                     "reason": reason(tool_input), "since": int(time.time()), "after_event_id": after_event_id}))
 
 
 def read(agent: str) -> dict | None:

@@ -155,6 +155,10 @@ class Claude:
         from ..session import orca  # late: orca looks drivers up
         return _accepting_key(orca, dialog, tool)
 
+    def confirmation(self, dialog):
+        from . import claude_confirm
+        return claude_confirm.recognize(dialog)
+
     def credential_present(self, config_dir: Path) -> bool | None:
         """Never reads the secret: `security find-generic-password` is called without
         -w, so it reports the item's presence and nothing else.
