@@ -2184,6 +2184,10 @@ async def test_a_dialog_on_an_agent_terminal_is_answered_from_its_page() -> None
                   ok and pressed == [("term_d", 2)] and rules.rules == [
                       {"vendor": "claude", "title": dialog.title, "label": "Yes, and don't ask again"}], str((said, rules.rules)))
             screen["folder"] = str(home)
+            with mock.patch.object(orcamod, "screen_text", lambda h: "old\n" + "\u2500" * 20 + "\n Accessing workspace:\n\n /x/y\n\n \u276f No, exit\n   Yes, I trust this folder\n\n Enter to confirm \u00b7 Esc to cancel"):
+                check("dialog: the trust screen's own words ride along, without its two choices or key hint",
+                      actions.dialog_of(con, "reviewer")["body"] == ["Accessing workspace:", "/x/y"],
+                      str(actions.dialog_of(con, "reviewer")["body"]))
             ok, said = actions.answer_dialog(con, "reviewer", f"Trust {home}?", 1, always=True)
             check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
                   ok and trust.is_declared(home) and len(rules.rules) == 1, said)

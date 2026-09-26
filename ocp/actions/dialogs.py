@@ -38,7 +38,7 @@ def dialog_of(con, agent: str) -> dict | None:
     folder = orca.trust_prompt_folder(handle)
     if folder:
         return {"agent": agent, "vendor": vendor, "kind": TRUST, "title": f"Trust {textsafe.oneline(folder)}?",
-                "options": [(1, TRUST_LABEL)], "folder": textsafe.oneline(folder), "body": []}
+                "options": [(1, TRUST_LABEL)], "folder": textsafe.oneline(folder), "body": _trust_text(handle)}
     dialog = orca.dialog_on_screen(handle)
     if dialog is None:
         return None
@@ -46,6 +46,20 @@ def dialog_of(con, agent: str) -> dict | None:
             "options": list(dialog.options), "folder": "", "body": _context(dialog)}
 
 
+def _trust_text(handle: str) -> list[str]:
+    """The trust screen's own words, under its last rule line and without its two choices or its key hint (the
+    modal's button is the trust one; declining is left to the terminal)."""
+    text = orca.screen_text(handle)
+    if text is None:
+        return []
+    lines = text.split("\n")
+    rules = [i for i, l in enumerate(lines) if l.strip() and set(l.strip()) <= {"\u2500"}]
+    keep = lines[rules[-1] + 1:] if rules else lines
+    return [textsafe.oneline(l).strip() for l in keep if l.strip()
+            and l.strip().lstrip("\u276f ") not in _TRUST_CHOICES and not l.strip().startswith("Enter to confirm")]
+
+
+_TRUST_CHOICES = {"No, exit", "Yes, I trust this folder"}
 _NUMBERED = re.compile(r"^(?:\u276f\s*)?\d+\.\s")
 
 
