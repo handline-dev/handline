@@ -1860,9 +1860,9 @@ def test_agent_rows_short_model_cache_and_founder_block() -> None:
               ar.cache_left(con, "nobody", now=last + dmn_states.PROMPT_CACHE_S + 5) == -5)
 
         cell = lambda left: _plain(ar.cache_cell(left))
-        check("agent_rows: the cache cell is minutes, then m:ss in the last ten, then gone",
+        check("agent_rows: the cache cell is minutes, then m:ss in the last ten, then a dash",
               cell(3480) == "58m" and cell(600) == "10m" and cell(599) == "9:59"
-              and cell(65) == "1:05" and cell(0) == "gone" and cell(-30) == "gone" and cell(None) == "·")
+              and cell(65) == "1:05" and cell(0) == "-" and cell(-30) == "-" and cell(None) == "-")
         check("agent_rows: an agent that ignores cache expiry shows that, not a countdown",
               _plain(ar.cache_cell(3480, True)) == "ignored" and _plain(ar.cache_cell(-30, True)) == "ignored")
         check("agent_rows: the last ten minutes are yellow, the rest plain",
@@ -1993,45 +1993,23 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         con.close()
 
 
-def test_summary_line_and_tightest_account() -> None:
-    from types import SimpleNamespace
-    from unittest import mock
-    from ocp.usage import status
+def test_summary_line() -> None:
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
     check("summary: the daemon word comes first, and a quiet team says only that",
-          text(True, sm.Summary(0, 0, 0, None)) == "daemon running · 12:00:00")
-    check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0, None)))
+          text(True, sm.Summary(0, 0, 0)) == "daemon running · 12:00:00")
+    check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0)))
     check("summary: working, to decide and to check follow, in that order, each only when not zero",
-          text(True, sm.Summary(1, 2, 3, None)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
-          and "working" not in text(True, sm.Summary(0, 2, 0, None)))
-    check("summary: the tight account is named with its window and figure",
-          text(True, sm.Summary(0, 0, 0, ("sigma", "5h", 87))) == "daemon running · sigma 5h 87% · 12:00:00")
-    check("summary: past LIMIT_PCT it is bold red, below it yellow",
-          sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.LIMIT_PCT))).spans[-2].style == "bold red"
-          and sm.summary_text(True, "t", sm.Summary(0, 0, 0, ("a", "5h", sm.TIGHT_PCT))).spans[-2].style == "yellow")
-
-    reads = {"a": SimpleNamespace(short_trusted=50, long_trusted=81, short=status.Window(300), long=status.Window(10080)),
-             "b": SimpleNamespace(short_trusted=92, long_trusted=None, short=status.Window(300), long=status.Window(10080)),
-             "c": SimpleNamespace(short_trusted=None, long_trusted=None, short=status.Window(300), long=status.Window(10080))}
-    with mock.patch.object(sm.paths, "list_accounts", lambda: list(reads)), \
-            mock.patch.object(sm.status, "read", lambda n: reads[n]):
-        check("summary: tightest is the fullest window at TIGHT_PCT or more",
-              sm.tightest() == ("b", "5h", 92), sm.tightest())
-        reads["b"].short_trusted = 79
-        check("summary: the other window of another account can be the one",
-              sm.tightest() == ("a", "7d", 81), sm.tightest())
-        reads["a"].long_trusted = 79
-        check("summary: nothing at TIGHT_PCT, and an unreadable figure, is None", sm.tightest() is None)
+          text(True, sm.Summary(1, 2, 3)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
+          and "working" not in text(True, sm.Summary(0, 2, 0)))
 
     _home("summarize")
     con = db.connect()
     try:
-        with mock.patch.object(sm, "tightest", lambda: None):
-            check("summary: nothing running or waiting counts zero",
-                  sm.summarize(con) == sm.Summary(0, 0, 0, None), sm.summarize(con))
-            db.set_agent_state(con, "backend", "RUNNING")
-            check("summary: a running agent counts", sm.summarize(con).running == 1)
+        check("summary: nothing running or waiting counts zero",
+              sm.summarize(con) == sm.Summary(0, 0, 0), sm.summarize(con))
+        db.set_agent_state(con, "backend", "RUNNING")
+        check("summary: a running agent counts", sm.summarize(con).running == 1)
     finally:
         con.close()
 
@@ -2425,7 +2403,7 @@ async def _run_all() -> None:
     test_fold_urgency_ranks_what_a_fold_hides()
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
-    test_summary_line_and_tightest_account()
+    test_summary_line()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
     await test_home_tab_bar_focus_mouse_and_columns()

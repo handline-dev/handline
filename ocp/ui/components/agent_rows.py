@@ -44,15 +44,15 @@ def cache_left(con, agent: str, now: int | None = None) -> int | None:
 
 
 def cache_cell(left: int | None, ignored: bool = False) -> str:
-    """ANSI: `58m`, then `m:ss` in the last ten minutes, yellow from there; `gone` once
-    the cache has lapsed, `·` with nothing to measure from; `ignored` when the agent
+    """ANSI: `58m`, then `m:ss` in the last ten minutes, yellow from there; `-` once
+    the cache has lapsed or with nothing to measure from; `ignored` when the agent
     resumes its session whatever the cache did."""
     if ignored:
         return f"{tui.DIM}ignored{tui.R}"
     if left is None:
-        return f"{tui.DIM}·{tui.R}"
+        return f"{tui.DIM}-{tui.R}"
     if left <= 0:
-        return f"{tui.DIM}gone{tui.R}"
+        return f"{tui.DIM}-{tui.R}"
     if left >= 600:
         return f"{left // 60}m"
     return f"{tui.YEL}{left // 60}:{left % 60:02d}{tui.R}"
