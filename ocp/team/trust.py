@@ -58,12 +58,20 @@ def migrate_legacy() -> str | None:
     except PermissionError:
         return None
     old.unlink(missing_ok=True)
-    return f"moved {len(rows)} declared root(s) out of {old} into the protected store"
+    listed = "".join(f"\n  {r.get('root')}  ({r.get('added_by', '?')}: {r.get('why', '')})"
+                     for r in rows if isinstance(r, dict))
+    return (f"moved {len(rows)} declared root(s) out of {old} into the protected store - "
+            f"check they are all yours:{listed}")
 
 
 def list_roots() -> list[dict]:
     """Every declared root, as {root, why, added_by, added_at}."""
     migrate_legacy()
+    return stored_roots()
+
+
+def stored_roots() -> list[dict]:
+    """The roots in the protected store as they are, without moving anything."""
     raw = protected.get(_NS, _ROOTS)
     if raw is None:
         return []
@@ -178,6 +186,21 @@ def _escalation(prop: dict) -> str:
             f"Answer `approve` or `reject` (proposal {prop['id']}).")
 
 
+def subject_of(prop: dict) -> str:
+    """What the founder is deciding on: the root as it will be matched."""
+    return _resolved(prop.get("root")) or str(prop.get("root"))
+
+
+def answered(prop: dict, row) -> tuple[str | None, str | None]:
+    """(subject, refusal) for the answer given on `row`: the root the founder
+    was shown, read off the escalation itself - not the draft, which an agent
+    can edit - so apply can tell whether the draft still names it."""
+    read = _root_read(row["body"], row["requester"])
+    if read is None:
+        return None, f"#{row['id']} does not name the root it asked the founder to approve"
+    return _resolved(read) or read, None
+
+
 def enact(root: str, why: str) -> tuple[bool, str]:
     """The founder adding a root directly. No proposal to approve."""
     resolved = _resolved(root) or str(Path(root).expanduser())
@@ -212,7 +235,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         verdict = row["verdict"]
         call = hr.decision(verdict)
         if call in ("approved", "rejected"):
-            why_not = decisions.refusal("trust", pid, row["id"])
+            why_not = decisions.refusal("trust", pid, row["id"], subject_of(prop))
             if why_not or decisions.get("trust", pid)["call"] != call:
                 return False, why_not or (f"the founder's recorded answer for proposal {pid} "
                                           f"does not match #{row['id']}'s verdict")

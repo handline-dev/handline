@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .. import db
 from ..infra import atomic, paths
+from ..infra.yamlcompat import ConfigError
 from . import team
 from ..infra import timefmt
 
@@ -751,7 +752,18 @@ def _apply_answered(con, row, mod, pid: str, verdict: str | None) -> str:
     kind = "trust" if mod is trust else "hr"
     if call in ("approved", "rejected"):
         try:
-            decisions.record(kind, pid, row["id"], call)
+            prop = mod.load_proposal(pid)
+        except (OSError, ConfigError, UnicodeDecodeError) as e:
+            return f"proposal {pid} cannot be read: {e}"
+        if not prop:
+            return f"no proposal {pid}"
+        subject = mod.subject_of(prop)
+        if call == "approved":
+            subject, why_not = mod.answered(prop, row)
+            if why_not:
+                return f"proposal {pid} was not applied: {why_not}"
+        try:
+            decisions.record(kind, pid, row["id"], call, subject)
         except PermissionError as e:
             return f"proposal {pid} was not applied: {e}"
     if call == "rejected":

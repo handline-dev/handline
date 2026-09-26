@@ -142,7 +142,7 @@ def test_trust_roots(home: Path) -> None:
     askmod.resolve(widened["request"], "approve")
     ok, msg = trustmod.apply(pid5)
     check("trust: apply refuses a proposal edited to a parent of what was approved",
-          not ok and "does not match" in msg, msg)
+          not ok and "changed after the founder answered" in msg, msg)
     check("trust: and neither the parent nor the child is declared from it",
           not trustmod.is_declared(home / "repos" / "fifth")
           and not trustmod.is_declared(home / "repos" / "fifth" / "deep"))
@@ -175,8 +175,14 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
         os.environ.pop("OCP_AGENT", None)
     check("migrate: doctor says it is not moved yet",
           any("not moved yet" in n for _l, n, _d in _doctor_rows()), str(_doctor_rows()))
-    check("migrate: the founder's first read moves it, and the roots are there",
+    said = trustmod.migrate_legacy()
+    check("migrate: the founder moves it, and is shown each root to check",
+          said and "check they are all yours" in said and str(home / "repos") in said, str(said))
+    check("migrate: and the roots are there",
           [r["why"] for r in trustmod.list_roots()] == ["old"] and not legacy.exists())
+    check("migrate: doctor lists the declared roots, so they can be checked at any time",
+          any(n == "declared trust roots: 1" and str(home / "repos") in d
+              for _l, n, d in _doctor_rows()), str(_doctor_rows()))
     check("migrate: once - the roots are in the protected store",
           protected.get("trust", "roots.json") is not None)
     legacy.write_text(json.dumps([{"root": "/etc", "why": "planted", "added_by": "human"}]))
@@ -215,8 +221,55 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
           and decisions.get("trust", third["id"])["call"] == "approved", msg)
     check("answers: the record names the request", decisions.get("trust", third["id"])["request"]
           == third["request"])
-    other = decisions.refusal("trust", third["id"], third["request"] + 1)
+    check("answers: and the root the founder was shown",
+          decisions.get("trust", third["id"])["subject"] == trustmod._resolved(third["root"]))
+    check("answers: a draft edited afterwards is no longer what was approved",
+          decisions.refusal("trust", third["id"], third["request"], str(home / "elsewhere"))
+          is not None)
+    other = decisions.refusal("trust", third["id"], third["request"] + 1, third["root"])
     check("answers: a record for another request is no answer", other is not None, str(other))
+
+    # T182: the answer is for the root the founder was shown. An agent that
+    # rewrites both the draft and the request body afterwards changes neither.
+    ok, msg = trustmod.propose(str(home / "fourth"), "and this", requester="backend")
+    fourth = [p for p in trustmod.listing() if p["root"].endswith("fourth")][0]
+    con = db.connect()
+    try:
+        subject, why = trustmod.answered(fourth, db.get_request(con, fourth["request"]))
+        decisions.record("trust", fourth["id"], fourth["request"], "approved", subject)
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
+                    (fourth["request"],))
+        body = db.get_request(con, fourth["request"])["body"].replace(
+            str(home / "fourth"), str(home / "repos"))
+        con.execute("UPDATE requests SET body = ? WHERE id = ?", (body, fourth["request"]))
+        forged = dict(fourth, root=str(home / "repos"))
+        trustmod._save_proposal(forged)
+        ok, msg = trustmod.apply(fourth["id"], con)
+        check("bind: rewriting the draft and the request body afterwards is refused",
+              not ok and "changed after the founder answered" in msg, msg)
+    finally:
+        con.close()
+
+    ok, msg = trustmod.propose(str(home / "sixth"), "and this", requester="backend")
+    sixth = [p for p in trustmod.listing() if p["root"].endswith("sixth")][0]
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET body = ? WHERE id = ?",
+                    ("[trust] something else entirely", sixth["request"]))
+    finally:
+        con.close()
+    ok, msg = askmod.resolve(sixth["request"], "approve")
+    check("bind: an escalation that names no root approves nothing",
+          "does not name the root" in msg and not trustmod.is_declared(home / "sixth")
+          and decisions.get("trust", sixth["id"]) is None, msg)
+
+    ok, msg = trustmod.propose(str(home / "seventh"), "and this", requester="backend")
+    seventh = [p for p in trustmod.listing() if p["root"].endswith("seventh")][0]
+    edited = dict(seventh, root=str(home / "elsewhere"))
+    trustmod._save_proposal(edited)
+    ok, msg = askmod.resolve(seventh["request"], "reject - no")
+    check("bind: a reject settles it whatever the draft says",
+          trustmod.load_proposal(seventh["id"])["state"] == "rejected", msg)
 
     from ocp.infra import backup
     snap = backup.snapshot(home, home.parent / (home.name + "-bk"))

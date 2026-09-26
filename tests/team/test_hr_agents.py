@@ -1885,7 +1885,7 @@ deny:
         ok, said = hr.apply(pid, con)
         check("link: a verdict written into the db alone, with no recorded answer, applies nothing",
               not ok and "no answer from the founder is on record" in said, said)
-        decisions.record("hr", pid, prop["request"], "approved")
+        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid, con)
         check("link: apply after approval adds the edge",
               ok and team.Team.load().route("marina", "keeper").allowed, said)
@@ -1948,12 +1948,95 @@ edges:
               "vendor opencode" in req["body"], req["body"])
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
                    (prop["request"],))
-        decisions.record("hr", pid, prop["request"], "approved")
+        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid, con)
         check("hr add: applying an approved proposal succeeds", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
         check("hr add: apply writes the vendor the proposal recorded",
               cfg.get("vendor") == "opencode", str(cfg))
+
+        # T182: the founder's answer is for the draft as they were shown it.
+        # An approve whose first apply did not go through leaves the proposal
+        # open, and a draft an agent edits before the retry is not what was
+        # approved.
+        ok, said = hr.propose("add", "glm3", requester="marina", why="w", vendor="opencode")
+        pid3 = said.split()[1]
+        rid3 = hr.load_proposal(pid3)["request"]
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (rid3,))
+        subject, _why = hr.answered(hr.load_proposal(pid3), db.get_request(con, rid3))
+        decisions.record("hr", pid3, rid3, "approved", subject)
+        edited = hr.load_proposal(pid3)
+        edited["repo"] = "/somewhere/else"
+        hr.save(edited)
+        ok, said = hr.apply(pid3, con)
+        check("hr bind: a draft edited after the answer is refused, not applied",
+              not ok and "changed after the founder answered" in said, said)
+        edited["repo"] = None
+        edited.pop("repo")
+        hr.save(edited)
+        ok, said = hr.apply(pid3, con)
+        check("hr bind: put back as approved, it gets past the answer check to its own",
+              "changed after" not in said, said)
+    finally:
+        con.close()
+
+
+def test_an_answer_binds_the_escalation_the_founder_read(home: Path) -> None:
+    """T182 (auditor #1043): through the founder's own resolve, a draft edited
+    before the answer is not approved unseen, a reject settles whatever the
+    draft says, and an unlink's live caveat is not part of the comparison."""
+    use_home(home)
+    (home / "team.yaml").write_text("""
+agents:
+  marina: {}
+  keeper: {}
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "marina", to: "keeper", relation: peer, response: async }
+""")
+    for n in ("marina", "keeper"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        def raise_add(name, **kw):
+            ok, said = hr.propose("add", name, requester="marina", why="w", **kw)
+            return said.split()[1]
+
+        pid = raise_add("x1", repo="/repoA")
+        prop = hr.load_proposal(pid)
+        prop["repo"] = "/elsewhere"
+        hr.save(prop)
+        ok, said = askmod.resolve(prop["request"], "approve")
+        check("bind: a field edited before the answer is not approved unseen",
+              "not applied" in said and "raise it again" in said
+              and decisions.get("hr", pid) is None and "x1" not in paths.list_agents(), said)
+
+        pid = raise_add("x2")
+        prop = hr.load_proposal(pid)
+        prop["agent"] = "x2renamed"
+        hr.save(prop)
+        ok, said = askmod.resolve(prop["request"], "approve")
+        check("bind: nor the agent it is about",
+              "not applied" in said and "x2renamed" not in paths.list_agents(), said)
+
+        pid = raise_add("x3", repo="/repoA")
+        prop = hr.load_proposal(pid)
+        prop["repo"] = "/elsewhere"
+        hr.save(prop)
+        ok, said = askmod.resolve(prop["request"], "reject - no")
+        check("bind: a reject settles it whatever the draft says",
+              hr.load_proposal(pid)["state"] == "rejected"
+              and decisions.get("hr", pid)["call"] == "rejected", said)
+
+        ok, said = hr.propose("unlink", "marina", requester="marina", to="keeper", why="w")
+        upid = said.split()[1]
+        uprop = hr.load_proposal(upid)
+        row = db.get_request(con, uprop["request"])
+        live = row["body"].replace("stay queued.", "stay queued. (a caveat that reads live)", 1)
+        con.execute("UPDATE requests SET body = ? WHERE id = ?", (live, uprop["request"]))
+        subject, why = hr.answered(uprop, db.get_request(con, uprop["request"]))
+        check("bind: an unlink's live caveat is left out of the comparison",
+              subject is not None and why is None, str(why))
     finally:
         con.close()
 
@@ -2542,6 +2625,7 @@ def main() -> int:
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
+        run(lambda: test_an_answer_binds_the_escalation_the_founder_read(Path(td) / 'hrbind'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
         run(lambda: test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(
