@@ -1883,6 +1883,10 @@ deny:
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
                     (prop["request"],))
         ok, said = hr.apply(pid, con)
+        check("link: a verdict written into the db alone, with no recorded answer, applies nothing",
+              not ok and "no answer from the founder is on record" in said, said)
+        decisions.record("hr", pid, prop["request"], "approved")
+        ok, said = hr.apply(pid, con)
         check("link: apply after approval adds the edge",
               ok and team.Team.load().route("marina", "keeper").allowed, said)
 
@@ -1944,6 +1948,7 @@ edges:
               "vendor opencode" in req["body"], req["body"])
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
                    (prop["request"],))
+        decisions.record("hr", pid, prop["request"], "approved")
         ok, said = hr.apply(pid, con)
         check("hr add: applying an approved proposal succeeds", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())

@@ -51,7 +51,7 @@ atexit.register(shutil.rmtree, TEST_ROOT, True)
 
 from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
                      health as clihealth, setup as clisetup, task as clitask)
-from ocp.team import accounts, agents, ask as askmod, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
+from ocp.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from ocp import actions, cli as climod, db, vendors  # noqa: E402
 from ocp.session import blocked as blockedmod, digest, drift, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
 from ocp.vendors import claude_meter as claudemeter  # noqa: E402
@@ -1907,6 +1907,7 @@ __all__ = [
     'dmn_usage_poll',
     'db',
     'hr',
+    'decisions',
     'digest',
     'doctor',
     'drift',

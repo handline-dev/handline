@@ -2631,6 +2631,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust remove": "driven in test_ocp_trust_cli_is_wired",
         "trust proposals": "lists proposal files; prints their ids",
         "trust apply": "founder-only; applies a proposal and prints its id",
+        "trust migrate": "founder-only; moves the old trust_roots.json once - driven in "
+                         "test_trust_roots_live_in_the_protected_store",
         "venv install": "creates a real venv and pip installs into it",
     }
     have = set(driven_now := scene.driven) | set(skipped)

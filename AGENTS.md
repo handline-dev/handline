@@ -45,8 +45,11 @@ Easy to get wrong:
 - Triggers are level triggers: an edge trigger misses a crossing that happened
   while the daemon was down.
 - Everything under `~/.orcapipe` is writable by every agent, so it cannot prove
-  the founder asked for something. What only the founder may grant (today: an
-  agent's `skip_permissions`) is kept in `ocp/infra/protected.py`, outside it.
+  the founder asked for something. What only the founder may grant (an agent's
+  `skip_permissions`, the declared trust roots, the founder's answer to a roster
+  or trust proposal) is kept in `ocp/infra/protected.py`, outside it. The
+  proposal drafts stay in `~/.orcapipe`: an agent writes those, so only the
+  recorded answer counts.
 
 `ocp guide` lists the rest. Your role and standing context are injected per
 agent (ROLE.md, base.md); this file does not repeat them.
