@@ -8,6 +8,12 @@ from textual.widgets import Static, Switch
 
 
 class SwitchRow(Horizontal):
+    DEFAULT_CSS = """
+    SwitchRow Switch { height: 1; border: none; padding: 0; background: transparent; }
+    SwitchRow Switch > .switch--slider { background: $foreground 30%; color: $error; }
+    SwitchRow Switch.-on > .switch--slider { color: $success; }
+    """
+
     def __init__(self, label: str, hint: str, switch_id: str, value: bool = False) -> None:
         super().__init__(classes="frow")
         self.label, self.hint, self.switch_id, self.initial = label, hint, switch_id, value

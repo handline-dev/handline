@@ -41,9 +41,6 @@ class AccountPage(AccountActions, Screen):
     AccountPage .fhint { color: $text-muted; }
     AccountPage #a_name { width: 40; }
     AccountPage #a_cap { width: 8; }
-    AccountPage #a_recover { height: 1; border: none; padding: 0; background: transparent; }
-    AccountPage #a_recover > .switch--slider { background: $foreground 30%; color: $error; }
-    AccountPage #a_recover.-on > .switch--slider { color: $success; }
     AccountPage #a_flash { height: 1; padding: 0 3; color: $text-muted; }
     """
 
