@@ -1229,8 +1229,9 @@ def test_the_lock_names_only_its_current_holder(home: Path) -> None:
         check("lock: ...the holder is still named", lock.holder(dmn_locks.DAEMON_LOCK) == os.getpid())
 
         # T153: a held lock whose file still names the previous holder, dead,
-        # reads as held-but-nameless (0), never as that dead pid - whether the
-        # kernel says no such process or a sandbox says not permitted.
+        # reads as held-but-nameless (0), never as that dead pid - in a sandbox
+        # too, where a signal to a live process is refused (EPERM, and so the
+        # holder is named, above) but one to a dead pid still fails ESRCH.
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
         gone.wait(timeout=30)
         path = home / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}"
@@ -1241,6 +1242,8 @@ def test_the_lock_names_only_its_current_holder(home: Path) -> None:
         real_kill = os.kill
 
         def refused(pid, sig):
+            if pid == gone.pid:
+                raise ProcessLookupError(3, "No such process")
             raise PermissionError(1, "Operation not permitted")
         os.kill = refused
         try:
