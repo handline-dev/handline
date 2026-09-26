@@ -344,13 +344,13 @@ def task_page(d: dict) -> dict:
 
 class QueueLine(Static):
     """The line between what the agent has read and what is still queued for
-    it; a spinner sits in it while the agent is working."""
+    it; a spinner sits in it while the agent is working, and what it waits on when idle."""
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, working: bool, rule: bool = True, why: str = "") -> None:
+    def __init__(self, working: bool, rule: bool = True, why: str = "", wait: str = "") -> None:
         super().__init__(classes="queueline")
-        self.working, self.rule, self.why, self._frame = working, rule, why, 0
+        self.working, self.rule, self.why, self.wait, self._frame = working, rule, why, wait, 0
 
     def on_mount(self) -> None:
         self.set_interval(0.1, self._tick)
@@ -361,7 +361,8 @@ class QueueLine(Static):
             self.refresh()
 
     def render(self) -> Text:
-        mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working else ""
+        mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working \
+            else f" {safe(self.wait)} " if self.wait else ""
         if not self.rule:
             return Text(mid, style="dim")
         if self.why:
@@ -373,19 +374,19 @@ class QueueLine(Static):
         return Text("─" * left + mid + "─" * (side - left), style="dim")
 
 
-def transcript_widgets(msgs: list[dict], working: bool, why: str = "") -> list:
+def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str = "") -> list:
     """The messages as widgets, the queue line ahead of the first message the
     agent has not read yet; with none unread, a spare row at the bottom that
-    only shows the spinner."""
+    only shows the spinner. `wait` (what the agent waits on) shows where the spinner does."""
     out: list = []
     line = False
     for m in msgs:
         if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
-            out.append(QueueLine(working, why=why))
+            out.append(QueueLine(working, why=why, wait=wait))
             line = True
         out.append(ChatMessage(m, working))
     if not line:
-        out.append(QueueLine(working, rule=False))
+        out.append(QueueLine(working, rule=False, wait=wait))
     return out
 
 
@@ -965,9 +966,10 @@ class ChatPage(Screen):
     def _status(self) -> Text:
         """The line under the box: what the next message will be, and to whom."""
         reply = self.replying
+        word, detail = self.agent_state
         return Text.assemble(
             ("Reply" if reply else "Chat", "bold blue"), (" · ", "dim"), self.agent, "  ",
-            agent_badge(*self.agent_state),
+            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the queue line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
             (f"   {safe(reply.m['who'])}: {safe(reply.m['text'])[:40]}" if reply else "", "dim"),
@@ -1109,7 +1111,9 @@ class ChatPage(Screen):
                 why = f"{held[0]['to']}: {actions.queue_reason(con, held[0]['to'], held[0]['rid'])}"
             finally:
                 con.close()
-        widgets = transcript_widgets(msgs, self.agent_state[0] == "RUNNING", why)
+        state, detail = self.agent_state
+        widgets = transcript_widgets(msgs, state == "RUNNING", why,
+                                     detail if detail.startswith("waiting for") else "")
         pane.mount(*widgets)
         pane.scroll_end(animate=False)
         self.replying = None
@@ -1449,8 +1453,12 @@ class ChatPage(Screen):
 
     def _sent_now(self, said: str) -> None:
         if self.is_attached:
-            self.sub_title = f"agent {self.agent} · {safe(said)}"
+            self._toast(said, not said.startswith("not sent"))
             self.refresh_conversation(force=True)
+
+    def _toast(self, said: str, ok: bool) -> None:
+        self.notify(safe(said), severity="information" if ok else "error",
+                    timeout=5 if ok else 10, markup=False)
 
     def cancel_message(self, rid: int, body: str) -> bool:
         """Take request `rid` back and put its text in the box. Not yet
@@ -1463,7 +1471,7 @@ class ChatPage(Screen):
         finally:
             con.close()
         if not ok:
-            self.sub_title = f"agent {self.agent} · {safe(plan)}"
+            self.notify(safe(plan), severity="error", timeout=10, markup=False)
             return False
         if delivered:
             self.app.push_screen(Confirm(f"Cancel #{rid}", plan, yes="Cancel it", no="Keep",
@@ -1491,8 +1499,9 @@ class ChatPage(Screen):
         self.run_worker(work, thread=True, group="cancel", exit_on_error=False)
 
     def _cancelled(self, said: str, body: str) -> None:
-        self.sub_title = f"agent {self.agent} · {safe(said)}"
-        if not said.startswith("not cancelled"):
+        ok = not said.startswith("not cancelled")
+        self._toast(said, ok)
+        if ok:
             box = self.query_one("#compose", ChatBox)
             if not box.text.strip():
                 self._restore(body)
@@ -1540,7 +1549,8 @@ class ChatPage(Screen):
         if not self.is_attached:
             return
         rec.widget.remove()
-        self.sub_title = f"agent {self.agent} · {safe(said)}"
+        if not ok:      # a send that went says nothing: the message and its queue line show it
+            self._toast(said, ok)
         if not ok:
             box = self.query_one("#compose", ChatBox)
             box.text = body if not box.text else body + "\n" + box.text

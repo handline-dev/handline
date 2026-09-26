@@ -806,6 +806,17 @@ def test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mar
     check("key guide: the lowest rank goes first", "bravo" not in tight and "alpha" in tight and "delta" in tight, tight)
 
 
+def test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out() -> None:
+    """T149: a wide rank-1 key that alone still does not fit used to just be skipped, leaving
+    room a rank-3 key after it would then fill - so the guide showed the least important key
+    while dropping a more important one. The rank-3 key must go first regardless."""
+    from ocp.ui.components.key_guide import Key, fit
+    keys = [Key("a", "aa", 1), Key("b", "b" * 10, 1), Key("z", "z", 3)]
+    line = fit(keys, 19).plain
+    check("key guide: the rank-3 key is dropped before the rank-1 one, even though that one still does not fit",
+          "z" not in line and "aa" in line and "b" * 10 not in line, line)
+
+
 async def test_the_key_guide_stays_on_screen_when_the_table_is_long() -> None:
     """founder #725: with many rows the table pushed the guide off the bottom."""
     _home("guidefits")
@@ -1550,6 +1561,120 @@ def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() 
           got == [("closed 2: T14 T15", "information"), ("T16: not done yet", "error")], got)
 
 
+async def test_marks_hidden_by_a_state_change_are_dropped_so_an_action_cannot_reach_them() -> None:
+    """T149: a mark used to survive a row leaving the current states filter, so c/d/o/p/m
+    could act on a task the table no longer shows. A mark not among the current rows is
+    dropped the next time the view refreshes."""
+    from ocp.ui.components.tasks_view import TasksView
+    _home("marksdrop")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "will close", "worker", "manager")
+        b = db.new_task(con, "stays open", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        view = app.screen.query_one("#tasks_view", TasksView)
+        await pilot.press("space", "down", "space")
+        await pilot.pause()
+        check("marksdrop: both marked", view.checked == {a, b}, view.checked)
+        con = db.connect()
+        try:
+            con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (a,))
+            con.commit()
+            ok, _ = actions.close_task(con, a, "manager")
+        finally:
+            con.close()
+        check("marksdrop: the task closed", ok)
+        view.refresh_rows()
+        check("marksdrop: the closed task left the row list", a not in {r["id"] for r in view.rows}, view.rows)
+        check("marksdrop: its mark was dropped along with it", view.checked == {b}, view.checked)
+
+
+async def test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone() -> None:
+    """T149: `_act`'s merge branch reads `self.rows[self.cur]` after the Confirm modal
+    returns - if a background refresh emptied or reordered the rows while that modal was
+    open (the marked tasks closed elsewhere), it must refuse, not raise IndexError."""
+    from ocp.ui.components.tasks_view import TasksView
+    from ocp.ui.components.confirm import Confirm
+    _home("mergerace")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "keep", "worker", "manager")
+        b = db.new_task(con, "fold", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        view = app.screen.query_one("#tasks_view", TasksView)
+        await pilot.press("space", "down", "space")
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause(0.2)
+        check("mergerace: merge asks first", isinstance(app.screen, Confirm), type(app.screen).__name__)
+        con = db.connect()
+        try:
+            con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id IN (?, ?)", (a, b))
+            con.commit()
+            oks = [actions.close_task(con, t, "manager")[0] for t in (a, b)]
+        finally:
+            con.close()
+        check("mergerace: both closed", all(oks), oks)
+        view.refresh_rows()      # what the 2s interval would have done meanwhile
+        check("mergerace: the row list emptied under the open modal", not view.rows, view.rows)
+        await pilot.press("y")
+        await pilot.pause(0.2)
+        check("mergerace: no crash - the app is still on the tasks screen", app.screen is not None
+              and not isinstance(app.screen, Confirm), type(app.screen).__name__)
+        check("mergerace: refused with a plain reason instead",
+              any("closed" in n.message for n in app._notifications),
+              [n.message for n in app._notifications])
+
+
+async def test_merge_lands_in_the_task_the_confirm_named_after_a_reorder() -> None:
+    """A refresh under the open Confirm moves another task under the cursor; the merge still
+    goes into the task the modal named."""
+    from ocp.ui.components.tasks_view import TasksView
+    from ocp.ui.components.confirm import Confirm
+    _home("mergereorder")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "keep", "worker", "manager")
+        b = db.new_task(con, "fold", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        view = app.screen.query_one("#tasks_view", TasksView)
+        await pilot.press("space", "down", "space")
+        await pilot.pause()
+        named = view.rows[view.cur]["id"]
+        await pilot.press("m")
+        await pilot.pause(0.2)
+        check("mergereorder: merge asks first", isinstance(app.screen, Confirm), type(app.screen).__name__)
+        view.rows.reverse()      # what a refresh that reorders would leave under the cursor
+        await pilot.press("y")
+        await pilot.pause(0.2)
+        con = db.connect()
+        try:
+            other = a if named == b else b
+            states = {t: db.get_task(con, t)["closed_by"] for t in (a, b)}
+        finally:
+            con.close()
+        check("mergereorder: the named task kept, the other one folded",
+              not states[named] and states[other], str(states))
+
+
 async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
     from textual.widgets import Tabs
     from ocp.ui import chat_page as cp
@@ -1723,6 +1848,12 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     spare = cp.transcript_widgets(msgs[:2], True)
     check("chat: nothing queued leaves a spare row at the bottom, without a rule",
           type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
+    waits = [type(w).__name__ for w in cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")]
+    line = [w for w in cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")
+            if type(w).__name__ == "QueueLine"][0]
+    check("chat: what the agent waits on is drawn on the queue line, where working would be",
+          waits == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"]
+          and "waiting for x's reply (#1)" in line.render().plain, str(waits))
 
 
 def test_a_delivery_changes_the_chat_signature() -> None:
@@ -1739,6 +1870,68 @@ def test_a_delivery_changes_the_chat_signature() -> None:
               cp.signature(con, "reviewer", True) != before)
     finally:
         con.close()
+
+
+def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
+    """T186: send-now, cancel and send report through toasts, not the sub-title."""
+    from ocp.ui import chat_page as cp
+
+    class Stub:
+        is_attached = True
+        toasts: list = []
+        notify = lambda self, text, **kw: self.toasts.append((text, kw["severity"]))
+        _toast = cp.ChatPage._toast
+        refresh_conversation = lambda self, force=False: None
+        _restore = lambda self, body: None
+        query_one = lambda self, *a: type("B", (), {"text": "x"})()
+
+    s = Stub()
+    cp.ChatPage._sent_now(s, "not sent - busy")
+    cp.ChatPage._sent_now(s, "sent")
+    cp.ChatPage._cancelled(s, "not cancelled - gone", "b")
+    cp.ChatPage._cancelled(s, "cancelled", "b")
+    check("toast: refusals are errors, successes information",
+          s.toasts == [("not sent - busy", "error"), ("sent", "information"),
+                       ("not cancelled - gone", "error"), ("cancelled", "information")], str(s.toasts))
+
+
+def test_a_send_that_went_shows_no_toast_and_a_refused_one_does() -> None:
+    """Founder #1193: the "queued as #n" toast after a send is gone."""
+    from ocp.ui import chat_page as cp
+
+    class Box:
+        text = ""
+        move_cursor = lambda self, *a: None
+        document = type("D", (), {"end": 0})()
+
+    class Stub:
+        sending, pending, is_attached = 2, [], True
+        toasts: list = []
+        _toast = lambda self, said, ok: self.toasts.append((said, ok))
+        query_one = lambda self, sel, *a: Box() if sel == "#compose" else type("S", (), {"update": lambda s, t: None})()
+        _status = lambda self: ""
+        refresh_conversation = lambda self, force=False: None
+
+    rec = type("R", (), {"widget": type("W", (), {"remove": lambda s: None})()})()
+    s = Stub()
+    cp.ChatPage.sent(s, True, "queued as #5 for x", "hi", rec)
+    cp.ChatPage.sent(s, False, "not sent: nope", "hi", rec)
+    check("chat: no toast for a send that went, an error toast for a refusal",
+          s.toasts == [("not sent: nope", False)], str(s.toasts))
+
+
+def test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on() -> None:
+    from ocp.ui import chat_page as cp
+
+    class Stub:
+        replying, agent, sending, _frame = None, "x", 0, 0
+        SPINNER = "-"
+    s = Stub()
+    s.agent_state = ("IDLE", "waiting for y's reply (#1)")
+    waiting = cp.ChatPage._status(s).plain
+    s.agent_state = ("IDLE", "10:30")
+    check("chat: the wait is not in the status line, other details still are",
+          "waiting for" not in waiting and "10:30" in cp.ChatPage._status(s).plain, waiting)
 
 
 def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
@@ -2643,6 +2836,7 @@ async def _run_all() -> None:
     await test_messages_panel_acts_on_a_folded_row()
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
+    test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out()
     await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
     test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
     test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
@@ -2651,6 +2845,12 @@ async def _run_all() -> None:
     await test_stats_screen_draws_the_weekly_graph()
     await test_the_key_guide_stays_on_screen_when_the_table_is_long()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
+    await test_marks_hidden_by_a_state_change_are_dropped_so_an_action_cannot_reach_them()
+    await test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone()
+    await test_merge_lands_in_the_task_the_confirm_named_after_a_reorder()
+    test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
+    test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
+    test_a_send_that_went_shows_no_toast_and_a_refused_one_does()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()
