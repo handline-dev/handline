@@ -200,7 +200,7 @@ def settings_of(agent: str) -> dict:
             "model": str(cfg.get("model") or agents.DEFAULT_MODEL),
             "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
             "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
-            "skip_permissions": "on" if agents.skip_permissions(cfg) else "off",
+            "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
             "context_k": str(agents.context_tokens(cfg) // 1000)}
 
 

@@ -1662,6 +1662,15 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     check("settings: and the rest of the file is as it was", agents.read("backend")["weight"] == "heavy")
     ok, said = cp.save_settings("backend", [("skip_permissions", "on", "off")])
     check("settings: turning it off removes it", ok and not agents.skip_permissions(agents.read("backend")), said)
+    with open(agents.agent_file("backend"), "a") as f:
+        f.write("skip_permissions: true\n")
+    unhinted = cp.settings_of("backend")
+    check("settings: a key in agent.yaml with no grant shows off, as the launch ignores it",
+          agents.skip_permissions(agents.read("backend")) and not agents.skip_permissions_granted("backend")
+          and unhinted["skip_permissions"] == "off", str(unhinted["skip_permissions"]))
+    ok, said = cp.save_settings("backend", cp.settings_changes(unhinted, {**form, "skip_permissions": "on"}))
+    check("settings: saving on then grants it", ok and agents.skip_permissions_granted("backend")
+          and cp.settings_of("backend")["skip_permissions"] == "on", said)
 
 
 def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() -> None:
