@@ -298,8 +298,10 @@ def agent_use(con, now: int, hours: int) -> list:
     return stats.agent_use(con, lo, now, prices.table_from_config(loadmod._config()), used)
 
 
-def agent_use_series(con, agent: str, now: int, hours: int, buckets: int = 48) -> list:
-    """(time, list-price cost) of one agent's use over the last `hours`, in `buckets` slots."""
-    from ..usage import prices, stats
-    return stats.agent_series(con, agent, now - hours * 3600, now, buckets,
-                              prices.table_from_config(loadmod._config()))
+def agent_overlay(con, use, now: int, hours: int, times: list[int]) -> list[float]:
+    """Points of the combined week `use` (an `agent_use` row) had eaten by each of `times`: its
+    cost share of each account times what that account used so far, averaged over the accounts."""
+    from ..usage import outlook
+    curves = outlook.consumed_curve(db.usage_samples(con, since=now - hours * 3600 - 7200), times)
+    n = len(curves) or 1
+    return [sum(use.fracs.get(a, 0.0) * c[k] for a, c in curves.items()) / n for k in range(len(times))]

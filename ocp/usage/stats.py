@@ -359,6 +359,7 @@ class AgentUse:
     cost: float                  # USD at list price
     share: float                 # of everyone's cost in the span
     est_pct: float | None = None  # points of the combined week it used: an estimate, see agent_use
+    fracs: dict[str, float] = field(default_factory=dict)   # its cost share of each account in the span
 
 
 def agent_use(con, lo: int, hi: int, prices: dict[str, float] | None = None,
@@ -385,23 +386,10 @@ def agent_use(con, lo: int, hi: int, prices: dict[str, float] | None = None,
             mine.classes[k] += t.classes[k]
             mine.costs[k] += t.costs[k]
     total = sum(t.cost for t in by.values())
+    fracs: dict[str, dict[str, float]] = {}
+    for (agent, acct), t in per.items():
+        if acct_cost[acct]:
+            fracs.setdefault(agent, {})[acct] = t.cost / acct_cost[acct]
     rows = [AgentUse(a, t.tokens, t.cost, t.cost / total if total else 0.0,
-                     est.get(a, 0.0) if week_used else None) for a, t in by.items()]
+                     est.get(a, 0.0) if week_used else None, fracs.get(a, {})) for a, t in by.items()]
     return sorted(rows, key=lambda r: (-r.cost, r.agent))
-
-
-def agent_series(con, agent: str, lo: int, hi: int, buckets: int,
-                 prices: dict[str, float] | None = None) -> list[tuple[int, float]]:
-    """(bucket start, list-price cost) of one agent's calls in (lo, hi], `buckets` equal slots."""
-    trees = _worktrees(con)
-    step = max(1, (hi - lo) // buckets)
-    cost = [0.0] * buckets
-    for r in con.execute(
-            "SELECT ts, cwd, model, inp, cc, cr, out, thinking FROM token_calls WHERE ts > ? AND ts <= ?",
-            (lo, hi)):
-        if agent_for_cwd(r["cwd"], trees) != agent:
-            continue
-        i = min(buckets - 1, (r["ts"] - lo - 1) // step)
-        cost[i] += sum(pricing.class_costs(r["model"], r["inp"], r["cc"], r["cr"], r["out"],
-                                           r["thinking"], prices).values())
-    return [(lo + i * step, c) for i, c in enumerate(cost)]

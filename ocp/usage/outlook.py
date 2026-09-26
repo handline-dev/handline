@@ -69,6 +69,29 @@ def week_consumed(rows, lo: int, hi: int) -> dict[str, float]:
     return out
 
 
+def consumed_curve(rows, times: list[int]) -> dict[str, list[float]]:
+    """For each account, the points of its week used from the first time to each of `times`
+    (the rises so far, as in `week_consumed`), so a curve can be drawn beside the headroom."""
+    by: dict[str, list] = {}
+    for r in rows:
+        w = _week(r)
+        if w:
+            by.setdefault(r["account"], []).append(w)
+    out = {}
+    for a, series in by.items():
+        cum, run, prev, i = [], 0.0, None, 0
+        for t in times:
+            while i < len(series) and series[i][0] <= t:
+                cur = series[i]
+                if prev is not None and series[i][0] >= times[0]:
+                    run += cur[1] - prev[1] if cur[1] >= prev[1] else cur[1]
+                prev = cur
+                i += 1
+            cum.append(run)
+        out[a] = cum
+    return out
+
+
 def weekly_outlook(rows, now: int, hours: int = 24) -> Outlook:
     """`rows` are `usage_samples` rows (any accounts, oldest first). The value is the
     headroom left of the week, in percent, averaged over the accounts that have a reading."""
