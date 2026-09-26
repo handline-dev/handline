@@ -737,6 +737,8 @@ def press_option(handle: str, number: int) -> tuple[str, str, str]:
     """Press option `number` of the dialog on screen now, if it has one, and check that the
     dialog went (`_press_dialog`)."""
     def pick(dialog: Dialog) -> tuple[str | None, str]:
+        if not 1 <= number <= 9:      # `10` would be sent as the keys "1", "0": the dialog takes the 1
+            return None, f"option {number} cannot be pressed by one key"
         if any(n == number for n, _ in dialog.options):
             return str(number), ""
         return None, f"the dialog has no option {number}"
