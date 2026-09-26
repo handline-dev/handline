@@ -529,6 +529,59 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
         del cdrv.binary
 
 
+def test_skip_permissions_needs_the_founders_grant_not_just_the_file(home: Path) -> None:
+    """T175: agent.yaml is writable by every agent's sandbox, so the key in it
+    alone never adds the flag. The grant is recorded by `register` (the CLI or
+    the screen), and doctor names a key that has none."""
+    use_home(home)
+    accounts.register("alpha")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    agents.register("backend")
+    cdrv = vendors.get("claude")
+    cdrv.binary = lambda: "/x/bin/claude"
+    flag = "--dangerously-skip-permissions"
+
+    def edit(**kw):
+        p = agents.agent_file("backend")
+        cfg = agents.load(p.read_text())
+        cfg.pop("skip_permissions", None)
+        cfg.update(kw)
+        p.write_text(agents.dump(cfg))
+
+    def doctor_says():
+        r = doctor.Report()
+        doctor._check_agents(r)
+        return [n for _lv, n, _d in r.rows if "skip_permissions" in n]
+    try:
+        edit(skip_permissions=True)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            argv = launch.build("backend")[0]
+        check("grant: a key written into agent.yaml alone adds no flag, and says why",
+              flag not in argv and "never turned it on" in err.getvalue(), err.getvalue())
+        check("grant: doctor names it", len(doctor_says()) == 1, str(doctor_says()))
+        check("grant: and it is not in effect",
+              not agents.skip_permissions_in_effect("backend", agents.read("backend")))
+
+        agents.register("backend", skip_permissions=True)
+        check("grant: register grants it, and the flag comes",
+              flag in launch.build("backend")[0] and doctor_says() == [])
+        edit(skip_permissions=True)
+        check("grant: a later hand edit of the file changes nothing", flag in launch.build("backend")[0])
+
+        agents.register("backend", skip_permissions=False)
+        edit(skip_permissions=True)
+        with contextlib.redirect_stderr(io.StringIO()):
+            argv = launch.build("backend")[0]
+        check("grant: turning it off revokes the grant, so the key put back by hand is inert",
+              flag not in argv and len(doctor_says()) == 1)
+        agents.register("backend")
+        check("grant: a re-registration that omits it leaves the grant as it was",
+              not agents.skip_permissions_granted("backend"))
+    finally:
+        del cdrv.binary
+
+
 def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
     """#43: accounts.env_for starts from the launching process's environment,
     and an opencode session's own tools carry OPENCODE_CONFIG_CONTENT - another
@@ -1804,6 +1857,7 @@ def main() -> int:
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
+        run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))

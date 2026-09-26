@@ -59,6 +59,36 @@ def skip_permissions(cfg: dict) -> bool:
     return cfg.get("skip_permissions") is True
 
 
+def _consent_key(agent: str) -> str:
+    return f"skip_permissions:{agent}"
+
+
+def skip_permissions_granted(agent: str) -> bool:
+    """Whether the founder turned it on, through `register` from a terminal or
+    the screen. agent.yaml alone never does: a file every agent's sandbox can
+    write is not a record of who asked."""
+    from .. import db
+    con = db.connect()
+    try:
+        return db.get_meta(con, _consent_key(agent)) == "granted"
+    finally:
+        con.close()
+
+
+def _record_skip_permissions(agent: str, on: bool) -> None:
+    from .. import db
+    con = db.connect()
+    try:
+        db.set_meta(con, _consent_key(agent), "granted" if on else None)
+    finally:
+        con.close()
+
+
+def skip_permissions_in_effect(agent: str, cfg: dict) -> bool:
+    """What a launch will do: configured, and granted."""
+    return skip_permissions(cfg) and skip_permissions_granted(agent)
+
+
 def kind(cfg: dict) -> str:
     """What an agent is, for a column: the model and its effort.
 
@@ -168,6 +198,9 @@ def register(name: str, role: str = "", model: str | None = None,
             cfg["vendor"] = vendor
         cfg.setdefault("effort", DEFAULT_EFFORT)
         f.write_text(dump(cfg))
+
+    if skip_permissions is not None:
+        _record_skip_permissions(name, bool(skip_permissions))
 
     role_path = d / "ROLE.md"
     if role_file:

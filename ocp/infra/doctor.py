@@ -209,6 +209,13 @@ def _check_agents(r: Report) -> None:
                   f"its launch is refused; `ocp account add <name> --vendor {vendor}`")
         else:
             r.add(OK, f"agent {n}")
+        try:
+            if agents.skip_permissions(agents.read(n)) and not agents.skip_permissions_granted(n):
+                r.add(WARN, f"agent {n}: skip_permissions in agent.yaml was never granted",
+                      "a launch ignores it; the founder turns it on with "
+                      f"`ocp agent register {n} --skip-permissions on`, and off with `off`")
+        except (FileNotFoundError, agents.ConfigError):
+            pass  # reported above as an agent.yaml error
         for fn, size, budget, over in agents.budget_report(n):
             if over:
                 r.add(WARN, f"agent {n}: {fn} over budget",
