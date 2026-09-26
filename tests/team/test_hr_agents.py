@@ -2610,6 +2610,55 @@ def test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(home: Pa
           "orchestrator" not in paths.team_file().read_text() and "backend" in team.Team.load().agents)
 
 
+def test_seals_begin_once_and_only_from_a_founder_read(home: Path) -> None:
+    """T188 audit: on a home from before seals (files by hand, no marker) an
+    agent's read accepts them and begins nothing, `ocp doctor` seals nothing,
+    the first founder-side read seals every file and sets the marker, and a
+    folder planted after that is refused."""
+    from ocp.infra import protected
+    _daemon_home(home, 20)
+    tf = paths.team_file()
+    tf.write_text("agents:\n  old: {}\n")
+    d = paths.agent_dir("old")
+    d.mkdir(parents=True)
+    (d / "agent.yaml").write_text("name: old\nmodel: opus\n")
+    marker = lambda: protected.get(sealed.NS, sealed.MIGRATED)  # noqa: E731
+    key = sealed.agent_key("old")
+    for name in (sealed.MIGRATED, sealed.TEAM, key):
+        protected.delete(sealed.NS, name)
+
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "old"
+    try:
+        check("legacy: an agent's read accepts a file no seal covers",
+              agents.read("old")["name"] == "old" and "old" in team.Team.load().agents)
+    finally:
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    check("legacy: and begins nothing", marker() is None and protected.get(sealed.NS, key) is None)
+
+    doctor.run()
+    check("legacy: doctor sets no marker and seals nothing",
+          marker() is None and protected.get(sealed.NS, key) is None
+          and protected.get(sealed.NS, sealed.TEAM) is None)
+
+    agents.read("old")
+    check("legacy: the first founder-side read seals every file and sets the marker",
+          marker() is not None and protected.get(sealed.NS, key) is not None
+          and protected.get(sealed.NS, sealed.TEAM) is not None)
+
+    d2 = paths.agent_dir("planted")
+    d2.mkdir(parents=True)
+    (d2 / "agent.yaml").write_text("name: planted\n")
+    try:
+        agents.read("planted")
+        check("legacy: a folder planted after seals began is refused", False, "read")
+    except yamlcompat.ConfigError as e:
+        check("legacy: a folder planted after seals began is refused", "never sealed" in str(e), str(e))
+
+
 def cliteam_seal() -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -2622,6 +2671,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
+        run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
         run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
         run(lambda: test_agents(home))
