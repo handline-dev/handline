@@ -28,17 +28,54 @@ def ensure_shared() -> None:
         h.ensure_shared()
 
 
-def _adopt(src: Path, dest: Path) -> None:
-    """Move what a real directory holds into the shared one before it is
-    replaced by the link. Claude writes there (`skills/synced`) when it runs
-    before `register` does. A file both have is not overwritten: shared's copy
-    stays and the account's is dropped with the directory."""
+class AdoptRefused(ValueError):
+    """A real directory holds something that cannot be moved into shared
+    without deleting a copy; nothing was changed."""
+
+
+def _adopt_plan(src: Path, dest: Path, moves: list, clashes: list) -> None:
     for child in src.iterdir():
-        if not (dest / child.name).exists():
-            shutil.move(str(child), str(dest / child.name))
-            continue
-        if child.is_dir() and not child.is_symlink() and (dest / child.name).is_dir():
-            _adopt(child, dest / child.name)
+        there = dest / child.name
+        if not there.exists() and not there.is_symlink():
+            moves.append((child, there))
+        elif (child.is_dir() and not child.is_symlink()
+              and there.is_dir() and not there.is_symlink()):
+            _adopt_plan(child, there, moves, clashes)
+        else:
+            clashes.append(child)
+
+
+def _adopt(src: Path, dest: Path) -> None:
+    """Move what a real directory holds into the shared one so the link can
+    replace it. Claude writes there (`skills/synced`) when it runs before
+    `register` does.
+
+    Nothing is deleted that was not moved. Two directories merge; any other
+    name both sides have is a clash, and then `AdoptRefused` names them and
+    nothing is touched. Everything is checked before the first move, and a
+    move that fails puts back the ones already made.
+    """
+    moves: list = []
+    clashes: list = []
+    _adopt_plan(src, dest, moves, clashes)
+    if clashes:
+        raise AdoptRefused(
+            f"{src} was left as it is: shared has a different item under the same "
+            "name as " + ", ".join(str(c.relative_to(src)) for c in clashes)
+            + ". Move or remove one side by hand, then run this again.")
+    done: list = []
+    try:
+        for a, b in moves:
+            shutil.move(str(a), str(b))
+            done.append((a, b))
+    except BaseException:
+        for a, b in reversed(done):
+            shutil.move(str(b), str(a))
+        raise
+    # What is left is only directories whose contents all moved; a leftover
+    # file would mean the plan missed it, so removal stops rather than deletes.
+    for d, _dirs, _files in os.walk(src, topdown=False):
+        os.rmdir(d)
 
 
 def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
@@ -65,8 +102,9 @@ def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
         if not force:
             return False
         if link.is_dir() and target.is_dir():
-            _adopt(link, target)
-        shutil.rmtree(link) if link.is_dir() else link.unlink()
+            _adopt(link, target)  # leaves nothing behind, or raises
+        else:
+            shutil.rmtree(link) if link.is_dir() else link.unlink()
     link.symlink_to(target)
     return True
 

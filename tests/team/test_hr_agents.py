@@ -1284,8 +1284,9 @@ def test_an_account_links_from_its_own_vendors_shared_dir(home: Path) -> None:
 
 def test_register_force_keeps_what_a_real_skills_dir_held(home: Path) -> None:
     """Claude can create skills/synced before the link exists. `register
-    --force` links it anyway, and the bucket moves into shared instead of
-    being deleted; a name shared already has is not overwritten."""
+    --force` links it anyway, and the bucket moves into shared. Nothing is
+    deleted that was not moved: a clash, or a move that fails, changes nothing."""
+    import shutil
     os.environ["OCP_HOME"] = str(home)
     accounts.register("gamma")
     shared = vendors.shared_dir("claude") / "skills"
@@ -1293,20 +1294,75 @@ def test_register_force_keeps_what_a_real_skills_dir_held(home: Path) -> None:
     (shared / "synced" / "old" / "keep").write_text("shared")
     link = vendors.config_dir("gamma") / "skills"
     link.unlink()
-    (link / "synced" / "b1").mkdir(parents=True)
-    (link / "synced" / "b1" / "manifest.json").write_text("{}")
-    (link / "synced" / ".bucket-b1").write_text("")
-    (link / "synced" / "old").mkdir()
-    (link / "synced" / "old" / "keep").write_text("account")
+
+    def account_side(*files: str) -> None:
+        shutil.rmtree(link, ignore_errors=True)
+        for f in files:
+            (link / f).parent.mkdir(parents=True, exist_ok=True)
+            (link / f).write_text("account")
+
+    def refused() -> str | None:
+        try:
+            accounts.register("gamma", force=True)
+        except accounts.AdoptRefused as e:
+            return str(e)
+        return None
+
+    def untouched(*files: str) -> bool:
+        return (link.is_dir() and not link.is_symlink()
+                and all((link / f).read_text() == "account" for f in files)
+                and (shared / "synced" / "old" / "keep").read_text() == "shared")
+
+    account_side("synced/b1/manifest.json", "synced/.bucket-b1", "synced/old/new")
     check("relink_all: a real directory is left alone", not accounts.relink_all())
     accounts.register("gamma", force=True)
     check("force: the directory is now the shared link",
           link.is_symlink() and os.readlink(link) == str(shared))
-    check("force: the bucket and its marker moved into shared",
+    check("force: the bucket, its marker and a file beside shared's own moved",
           (shared / "synced" / "b1" / "manifest.json").exists()
-          and (shared / "synced" / ".bucket-b1").exists())
-    check("force: shared's own copy of a name it already had wins",
-          (shared / "synced" / "old" / "keep").read_text() == "shared")
+          and (shared / "synced" / ".bucket-b1").exists()
+          and (shared / "synced" / "old" / "new").exists()
+          and (shared / "synced" / "old" / "keep").read_text() == "shared")
+
+    link.unlink()
+    (shared / "synced" / "old" / "new").unlink()
+    (shared / "dirsame").mkdir()
+    account_side("dirsame", "synced/other")
+    msg = refused()
+    check("clash: a file where shared has a directory is refused, naming it",
+          msg is not None and "dirsame" in msg, str(msg))
+    check("clash: the account side is untouched", untouched("dirsame", "synced/other")
+          and not (shared / "synced" / "other").exists())
+
+    (shared / "dirsame").rmdir()
+    (shared / "filesame").write_text("shared")
+    account_side("filesame", "synced/other")
+    check("clash: a file both have is refused too", refused() is not None)
+    check("clash: and nothing moved", untouched("filesame", "synced/other")
+          and (shared / "filesame").read_text() == "shared"
+          and not (shared / "synced" / "other").exists())
+
+    (shared / "filesame").unlink()
+    account_side("a", "b", "synced/c")
+    real_move, calls = shutil.move, []
+
+    def flaky(a, b, *rest):
+        calls.append(a)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        return real_move(a, b, *rest)
+    shutil.move = flaky
+    try:
+        accounts.register("gamma", force=True)
+        failed = False
+    except OSError:
+        failed = True
+    finally:
+        shutil.move = real_move
+    check("failed move: it is raised", failed)
+    check("failed move: the account is as it was and shared has none of it",
+          untouched("a", "b", "synced/c")
+          and not any((shared / n).exists() for n in ("a", "b")))
 
 
 def test_the_opencode_driver(home: Path) -> None:
