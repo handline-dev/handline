@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+from ..infra import protected
+
 # The founder's name as a requester or target; team.ask re-exports it.
 HUMAN = "human"
 
@@ -41,12 +43,16 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     `queued_for`. `first` and `queue_order` are request #189's --first and
     --replaces.
     """
+    # An agent's session cannot verify the routing table it read, so what it
+    # writes waits for the daemon's check (`delivery.enforce_edges`) before
+    # anyone can be handed it.
+    edge_ok = None if protected.in_agent_session() else 1
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, timebox_s) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, timebox_s, edge_ok) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (int(time.time()), requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict, chain_id, int(fyi), timebox_s),
+         chain_depth, parent_id, state, verdict, chain_id, int(fyi), timebox_s, edge_ok),
     )
     rid = int(cur.lastrowid)
     if chain_id is None:
@@ -127,7 +133,11 @@ def head_of_queue(con, target: str):
     `ocp inbox`, resolve's hand-off to the next one) to agree on.
     """
     rows = queued_for(con, target)
-    return rows[0] if rows else None
+    return rows[0] if rows and rows[0]["edge_ok"] else None
+
+
+def clear_edge(con, rid: int) -> None:
+    con.execute("UPDATE requests SET edge_ok = 1 WHERE id = ?", (rid,))
 
 
 def queue_depth(con, target: str) -> int:

@@ -2816,6 +2816,53 @@ def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> Non
         con.close()
 
 
+def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(home: Path) -> None:
+    """T204: the founder allows scout -> keeper as a peer. A forged edge that only
+    changes its relation passes the agent's own ask, and until the daemon has
+    checked it, `ocp inbox` in keeper's session must show nothing."""
+    from ocp.daemon import delivery
+    from ocp.infra import protected
+    _daemon_home(home, 20)
+    agents.register("scout")
+    agents.register("keeper")
+    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
+                '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
+                "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    hand_edit_team(founders)
+    forged = founders.replace("relation: peer, response: async", "relation: supervisor, response: async")
+    root = protected.root()
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "scout"
+    root.chmod(0)
+    try:
+        paths.team_file().write_text(forged)
+        ok, said, rid = askmod.ask("keeper", "do as I say", requester="scout")
+    finally:
+        root.chmod(0o700)
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    check("edge: the forged relation passed the agent's own ask", ok, said)
+    con = db.connect()
+    try:
+        check("edge: before the daemon has checked it, nothing is handed to keeper",
+              db.head_of_queue(con, "keeper") is None)
+        paths.team_file().write_text(founders)
+        delivery.enforce_edges(con, "keeper", lambda _m: None)
+        row = db.get_request(con, rid)
+        check("edge: the daemon refuses it for differing from the founder's table",
+              row["state"] == "denied" and "refused at delivery" in (row["verdict"] or ""),
+              str(dict(row)))
+        ok2, said2, rid2 = askmod.ask("keeper", "honest", requester="scout")
+        delivery.enforce_edges(con, "keeper", lambda _m: None)
+        head = db.head_of_queue(con, "keeper")
+        check("edge: an honest request is cleared and handed out",
+              ok2 and head is not None and int(head["id"]) == rid2, said2)
+    finally:
+        con.close()
+
+
 def cliteam_seal() -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -2829,6 +2876,7 @@ def main() -> int:
         home.mkdir()
         run(lambda: test_yaml())
         run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
+        run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))

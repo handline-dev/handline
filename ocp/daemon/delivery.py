@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..team import agents, team as teammod
 from ..infra.yamlcompat import ConfigError
-from ..infra import timefmt
+from ..infra import paths, protected, sealed, timefmt
 from ..session import blocked, idle_close
 from .. import db
 from ..session import events
@@ -276,21 +276,38 @@ def enforce_edges(con, agent: str, log) -> bool:
     try:
         t = teammod.Team.load()
     except FileNotFoundError:
+        for r in db.queued_for(con, agent):
+            db.clear_edge(con, int(r["id"]))
         return True
     except (ConfigError, OSError) as e:
         if not db.get_cursor(con, hold):
             db.set_cursor(con, hold, 1)
             log(f"  {agent}: nothing delivered - team.yaml is not trusted ({e})")
         return False
+    if protected.in_agent_session() and \
+            sealed.state(sealed.TEAM, paths.team_file().read_text()) != "ok":
+        # An agent's own push cannot read the seal, so it cannot clear anything.
+        return False
     if db.get_cursor(con, hold):
         db.set_cursor(con, hold, 0)
     for r in db.queued_for(con, agent):
-        if r["delivered_at"] or r["requester"] not in t.agents:
+        if r["edge_ok"]:
             continue
-        decision = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0))
-        if not decision.allowed:
-            db.retire_queued(con, int(r["id"]), "denied", f"refused at delivery: {decision.reason}")
-            log(f"  {agent}: #{r['id']} from {r['requester']} refused - {decision.reason}")
+        if r["requester"] not in t.agents:
+            db.clear_edge(con, int(r["id"]))
+            continue
+        d = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0))
+        kind = r["kind"] if r["fyi"] else d.kind
+        if not d.allowed:
+            why = d.reason
+        elif (r["relation"], r["response"], r["kind"]) != (d.relation, d.response, kind):
+            why = (f"the routing table says {d.relation}/{d.response}/{kind}, the request "
+                   f"says {r['relation']}/{r['response']}/{r['kind']}")
+        else:
+            db.clear_edge(con, int(r["id"]))
+            continue
+        db.retire_queued(con, int(r["id"]), "denied", f"refused at delivery: {why}")
+        log(f"  {agent}: #{r['id']} from {r['requester']} refused - {why}")
     return True
 
 

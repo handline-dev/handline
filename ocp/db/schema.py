@@ -83,7 +83,12 @@ CREATE TABLE IF NOT EXISTS requests (
   -- dismissed it and the reason they gave (when is resolved_at); the verdict
   -- stays NULL, so no screen can draw a dismissal as the answerer's own text.
   dismissed_by     TEXT,
-  dismissed_reason TEXT
+  dismissed_reason TEXT,
+  -- T202: 1 once the request's edge (relation, response, kind) has been checked
+  -- against the sealed routing table by a process that can read the seal. An
+  -- agent's own `ask` cannot, so it leaves this NULL and the daemon sets it;
+  -- nothing hands a request out (`head_of_queue`) before then.
+  edge_ok INTEGER
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -405,6 +410,9 @@ def _pre_schema_migrate(con) -> None:
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
             )
         """)
+    if request_cols and "edge_ok" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN edge_ok INTEGER")
+        con.execute("UPDATE requests SET edge_ok = 1")
     if request_cols and "send_now" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN send_now INTEGER")
     if request_cols and "moot_by" not in request_cols:
