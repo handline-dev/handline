@@ -76,6 +76,7 @@ class Jobs:
 
     def __init__(self) -> None:
         self.running: list[Job] = []
+        self.results: list[tuple[bool, str]] = []      # (ok, text) of what the last `reap()` collected
 
     def start(self, verb: str, target: str, what: str, args: tuple = (),
               kwargs: dict | None = None,
@@ -111,6 +112,7 @@ class Jobs:
         `GRACE_S`) any job whose age has passed its own declared `longest` -
         that bound is what a screen says, so it is the one that is kept."""
         said, now = [], time.time()
+        self.results = []
         for job in list(self.running):
             code = job.proc.poll()
             if code is None:
@@ -132,6 +134,7 @@ class Jobs:
             out, err = job.proc.communicate()
             ok, text = self._said(job, code, out, err, now)
             said.append(text)
+            self.results.append((ok, text))
             if job.on_result:
                 job.on_result(ok, text)
         return said

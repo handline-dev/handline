@@ -1,5 +1,5 @@
 """What the account keys do - log in, set the cap, remove - for the home page's ACCOUNTS
-row and for the account page alike. A screen using it keeps a `flash`."""
+row and for the account page alike. What it says goes to a toast."""
 from __future__ import annotations
 
 import subprocess
@@ -7,10 +7,11 @@ import subprocess
 from ...team import accounts
 from ... import actions, db
 from ...usage import load as loadmod
+from .jobs_aware import Toasts
 from .text_prompt import TextPrompt
 
 
-class AccountActions:
+class AccountActions(Toasts):
     def _run_suspended(self, argv: list[str], env: dict) -> tuple[int | None, str]:
         """`tui._suspend`'s own contract, through `App.suspend()`: hand the
         whole terminal to `argv` (a login is a human typing a code into
@@ -26,17 +27,19 @@ class AccountActions:
     async def _account_login(self, name: str) -> None:
         line, argv, env = actions.login_argv(name)
         if not argv:
-            self.flash = line
+            self.toast(line, False)
             return
-        _, self.flash = self._run_suspended(argv, env)
+        code, said = self._run_suspended(argv, env)
+        self.toast(said, code == 0)
 
     async def _account_cap(self, name: str) -> None:
         text = await self.app.push_screen_wait(
             TextPrompt(f"most agents mid-turn on {name} at once [{loadmod.cap_of(name)}]:"))
         if not text or not text.strip():
-            self.flash = "cap unchanged"
+            self.toast("cap unchanged")
             return
-        self.flash = actions.set_account_cap(name, text)[1]
+        ok, said = actions.set_account_cap(name, text)
+        self.toast(said, ok)
 
     async def _account_remove(self, name: str) -> None:
         # `remove_plan` first, the same order the CLI uses: an
@@ -49,7 +52,7 @@ class AccountActions:
         finally:
             con.close()
         if not ok:
-            self.flash = why
+            self.toast(why, False)
             return
         typed = await self.app.push_screen_wait(
             TextPrompt(f"remove '{name}'? type its name to confirm:"))
@@ -61,4 +64,4 @@ class AccountActions:
                 lambda argv, env: self._run_suspended(argv, env)[0], con)
         finally:
             con.close()
-        self.flash = msg
+        self.toast(msg, ok)

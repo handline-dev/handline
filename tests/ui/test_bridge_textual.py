@@ -50,6 +50,12 @@ def check(name: str, cond: bool, detail: str = "") -> None:
     print(f"{'PASS' if cond else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not cond else ""))
 
 
+def _said(screen) -> str:
+    """The newest toast the app has shown."""
+    notes = list(screen.app._notifications)
+    return notes[-1].message if notes else ""
+
+
 def _home(tag: str) -> Path:
     """`t._daemon_home`, minus the daemon-trigger fixture (a percentage, a
     Stop event) this screen has no use for: registers `backend` on `alpha`
@@ -76,7 +82,7 @@ async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None
         await pilot.press("w")
         await pilot.pause(0.2)
         check("dashboard: a refused verb says why, as `actions.can` does",
-              "not parked or closed" in screen.flash, screen.flash)
+              "not parked or closed" in _said(screen), _said(screen))
 
 
 async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
@@ -141,7 +147,7 @@ async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
             while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
                 await pilot.pause(0.1)
             check("act: once it answers, the line is replaced by what it said",
-                  "closed backend (stub)" in screen.flash and not screen.jobs.running, screen.flash)
+                  "closed backend (stub)" in _said(screen) and not screen.jobs.running, _said(screen))
     finally:
         jobsmod.ACT_COMMAND = real_command
 
@@ -171,8 +177,8 @@ async def test_confirm_rechecks_can_if_the_state_changed_while_it_was_open() -> 
         await pilot.press("y")
         await pilot.pause(0.2)
         check("recheck: a yes rechecks actions.can rather than trusting the first read",
-              "HANDOFF" in screen.flash and "changed while you looked" in screen.flash,
-              screen.flash)
+              "HANDOFF" in _said(screen) and "changed while you looked" in _said(screen),
+              _said(screen))
         check("recheck: and does not start the job", not screen.jobs.running, "")
 
 
@@ -234,7 +240,7 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.press("enter")
         await pilot.pause(0.2)
         check("accounts: c sets the cap through loadmod",
-              "at most 3 agents mid-turn" in screen.flash, screen.flash)
+              "at most 3 agents mid-turn" in _said(screen), _said(screen))
 
         await pilot.press("a")
         await pilot.pause(0.1)
@@ -243,15 +249,15 @@ async def test_accounts_panel_cap_add_remove_and_open() -> None:
         await pilot.press("enter")
         await pilot.pause(0.2)
         check("accounts: adding one that exists refuses through accounts.add_account, "
-              "never reaching a real login", screen.flash == "account 'alpha' already exists",
-              screen.flash)
+              "never reaching a real login", _said(screen) == "account 'alpha' already exists",
+              _said(screen))
 
         await pilot.press("x")
         await pilot.pause(0.2)
         check("accounts: removing one an agent is on refuses through remove_plan, "
               "before the human is ever asked to type its name",
-              "session open" in screen.flash and not isinstance(app.screen, TextPrompt),
-              screen.flash)
+              "session open" in _said(screen) and not isinstance(app.screen, TextPrompt),
+              _said(screen))
 
         await pilot.press("enter")
         await pilot.pause(0.2)
@@ -325,7 +331,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
                   page.query_one("#a_recover", Switch).value is False)
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            flash = str(page.query_one("#a_flash", Static).render())
+            flash = _said(page)
             check("account page: a save that changes the cap leaves recovery off",
                   not loadmod.usage_recover_enabled("alpha") and page.query_one("#a_recover", Switch).value is False)
             check("account page: Save writes the alias and the cap",
@@ -341,7 +347,7 @@ async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
             page.query_one("#a_cap", Input).value = ""
             await pilot.click("#a_save")
             await pilot.pause(0.3)
-            flash = str(page.query_one("#a_flash", Static).render())
+            flash = _said(page)
             check("account page: an empty cap writes nothing", loadmod.cap_of("alpha") == 2, flash)
             check("account page: and the box shows the account's own cap again",
                   page.query_one("#a_cap", Input).value == "2", page.query_one("#a_cap", Input).value)
@@ -380,7 +386,7 @@ async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
         check("accounts: a wrong typed name leaves it",
               "beta" in accountsmod.paths.list_accounts(),
               str(accountsmod.paths.list_accounts()))
-        check("accounts: and says nothing was removed", "not removed" in screen.flash, screen.flash)
+        check("accounts: and says nothing was removed", "not removed" in _said(screen), _said(screen))
 
         await pilot.press("x")
         await pilot.pause(0.1)
@@ -391,7 +397,7 @@ async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
         check("accounts: the exact typed name removes it",
               "beta" not in accountsmod.paths.list_accounts(),
               str(accountsmod.paths.list_accounts()))
-        check("accounts: and says so", "removed account 'beta'" in screen.flash, screen.flash)
+        check("accounts: and says so", "removed account 'beta'" in _said(screen), _said(screen))
 
 
 async def test_messages_panel_open_reaches_the_agents_page() -> None:
@@ -490,7 +496,7 @@ async def test_wake_on_a_stalled_agent_asks_first() -> None:
         while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
             await pilot.pause(0.1)
         check("wake: confirming it clears the stall",
-              "STALLED -> QUEUED" in screen.flash, screen.flash)
+              "STALLED -> QUEUED" in _said(screen), _said(screen))
 
 
 async def test_messages_panel_acts_on_a_folded_row() -> None:
@@ -553,7 +559,7 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
         while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
             await pilot.pause(0.1)
         check("messages: it dismissed the row's latest, not a literal 'agent:reviewer'",
-              "dismiss" in screen.flash.lower() or "#" in screen.flash, screen.flash)
+              "dismiss" in _said(screen).lower() or "#" in _said(screen), _said(screen))
 
 
 async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
@@ -1457,7 +1463,7 @@ async def test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter() -> N
             await app.on_event(events.Key("enter", "녕"))
             await pilot.pause(0.3)
             check("account page: the alias box takes a syllable the IME commits with enter, and saves it",
-                  box.value == "안녕" and "안녕" in page.flash, f"{box.value!r} {page.flash!r}")
+                  box.value == "안녕" and "안녕" in _said(page), f"{box.value!r} {_said(page)!r}")
 
 
 async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
@@ -2003,6 +2009,24 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         con.close()
 
 
+async def test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot() -> None:
+    from ocp.ui.pages.home import HomePage
+    _home("toasts")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        page = app.screen
+        page.toast("done it")
+        page.toast("refused it", False)
+        page.toast("  ")
+        await pilot.pause(0.1)
+        notes = list(app._notifications)
+        check("toast: a result is a toast, a refusal an error one, blank says nothing",
+              [(n.message, n.severity) for n in notes] == [("done it", "information"), ("refused it", "error")],
+              str([(n.message, n.severity) for n in notes]))
+        check("toast: the foot line holds no message", not hasattr(page, "flash") and isinstance(page, HomePage))
+
+
 def test_summary_line() -> None:
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
@@ -2117,8 +2141,8 @@ async def test_home_tab_bar_focus_mouse_and_columns() -> None:
             await pilot.click("#settings_save")
             await pilot.pause(0.2)
             check(f"home: a default cap of {bad!r} is refused and the saved one stays",
-                  loadmod.default_cap() == 7 and "at least 1" in str(screen.query_one("#settings_flash", Static).render()),
-                  str(screen.query_one("#settings_flash", Static).render()))
+                  loadmod.default_cap() == 7 and "at least 1" in _said(screen),
+                  _said(screen))
         screen.query_one("#default_cap", Input).value = "9"
         screen.query_one("#scope", Tabs).active = "home"
         await pilot.pause(0.2)
@@ -2414,6 +2438,7 @@ async def _run_all() -> None:
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
+    await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
     await test_home_tab_bar_focus_mouse_and_columns()

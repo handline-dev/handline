@@ -98,7 +98,6 @@ class HomePage(RowActions, JobsAware, Screen):
         super().__init__()
         self.panel = tui.AGENTS
         self.sel: dict = {}
-        self.flash = ""
         tui._enter(self.panel, self.sel)
         self.tab = "home"
         self._hr_dot = False            # whether the HR tab wears its dot
@@ -132,7 +131,6 @@ class HomePage(RowActions, JobsAware, Screen):
                 yield ImeInput(id="default_cap", compact=True, restrict=r"[0-9]*")
                 yield Static("  most agents mid-turn at once on an account with no cap of its own",
                              classes="fhint")
-            yield Static(id="settings_flash")
             yield Button("Save", id="settings_save", variant="primary", compact=True)
 
     def on_mount(self) -> None:
@@ -166,8 +164,8 @@ class HomePage(RowActions, JobsAware, Screen):
         self.app.push_screen(TasksScreen(states={"done"}, closer=actions.HUMAN))
 
     def _save_settings(self) -> None:
-        _, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
-        self.query_one("#settings_flash", Static).update(Text(said))
+        ok, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
+        self.toast(said, ok)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "default_cap":
@@ -199,8 +197,6 @@ class HomePage(RowActions, JobsAware, Screen):
         foot = Text()
         for jl in self.jobs.lines():
             foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
-        if self.flash:
-            foot.append(tui.oneline(self.flash) + "\n")
         self.query_one("#foot", Static).update(foot)
         self.query_one("#home_keys", KeyGuide).set_keys(self._keys(agent_keys))
         self._count_hr()
@@ -464,7 +460,6 @@ class HomePage(RowActions, JobsAware, Screen):
         return [Key(k, label, 1 if i < 3 else 3, label) for i, (k, label) in enumerate(own)] + list(_GLOBAL_KEYS)
 
     def _press(self, k: str) -> None:
-        self.flash = ""
         # `_act` can open a modal (`push_screen_wait`), which Textual only allows from
         # inside a worker - not straight from an event handler.
         self.run_worker(self._act_and_redraw(k), exclusive=True, group="act")

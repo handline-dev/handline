@@ -77,7 +77,6 @@ class ProposalsView(Vertical):
     ProposalsView { height: 1fr; }
     ProposalsView #hr_table { height: auto; max-height: 40%; }
     ProposalsView #hr_detail { height: 1fr; padding: 1 3; }
-    ProposalsView #hr_flash { height: 1; padding: 0 3; color: $text-muted; }
     """
 
     def __init__(self, **kw) -> None:
@@ -88,7 +87,6 @@ class ProposalsView(Vertical):
         yield DataTable(id="hr_table", cursor_type="row", zebra_stripes=True)
         with VerticalScroll(id="hr_detail"):
             yield Static(id="hr_text")
-        yield Static(id="hr_flash")
         with ActionBar():
             yield Button("Approve  a", id="hr_approve", variant="success", compact=True)
             yield Button("Reject  r", id="hr_reject", variant="error", compact=True)
@@ -137,7 +135,6 @@ class ProposalsView(Vertical):
         self._show()
 
     def _say(self, ok: bool, said: str) -> None:
-        self.query_one("#hr_flash", Static).update(Text(textsafe.oneline(said)))
         self.app.notify(textsafe.oneline(said), severity="information" if ok else "error",
                         timeout=10, markup=False)
         self.refresh_rows()
