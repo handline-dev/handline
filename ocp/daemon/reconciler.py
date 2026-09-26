@@ -168,7 +168,8 @@ def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
         if not orca.trust_prompt_gone(row["terminal"]):
             return
     db.set_agent_state(con, agent, IDLE, detail="the folder-trust prompt is answered; the stall is lifted")
-    for rid in db.open_escalation_ids(con, agent, lifecycle.TRUST_ESCALATION):
+    for rid in (r for prefix in lifecycle.trust_escalation_prefixes(agent)
+                for r in db.open_escalation_ids(con, agent, prefix)):
         askmod.resolve(rid, "cleared - its folder-trust prompt is answered", state="done", notify=False)
     actions.append(f"{agent}: STALLED -> IDLE (its folder-trust prompt is answered)")
     log(f"  {agent}: its folder-trust prompt is answered; the stall is lifted")

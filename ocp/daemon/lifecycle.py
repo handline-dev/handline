@@ -830,7 +830,14 @@ def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -
 
 
 TRUST_STALL = "folder-trust prompt"
-TRUST_ESCALATION = "[trust]"   # the escalation's opening, which `sweep` finds it by when the stall is lifted
+# What opens the escalation a trust stall raises, which `sweep` finds it by when the stall
+# is lifted. Not "[trust]" alone: a standing-consent proposal (`team/trust.py`) opens with
+# that too. Stalls raised before this marker began with "[trust] <agent>'s terminal ...".
+TRUST_ESCALATION = "[trust stall]"
+
+
+def trust_escalation_prefixes(agent: str) -> tuple[str, str]:
+    return TRUST_ESCALATION, f"[trust] {agent}'s terminal is showing"
 
 
 def _escalate_trust_prompt(con, agent: str, handle: str, log,

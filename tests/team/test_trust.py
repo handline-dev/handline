@@ -629,6 +629,10 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         dmn_lifecycle._escalate_trust_prompt(con, "backend", "term_x", lambda _m: None, "wt", "wt")
         return db.open_escalation_ids(con, "backend", dmn_lifecycle.TRUST_ESCALATION)[0]
 
+    def open_trust_escalations() -> list[int]:
+        return [r for p in dmn_lifecycle.trust_escalation_prefixes("backend")
+                for r in db.open_escalation_ids(con, "backend", p)]
+
     def sweep() -> list[str]:
         said: list[str] = []
         dmn_reconciler.sweep(con, lambda _m: None, said)
@@ -667,7 +671,26 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         check("trust stall: ...says so", any("STALLED -> IDLE" in a for a in said), str(said))
         check("trust stall: ...and closes the escalation",
               db.get_request(con, rid)["state"] == "done"
-              and not db.open_escalation_ids(con, "backend", dmn_lifecycle.TRUST_ESCALATION))
+              and not open_trust_escalations())
+
+        # A pending standing-consent proposal (team/trust.py) opens with "[trust]" too and is the
+        # founder's to decide: lifting a stall must leave it, and it is not a stall escalation.
+        proposal = askmod.escalate(con, "backend", "[trust] add /some/root - asked by backend\n\nwhy\n\n"
+                                   "Answer `approve` or `reject` (proposal 1).", "trust proposal")
+        rid = stalled_on_the_trust_screen()
+        sweep()
+        check("trust stall: a pending trust proposal survives the lift, the stall's own escalation closes",
+              db.get_request(con, proposal)["state"] == "queued" and db.get_request(con, rid)["state"] == "done",
+              str((db.get_request(con, proposal)["state"], db.get_request(con, rid)["state"])))
+        askmod.resolve(proposal, "test cleanup", state="done", notify=False)
+
+        # An escalation raised before the marker began "[trust] <agent>'s terminal is showing ...".
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="folder-trust prompt")
+        legacy = askmod.escalate(con, "backend", "[trust] backend's terminal is showing claude's folder-trust "
+                                 "prompt for wt", "old")
+        sweep()
+        check("trust stall: an escalation raised under the old marker closes with the lift",
+              db.get_request(con, legacy)["state"] == "done")
 
         # A closed agent whose session is running, stalled by the trust prompt with the wake
         # streak at its cap, is lifted once and said once: the wake-stall branch below the lift
