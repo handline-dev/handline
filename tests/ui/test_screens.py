@@ -1761,6 +1761,7 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
     try:
         for name in ("backend", "frontend"):
             agents.register(name)
+        db.add_request(con, "frontend", "backend", "look at this", None, "peer", "async", None, 0, None)
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 12 * 60 + 30,
                            detail="usage")
         db.set_agent_state(con, "frontend", dmn_states.IDLE)
@@ -1782,6 +1783,21 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
         lines = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         due = [ln for ln in lines if "backend" in ln]
         check("agents: a deadline that has passed says so", due and " due" in due[0], str(due))
+        db.set_terminal(con, "backend", "term_x", "wt")
+        check("agents: a parked row is past its wall, so the daemon judges no trigger on it",
+              not dmn_lifecycle.triggers_apply(db.get_agent_state(con, "backend")))
+        db.clear_closed(con, "backend")
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 60)
+        check("agents: ocp triggers names the parked state it is not judging",
+              "parked; judged again at its wake" in next(
+                  ln for ln in _capture(lambda: climod.main(["triggers"])).splitlines() if "backend" in ln))
+        db.set_agent_state(con, "backend", dmn_states.THROTTLED, wake_at=int(time.time()) + 60)
+        check("agents: and a throttled one says throttled, not parked",
+              "throttled; judged again at its wake" in next(
+                  ln for ln in _capture(lambda: climod.main(["triggers"])).splitlines() if "backend" in ln))
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        check("agents: and an idle one with a live session is still judged",
+              dmn_lifecycle.triggers_apply(db.get_agent_state(con, "backend")))
     finally:
         con.close()
 
@@ -2996,7 +3012,15 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
               state(state=dmn_states.QUEUED, detail="moving alpha -> beta") == ("MOVING", ""))
         wake = int(time.time()) + 900
         clock = time.strftime("%H:%M", time.localtime(wake))
-        check("map: a usage-wall PARKED is PENDING, with the clock it wakes at",
+        check("map: a usage-wall PARKED with no work behind it is IDLE, not a reset wait",
+              state(state=dmn_states.PARKED, wake_at=wake, detail="usage; wakes at x")
+              == ("IDLE", ""))
+        check("map: a by-hand PARKED with no work is still PENDING, with the time a person chose",
+              state(state=dmn_states.PARKED, wake_at=wake, detail="by hand; wakes at x")
+              == ("PENDING", clock))
+        db.add_request(con, "reviewer", "backend", "look at this", None,
+                       "peer", "async", None, 0, None)
+        check("map: a usage-wall PARKED with work waiting is PENDING, with the clock it wakes at",
               state(state=dmn_states.PARKED, wake_at=wake, detail="usage; wakes at x")
               == ("PENDING", clock))
         check("map: a by-hand PARKED is PENDING too - only wake permission tells them apart",

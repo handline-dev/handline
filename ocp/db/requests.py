@@ -106,6 +106,19 @@ def queued_for(con, target: str):
     ).fetchall()
 
 
+def undelivered_for(con, target: str):
+    """The requests among `queued_for` that `target` has never been shown -
+    not the head it already holds unresolved. A closed agent's own wake is
+    for these (`lifecycle.would_wake`, T154): waking it back up for a request
+    it was already told, and only sits on, would close it and wake it again
+    every idle window for as long as that one request stays open."""
+    return con.execute(
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        "AND delivered_at IS NULL ORDER BY queue_order, id",
+        (target,),
+    ).fetchall()
+
+
 def head_of_queue(con, target: str):
     """The one request `target` is meant to be working on right now, or None.
 

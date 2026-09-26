@@ -2394,6 +2394,76 @@ def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) ->
         con.close()
 
 
+def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> None:
+    """T154 (founder #789), auditor #821: should_close's queued-work guard
+    used to hold a session open for as long as anything about it was
+    unresolved, delivered or not - even past its prompt cache's life, where a
+    resume costs the same re-read a wake's cold start does anyway.
+    `_cold_before_typing` declines here (the request was already told, and
+    already nudged once) - it is `should_close`'s own idle window that closes
+    it. A request already told before the close is not on its own a reason to
+    wake it back up (that would close it right back up next window, forever,
+    #821) - only something new is: an undelivered request or an answer, and
+    that wake also retells what was already open, once its fresh session is
+    on screen (`_session_changed`)."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send)
+    session_changed = dmn_delivery._session_changed
+    try:
+        st, now = _cold_backend(home, con, sent)
+        rid = db.add_request(con, "marina", "backend", "carry on", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        db.set_cursor(con, "notify:backend", rid)
+        db.set_notified_session(con, "backend", "sess-cold")
+        db.set_cursor(con, "nudge:backend", rid)   # already reminded once; nothing left to nudge for
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn_states.RESUME_WARM_S - 60, rid))
+        row = db.get_agent_state(con, "backend")
+
+        check("cold queue close: the cold path alone has nothing to close it for",
+              dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, lambda _m: None) is None)
+        check("cold queue close: should_close does, past its own idle window",
+              dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
+
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("cold queue close: the tick closes it",
+              db.get_agent_state(con, "backend")["closed_at"], str(sent))
+        check("cold queue close: the request itself is untouched, left for the wake",
+              [r["id"] for r in db.queued_for(con, "backend")] == [rid])
+
+        # Nothing new for it: ticks pass, cache stays gone, and it stays
+        # closed rather than relaunching for the same open request forever.
+        del sent[:]
+        for later in (now + 5, now + 3600, now + 7200):
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, later, {}, [])
+        check("cold queue close: not woken again for the request it already told",
+              db.get_agent_state(con, "backend")["closed_at"] and not sent, str(sent))
+
+        # Something new arrives - the wake it deserves, and it retells the
+        # old request too, once its fresh session is on screen.
+        db.add_request(con, "marina", "backend", "and one more thing", None,
+                       "peer", "async", None, 0, None)
+        dmn_delivery._session_changed = lambda *a: True   # the wake's fresh session, once up
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 7205, {}, [])
+        check("cold queue close: the new request wakes it",
+              any(" launch " in t for t in sent), str(sent))
+        del sent[:]
+        db.add_event(con, "backend", "Stop", {})   # the fresh session's own first turn
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend' AND id = "
+                    "(SELECT MAX(id) FROM events WHERE agent = 'backend')", (now + 7208,))
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 7210, {}, [])
+        check("cold queue close: the old, already-told request is retold first",
+              any("carry on" in t for t in sent), str(sent))
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send = real
+        dmn_delivery._session_changed = session_changed
+        con.close()
+
+
 def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
     """DEGRADED is not a usage park. `DEGRADED_RETRY_S` is the only thing
     that re-hands a failed handoff's own retry, and clearing it early on a
@@ -2824,7 +2894,8 @@ def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) 
     be delivered to, or already was. A closed PARKED agent's wake
     already resumes the same session by its own session id (`_wake_agent`'s
     `closed` branch), so nothing about waking it back up is worse for having
-    been closed."""
+    been closed. T154: an IDLE agent is closed anyway once the cache is gone
+    - a resume then costs what the wake's cold start would anyway."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -2833,12 +2904,17 @@ def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) 
                        "peer", "async", None, 0, None)
         row = db.get_agent_state(con, "backend")
         st = status_of("alpha", exists=True, session_id="sess-1")
-        check("parked+queued close: an IDLE agent with queued work is not closed - "
+        warm = int(time.time()) + dmn_states.IDLE_CLOSE_S + 100
+        check("parked+queued close: an IDLE agent with queued work and a warm cache is not closed - "
               "it is about to be delivered to instead",
-              not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, int(time.time()) + 10_000, st))
+              not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, warm, st))
         check("parked+queued close: a PARKED agent with the same queued work is - "
               "it already had its one shot at delivery this tick",
-              dmn_lifecycle.should_close(con, "backend", dmn_states.PARKED, row, int(time.time()) + 10_000, st))
+              dmn_lifecycle.should_close(con, "backend", dmn_states.PARKED, row, warm, st))
+        cold = int(time.time()) + dmn_states.RESUME_WARM_S + 100
+        check("parked+queued close: an IDLE agent is closed too once its cache has expired - "
+              "the wake redelivers what is still queued",
+              dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, cold, st))
     finally:
         con.close()
 
@@ -3426,6 +3502,8 @@ def main() -> int:
             Path(td) / 'coldfail'))
         run(lambda: test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(
             Path(td) / 'coldonce'))
+        run(lambda: test_a_request_already_told_still_closes_a_cold_idle_session(
+            Path(td) / 'coldqueue'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))
         run(lambda: test_a_close_gets_past_the_dialog_before_it_types_exit(Path(td) / 'limitclose'))
         run(lambda: test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(

@@ -1193,6 +1193,31 @@ def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> Non
         holder.wait(timeout=30)
 
 
+def test_a_holder_this_process_cannot_signal_is_still_reported(home: Path) -> None:
+    """T146 (founder #737/#746): a daemon held from a sandbox that cannot
+    signal it (`kill(pid, 0)` raising EPERM, not ESRCH) must still read as
+    running, not as a dead holder's leftover.
+    """
+    use_home(home)
+    env = {**os.environ, "OCP_HOME": str(home)}
+    holder, pid = _hold_daemon_lock_in_another_process(env)
+    orig_kill = os.kill
+    try:
+        def fake_kill(p, sig):
+            if p == pid:
+                raise PermissionError("denied")
+            return orig_kill(p, sig)
+        os.kill = fake_kill
+        check("lock: EPERM on kill(0) still names the real holder, not 0",
+              lock.holder(dmn_locks.DAEMON_LOCK) == pid)
+        check("daemon: still reported running from inside the sandbox",
+              dmn_locks.running_elsewhere() == pid)
+    finally:
+        os.kill = orig_kill
+        holder.kill()
+        holder.wait(timeout=30)
+
+
 def test_the_lock_names_only_its_current_holder(home: Path) -> None:
     use_home(home)
     check("lock: no file yet, no holder", lock.holder(dmn_locks.DAEMON_LOCK) is None)
@@ -1204,8 +1229,9 @@ def test_the_lock_names_only_its_current_holder(home: Path) -> None:
         check("lock: ...the holder is still named", lock.holder(dmn_locks.DAEMON_LOCK) == os.getpid())
 
         # T153: a held lock whose file still names the previous holder, dead,
-        # reads as held-but-nameless (0), never as that dead pid - whether the
-        # kernel says no such process or a sandbox says not permitted.
+        # reads as held-but-nameless (0), never as that dead pid - in a sandbox
+        # too, where a signal to a live process is refused (EPERM, and so the
+        # holder is named, above) but one to a dead pid still fails ESRCH.
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
         gone.wait(timeout=30)
         path = home / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}"
@@ -1216,6 +1242,8 @@ def test_the_lock_names_only_its_current_holder(home: Path) -> None:
         real_kill = os.kill
 
         def refused(pid, sig):
+            if pid == gone.pid:
+                raise ProcessLookupError(3, "No such process")
             raise PermissionError(1, "Operation not permitted")
         os.kill = refused
         try:
@@ -3139,6 +3167,11 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
               "the daemon's own call site honoured agent.yaml, not just evaluate()",
               cleared["term_ctl"] == 0, cleared)
 
+        # The fold parked it, and a parked row is judged no further - so the
+        # screens are read as of the next session, still on the same reading.
+        for name in ("ctxreal", "ctxctl"):
+            db.set_agent_state(con, name, dmn_states.IDLE)
+
         # 2. cli.health.cmd_triggers.
         trig_out = _capture(lambda: climod.main(["triggers"]))
         real_line = next(ln for ln in trig_out.splitlines() if "ctxreal" in ln)
@@ -4186,6 +4219,7 @@ def main() -> int:
         run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
         run(lambda: test_a_daemon_that_never_wrote_its_name_is_still_reported(Path(td) / 'd6b'))
+        run(lambda: test_a_holder_this_process_cannot_signal_is_still_reported(Path(td) / 'd6b2'))
         run(lambda: test_the_lock_names_only_its_current_holder(Path(td) / 'd6c'))
         run(lambda: test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(Path(td) / 'd6d'))
         run(lambda: test_service_plist(Path(td) / 'svc1'))

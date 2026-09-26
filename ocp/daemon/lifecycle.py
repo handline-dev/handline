@@ -35,9 +35,11 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     Closing is about the machine, not the account, so the question is whether
     anyone is using this session and whether we can bring it back. Seven things
     say no: it is working or being handed off, a human has to look at it,
-    someone is waiting on it (unless it is PARKED), it has been
-    busy recently, we cannot name the session we would resume, a close of
-    it failed within the last idle window, or this agent's own idle window
+    someone is waiting on it (unless it is PARKED, or the cache is already
+    gone - a resume then costs the same re-read a wake's cold start would, so
+    the queue is redelivered on that wake instead), it has been busy recently,
+    we cannot name the session we would resume, a close of it failed within
+    the last idle window, or this agent's own idle window
     (`idle_close.close_timeout_s`, T52) is NEVER. Anything else is a session
     whose only job right now is to occupy 250-500MB.
 
@@ -55,10 +57,11 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     # queue is no reason to hold the session open.
     if delivery.bg_holds(con, agent, now):
         return False          # not idle: work is still running behind the prompt
-    if db.queued_for(con, agent) and state != PARKED:
-        return False          # work is waiting; closing would only delay it
     if not st.session_id:
         return False          # nothing to resume; losing the context costs more
+    if db.queued_for(con, agent) and state != PARKED \
+            and not cache_expired(con, agent, st.session_id, now):
+        return False          # work is waiting and the cache is still warm; closing would only delay it
     timeout = idle_close.close_timeout_s(agent)
     if timeout == idle_close.NEVER:
         return False          # this agent's own override: never close its window
@@ -81,30 +84,39 @@ def triggers_apply(row) -> bool:
     is the account's, so it sweeps up the registered-but-never-started agents
     with everyone else.
 
+    A parked, throttled or degraded row is already past its wall: the tick
+    waits on its wake_at and judges nothing until then (`supervise`).
+
     Every screen asks this too - drawing a warning the daemon will never act on
     is the dashboard arguing with the daemon.
     """
-    return bool(row and row["terminal"] and not row["closed_at"])
+    return bool(row and row["terminal"] and not row["closed_at"]
+                and row["state"] not in (PARKED, THROTTLED, DEGRADED))
 
 
 def would_wake(con, row) -> bool:
     """Is anything actually trying to wake this closed agent?
 
-    Queued work, an answer it asked for, or a deadline already due while
-    parked, throttled or degraded - the same three reasons `supervise` calls
-    `wake_agent` on a closed row at all (section 8.4's step 2, and the two
-    checks right before `deliver_queued` in the main pass). `launch.wake_wait`
-    answers a narrower question - is the account full - and answers it for
-    every closed agent on a walled account, including ones idle by choice
-    with nothing asked of them. A screen gates on this first, so "waiting"
-    only shows next to a wait that is actually happening.
+    Undelivered work, an answer it asked for, or a deadline already due
+    while parked, throttled or degraded - the same three reasons the main
+    pass wakes a closed row with no deadline pending (the two checks right
+    before `deliver_queued`). Not a request already delivered before the
+    close (T154): that one is only sitting unresolved, and waking for it
+    alone would close the agent right back up on the very next idle window,
+    forever - reconciliation's own due-deadline wake (section 8.4's step 2)
+    still reads any unresolved request as reason enough, since a deadline
+    already means something else decided this agent is worth resuming.
+    `launch.wake_wait` answers a narrower question - is the account full -
+    and answers it for every closed agent on a walled account, including
+    ones idle by choice with nothing asked of them. A screen gates on this
+    first, so "waiting" only shows next to a wait that is actually happening.
     """
     if not row or not row["closed_at"]:
         return False
     agent = row["agent"]
     due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time()) \
         and row["state"] in (PARKED, THROTTLED, DEGRADED)
-    return bool(due or db.queued_for(con, agent) or
+    return bool(due or db.undelivered_for(con, agent) or
                 db.unannounced_answers(con, agent))
 
 
@@ -374,10 +386,11 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         # Taking the parked branch here would tell an agent that was never
         # parked that its context was cleared. What the close recorded is in
         # the system prompt of the session it started, if it recorded one.
+        record = db.get_handoff(con, agent) if con else None
         parts.append("Your session was closed while you were idle and could not be "
                      "resumed, so this is a fresh one. "
                      + ("Your handoff is in your system prompt above."
-                        if con and db.get_handoff(con, agent) else
+                        if record else
                         "There is no handoff. Read your journal and your inbox "
                         "before carrying on."))
     else:
@@ -386,15 +399,21 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         record = db.get_handoff(con, agent) if con else None
         if record:
             parts.append(record)
-    if not record:
-        st = status.read_for_agent(agent, agents.current_account(agent, con))
-        if st.transcript_path:
+    if not record and con:
+        # Nothing carried the request or the transcript, so this says both,
+        # finding the path by the session's id when the status names none.
+        session, path = handoffmod.previous_session(con, agent, agents.current_account(agent, con))
+        if not moved_to:
+            parts.append(handoffmod._request_line(con, agent))
+        if path:
             parts.append(
-                f"Your previous session is {st.session_id}, recorded at "
-                f"{st.transcript_path}\n"
+                f"Your previous session is {session}, recorded at {path}\n"
                 f"Grep it for what you need - do not read it whole, it is a JSONL "
                 f"transcript with every tool result in it, and reading it back would "
                 f"undo the point of parking you.")
+        elif not moved_to:
+            parts.append("Your previous session's transcript could not be found; "
+                         "read your journal and your inbox to see where you were.")
     return "\n\n".join(parts)
 
 

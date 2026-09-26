@@ -2885,6 +2885,41 @@ def test_find_transcript_walks_accounts_and_takes_only_a_plain_id(home: Path) ->
         check(f"transcript: {bad!r} names nothing", handoffmod.find_transcript(bad, "alpha") is None)
 
 
+def test_a_restart_finds_the_previous_transcript_without_a_status_path(home: Path) -> None:
+    """T169: a restart is told where the previous conversation is even when the
+    status snapshot names no transcript - by the session id it does have, or by
+    the agent's own hook events - and says so plainly when nothing finds it."""
+    _daemon_home(home, 20)
+    f = vendors.config_dir("alpha") / "projects" / "-wt" / "sess-old.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("{}\n")
+    con = db.connect()
+    try:
+        write_agent_status("backend", "alpha", session_id="sess-old")
+        text, missing = handoffmod.capture(con, "backend")
+        check("restart: a status with an id but no path finds the transcript by name",
+              f"previous session: sess-old, recorded at {f}" in text and "the session's transcript path" not in missing, text)
+
+        paths.agent_status_file("backend").unlink()
+        db.add_event(con, "backend", "UserPromptSubmit", {"session_id": "sess-old"})
+        db.add_event(con, "backend", "SessionStart", {"session_id": "sess-new"})
+        text, missing = handoffmod.capture(con, "backend")
+        check("restart: with no snapshot at all the last used session's events name it, "
+              "and a fresh session's SessionStart is not taken for it",
+              f"previous session: sess-old, recorded at {f}" in text and "the session's transcript path" not in missing, text)
+
+        told = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("restart: a fresh start with no handoff still carries the path and the request",
+              str(f) in told and "request: none in progress" in told, told)
+
+        db.add_event(con, "backend", "UserPromptSubmit", {"session_id": "sess-gone"})
+        told = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("restart: a transcript nothing finds is said, not dropped",
+              "could not be found" in told and "sess-gone" not in told, told)
+    finally:
+        con.close()
+
+
 def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     """Every kind ocp can write to events is either the agent acting or an
     event ocp itself caused, and last_activity's allow-list (db.AGENT_ACTIVITY_KINDS)
@@ -5848,6 +5883,7 @@ def main() -> int:
         run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))
         run(lambda: test_a_woken_agent_is_not_judged_on_the_snapshot_it_left(Path(td) / 'wakejudge'))
         run(lambda: test_find_transcript_walks_accounts_and_takes_only_a_plain_id(Path(td) / 'find_trans'))
+        run(lambda: test_a_restart_finds_the_previous_transcript_without_a_status_path(Path(td) / 'restarttr'))
         run(lambda: test_only_the_agents_own_events_move_its_activity_clock(Path(td) / 'actclock'))
         run(lambda: test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(Path(td) / 'deadacct'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
