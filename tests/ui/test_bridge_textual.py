@@ -1316,6 +1316,23 @@ def _page_rows(con, rid: int) -> list:
     return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
 
 
+def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("dismissline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, rid = askmod.ask("human", "fyi: done", requester="reviewer")
+        ok2, said = actions.dismiss(con, rid, actions.HUMAN, no_task="just an fyi")
+        msgs = cp.messages_of(_page_rows(con, rid), "reviewer")
+        check("chat: a dismissal is not drawn as a line, the ask itself stays",
+              ok and ok2 and [m["part"] for m in msgs] == [0] and not any("dismissed" in m["text"] for m in msgs),
+              str(msgs))
+    finally:
+        con.close()
+
+
 def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -1989,7 +2006,7 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
     from types import SimpleNamespace
     from ocp.ui.components.agent_rows import Extra
     row = lambda **kw: SimpleNamespace(**{"twig": "", "shown": "boss", "under": 0, "state": "IDLE",
-                                          "until": "", **kw})
+                                          "until": "", "fire": "", **kw})
     extra = lambda **kw: Extra(**{"kind_short": "m", "cache_left": None, "block": "", "stuck": "",
                                   "asks": 0, "urgency": None, **kw})
     page = HomePage.__new__(HomePage)
@@ -2014,10 +2031,16 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
           HomePage._alarm(row(state="DIALOG"), extra()) and HomePage._alarm(row(), extra(block="b"))
           and not HomePage._alarm(row(state="RUNNING"), extra()))
     state = lambda r, x: page._state_cell(r, x, False).plain
-    check("home: the agent's row says why it is stuck, and a block in its own words",
-          "⚠ its delivery is not moving" in state(row(), extra(stuck="its delivery is not moving"))
-          and state(row(), extra(block="dialog open")).endswith(" dialog open")
-          and "⚠" not in state(row(), extra()))
+    note = lambda r, x, wall="": page._note_cell(r, x, wall).plain
+    check("home: the state column is the state word alone, whatever the row is stuck on or until",
+          state(row(until="12:30"), extra(stuck="its delivery is not moving")) == state(row(), extra())
+          and state(row(), extra(block="dialog open")) == state(row(), extra()))
+    check("home: the last column says why it is stuck, and a block in its own words",
+          "⚠ its delivery is not moving" in note(row(), extra(stuck="its delivery is not moving"))
+          and note(row(), extra(block="dialog open")) == "dialog open" and note(row(), extra()) == "")
+    check("home: the last column also holds what the state is until, then the rest, joined by ·",
+          note(row(until="12:30"), extra(stuck="stuck")) == "12:30 · ⚠ stuck"
+          and note(row(until="12:30"), extra(), "⏳ 14:00") .startswith("12:30 · "))
 
 
 async def test_home_tab_bar_focus_mouse_and_columns() -> None:
@@ -2307,6 +2330,7 @@ async def _run_all() -> None:
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
+    test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_table_lists_owned_and_opened_and_sorts()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()

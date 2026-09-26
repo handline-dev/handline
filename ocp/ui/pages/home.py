@@ -55,7 +55,7 @@ _ACCT_TIERS = (
 _GLOBAL_KEYS = (Key("←→", "panel", 3, "move between the panels"), Key("↑↓", "row", 3, "move between the rows"),
                 Key("q", "quit", 2, "quit the bridge"), Key("b", "checks", 2, "done tasks waiting for your check"),
                 Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "the week left, last and next 24h"))
-_AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
+_AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "note")
 _MESSAGE_HEADS = ("", "", "from", "message")
 
 
@@ -261,7 +261,7 @@ class HomePage(RowActions, JobsAware, Screen):
                           self._state_cell(r, x, self._on),
                           Text.from_ansi(agent_rows.cache_cell(x.cache_left, x.cache_ignored)),
                           Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
-                          Text.from_ansi(r.fire or wall), key=r.name)
+                          self._note_cell(r, x, wall), key=r.name)
             if self._alarm(r, x) or self._fold_errs(r, x):
                 self._blinking[r.name] = (r, x)
         self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
@@ -356,12 +356,25 @@ class HomePage(RowActions, JobsAware, Screen):
             out.append(" ⚠" if on else "  ", style="bold red")
         return out
 
-    def _state_cell(self, r, x, on: bool) -> Text:
-        cell = Text.from_ansi(tui.state_cell(r.state, r.until))
+    def _note_cell(self, r, x, wall: str) -> Text:
+        """What the state column used to carry beyond the word (what it is until, what blocks
+        it, what it is stuck on), then what the last column already said."""
+        note = Text()
+        parts = [Text(r.until, style="dim")] if r.until else []
         if x.block and r.state not in tui.NEEDS_A_HUMAN:
-            cell.append(f" {x.block}", style="red")
+            parts.append(Text(x.block, style="red"))
         elif x.stuck:
-            cell.append(f" ⚠ {x.stuck}", style="yellow")
+            parts.append(Text(f"⚠ {x.stuck}", style="yellow"))
+        if r.fire or wall:
+            parts.append(Text.from_ansi(r.fire or wall))
+        for i, part in enumerate(parts):
+            note.append(" · " if i else "")
+            note.append_text(part)
+        note.no_wrap, note.overflow = True, "ellipsis"
+        return note
+
+    def _state_cell(self, r, x, on: bool) -> Text:
+        cell = Text.from_ansi(tui.state_cell(r.state, ""))
         if self._alarm(r, x) and on:
             cell.stylize("reverse")
         return cell
