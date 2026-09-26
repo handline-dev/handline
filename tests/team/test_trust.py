@@ -680,6 +680,8 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         row = db.get_agent_state(con, "backend")
         check("trust stall: a closed agent at the wake cap is lifted with the trust detail kept",
               row["state"] == dmn_states.IDLE and "folder-trust prompt" in row["detail"], str(dict(row)))
+        check("trust stall: ...and the running session clears the wake streak it refutes",
+              row["wake_failures"] == 0, str(dict(row)))
         check("trust stall: ...and the lift is said once, not again as a wake stall",
               sum("STALLED -> IDLE" in a for a in said) == 1
               and not any("wake stall" in a or "running after all" in a for a in said), str(said))

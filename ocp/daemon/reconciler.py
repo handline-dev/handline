@@ -251,6 +251,10 @@ def sweep(con, log, actions: list[str]) -> None:
             db.clear_closed(con, agent)
             actions.append(f"{agent}: a session is running; the closed mark was wrong")
             log(f"  {agent}: running again (pid {o.session_pid}); cleared the closed mark")
+            if row["wake_failures"]:
+                # A session is running, which refutes a streak of launches that
+                # started nothing - whatever state the row is in by now.
+                db.reset_counter(con, agent, "wake_failures")
             if row["state"] == STALLED and row["wake_failures"] >= MAX_FAILED_ATTEMPTS:
                 # This stall is ours: we stopped because our launches started
                 # nothing, and a session is running now. 8.6 keeps a human in
@@ -258,7 +262,6 @@ def sweep(con, log, actions: list[str]) -> None:
                 # world just refuted, on the same evidence that cleared the
                 # closed mark, and leaving it would hide a live agent from
                 # every delivery.
-                db.reset_counter(con, agent, "wake_failures")
                 db.set_agent_state(con, agent, IDLE,
                                    detail="a session is running; the wake stall is lifted")
                 actions.append(f"{agent}: STALLED -> IDLE (it is running after all)")
