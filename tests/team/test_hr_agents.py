@@ -2742,6 +2742,29 @@ def test_seals_begin_once_and_only_from_a_founder_read(home: Path) -> None:
         check("legacy: a folder planted after seals began is refused", "never sealed" in str(e), str(e))
 
 
+def test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(home: Path) -> None:
+    """The sandbox refuses even a read of the protected store (EPERM). An agent's
+    session must then read team.yaml and agent.yaml as unsealed, not fail."""
+    from ocp.infra import protected
+    _daemon_home(home, 20)
+    agents.register("backend")
+    hand_edit_team("agents:\n  backend: {}\n")
+    root = protected.root()
+    root.chmod(0)
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        check("sandbox: the store reads as empty", protected.get("seal", "team") is None)
+        check("sandbox: team.yaml and agent.yaml still read for the agent",
+              "backend" in team.Team.load().agents and agents.read("backend")["name"] == "backend")
+    finally:
+        root.chmod(0o700)
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+
+
 def cliteam_seal() -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -2754,6 +2777,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
+        run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
         run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
