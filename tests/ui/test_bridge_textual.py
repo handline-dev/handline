@@ -1250,7 +1250,6 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
           "T1" in page["badge"].plain and "T9" in page["meta"].plain
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
     check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
-    check("table: the task column says T<n>", cp.task_cells((5, "owns", "waiting", "t", "o", 1))[0] == "T5")
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
@@ -1485,7 +1484,7 @@ async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
           kid is not None and kid["parent_id"] == mine, str(dict(kid)) if kid else "none")
 
 
-def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
+def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
     from ocp.ui import chat_page as cp
     _home("tasks")
     agents.register("reviewer")
@@ -1510,13 +1509,6 @@ def test_the_tasks_table_lists_owned_and_opened_and_sorts() -> None:
         db.link_request(con, a, actions.chat_parent(con, "reviewer"))
         newer = {r[0]: r[5] for r in cp.tasks_of(con, "backend")}
         check("tasks: a linked request is a change to the task", newer[a] > {r[0]: r[5] for r in rows}[a])
-        check("tasks: sorted by title", [r[3] for r in cp.sort_tasks(rows, "title", False)]
-              == sorted(r[3] for r in rows))
-        check("tasks: reversed is the reverse",
-              [r[0] for r in cp.sort_tasks(rows, "task", True)] == sorted((r[0] for r in rows), reverse=True))
-        check("tasks: state sorts draft before done",
-              cp.sort_tasks([(1, "owns", "done", "x", "y", 1), (2, "owns", "draft", "x", "y", 1)],
-                            "state", False)[0][0] == 2)
     finally:
         con.close()
 
@@ -1551,6 +1543,40 @@ async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
         await pilot.resize_terminal(100, 30)
         await pilot.pause(0.3)
         check("agent tasks: a narrow one hides it", not pane.display)
+
+
+async def test_the_agent_tasks_tab_is_the_tasks_view_scoped_to_the_agent() -> None:
+    from textual.widgets import DataTable, Select, Tabs
+    from ocp.ui.components.tasks_view import TasksView
+    _home("agentview")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        own = db.new_task(con, "its own", "reviewer", "orcapipe")
+        opened = db.new_task(con, "it opened", "orcapipe", "reviewer")
+        db.new_task(con, "someone else's", "orcapipe", "orcapipe")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(170, 40)) as pilot:
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        page = app.screen
+        page.query_one(Tabs).active = "tasks"
+        await pilot.pause(0.5)
+        view = page.query_one(TasksView)
+        check("agent tasks: the rows are what it owns or opened",
+              sorted(r["id"] for r in view.rows) == sorted([own, opened]), str([r["id"] for r in view.rows]))
+        check("agent tasks: no agent dropdown, the sort and state filters stay",
+              not view.query("#f_agent") and view.query_one("#f_sort", Select) is not None)
+        await pilot.press("space")
+        await pilot.pause(0.2)
+        check("agent tasks: space marks a row", len(view.checked) == 1, str(view.checked))
+        await pilot.press("A")
+        await pilot.pause(0.2)
+        check("agent tasks: A marks every row shown", view.checked == {own, opened}, str(view.checked))
+        page.set_sort("title")
+        check("agent tasks: /sort sorts the view", view.by == "title", view.by)
 
 
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
@@ -1719,7 +1745,6 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
          "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)]}
     page = cp.task_page(d)
     texts = [head, body, *page["kids"], *page["reqs"], page["title"], page["meta"],
-             *[c for c in cp.task_cells((1, "owns", "waiting", evil, evil, 1)) if hasattr(c, "plain")],
              cp.agent_badge("FATAL", evil)]
     suggestions = (cp.suggest("/task ", [(1, "owns", "waiting", evil, evil, 1)], [])
                    + cp.suggest("#", [(1, "owns", "waiting", evil, evil, 1)], [(2, evil, evil)]))
@@ -2331,9 +2356,10 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
-    test_the_tasks_table_lists_owned_and_opened_and_sorts()
+    test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()
+    await test_the_agent_tasks_tab_is_the_tasks_view_scoped_to_the_agent()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()

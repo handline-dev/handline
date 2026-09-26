@@ -7,8 +7,6 @@ ChatPage { overflow: hidden; }
    classes cannot restyle another screen when the bridge loads this file. */
 .chat_page {
     #body { height: 1fr; overflow: hidden; }
-    #tasks_body { height: 1fr; }
-    #task_table { width: 1fr; height: 1fr; overflow-x: hidden; }
     #transcript { width: 1fr; scrollbar-size-vertical: 0; padding: 0 0 1 1; align-vertical: bottom; background: $surface-lighten-1; }
     #dock { dock: bottom; height: auto; padding-bottom: 1; background: $surface-lighten-1; }
     #composer { height: auto; padding: 1 2; background: $panel; border-left: thick $primary; }

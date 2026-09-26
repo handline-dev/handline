@@ -82,7 +82,8 @@ class StatePicker(ModalScreen["set[str] | None"]):
 
 class TasksView(Vertical):
     """`mine` limits it to what concerns the founder, `closer` to the tasks that one signs off
-    (`b`: the founder's done tasks); `f` steps through the owners."""
+    (`b`: the founder's done tasks); `f` steps through the owners. `agent` limits it to the
+    tasks that agent owns or opened (its chat page), and then the agent filter is not offered."""
 
     BINDINGS = [
         Binding("space", "check", "mark"),
@@ -124,8 +125,9 @@ class TasksView(Vertical):
              ("owner", "owner"), ("idle", "idle"), ("may close", "closer"), ("blocked by", "blocked"))
 
     def __init__(self, mine: bool = False, back: bool = False, states: set[str] | None = None,
-                 closer: str | None = None, **kw) -> None:
+                 closer: str | None = None, agent: str | None = None, **kw) -> None:
         super().__init__(**kw)
+        self.agent = agent
         self.mine = mine
         self.closer = closer
         self.back = back
@@ -141,7 +143,8 @@ class TasksView(Vertical):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks_filters"):
-            yield Select([("agent: all", "")], id="f_agent", allow_blank=False, compact=True)
+            if not self.agent:
+                yield Select([("agent: all", "")], id="f_agent", allow_blank=False, compact=True)
             yield Select([(f"sort: {c}", c) for c in actions.TASK_SORTS], id="f_sort",
                          allow_blank=False, compact=True)
             yield Button(self._state_label(), id="f_state", compact=True)
@@ -208,6 +211,8 @@ class TasksView(Vertical):
             rows = [r for r in rows if actions.task_related_to(r, actions.HUMAN)]
         if self.closer:
             rows = [r for r in rows if r["closer"] == self.closer]
+        if self.agent:
+            rows = [r for r in rows if self.agent in (r["owner"], r["opened_by"])]
         self.owners = sorted({r["owner"] for r in rows})
         if self.owner not in self.owners:
             self.owner = None
@@ -244,11 +249,14 @@ class TasksView(Vertical):
     def _sync_filters(self) -> None:
         """Show the state in the dropdowns, touching a dropdown only when it differs, so an
         open one is not rebuilt under the user and no Changed is posted for our own state."""
-        agent = self.query_one("#f_agent", Select)
-        if self.owners != self._agent_owners:
-            self._agent_owners = list(self.owners)
-            agent.set_options([("agent: all", ""), *((f"agent: {o}", o) for o in self.owners)])
-        for sel, want in ((agent, self.owner or ""), (self.query_one("#f_sort", Select), self.by)):
+        sels = [(self.query_one("#f_sort", Select), self.by)]
+        if not self.agent:
+            agent = self.query_one("#f_agent", Select)
+            if self.owners != self._agent_owners:
+                self._agent_owners = list(self.owners)
+                agent.set_options([("agent: all", ""), *((f"agent: {o}", o) for o in self.owners)])
+            sels.append((agent, self.owner or ""))
+        for sel, want in sels:
             if sel.value != want:
                 sel.value = want
         self.query_one("#f_state", Button).label = f"state: {self._state_label()}"
@@ -303,7 +311,8 @@ class TasksView(Vertical):
         self.refresh_rows()
 
     def _keys(self) -> list[Key]:
-        return [*self.KEYS, *([Key("esc", "back", 1, "back")] if self.back else [])]
+        keys = [k for k in self.KEYS if not (self.agent and k.key == "f")]
+        return [*keys, *([Key("esc", "back", 1, "back")] if self.back else [])]
 
     def action_key_help(self) -> None:
         self.app.push_screen(KeyHelp("MY TASKS keys" if self.mine else "TASKS keys", self._keys()))
@@ -333,7 +342,18 @@ class TasksView(Vertical):
         self.states = self.states - ended if self.states & ended else self.states | ended
         self.refresh_rows()
 
+    def sort_named(self, column: str) -> None:
+        """Sort by `column`, or reverse the order when it already is."""
+        if column == self.by:
+            self.rev = not self.rev
+        else:
+            self._sort_by(column)
+        self._set_columns()
+        self.refresh_rows()
+
     def action_owner_filter(self) -> None:
+        if self.agent:
+            return
         cycle = [None, *self.owners]
         self.owner = cycle[(cycle.index(self.owner) + 1) % len(cycle)] if self.owner in cycle else None
         self.refresh_rows()
