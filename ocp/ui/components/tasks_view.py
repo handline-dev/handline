@@ -219,6 +219,7 @@ class TasksView(Vertical):
         if self.owner:
             rows = [r for r in rows if r["owner"] == self.owner]
         self.rows = actions.sort_task_rows(rows, self.by, self.rev)
+        self.checked &= {r["id"] for r in self.rows}
         keep = self.table.cursor_row
         if self._mark_label() != self._mark_head:
             self._set_columns()
@@ -400,8 +401,20 @@ class TasksView(Vertical):
             if not arg.strip():
                 self.notify("left alone")
                 return
+
+        def merge_row_gone() -> bool:
+            # a background refresh can empty or reorder self.rows while the modals above
+            # are open, so the row under the cursor is checked again right before use.
+            return verb == "merge" and self.cur >= len(self.rows)
+
+        if merge_row_gone():
+            self.notify("no row under the cursor to merge into", severity="warning")
+            return
         if not await self.app.push_screen_wait(self._confirm(verb, tids, arg)):
             self.notify("left alone")
+            return
+        if merge_row_gone():
+            self.notify("no row under the cursor to merge into", severity="warning")
             return
         con = db.connect()
         try:

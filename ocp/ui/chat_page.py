@@ -1449,7 +1449,9 @@ class ChatPage(Screen):
 
     def _sent_now(self, said: str) -> None:
         if self.is_attached:
-            self.sub_title = f"agent {self.agent} · {safe(said)}"
+            ok = not said.startswith("not sent")
+            self.notify(safe(said), severity="information" if ok else "error",
+                        timeout=5 if ok else 10, markup=False)
             self.refresh_conversation(force=True)
 
     def cancel_message(self, rid: int, body: str) -> bool:
@@ -1463,7 +1465,7 @@ class ChatPage(Screen):
         finally:
             con.close()
         if not ok:
-            self.sub_title = f"agent {self.agent} · {safe(plan)}"
+            self.notify(safe(plan), severity="error", timeout=10, markup=False)
             return False
         if delivered:
             self.app.push_screen(Confirm(f"Cancel #{rid}", plan, yes="Cancel it", no="Keep",
@@ -1491,8 +1493,10 @@ class ChatPage(Screen):
         self.run_worker(work, thread=True, group="cancel", exit_on_error=False)
 
     def _cancelled(self, said: str, body: str) -> None:
-        self.sub_title = f"agent {self.agent} · {safe(said)}"
-        if not said.startswith("not cancelled"):
+        ok = not said.startswith("not cancelled")
+        self.notify(safe(said), severity="information" if ok else "error",
+                    timeout=5 if ok else 10, markup=False)
+        if ok:
             box = self.query_one("#compose", ChatBox)
             if not box.text.strip():
                 self._restore(body)
@@ -1540,7 +1544,8 @@ class ChatPage(Screen):
         if not self.is_attached:
             return
         rec.widget.remove()
-        self.sub_title = f"agent {self.agent} · {safe(said)}"
+        self.notify(safe(said), severity="information" if ok else "error",
+                    timeout=5 if ok else 10, markup=False)
         if not ok:
             box = self.query_one("#compose", ChatBox)
             box.text = body if not box.text else body + "\n" + box.text

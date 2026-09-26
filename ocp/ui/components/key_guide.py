@@ -32,12 +32,15 @@ def fit(keys: list[Key], width: int) -> Text:
     lowest-ranked left out until it fits, ending in `?`."""
     tail = Text.assemble((HELP_KEY, "bold"), (f" {HELP_LABEL}", "dim"))
     room = width - tail.cell_len
-    chosen: set[int] = set()
-    for i in sorted(range(len(keys)), key=lambda i: (keys[i].rank, i)):
-        k = keys[i]
-        used = sum(cell_len(keys[j].key) + 1 + cell_len(keys[j].label) + len(SEP) for j in chosen)
-        if used + cell_len(k.key) + 1 + cell_len(k.label) + len(SEP) <= room:
-            chosen.add(i)
+
+    def w(i: int) -> int:
+        return cell_len(keys[i].key) + 1 + cell_len(keys[i].label) + len(SEP)
+
+    chosen = set(range(len(keys)))
+    for i in sorted(chosen, key=lambda i: (-keys[i].rank, -i)):
+        if sum(w(j) for j in chosen) <= room:
+            break
+        chosen.discard(i)
     out = Text(no_wrap=True, overflow="ellipsis")
     for i in sorted(chosen):
         out.append(keys[i].key, "bold")
