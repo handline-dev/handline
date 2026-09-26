@@ -329,6 +329,9 @@ class Opencode:
     def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:
         return None, "this vendor's prompts are not auto-accepted"
 
+    def confirmation(self, dialog):
+        return None
+
     def credential_present(self, config_dir: Path) -> bool:
         """Asked of `opencode auth list`, which counts the credentials under
         this data dir without printing them. The file alone does not answer:

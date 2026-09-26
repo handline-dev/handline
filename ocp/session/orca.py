@@ -847,6 +847,37 @@ def answer_dialog(handle: str, choose) -> tuple[str, str, str]:
     return (CLEARED, title, "") if again[2] == NO_DIALOG else (STILL_OPEN, title, why)
 
 
+def confirmation_on_screen(handle: str):
+    """The vendor's one-time permission prompt this terminal shows now, as a
+    `Confirmation`, or None when there is none or it cannot be read."""
+    dialog = dialog_on_screen(handle)
+    return None if dialog is None else _driver_for(handle).confirmation(dialog)
+
+
+def answer_confirmation(handle: str, yes: bool, seen: tuple[str, ...]) -> tuple[str, str, str]:
+    """Send a person's Yes or No to the permission prompt on this terminal;
+    (outcome, title, why) as `decline_dialog`.
+
+    Pressed only when the screen just read is a recognized prompt whose lines
+    are exactly `seen`, the lines the person answered: a prompt that changed
+    since is not the one they said yes to. The key is the number of the plain
+    Yes or of the No - never "don't ask again" - through `answer_dialog`."""
+    driver = _driver_for(handle)
+    refused: list[str] = []
+
+    def choose(vendor: str, dialog: Dialog) -> int | None:
+        found = driver.confirmation(dialog)
+        if found is None:
+            refused.append("the screen is not a permission prompt ocp recognizes")
+        elif found.lines != tuple(seen):
+            refused.append("the prompt is not the one that was answered")
+        else:
+            return found.yes if yes else found.no
+        return None
+    outcome, title, why = answer_dialog(handle, choose)
+    return outcome, title, (refused[0] if refused and outcome == NOT_PRESSED else why)
+
+
 # Claude Code's hint row under the composer counts what still runs in the
 # background as "<n> <noun>" segments between its mode and its key hints, e.g.
 # "⏵⏵ auto mode on · 2 monitors · ← for agents · ↓ to manage" (measured live
