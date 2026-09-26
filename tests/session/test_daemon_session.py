@@ -3140,6 +3140,11 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
               "the daemon's own call site honoured agent.yaml, not just evaluate()",
               cleared["term_ctl"] == 0, cleared)
 
+        # The fold parked it, and a parked row is judged no further - so the
+        # screens are read as of the next session, still on the same reading.
+        for name in ("ctxreal", "ctxctl"):
+            db.set_agent_state(con, name, dmn_states.IDLE)
+
         # 2. cli.health.cmd_triggers.
         trig_out = _capture(lambda: climod.main(["triggers"]))
         real_line = next(ln for ln in trig_out.splitlines() if "ctxreal" in ln)

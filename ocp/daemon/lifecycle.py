@@ -84,10 +84,14 @@ def triggers_apply(row) -> bool:
     is the account's, so it sweeps up the registered-but-never-started agents
     with everyone else.
 
+    A parked, throttled or degraded row is already past its wall: the tick
+    waits on its wake_at and judges nothing until then (`supervise`).
+
     Every screen asks this too - drawing a warning the daemon will never act on
     is the dashboard arguing with the daemon.
     """
-    return bool(row and row["terminal"] and not row["closed_at"])
+    return bool(row and row["terminal"] and not row["closed_at"]
+                and row["state"] not in (PARKED, THROTTLED, DEGRADED))
 
 
 def would_wake(con, row) -> bool:

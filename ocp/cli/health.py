@@ -103,7 +103,8 @@ def cmd_triggers(args) -> int:
             else:
                 fires = "no "
                 walled = dmn_lifecycle.would_wake(con, row) and launch.wake_wait_reason(a, row, con)
-                reason = walled or "session closed; nothing to hand off"
+                reason = walled or ("parked; judged again at its wake" if row and row["terminal"]
+                                    and not row["closed_at"] else "session closed; nothing to hand off")
             print(f"{a:<{w}}{acct or '-':<10}{five:>5}{cell(st.ctx_pct):>5}  "
                   f"{fires:<6} {reason}")
     finally:

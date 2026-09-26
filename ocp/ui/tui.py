@@ -983,6 +983,14 @@ def screen_state(con, row) -> tuple[str, str]:
             return "MOVING", ""
         if not row["wake_at"]:
             return "PENDING", ""
+        # Nothing waits for an agent parked on a wall with no work behind it,
+        # so there is nothing pending: the wake is the daemon's own, and
+        # queued_or_idle would say IDLE for the same row. A park a person
+        # asked for by hand still shows the time they chose.
+        if state == dmn_states.PARKED and not detail.startswith(dmn_states.BY_HAND_MARK) \
+                and not db.queued_for(con, row["agent"]) \
+                and not db.unannounced_answers(con, row["agent"]):
+            return "IDLE", ""
         # A wake_at already in the past is a tick the daemon has not run yet,
         # not a clock face worth printing - "due" says so the way the
         # countdown this replaced always did.
