@@ -682,8 +682,8 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     return out
 
 
-TASK_STATES = ("waiting", "doing", "done", "closed", "discarded", "merged")
-OPEN_STATES = TASK_STATES[:3]
+TASK_STATES = ("draft", "queued", "doing", "done", "closed", "discarded", "merged")
+OPEN_STATES = TASK_STATES[:4]
 STALE_AFTER_S = 3 * 86400
 BATCH_VERBS = ("close", "discard", "owner", "priority")
 
@@ -694,8 +694,8 @@ def task_idle_s(row: dict, now: float) -> int:
 
 
 def task_stale(row: dict, now: float) -> bool:
-    """A waiting task nothing has touched for 3 days: the screen highlights it."""
-    return row["state"] == "waiting" and task_idle_s(row, now) >= STALE_AFTER_S
+    """A task waiting to be approved or to run that nothing has touched for 3 days: the screen highlights it."""
+    return row["state"] in ("draft", "queued") and task_idle_s(row, now) >= STALE_AFTER_S
 
 
 def task_related_to(row: dict, who: str) -> bool:
@@ -704,12 +704,12 @@ def task_related_to(row: dict, who: str) -> bool:
 
 
 TASK_SORTS = ("priority", "number", "state", "title", "owner", "idle")
-_STATE_ORDER = {"waiting": 0, "doing": 1, "done": 2, "closed": 3, "discarded": 4, "merged": 5}
+_STATE_ORDER = {"draft": 0, "queued": 1, "doing": 2, "done": 3, "closed": 4, "discarded": 5, "merged": 6}
 
 
 def sort_task_rows(rows: list[dict], by: str, reverse: bool = False, now: float | None = None) -> list[dict]:
     """`rows` ordered by one of TASK_SORTS: `priority` (P1 first), `number` (T9 before
-    T10), `state` (waiting first), `title`, `owner`, `idle` (longest first when reversed);
+    T10), `state` (drafts first), `title`, `owner`, `idle` (longest first when reversed);
     ties fall to the number."""
     now = time.time() if now is None else now
     keys = {"priority": lambda r: (r["priority"], r["id"]),

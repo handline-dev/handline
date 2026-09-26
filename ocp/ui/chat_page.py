@@ -669,8 +669,8 @@ class TaskTable(DataTable):
                 self.action_select_cursor()
 
 
-STATE_STYLE_FG = {"doing": "blue", "done": "green", "closed": "dim"}
-STATE_STYLE = {"doing": "white on blue",
+STATE_STYLE_FG = {"draft": "dim", "queued": "yellow", "doing": "blue", "done": "green", "closed": "dim"}
+STATE_STYLE = {"draft": "white on grey30", "queued": "black on yellow", "doing": "white on blue",
                "done": "black on green", "closed": "white on grey37"}
 
 
