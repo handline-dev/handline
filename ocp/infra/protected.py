@@ -59,7 +59,9 @@ def get(namespace: str, name: str) -> str | None:
     """The entry, or None when there is none - or when the store cannot be read at
     all, which is what an agent's sandbox says (EPERM, not "no such file"). For a
     decision or a grant that is the answer that grants nothing; for a seal it is
-    not - an agent session cannot verify team.yaml or agent.yaml (T202)."""
+    not - an agent session cannot verify team.yaml or agent.yaml, so the daemon
+    re-checks every waiting request against the sealed routing table
+    (daemon/delivery.py enforce_edges, T202)."""
     try:
         return _entry(namespace, name).read_text()
     except (FileNotFoundError, NotADirectoryError, PermissionError):

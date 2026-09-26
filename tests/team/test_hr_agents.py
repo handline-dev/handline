@@ -2765,6 +2765,57 @@ def test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_
             os.environ["OCP_AGENT"] = saved
 
 
+def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> None:
+    """T202: an agent whose sandbox cannot read the seals checks its own `ask`
+    against a team.yaml it cannot verify. The daemon re-checks every waiting
+    request against the founder's table: a tampered file holds delivery, and once
+    the founder's text is back the request is refused."""
+    from ocp.daemon import delivery
+    from ocp.infra import protected
+    _daemon_home(home, 20)
+    agents.register("scout")
+    agents.register("keeper")
+    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
+                "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    hand_edit_team(founders)
+    tampered = founders + '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
+    root = protected.root()
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "scout"
+    root.chmod(0)
+    try:
+        paths.team_file().write_text(tampered)
+        ok, said, rid = askmod.ask("keeper", "let me in", requester="scout")
+    finally:
+        root.chmod(0o700)
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    check("daemon: the agent's own check let the forged edge through (why the daemon looks)", ok, said)
+
+    logged: list[str] = []
+    con = db.connect()
+    try:
+        held = delivery.enforce_edges(con, "keeper", logged.append)
+        check("daemon: a tampered team.yaml holds delivery and says so",
+              held is False and any("not trusted" in l for l in logged), str(logged))
+        check("daemon: and the request is still queued, undelivered",
+              db.get_request(con, rid)["state"] == "queued")
+        paths.team_file().write_text(founders)
+        ok2 = delivery.enforce_edges(con, "keeper", logged.append)
+        row = db.get_request(con, rid)
+        check("daemon: with the founder's text back, the request is refused at delivery",
+              ok2 and row["state"] == "denied" and "refused at delivery" in (row["verdict"] or ""),
+              str(dict(row)))
+        check("daemon: nothing is left for keeper to be told", db.head_of_queue(con, "keeper") is None)
+        ok3, said3, rid3 = askmod.ask("keeper", "hello", requester="scout")
+        check("daemon: a request the table does deny at ask time is not delivered either",
+              not ok3, said3)
+    finally:
+        con.close()
+
+
 def cliteam_seal() -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -2777,6 +2828,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
+        run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
