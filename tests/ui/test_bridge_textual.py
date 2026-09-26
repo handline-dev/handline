@@ -1606,6 +1606,23 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         con.close()
 
 
+async def test_the_settings_tab_switch_shows_and_saves_skip_prompts() -> None:
+    from textual.widgets import Switch, Tabs
+    _home("skipswitch")
+    agents.register("reviewer", skip_permissions=True)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        page = app.screen
+        page.query_one(Tabs).active = "settings"
+        await pilot.pause(0.4)
+        sw = page.query_one("#s_skip", Switch)
+        check("settings tab: the switch shows the agent's setting", sw.value is True)
+        sw.value = False
+        check("settings tab: the form reads the switch", page.form()["skip_permissions"] == "off")
+
+
 def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     from ocp.ui import chat_page as cp
     home = _home("settings")
@@ -1636,6 +1653,24 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     ok, said = cp.save_settings("backend", [("effort", now["effort"], "low")])
     check("settings: a save leaves a field changed since the tab was read",
           ok and agents.read("backend")["weight"] == "heavy", said)
+    check("settings: skip prompts reads off for an agent that never set it", cfg["skip_permissions"] == "off")
+    check("settings: skip prompts must be on or off",
+          cp.settings_problem({**form, "repo": "", "skip_permissions": "yes"}) is not None)
+    ok, said = cp.save_settings("backend", cp.settings_changes(cfg, {**form, "skip_permissions": "on"}))
+    check("settings: turning skip prompts on writes it and reads back on",
+          ok and agents.skip_permissions(agents.read("backend")) and cp.settings_of("backend")["skip_permissions"] == "on", said)
+    check("settings: and the rest of the file is as it was", agents.read("backend")["weight"] == "heavy")
+    ok, said = cp.save_settings("backend", [("skip_permissions", "on", "off")])
+    check("settings: turning it off removes it", ok and not agents.skip_permissions(agents.read("backend")), said)
+    with open(agents.agent_file("backend"), "a") as f:
+        f.write("skip_permissions: true\n")
+    unhinted = cp.settings_of("backend")
+    check("settings: a key in agent.yaml with no grant shows off, as the launch ignores it",
+          agents.skip_permissions(agents.read("backend")) and not agents.skip_permissions_granted("backend")
+          and unhinted["skip_permissions"] == "off", str(unhinted["skip_permissions"]))
+    ok, said = cp.save_settings("backend", cp.settings_changes(unhinted, {**form, "skip_permissions": "on"}))
+    check("settings: saving on then grants it", ok and agents.skip_permissions_granted("backend")
+          and cp.settings_of("backend")["skip_permissions"] == "on", said)
 
 
 def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() -> None:
@@ -2381,6 +2416,7 @@ async def _run_all() -> None:
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()
     await test_the_agent_tasks_tab_is_the_tasks_view_scoped_to_the_agent()
+    await test_the_settings_tab_switch_shows_and_saves_skip_prompts()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
