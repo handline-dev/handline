@@ -1295,12 +1295,12 @@ class ChatPage(JobsAware, Screen):
             self.set_sort(sg.arg)
             self.query_one("#scope", Tabs).active = "tasks"
 
-    def run_verb(self, label: str) -> None:
+    def run_verb(self, label: str, arg: str = "") -> None:
         """The home page's key for `label`, on this page's agent: same asks, same job."""
         async def go() -> None:
             con = db.connect()
             try:
-                await dispatch_agent_verb(self, con, self.agent, label)
+                await dispatch_agent_verb(self, con, self.agent, label, arg)
             finally:
                 con.close()
         self.run_worker(go(), group="verb", exit_on_error=False)
@@ -1464,9 +1464,10 @@ class ChatPage(JobsAware, Screen):
         if named in {n for n, _, _ in PAGE_COMMANDS}:
             self.run_command(named)
             return
-        if named in self.verbs_pool:
+        word, _, arg = (named or "").partition(" ")
+        if word in self.verbs_pool and (word == "move" or not arg.strip()):
             box.text = ""
-            self.run_verb(named)
+            self.run_verb(word, arg.strip())
             return
         rid = self.replying.m["rid"] if self.replying else None
         self.start_send(body, rid)

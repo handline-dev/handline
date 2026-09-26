@@ -470,6 +470,16 @@ async def test_a_slash_agent_action_in_the_chat_runs_the_home_pages_flow() -> No
         await pilot.pause(0.5)
         check("chat verb: /park asks first", isinstance(app.screen, Confirm),
               type(app.screen).__name__ + str([n.message for n in app._notifications]))
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        page.verbs_pool = ("move",)
+        page.query_one("#compose").text = "/move alpha"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("chat verb: /move alpha skips the account prompt and asks to confirm",
+              isinstance(app.screen, Confirm) and "alpha" in str(app.screen.query("Static").first().render()),
+              type(app.screen).__name__)
 
 
 async def test_a_double_click_on_a_row_is_enter() -> None:
