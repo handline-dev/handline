@@ -34,6 +34,7 @@ from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
 from .components.dialog_modal import DialogModal
+from .components.jobs_aware import JobsAware, dispatch_agent_verb
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
@@ -440,6 +441,12 @@ PAGE_COMMANDS = (("chat", "My chat", "mine"), ("all", "All chat", "all"), ("task
 
 
 MENU_MAX = 8
+VERB_WHAT = {'terminal': 'go to its terminal', 'wake': 'wake it now', 'close': 'close its session',
+             'park': 'park it', 'fold': 'fold it into its handoff', 'move': 'move it to another account'}
+
+# The home page's agent keys that make sense typed in the agent's own chat: `open` is this page,
+# and `message` and `editor` are the box itself.
+CHAT_VERBS = ('terminal', 'wake', 'close', 'park', 'fold', 'move')
 _REF_TAIL = re.compile(r"(?:^|\s)#(\d*)$")
 
 
@@ -516,19 +523,21 @@ class Suggestion:
     label: tuple[str, str]      # (bold part, dim part)
 
 
-def suggest(before: str, tasks: list[tuple], requests: list[tuple]) -> list[Suggestion]:
+def suggest(before: str, tasks: list[tuple], requests: list[tuple], verbs: tuple = ()) -> list[Suggestion]:
     """What the text before the cursor could become. `tasks` are `tasks_of`
     rows; `requests` are (id, "who → to", first line) newest first.
 
     A `/` line names a page command; after `/task ` it names one of the tasks
     (by number or a word of its title), after `/sort ` a table column. A `#` at
     the end of a word offers the tasks and requests whose number starts with
-    the digits typed. Anything else offers nothing."""
+    the digits typed. Anything else offers nothing. `verbs` are the agent actions on offer now."""
     if before.startswith("/") and "\n" not in before:
         name, sep, arg = before[1:].partition(" ")
         if not sep:
             return [Suggestion("run", n, f"/{n} ", (f"/{n}", f"   {what}"))
-                    for n, what, _ in PAGE_COMMANDS if n.startswith(name)]
+                    for n, what, _ in PAGE_COMMANDS if n.startswith(name)] \
+                + [Suggestion("verb", v, f"/{v} ", (f"/{v}", f"   {VERB_WHAT[v]}"))
+                   for v in verbs if v.startswith(name)]
         arg = arg.strip().lower()
         if name == "task":
             hits = [t for t in tasks if not arg or str(t[0]).startswith(arg.lstrip("#").lstrip("t"))
@@ -890,7 +899,7 @@ class TaskDetail(TaskActions, Screen):
          "back": self.app.pop_screen}[event.button.id]()
 
 
-class ChatPage(Screen):
+class ChatPage(JobsAware, Screen):
     BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history")]
 
     def __init__(self, agent: str) -> None:
@@ -903,6 +912,7 @@ class ChatPage(Screen):
         self.settings: dict | None = None
         self._menu_closed = False
         self.agent_state = ("IDLE", "")
+        self.verbs_pool: tuple = ()           # the agent actions `/` can offer right now
         self.tasks_pool: list[tuple] = []     # what `#` and `/task` can offer
         self.requests_pool: list[tuple] = []
         self.suggestions: list[Suggestion] = []
@@ -1063,6 +1073,7 @@ class ChatPage(Screen):
         con = db.connect()
         try:
             self.tasks_pool, self.requests_pool = refs_of(con, self.agent)
+            self.verbs_pool = tuple(v for v in CHAT_VERBS if actions.can(con, self.agent, v)[0])
         finally:
             con.close()
 
@@ -1170,7 +1181,7 @@ class ChatPage(Screen):
         else:
             menu.border_title = ""
             found = [] if self._menu_closed else suggest(
-                self._before_cursor()[0], self.tasks_pool, self.requests_pool)
+                self._before_cursor()[0], self.tasks_pool, self.requests_pool, self.verbs_pool)
         self.suggestions = found
         if not found:
             menu.display = False
@@ -1276,11 +1287,26 @@ class ChatPage(Screen):
         self.query_one("#compose", ChatBox).text = ""
         if sg.action == "run":
             self.run_command(sg.arg)
+        elif sg.action == "verb":
+            self.run_verb(sg.arg)
         elif sg.action == "open":
             self.app.push_screen(TaskDetail(int(sg.arg)))
         elif sg.action == "sort":
             self.set_sort(sg.arg)
             self.query_one("#scope", Tabs).active = "tasks"
+
+    def run_verb(self, label: str) -> None:
+        """The home page's key for `label`, on this page's agent: same asks, same job."""
+        async def go() -> None:
+            con = db.connect()
+            try:
+                await dispatch_agent_verb(self, con, self.agent, label)
+            finally:
+                con.close()
+        self.run_worker(go(), group="verb", exit_on_error=False)
+
+    def _redraw(self) -> None:
+        self.refresh_agent_state()
 
     def set_sort(self, column: str) -> None:
         self.query_one("#tasks_view").sort_named(column)
@@ -1437,6 +1463,10 @@ class ChatPage(Screen):
         named = body.strip()[1:] if body.strip().startswith("/") else None
         if named in {n for n, _, _ in PAGE_COMMANDS}:
             self.run_command(named)
+            return
+        if named in self.verbs_pool:
+            box.text = ""
+            self.run_verb(named)
             return
         rid = self.replying.m["rid"] if self.replying else None
         self.start_send(body, rid)
