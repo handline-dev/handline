@@ -669,6 +669,21 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
               db.get_request(con, rid)["state"] == "done"
               and not db.open_escalation_ids(con, "backend", dmn_lifecycle.TRUST_ESCALATION))
 
+        # A closed agent whose session is running, stalled by the trust prompt with the wake
+        # streak at its cap, is lifted once and said once: the wake-stall branch below the lift
+        # must not judge the row from before it and overwrite the lift's detail.
+        stalled_on_the_trust_screen()
+        db.set_closed(con, "backend", "sess-1")
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("trust stall: a closed agent at the wake cap is lifted with the trust detail kept",
+              row["state"] == dmn_states.IDLE and "folder-trust prompt" in row["detail"], str(dict(row)))
+        check("trust stall: ...and the lift is said once, not again as a wake stall",
+              sum("STALLED -> IDLE" in a for a in said) == 1
+              and not any("wake stall" in a or "running after all" in a for a in said), str(said))
+
         # A stall for another reason is not this one's to lift, however the screen reads.
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="3 failed attempts: x")
         sweep()

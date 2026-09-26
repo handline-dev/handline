@@ -242,6 +242,7 @@ def sweep(con, log, actions: list[str]) -> None:
 
         if alive and row["state"] == STALLED and lifecycle.TRUST_STALL in (row["detail"] or ""):
             _lift_trust_stall(con, agent, row, log, actions)
+            row = db.get_agent_state(con, agent)   # what follows judges the row as it now is
 
         if alive and closed:
             # It came back without us - a human relaunched it, or a resume
