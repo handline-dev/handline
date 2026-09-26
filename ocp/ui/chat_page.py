@@ -132,18 +132,6 @@ def messages_of(rows, agent: str) -> list[dict]:
     return msgs
 
 
-STATE_ORDER = {"draft": 0, "queued": 1, "doing": 2, "done": 3, "closed": 4, "discarded": 5}
-TASK_SORTS = {"task": lambda r: r[0], "role": lambda r: (r[1], r[0]),
-              "state": lambda r: (STATE_ORDER.get(r[2], 9), r[0]),
-              "updated": lambda r: r[5], "title": lambda r: (r[3].lower(), r[0]),
-              "with": lambda r: (r[4].lower(), r[0])}
-
-
-def sort_tasks(rows: list[tuple], column: str, reverse: bool) -> list[tuple]:
-    """`rows` of `tasks_of` ordered by the table column named `column`."""
-    return sorted(rows, key=TASK_SORTS[column], reverse=reverse)
-
-
 def tasks_of(con, agent: str) -> list[tuple]:
     """The tasks nobody has signed off yet that `agent` owns or opened, as (id,
     role, state, title, the other party, last update). A task it opened for
@@ -311,16 +299,6 @@ def message_parts(m: dict) -> tuple[Text | None, Text, Text | None]:
     if m.get("cancelled"):
         note = Text("cancelled" + (" - the agent was told to stop" if m.get("delivered") else ""))
     return head, body, note
-
-
-def task_cells(row: tuple) -> tuple:
-    """One row of the Tasks table, every agent-written cell a safe `Text`."""
-    tid, role, state, title, other, updated = row
-
-    def cell(value) -> Text:
-        return Text(safe(value), no_wrap=True, overflow="ellipsis")
-    return (actions.task_ref(tid), role, state, timefmt.stamp(updated, timefmt.SHORT),
-            cell(title), cell(other))
 
 
 def task_page(d: dict) -> dict:
@@ -552,7 +530,7 @@ def suggest(before: str, tasks: list[tuple], requests: list[tuple]) -> list[Sugg
                     for t in hits[:MENU_MAX]]
         if name == "sort":
             return [Suggestion("sort", c, f"/sort {c}", (c, "   sort the tasks by this column"))
-                    for c in TASK_SORTS if c.startswith(arg)]
+                    for c in actions.TASK_SORTS if c.startswith(arg)]
         return []
     m = _REF_TAIL.search(before)
     if not m:
@@ -940,21 +918,18 @@ class ChatPage(Screen):
         self.pending: list[Pending] = []
         self._spinning, self._frame = False, 0
         self._send_lock = threading.Lock()  # one send at a time, in the order typed
-        self.sort_col, self.sort_rev = "updated", True     # newest change first
         self.last_chat = "mine"     # the chat tab Esc returns to from Tasks
         self.oldest: int | None = None      # id of the oldest request on screen
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
-        self._tasks: list | None = None
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
                                 ("Settings", "settings")], back=True)
         with Horizontal(id="body"):
             yield VerticalScroll(id="transcript")
-        with Horizontal(id="tasks_body"):
-            yield TaskTable(id="task_table", cursor_type="row", zebra_stripes=True)
-            yield TaskPane(id="task_pane")
+        from .components.tasks_view import TasksView    # it draws on this module
+        yield TasksView(agent=self.agent, id="tasks_view")
         with Vertical(id="settings_view"):
             with VerticalScroll(id="settings_pane"):
                 for key, label in (("session_account", "session runs on"),
@@ -1002,75 +977,11 @@ class ChatPage(Screen):
 
     def on_mount(self) -> None:
         self.sub_title = f"agent {self.agent}"
-        table = self.query_one("#task_table", DataTable)
-        self.set_columns()
-        self.query_one("#tasks_body").display = False
+        self.query_one("#tasks_view").display = False
         self.query_one("#compose", ChatBox).menu = self.query_one("#menu", OptionList)
         self.query_one("#compose", ChatBox).focus()
         self.refresh_view()
         self.set_interval(2, self.refresh_view)
-
-    # Widths of the task table's columns other than the title, which takes
-    # what is left of the screen: nothing in it scrolls sideways.
-    TASK_COLS = (("task", 6), ("role", 7), ("state", 8), ("updated", 11))
-    TASK_WITH_W = 22
-    TASK_WITH_NARROW = 12
-
-    def set_columns(self) -> None:
-        table = self.query_one("#task_table", DataTable)
-        table.clear(columns=True)
-        with_w = self.TASK_WITH_W if self.size.width >= 100 else self.TASK_WITH_NARROW
-        fixed = sum(w for _, w in self.TASK_COLS) + with_w
-        beside = TaskPane.WIDTH if self.size.width >= TaskPane.WIDE else 0
-        self.title_w = max(8, self.size.width - beside - fixed - 2 * 6 - 3)
-
-        def label(name: str) -> str:
-            return name + (" ▼" if self.sort_rev else " ▲") if name == self.sort_col else name
-        for name, w in self.TASK_COLS:
-            table.add_column(label(name), width=w, key=name)
-        table.add_column(label("title"), width=self.title_w, key="title")
-        table.add_column(label("with"), width=with_w, key="with")
-        self._tasks = None
-
-    def on_task_table_sort(self, event: TaskTable.Sort) -> None:
-        event.stop()
-        names = list(TASK_SORTS)
-        if event.column == "reverse":
-            self.sort_rev = not self.sort_rev
-        elif event.column == "next":
-            self.sort_col = names[(names.index(self.sort_col) + 1) % len(names)]
-            self.sort_rev = self.sort_col == "updated"
-        elif event.column == self.sort_col:
-            self.sort_rev = not self.sort_rev
-        elif event.column in TASK_SORTS:
-            self.sort_col, self.sort_rev = event.column, event.column == "updated"
-        self.set_columns()
-        self.refresh_tasks()
-
-    def on_resize(self, event: events.Resize) -> None:
-        if self.is_mounted and event.size.width != getattr(self, "_cols_for", None):
-            self._cols_for = event.size.width
-            self.set_columns()
-            if self.showing_tasks:
-                self.refresh_tasks()
-            self.show_pane()
-
-    def show_pane(self) -> None:
-        pane = self.query_one(TaskPane)
-        table = self.query_one("#task_table", TaskTable)
-        if pane.fit(self.size.width, table) and self._tasks:
-            pane.show(self._tasks[min(table.cursor_row, len(self._tasks) - 1)][0])
-        elif not self._tasks:
-            pane.show(None)
-
-    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        event.stop()
-        self.show_pane()
-
-    def on_task_pane_changed(self, event: TaskPane.Changed) -> None:
-        event.stop()
-        self._tasks = None
-        self.refresh_tasks()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "leave":
@@ -1114,26 +1025,8 @@ class ChatPage(Screen):
         self.refresh_pools()
         if self.showing_settings:
             return
-        if self.showing_tasks:
-            self.refresh_tasks()
-        else:
+        if not self.showing_tasks:
             self.refresh_conversation()
-
-    def refresh_tasks(self) -> None:
-        con = db.connect()
-        try:
-            rows = tasks_of(con, self.agent)
-        finally:
-            con.close()
-        rows = sort_tasks(rows, self.sort_col, self.sort_rev)
-        if rows == self._tasks:
-            return
-        self._tasks = rows
-        table = self.query_one("#task_table", DataTable)
-        table.clear()
-        for row in rows:
-            table.add_row(*task_cells(row), key=str(row[0]))
-        self.show_pane()
 
     def refresh_conversation(self, force: bool = False) -> None:
         """Bring what is on screen up to date. Unchanged, this is one small
@@ -1341,12 +1234,7 @@ class ChatPage(Screen):
             self.query_one("#scope", Tabs).active = "tasks"
 
     def set_sort(self, column: str) -> None:
-        if column == self.sort_col:
-            self.sort_rev = not self.sort_rev
-        else:
-            self.sort_col, self.sort_rev = column, column == "updated"
-        self.set_columns()
-        self.refresh_tasks()
+        self.query_one("#tasks_view").sort_named(column)
 
     def run_command(self, name: str) -> None:
         """Do the page command `name`: open the tab it names."""
@@ -1380,19 +1268,21 @@ class ChatPage(Screen):
         chat = not (self.showing_tasks or self.showing_settings)
         if chat:
             self.last_chat = event.tab.id
-        self.oldest, self.more, self._sig, self._tasks = None, False, None, None
+        self.oldest, self.more, self._sig = None, False, None
         self.reply_to(None)
         if self.is_mounted:
             self.query_one("#body").display = chat
             self.query_one("#dock").display = chat
-            self.query_one("#tasks_body").display = self.showing_tasks
+            self.query_one("#tasks_view").display = self.showing_tasks
             self.query_one("#settings_view").display = self.showing_settings
             if self.showing_settings:
                 self.load_settings()
                 self.query_one("#s_model", Input).focus()
             else:
-                (self.query_one("#compose", ChatBox) if chat else self.query_one("#task_table", TaskTable)).focus()
+                (self.query_one("#compose", ChatBox) if chat else self.query_one("#tasks_table")).focus()
             self.refresh_view()
+            if self.showing_tasks:
+                self.query_one("#tasks_view").refresh_rows()
 
     def load_settings(self) -> None:
         """Fill the settings form from the agent's file."""
