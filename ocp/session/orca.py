@@ -672,6 +672,7 @@ def screen_blocker_cached(handle: str, not_before: float = 0.0) -> Blocker | Non
 
 
 CLEARED, STILL_OPEN, NOT_PRESSED = "cleared", "still-open", "not-pressed"
+NO_DIALOG = "no dialog is open"
 # How long a dialog is given to go after Esc, read again each time.
 PRESS_SETTLE_S, PRESS_SETTLE_READS = 0.5, 4
 
@@ -693,7 +694,7 @@ def _press_dialog(handle: str, pick, key_name: str) -> tuple[str, str, str]:
         return NOT_PRESSED, "", "its screen could not be read"
     footer = _footer_row(tail)
     if footer is None:
-        return NOT_PRESSED, "", "no dialog is open"
+        return NOT_PRESSED, "", NO_DIALOG
     dialog = parse_dialog(tail, footer)
     if dialog is None:
         return NOT_PRESSED, "", "its title or options could not be parsed"
@@ -774,14 +775,27 @@ def accept_dialog(handle: str, tool: str | None) -> tuple[str, str, str]:
     return _press_dialog(handle, lambda dialog: driver.accepting_key(dialog, tool), "Enter")
 
 
+def _highlighted(dialog: Dialog) -> int | None:
+    """The number of the one option marked as highlighted, or None."""
+    marked = [ln for ln in dialog.body if ln.startswith("\u276f")]
+    m = _OPTION_LABEL.match(marked[0]) if len(marked) == 1 else None
+    return int(m[1]) if m else None
+
+
 def answer_dialog(handle: str, choose) -> tuple[str, str, str]:
     """Press the number of the option `choose(vendor, dialog)` names on the
     dialog on this terminal's screen; (outcome, title, why) as `decline_dialog`.
 
     The number is read off the screen just read, never remembered. A vendor's
     folder-trust screen is never answered here, whatever `choose` says: that
-    stays with the trust roots. A number over 9 is not one key and is refused."""
+    stays with the trust roots. A number over 9 is not one key and is refused.
+
+    Whether a digit alone selects is not measured. When the digit leaves the same
+    dialog open with the chosen option now the highlighted one and the footer
+    saying Enter confirms, Enter is pressed once, on a fresh read; anything else
+    still open is reported as such."""
     driver = _driver_for(handle)
+    pressed: list[int] = []
 
     def pick(dialog: Dialog) -> tuple[str | None, str]:
         if driver.trust_screen(list(dialog.body)) is not None:
@@ -791,8 +805,23 @@ def answer_dialog(handle: str, choose) -> tuple[str, str, str]:
             return None, "no standing answer for this dialog"
         if not 1 <= number <= 9:
             return None, f"option {number} is not a single key"
+        pressed.append(number)
         return str(number), ""
-    return _press_dialog(handle, pick, "the option's number")
+    outcome, title, why = _press_dialog(handle, pick, "the option's number")
+    if outcome != STILL_OPEN:
+        return outcome, title, why
+
+    def confirm(dialog: Dialog) -> tuple[str | None, str]:
+        if dialog.title != title or _highlighted(dialog) != pressed[0]:
+            return None, "the chosen option is not the highlighted one"
+        if "Enter to confirm" not in dialog.footer:
+            return None, "its footer does not say Enter confirms"
+        return ENTER, ""
+    again = _press_dialog(handle, confirm, "Enter")
+    if again[0] != NOT_PRESSED:
+        return again
+    # It closed between the two reads, or the screen is not one to press on.
+    return (CLEARED, title, "") if again[2] == NO_DIALOG else (STILL_OPEN, title, why)
 
 
 # Claude Code's hint row under the composer counts what still runs in the

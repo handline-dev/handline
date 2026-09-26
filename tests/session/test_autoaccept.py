@@ -262,7 +262,25 @@ class _KeyTerm:
         return True, ""
 
 
-def _rule_world(home: Path, tail, rules=(("claude", RULE_TITLE, "No, not now"),), clears="2"):
+class _HighlightTerm(_KeyTerm):
+    """A terminal where a digit only moves the highlight, and Enter confirms it
+    (or, with `ignores_enter`, does nothing)."""
+
+    def __init__(self, tail, ignores_enter=False):
+        super().__init__(tail)
+        self.ignores_enter = ignores_enter
+
+    def send(self, handle, text, enter=True):
+        self.sent.append((text, enter))
+        if text.isdigit():
+            self.tail = [ln.replace("❯ ", "  ") if "❯" in ln else ln for ln in self.tail]
+            self.tail = [ln.replace(f"  {text}. ", f"❯ {text}. ", 1) for ln in self.tail]
+        elif text == "" and enter and not self.ignores_enter:
+            self.tail = list(CLEARED_SCREEN)
+        return True, ""
+
+
+def _rule_world(home: Path, tail, rules=(("claude", RULE_TITLE, "No, not now"),), clears="2", term=None):
     """backend is running with no tool waiting, behind `tail`."""
     from ocp.team import dialog_rules
     _daemon_home(home, 20)
@@ -273,7 +291,7 @@ def _rule_world(home: Path, tail, rules=(("claude", RULE_TITLE, "No, not now"),)
     db.set_agent_state(con, "backend", dmn_states.RUNNING)
     for rule in rules:
         check(f"rule world: {rule[2]!r} is added", dialog_rules.add(*rule)[0])
-    term = _KeyTerm(tail, clears)
+    term = term or _KeyTerm(tail, clears)
     term.install()
     return con, term
 
@@ -358,6 +376,33 @@ def test_a_rule_press_that_does_not_close_the_dialog_is_not_repeated(home: Path)
     finally:
         con.close()
 
+def test_a_digit_that_only_moves_the_highlight_is_followed_by_one_enter(home: Path) -> None:
+    con, term = _rule_world(home, RULE_DIALOG, term=_HighlightTerm(RULE_DIALOG))
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: the highlight moved to the ruled option, Enter is pressed once",
+              term.sent == [("2", False), ("", True)], str(term.sent))
+        check("rule: and it closed, so it is on the record as accepted",
+              _kinds(con)[1:] == ["dialog_accepted"], str(_kinds(con)))
+    finally:
+        con.close()
+    con, term = _rule_world(home / "deaf", RULE_DIALOG, term=_HighlightTerm(RULE_DIALOG, ignores_enter=True))
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: an Enter that does not close it is not repeated, on this tick or the next",
+              term.sent == [("2", False), ("", True)], str(term.sent))
+        check("rule: and the failure is recorded once", _kinds(con)[1:] == ["dialog_accept_failed"], str(_kinds(con)))
+    finally:
+        con.close()
+    con, term = _rule_world(home / "same", RULE_DIALOG, clears="never")
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: a digit that changed nothing does not earn an Enter",
+              term.sent == [("2", False)], str(term.sent))
+    finally:
+        con.close()
+
 
 def test_auto_accept_config_round_trips(home: Path) -> None:
     _daemon_home(home, 20)
@@ -383,6 +428,7 @@ def main() -> int:
         run(lambda: test_a_dialog_no_rule_covers_is_left_alone_and_costs_no_read(Path(td) / 'aa10'))
         run(lambda: test_a_rule_never_answers_a_folder_trust_screen_or_a_number_over_nine(Path(td) / 'aa11'))
         run(lambda: test_a_rule_press_that_does_not_close_the_dialog_is_not_repeated(Path(td) / 'aa12'))
+        run(lambda: test_a_digit_that_only_moves_the_highlight_is_followed_by_one_enter(Path(td) / 'aa13'))
         run(lambda: test_auto_accept_config_round_trips(Path(td) / 'aa6'))
     return run_area(tests)
 
