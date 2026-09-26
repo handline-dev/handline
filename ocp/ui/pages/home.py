@@ -458,6 +458,8 @@ class HomePage(RowActions, JobsAware, Screen):
             return self.query_one("#hr_table", DataTable).cursor_row == 0
         if self.tab == "tasks":
             return self.query_one("#tasks_table", DataTable).cursor_row == 0
+        if self.tab == "stats":
+            return self.query_one("#outlook_table", DataTable).cursor_row == 0
         if self.tab != "home":
             return True
         first = next((p for p in self.PANELS if tui._keys_of(p)), None)
@@ -476,7 +478,7 @@ class HomePage(RowActions, JobsAware, Screen):
         elif self.tab == "tasks":
             self.query_one("#tasks_table").focus()
         elif self.tab == "stats":
-            self.query_one("#stats_view").focus()
+            self.query_one("#outlook_table").focus()
         else:
             self.set_focus(None)
 

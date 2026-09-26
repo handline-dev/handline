@@ -16,4 +16,4 @@ class StatsScreen(Screen):
         yield OutlookView(back=True, id="stats_view")
 
     def on_mount(self) -> None:
-        self.query_one("#stats_view").focus()
+        self.query_one("#outlook_table").focus()

@@ -287,3 +287,16 @@ def weekly_outlook(con, now: int, hours: int = 24):
     """The weekly headroom of all accounts together, the last `hours` and a guess at the next."""
     from ..usage import outlook
     return outlook.weekly_outlook(db.usage_samples(con, since=now - hours * 3600 - 7200), now, hours)
+
+
+def agent_use(con, now: int, hours: int) -> list:
+    """Each agent's tokens and list-price cost over the last `hours`, largest first."""
+    from ..usage import prices, stats
+    return stats.agent_use(con, now - hours * 3600, now, prices.table_from_config(loadmod._config()))
+
+
+def agent_use_series(con, agent: str, now: int, hours: int, buckets: int = 48) -> list:
+    """(time, list-price cost) of one agent's use over the last `hours`, in `buckets` slots."""
+    from ..usage import prices, stats
+    return stats.agent_series(con, agent, now - hours * 3600, now, buckets,
+                              prices.table_from_config(loadmod._config()))

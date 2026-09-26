@@ -9,45 +9,116 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Select, Static
+from textual.screen import Screen
+from textual.widgets import DataTable, Select, Static
 
 from ... import actions, db
+from ...infra import textsafe
 from ...usage.outlook import Outlook
+from ..chat_page import TaskTable
 from .key_guide import Key, KeyGuide, KeyHelp
 
 RANGES = (("12h", 12), ("24h", 24), ("3d", 72), ("7d", 168), ("14d", 336))
 BLOCKS = " ▁▂▃▄▅▆▇█"
+
+
+def short_tokens(n: int) -> str:
+    """12345678 as 12.3M, 1400 as 1.4k."""
+    for div, unit in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "k")):
+        if n >= div:
+            return f"{n / div:.1f}{unit}"
+    return str(n)
 AXIS_W = 6
 HEIGHT = 12
 
 
-def chart(o: Outlook, width: int, height: int = HEIGHT, span: str = "24h") -> Text:
-    """The graph as text: a column of eighth-blocks per time slot, the past in one colour, the
-    guess in another, a `now` mark under the point between them."""
-    points = o.past + o.future
-    cols = max(10, width - AXIS_W)
+def _grid(vals: list[float | None], fut: list[bool], top: float, ylabels: tuple[str, str, str],
+          height: int, axis: str) -> Text:
+    """Rows of eighth-blocks, one column per value scaled to `top`, `ylabels` (top, middle, zero)
+    at the left, and the `axis` line below; a value in the guess is drawn in its own colour."""
     out = Text()
+    for row in range(height - 1, -1, -1):
+        label = {height - 1: ylabels[0], (height - 1) // 2: ylabels[1], 0: ylabels[2]}.get(row, "")
+        out.append(label.rjust(AXIS_W - 1)[-(AXIS_W - 1):] + "│", style="dim")
+        for v, f in zip(vals, fut):
+            eighths = 0 if v is None or top <= 0 else round(v / top * height * 8) - row * 8
+            out.append(BLOCKS[max(0, min(8, eighths))], style="yellow" if f else "cyan")
+        out.append("\n")
+    out.append(" " * (AXIS_W - 1) + "└" + axis, style="dim")
+    return out
+
+
+def _axis(cols: int, marks: list[tuple[int, str]]) -> str:
+    axis = [" "] * cols
+    for c, text in marks:
+        for k, x in enumerate(text):
+            if 0 <= c + k < cols:
+                axis[c + k] = x
+    return "".join(axis)
+
+
+def _resample(n: int, cols: int) -> list[int]:
+    return [min(n - 1, c * n // cols) for c in range(cols)]
+
+
+def chart(o: Outlook, width: int, height: int = HEIGHT, span: str = "24h") -> Text:
+    """The weekly headroom: the past in one colour, the guess in another, `now` marked."""
+    points = o.past + o.future
     if not points:
         return Text("no weekly readings yet", style="dim")
-    idx = [min(len(points) - 1, c * len(points) // cols) for c in range(cols)]
-    vals = [points[i][1] for i in idx]
-    is_future = [i >= len(o.past) for i in idx]
-    for row in range(height - 1, -1, -1):
-        label = {height - 1: "100%", (height - 1) // 2: " 50%", 0: "  0%"}.get(row, "")
-        out.append(label.rjust(AXIS_W - 1) + "│", style="dim")
-        for v, fut in zip(vals, is_future):
-            eighths = 0 if v is None else round(v / 100 * height * 8) - row * 8
-            ch = BLOCKS[max(0, min(8, eighths))]
-            out.append(ch, style="yellow" if fut else "cyan")
-        out.append("\n")
-    now_col = next((c for c, f in enumerate(is_future) if f), cols)
-    axis = [" "] * cols
-    for c, ch in ((0, f"-{span}"), (max(0, now_col - 2), "now"), (max(0, cols - 1 - len(span)), f"+{span}")):
-        for k, x in enumerate(ch):
-            if c + k < cols:
-                axis[c + k] = x
-    out.append(" " * (AXIS_W - 1) + "└" + "".join(axis), style="dim")
-    return out
+    cols = max(10, width - AXIS_W)
+    idx = _resample(len(points), cols)
+    fut = [i >= len(o.past) for i in idx]
+    now_col = next((c for c, f in enumerate(fut) if f), cols)
+    axis = _axis(cols, [(0, f"-{span}"), (now_col - 2, "now"), (cols - 1 - len(span), f"+{span}")])
+    return _grid([points[i][1] for i in idx], fut, 100, ("100%", "50%", "0%"), height, axis)
+
+
+def bars(series: list[tuple[int, float]], width: int, height: int, span: str) -> Text:
+    """One agent's cost per time slot over the last `span`, scaled to its busiest slot."""
+    if not series:
+        return Text("nothing logged", style="dim")
+    cols = max(10, width - AXIS_W)
+    idx = _resample(len(series), cols)
+    vals = [series[i][1] for i in idx]
+    top = max(vals)
+    axis = _axis(cols, [(0, f"-{span}"), (cols - 3, "now")])
+    return _grid(vals, [False] * cols, top, (f"${top:.2f}", f"${top / 2:.2f}", "$0"), height, axis)
+
+
+class AgentUseScreen(Screen):
+    """One agent's use over the range, as a graph of list-price cost per slot."""
+
+    BINDINGS = [Binding("escape", "app.pop_screen", "back"), Binding("q,ctrl+c", "app.quit", "quit", show=False)]
+
+    def __init__(self, agent: str, range_name: str) -> None:
+        super().__init__()
+        self.agent = agent
+        self.range_name = range_name
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="au_title")
+        yield Static(id="au_chart")
+        yield KeyGuide([Key("esc", "back", 1, "back")], id="au_foot")
+
+    def on_mount(self) -> None:
+        self._draw()
+
+    def on_resize(self) -> None:
+        if self.is_mounted:
+            self._draw()
+
+    def _draw(self) -> None:
+        con = db.connect()
+        try:
+            series = actions.agent_use_series(con, self.agent, int(time.time()), dict(RANGES)[self.range_name])
+        finally:
+            con.close()
+        total = sum(c for _, c in series)
+        self.query_one("#au_title", Static).update(Text.assemble(
+            (f"{self.agent}  ", "bold"), (f"cost at list price per slot, last {self.range_name}: ${total:.2f} in all", "dim")))
+        self.query_one("#au_chart", Static).update(
+            bars(series, self.size.width - 2, max(4, min(HEIGHT, self.size.height - 5)), self.range_name))
 
 
 class OutlookView(Vertical):
@@ -55,14 +126,16 @@ class OutlookView(Vertical):
     BINDINGS = [Binding("r", "range", "range"), Binding("question_mark", "key_help", "keys")]
     DEFAULT_CSS = """
     OutlookView { height: 1fr; padding: 0 1; }
-    OutlookView #outlook_chart { height: 1fr; }
-    OutlookView #outlook_note { height: auto; color: $text-muted; margin-top: 1; }
+    OutlookView #outlook_chart { height: auto; }
+    OutlookView #outlook_note { height: auto; color: $text-muted; }
+    OutlookView #outlook_table { height: 1fr; margin-top: 1; }
     """
 
     def __init__(self, back: bool = False, **kw) -> None:
         super().__init__(**kw)
         self.back = back
         self.outlook = Outlook()
+        self.uses: list = []
         self.range = "24h"
 
     def _keys(self) -> list[Key]:
@@ -75,9 +148,11 @@ class OutlookView(Vertical):
                      allow_blank=False, compact=True)
         yield Static(id="outlook_chart")
         yield Static(id="outlook_note")
+        yield TaskTable(id="outlook_table", cursor_type="row", zebra_stripes=True)
         yield KeyGuide(self._keys(), id="outlook_foot")
 
     def on_mount(self) -> None:
+        self.query_one(DataTable).add_columns("agent", "tokens", "cost", "share")
         self.set_interval(30.0, self.refresh_rows)
         self.refresh_rows()
 
@@ -90,9 +165,24 @@ class OutlookView(Vertical):
         con = db.connect()
         try:
             self.outlook = actions.weekly_outlook(con, int(time.time()), dict(RANGES)[self.range])
+            self.uses = actions.agent_use(con, int(time.time()), dict(RANGES)[self.range])
         finally:
             con.close()
+        table = self.query_one(DataTable)
+        keep = table.cursor_row
+        table.clear()
+        for u in self.uses:
+            table.add_row(Text(textsafe.oneline(u.agent)), Text(short_tokens(u.tokens), justify="right"),
+                          Text(f"${u.cost:.2f}", justify="right"), Text(f"{u.share * 100:.0f}%", justify="right"),
+                          key=u.agent)
+        if self.uses:
+            table.move_cursor(row=min(keep, len(self.uses) - 1))
         self._draw()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        event.stop()
+        if event.row_key.value is not None:
+            self.app.push_screen(AgentUseScreen(str(event.row_key.value), self.range))
 
     def _draw(self) -> None:
         o = self.outlook
@@ -100,7 +190,7 @@ class OutlookView(Vertical):
             ("WEEK LEFT  ", "bold"), (f"{o.accounts} account{'s' if o.accounts != 1 else ''} together", "dim")))
         width = self.size.width - 2
         self.query_one("#outlook_chart", Static).update(
-            chart(o, width, max(4, min(HEIGHT, self.size.height - 6)), self.range) if width > 0 else Text(""))
+            chart(o, width, max(4, min(HEIGHT, (self.size.height - 9) // 2)), self.range) if width > 0 else Text(""))
         self.query_one("#outlook_note", Static).update(
             "cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
             "week resets what it had used comes back")

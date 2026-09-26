@@ -874,6 +874,30 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
     check("outlook: no samples, no points", not flat.past and not flat.future and flat.accounts == 0)
 
 
+def test_bars_scale_to_the_busiest_slot_and_the_agent_series_sums_its_calls() -> None:
+    from ocp.ui.components.outlook_view import bars
+    text = bars([(0, 0.0), (1, 4.0), (2, 2.0)], 30, 8, "24h")
+    check("bars: the top label is the busiest slot", "$4.00" in text.plain, text.plain)
+    _home("agentseries")
+    con = db.connect()
+    try:
+        now = 1_800_000_000
+        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES ('writer', 'IDLE', 0, '/w/writer')")
+        con.execute("INSERT INTO token_calls VALUES('alpha','p','p1',?,'claude-sonnet-5','/w/writer',0,1000,0,0,200,0)",
+                    (now - 3600,))
+        con.execute("INSERT INTO token_calls VALUES('alpha','p','p2',?,'claude-sonnet-5','/w/other',0,1000,0,0,200,0)",
+                    (now - 3600,))
+        con.commit()
+        series = actions.agent_use_series(con, "writer", now, 24)
+        uses = {u.agent: u for u in actions.agent_use(con, now, 24)}
+    finally:
+        con.close()
+    check("agent use: the series has the requested slots and carries the agent's calls only",
+          len(series) == 48 and sum(1 for _, c in series if c > 0) == 1, len(series))
+    check("agent use: the table splits the same calls between the agents",
+          set(uses) == {"writer", "(unattributed)"} and abs(uses["writer"].share - 0.5) < 1e-6, uses)
+
+
 def test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart() -> None:
     from ocp.ui.components.outlook_view import chart
     from ocp.usage.outlook import Outlook
@@ -893,6 +917,9 @@ async def test_stats_screen_draws_the_weekly_graph() -> None:
         now = int(time.time())
         for h in range(6, -1, -1):
             _week_sample(con, "alpha", now - h * 3600, 40 + h, now + 86400)
+        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES ('writer', 'IDLE', 0, '/w/writer')")
+        con.execute("INSERT INTO token_calls VALUES('alpha','p','p1',?,'claude-sonnet-5','/w/writer',0,1000,0,0,200,0)",
+                    (now - 3600,))
         con.commit()
     finally:
         con.close()
@@ -910,6 +937,16 @@ async def test_stats_screen_draws_the_weekly_graph() -> None:
         check("stats: r steps the date range and the graph follows",
               view.range == "3d" and view.outlook.future[-1][0] - view.outlook.past[-1][0] >= 71 * 3600,
               (view.range, view.outlook.future[-1][0] - view.outlook.past[-1][0]))
+        from ocp.ui.components.outlook_view import AgentUseScreen
+        table = view.query_one("#outlook_table")
+        check("stats: the agents' use is a table under the graph", table.row_count == len(view.uses) and len(view.uses) >= 1,
+              table.row_count)
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("stats: enter on an agent opens its use as a graph", isinstance(app.screen, AgentUseScreen),
+              type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
         await pilot.press("escape")
         await pilot.pause(0.2)
         from textual.widgets import Tabs
@@ -2258,6 +2295,7 @@ async def _run_all() -> None:
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
     test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
+    test_bars_scale_to_the_busiest_slot_and_the_agent_series_sums_its_calls()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
     await test_stats_screen_draws_the_weekly_graph()
     await test_the_key_guide_stays_on_screen_when_the_table_is_long()
