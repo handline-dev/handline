@@ -1659,6 +1659,22 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
           type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
 
 
+def test_a_delivery_changes_the_chat_signature() -> None:
+    from ocp.ui import chat_page as cp
+    _home("sigdeliver")
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "alpha", "reviewer", "one", None, None, None, None, 0, None)
+        con.commit()
+        before = cp.signature(con, "reviewer", True)
+        con.execute("UPDATE requests SET delivered_at = 5 WHERE id = ?", (rid,))
+        con.commit()
+        check("chat: a delivery moves the signature though the state stays queued",
+              cp.signature(con, "reviewer", True) != before)
+    finally:
+        con.close()
+
+
 def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
     from ocp.team import ask as askmod
     _home("qwhy")
@@ -2361,6 +2377,7 @@ async def _run_all() -> None:
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
+    test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()
     await test_the_agent_tasks_tab_is_the_tasks_view_scoped_to_the_agent()

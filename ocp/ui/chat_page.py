@@ -85,6 +85,7 @@ def signature(con, agent: str, everyone: bool) -> tuple:
     where, params = _scope(agent, everyone)
     row = con.execute(
         "SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(resolved_at), 0), "
+        "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
         params).fetchone()
     return tuple(row)
