@@ -1137,8 +1137,10 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
         check("tasks tab: a refresh with the same agents does not rebuild the agent dropdown", not rebuilt, len(rebuilt))
 
 
-async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
-    from ocp.ui.pages.tasks import TasksScreen
+async def test_b_opens_the_tasks_tab_on_the_founders_done_tasks() -> None:
+    from textual.widgets import Tabs
+    from ocp.ui.components import summary as sm
+    from ocp.ui.components.tasks_view import TasksView
     _home("checks")
     agents.register("reviewer")
     con = db.connect()
@@ -1153,22 +1155,28 @@ async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
     app = bt.BridgeApp()
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
+        page = app.screen
+        view = page.query_one("#tasks_view", TasksView)
         await pilot.press("b")
         await pilot.pause(0.3)
-        screen = app.screen
-        ids = {r["id"] for r in screen.query_one("#tasks_view").rows}
-        check("checks: b opens the tasks screen on the done tasks the founder signs off",
-              isinstance(screen, TasksScreen) and mine in ids and theirs not in ids, ids)
-        await pilot.press("escape")
+        ids = {r["id"] for r in view.rows}
+        check("checks: b goes to the Tasks tab, filtered to the done tasks the founder signs off",
+              app.screen is page and page.query_one("#scope", Tabs).active == "tasks"
+              and mine in ids and theirs not in ids, ids)
+        page.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
+        page.query_one("#scope", Tabs).active = "tasks"
         await pilot.pause(0.3)
-        from ocp.ui.components import summary as sm
+        check("checks: the tab opened by hand is not filtered", view.closer is None and "doing" in view.states)
+        page.query_one("#scope", Tabs).active = "home"
+        await pilot.pause(0.2)
         text = sm.summary_text(True, "t", sm.Summary(0, 0, 1))
         check("checks: the to-check part of the header is a link to the screen's checks action",
               any(getattr(sp.style, "meta", {}).get("@click") == "screen.checks" for sp in text.spans))
-        await app.screen.run_action("checks")
+        await page.run_action("checks")
         await pilot.pause(0.3)
-        check("checks: that action opens the same screen", isinstance(app.screen, TasksScreen)
-              and mine in {r["id"] for r in app.screen.query_one("#tasks_view").rows})
+        check("checks: that action goes to the same filtered tab",
+              page.query_one("#scope", Tabs).active == "tasks" and {r["id"] for r in view.rows} == {mine})
 
 
 async def test_read_only_page_shows_foreign_text_inert() -> None:
@@ -2458,7 +2466,7 @@ async def _run_all() -> None:
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
-    await test_b_opens_the_tasks_screen_on_the_founders_done_tasks()
+    await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
     await test_dashboard_messages_table_is_fed_by_messages_data()

@@ -100,6 +100,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self.sel: dict = {}
         tui._enter(self.panel, self.sel)
         self.tab = "home"
+        self._checks = False            # the next Tasks tab opens on the founder's done tasks
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
         self._pressed: tuple | None = None      # the last row a mouse press picked, and when
@@ -153,15 +154,23 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
         if self.tab == "tasks":
-            self.query_one("#tasks_view", TasksView).refresh_rows()
+            view = self.query_one("#tasks_view", TasksView)
+            view.show_checks(self._checks)      # the tab opens plain unless `to check` sent us here
+            self._checks = False
         if self.tab == "stats":
             self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
             self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
 
     def action_checks(self) -> None:
-        """The founder's done tasks waiting for a sign-off: the `b` key and the header's `to check`."""
-        self.app.push_screen(TasksScreen(states={"done"}, closer=actions.HUMAN))
+        """The founder's done tasks waiting for a sign-off: the `b` key and the header's `to check`
+        go to the Tasks tab with them filtered."""
+        self._checks = True
+        tabs = self.query_one("#scope", Tabs)
+        if tabs.active == "tasks":
+            self.query_one("#tasks_view", TasksView).show_checks(True)
+        else:
+            tabs.active = "tasks"
 
     def _save_settings(self) -> None:
         ok, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
