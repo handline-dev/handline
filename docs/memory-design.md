@@ -1,0 +1,126 @@
+# Agent memory (T229)
+
+Design only; nothing here is built. Founder #1272-#1274: each agent keeps its
+own memory and works from it, and memory must not pile up ("too much is worse
+than none").
+
+## Today
+
+- Claude Code keys auto-memory by repo: `<config dir>/projects/<repo>/memory/`.
+  ocp links that folder from every account to `shared/memory/claude/<repo>`
+  (`accounts.share_memory`), so the six orcapipe agents share one folder.
+- It holds 13 topic files and a `MEMORY.md` that lists **6** of them. Claude
+  loads only the index at start, so the other 7 are never loaded unless an
+  agent happens to open them. Two files (`ocp-cli-habits`, `ocp-resolve-quoting`)
+  say the same thing; three UI-testing files overlap.
+- `agents/<name>/journal` is unused. `base.md` (2KB) and `ROLE.md` are injected
+  as the system-prompt appendix on every launch (`launch.context_for`).
+
+## Layers
+
+| Layer | Where | Loaded into | Holds |
+|---|---|---|---|
+| Repo rules | `AGENTS.md` (PR-reviewed) | every agent in that repo | rules true for all |
+| Team | `~/.orcapipe/shared/team/<team>.md` | every agent of the team, in the appendix beside `base.md` | at most 10 rules, 2KB |
+| Agent | `~/.orcapipe/agents/<name>/memory/` | that agent only | its `MEMORY.md` index + topic files |
+
+The team layer is one injected file, not a shared memory folder: Claude loads a
+single memory dir per session, and once the agent dir is set the repo dir is no
+longer loaded at all.
+
+## How a session is pointed at its own memory
+
+Checked against the Claude Code docs (code.claude.com/docs/en/memory, fetched
+2026-09-27). Not checked against the installed binary (2.1.283): this sandbox
+cannot read it, so the daemon task starts with one live launch (see Tasks).
+
+| Option | Verdict |
+|---|---|
+| `autoMemoryDirectory` in settings | **Use this.** Read from any scope, including `--settings`; absolute path or `~/`. Replaces the repo-keyed dir for that session. |
+| `CLAUDE_CODE_PROJECT_DIR_NAME` (env, v2.1.234+) | No. It renames the whole project dir, so transcripts move too, and `handoff`, `collect` and `tokenlog` find sessions there. |
+| `CLAUDE_CONFIG_DIR` per launch | Already one per account, not per agent; changing it would break account moves. |
+| Inject memory through `base.md` or a hook | Only for the team layer. It cannot make Claude *write* to the right place. |
+
+`launch_argv` already passes one `--settings` JSON (the `hide` deny list); the
+driver merges `autoMemoryDirectory` into that same object. A new
+`Driver.memory_settings(dir)` returns it, and opencode (no auto-memory) returns
+nothing. Because the dir is keyed by agent, an account move or a worktree
+rename no longer touches memory: `share_memory`, `migrate_memory` and the
+memory half of `rehome` go away for agent memory.
+
+Isolation: extend the `hide` list with every *other* agent's memory dir, the
+same way other agents' transcripts are hidden now, and make sure the sandbox's
+home-write allowance covers the agent's own dir.
+
+Also to confirm live: Claude does not load auto memory from a dir named in
+repository-supplied settings while `blockReadsOutsideWorkingDirectories` is on.
+`--settings` is not repository-supplied, but the launch check should read the
+index back to prove it loaded.
+
+## Keeping it small
+
+Budget per agent: `MEMORY.md` at most **2KB and 20 entries**. Claude's own
+limit (200 lines / 25KB) is 10x looser and is never reached.
+
+1. **Cap, enforced deterministically.** A PreToolUse hook on Write/Edit of a
+   file under the agent's memory dir denies a change that makes an over-budget
+   `MEMORY.md` bigger, with the reason "merge or delete before adding". Shrinking
+   edits pass. No model call.
+2. **Last use.** A PostToolUse hook matched on `Read` (and Edit) writes
+   `agents/<name>/memory-use.json` (`{file: last_ts}`) when the path is under
+   the memory dir; outside it the hook exits at once. The file lives outside the
+   memory dir so it is never loaded or counted.
+3. **Pruning candidates.** `ocp doctor` and `ocp memory status` list per agent:
+   bytes and entries against budget, files not in the index, and files unused
+   for 28 days. Candidates are reported, never deleted by ocp.
+4. **Consolidate at handoff.** The handoff prompt carries the agent's status
+   line; when over budget or with candidates, it says "merge or delete these
+   before you finish". The wake prompt repeats it if the next session still
+   starts over budget.
+5. **Promotion.** A lesson every agent needs moves to `AGENTS.md` / `ROLE.md`
+   by PR and is deleted from memory; `ocp memory status` flags an entry whose
+   text also appears in another agent's memory as a promotion candidate.
+6. **No automatic summarising.** ocp never rewrites an entry; rules stay verbatim.
+
+Known gap: an entry the agent applies straight from its index line never
+triggers a `Read`, so its "last use" looks stale. Rule: the index line is a
+pointer of at most 100 characters and the rule lives in the topic file, so
+applying it means reading it. Candidates are a prompt for the agent's judgment
+at handoff, not a verdict.
+
+## Migrating the 13 topic files (owner inferred from content)
+
+| Files | To | Note |
+|---|---|---|
+| `batch-per-owner`, `idle-not-free`, `feedback-queue-discipline`, `founder-reports-fyi`, `feedback-founder-working-style` | `orcapipe` | 5 entries |
+| `auditor-run-suite-before-verdict` | `orcapipe.auditor` | |
+| `feedback-testing` + `feedback-minimal-ui-tests` + `feedback-full-suite-before-review` | `orcapipe.ui`, merged into one | 3 to 1 |
+| `feedback-no-tests-until-ok` | `orcapipe.ui`, or delete | founder said "until OK" on 2026-09-26: ui asks whether it still stands |
+| `ocp-cli-habits` + `ocp-resolve-quoting` | `AGENTS.md`, single-quote rule | 2 to 1, leaves memory |
+| `project-ocp-home-wipe` | delete | fixed in 09dc7c1 and guarded in `paths`; git records it |
+
+Result: 13 files become 9 entries (orcapipe 5, ui 2, auditor 1, AGENTS.md 1);
+3 duplicates merge away and 1 is deleted. core, daemon and merger start empty. `AGENTS.md` currently says to run the whole suite with
+`tools/suite.sh` while the ui entries say "full suite only at the auditor gate";
+reconcile the wording when promoting. `ocp memory migrate` runs as a dry run
+first, writes each owner's dir and index, and leaves `shared/memory` untouched
+until each agent has confirmed its own entries once; then the links are removed.
+
+## Tasks
+
+- **daemon:** first, one live launch with `--settings '{"autoMemoryDirectory": ...}'`
+  proving the index loads and writes land there; `Driver.memory_settings` and the
+  merged `--settings`; hide other agents' memory dirs; the two hooks; the
+  handoff and wake wording.
+- **core:** `ocp memory status|migrate`; `ocp doctor` check; create
+  `agents/<name>/memory/` on register; remove the account-move memory code for
+  agents; the team-layer file and its injection next to `base.md`; the
+  `AGENTS.md` promotion PR.
+- **ui:** a read-only memory line per agent (bytes and entries against budget,
+  candidates with last use). Shape agreed with the founder before it is built.
+
+## Open for the founder
+
+1. Team layer as a file in the appendix (proposed), or only `AGENTS.md`?
+2. 28 days: the candidate age, or shorter while the team is this young?
+3. Should the cap deny writes (proposed) or only warn?
