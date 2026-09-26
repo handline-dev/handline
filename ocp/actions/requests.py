@@ -391,16 +391,19 @@ def founder_waits(con) -> list[dict]:
 
 
 def opened_by_human(con, rid: int) -> None:
-    """Reading a report is what closes it: it asked nothing, so nothing is left.
+    """Reading a report or an answer is what clears it: neither asks anything.
 
     No verdict is written. A report is not a question, so being read is not an
     answer - and a verdict here would be one the sending agent can read back
     (`ocp read`, its own conversation), making it look as though the human had
-    said something they never typed.
+    said something they never typed. An answer to the human is already closed;
+    reading it only stops it being listed, as `dismiss` does for a closed row.
     """
     row = db.get_request(con, rid)
     if row and row["fyi"] and row["target"] == HUMAN:
         db.retire_queued(con, rid, "done", None)
+    elif row and _is_answer_to_human(row):
+        db.mark_announced(con, [rid])
 
 
 def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | None:

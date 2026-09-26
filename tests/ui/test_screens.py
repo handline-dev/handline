@@ -162,6 +162,18 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         ok, msg, _ = askmod.ask("frontend", "x", requester="backend", fyi=True)
         check("fyi: only the founder gets one", not ok, msg)
 
+        # A resolve reply to something the founder asked clears the same way.
+        asked = db.add_request(con, actions.HUMAN, "backend", "is it done?", None, "peer",
+                               "async", None, 0, None)
+        askmod.resolve(asked, "yes, merged")
+        check("answer: listed until read",
+              asked in [r["id"] for r in db.unannounced_answers(con, actions.HUMAN)])
+        actions.opened_by_human(con, asked)
+        check("answer: reading it clears it, no dismiss needed",
+              asked not in [r["id"] for r in db.unannounced_answers(con, actions.HUMAN)])
+        check("answer: reading it leaves the verdict alone",
+              db.get_request(con, asked)["verdict"] == "yes, merged")
+
         # A correction reaches an escalation the bridge already showed.
         db.mark_delivered(con, q)
         ok, msg, new = askmod.ask(actions.HUMAN, "merge keeper-3 - now with tests",
