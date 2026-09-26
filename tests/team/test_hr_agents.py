@@ -1282,6 +1282,149 @@ def test_an_account_links_from_its_own_vendors_shared_dir(home: Path) -> None:
               ("zeta", "skills") in accounts.unlinked())
 
 
+def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
+    """T231: memory is reported against its budget and never rewritten;
+    migrate is a dry run until --apply and never touches shared/memory; the
+    team layer is a file read per team."""
+    import time as _t
+    from ocp.team import memory
+    from ocp.cli import memory as climemory
+    os.environ["OCP_HOME"] = str(home)
+    agents.register("orcapipe")
+    agents.register("orcapipe.ui")
+    mem = home / "agents" / "orcapipe" / "memory"
+    check("register: the agent's memory dir exists", mem.is_dir())
+    check("status: no index is not over budget", not memory.status("orcapipe")["over"])
+
+    (mem / "MEMORY.md").write_text("- [a](a.md) - x\n" * 21)
+    st = memory.status("orcapipe")
+    check("status: 21 entries is over the 20 cap", st["entries"] == 21 and st["over"])
+    (mem / "MEMORY.md").write_text("- [a](a.md) - " + "y" * 2100 + "\n")
+    check("status: over 2KB is over budget", memory.status("orcapipe")["over"])
+    (mem / "MEMORY.md").write_text("- [a](a.md) - x\n")
+    (mem / "a.md").write_text("rule a")
+    (mem / "b.md").write_text("rule b")
+    now = _t.time()
+    st = memory.status("orcapipe", now)
+    check("status: a file the index does not name is listed", st["unindexed"] == ["b.md"])
+    check("status: a file just written is not stale", st["stale"] == [])
+    old = now - 29 * 86400
+    (home / "agents" / "orcapipe" / "memory-use.json").write_text(
+        json.dumps({"a.md": old, "b.md": now}))
+    check("status: 28 days unused makes a candidate, a recent use does not",
+          memory.status("orcapipe", now)["stale"] == ["a.md"])
+    check("status: ocp never deletes it", (mem / "a.md").exists())
+    said = _capture(lambda: climemory.cmd_memory_status(argparse.Namespace(agent="orcapipe")))
+    check("status: the command prints the agent's line", said.startswith("orcapipe: ")
+          and "not in the index: b.md" in said, said)
+
+    (home / "agents" / "orcapipe.ui" / "memory").mkdir(exist_ok=True)
+    (mem / "a.md").write_text("rule a")
+    (home / "agents" / "orcapipe.ui" / "memory" / "same.md").write_text("Rule  a")
+    check("promotion: the same text in two agents is a candidate",
+          any(len(v) == 2 for _k, v in memory.promotion_candidates()))
+
+    src = home / "shared" / "memory" / "claude" / "-Users-x-orcapipe"
+    src.mkdir(parents=True)
+    other = home / "shared" / "memory" / "claude" / "-Users-x-harbor-app"
+    other.mkdir(parents=True)
+    (other / "idle-not-free.md").write_text("another repo's fact")
+    (src / "idle-not-free.md").write_text(
+        "---\nname: idle-not-free\ndescription: do not route by idleness alone\n---\nbody")
+    (src / "ocp-cli-habits.md").write_text("q")
+    (src / "project-ocp-home-wipe.md").write_text("w")
+    (src / "unknown.md").write_text("u")
+    (src / "feedback-testing.md").write_text("t")
+    rows = {r["file"].stem: r["action"] for r in memory.plan_migration()}
+    check("migrate: each file's fate comes from the table",
+          rows == {"idle-not-free": "copy", "ocp-cli-habits": "promote",
+                   "project-ocp-home-wipe": "delete", "unknown": "no-owner",
+                   "feedback-testing": "merge"}, str(rows))
+    check("migrate: another repo's folder is not read",
+          all(r["file"].parent == src for r in memory.plan_migration()))
+    args = argparse.Namespace(apply=False)
+    _capture(lambda: climemory.cmd_memory_migrate(args))
+    check("migrate: a dry run writes nothing", not (mem / "idle-not-free.md").exists())
+    args.apply = True
+    _capture(lambda: climemory.cmd_memory_migrate(args))
+    check("migrate --apply: copied verbatim, with an index line",
+          (mem / "idle-not-free.md").read_text().endswith("body")
+          and "[idle-not-free](idle-not-free.md)" in (mem / "MEMORY.md").read_text())
+    check("migrate --apply: the shared folder is untouched",
+          sorted(p.name for p in src.iterdir()) == sorted(
+              ["idle-not-free.md", "ocp-cli-habits.md", "project-ocp-home-wipe.md",
+               "unknown.md", "feedback-testing.md"]))
+    n = (mem / "MEMORY.md").read_text().count("idle-not-free")
+    _capture(lambda: climemory.cmd_memory_migrate(args))
+    check("migrate --apply: a second run adds nothing",
+          (mem / "MEMORY.md").read_text().count("idle-not-free") == n)
+
+    teams = {"core": ["orcapipe", "orcapipe.ui"], "other": ["x"]}
+    (home / "shared" / "team").mkdir(parents=True)
+    (home / "shared" / "team" / "core.md").write_text("- one rule\n")
+    check("team layer: read for a member, not for another team's",
+          memory.team_layers("orcapipe", teams) == [("core", "- one rule")]
+          and memory.team_layers("x", teams) == [])
+    check("team layer: within budget is not a problem", not memory.team_problems(teams))
+    (home / "shared" / "team" / "core.md").write_text("- r\n" * 11)
+    check("team layer: 11 rules is over", len(memory.team_problems(teams)) == 1)
+
+
+def test_team_rules_reach_the_prompt_and_doctor_reports_memory(home: Path) -> None:
+    """T231: the team file is in the system prompt of a member only, an empty
+    team in team.yaml breaks nothing, and doctor says what is over budget."""
+    from ocp.session import launch
+    _daemon_home(home, 20)
+    hand_edit_team("""
+teams:
+  dev: [marina]
+  empty:
+
+agents:
+  marina: {}
+  scout: {}
+
+edges:
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    for n in ("marina", "scout"):
+        agents.register(n)
+    (home / "shared" / "team").mkdir(parents=True)
+    (home / "shared" / "team" / "dev.md").write_text("- run the tests\n")
+    (home / "shared" / "team" / "empty.md").write_text("- nobody reads this\n")
+    ctx, other = launch.context_for("marina"), launch.context_for("scout")
+    check("team rules: a member's prompt carries its team's file",
+          "# Rules for team dev\n- run the tests" in ctx, ctx)
+    check("team rules: another agent's does not, and an empty team is no error",
+          "run the tests" not in other and "nobody reads this" not in ctx + other)
+
+    def row(r):
+        return [(lv, d) for lv, n, d in r.rows if n.startswith("memory")]
+    r = doctor.Report()
+    doctor._check_memory(r)
+    check("doctor: memory within budget says OK", [lv for lv, _ in row(r)] == [doctor.OK], str(r.rows))
+    mem = home / "agents" / "marina" / "memory"
+    (mem / "MEMORY.md").write_text("- [a](a.md) - x\n" * 21)
+    (mem / "loose.md").write_text("x")
+    r = doctor.Report()
+    doctor._check_memory(r)
+    got = row(r)
+    check("doctor: an over-budget, unindexed agent is a WARN naming it",
+          got and got[0][0] == doctor.WARN and "marina: " in got[0][1]
+          and "OVER BUDGET" in got[0][1] and "loose.md" in got[0][1], str(got))
+    (mem / "MEMORY.md").write_text("- [loose](loose.md) - x\n")
+    old = time.time() - 29 * 86400
+    os.utime(mem / "loose.md", (old, old))
+    r = doctor.Report()
+    doctor._check_memory(r)
+    check("doctor: a file unused for 28 days is a WARN", "unused 28+ days" in str(row(r)), str(row(r)))
+    os.utime(mem / "loose.md")
+    (home / "shared" / "team" / "dev.md").write_text("- r\n" * 11)
+    r = doctor.Report()
+    doctor._check_memory(r)
+    check("doctor: an over-budget team file is a WARN", "team dev: " in str(row(r)), str(row(r)))
+
+
 def test_the_opencode_driver(home: Path) -> None:
     """The opencode driver's answers, each from what 1.18.32 was measured to
     do (design/03 §4.3). Nothing here runs opencode: `auth list` is replaced
@@ -2942,6 +3085,8 @@ def main() -> int:
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
+        run(lambda: test_agent_memory_budget_migration_and_team_layer(Path(td) / 'memory'))
+        run(lambda: test_team_rules_reach_the_prompt_and_doctor_reports_memory(Path(td) / 'teamrules'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
         run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))

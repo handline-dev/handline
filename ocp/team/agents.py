@@ -169,7 +169,7 @@ def register(name: str, role: str = "", model: str | None = None,
                      "enabled": True, **({"repo": repo} if repo else {}),
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
                      **({"skip_permissions": True} if skip_permissions else {})})
-    for sub in ("inbox", "journal"):
+    for sub in ("inbox", "journal", "memory"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
     if text is not None:
