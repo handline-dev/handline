@@ -841,20 +841,58 @@ async def test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digi
         await pilot.press("enter")
 
 
-async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> None:
-    """T65b: S opens the stats screen; its rows are `token_share`'s for the window."""
-    from ocp.ui.pages.stats import StatsScreen, cells, short_tokens
-    from ocp.usage import stats as ustats
-    check("stats: tokens are short", [short_tokens(n) for n in (7, 1400, 12_345_678)] == ["7", "1.4k", "12.3M"])
-    got = cells(ustats.Share("writer", "alpha", "5h", 1500, cost=1.5, share=0.5, token_share=0.25, est_pct=20.0))
-    check("stats: a row's cells", got == ("writer", "alpha", "1.5k", "$1.50", "50%", "25%", "~20%"), got)
+def _week_sample(con, account: str, ts: int, used: int, reset: int) -> None:
+    import json as _json
+    con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)",
+                (account, ts, _json.dumps([
+                    {"minutes": 300, "used_percent": 10, "resets_at": ts + 3600, "observed_at": ts},
+                    {"minutes": 10080, "used_percent": used, "resets_at": reset, "observed_at": ts}])))
+
+
+def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
+    from ocp.usage import outlook
+    _home("outlook")
+    con = db.connect()
+    try:
+        now = 1_800_000_000
+        for h in range(24, -1, -1):
+            _week_sample(con, "alpha", now - h * 3600, 50 - h, now + 6 * 3600)     # 1 point an hour
+            _week_sample(con, "beta", now - h * 3600, 20, now + 3 * 86400)         # idle
+        con.commit()
+        o = actions.weekly_outlook(con, now)
+    finally:
+        con.close()
+    now_left = o.past[-1][1]
+    check("outlook: two accounts are counted", o.accounts == 2, o.accounts)
+    check("outlook: the headroom now is the mean of what is left (alpha 50 used, beta 20)",
+          now_left == 65, now_left)
+    at_reset = dict(o.future)[now + 6 * 3600] if (now + 6 * 3600) in dict(o.future) else None
+    check("outlook: after alpha's week resets what it used comes back", at_reset is not None and at_reset > now_left - 5,
+          (at_reset, now_left))
+    check("outlook: the guess ends inside 24h", o.future[-1][0] <= now + 24 * 3600, o.future[-1][0])
+    flat = outlook.weekly_outlook([], now)
+    check("outlook: no samples, no points", not flat.past and not flat.future and flat.accounts == 0)
+
+
+def test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart() -> None:
+    from ocp.ui.components.outlook_view import chart
+    from ocp.usage.outlook import Outlook
+    o = Outlook(past=[(0, 100.0), (1, 50.0)], future=[(2, 25.0), (3, 0.0)], accounts=1)
+    text = chart(o, 40, 8)
+    check("chart: one line per row and an axis", len(text.plain.split("\n")) == 9, text.plain)
+    styles = {str(sp.style) for sp in text.spans}
+    check("chart: the recorded part and the guess have their own colours", {"cyan", "yellow"} <= styles, styles)
+
+
+async def test_stats_screen_draws_the_weekly_graph() -> None:
+    """Founder #824: S opens the weekly headroom graph, and the Stats tab shows the same."""
+    from ocp.ui.pages.stats import StatsScreen
     _home("statsscreen")
     con = db.connect()
     try:
         now = int(time.time())
-        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES ('writer', 'IDLE', 0, '/w/writer')")
-        con.execute("INSERT INTO token_calls VALUES('alpha','p','p1',?,'claude-sonnet-5','/w/writer',0,1000,0,0,200,0)",
-                    (now - 3600,))
+        for h in range(6, -1, -1):
+            _week_sample(con, "alpha", now - h * 3600, 40 + h, now + 86400)
         con.commit()
     finally:
         con.close()
@@ -866,25 +904,15 @@ async def test_stats_screen_draws_the_share_rows_and_w_steps_the_window() -> Non
         screen = app.screen
         check("stats: S opens the screen", isinstance(screen, StatsScreen), type(screen).__name__)
         view = screen.query_one("#stats_view")
-        check("stats: an agent that used the account in the window is a row",
-              [r.agent for r in view.rows] == ["writer"] and view.window == "7d", [r.agent for r in view.rows])
-        await pilot.press("w")
-        await pilot.pause(0.2)
-        check("stats: w steps the window", view.window == "5h", view.window)
-        from textual.widgets import Select
-        dd = view.query_one("#s_window", Select)
-        check("stats: the window dropdown follows w", dd.value == "5h", dd.value)
-        dd.value = "24h"
-        await pilot.pause(0.2)
-        check("stats: choosing in the dropdown sets the window", view.window == "24h", view.window)
+        check("stats: the recorded week is drawn", view.outlook.accounts == 1 and view.outlook.past, view.outlook.accounts)
         await pilot.press("escape")
         await pilot.pause(0.2)
         from textual.widgets import Tabs
         app.screen.query_one("#scope", Tabs).active = "stats"
         await pilot.pause(0.3)
         tab = app.screen.query_one("#stats_view")
-        check("stats tab: home has a Stats tab with the same rows", tab.display and [r.agent for r in tab.rows] == ["writer"],
-              (tab.display, [r.agent for r in tab.rows]))
+        check("stats tab: home has a Stats tab with the same graph", tab.display and tab.outlook.accounts == 1,
+              (tab.display, tab.outlook.accounts))
 
 
 async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
@@ -2224,7 +2252,9 @@ async def _run_all() -> None:
     await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
-    await test_stats_screen_draws_the_share_rows_and_w_steps_the_window()
+    test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
+    test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
+    await test_stats_screen_draws_the_weekly_graph()
     await test_the_key_guide_stays_on_screen_when_the_table_is_long()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_copy_reaches_the_system_clipboard()

@@ -283,9 +283,7 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
         orca.close_terminal(handle)
 
 
-def usage_shares(con, now: int, window: str) -> list:
-    """Each agent's use per account over `window` (5h, 24h or 7d), largest cost
-    first, priced as config.yaml's `token_prices` says: what the stats screen draws."""
-    from ..usage import prices, stats
-    table = prices.table_from_config(loadmod._config())
-    return [s for s in stats.token_share(con, now, table) if s.window == window]
+def weekly_outlook(con, now: int):
+    """The weekly headroom of all accounts together, the last 24h and a guess at the next 24h."""
+    from ..usage import outlook
+    return outlook.weekly_outlook(db.usage_samples(con, since=now - 26 * 3600), now)

@@ -25,7 +25,7 @@ from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
 from ..components.key_guide import Key, KeyGuide, KeyHelp
-from ..components.stats_view import StatsView
+from ..components.outlook_view import OutlookView
 from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
@@ -54,7 +54,7 @@ _ACCT_TIERS = (
 # The keys every panel answers to, after the panel's own.
 _GLOBAL_KEYS = (Key("←→", "panel", 3, "move between the panels"), Key("↑↓", "row", 3, "move between the rows"),
                 Key("q", "quit", 2, "quit the bridge"), Key("b", "checks", 2, "done tasks waiting for your check"),
-                Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "token use per agent and account"))
+                Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "the week left, last and next 24h"))
 _AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "")
 _MESSAGE_HEADS = ("", "", "from", "message")
 
@@ -124,7 +124,7 @@ class HomePage(RowActions, JobsAware, Screen):
         yield Static(id="foot")
         yield KeyGuide(id="home_keys")
         yield TasksView(mine=True, id="tasks_view")
-        yield StatsView(id="stats_view")
+        yield OutlookView(id="stats_view")
         yield ProposalsView(id="hr_view")
         with Vertical(id="settings_view"):
             with Horizontal(classes="frow"):
@@ -157,7 +157,7 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab == "tasks":
             self.query_one("#tasks_view", TasksView).refresh_rows()
         if self.tab == "stats":
-            self.query_one("#stats_view", StatsView).refresh_rows()
+            self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
             self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
 
@@ -458,8 +458,6 @@ class HomePage(RowActions, JobsAware, Screen):
             return self.query_one("#hr_table", DataTable).cursor_row == 0
         if self.tab == "tasks":
             return self.query_one("#tasks_table", DataTable).cursor_row == 0
-        if self.tab == "stats":
-            return self.query_one("#stats_table", DataTable).cursor_row == 0
         if self.tab != "home":
             return True
         first = next((p for p in self.PANELS if tui._keys_of(p)), None)
@@ -477,8 +475,6 @@ class HomePage(RowActions, JobsAware, Screen):
             self.query_one("#hr_table").focus()
         elif self.tab == "tasks":
             self.query_one("#tasks_table").focus()
-        elif self.tab == "stats":
-            self.query_one("#stats_table").focus()
         else:
             self.set_focus(None)
 

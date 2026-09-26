@@ -1,11 +1,11 @@
-"""The stats screen (T65b): the stats table on a page of its own, opened with S from home."""
+"""The stats screen (T65b, founder #824): the weekly headroom graph on a page of its own, opened with S from home."""
 from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 
-from ..components.stats_view import StatsView, cells, short_tokens  # noqa: F401
+from ..components.outlook_view import OutlookView
 
 
 class StatsScreen(Screen):
@@ -13,7 +13,4 @@ class StatsScreen(Screen):
                 Binding("q,ctrl+c", "app.quit", "quit", show=False)]
 
     def compose(self) -> ComposeResult:
-        yield StatsView(back=True, id="stats_view")
-
-    def on_mount(self) -> None:
-        self.query_one("#stats_table").focus()
+        yield OutlookView(back=True, id="stats_view")
