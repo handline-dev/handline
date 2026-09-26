@@ -20,7 +20,7 @@ def test_trust_roots(home: Path) -> None:
     for an agent, enact directly for the founder, is_declared checks a path
     against exactly that list."""
     use_home(home)
-    (home / "team.yaml").write_text(
+    hand_edit_team(
         "agents:\n  backend: {}\n"
         'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
     agents.register("backend")
@@ -157,7 +157,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     trust and roster proposals are kept where no agent can write them, and the
     old trust_roots.json is moved there once."""
     use_home(home)
-    (home / "team.yaml").write_text(
+    hand_edit_team(
         "agents:\n  backend: {}\n"
         'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
     agents.register("backend")

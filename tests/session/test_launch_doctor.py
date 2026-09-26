@@ -369,6 +369,7 @@ def test_a_vendor_with_no_driver_refuses_the_launch(home: Path) -> None:
     agents.register("zaitest")
     with agents.agent_file("zaitest").open("a") as f:
         f.write("vendor: nosuch\n")
+    reseal(agents.agent_file("zaitest"))
     cfg = home / "accounts" / "gamma" / ".claude"
     cfg.mkdir(parents=True, exist_ok=True)
     (cfg / ".credentials.json").write_text("{}")
@@ -493,6 +494,7 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
             cfg = agents.load(p.read_text())
             cfg["skip_permissions"] = bad
             p.write_text(agents.dump(cfg))
+            reseal(p)
             check(f"skip: {bad!r} is not a true, so it is off",
                   not agents.skip_permissions(agents.read("backend"))
                   and flag not in launch.build("backend")[0])
@@ -560,6 +562,7 @@ def test_skip_permissions_needs_the_founders_grant_not_just_the_file(home: Path)
         cfg.pop("skip_permissions", None)
         cfg.update(kw)
         p.write_text(agents.dump(cfg))
+        reseal(p)
 
     def doctor_says():
         r = doctor.Report()
@@ -1877,7 +1880,7 @@ def test_an_agent_cannot_read_a_peers_or_its_supervisors_transcripts(home: Path)
     account, except the agent's own and its reports'."""
     os.environ["OCP_HOME"] = str(home)
     home.mkdir(parents=True, exist_ok=True)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
   manager: {}
   marina:  {}

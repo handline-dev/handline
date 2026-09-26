@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp.infra import paths  # noqa: E402
+from ocp.infra import paths, sealed  # noqa: E402
 
 # The machine's venv, read once before the stand-in below hides the real home:
 # textual is only installed there (see _python_with_textual).
@@ -1226,6 +1226,23 @@ def second_vendor(**kw):
 def _with_vendor(agent: str, vendor: str) -> None:
     with agents.agent_file(agent).open("a") as f:
         f.write(f"vendor: {vendor}\n")
+    sealed.seal(sealed.agent_key(agent), agents.agent_file(agent).read_text())
+
+
+def hand_edit_team(text: str) -> None:
+    """Write team.yaml the way the founder's own session would, seal and all."""
+    paths.team_file().write_text(text)
+    sealed.seal(sealed.TEAM, text)
+
+
+def reseal(path: Path) -> None:
+    """Seal an agent.yaml a test has just written by hand."""
+    sealed.seal(sealed.agent_key(path.parent.name), path.read_text())
+
+
+def hand_edit_agent(name: str, text: str) -> None:
+    agents.agent_file(name).write_text(text)
+    sealed.seal(sealed.agent_key(name), text)
 
 
 # `opencode auth list`'s whole output, measured on 1.18.32 with stdout a pipe.
@@ -1853,6 +1870,10 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    'hand_edit_team',
+    'hand_edit_agent',
+    'reseal',
+    'sealed',
     'argparse',
     'atexit',
     'contextlib',

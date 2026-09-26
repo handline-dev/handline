@@ -66,7 +66,7 @@ def test_event_allowlist() -> None:
 
 def test_fold(home: Path) -> None:
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     agents.register("backend")
 
     con = db.connect()

@@ -34,7 +34,7 @@ from pathlib import Path
 
 from . import agents, ask as askmod, decisions, team
 from .. import db, vendors
-from ..infra import atomic, paths, textsafe
+from ..infra import atomic, paths, sealed, textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
@@ -595,6 +595,7 @@ def _retire(prop: dict, con) -> tuple[bool, str]:
         if dest.exists():
             dest = dest.with_name(dest.name + f"-{prop['id']}")
         src.rename(dest)
+    sealed.forget(sealed.agent_key(name))
     return True, f"{name} is retired; its folder is at {dest}. {said}"
 
 
@@ -656,7 +657,8 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
         data = load(cfg.read_text())
         if isinstance(data, dict):
             data["name"] = new
-            cfg.write_text(dump(data))
+            agents.write(new, data)
+            sealed.forget(sealed.agent_key(old))
 
     con.execute("UPDATE agent_state SET agent = ? WHERE agent = ?", (new, old))
     con.execute("UPDATE requests SET requester = ? WHERE requester = ?", (new, old))
@@ -759,7 +761,9 @@ def _edit_team_yaml(edit, present: str | None = None, absent: str | None = None,
     p = paths.team_file()
     if not p.exists():
         return False, f"{p} does not exist - run `ocp team init` first"
+    sealed.require_founder()
     text = p.read_text()
+    sealed.check(sealed.TEAM, text, p)
     try:
         edited = edit(text)
     except ConfigError as e:
@@ -783,6 +787,7 @@ def _edit_team_yaml(edit, present: str | None = None, absent: str | None = None,
     backup = p.with_suffix(".yaml.bak")
     backup.write_text(text)
     p.write_text(edited)
+    sealed.seal(sealed.TEAM, edited)
     return True, f"team.yaml updated (previous kept as {backup.name})"
 
 

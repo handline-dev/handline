@@ -208,6 +208,7 @@ def test_reconcile_stalls_one_agents_unreadable_config_not_the_others(home: Path
                     "('backend', 'frontend')")
         af = agents.agent_file("backend")
         af.write_text(af.read_text().rstrip("\n") + '\nrepo: "unterminated\n')
+        reseal(af)
         db.start_handoff(con, "hid-bad", "backend", "sess-bad", "usage",
                          int(time.time()) + 90)
         db.start_handoff(con, "hid-ok", "frontend", "sess-ok", "usage",
@@ -583,6 +584,7 @@ def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Pat
         con.execute("UPDATE agent_state SET account = NULL WHERE agent = 'backend'")
         af = agents.agent_file("backend")
         af.write_text(af.read_text().rstrip("\n") + '\nrepo: "unterminated\n')
+        reseal(af)
         db.set_closed(con, "backend", 1)
         support.something_waiting(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.PARKED,
@@ -2939,6 +2941,7 @@ def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None
     agents.register("parkctl")
     agent_file = agents.agent_file("parkctl")
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
+    reseal(agent_file)
     con = db.connect()
     real = (orcamod.available, orcamod.alive)
     try:
@@ -2986,6 +2989,7 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
     agents.register("keeper_ctl")
     agent_file = agents.agent_file("keeper_ctl")
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
+    reseal(agent_file)
     con = db.connect()
     cleared = {"term_keeper": 0, "term_ctl": 0}
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
@@ -3136,6 +3140,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
     agents.register("ctxctl")
     agent_file = agents.agent_file("ctxctl")
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
+    reseal(agent_file)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
             dmn_delivery.session_present)
@@ -3266,7 +3271,7 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
             return True, f"{agent}: worktree {repo}"
 
         spawnmod.spawn = fake_spawn
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 teams:
   dev: [marina]
 agents:
@@ -3554,7 +3559,7 @@ def test_who_is_asking_is_not_guessed(home: Path) -> None:
     lost OCP_AGENT is not. Conflating them hands the escalation target and the
     most privileged node in the routing table to whatever dropped the variable."""
     use_home(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     agents.register("backend")
     class FakeStdin:
         def __init__(self, tty: bool) -> None:

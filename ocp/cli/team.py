@@ -8,7 +8,7 @@ from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
 from ..session import launch
 from ..session import orca
-from ..infra import paths
+from ..infra import paths, sealed
 from ..team import spawn as spawnmod
 from ..team import team
 from ..ui import tui
@@ -140,13 +140,33 @@ def _doing(con, agent: str) -> str:
     return state
 
 
+def cmd_team_seal(args) -> int:
+    try:
+        sealed.require_founder()
+    except PermissionError as e:
+        print(e)
+        return 1
+    n = 0
+    p = paths.team_file()
+    if p.exists():
+        sealed.seal(sealed.TEAM, p.read_text())
+        n += 1
+    for name in paths.list_agents():
+        sealed.seal(sealed.agent_key(name), (paths.agent_dir(name) / "agent.yaml").read_text())
+        n += 1
+    print(f"sealed {n} file(s) as they are now")
+    return 0
+
+
 def cmd_team_init(args) -> int:
     p = paths.team_file()
     if p.exists() and not args.force:
         print(f"{p} already exists (use --force to overwrite)")
         return 1
     p.parent.mkdir(parents=True, exist_ok=True)
+    sealed.require_founder()
     p.write_text(team.STARTER)
+    sealed.seal(sealed.TEAM, team.STARTER)
     print(f"wrote {p}")
     return 0
 

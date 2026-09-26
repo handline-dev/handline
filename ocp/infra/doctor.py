@@ -16,7 +16,7 @@ from ..team import accounts, agents, trust
 from .. import db, vendors
 from ..session import launch, observe as obs, orca
 from ..usage import load as loadmod, status
-from . import paths, protected, service, textsafe
+from . import paths, protected, sealed, service, textsafe
 from . import timefmt
 from ..daemon import reconciler as dmn_reconciler
 
@@ -209,7 +209,15 @@ def _check_protected(r: Report) -> None:
                   "store now; delete it")
 
 
+def _check_team_seal(r: Report) -> None:
+    p = paths.team_file()
+    if p.exists() and sealed.mismatch(sealed.TEAM, p.read_text()):
+        r.add(FAIL, "team.yaml was changed outside the founder's path",
+              "it is not trusted until the founder reviews it and runs `ocp team seal`")
+
+
 def _check_agents(r: Report) -> None:
+    _check_team_seal(r)
     names = paths.list_agents()
     if not names:
         r.add(WARN, "no agents registered", "ocp agent register <name>")

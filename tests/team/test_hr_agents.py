@@ -266,14 +266,14 @@ def test_agents_read_refuses_a_value_a_hand_edit_wrote_with_a_control_character(
     the suite."""
     _daemon_home(home, 20)
     af = agents.agent_file("backend")
-    af.write_text(af.read_text().rstrip("\n") + '\nrepo: "before\u009bafter"\n')
+    hand_edit_agent("backend", af.read_text().rstrip("\n") + '\nrepo: "before\u009bafter"\n')
     try:
         agents.read("backend")
         check("agents.read: refuses a C1 byte in repo", False, "read instead of raising")
     except yamlcompat.ConfigError:
         check("agents.read: refuses a C1 byte in repo", True)
 
-    af.write_text(af.read_text().split("\nrepo:")[0] + '\nrepo: "before\tafter"\n')
+    hand_edit_agent("backend", af.read_text().split("\nrepo:")[0] + '\nrepo: "before\tafter"\n')
     try:
         agents.read("backend")
         check("agents.read: refuses a tab in repo (reaches refuse_unsafe_values "
@@ -346,7 +346,7 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
         check("names: so the writer refuses to write it", True)
     # The team's name is written as a block key too, and the guard has to stand at
     # every door: proposing, and the write itself, which an old proposal reaches.
-    paths.team_file().write_text(team.STARTER)
+    hand_edit_team(team.STARTER)
     before = paths.team_file().read_text()
     listed = yamlcompat.parse(team.STARTER)
     mover = next(iter(listed["agents"]))
@@ -440,7 +440,7 @@ def test_a_rename_names_the_agents_orca_worktree(home: Path) -> None:
     so a rename that left it alone looks like a rename that failed. The label is
     set, read back, and never moves anything: no folder, no memory, no terminal."""
     _daemon_home(home, 20)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 teams:
   dev: [oldname]
 agents:
@@ -775,7 +775,7 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
             check(f"agent.yaml: and PyYAML reads --{field} {value} the same",
                   pyyaml.safe_load(agents.agent_file(f"agent{i}").read_text()) == cfg)
     # What the replay does: apply builds the agent from the saved proposal's fields.
-    paths.team_file().write_text(team.STARTER)
+    hand_edit_team(team.STARTER)
     ok, said = hr._add({"agent": "replayed", "model": "4.5",
                         "effort": "high", "repo": "1_000", "why": "w",
                         "requested_by": "human", "created": int(time.time())}, None)
@@ -1788,7 +1788,7 @@ def test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml
     _daemon_home(home, 20)
     for n in ("marina", "scout", "loose"):
         agents.register(n)
-    (home / "team.yaml").write_text("""agents:
+    hand_edit_team("""agents:
   marina: {}
   scout: {}
 edges:
@@ -1929,7 +1929,7 @@ def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
               vendors.agent_vendor("glm") == "opencode")
         check("hr add: no account is written", "account" not in cfg, str(cfg))
 
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 agents:
   marina: {}
 edges:
@@ -1984,7 +1984,7 @@ def test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(home: Pat
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("hr")
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
   hr: {}
 edges:
@@ -2013,7 +2013,7 @@ def test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(home: 
     try:
         accounts.register("beta")
         agents.register("hr")
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 agents:
   hr: {}
 edges:
@@ -2036,7 +2036,7 @@ edges:
         # The apply fails: the table no longer lists the agent to be retired.
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="gone")
         pid2 = said.split()[1]
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 agents:
   hr: {}
 edges:
@@ -2085,7 +2085,7 @@ def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> N
     try:
         accounts.register("beta")
         agents.register("hr")
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 agents:
   hr: {}
 edges:
@@ -2204,7 +2204,7 @@ def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Pat
     try:
         accounts.register("beta")
         agents.register("hr")
-        (home / "team.yaml").write_text("""
+        hand_edit_team("""
 agents:
   hr: {}
 edges:
@@ -2367,7 +2367,7 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     """Adding and removing an account are ocp commands, and removing one
     cannot strand an agent, orphan a credential, or lose what was spent."""
     use_home(home)
-    (home / "team.yaml").write_text("agents:\n  backend: {}\n")
+    hand_edit_team("agents:\n  backend: {}\n")
     for a in ("alpha", "beta", "gamma"):
         accounts.register(a)
     agents.register("backend")
@@ -2498,11 +2498,69 @@ def test_a_second_name_for_one_login_is_caught(home: Path) -> None:
         accounts.identity, accounts.logged_in = orig_id, orig_in
 
 
+def test_team_and_agent_yaml_are_sealed_against_an_agents_hand(home: Path) -> None:
+    """T188: an agent's sandbox can write team.yaml and agent.yaml, so a file
+    that no longer matches what the founder's session last wrote is refused, and
+    an agent's session cannot write either one through ocp."""
+    _daemon_home(home, 20)
+    agents.register("backend")
+    hand_edit_team("agents:\n  backend: {}\n")
+    check("sealed: the founder's own write reads back",
+          "backend" in team.Team.load().agents and agents.read("backend")["name"] == "backend")
+
+    tf, af = paths.team_file(), agents.agent_file("backend")
+    tf.write_text("agents:\n  backend: {}\n  mallory: {}\n")
+    af.write_text(af.read_text() + "repo: /elsewhere\n")
+    for label, fn in (("team.yaml", team.Team.load), ("agent.yaml", lambda: agents.read("backend"))):
+        try:
+            fn()
+            check(f"sealed: a hand-edited {label} is refused", False, "read instead of raising")
+        except yamlcompat.ConfigError as e:
+            check(f"sealed: a hand-edited {label} is refused", "founder" in str(e), str(e))
+    row = _doctor_row(doctor.run(), "team.yaml was changed")
+    check("sealed: doctor names the tampered team.yaml", row is not None and row[0] == doctor.FAIL,
+          str(row))
+
+    rc, out = cliteam_seal()
+    check("sealed: the founder's `team seal` accepts both again",
+          rc == 0 and "sealed 2" in out and "backend" in team.Team.load().agents
+          and agents.read("backend")["repo"] == "/elsewhere", out)
+
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        before = (tf.read_text(), af.read_text())
+        for label, fn in (("register", lambda: agents.register("backend", model="opus")),
+                          ("register a new agent", lambda: agents.register("newbie")),
+                          ("hr edit", lambda: hr._in_team_yaml("backend", "x", add=True))):
+            try:
+                fn()
+                check(f"sealed: an agent's session cannot {label}", False, "it went through")
+            except PermissionError as e:
+                check(f"sealed: an agent's session cannot {label}", True, str(e))
+        check("sealed: an agent's session cannot `team seal`", cliteam_seal()[0] == 1)
+        check("sealed: and nothing was written", before == (tf.read_text(), af.read_text())
+              and "newbie" not in paths.list_agents(), str(paths.list_agents()))
+    finally:
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+
+
+def cliteam_seal() -> tuple[int, str]:
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = climod.main(["team", "seal"])
+    return rc, buf.getvalue()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
+        run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
         run(lambda: test_agents(home))
         run(lambda: test_team_routing())
         run(lambda: test_yaml_differential())

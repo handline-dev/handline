@@ -19,7 +19,7 @@ from .idle import cmd_auto_accept, cmd_idle_timeout, cmd_ignore_cache_expiry, se
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .setup import cmd_guide, cmd_init, cmd_login
 from .task import _priority_arg, _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_new, cmd_task_queue, cmd_task_reopen
-from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init
+from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
 from .usage import cmd_collect, cmd_usage
 
 
@@ -221,6 +221,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = tm.add_parser("init", help="write a starter team.yaml")
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_team_init)
+    p = tm.add_parser("seal", help="founder only: accept team.yaml and every agent.yaml as they are now")
+    p.set_defaults(fn=cmd_team_seal)
     p = tm.add_parser("check", help="validate team.yaml")
     p.add_argument("--matrix", action="store_true", help="print the full routing matrix")
     p.set_defaults(fn=cmd_team_check)

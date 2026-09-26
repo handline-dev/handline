@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..infra import paths, protected, textsafe
+from ..infra import paths, protected, sealed, textsafe
 from ..session import triggers
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load, refuse_unsafe_values
 
@@ -96,6 +96,14 @@ def agent_file(name: str) -> Path:
     return paths.agent_dir(name) / "agent.yaml"
 
 
+def write(name: str, cfg: dict) -> None:
+    """Replace agent.yaml with `cfg` and seal it. The founder's session only."""
+    sealed.require_founder()
+    text = dump(cfg)
+    agent_file(name).write_text(text)
+    sealed.seal(sealed.agent_key(name), text)
+
+
 def read(name: str) -> dict:
     p = agent_file(name)
     if not p.exists():
@@ -104,6 +112,7 @@ def read(name: str) -> dict:
         text = p.read_text()
     except UnicodeDecodeError as e:
         raise ConfigError(f"{p}: not valid UTF-8 ({e.reason})") from e
+    sealed.check(sealed.agent_key(name), text, p)
     data = load(text)
     if not isinstance(data, dict):
         raise ConfigError(f"{p}: top level is not a map")
@@ -143,6 +152,7 @@ def register(name: str, role: str = "", model: str | None = None,
     # First, so an agent's refusal leaves nothing half-written: the grant is
     # the founder's alone (infra/protected.py), and the key below is only
     # what a launch reads once it is there.
+    sealed.require_founder()
     if skip_permissions:
         protected.put(_SKIP_NS, name, "granted")
     elif skip_permissions is not None:
@@ -164,6 +174,7 @@ def register(name: str, role: str = "", model: str | None = None,
 
     if text is not None:
         f.write_text(text)
+        sealed.seal(sealed.agent_key(name), text)
     else:
         # Already registered: update what was actually asked for and leave the
         # rest of the mapping alone. Re-serialize from the parsed document
@@ -190,7 +201,7 @@ def register(name: str, role: str = "", model: str | None = None,
         if vendor and vendor != DEFAULT_VENDOR:
             cfg["vendor"] = vendor
         cfg.setdefault("effort", DEFAULT_EFFORT)
-        f.write_text(dump(cfg))
+        write(name, cfg)
 
     role_path = d / "ROLE.md"
     if role_file:
