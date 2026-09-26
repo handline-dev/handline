@@ -584,13 +584,13 @@ item 1), an unattended mirror becomes load-bearing for a decision the daemon
 makes every tick. **Do this before that swap, not after.**
 
 Smallest fix: have the daemon call `hooks.sync()` on the same tick it already
-does its other housekeeping, and let `hooks.py` take its source path from
+does its other housekeeping, and let `vendors/claude_hooks.py` take its source path from
 `orca agent hooks status --json`'s `configPath` rather than hard-coding
 `~/.claude/settings.json` (board item 4 - the same ten lines).
 
 ### Q2. Build the vendor driver, steps 1-4
 
-**Partly done.** Steps 1 and 2 are built (#1657), and T57 built the dialogs, headless, hooks and meter seams (`design/04-vendor-decoupling.md`). The window model (step 3) is open as design/04 step 7.
+**Partly done.** Steps 1 and 2 are built (#1657), and T57 built the dialogs, headless, hooks and meter seams (`design/04-vendor-decoupling.md`). The window model (step 3) is built as design/04 step 7 (b043076).
 
 Drafted in `design/03-vendor-driver.md` §7. Steps 1-4 are **vendor-neutral
 refactors that need codex to exist for nothing**: move today's behaviour into

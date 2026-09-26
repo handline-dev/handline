@@ -97,7 +97,7 @@ work again. ocp names the dialog and never answers it.
 | | |
 |---|---|
 | `ocp close <agent>` | end an idle session, keep its terminal (`ocp resume` brings it back) |
-| `ocp task new --owner NAME "<title>"` / `ocp task list` / `ocp task link T<n> <request>` | the task board: a task is its own row, never a message, and is always written `T<n>` - a bare number is a request, and a task command refuses one. `list` draws each open task with its linked requests read live |
+| `ocp task new --owner NAME "<title>"` / `ocp task list` / `ocp task link T<n> <request>` | the task board: a task is its own row, never a message, and is always written `T<n>` - a bare number is a request, and a task command refuses one. `list` draws each open task with its linked requests read live. A task is a draft until the founder or its owner's manager runs `ocp task queue T<n>` (`ocp task draft` sends it back), and is doing while a request on it is out |
 | `ocp close T<n>` | close a done task - the asker's sign-off; a task with an open child task will not close. Marking it done is `ocp task done T<n> <sha or reason>`, where a sha must be an ancestor of `main` |
 | `ocp resolve <id> "<verdict>" --task T<n> [T<n> ...]` / `--no-task "<reason>"` | answering a request the founder made says what it becomes: the tasks it belongs to, or that nothing needs building. Agent-to-agent asks are never guarded |
 | | *Why requests link to tasks through `task_requests` and not a column on `requests`:* `--task` takes a list and a request can be attached later, so one column could hold only one task and would drift the first time it mattered. Do not fold it back into a column to save a join. |
@@ -216,7 +216,7 @@ file that does not reach that account.
 ## Tests
 
 ```bash
-python3 tests/test_ocp.py     # every area file in parallel, ~4590 checks, no network, no tokens
+python3 tests/test_ocp.py     # every area file in parallel, ~4800 checks, no network, no tokens
 python3 tests/session/test_daemon_session.py    # one area file on its own (tests/<group>/test_<area>.py)
 python3 tests/test_ocp.py -k reconcile --write-labels before.txt   # a subset, labels saved
 python3 tests/test_ocp.py --diff-labels before.txt after.txt       # labels that changed state
