@@ -189,19 +189,32 @@ def _front(path: Path) -> dict:
     return meta
 
 
+def _fits_index(filename: str) -> bool:
+    """A link needs `- [x](` + name + `)`; a longer file name cannot be listed."""
+    return len(filename) + 7 <= INDEX_LINE
+
+
 def _index_line(path: Path) -> str:
+    """`- [title](file) — hook`, at most INDEX_LINE characters for any input.
+
+    The link is built first and never cut: the title is shortened to fit, then
+    the hook takes what room is left (or is dropped). A file name too long to
+    fit at all raises ValueError rather than being written over budget."""
+    if not _fits_index(path.name):
+        raise ValueError(f"{path.name}: file name too long for an index line")
     meta = _front(path)
-    hook = meta.get("description", "")
     name = meta.get("name") or path.stem
+    room = INDEX_LINE - len(path.name) - 6  # for the title
+    if len(name) > room:
+        name = name[:room - 1] + "…"
     head = f"- [{name}]({path.name})"
-    if len(head) > INDEX_LINE:
-        # The link must stay whole: shorten the title, never cut inside the parens.
-        head = f"- [{name[:max(1, INDEX_LINE - len(path.name) - 7)]}…]({path.name})"
+    hook = meta.get("description", "")
+    left = INDEX_LINE - len(head) - 3  # for the hook after " — "
+    if not hook or left < 2:
         return head
-    if not hook:
-        return head
-    line = f"{head} — {hook}"
-    return line if len(line) <= INDEX_LINE else line[:INDEX_LINE - 1] + "…"
+    if len(hook) > left:
+        hook = hook[:left - 1] + "…"
+    return f"{head} — {hook}"
 
 
 def shared_sources() -> list[Path]:
@@ -219,7 +232,8 @@ def plan_migration() -> list[dict]:
 
     action: copy (into an existing agent), merge (copy, and the owner merges the
     group), promote / delete (leaves memory, nothing copied), no-owner (not in
-    the table; left for a human), no-agent (the owner is not registered)."""
+    the table; left for a human), no-agent (the owner is not registered),
+    long-name (its name cannot be listed in an index line; rename it first)."""
     known = set(paths.list_agents())
     rows = []
     for f in shared_sources():
@@ -230,6 +244,8 @@ def plan_migration() -> list[dict]:
             action = "delete"
         elif to is None:
             action = "no-owner"
+        elif not _fits_index(f.name):
+            action = "long-name"
         elif to not in known:
             action = "no-agent"
         elif any(f.stem in g for g in MERGE_GROUPS):

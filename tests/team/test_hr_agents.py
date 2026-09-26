@@ -1351,7 +1351,45 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
     check("index line: a long title is shortened, the link target is intact",
           len(line) <= memory.INDEX_LINE and line.endswith("](long.md)"), line)
     long_src.unlink()
-    promote = [r for r in memory.plan_migration() if r["file"].stem == "ocp-cli-habits"]
+    bad = []
+    for fname in ("a.md", "topic.md", "x" * 40 + ".md", "x" * 89 + ".md", "x" * 90 + ".md",
+                  "x" * 91 + ".md", "x" * 92 + ".md", "x" * 147 + ".md"):
+        f = src / fname
+        for nlen in range(0, 121):
+            for hlen in (0, 1, 2, 3, 4, 50, 300):
+                meta = "---\n" + (f"name: {'n' * nlen}\n" if nlen else "") \
+                    + (f"description: {'d' * hlen}\n" if hlen else "") + "---\nb"
+                f.write_text(meta)
+                try:
+                    line = memory._index_line(f)
+                except ValueError:
+                    if memory._fits_index(fname):
+                        bad.append((fname, nlen, hlen, "raised"))
+                    continue
+                if (not memory._fits_index(fname) or len(line) > memory.INDEX_LINE
+                        or not re.fullmatch(r"- \[[^\]]+\]\(" + re.escape(fname) + r"\)( — .+)?",
+                                            line)):
+                    bad.append((fname, nlen, hlen, line))
+        f.unlink()
+    check("index line: for every name, file name and hook length the line is within "
+          "budget, the link whole, and a file name that cannot fit raises", not bad, str(bad[:3]))
+    exact = src / "topic.md"
+    exact.write_text("---\nname: " + "n" * 86 + "\ndescription: some words\n---\nb")
+    line = memory._index_line(exact)
+    check("index line: a link of exactly 100 characters keeps its closing paren",
+          line == "- [" + "n" * 86 + "](topic.md)", line)
+    exact.unlink()
+    long_file = src / ("x" * 150 + ".md")
+    long_file.write_text("x")
+    memory.OWNERS[long_file.stem] = "orcapipe"
+    try:
+        acts = [r["action"] for r in memory.plan_migration() if r["file"] == long_file]
+    finally:
+        del memory.OWNERS[long_file.stem]
+    check("migrate: a file name too long to be listed is reported, not copied",
+          acts == ["long-name"], str(acts))
+    long_file.unlink()
+    promote =[r for r in memory.plan_migration() if r["file"].stem == "ocp-cli-habits"]
     check("migrate: a promoted file names AGENTS.md, apart from agent names",
           promote[0]["action"] == "promote" and promote[0]["to"] == "AGENTS.md"
           and not set(memory.OWNERS.values()) & {"AGENTS.md", "delete"})
