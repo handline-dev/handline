@@ -870,6 +870,13 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
     check("outlook: after alpha's week resets what it used comes back", at_reset is not None and at_reset > now_left - 5,
           (at_reset, now_left))
     check("outlook: the guess ends inside 24h", o.future[-1][0] <= now + 24 * 3600, o.future[-1][0])
+    con = db.connect()
+    try:
+        used = outlook.week_consumed(db.usage_samples(con), now - 24 * 3600, now)
+    finally:
+        con.close()
+    check("outlook: the points used are the rises (alpha 26 to 50 = 24, beta idle = 0)",
+          used == {"alpha": 24.0, "beta": 0.0}, used)
     flat = outlook.weekly_outlook([], now)
     check("outlook: no samples, no points", not flat.past and not flat.future and flat.accounts == 0)
 
@@ -894,6 +901,14 @@ def test_bars_scale_to_the_busiest_slot_and_the_agent_series_sums_its_calls() ->
         con.close()
     check("agent use: the series has the requested slots and carries the agent's calls only",
           len(series) == 48 and sum(1 for _, c in series if c > 0) == 1, len(series))
+    from ocp.usage import stats as ustats
+    con = db.connect()
+    try:
+        est = {u.agent: u.est_pct for u in ustats.agent_use(con, now - 86400, now, None, {"alpha": 10.0})}
+    finally:
+        con.close()
+    check("agent use: an agent's share of the week is its cost share times the account's points",
+          abs(est["writer"] - 5.0) < 1e-6 and abs(est["(unattributed)"] - 5.0) < 1e-6, est)
     check("agent use: the table splits the same calls between the agents",
           set(uses) == {"writer", "(unattributed)"} and abs(uses["writer"].share - 0.5) < 1e-6, uses)
 

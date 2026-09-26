@@ -358,18 +358,35 @@ class AgentUse:
     tokens: int
     cost: float                  # USD at list price
     share: float                 # of everyone's cost in the span
+    est_pct: float | None = None  # points of the combined week it used: an estimate, see agent_use
 
 
-def agent_use(con, lo: int, hi: int, prices: dict[str, float] | None = None) -> list[AgentUse]:
-    """Each agent's tokens and list-price cost in (lo, hi], largest cost first."""
+def agent_use(con, lo: int, hi: int, prices: dict[str, float] | None = None,
+              week_used: dict[str, float] | None = None) -> list[AgentUse]:
+    """Each agent's tokens and list-price cost in (lo, hi], largest cost first.
+
+    `week_used` is the points of each account's week used in the span (read from the
+    samples). An agent's `est_pct` is its cost share of each account times that account's
+    points, averaged over the accounts: an estimate, because what the plan charges is not
+    what the price list says. None without `week_used`."""
     by: dict[str, _Tally] = {}
-    for (agent, _), t in _by_agent(con, lo, hi, _worktrees(con), prices).items():
+    per = _by_agent(con, lo, hi, _worktrees(con), prices)
+    acct_cost: dict[str, float] = {}
+    for (_, acct), t in per.items():
+        acct_cost[acct] = acct_cost.get(acct, 0.0) + t.cost
+    est: dict[str, float] = {}
+    if week_used:
+        for (agent, acct), t in per.items():
+            if acct_cost[acct] and acct in week_used:
+                est[agent] = est.get(agent, 0.0) + t.cost / acct_cost[acct] * week_used[acct] / len(week_used)
+    for (agent, _), t in per.items():
         mine = by.setdefault(agent, _Tally())
         for k in _KINDS:
             mine.classes[k] += t.classes[k]
             mine.costs[k] += t.costs[k]
     total = sum(t.cost for t in by.values())
-    rows = [AgentUse(a, t.tokens, t.cost, t.cost / total if total else 0.0) for a, t in by.items()]
+    rows = [AgentUse(a, t.tokens, t.cost, t.cost / total if total else 0.0,
+                     est.get(a, 0.0) if week_used else None) for a, t in by.items()]
     return sorted(rows, key=lambda r: (-r.cost, r.agent))
 
 

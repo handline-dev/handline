@@ -52,6 +52,23 @@ def _pace(series: list[tuple[int, float, int | None]]) -> float:
     return max(0.0, (last[1] - same[0][1]) / span)
 
 
+def week_consumed(rows, lo: int, hi: int) -> dict[str, float]:
+    """Points of each account's week used between `lo` and `hi`: the rises between one sample
+    and the next, and after a reset what has been used since. Read, not guessed."""
+    by: dict[str, list] = {}
+    for r in rows:
+        w = _week(r)
+        if w and lo <= w[0] <= hi:
+            by.setdefault(r["account"], []).append(w)
+    out = {}
+    for a, series in by.items():
+        total = 0.0
+        for prev, cur in zip(series, series[1:]):
+            total += cur[1] - prev[1] if cur[1] >= prev[1] else cur[1]
+        out[a] = total
+    return out
+
+
 def weekly_outlook(rows, now: int, hours: int = 24) -> Outlook:
     """`rows` are `usage_samples` rows (any accounts, oldest first). The value is the
     headroom left of the week, in percent, averaged over the accounts that have a reading."""

@@ -290,9 +290,12 @@ def weekly_outlook(con, now: int, hours: int = 24):
 
 
 def agent_use(con, now: int, hours: int) -> list:
-    """Each agent's tokens and list-price cost over the last `hours`, largest first."""
-    from ..usage import prices, stats
-    return stats.agent_use(con, now - hours * 3600, now, prices.table_from_config(loadmod._config()))
+    """Each agent's tokens, list-price cost and estimated share of the week's points over the
+    last `hours`, largest first."""
+    from ..usage import outlook, prices, stats
+    lo = now - hours * 3600
+    used = outlook.week_consumed(db.usage_samples(con, since=lo), lo, now)
+    return stats.agent_use(con, lo, now, prices.table_from_config(loadmod._config()), used)
 
 
 def agent_use_series(con, agent: str, now: int, hours: int, buckets: int = 48) -> list:

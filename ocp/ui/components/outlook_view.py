@@ -118,7 +118,7 @@ class OutlookView(Vertical):
         yield KeyGuide(self._keys(), id="outlook_foot")
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("agent", "tokens", "cost", "share")
+        self.query_one(DataTable).add_columns("agent", "tokens", "cost", "share", "~ week %")
         self.set_interval(30.0, self.refresh_rows)
         self.refresh_rows()
 
@@ -144,7 +144,7 @@ class OutlookView(Vertical):
         for u in self.uses:
             table.add_row(Text(textsafe.oneline(u.agent)), Text(short_tokens(u.tokens), justify="right"),
                           Text(f"${u.cost:.2f}", justify="right"), Text(f"{u.share * 100:.0f}%", justify="right"),
-                          key=u.agent)
+                          Text("-" if u.est_pct is None else f"~{u.est_pct:.1f}%", justify="right"), key=u.agent)
         if self.uses:
             table.move_cursor(row=min(keep, len(self.uses) - 1))
         self._draw()
@@ -163,7 +163,9 @@ class OutlookView(Vertical):
         if self.picked:
             total = sum(c for _, c in self.series)
             self.query_one("#outlook_title", Static).update(Text.assemble(
-                (f"{self.picked}  ", "bold"), (f"cost at list price per slot, last {self.range}: ${total:.2f} in all", "dim")))
+                (f"{self.picked}  ", "bold"),
+                (f"cost at list price per slot, last {self.range}: ${total:.2f} in all"
+                 f"{self._picked_pct()}", "dim")))
             drawn = bars(self.series, width, height, self.range) if width > 0 else Text("")
             note = "enter or a click on the same row goes back to the week left"
         else:
@@ -171,9 +173,15 @@ class OutlookView(Vertical):
                 ("WEEK LEFT  ", "bold"), (f"{o.accounts} account{'s' if o.accounts != 1 else ''} together", "dim")))
             drawn = chart(o, width, height, self.range) if width > 0 else Text("")
             note = ("cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
-                    "week resets what it had used comes back. Enter or a click on an agent draws its use here")
+                    "week resets what it had used comes back. Enter or a click on an agent draws its use here. "
+                    "~ week % is an estimate: the agent's cost share of each account times the points of the "
+                    "week that account used in the range, averaged over the accounts")
         self.query_one("#outlook_chart", Static).update(drawn)
         self.query_one("#outlook_note", Static).update(note)
+
+    def _picked_pct(self) -> str:
+        u = next((u for u in self.uses if u.agent == self.picked), None)
+        return f", about {u.est_pct:.1f}% of the week" if u and u.est_pct is not None else ""
 
     def action_range(self) -> None:
         names = [n for n, _ in RANGES]
