@@ -8,15 +8,18 @@ runs on what it wrote, and `ocp doctor` names it. Writing goes through
 `require_founder` first and `seal` after, so an agent's session never gets as far
 as a write.
 
-A file with no seal yet (an installation from before seals) is sealed by the
-first read from a founder-side session; an agent's read just accepts it.
+Seals begin once: the first founder-side read on an installation from before
+them seals what is there and leaves a marker (as trust roots do). After that a
+file with no seal is refused, so a folder an agent plants for a new or retired
+name is never adopted.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 
-from . import protected
+from . import paths, protected
 from .yamlcompat import ConfigError
 
 NS = "seal"
@@ -36,6 +39,8 @@ def require_founder() -> None:
 
 
 def seal(key: str, text: str) -> None:
+    if not _migrated():
+        seal_everything()
     protected.put(NS, key, _digest(text))
 
 
@@ -43,23 +48,74 @@ def forget(key: str) -> None:
     protected.delete(NS, key)
 
 
-def mismatch(key: str, text: str) -> bool:
+MIGRATED = "migrated"
+_observing = 0
+
+
+@contextlib.contextmanager
+def observing():
+    """Reads inside this seal nothing, not even the first time: `ocp doctor`."""
+    global _observing
+    _observing += 1
+    try:
+        yield
+    finally:
+        _observing -= 1
+
+
+def _migrated() -> bool:
+    return protected.get(NS, MIGRATED) is not None
+
+
+def seal_everything() -> int:
+    """Seal team.yaml and every agent.yaml as they are now, and mark the seals
+    as begun. The founder's act, by `ocp team seal` or the first founder-side
+    read of an installation from before seals."""
+    n = 0
+    p = paths.team_file()
+    if p.exists():
+        protected.put(NS, TEAM, _digest(p.read_text()))
+        n += 1
+    for name in paths.list_agents():
+        protected.put(NS, agent_key(name), _digest((paths.agent_dir(name) / "agent.yaml").read_text()))
+        n += 1
+    protected.put(NS, MIGRATED, "1")
+    return n
+
+
+def state(key: str, text: str) -> str:
+    """ok, changed (does not match its seal), unsealed (a file nothing sealed,
+    after seals began) or legacy (seals have not begun)."""
     want = protected.get(NS, key)
-    return want is not None and want.strip() != _digest(text)
+    if want is not None:
+        return "ok" if want.strip() == _digest(text) else "changed"
+    return "unsealed" if _migrated() else "legacy"
+
+
+def mismatch(key: str, text: str) -> bool:
+    return state(key, text) in ("changed", "unsealed")
+
+
+def follow(key: str, before: str, after: str) -> None:
+    """A founder-side rewrite of a file by something other than a write path (a
+    db migration): keep the seal only if it was holding `before`."""
+    if not protected.in_agent_session() and state(key, before) == "ok":
+        seal(key, after)
 
 
 def check(key: str, text: str, where) -> None:
     """ConfigError when `text`, read from `where`, is not what was sealed."""
-    want = protected.get(NS, key)
-    if want is None:
-        if not protected.in_agent_session():
-            try:
-                seal(key, text)
-            except OSError:
-                pass
+    st = state(key, text)
+    if st == "legacy" and not protected.in_agent_session() and not _observing:
+        try:
+            seal_everything()
+        except OSError:
+            pass
+        st = state(key, text)
+    if st in ("ok", "legacy"):
         return
-    if want.strip() != _digest(text):
-        raise ConfigError(
-            f"{where} was changed outside the founder's path and is not trusted. Roster "
-            f"and routing change only through an approved `ocp hr` proposal or the "
-            f"founder's own session; if this edit is the founder's, run `ocp team seal`.")
+    why = "was changed outside the founder's path" if st == "changed" else "was never sealed"
+    raise ConfigError(
+        f"{where} {why} and is not trusted. Roster and routing change only through an "
+        f"approved `ocp hr` proposal or the founder's own session; if this file is the "
+        f"founder's, run `ocp team seal`.")

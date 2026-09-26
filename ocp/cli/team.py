@@ -146,14 +146,7 @@ def cmd_team_seal(args) -> int:
     except PermissionError as e:
         print(e)
         return 1
-    n = 0
-    p = paths.team_file()
-    if p.exists():
-        sealed.seal(sealed.TEAM, p.read_text())
-        n += 1
-    for name in paths.list_agents():
-        sealed.seal(sealed.agent_key(name), (paths.agent_dir(name) / "agent.yaml").read_text())
-        n += 1
+    n = sealed.seal_everything()
     print(f"sealed {n} file(s) as they are now")
     return 0
 

@@ -541,7 +541,7 @@ limits:
 def _reconcile_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     agents.register("backend")
 
 
@@ -550,7 +550,7 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     restore_world()
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(DESIGN_TEAM)
+    hand_edit_team(DESIGN_TEAM)
     agents.register("backend")
     write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
@@ -1530,7 +1530,7 @@ LIVE_TRUST_PROMPT_FOLDER = (
 def _two_agents_one_slot(home: Path, cap: int = 2) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text(
+    hand_edit_team(
         "agents:\n  a: {}\n  b: {}\n"
         'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
         f"limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: {cap}\n"
@@ -1632,7 +1632,7 @@ def _python_with_textual() -> str | None:
 def _board_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 agents:
   manager: {}
   worker:  {}
@@ -1716,7 +1716,7 @@ def _done_and_close(tid: int, owner: str, evidence: str = "done",
 
 def _two_lanes(home: Path) -> None:
     """manager leads worker; boss leads reviewer, in a second lane."""
-    (home / "team.yaml").write_text("""
+    hand_edit_team("""
 teams:
   manager: [worker]
   boss: [reviewer]

@@ -209,15 +209,23 @@ def _check_protected(r: Report) -> None:
                   "store now; delete it")
 
 
-def _check_team_seal(r: Report) -> None:
-    p = paths.team_file()
-    if p.exists() and sealed.mismatch(sealed.TEAM, p.read_text()):
-        r.add(FAIL, "team.yaml was changed outside the founder's path",
-              "it is not trusted until the founder reviews it and runs `ocp team seal`")
+def _check_seals(r: Report) -> None:
+    files = [("team.yaml", sealed.TEAM, paths.team_file())]
+    files += [(f"agent {n}: agent.yaml", sealed.agent_key(n), paths.agent_dir(n) / "agent.yaml")
+              for n in paths.list_agents()]
+    for label, key, p in files:
+        try:
+            st = sealed.state(key, p.read_text())
+        except OSError:
+            continue
+        if st in ("changed", "unsealed"):
+            said = "changed outside the founder's path" if st == "changed" else "never sealed"
+            r.add(FAIL, f"{label} was {said}",
+                  "it is not trusted until the founder reviews it and runs `ocp team seal`")
 
 
 def _check_agents(r: Report) -> None:
-    _check_team_seal(r)
+    _check_seals(r)
     names = paths.list_agents()
     if not names:
         r.add(WARN, "no agents registered", "ocp agent register <name>")
@@ -510,6 +518,11 @@ def _check_autocontinue(r: Report) -> None:
 
 
 def run() -> Report:
+    with sealed.observing():
+        return _run()
+
+
+def _run() -> Report:
     r = Report()
     _check_tools(r)
     _check_claude_version(r)

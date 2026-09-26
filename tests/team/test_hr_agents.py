@@ -1828,7 +1828,7 @@ deny:
   - { from: "keeper", to: "scout", reason: "keeper never asks scout" }
 """
     tf = home / "team.yaml"
-    tf.write_text(original)
+    hand_edit_team(original)
     con = db.connect()
     try:
         ok, said = hr.enact("link", "marina", to="keeper", why="marina needs keeper's review",
@@ -2548,6 +2548,68 @@ def test_team_and_agent_yaml_are_sealed_against_an_agents_hand(home: Path) -> No
             os.environ["OCP_AGENT"] = saved
 
 
+def test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(home: Path) -> None:
+    """T188 audit: seals begin once. After that a folder planted for a new or a
+    retired name is refused on the agent's and the founder's reads alike, and
+    `ocp doctor` names it without sealing it; a db migration that rewrites
+    team.yaml keeps its seal."""
+    from ocp.db import schema
+    _daemon_home(home, 20)
+    agents.register("backend")
+    hand_edit_team("agents:\n  backend: {}\n")
+    agents.read("backend")
+
+    def plant(name: str) -> Path:
+        d = paths.agent_dir(name)
+        d.mkdir(parents=True)
+        f = d / "agent.yaml"
+        f.write_text(f"name: {name}\nmodel: opus\nrepo: /elsewhere\n")
+        return f
+
+    plant("ghost")
+    agents.register("gone")
+    sealed.forget(sealed.agent_key("gone"))
+    for name in ("ghost", "gone"):
+        for who in (None, "backend"):
+            saved = os.environ.get("OCP_AGENT")
+            if who:
+                os.environ["OCP_AGENT"] = who
+            try:
+                agents.read(name)
+                check(f"unsealed: {name} is refused for {who or 'the founder'}", False, "read")
+            except yamlcompat.ConfigError as e:
+                check(f"unsealed: {name} is refused for {who or 'the founder'}",
+                      "never sealed" in str(e), str(e))
+            finally:
+                if saved is None:
+                    os.environ.pop("OCP_AGENT", None)
+                else:
+                    os.environ["OCP_AGENT"] = saved
+    rep = doctor.run()
+    for name in ("ghost", "gone"):
+        row = _doctor_row(rep, f"agent {name}: agent.yaml was never sealed")
+        check(f"unsealed: doctor names {name}", row is not None and row[0] == doctor.FAIL, str(row))
+    check("unsealed: and doctor sealed nothing",
+          all(sealed.state(sealed.agent_key(n), agents.agent_file(n).read_text()) == "unsealed"
+              for n in ("ghost", "gone")))
+    af = agents.agent_file("backend")
+    af.write_text(af.read_text() + "repo: /x\n")
+    row = _doctor_row(doctor.run(), "agent backend: agent.yaml was changed")
+    check("changed: doctor names a tampered agent.yaml as plainly as team.yaml",
+          row is not None and row[0] == doctor.FAIL, str(row))
+    reseal(af)
+
+    hand_edit_team("agents:\n  backend: {}\n  orchestrator: {}\n")
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:human_name'")
+        schema._rename_orchestrator(con)
+    finally:
+        con.close()
+    check("migration: the human-name rewrite of team.yaml keeps it trusted",
+          "orchestrator" not in paths.team_file().read_text() and "backend" in team.Team.load().agents)
+
+
 def cliteam_seal() -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -2560,6 +2622,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
+        run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
         run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
         run(lambda: test_agents(home))
         run(lambda: test_team_routing())
