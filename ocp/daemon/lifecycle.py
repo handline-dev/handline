@@ -393,6 +393,8 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
                         if record else
                         "There is no handoff. Read your journal and your inbox "
                         "before carrying on."))
+        if not record and (note := handoffmod.memory_line(agent)):
+            parts.append(note)
     else:
         parts.append("You were parked and have been resumed. Your context was cleared; "
                      "below is your own handoff record. Carry on from here.")

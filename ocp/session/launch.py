@@ -252,6 +252,12 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
     return ["--mcp-config", str(p)], None
 
 
+def hidden_memories(agent: str) -> list[str]:
+    """The memory folders `agent` may not read: every other agent's, with no
+    exception for its reports - a memory is that agent's own."""
+    return [str(paths.agent_dir(a) / "memory") for a in paths.list_agents() if a != agent]
+
+
 def hidden_transcripts(agent: str, drv) -> list[str]:
     """The transcript folders `agent` may not read (T40): every other agent's
     except its own and its reports', in every account of this vendor, since
@@ -368,8 +374,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     # every session - that is what its 2KB budget is a budget for - and the
     # handoff waiting for it is injected so it picks up where it left off.
     preamble = context_for(agent)
+    memory_dir = paths.agent_dir(agent) / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
-                           hide=hidden_transcripts(agent, drv))
+                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
+                           memory_dir=memory_dir)
     if agents.skip_permissions(cfg) and not agents.skip_permissions_granted(agent):
         print(f"warning: agent '{agent}' has skip_permissions in its agent.yaml, but the "
               f"founder never turned it on (`ocp agent register {agent} --skip-permissions on`, "

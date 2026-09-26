@@ -32,6 +32,10 @@ OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
 # Claude Code's own notification switches, off in the shared settings only.
 QUIET_NOTIFICATIONS = ("inputNeededNotifEnabled", "agentPushNotifEnabled")
 
+# The tools a hook of ours is limited to, for the events that fire on every
+# call: PreToolUse is ours for the memory budget and looks at file writes only.
+MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit"}
+
 # How we recognize a hook Orca installed. Every Orca hook command mentions one
 # of these paths or variables.
 ORCA_MARKERS = ("orca/agent-hooks", ".orca/agent-hooks", "ORCA_AGENT_HOOK", "orca-hook")
@@ -323,7 +327,8 @@ def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
             keep.append(g)
         groups[:] = keep
         if not seen and event in wanted:
-            groups.append({"hooks": [{"type": "command",
+            groups.append({**({"matcher": MATCHERS[event]} if event in MATCHERS else {}),
+                           "hooks": [{"type": "command",
                                       "command": f"{exe} hook {event}", "timeout": 10}]})
             added.append(event)
     write_settings(target, data)

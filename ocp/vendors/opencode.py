@@ -226,7 +226,8 @@ class Opencode:
 
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
                     mcp: list[str], preamble: str | None,
-                    hide: list[str] | None = None) -> list[str]:
+                    hide: list[str] | None = None,
+                    memory_dir: Path | None = None) -> list[str]:
         """The TUI takes the model, as `provider/model`, and nothing else ocp
         passes: it has no flag for effort (only `run --variant` does), tool
         denial, an MCP config or a system prompt. Those reach opencode through
@@ -331,6 +332,9 @@ class Opencode:
 
     def confirmation(self, dialog):
         return None
+
+    def memory_settings(self, memory_dir: Path) -> dict:
+        return {}      # no auto-memory to point
 
     def credential_present(self, config_dir: Path) -> bool:
         """Asked of `opencode auth list`, which counts the credentials under

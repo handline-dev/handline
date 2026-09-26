@@ -1149,7 +1149,7 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
     check("hooks: one entry per event however it was spelled before",
           len(stops) == 1, str(stops))
     check("hooks: every captured event is installed, and the ones that answer a prompt",
-          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED | evmod.ANSWERS),
+          {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS),
           str(sorted({c.rsplit(" ", 1)[1] for c in ours})))
     check("hooks: Orca's own entries are left alone",
           any(h.get("command") == "orca-hook pre"
