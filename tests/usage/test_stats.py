@@ -241,7 +241,10 @@ def test_prices(home: Path) -> None:
           [prices.INPUT_PRICE[prices.pattern_of(m)] for m in models]
           == [4.0, 5.0, 5.0, 2.0, 3.0, 1.0, 10.0, 3.0, 3.0],
           str([prices.pattern_of(m) for m in models]))
-    check("prices: a fable is not priced as a sonnet", prices.pattern_of("claude-fable-5-1") == "fable")
+    check("prices: a fable is not priced as a sonnet", prices.pattern_of("claude-fable-5") == "fable")
+    check("prices: a mythos is not priced as a sonnet",
+          [prices.pattern_of(m) for m in ("claude-mythos-5-1", "claude-mythos-5")]
+          == ["mythos-5-1", "mythos"])
 
     def each(model, k):
         z = dict(inp=0, cc=0, cr=0, out=0, thinking=0)
@@ -255,6 +258,10 @@ def test_prices(home: Path) -> None:
           [each("claude-opus-5", k) for k in ("inp", "cr", "out")] == [5.0, 0.5, 25.0])
     check("prices: fable 5.1 reads at $0.25 of its $10",
           [each("claude-fable-5-1", k) for k in ("inp", "cr", "out")] == [10.0, 0.25, 50.0])
+    check("prices: mythos 5.1 is priced as fable 5.1",
+          [each("claude-mythos-5-1", k) for k in ("inp", "cr", "out")] == [10.0, 0.25, 50.0])
+    check("prices: fable 5 and mythos 5 read at a tenth, as the reference gives $0.25 as new with 5.1",
+          [each(m, "cr") for m in ("claude-fable-5", "claude-mythos-5")] == [1.0, 1.0])
     check("prices: so opus 5.5 costs twice sonnet 5 per input token",
           each("claude-opus-5-5", "inp") == 2 * each("claude-sonnet-5", "inp"))
     c = prices.class_costs("claude-opus-5-5", 0, 0, 0, 1000, 400)

@@ -2054,6 +2054,7 @@ edges:
         askmod.resolve(rid3, "reject - no")
         check("reject: nothing is applied", "yerin" not in paths.list_agents()
               and db.get_request(con, rid3)["verdict"] == "reject - no")
+        check("reject: and the proposal's file records it", hr.load_proposal(pid3)["state"] == "rejected")
     finally:
         con.close()
 

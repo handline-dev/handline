@@ -55,21 +55,25 @@ def test_trust_roots(home: Path) -> None:
     ok, msg = trustmod.apply(pid)
     check("trust: applying before the founder answers is refused", not ok, msg)
 
-    askmod.resolve(rid, "approve")
-    ok, msg = trustmod.apply(pid)
-    check("trust: applying an approved proposal declares the root", ok, msg)
+    ok, msg = askmod.resolve(rid, "approve")
+    check("trust: an approve declares the root at once, and says so", ok and "applied" in msg, msg)
     check("trust: it is now declared",
           trustmod.is_declared(home / "repos" / "second"))
+    check("trust: and the proposer's answer carries the outcome",
+          f"proposal {pid} applied" in db.get_request(db.connect(), rid)["verdict"])
     ok, msg = trustmod.apply(pid)
     check("trust: applying twice is refused", not ok, msg)
 
     ok, msg = trustmod.propose(str(home / "repos" / "third"), "for later",
                                requester="backend")
-    pid3 = trustmod.listing()[-1]["id"]
-    rid3 = trustmod.listing()[-1]["request"]
+    third = next(p for p in trustmod.listing()  # listing() is ordered by random id
+                 if p["root"] == trustmod._resolved(home / "repos" / "third"))
+    pid3, rid3 = third["id"], third["request"]
     askmod.resolve(rid3, "reject - not yet")
     ok, msg = trustmod.apply(pid3)
     check("trust: a rejected proposal is never applied", not ok, msg)
+    check("trust: and its file records the reject at once",
+          trustmod.load_proposal(pid3)["state"] == "rejected")
     check("trust: and the root stays undeclared",
           not trustmod.is_declared(home / "repos" / "third"))
 
@@ -109,10 +113,10 @@ def test_trust_roots(home: Path) -> None:
 
     pid4 = proposal_for(home / "repos" / "fourth")["id"]
     rid4 = proposal_for(home / "repos" / "fourth")["request"]
-    askmod.resolve(rid4, "approve")
     tampered = trustmod.load_proposal(pid4)
     tampered["root"] = str(home / "repos" / "not-what-was-approved")
     trustmod._save_proposal(tampered)
+    askmod.resolve(rid4, "approve")
     ok, msg = trustmod.apply(pid4)
     check("trust: apply refuses a root that does not match what was approved",
           not ok, msg)
@@ -126,10 +130,10 @@ def test_trust_roots(home: Path) -> None:
                                requester="backend")
     check("trust: the fifth proposal went through", ok, msg)
     pid5 = proposal_for(home / "repos" / "fifth" / "deep")["id"]
-    askmod.resolve(proposal_for(home / "repos" / "fifth" / "deep")["request"], "approve")
     widened = trustmod.load_proposal(pid5)
     widened["root"] = str(home / "repos" / "fifth")
     trustmod._save_proposal(widened)
+    askmod.resolve(widened["request"], "approve")
     ok, msg = trustmod.apply(pid5)
     check("trust: apply refuses a proposal edited to a parent of what was approved",
           not ok and "does not match" in msg, msg)
