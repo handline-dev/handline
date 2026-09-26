@@ -266,13 +266,25 @@ class _HighlightTerm(_KeyTerm):
     """A terminal where a digit only moves the highlight, and Enter confirms it
     (or, with `ignores_enter`, does nothing)."""
 
-    def __init__(self, tail, ignores_enter=False):
+    def __init__(self, tail, ignores_enter=False, closes_after_reads=None):
         super().__init__(tail)
-        self.ignores_enter = ignores_enter
+        self.ignores_enter, self.closes_after_reads, self.reads_at_send = ignores_enter, closes_after_reads, None
+
+    def install(self):
+        super().install()
+        plain = orcamod._screen
+
+        def read(handle):
+            if (self.closes_after_reads is not None and self.reads_at_send is not None
+                    and self.reads - self.reads_at_send >= self.closes_after_reads):
+                self.tail = list(CLEARED_SCREEN)
+            return plain(handle)
+        orcamod._screen = read
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
         if text.isdigit():
+            self.reads_at_send = self.reads
             self.tail = [ln.replace("❯ ", "  ") if "❯" in ln else ln for ln in self.tail]
             self.tail = [ln.replace(f"  {text}. ", f"❯ {text}. ", 1) for ln in self.tail]
         elif text == "" and enter and not self.ignores_enter:
@@ -403,6 +415,30 @@ def test_a_digit_that_only_moves_the_highlight_is_followed_by_one_enter(home: Pa
     finally:
         con.close()
 
+def test_the_confirming_enter_needs_the_footer_to_say_so_and_a_vanished_dialog_is_cleared(home: Path) -> None:
+    no_enter = [ln.replace("Enter to confirm · Esc to cancel", "Esc to cancel") for ln in RULE_DIALOG]
+    con, term = _rule_world(home, no_enter, term=_HighlightTerm(no_enter))
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: a footer that does not say Enter confirms earns no Enter",
+              term.sent == [("2", False)], str(term.sent))
+        check("rule: and it is still open, so the failure is recorded",
+              _kinds(con)[1:] == ["dialog_accept_failed"], str(_kinds(con)))
+    finally:
+        con.close()
+    # The settle reads after the digit still show it; the read before a confirming Enter does not.
+    gone = _HighlightTerm(RULE_DIALOG, closes_after_reads=orcamod.PRESS_SETTLE_READS)
+    con, term = _rule_world(home / "gone", RULE_DIALOG, term=gone)
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("rule: a dialog that closed between the two reads gets no Enter",
+              term.sent == [("2", False)], str(term.sent))
+        check("rule: and counts as accepted, with no hold set",
+              _kinds(con)[1:] == ["dialog_accepted"] and db.get_cursor(con, "autoaccept_stuck:backend") == 0,
+              str(_kinds(con)))
+    finally:
+        con.close()
+
 
 def test_auto_accept_config_round_trips(home: Path) -> None:
     _daemon_home(home, 20)
@@ -429,6 +465,7 @@ def main() -> int:
         run(lambda: test_a_rule_never_answers_a_folder_trust_screen_or_a_number_over_nine(Path(td) / 'aa11'))
         run(lambda: test_a_rule_press_that_does_not_close_the_dialog_is_not_repeated(Path(td) / 'aa12'))
         run(lambda: test_a_digit_that_only_moves_the_highlight_is_followed_by_one_enter(Path(td) / 'aa13'))
+        run(lambda: test_the_confirming_enter_needs_the_footer_to_say_so_and_a_vanished_dialog_is_cleared(Path(td) / 'aa14'))
         run(lambda: test_auto_accept_config_round_trips(Path(td) / 'aa6'))
     return run_area(tests)
 
