@@ -42,6 +42,10 @@ def cmd_agent_move(args) -> int:
 
 
 def cmd_agent_register(args) -> int:
+    if args.skip_permissions == "on" and os.environ.get("OCP_AGENT"):
+        print("skipping permission prompts is the founder's to turn on, from a terminal "
+              "or the bridge, not an agent's", file=sys.stderr)
+        return 1
     d = agents.register(args.name, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo, vendor=args.vendor,

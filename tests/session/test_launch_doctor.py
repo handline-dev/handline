@@ -506,6 +506,23 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
               agents.read("backend").get("skip_permissions") is True and "next launch" in out, out)
         _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))
         check("skip: and off from the CLI", "skip_permissions" not in agents.read("backend"))
+        real = os.environ.get("OCP_AGENT")
+        os.environ["OCP_AGENT"] = "backend"
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = climod.main(["agent", "register", "backend", "--skip-permissions", "on"])
+            check("skip: an agent's own session cannot turn it on",
+                  rc == 1 and "founder's" in err.getvalue()
+                  and "skip_permissions" not in agents.read("backend"), err.getvalue())
+            agents.register("backend", skip_permissions=True)
+            _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))
+            check("skip: but it can turn it off", "skip_permissions" not in agents.read("backend"))
+        finally:
+            if real is None:
+                os.environ.pop("OCP_AGENT", None)
+            else:
+                os.environ["OCP_AGENT"] = real
         check("skip: opencode has no such switch, so it adds nothing",
               vendors.get("opencode").skip_permissions_argv() == [])
     finally:
