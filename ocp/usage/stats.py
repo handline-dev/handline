@@ -393,3 +393,38 @@ def agent_use(con, lo: int, hi: int, prices: dict[str, float] | None = None,
     rows = [AgentUse(a, t.tokens, t.cost, t.cost / total if total else 0.0,
                      est.get(a, 0.0) if week_used else None, fracs.get(a, {})) for a, t in by.items()]
     return sorted(rows, key=lambda r: (-r.cost, r.agent))
+
+
+@dataclass
+class UseRow:
+    """A line of the agents' table: `key` names what a pick means (an agent, or `grp:<name>`
+    for a whole group), `label` is what is drawn, `depth` 1 for a child under its group."""
+    key: str
+    label: str
+    depth: int
+    use: AgentUse
+
+
+def group_uses(uses: list[AgentUse]) -> list[UseRow]:
+    """The agents as a tree by the first part of their dotted name: `orcapipe` on top with the
+    total of the group, then `self` (the agent `orcapipe` itself) and the rest, `orcapipe.ui`
+    as `ui`. An agent whose group has nobody else is one plain row."""
+    groups: dict[str, list[AgentUse]] = {}
+    for u in uses:
+        groups.setdefault(u.agent.split(".", 1)[0], []).append(u)
+    rows: list[UseRow] = []
+    for name, members in sorted(groups.items(), key=lambda kv: (-sum(u.cost for u in kv[1]), kv[0])):
+        if len(members) == 1 and members[0].agent == name:
+            rows.append(UseRow(name, name, 0, members[0]))
+            continue
+        fracs: dict[str, float] = {}
+        for u in members:
+            for acct, f in u.fracs.items():
+                fracs[acct] = fracs.get(acct, 0.0) + f
+        est = None if any(u.est_pct is None for u in members) else sum(u.est_pct for u in members)
+        total = AgentUse(name, sum(u.tokens for u in members), sum(u.cost for u in members),
+                         sum(u.share for u in members), est, fracs)
+        rows.append(UseRow(f"grp:{name}", name, 0, total))
+        for u in members:               # `uses` is largest cost first, and that order is kept
+            rows.append(UseRow(u.agent, "self" if u.agent == name else u.agent[len(name) + 1:], 1, u))
+    return rows

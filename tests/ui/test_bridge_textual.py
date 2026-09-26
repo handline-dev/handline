@@ -915,6 +915,20 @@ def test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_share
           set(uses) == {"writer", "(unattributed)"} and abs(uses["writer"].share - 0.5) < 1e-6, uses)
 
 
+def test_the_agents_table_is_a_tree_with_the_group_total_on_top() -> None:
+    from ocp.usage.stats import AgentUse, group_uses
+    uses = [AgentUse("orcapipe.ui", 10, 3.0, 0.3, 1.0, {"a": 0.3}), AgentUse("orcapipe", 5, 6.0, 0.6, 2.0, {"a": 0.6}),
+            AgentUse("harbor", 1, 1.0, 0.1, 0.5, {"a": 0.1})]
+    rows = group_uses(uses)
+    got = [(r.key, r.label, r.depth) for r in rows]
+    check("tree: the group with the most cost first, its total on top, then self and the children",
+          got == [("grp:orcapipe", "orcapipe", 0), ("orcapipe.ui", "ui", 1), ("orcapipe", "self", 1),
+                  ("harbor", "harbor", 0)], got)
+    top = rows[0].use
+    check("tree: the group row is the sum of its members", top.tokens == 15 and abs(top.cost - 9.0) < 1e-9
+          and abs(top.est_pct - 3.0) < 1e-9 and abs(top.fracs["a"] - 0.9) < 1e-9, top)
+
+
 def test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart() -> None:
     from ocp.ui.components.outlook_view import chart
     from ocp.usage.outlook import Outlook
@@ -2313,6 +2327,7 @@ async def _run_all() -> None:
     await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
     test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
     test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
+    test_the_agents_table_is_a_tree_with_the_group_total_on_top()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
     await test_stats_screen_draws_the_weekly_graph()
     await test_the_key_guide_stays_on_screen_when_the_table_is_long()

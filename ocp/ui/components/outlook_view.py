@@ -13,6 +13,7 @@ from textual.widgets import DataTable, Select, Static
 
 from ... import actions, db
 from ...infra import textsafe
+from ...usage import stats
 from ...usage.outlook import Outlook
 from ..chat_page import TaskTable
 from .key_guide import Key, KeyGuide, KeyHelp
@@ -99,7 +100,7 @@ class OutlookView(Vertical):
         super().__init__(**kw)
         self.back = back
         self.outlook = Outlook()
-        self.uses: list = []
+        self.uses: list[stats.UseRow] = []
         self.picked: str | None = None
         self.over: list[float] = []
         self.range = "24h"
@@ -132,10 +133,10 @@ class OutlookView(Vertical):
         try:
             self.outlook = actions.weekly_outlook(con, int(time.time()), dict(RANGES)[self.range])
             now, hours = int(time.time()), dict(RANGES)[self.range]
-            self.uses = actions.agent_use(con, now, hours)
-            if self.picked not in {u.agent for u in self.uses}:
+            self.uses = stats.group_uses(actions.agent_use(con, now, hours))
+            if self.picked not in {r.key for r in self.uses}:
                 self.picked = None
-            use = next((u for u in self.uses if u.agent == self.picked), None)
+            use = next((r.use for r in self.uses if r.key == self.picked), None)
             self.over = (actions.agent_overlay(con, use, now, hours, [t for t, _ in self.outlook.past])
                          if use else [])
         finally:
@@ -143,10 +144,12 @@ class OutlookView(Vertical):
         table = self.query_one(DataTable)
         keep = table.cursor_row
         table.clear()
-        for u in self.uses:
-            table.add_row(Text(textsafe.oneline(u.agent)), Text(short_tokens(u.tokens), justify="right"),
+        for r in self.uses:
+            u = r.use
+            name = Text(("└ " if r.depth else "") + textsafe.oneline(r.label), style="" if r.depth else "bold")
+            table.add_row(name, Text(short_tokens(u.tokens), justify="right"),
                           Text(f"${u.cost:.2f}", justify="right"), Text(f"{u.share * 100:.0f}%", justify="right"),
-                          Text("-" if u.est_pct is None else f"~{u.est_pct:.1f}%", justify="right"), key=u.agent)
+                          Text("-" if u.est_pct is None else f"~{u.est_pct:.1f}%", justify="right"), key=r.key)
         if self.uses:
             table.move_cursor(row=min(keep, len(self.uses) - 1))
         self._draw()
@@ -165,7 +168,7 @@ class OutlookView(Vertical):
         title = Text.assemble(("WEEK LEFT  ", "bold"),
                               (f"{o.accounts} account{'s' if o.accounts != 1 else ''} together", "dim"))
         if self.picked:
-            title.append_text(Text.assemble(("   magenta: ", "dim"), (f"{self.picked}", "magenta bold"),
+            title.append_text(Text.assemble(("   magenta: ", "dim"), (f"{self.picked.removeprefix('grp:')}", "magenta bold"),
                                             (f" ate{self._picked_pct()}", "dim")))
         self.query_one("#outlook_title", Static).update(title)
         self.query_one("#outlook_chart", Static).update(
@@ -177,7 +180,7 @@ class OutlookView(Vertical):
             "of the week that account used in the range, averaged over the accounts")
 
     def _picked_pct(self) -> str:
-        u = next((u for u in self.uses if u.agent == self.picked), None)
+        u = next((r.use for r in self.uses if r.key == self.picked), None)
         return f" about {u.est_pct:.1f}% of the week in this range" if u and u.est_pct is not None else ""
 
     def action_range(self) -> None:
