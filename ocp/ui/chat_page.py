@@ -21,7 +21,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual.coordinate import Coordinate
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Header, Input, OptionList, Select, Static, Tabs, TextArea
+from textual.widgets import Button, DataTable, Header, Input, OptionList, Select, Static, Switch, Tabs, TextArea
 from textual.widgets.option_list import Option
 
 from .. import actions, db
@@ -36,6 +36,7 @@ from .components.confirm import Confirm
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
+from .components.switch_row import SwitchRow
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
 # They are not part of the conversation, so no chat query reads them.
@@ -184,7 +185,7 @@ def task_detail(con, tid: int) -> dict | None:
             "can_discard": state in ("draft", "queued") and mine}
 
 
-EDITABLE = ("model", "effort", "weight", "repo", "context_k")
+EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "context_k")
 WEIGHTS = ("light", "heavy")
 
 
@@ -199,6 +200,7 @@ def settings_of(agent: str) -> dict:
             "model": str(cfg.get("model") or agents.DEFAULT_MODEL),
             "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
             "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
+            "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
             "context_k": str(agents.context_tokens(cfg) // 1000)}
 
 
@@ -214,6 +216,8 @@ def settings_problem(form: dict) -> str | None:
         return f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
     if form["weight"] not in WEIGHTS:
         return f"weight must be one of {', '.join(WEIGHTS)}"
+    if form["skip_permissions"] not in ("on", "off"):
+        return "skip permissions must be on or off"
     if not form["context_k"].strip().isdigit() or int(form["context_k"]) < 1:
         return "context must be a whole number of thousands of tokens, at least 1"
     if repo and (textsafe.has_unsafe(repo) or not Path(repo).expanduser().is_dir()):
@@ -242,6 +246,7 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     try:
         agents.register(agent, model=new.get("model"), effort=new.get("effort"),
                         weight=new.get("weight"), repo=new.get("repo"),
+                        skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
                         context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
     except (ValueError, agents.ConfigError, OSError) as e:
         return False, f"not saved: {e}"
@@ -939,6 +944,7 @@ class ChatPage(Screen):
                 with Horizontal(classes="frow"):
                     yield Static("repo", classes="flabel")
                     yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
+                yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
                 with Horizontal(classes="frow"):
                     yield Static("hand off at", classes="flabel")
                     yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
@@ -1287,6 +1293,7 @@ class ChatPage(Screen):
         self.query_one("#s_model", Input).value = safe(cfg["model"])
         self.query_one("#s_repo", Input).value = safe(cfg["repo"])
         self.query_one("#s_context_k", Input).value = cfg["context_k"]
+        self.query_one("#s_skip", Switch).value = cfg["skip_permissions"] == "on"
         self.show_context_share()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
@@ -1296,6 +1303,7 @@ class ChatPage(Screen):
                 "effort": str(self.query_one("#s_effort", Select).value),
                 "weight": str(self.query_one("#s_weight", Select).value),
                 "repo": self.query_one("#s_repo", Input).value,
+                "skip_permissions": "on" if self.query_one("#s_skip", Switch).value else "off",
                 "context_k": self.query_one("#s_context_k", Input).value}
 
     def show_context_share(self) -> None:
@@ -1329,12 +1337,16 @@ class ChatPage(Screen):
                 return
             ok, said = save_settings(self.agent, changes)
             log_action(f"settings {self.agent}: {'ok' if ok else 'refused'} - {said}")
-            self.notify(safe(said) + ("\n(a running session is not restarted)" if ok else ""),
+            skip = ok and any(k == "skip_permissions" for k, _, _ in changes)
+            self.notify(safe(said) + ("\n(a running session is not restarted"
+                                      + ("; skip prompts applies from its next launch)" if skip else ")") if ok else ""),
                         title=f"settings {self.agent}", severity="information" if ok else "error",
                         timeout=10, markup=False)
             self.load_settings()
         self.app.push_screen(Confirm(f"Change {self.agent}'s settings", detail,
-                                     yes="Save", no="Cancel"), answered)
+                                     yes="Save", no="Cancel",
+                                     danger=any(k == "skip_permissions" and new == "on" for k, _, new in changes)),
+                             answered)
 
     def reply_to(self, msg: ChatMessage | None) -> None:
         for old in self.query(".replying"):

@@ -206,6 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
     q = trsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
     q.set_defaults(root=None, why=None)
+    q = trsub.add_parser("migrate", help="move the old trust_roots.json into the protected "
+                         "store (the founder's, once)")
+    q.set_defaults(root=None, why=None)
     p.set_defaults(fn=cmd_trust)
 
     p = sub.add_parser("org", help="register live agents as workers in the team's Run")

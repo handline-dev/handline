@@ -51,4 +51,5 @@ ChatPage { overflow: hidden; }
     .frow Input, .frow Select { width: 40; }
     .frow #s_context_k { width: 10; }
     .frow .unit { width: 10; padding-left: 1; }
+    .fhint { color: $text-muted; }
 }

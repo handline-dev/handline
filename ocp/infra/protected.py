@@ -11,7 +11,7 @@ a credential belongs nowhere in ocp (AGENTS.md rule 1).
 
 One file per entry, `<namespace>/<name>`, under a folder for this OCP_HOME so
 two installations on one machine keep their own. `put` and `delete` also refuse
-when $OCP_AGENT is set, so where the sandbox is off the answer is still no from
+when $OCP_AGENT names an agent, so where the sandbox is off the answer is still no from
 ocp itself - a convenience, not the lock; the lock is the location.
 """
 from __future__ import annotations
@@ -30,9 +30,22 @@ class NotTheFounder(PermissionError):
     pass
 
 
-def root() -> Path:
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(paths.home().resolve()))
+def root_for(home: Path) -> Path:
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str(home.resolve()))
     return paths.user_home() / ".config" / "orcapipe" / "protected" / slug
+
+
+def root() -> Path:
+    return root_for(paths.home())
+
+
+def files(home: Path) -> list[Path]:
+    """Every entry kept for `home`, relative to its store, for a backup."""
+    base = root_for(home)
+    if not base.is_dir():
+        return []
+    return sorted(p.relative_to(base) for p in base.rglob("*")
+                  if p.is_file() and not p.name.startswith(".put-"))
 
 
 def _entry(namespace: str, name: str) -> Path:
@@ -49,8 +62,14 @@ def get(namespace: str, name: str) -> str | None:
         return None
 
 
+def in_agent_session() -> bool:
+    """$OCP_AGENT names an agent - anyone but the founder's own `human`."""
+    from ..team import ask
+    return os.environ.get("OCP_AGENT", "") not in ("", ask.HUMAN)
+
+
 def _founder_only() -> None:
-    if os.environ.get("OCP_AGENT"):
+    if in_agent_session():
         raise NotTheFounder("this is the founder's to set, from a terminal or the bridge, "
                             "not an agent's")
 

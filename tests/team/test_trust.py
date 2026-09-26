@@ -152,6 +152,88 @@ def test_trust_roots(home: Path) -> None:
     check("trust: the path as approved still applies", ok, msg)
 
 
+def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
+    """T179 (founder #1006): the declared roots and the founder's answers to
+    trust and roster proposals are kept where no agent can write them, and the
+    old trust_roots.json is moved there once."""
+    use_home(home)
+    (home / "team.yaml").write_text(
+        "agents:\n  backend: {}\n"
+        'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
+    agents.register("backend")
+    from ocp.infra import protected
+    legacy = trustmod.legacy_path()
+    legacy.write_text(json.dumps([{"root": str(home / "repos"), "why": "old", "added_by": "human",
+                                   "added_at": 1}]))
+    real = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        check("migrate: an agent's session reads nothing from the old file",
+              trustmod.list_roots() == [] and legacy.exists())
+        check("migrate: and cannot move it", trustmod.migrate_legacy() is None and legacy.exists())
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    check("migrate: doctor says it is not moved yet",
+          any("not moved yet" in n for _l, n, _d in _doctor_rows()), str(_doctor_rows()))
+    check("migrate: the founder's first read moves it, and the roots are there",
+          [r["why"] for r in trustmod.list_roots()] == ["old"] and not legacy.exists())
+    check("migrate: once - the roots are in the protected store",
+          protected.get("trust", "roots.json") is not None)
+    legacy.write_text(json.dumps([{"root": "/etc", "why": "planted", "added_by": "human"}]))
+    check("migrate: a file put back afterwards is never read as the founder's",
+          [r["why"] for r in trustmod.list_roots()] == ["old"])
+    check("migrate: and doctor names it", any("is back in OCP_HOME" in n
+                                              for _l, n, _d in _doctor_rows()))
+    legacy.unlink()
+
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        ok, msg = trustmod.enact(str(home / "x"), "an agent adding a root")
+        check("roots: an agent cannot declare one, whatever it calls", not ok and "founder's" in msg, msg)
+        ok, msg = trustmod.remove(str(home / "repos"))
+        check("roots: nor drop one", not ok and trustmod.is_declared(home / "repos"), msg)
+        check("roots: but it can read them", trustmod.is_declared(home / "repos"))
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+
+    ok, msg = trustmod.propose(str(home / "second"), "needs it", requester="backend")
+    pid, rid = trustmod.listing()[0]["id"], trustmod.listing()[0]["request"]
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (rid,))
+        ok, msg = trustmod.apply(pid, con)
+        check("answers: a verdict written into the db alone declares nothing",
+              not ok and "no answer from the founder is on record" in msg
+              and not trustmod.is_declared(home / "second"), msg)
+    finally:
+        con.close()
+    ok, msg = trustmod.propose(str(home / "third"), "needs this too", requester="backend")
+    third = [p for p in trustmod.listing() if p["root"].endswith("third")][0]
+    ok, msg = askmod.resolve(third["request"], "approve")
+    check("answers: the founder's own approve records the answer and declares the root",
+          ok and trustmod.is_declared(home / "third")
+          and decisions.get("trust", third["id"])["call"] == "approved", msg)
+    check("answers: the record names the request", decisions.get("trust", third["id"])["request"]
+          == third["request"])
+    other = decisions.refusal("trust", third["id"], third["request"] + 1)
+    check("answers: a record for another request is no answer", other is not None, str(other))
+
+    from ocp.infra import backup
+    snap = backup.snapshot(home, home.parent / (home.name + "-bk"))
+    import tarfile
+    with tarfile.open(snap) as tar:
+        names = tar.getnames()
+    check("backup: the protected entries ride along, under protected/",
+          any(n.startswith("protected/trust/") for n in names), str(names[:8]))
+
+
+def _doctor_rows():
+    from ocp.infra import doctor
+    r = doctor.Report()
+    doctor._check_protected(r)
+    return r.rows
+
+
 def test_ocp_trust_cli_is_wired(home: Path) -> None:
     """`ocp trust add/list/remove` reach the same trust.py the daemon reads,
     the founder's own path through the argparse layer."""
@@ -516,6 +598,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_trust_roots(Path(td) / 'trust_roots'))
+        run(lambda: test_trust_roots_live_in_the_protected_store(Path(td) / 'trustprot'))
         run(lambda: test_ocp_trust_cli_is_wired(Path(td) / 'trust_cli'))
         run(lambda: test_eligible_worktrees_splits_declared_from_not(Path(td) / 'eligible_wt'))
         run(lambda: test_trust_worktrees(Path(td) / 'trust_wt'))

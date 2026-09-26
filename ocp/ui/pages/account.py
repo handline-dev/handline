@@ -24,6 +24,7 @@ from ..components.ime import ImeInput
 from ..components.account_actions import AccountActions
 from ..components.action_bar import ActionBar
 from ..components.page_header import page_header
+from ..components.switch_row import SwitchRow
 
 BAR_W = 30
 _TABS = {"overview": "#detail_pane", "agents": "#a_agents", "settings": "#a_settings"}
@@ -40,9 +41,6 @@ class AccountPage(AccountActions, Screen):
     AccountPage .fhint { color: $text-muted; }
     AccountPage #a_name { width: 40; }
     AccountPage #a_cap { width: 8; }
-    AccountPage #a_recover { height: 1; border: none; padding: 0; background: transparent; }
-    AccountPage #a_recover > .switch--slider { background: $foreground 30%; color: $error; }
-    AccountPage #a_recover.-on > .switch--slider { color: $success; }
     """
 
     def __init__(self, name: str) -> None:
@@ -75,10 +73,8 @@ class AccountPage(AccountActions, Screen):
                     yield ImeInput(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None,
                                 placeholder=self.account if key == "name" else "")
                     yield Static(hint, classes="fhint")
-            with Horizontal(classes="frow"):
-                yield Static("usage recovery", classes="flabel")
-                yield Switch(id="a_recover", value=True)
-                yield Static("  one real turn that renews a dead credential or restarts the usage window", classes="fhint")
+            yield SwitchRow("usage recovery", "one real turn that renews a dead credential or restarts the usage window",
+                            "a_recover", True)
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")

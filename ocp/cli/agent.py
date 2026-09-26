@@ -12,7 +12,7 @@ from .. import db
 from ..session import handoff as handoffmod
 from ..session import launch
 from ..usage import load
-from ..infra import paths
+from ..infra import paths, protected
 from ..team import spawn as spawnmod
 from ..usage import status
 from ..infra import textsafe
@@ -42,7 +42,7 @@ def cmd_agent_move(args) -> int:
 
 
 def cmd_agent_register(args) -> int:
-    if args.skip_permissions and os.environ.get("OCP_AGENT"):
+    if args.skip_permissions and protected.in_agent_session():
         print("skipping permission prompts is the founder's to turn on or off, from a "
               "terminal or the bridge, not an agent's", file=sys.stderr)
         return 1
