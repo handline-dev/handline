@@ -250,6 +250,27 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     finally:
         con.close()
 
+    ok, msg = trustmod.propose(str(home / "sixth"), "and this", requester="backend")
+    sixth = [p for p in trustmod.listing() if p["root"].endswith("sixth")][0]
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET body = ? WHERE id = ?",
+                    ("[trust] something else entirely", sixth["request"]))
+    finally:
+        con.close()
+    ok, msg = askmod.resolve(sixth["request"], "approve")
+    check("bind: an escalation that names no root approves nothing",
+          "does not name the root" in msg and not trustmod.is_declared(home / "sixth")
+          and decisions.get("trust", sixth["id"]) is None, msg)
+
+    ok, msg = trustmod.propose(str(home / "seventh"), "and this", requester="backend")
+    seventh = [p for p in trustmod.listing() if p["root"].endswith("seventh")][0]
+    edited = dict(seventh, root=str(home / "elsewhere"))
+    trustmod._save_proposal(edited)
+    ok, msg = askmod.resolve(seventh["request"], "reject - no")
+    check("bind: a reject settles it whatever the draft says",
+          trustmod.load_proposal(seventh["id"])["state"] == "rejected", msg)
+
     from ocp.infra import backup
     snap = backup.snapshot(home, home.parent / (home.name + "-bk"))
     import tarfile

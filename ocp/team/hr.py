@@ -232,8 +232,10 @@ def enact(kind: str, name: str, why: str,
             con.close()
 
 
-def _escalation(prop: dict) -> str:
-    """What the founder reads. It says what will happen and how to decide."""
+def _escalation(prop: dict, caveat: bool = True) -> str:
+    """What the founder reads. It says what will happen and how to decide.
+    `caveat=False` leaves out the unlink caveat, which reads the live team.yaml
+    and so differs from one moment to the next (see `answered`)."""
     lines = [f"[roster] {prop['kind']} {prop['agent']}"
              + (f" -> {prop['to']}" if prop["kind"] in EDGE_KINDS else "")
              + f" - asked by {prop['requested_by']}",
@@ -245,11 +247,11 @@ def _escalation(prop: dict) -> str:
                   + "). One edge is added to team.yaml; nothing else in the routing changes."]
     elif prop["kind"] == "unlink":
         try:
-            caveat = _unlink_caveat(team.Team.load(), prop["agent"], prop["to"])
+            note = _unlink_caveat(team.Team.load(), prop["agent"], prop["to"]) if caveat else ""
         except Exception:  # noqa: BLE001 - the refusal at apply time says why
-            caveat = ""
+            note = ""
         lines += [f"The edge {prop['agent']} -> {prop['to']} would be removed from team.yaml. "
-                  "Requests already queued on it stay queued." + caveat]
+                  "Requests already queued on it stay queued." + note]
     elif prop["kind"] == "add":
         lines += ["It would be registered"
                   + (f" in team {prop['team']}" if prop.get("team") else "")
@@ -285,15 +287,22 @@ def subject_of(prop: dict) -> str:
 
 def answered(prop: dict, row) -> tuple[str | None, str | None]:
     """(subject, refusal) for the answer given on `row`: what was decided on,
-    or why this draft is not what the founder was asked - the escalation's
-    first line must name this draft's change and asker."""
-    first = (row["body"] or "").split("\n", 1)[0]
-    want = (f"[roster] {prop.get('kind')} {prop.get('agent')}"
-            + (f" -> {prop.get('to')}" if prop.get("kind") in EDGE_KINDS else "")
-            + f" - asked by {prop.get('requested_by')}")
-    if first != want:
-        return None, (f"the draft ({want!r}) is not what #{row['id']} asked the founder "
-                      f"to approve - raise it again")
+    or why this draft is not what the founder was asked. The escalation the
+    founder read must be the one this draft renders to - every field of the
+    change, its reason and its asker - so a draft edited before the answer
+    is refused rather than approved unseen. An unlink's caveat is the one
+    part that is read live, and is left out of the comparison."""
+    body = row["body"] or ""
+    want = _escalation(prop, caveat=False)
+    marker = "Requests already queued on it stay queued."
+    if prop.get("kind") == "unlink" and marker in want:
+        head, tail = want.split(marker, 1)
+        ok = body.startswith(head + marker) and body.endswith(tail)
+    else:
+        ok = body == want
+    if not ok:
+        return None, (f"the draft is not what #{row['id']} asked the founder to approve "
+                      f"- raise it again")
     return subject_of(prop), None
 
 

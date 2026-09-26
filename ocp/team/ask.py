@@ -757,11 +757,13 @@ def _apply_answered(con, row, mod, pid: str, verdict: str | None) -> str:
             return f"proposal {pid} cannot be read: {e}"
         if not prop:
             return f"no proposal {pid}"
-        subject, why_not = mod.answered(prop, row)
-        if why_not and call == "approved":
-            return f"proposal {pid} was not applied: {why_not}"
+        subject = mod.subject_of(prop)
+        if call == "approved":
+            subject, why_not = mod.answered(prop, row)
+            if why_not:
+                return f"proposal {pid} was not applied: {why_not}"
         try:
-            decisions.record(kind, pid, row["id"], call, subject or "")
+            decisions.record(kind, pid, row["id"], call, subject)
         except PermissionError as e:
             return f"proposal {pid} was not applied: {e}"
     if call == "rejected":
