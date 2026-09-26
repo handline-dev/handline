@@ -10,6 +10,7 @@ from textual.widgets import Static, Switch
 class SwitchRow(Horizontal):
     DEFAULT_CSS = """
     SwitchRow Switch { height: 1; border: none; padding: 0; background: transparent; }
+    SwitchRow Switch:focus { border: none; background: $foreground 12%; background-tint: transparent; }
     SwitchRow Switch > .switch--slider { background: $foreground 30%; color: $error; }
     SwitchRow Switch.-on > .switch--slider { color: $success; }
     """
