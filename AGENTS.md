@@ -67,3 +67,6 @@ agent (ROLE.md, base.md); this file does not repeat them.
   English. Only a reply to the founder may be in Korean.
 - Run `ocp` as its own Bash call with literal text: no `$(...)`, no `$VAR`, no
   `&&`, `;` or pipe. A value such as a sha comes from a separate call first.
+- Permission prompts: edit files with the Edit tool, never `sed -i`, which can
+  write any file and so always prompts. Don't start a command with `cd`; use
+  paths or `git -C` instead.
