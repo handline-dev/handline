@@ -1,6 +1,6 @@
 # 03 - The vendor driver
 
-Reference design (#1315). Built: §7 steps 1 and 2 (`ocp/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks and meter seams. The rest is open.
+Reference design (#1315). Built: §7 steps 1 and 2 (`ocp/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks, meter, collect and windows seams. The interface of record is `Driver` in `ocp/vendors/base.py`; §3 below is the original proposal.
 
 One place that answers, per vendor, the fifteen questions enumerated in
 `docs/vendor-extension-board.md` (local, not in the repo) §11. Everything else in ocp stays where it is.
@@ -44,6 +44,8 @@ drawn on the bridge; nothing reads it yet except `burnrate`, which already
 prices by `vendor/model`.
 
 ## 3. The interface
+
+> The code differs from this proposal: `Driver` in `ocp/vendors/base.py` has `collector()`, `meter()` and `state_hooks()`, and no `install_collector`, `collector_kind`, `hook_events`, `preamble_file`, `memory_dir` or `read_dialog`. Read `base.py` for what is built.
 
 ```python
 # ocp/vendors/base.py
@@ -164,7 +166,7 @@ class Driver(Protocol):
 | `binary` | `shutil.which("claude")`, 7 call sites |
 | `config_dir_env` | `CLAUDE_CONFIG_DIR` (`accounts.env_for`) |
 | `launch_argv` | `launch.build` |
-| `is_resume` | `launch._is_resume` |
+| `is_resume` | was `launch._is_resume`, now `Driver.is_resume` |
 | `identity` | `accounts.identity` |
 | `credential_present` | `accounts.logged_in` / `keychain_service` |
 | `login/logout_argv` | `accounts.login_command`, `logout_argv` |
@@ -172,7 +174,7 @@ class Driver(Protocol):
 | `memory_dir` | `accounts.memory_project_dir` |
 | `preamble_file` | new - `("CLAUDE.local.md", ADDITIVE)` |
 | `clear/exit_command` | `/clear` / `/exit`, moved out of `orca.clear_context` / `close_session` |
-| `screen_blocker` | `orca.claude_screen_blocker`; `idle_from_screen` false, Orca's tui-idle alone |
+| `screen_blocker` | was `orca.claude_screen_blocker`, now `Driver.screen_blocker`; `idle_from_screen` false, Orca's tui-idle alone |
 | `read_dialog` | `orca.parse_dialog` |
 | `declining_key` | `orca.declining_key` |
 | `install_collector` | nothing to install - `ocp/usage/collect.py` reads the transcript (D11) |
