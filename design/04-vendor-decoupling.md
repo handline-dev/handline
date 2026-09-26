@@ -1,6 +1,6 @@
 # 04 - Taking claude out of ocp's core
 
-Status (T57): §4 steps 1-5 are merged; steps 6-8 (collect, windows, prose) are open.
+Status (T57): §4 steps 1-7 are merged (collect and windows included); only step 8 (prose) is open.
 
 `design/03-vendor-driver.md` already decided the shape, and part of it is built:
 `ocp/vendors/` holds a `Driver` Protocol (`base.py`), `claude.py` and
@@ -10,6 +10,8 @@ driver answers. This file is the rest: the claude-specific code still living
 outside `ocp/vendors/`, what interface it needs, and the order to move it.
 
 ## 1. What is still claude's, and where
+
+*Done for steps 1-7: this table is what the work started from, kept as history.*
 
 | Area | Where | What is claude-specific |
 |---|---|---|

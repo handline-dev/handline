@@ -313,7 +313,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         call = decision(verdict)
         if call == "rejected":
             prop["state"] = "rejected"
-            prop["verdict"] = verdict
+            prop["verdict"] = textsafe.oneline(verdict or "")
             save(prop)
             # The founder's own text, printed raw by cmd_hr - sanitised here
             # rather than trusted to save()'s control-character refusal above,

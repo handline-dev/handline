@@ -8,7 +8,7 @@
 
 ## 0. 요약
 
-각 계정의 `CLAUDE_CONFIG_DIR`에 **statusLine 수집기**를 심어 공식 스키마로 상태를 받고,
+세션이 이미 쓰는 파일과 사용량 엔드포인트를 읽어 상태를 받고(§4, D11 — 수집기는 심지 않는다),
 Orca orchestration 위에 얹은 얇은 CLI `ocp`가 **계정 = 슬롯**으로 임대하며,
 기록은 **세션 밖에서 fold**하고, 트리거·재개는 **영속 상태 + 기동 시 reconciliation**으로 돌린다.
 
@@ -43,6 +43,8 @@ Orca orchestration 위에 얹은 얇은 CLI `ocp`가 **계정 = 슬롯**으로 �
 
 ### v1은 고정 매핑으로 간다
 
+> **현재**: 에이전트는 실제로 계정을 옮긴다 — 한도에 닿으면 pick이 고른 계정으로 한 번 이동한다(README). 아래는 v1 범위를 자를 때의 판단 기록이다.
+
 ```yaml
 backend   → alpha
 frontend  → beta
@@ -58,7 +60,7 @@ archivist → gamma      # ephemeral, 짧게 쓰고 나감
 |---|---|
 | 에이전트 폴더 + ROLE/base/handoff/journal + fold | 계정과 무관하게 가치 있고 복잡도가 낮다 |
 | `team.yaml` 라우팅 + `ocp ask` | 팀이 돌아가는 핵심. 계정과 직교 |
-| statusLine 수집기 | 읽기 전용. 여러 계정 상태를 한눈에 |
+| 상태 읽기 (D11: 세션 파일 + 엔드포인트) | 읽기 전용. 여러 계정 상태를 한눈에 |
 | 데몬 (축소판) | 트리거 → handoff(세 가지 사실 기록) → park → 리셋 시 재개 |
 | Orca orchestration | 그대로 |
 
@@ -70,7 +72,7 @@ journal이 **에이전트 이름으로 묶이고 계정과 독립**이라(§5), 
 
 전환 신호: **에이전트 수가 계정 수의 2배를 넘으면** 활용률 손실이 체감된다. 그때 §6·§7을 켠다.
 
-> 아래 §6(슬롯)·§7(스케줄링)은 **v2 참고용**으로 남겨둔다. v1에서는 구현하지 않는다.
+> 아래 §6(슬롯)·§7(스케줄링)은 **만들지 않았다** — 코드는 측정한 번레이트로 계정을 고른다(lease 테이블 없음). 기록으로만 남긴다.
 
 ---
 
@@ -79,7 +81,7 @@ journal이 **에이전트 이름으로 묶이고 계정과 독립**이라(§5), 
 | 대상 | 판정 |
 |---|---|
 | **Orca orchestration / worktree** | 유지. DAG·워커·게이트를 그대로 쓴다 |
-| **Claude Code statusLine** | **핵심.** 사용률·리셋시각·세션 조인키의 단일 출처 (§4) |
+| ~~Claude Code statusLine~~ | D11 로 대체 — 세션 파일 + 사용량 엔드포인트가 출처 (§4) |
 | cswap / clauth | **삭제** — 읽으려던 사용률 파일이 존재하지 않고, statusLine으로 대체됨 |
 | ccusage | **사후 분석 전용** — 블록이 rate limit 윈도우가 아니라 로컬 재구성이라 스케줄링에 쓸 수 없다 |
 | handoff·파서류 | 내재화 |
@@ -322,7 +324,7 @@ updated: 14:32 (handoff #3) · folded_through: event 18432
 
 ---
 
-## 6. 슬롯  **[v2 — v1에서는 구현하지 않는다]**
+## 6. 슬롯  **[만들지 않음 — 측정 번레이트로 대체]**
 
 계정을 워커 슬롯으로 두고 **슬롯이 큐에서 일을 가져간다(pull).** 에이전트가 계정을 고르지 않는다.
 이 반전으로 예산 예측 불가·동시 만료·귀속 불가·인증 충돌이 동시에 사라진다.
@@ -362,7 +364,7 @@ ocp start 도 직접 리스를 잡지 않고 큐에 최고 우선순위로 넣�
 
 ---
 
-## 7. 스케줄링 — 지표는 `runway` 하나  **[v2]**
+## 7. 스케줄링 — 지표는 `runway` 하나  **[만들지 않음 — 측정 번레이트로 대체]**
 
 ```
 headroom = max(0, (90 - pct_5h) / 100)          # 모든 곳에서 90% 캡 통일
@@ -548,7 +550,7 @@ ocp bridge [--once]
 ocp doctor
 ```
 
-`ocp doctor`: statusLine 설치 · `rate_limits` 존재 · Claude Code 버전 · `disableAllHooks` · `autoContinueAtUsageLimit` · 계정별 로그인 상태 · 심볼릭 링크 무결성 · `base.md` 크기 초과.
+`ocp doctor`: 사용량 읽기 · `rate_limits` 존재 · Claude Code 버전 · `disableAllHooks` · `autoContinueAtUsageLimit` · 계정별 로그인 상태 · 심볼릭 링크 무결성 · `base.md` 크기 초과.
 
 ---
 

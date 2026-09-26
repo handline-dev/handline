@@ -165,8 +165,9 @@ def set_account_cap(acct: str, text: str) -> tuple[bool, str]:
 def save_account_settings(acct: str, label: str, cap: str,
                           recover: bool | None = None) -> tuple[bool, str]:
     """The account page's Settings form: its alias, its cap and (when given) the usage
-    recovery switch, each written only when it differs from what is there. A blank cap writes none, so an account with no cap of its
-    own keeps following the default. Nothing is written if either is refused."""
+    recovery switch, each written only when it differs from what is there. A blank
+    cap writes none, so an account with no cap of its own keeps following the
+    default. Nothing is written if any is refused."""
     label = label.strip()
     if textsafe.has_unsafe(label) or len(label) > 40:
         return False, "an alias is one plain line of at most 40 characters"
@@ -280,3 +281,27 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
         return result
     finally:
         orca.close_terminal(handle)
+
+
+def weekly_outlook(con, now: int, hours: int = 24):
+    """The weekly headroom of all accounts together, the last `hours` and a guess at the next."""
+    from ..usage import outlook
+    return outlook.weekly_outlook(db.usage_samples(con, since=now - hours * 3600 - 7200), now, hours)
+
+
+def agent_use(con, now: int, hours: int) -> list:
+    """Each agent's tokens, list-price cost and estimated share of the week's points over the
+    last `hours`, largest first."""
+    from ..usage import outlook, prices, stats
+    lo = now - hours * 3600
+    used = outlook.week_consumed(db.usage_samples(con, since=lo), lo, now)
+    return stats.agent_use(con, lo, now, prices.table_from_config(loadmod._config()), used)
+
+
+def agent_overlay(con, use, now: int, hours: int, times: list[int]) -> list[float]:
+    """Points of the combined week `use` (an `agent_use` row) had eaten by each of `times`: its
+    cost share of each account times what that account used so far, averaged over the accounts."""
+    from ..usage import outlook
+    curves = outlook.consumed_curve(db.usage_samples(con, since=now - hours * 3600 - 7200), times)
+    n = len(curves) or 1
+    return [sum(use.fracs.get(a, 0.0) * c[k] for a, c in curves.items()) / n for k in range(len(times))]
