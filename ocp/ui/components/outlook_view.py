@@ -33,39 +33,25 @@ HEIGHT = 12
 
 
 def _grid(vals: list[float | None], fut: list[bool], over: list[float], ylabels: tuple[str, str, str],
-          height: int, axis: str, stack: bool = True) -> Text:
+          height: int, axis: str) -> Text:
     """Rows of eighth-blocks, one column per value (0 to 100), `ylabels` (top, middle, zero) at the
-    left, and the `axis` line below; a value in the guess has its own colour. `over` is what the
-    picked agent ate, in magenta: stacked on top of the headroom, or (`stack` off) in front of it
-    from the bottom. Whatever is above zero shows at least an eighth."""
+    left, and the `axis` line below; a value in the guess has its own colour. `over` is drawn in
+    front, from the bottom, in magenta: what the picked agent ate, with the headroom behind it."""
     out = Text()
-    scale = height * 8 / 100
     for row in range(height - 1, -1, -1):
         label = {height - 1: ylabels[0], (height - 1) // 2: ylabels[1], 0: ylabels[2]}.get(row, "")
         out.append(label.rjust(AXIS_W - 1)[-(AXIS_W - 1):] + "│", style="dim")
-        lo = row * 8
         for v, f, o in zip(vals, fut, over):
+            base = 0 if v is None else round(v / 100 * height * 8) - row * 8
+            mine = round(o / 100 * height * 8) if o > 0 else 0
+            mine = max(1, mine) - row * 8 if o > 0 and v is not None else 0
             colour = "yellow" if f else "cyan"
-            b = 0 if v is None else round(v * scale)
-            m = 0 if v is None or o <= 0 else max(1, round(o * scale))
-            if not m:
-                out.append(BLOCKS[max(0, min(8, b - lo))], style=colour)
-            elif stack:
-                t = b + m
-                if t <= lo:
-                    out.append(" ")
-                elif b >= lo + 8:
-                    out.append("█", style=colour)
-                elif b <= lo:
-                    out.append(BLOCKS[min(8, t - lo)], style="magenta")
-                else:
-                    out.append(BLOCKS[b - lo], style=f"{colour} on magenta")
-            elif m - lo >= 8:
+            if mine >= 8:
                 out.append("█", style="magenta")
-            elif m - lo > 0:
-                out.append(BLOCKS[m - lo], style=f"magenta on {colour}" if b - lo >= 8 else "magenta")
+            elif mine > 0:
+                out.append(BLOCKS[mine], style="magenta on " + colour if base >= 8 else "magenta")
             else:
-                out.append(BLOCKS[max(0, min(8, b - lo))], style=colour)
+                out.append(BLOCKS[max(0, min(8, base))], style=colour)
         out.append("\n")
     out.append(" " * (AXIS_W - 1) + "└" + axis, style="dim")
     return out
@@ -85,7 +71,7 @@ def _resample(n: int, cols: int) -> list[int]:
 
 
 def chart(o: Outlook, width: int, height: int = HEIGHT, span: str = "24h",
-          over: list[float] | None = None, stack: bool = True) -> Text:
+          over: list[float] | None = None) -> Text:
     """The weekly headroom: the past in one colour, the guess in another, `now` marked;
     `over` (one value per past point) is drawn on top of it."""
     points = o.past + o.future
@@ -97,12 +83,12 @@ def chart(o: Outlook, width: int, height: int = HEIGHT, span: str = "24h",
     now_col = next((c for c, f in enumerate(fut) if f), cols)
     axis = _axis(cols, [(0, f"-{span}"), (now_col - 2, "now"), (cols - 1 - len(span), f"+{span}")])
     full = [*(over or [0.0] * len(o.past)), *[0.0] * len(o.future)]
-    return _grid([points[i][1] for i in idx], fut, [full[i] for i in idx], ("100%", "50%", "0%"), height, axis, stack)
+    return _grid([points[i][1] for i in idx], fut, [full[i] for i in idx], ("100%", "50%", "0%"), height, axis)
 
 
 class OutlookView(Vertical):
     can_focus = True
-    BINDINGS = [Binding("r", "range", "range"), Binding("m", "stack", "stack"), Binding("question_mark", "key_help", "keys")]
+    BINDINGS = [Binding("r", "range", "range"), Binding("question_mark", "key_help", "keys")]
     DEFAULT_CSS = """
     OutlookView { height: 1fr; padding: 0 1; }
     OutlookView #outlook_chart { height: auto; }
@@ -116,13 +102,11 @@ class OutlookView(Vertical):
         self.outlook = Outlook()
         self.uses: list[stats.UseRow] = []
         self.picked: str | None = None
-        self.stack = True
         self.over: list[float] = []
         self.range = "24h"
 
     def _keys(self) -> list[Key]:
         return [Key("r", "range", 1, "step through the date range: 12h, 24h, 3d, 7d, 14d"),
-                Key("m", "stack", 2, "the picked agent's part on top of the headroom, or in front of it"),
                 *([Key("esc", "back", 1, "back")] if self.back else [])]
 
     def compose(self) -> ComposeResult:
@@ -188,20 +172,16 @@ class OutlookView(Vertical):
                                             (f" ate{self._picked_pct()}", "dim")))
         self.query_one("#outlook_title", Static).update(title)
         self.query_one("#outlook_chart", Static).update(
-            chart(o, width, height, self.range, self.over if self.picked else None, self.stack) if width > 0 else Text(""))
+            chart(o, width, height, self.range, self.over if self.picked else None) if width > 0 else Text(""))
         self.query_one("#outlook_note", Static).update(
             "cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
-            "week resets what it had used comes back. Enter or a click on an agent draws what it ate (magenta, on top of "
-            "the headroom; m puts it in front), again to remove. ~ week % is an estimate: the agent's cost share of each account times the points "
+            "week resets what it had used comes back. Enter or a click on an agent draws what it ate (magenta, in "
+            "front of the headroom), again to remove. ~ week % is an estimate: the agent's cost share of each account times the points "
             "of the week that account used in the range, averaged over the accounts")
 
     def _picked_pct(self) -> str:
         u = next((r.use for r in self.uses if r.key == self.picked), None)
         return f" about {u.est_pct:.1f}% of the week in this range" if u and u.est_pct is not None else ""
-
-    def action_stack(self) -> None:
-        self.stack = not self.stack
-        self._draw()
 
     def action_range(self) -> None:
         names = [n for n, _ in RANGES]
