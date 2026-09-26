@@ -930,6 +930,15 @@ def _background_detail(con, agent: str) -> str:
         + (", stale" if dmn_delivery.bg_stale(con, agent, now) else "")
 
 
+def _waiting_for(held: str) -> str:
+    """`#1054 orcapipe.auditor` (what `ask.await_reply_detail` wrote) as a sentence:
+    `waiting for orcapipe.auditor's reply (#1054)`. Anything else is drawn as it is."""
+    rid, _, target = held.strip().partition(" ")
+    if rid.startswith("#") and rid[1:].isdigit() and target.strip():
+        return oneline(f"waiting for {target.strip()}'s reply ({rid})")
+    return oneline(held)
+
+
 def screen_state(con, row) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn
@@ -978,7 +987,7 @@ def screen_state(con, row) -> tuple[str, str]:
         return "PENDING", ""
     if state in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED):
         if detail.startswith(askmod.AWAIT_REPLY_MARK):
-            return "IDLE", oneline(detail[len(askmod.AWAIT_REPLY_MARK):])[:DETAIL_CAP]
+            return "IDLE", _waiting_for(detail[len(askmod.AWAIT_REPLY_MARK):])[:DETAIL_CAP]
         if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
         if not row["wake_at"]:
