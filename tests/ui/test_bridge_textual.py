@@ -2070,6 +2070,32 @@ async def test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_fo
         check("toast: the foot line holds no message", not hasattr(page, "flash") and isinstance(page, HomePage))
 
 
+async def test_starting_an_agent_asks_for_a_repo_only_when_it_has_none() -> None:
+    from types import SimpleNamespace
+    from ocp.ui.components.jobs_aware import dispatch_agent_verb
+    home = _home("startrepo")
+    agents.register("withrepo", repo=str(home))
+    agents.register("norepo")
+    asked, started = [], []
+
+    async def push_screen_wait(screen):
+        asked.append(screen.prompt)
+        return None
+    fake = SimpleNamespace(app=SimpleNamespace(push_screen_wait=push_screen_wait),
+                           toast=lambda *a: None,
+                           _start=lambda verb, target, what, args, *k: started.append(args) or "")
+    con = db.connect()
+    try:
+        await dispatch_agent_verb(fake, con, "withrepo", "terminal")
+        check("start: an agent with a repo set is not asked, and starts in it",
+              asked == [] and started == [("withrepo", str(home))], str((asked, started)))
+        await dispatch_agent_verb(fake, con, "norepo", "terminal")
+        check("start: one without a repo is asked plainly for the path",
+              asked == ["repo path for norepo:"] and len(started) == 1, str((asked, started)))
+    finally:
+        con.close()
+
+
 def test_summary_line() -> None:
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
@@ -2482,6 +2508,7 @@ async def _run_all() -> None:
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
+    await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
     await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()

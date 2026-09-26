@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from ... import actions
 from ...infra import textsafe
+from ...team import agents
 from .. import tui, jobs as jobsmod
 from .confirm import Confirm
 from .text_prompt import TextPrompt
@@ -71,8 +72,12 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> 
         screen.toast(screen._start("message", name, f"messaging {name}", (name, body)), False)
         return
     if label == "terminal" and tui._needs_a_terminal(con, name):
-        repo = await screen.app.push_screen_wait(
-            TextPrompt(f"repo path for {name}:"))
+        # Its own `repo:` says where; only an agent without one is asked.
+        try:
+            repo = str(agents.read(name).get("repo") or "").strip()
+        except (OSError, agents.ConfigError):
+            repo = ""
+        repo = repo or await screen.app.push_screen_wait(TextPrompt(f"repo path for {name}:"))
         if not repo:
             screen.toast("not started")
             return
