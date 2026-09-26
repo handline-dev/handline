@@ -722,6 +722,27 @@ def _press_dialog(handle: str, pick, key_name: str) -> tuple[str, str, str]:
     return STILL_OPEN, dialog.title, f"the dialog is still on screen after {key_name}"
 
 
+def dialog_on_screen(handle: str) -> Dialog | None:
+    """The confirmation dialog this terminal shows now, parsed, or None when there is none
+    or it cannot be read - the bridge offers its options to the founder."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return None
+    footer = _footer_row(tail)
+    return None if footer is None else parse_dialog(tail, footer)
+
+
+def press_option(handle: str, number: int) -> tuple[str, str, str]:
+    """Press option `number` of the dialog on screen now, if it has one, and check that the
+    dialog went (`_press_dialog`)."""
+    def pick(dialog: Dialog) -> tuple[str | None, str]:
+        if any(n == number for n, _ in dialog.options):
+            return str(number), ""
+        return None, f"the dialog has no option {number}"
+    return _press_dialog(handle, pick, f"option {number}")
+
+
 def decline_dialog(handle: str) -> tuple[str, str, str]:
     """Press Esc on the dialog on this terminal's screen, if - and only if -
     the screen just read says that declines it."""

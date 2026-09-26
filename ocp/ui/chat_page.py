@@ -33,6 +33,7 @@ from .theme import follow_os_theme
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
+from .components.dialog_modal import DialogModal
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
@@ -917,6 +918,8 @@ class ChatPage(Screen):
         self.oldest: int | None = None      # id of the oldest request on screen
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
+        self._dialog_busy, self._dialog_at = False, 0.0
+        self._dialog_closed: str | None = None      # the title of a dialog the founder closed
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
@@ -993,6 +996,52 @@ class ChatPage(Screen):
         event.stop()
         self.app.push_screen(TaskDetail(int(event.row_key.value)))
 
+    DIALOG_POLL_S = 4.0
+
+    def poll_dialog(self) -> None:
+        """Ask the agent's terminal, off the event loop, whether it is showing a dialog."""
+        if self._dialog_busy or time.time() - self._dialog_at < self.DIALOG_POLL_S:
+            return
+        self._dialog_busy, self._dialog_at = True, time.time()
+
+        def read() -> None:
+            con = db.connect()
+            try:
+                found = actions.dialog_of(con, self.agent)
+            except Exception:  # noqa: BLE001 - an unreadable screen shows no modal
+                found = None
+            finally:
+                con.close()
+            self.app.call_from_thread(self.dialog_seen, found)
+        self.run_worker(read, thread=True, exclusive=True, group="dialog")
+
+    def dialog_seen(self, found: dict | None) -> None:
+        self._dialog_busy = False
+        if found is None:
+            self._dialog_closed = None          # gone: the same dialog coming back is asked again
+            return
+        if found["title"] == self._dialog_closed or isinstance(self.app.screen, DialogModal):
+            return
+        self.app.push_screen(DialogModal(found), lambda picked: self.dialog_answered(found, picked))
+
+    def dialog_answered(self, found: dict, picked: "tuple[int, bool] | None") -> None:
+        if picked is None:
+            self._dialog_closed = found["title"]      # closed by hand: not offered again while it stays
+            return
+        number, always = picked
+
+        def press() -> None:
+            con = db.connect()
+            try:
+                ok, said = actions.answer_dialog(con, self.agent, found["title"], number, always)
+            finally:
+                con.close()
+            log_action(f"dialog {self.agent}: {number} always={always}: {'ok' if ok else 'refused'} - {said}")
+            self.app.call_from_thread(self.notify, safe(said), title=f"dialog {self.agent}",
+                                      severity="information" if ok else "error",
+                                      timeout=10, markup=False)
+        self.run_worker(press, thread=True, group="dialog_press")
+
     def refresh_agent_state(self) -> None:
         con = db.connect()
         try:
@@ -1017,6 +1066,7 @@ class ChatPage(Screen):
 
     def refresh_view(self) -> None:
         self.refresh_agent_state()
+        self.poll_dialog()
         self.refresh_pools()
         if self.showing_settings:
             return
