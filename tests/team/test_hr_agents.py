@@ -1324,8 +1324,11 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
     check("promotion: the same text in two agents is a candidate",
           any(len(v) == 2 for _k, v in memory.promotion_candidates()))
 
-    src = home / "shared" / "memory" / "claude" / "-repo"
+    src = home / "shared" / "memory" / "claude" / "-Users-x-orcapipe"
     src.mkdir(parents=True)
+    other = home / "shared" / "memory" / "claude" / "-Users-x-harbor-app"
+    other.mkdir(parents=True)
+    (other / "idle-not-free.md").write_text("another repo's fact")
     (src / "idle-not-free.md").write_text(
         "---\nname: idle-not-free\ndescription: do not route by idleness alone\n---\nbody")
     (src / "ocp-cli-habits.md").write_text("q")
@@ -1337,6 +1340,8 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
           rows == {"idle-not-free": "copy", "ocp-cli-habits": "promote",
                    "project-ocp-home-wipe": "delete", "unknown": "no-owner",
                    "feedback-testing": "merge"}, str(rows))
+    check("migrate: another repo's folder is not read",
+          all(r["file"].parent == src for r in memory.plan_migration()))
     args = argparse.Namespace(apply=False)
     _capture(lambda: climemory.cmd_memory_migrate(args))
     check("migrate: a dry run writes nothing", not (mem / "idle-not-free.md").exists())
@@ -1363,6 +1368,61 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
     check("team layer: within budget is not a problem", not memory.team_problems(teams))
     (home / "shared" / "team" / "core.md").write_text("- r\n" * 11)
     check("team layer: 11 rules is over", len(memory.team_problems(teams)) == 1)
+
+
+def test_team_rules_reach_the_prompt_and_doctor_reports_memory(home: Path) -> None:
+    """T231: the team file is in the system prompt of a member only, an empty
+    team in team.yaml breaks nothing, and doctor says what is over budget."""
+    from ocp.session import launch
+    _daemon_home(home, 20)
+    hand_edit_team("""
+teams:
+  dev: [marina]
+  empty:
+
+agents:
+  marina: {}
+  scout: {}
+
+edges:
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    for n in ("marina", "scout"):
+        agents.register(n)
+    (home / "shared" / "team").mkdir(parents=True)
+    (home / "shared" / "team" / "dev.md").write_text("- run the tests\n")
+    (home / "shared" / "team" / "empty.md").write_text("- nobody reads this\n")
+    ctx, other = launch.context_for("marina"), launch.context_for("scout")
+    check("team rules: a member's prompt carries its team's file",
+          "# Rules for team dev\n- run the tests" in ctx, ctx)
+    check("team rules: another agent's does not, and an empty team is no error",
+          "run the tests" not in other and "nobody reads this" not in ctx + other)
+
+    def row(r):
+        return [(lv, d) for lv, n, d in r.rows if n.startswith("memory")]
+    r = doctor.Report()
+    doctor._check_memory(r)
+    check("doctor: memory within budget says OK", [lv for lv, _ in row(r)] == [doctor.OK], str(r.rows))
+    mem = home / "agents" / "marina" / "memory"
+    (mem / "MEMORY.md").write_text("- [a](a.md) - x\n" * 21)
+    (mem / "loose.md").write_text("x")
+    r = doctor.Report()
+    doctor._check_memory(r)
+    got = row(r)
+    check("doctor: an over-budget, unindexed agent is a WARN naming it",
+          got and got[0][0] == doctor.WARN and "marina: " in got[0][1]
+          and "OVER BUDGET" in got[0][1] and "loose.md" in got[0][1], str(got))
+    (mem / "MEMORY.md").write_text("- [loose](loose.md) - x\n")
+    old = time.time() - 29 * 86400
+    os.utime(mem / "loose.md", (old, old))
+    r = doctor.Report()
+    doctor._check_memory(r)
+    check("doctor: a file unused for 28 days is a WARN", "unused 28+ days" in str(row(r)), str(row(r)))
+    os.utime(mem / "loose.md")
+    (home / "shared" / "team" / "dev.md").write_text("- r\n" * 11)
+    r = doctor.Report()
+    doctor._check_memory(r)
+    check("doctor: an over-budget team file is a WARN", "team dev: " in str(row(r)), str(row(r)))
 
 
 def test_the_opencode_driver(home: Path) -> None:
@@ -3026,6 +3086,7 @@ def main() -> int:
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
         run(lambda: test_agent_memory_budget_migration_and_team_layer(Path(td) / 'memory'))
+        run(lambda: test_team_rules_reach_the_prompt_and_doctor_reports_memory(Path(td) / 'teamrules'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
         run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))

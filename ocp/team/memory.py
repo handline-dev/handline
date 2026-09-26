@@ -21,6 +21,7 @@ TEAM_BYTES = 2048
 TEAM_RULES = 10
 INDEX_LINE = 100  # an index line is a pointer; the rule lives in the topic file
 INDEX = "MEMORY.md"
+PROJECT_SUFFIX = "-orcapipe"  # Claude keys a repo folder by its path
 
 # Who owns each file of shared/memory/claude/<orcapipe repo> (design doc,
 # "Migrating"). A value that is not an agent name says what happens instead.
@@ -155,7 +156,7 @@ def team_layers(agent: str, teams: dict[str, list[str]]) -> list[tuple[str, str]
     out = []
     for name, members in sorted(teams.items()):
         f = team_file(name)
-        if agent in members and f.is_file():
+        if agent in (members or []) and f.is_file():
             text = f.read_text().strip()
             if text:
                 out.append((name, text))
@@ -196,10 +197,12 @@ def _index_line(path: Path) -> str:
 
 
 def shared_sources() -> list[Path]:
+    """The orcapipe repo's shared folder only: OWNERS names its files, and a
+    file of the same name in another repo's folder is not the same fact."""
     root = paths.home() / "shared" / "memory" / "claude"
     if not root.is_dir():
         return []
-    return sorted(f for d in root.iterdir() if d.is_dir()
+    return sorted(f for d in root.iterdir() if d.is_dir() and d.name.endswith(PROJECT_SUFFIX)
                   for f in sorted(d.glob("*.md")) if f.name != INDEX)
 
 
