@@ -379,15 +379,16 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     only shows the spinner. `wait` (what the agent waits on) sits just above that line."""
     out: list = []
     line = False
-    note = lambda: Static(safe(wait), classes="waitnote") if wait else None
     for m in msgs:
         if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
-            out += [w for w in (note(),) if w]
+            if wait:
+                out.append(Static(safe(wait), classes="waitnote"))
             out.append(QueueLine(working, why=why))
             line = True
         out.append(ChatMessage(m, working))
     if not line:
-        out += [w for w in (note(),) if w]
+        if wait:
+            out.append(Static(safe(wait), classes="waitnote"))
         out.append(QueueLine(working, rule=False))
     return out
 

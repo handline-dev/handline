@@ -378,7 +378,7 @@ class TasksView(Vertical):
     def _confirm(self, verb: str, tids: list[int], arg: str, keep: int | None = None) -> Confirm:
         by_id = {r["id"]: r for r in self.rows}
         if verb == "merge":
-            tids = [t for t in tids if t != self.rows[self.cur]["id"]]
+            tids = [t for t in tids if t != keep]
         lines = [f"{actions.task_ref(t)}  {textsafe.oneline(by_id[t]['title'])}" if t in by_id
                  else actions.task_ref(t) for t in tids[:8]]
         if len(tids) > 8:
