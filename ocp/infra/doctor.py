@@ -16,7 +16,7 @@ from ..team import accounts, agents
 from .. import db, vendors
 from ..session import launch, observe as obs, orca
 from ..usage import load as loadmod, status
-from . import paths, service, textsafe
+from . import paths, protected, service, textsafe
 from . import timefmt
 from ..daemon import reconciler as dmn_reconciler
 
@@ -191,6 +191,15 @@ def _check_accounts(r: Report) -> None:
             r.add(WARN, f"account {a}: not assignable", why)
 
 
+def _check_protected(r: Report) -> None:
+    problems = protected.exposure()
+    if problems:
+        for why in problems:
+            r.add(WARN, "protected store is not out of the agents' reach", why)
+    else:
+        r.add(OK, "protected store", str(protected.root()))
+
+
 def _check_agents(r: Report) -> None:
     names = paths.list_agents()
     if not names:
@@ -209,6 +218,13 @@ def _check_agents(r: Report) -> None:
                   f"its launch is refused; `ocp account add <name> --vendor {vendor}`")
         else:
             r.add(OK, f"agent {n}")
+        try:
+            if agents.skip_permissions(agents.read(n)) and not agents.skip_permissions_granted(n):
+                r.add(WARN, f"agent {n}: skip_permissions in agent.yaml was never granted",
+                      "a launch ignores it; the founder turns it on with "
+                      f"`ocp agent register {n} --skip-permissions on`, and off with `off`")
+        except (FileNotFoundError, agents.ConfigError):
+            pass  # reported above as an agent.yaml error
         for fn, size, budget, over in agents.budget_report(n):
             if over:
                 r.add(WARN, f"agent {n}: {fn} over budget",
@@ -487,6 +503,7 @@ def run() -> Report:
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)
+    _check_protected(r)
     _check_stuck_running(r)
     _check_launch_drift(r)
     _check_session_matches_the_record(r)

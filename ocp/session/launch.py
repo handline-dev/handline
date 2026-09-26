@@ -370,7 +370,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     preamble = context_for(agent)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
                            hide=hidden_transcripts(agent, drv))
-    if agents.skip_permissions(cfg):
+    if agents.skip_permissions(cfg) and not agents.skip_permissions_granted(agent):
+        print(f"warning: agent '{agent}' has skip_permissions in its agent.yaml, but the "
+              f"founder never turned it on (`ocp agent register {agent} --skip-permissions on`, "
+              f"from a terminal) - ignoring it", file=sys.stderr)
+    elif agents.skip_permissions(cfg):
         flags = drv.skip_permissions_argv()
         if not flags:
             print(f"warning: agent '{agent}' has skip_permissions on, but {drv.name} "

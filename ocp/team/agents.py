@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..infra import paths, textsafe
+from ..infra import paths, protected, textsafe
 from ..session import triggers
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load, refuse_unsafe_values
 
@@ -57,6 +57,22 @@ def skip_permissions(cfg: dict) -> bool:
     Only a real true turns it on: an absent, null, or garbage value ("yes", 1,
     "false") reads as off, so a bad config never grants what was not asked."""
     return cfg.get("skip_permissions") is True
+
+
+_SKIP_NS = "skip_permissions"
+
+
+def skip_permissions_granted(agent: str) -> bool:
+    """Whether the founder turned it on, through `register` from a terminal or
+    the screen. agent.yaml alone never does: a file every agent's sandbox can
+    write is not a record of who asked, so the grant is kept in the protected
+    store, where an agent cannot write."""
+    return protected.get(_SKIP_NS, agent) == "granted"
+
+
+def skip_permissions_in_effect(agent: str, cfg: dict) -> bool:
+    """What a launch will do: configured, and granted."""
+    return skip_permissions(cfg) and skip_permissions_granted(agent)
 
 
 def kind(cfg: dict) -> str:
@@ -124,6 +140,13 @@ def register(name: str, role: str = "", model: str | None = None,
     if vendor:
         from .. import vendors
         vendors.get(vendor)
+    # First, so an agent's refusal leaves nothing half-written: the grant is
+    # the founder's alone (infra/protected.py), and the key below is only
+    # what a launch reads once it is there.
+    if skip_permissions:
+        protected.put(_SKIP_NS, name, "granted")
+    elif skip_permissions is not None:
+        protected.delete(_SKIP_NS, name)
     d = paths.agent_dir(name)
     f = agent_file(name)
     text = None
