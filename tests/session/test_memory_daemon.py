@@ -1,12 +1,12 @@
 """T230: an agent's memory is its own folder, and two hooks keep it small
-(docs/memory-design.md). Core's `ocp.team.memory` is faked to its contract."""
+(docs/memory-design.md), against core's real `ocp.team.memory`."""
 from __future__ import annotations
 
 import contextlib
 import io
 import json
 import sys
-import types
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -14,36 +14,38 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 from ocp.session import handoff as handoffmod, launch as launchmod, memoryguard  # noqa: E402
+from ocp.team import memory as memorymod  # noqa: E402
 from ocp.vendors import claude_hooks  # noqa: E402
 from ocp.vendors.claude import Claude  # noqa: E402
 from ocp.vendors.opencode import Opencode  # noqa: E402
 
 
-class _FakeMemory:
-    """`ocp.team.memory` as #1291 specifies it: the three limits and `status(agent)`."""
+class _Status:
+    """Makes core's `memory.status` fail (or answer) for the length of a with-block."""
 
-    def __init__(self, **status):
-        self.status_now = {"bytes": 100, "entries": 3, "over": False, "unindexed": [], "stale": [], **status}
-        self.module = types.ModuleType("ocp.team.memory")
-        self.module.INDEX_BYTES, self.module.INDEX_ENTRIES, self.module.STALE_DAYS = 2048, 20, 28
-        self.module.status = self._status
-        self.fail = False
-
-    def _status(self, agent):
-        if self.fail:
-            raise OSError("unreadable")
-        return dict(self.status_now)
+    def __init__(self, fail=True):
+        self.fail = fail
 
     def __enter__(self):
-        self.before = sys.modules.get("ocp.team.memory")
-        sys.modules["ocp.team.memory"] = self.module
+        self.before = memorymod.status
+        if self.fail:
+            def broken(agent, now=None):
+                raise OSError("unreadable")
+            memorymod.status = broken
         return self
 
     def __exit__(self, *exc):
-        if self.before is None:
-            sys.modules.pop("ocp.team.memory", None)
-        else:
-            sys.modules["ocp.team.memory"] = self.before
+        memorymod.status = self.before
+
+
+def _topic(agent: str, rel: str, age_days: float = 0) -> Path:
+    """A topic file in the agent's memory folder, last touched `age_days` ago."""
+    f = memorymod.memory_dir(agent) / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("a memory\n")
+    then = time.time() - age_days * 86400
+    os.utime(f, (then, then))
+    return f
 
 
 def _index(n: int, pad: int = 0) -> str:
@@ -91,87 +93,79 @@ def test_launch_hides_every_other_agents_memory_and_creates_its_own(home: Path) 
 
 def test_a_write_that_pushes_the_index_over_budget_is_refused_and_says_why(home: Path) -> None:
     _daemon_home(home, 20)
-    mem = memoryguard.memory_dir("backend")
+    mem = memorymod.memory_dir("backend")
     mem.mkdir(parents=True, exist_ok=True)
     index = mem / "MEMORY.md"
-    with _FakeMemory(stale=["old.md", "older.md"]):
-        index.write_text(_index(3))
-        target = {"file_path": str(index)}
-        bytes_over = _index(3, pad=800)
-        why = memoryguard.guard("backend", "Write", {**target, "content": bytes_over})
-        check("guard: a Write that grows the index past its bytes is refused, with the numbers",
-              why and "over its budget" in why and "/2048 bytes" in why, str(why))
-        check("guard: ...and names what has not been used for 28 days",
-              why and "28+ days: old.md, older.md" in why, str(why))
-        check("guard: more than 20 entries is refused too",
-              memoryguard.guard("backend", "Write", {**target, "content": _index(21)}) is not None)
-        check("guard: within the budget passes",
-              memoryguard.guard("backend", "Write", {**target, "content": _index(5)}) is None)
+    _topic("backend", "old.md", age_days=40)
+    _topic("backend", "older.md", age_days=90)
+    _topic("backend", "fresh.md")
+    index.write_text(_index(3))
+    target = {"file_path": str(index)}
+    bytes_over = _index(3, pad=800)
+    why = memoryguard.guard("backend", "Write", {**target, "content": bytes_over})
+    check("guard: a Write that grows the index past its bytes is refused, with the numbers",
+          why and "over its budget" in why and "/2048 bytes" in why, str(why))
+    check("guard: ...and names what has not been used for 28 days",
+          why and "28+ days: old.md, older.md" in why, str(why))
+    check("guard: more than 20 entries is refused too",
+          memoryguard.guard("backend", "Write", {**target, "content": _index(21)}) is not None)
+    check("guard: within the budget passes",
+          memoryguard.guard("backend", "Write", {**target, "content": _index(5)}) is None)
 
-        index.write_text(_index(25))
-        check("guard: an index already over budget can still shrink",
-              memoryguard.guard("backend", "Write", {**target, "content": _index(22)}) is None)
-        check("guard: ...but not grow",
-              memoryguard.guard("backend", "Write", {**target, "content": _index(26)}) is not None)
-        index.write_text(_index(3, pad=900))
-        check("guard: the same holds for bytes: shrinking while over passes, growing is refused",
-              memoryguard.guard("backend", "Write", {**target, "content": _index(3, pad=800)}) is None
-              and memoryguard.guard("backend", "Write", {**target, "content": _index(3, pad=1000)}) is not None)
-        index.write_text(_index(25))
-        line = "- [Entry 0](e0.md) - \n"
-        check("guard: an Edit is judged on the index it would leave",
-              memoryguard.guard("backend", "Edit", {**target, "old_string": line, "new_string": line + line}) is not None
-              and memoryguard.guard("backend", "Edit", {**target, "old_string": line, "new_string": ""}) is None)
-        check("guard: a MultiEdit is applied in order",
-              memoryguard.guard("backend", "MultiEdit", {**target, "edits": [
-                  {"old_string": line, "new_string": ""}, {"old_string": "- [Entry 1]", "new_string": "- [One]"}]}) is None
-              and memoryguard.guard("backend", "MultiEdit", {**target, "edits": [
-                  {"old_string": line, "new_string": line * 3}]}) is not None)
-        check("guard: an edit that does not apply is left to the tool to fail",
-              memoryguard.guard("backend", "Edit", {**target, "old_string": "nope", "new_string": "x" * 5000}) is None)
+    index.write_text(_index(25))
+    check("guard: an index already over budget can still shrink",
+          memoryguard.guard("backend", "Write", {**target, "content": _index(22)}) is None)
+    check("guard: ...but not grow",
+          memoryguard.guard("backend", "Write", {**target, "content": _index(26)}) is not None)
+    index.write_text(_index(3, pad=900))
+    check("guard: the same holds for bytes: shrinking while over passes, growing is refused",
+          memoryguard.guard("backend", "Write", {**target, "content": _index(3, pad=800)}) is None
+          and memoryguard.guard("backend", "Write", {**target, "content": _index(3, pad=1000)}) is not None)
+    index.write_text(_index(25))
+    line = "- [Entry 0](e0.md) - \n"
+    check("guard: an Edit is judged on the index it would leave",
+          memoryguard.guard("backend", "Edit", {**target, "old_string": line, "new_string": line + line}) is not None
+          and memoryguard.guard("backend", "Edit", {**target, "old_string": line, "new_string": ""}) is None)
+    check("guard: a MultiEdit is applied in order",
+          memoryguard.guard("backend", "MultiEdit", {**target, "edits": [
+              {"old_string": line, "new_string": ""}, {"old_string": "- [Entry 1]", "new_string": "- [One]"}]}) is None
+          and memoryguard.guard("backend", "MultiEdit", {**target, "edits": [
+              {"old_string": line, "new_string": line * 3}]}) is not None)
+    check("guard: an edit that does not apply is left to the tool to fail",
+          memoryguard.guard("backend", "Edit", {**target, "old_string": "nope", "new_string": "x" * 5000}) is None)
 
-        check("guard: a topic file is not the index",
-              memoryguard.guard("backend", "Write", {"file_path": str(mem / "topic.md"), "content": "x" * 9000}) is None)
-        check("guard: nor is a path outside the folder, however it climbs out of it",
-              memoryguard.guard("backend", "Write", {"file_path": str(mem / ".." / "MEMORY.md"),
-                                                    "content": _index(30)}) is None)
-        check("guard: nor another tool", memoryguard.guard("backend", "Read", {**target}) is None
-              and memoryguard.guard("backend", "Bash", {"command": "echo hi >> MEMORY.md"}) is None)
+    check("guard: a topic file is not the index",
+          memoryguard.guard("backend", "Write", {"file_path": str(mem / "topic.md"), "content": "x" * 9000}) is None)
+    check("guard: nor is a path outside the folder, however it climbs out of it",
+          memoryguard.guard("backend", "Write", {"file_path": str(mem / ".." / "MEMORY.md"),
+                                                "content": _index(30)}) is None)
+    check("guard: nor another tool", memoryguard.guard("backend", "Read", {**target}) is None
+          and memoryguard.guard("backend", "Bash", {"command": "echo hi >> MEMORY.md"}) is None)
 
 
 def test_the_pre_tool_hook_denies_through_claudes_own_format_and_never_breaks_a_session(home: Path) -> None:
     _daemon_home(home, 20)
-    mem = memoryguard.memory_dir("backend")
+    mem = memorymod.memory_dir("backend")
     mem.mkdir(parents=True, exist_ok=True)
     (mem / "MEMORY.md").write_text(_index(3))
     call = {"tool_name": "Write", "tool_input": {"file_path": str(mem / "MEMORY.md"), "content": _index(25)}}
-    with _FakeMemory() as fake:
-        out = json.loads(_hook("PreToolUse", **call))
-        deny = out["hookSpecificOutput"]
-        check("hook: over budget prints a deny decision with the reason",
-              deny["hookEventName"] == "PreToolUse" and deny["permissionDecision"] == "deny"
-              and "over its budget" in deny["permissionDecisionReason"], str(out))
-        check("hook: a call that fits prints nothing to act on",
-              _hook("PreToolUse", tool_name="Write", tool_input={
-                  "file_path": str(mem / "MEMORY.md"), "content": _index(4)}) == "{}")
-        fake.fail = True
+    out = json.loads(_hook("PreToolUse", **call))
+    deny = out["hookSpecificOutput"]
+    check("hook: over budget prints a deny decision with the reason",
+          deny["hookEventName"] == "PreToolUse" and deny["permissionDecision"] == "deny"
+          and "over its budget" in deny["permissionDecisionReason"], str(out))
+    check("hook: a call that fits prints nothing to act on",
+          _hook("PreToolUse", tool_name="Write", tool_input={
+              "file_path": str(mem / "MEMORY.md"), "content": _index(4)}) == "{}")
+    with _Status():
         check("hook: a memory that cannot be read lets the call through", _hook("PreToolUse", **call) == "{}")
-    before = sys.modules.get("ocp.team.memory")
-    sys.modules["ocp.team.memory"] = None      # an import of it fails
-    try:
-        check("hook: so does a memory module that cannot be imported", _hook("PreToolUse", **call) == "{}")
-    finally:
-        if before is None:
-            sys.modules.pop("ocp.team.memory", None)
-        else:
-            sys.modules["ocp.team.memory"] = before
     check("hook: an event outside an agent's session is ignored",
           _hook("PreToolUse", agent="", **call) == "{}")
 
 
 def test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(home: Path) -> None:
     _daemon_home(home, 20)
-    mem = memoryguard.memory_dir("backend")
+    mem = memorymod.memory_dir("backend")
     mem.mkdir(parents=True, exist_ok=True)
     side = paths.agent_dir("backend") / "memory-use.json"
     topic = str(mem / "feedback" / "testing.md")
@@ -213,21 +207,31 @@ def test_the_handoff_and_the_wake_say_what_the_memory_needs(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        with _FakeMemory() as fake:
-            check("handoff: a memory in order adds nothing", handoffmod.memory_line("backend") == "")
-            fake.status_now.update(bytes=2300, entries=22, over=True, unindexed=["a.md"], stale=["b.md"])
-            line = handoffmod.memory_line("backend")
-            check("handoff: over budget, unindexed and unused files are named, with what to do",
-                  "2300/2048 bytes" in line and "22/20 entries" in line and "over budget" in line
-                  and "a.md" in line and "b.md" in line and "merge, promote or delete" in line, line)
-            text, _ = handoffmod.capture(con, "backend")
-            check("handoff: the record carries it", line in text.splitlines(), text)
-            woken = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con)
-            check("wake: a fresh session with no handoff is told the same", line in woken, woken)
-            fake.status_now.update(over=False, unindexed=[], stale=[])
-            check("wake: nothing to tend, nothing said",
-                  "memory:" not in dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con))
-            fake.fail = True
+        mem = memorymod.memory_dir("backend")
+        mem.mkdir(parents=True, exist_ok=True)
+        (mem / "MEMORY.md").write_text(_index(3))
+        for i in range(3):
+            _topic("backend", f"e{i}.md")
+        check("handoff: a memory in order adds nothing", handoffmod.memory_line("backend") == "")
+        (mem / "MEMORY.md").write_text(_index(22, pad=40))
+        _topic("backend", "a.md")
+        _topic("backend", "b.md", age_days=60)
+        line = handoffmod.memory_line("backend")
+        check("handoff: over budget, unindexed and unused files are named, with what to do",
+              "22/20 entries" in line and "over budget" in line
+              and "not in the index (never loaded): " in line and "a.md" in line and "b.md" in line
+              and "unused for 28+ days: b.md" in line and "merge, promote or delete" in line, line)
+        text, _ = handoffmod.capture(con, "backend")
+        check("handoff: the record carries it", line in text.splitlines(), text)
+        woken = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("wake: a fresh session with no handoff is told the same", line in woken, woken)
+        (mem / "MEMORY.md").write_text(_index(3))
+        for f in ("a.md", "b.md"):
+            (mem / f).unlink()
+        check("wake: nothing to tend, nothing said",
+              "memory:" not in dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con))
+        (mem / "MEMORY.md").write_text(_index(30))
+        with _Status():
             check("handoff: a memory that cannot be read is not worth a line", handoffmod.memory_line("backend") == "")
     finally:
         con.close()

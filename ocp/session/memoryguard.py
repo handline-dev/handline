@@ -6,29 +6,24 @@ files the agent has read or written, for `ocp memory status` to find the ones it
 has not touched for a month. Neither calls a model, and neither is reached by a
 Bash write: a `>>` onto MEMORY.md is not a tool call this hook sees.
 
-The folder and the budget are core's contract (`team/memory.py`); the sidecar
-`agents/<name>/memory-use.json` ({path relative to the folder: unix ts}) is this
-module's to write and `ocp memory status` alone reads.
+The folder, the budget and the sidecar `agents/<name>/memory-use.json` ({path
+relative to the folder: unix ts}) are core's (`team/memory.py`); this module
+writes the sidecar and `ocp memory status` alone reads it.
 """
 from __future__ import annotations
 
 import json
 import os
 import time
-from pathlib import Path
 
-from ..infra import atomic, paths
+from ..infra import atomic
+from ..team import memory
 
-INDEX = "MEMORY.md"
 GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 USE_TOOLS = GUARDED_TOOLS + ("Read",)
 # A file already noted this recently is not rewritten: a day's granularity is
 # all the 28-day rule needs, and every tool call runs this.
 RENOTE_S = 3600
-
-
-def memory_dir(agent: str) -> Path:
-    return paths.agent_dir(agent) / "memory"
 
 
 def _relative(agent: str, tool_input: object) -> str | None:
@@ -37,13 +32,9 @@ def _relative(agent: str, tool_input: object) -> str | None:
     path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
     if not isinstance(path, str) or not path:
         return None
-    root = os.path.realpath(memory_dir(agent))
+    root = os.path.realpath(memory.memory_dir(agent))
     target = os.path.realpath(path)
     return os.path.relpath(target, root) if target.startswith(root + os.sep) else None
-
-
-def _sidecar(agent: str) -> Path:
-    return paths.agent_dir(agent) / "memory-use.json"
 
 
 def note_use(agent: str, tool: str | None, tool_input: object, now: int | None = None) -> None:
@@ -51,10 +42,10 @@ def note_use(agent: str, tool: str | None, tool_input: object, now: int | None =
     if tool not in USE_TOOLS:
         return
     rel = _relative(agent, tool_input)
-    if rel is None or rel == INDEX:
+    if rel is None or rel == memory.INDEX:
         return
     now = int(time.time()) if now is None else now
-    f = _sidecar(agent)
+    f = memory.use_file(agent)
     try:
         used = json.loads(f.read_text())
     except (OSError, ValueError):
@@ -65,10 +56,6 @@ def note_use(agent: str, tool: str | None, tool_input: object, now: int | None =
         return
     used[rel] = now
     atomic.write_text(f, json.dumps(used, sort_keys=True, indent=1) + "\n")
-
-
-def _entries(text: str) -> int:
-    return sum(1 for ln in text.splitlines() if ln.startswith("- ["))
 
 
 def _would_be(current: str, tool: str, tool_input: dict) -> str | None:
@@ -95,19 +82,18 @@ def guard(agent: str, tool: str | None, tool_input: object) -> str | None:
     over its byte or entry budget in a dimension where it also grew: a call that
     shrinks the index passes even while it is over, since that is how it gets
     back under."""
-    from ..team import memory  # core's: the budget and the agent's status
     if tool not in GUARDED_TOOLS or not isinstance(tool_input, dict) \
-            or _relative(agent, tool_input) != INDEX:
+            or _relative(agent, tool_input) != memory.INDEX:
         return None
     try:
-        current = (memory_dir(agent) / INDEX).read_text()
+        current = (memory.memory_dir(agent) / memory.INDEX).read_text()
     except OSError:
         current = ""
     result = _would_be(current, tool, tool_input)
     if result is None:
         return None
     was_b, now_b = len(current.encode()), len(result.encode())
-    was_n, now_n = _entries(current), _entries(result)
+    was_n, now_n = len(memory.index_entries(current)), len(memory.index_entries(result))
     if not ((now_b > memory.INDEX_BYTES and now_b > was_b)
             or (now_n > memory.INDEX_ENTRIES and now_n > was_n)):
         return None
