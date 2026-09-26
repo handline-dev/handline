@@ -257,12 +257,15 @@ def _escalation(prop: dict, caveat: bool = True) -> str:
                   + (f" in team {prop['team']}" if prop.get("team") else "")
                   + (f", working in {prop['repo']}" if prop.get("repo") else "")
                   + (f", model {prop['model']}" if prop.get("model") else "")
+                  + (f", effort {prop['effort']}" if prop.get("effort") else "")
                   + (f", vendor {prop['vendor']}"
                      if prop.get("vendor") and prop["vendor"] != agents.DEFAULT_VENDOR else "")
                   + ".",
                   "team.yaml gains its name; nothing else in the routing changes."]
     elif prop["kind"] == "rename":
-        lines += [f"{prop['agent']} would become {prop.get('to')}: its folder, its "
+        lines += [f"{prop['agent']} would become {prop.get('to')}"
+                  + (f" in team {prop['team']}" if prop.get("team") else "")
+                  + f": its folder, its "
                   f"journal and handoffs, its place in team.yaml and every request it "
                   f"ever sent or received move with the name.",
                   "It has to be closed first - an identity cannot change under a "

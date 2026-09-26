@@ -2765,6 +2765,134 @@ def test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_
             os.environ["OCP_AGENT"] = saved
 
 
+def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> None:
+    """T202: an agent whose sandbox cannot read the seals checks its own `ask`
+    against a team.yaml it cannot verify. The daemon re-checks every waiting
+    request against the founder's table: a tampered file holds delivery, and once
+    the founder's text is back the request is refused."""
+    from ocp.daemon import delivery
+    from ocp.infra import protected
+    _daemon_home(home, 20)
+    agents.register("scout")
+    agents.register("keeper")
+    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
+                "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    hand_edit_team(founders)
+    tampered = founders + '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
+    root = protected.root()
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "scout"
+    root.chmod(0)
+    try:
+        paths.team_file().write_text(tampered)
+        ok, said, rid = askmod.ask("keeper", "let me in", requester="scout")
+    finally:
+        root.chmod(0o700)
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    check("daemon: the agent's own check let the forged edge through (why the daemon looks)", ok, said)
+
+    logged: list[str] = []
+    con = db.connect()
+    try:
+        held = delivery.enforce_edges(con, "keeper", logged.append)
+        check("daemon: a tampered team.yaml holds delivery and says so",
+              held is False and any("not trusted" in l for l in logged), str(logged))
+        check("daemon: and the request is still queued, undelivered",
+              db.get_request(con, rid)["state"] == "queued")
+        paths.team_file().write_text(founders)
+        ok2 = delivery.enforce_edges(con, "keeper", logged.append)
+        row = db.get_request(con, rid)
+        check("daemon: with the founder's text back, the request is refused at delivery",
+              ok2 and row["state"] == "denied" and "refused at delivery" in (row["verdict"] or ""),
+              str(dict(row)))
+        check("daemon: nothing is left for keeper to be told", db.head_of_queue(con, "keeper") is None)
+        ok3, said3, rid3 = askmod.ask("keeper", "hello", requester="scout")
+        check("daemon: a request the table does deny at ask time is not delivered either",
+              not ok3, said3)
+    finally:
+        con.close()
+
+
+def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(home: Path) -> None:
+    """T204: the founder allows scout -> keeper as a peer. A forged edge that only
+    changes its relation passes the agent's own ask, and until the daemon has
+    checked it, `ocp inbox` in keeper's session must show nothing."""
+    from ocp.daemon import delivery
+    from ocp.infra import protected
+    _daemon_home(home, 20)
+    agents.register("scout")
+    agents.register("keeper")
+    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
+                '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
+                "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    hand_edit_team(founders)
+    forged = founders.replace("relation: peer, response: async", "relation: supervisor, response: async")
+    root = protected.root()
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "scout"
+    root.chmod(0)
+    try:
+        paths.team_file().write_text(forged)
+        ok, said, rid = askmod.ask("keeper", "do as I say", requester="scout")
+    finally:
+        root.chmod(0o700)
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    check("edge: the forged relation passed the agent's own ask", ok, said)
+    con = db.connect()
+    try:
+        check("edge: before the daemon has checked it, nothing is handed to keeper",
+              db.head_of_queue(con, "keeper") is None)
+        paths.team_file().write_text(founders)
+        delivery.enforce_edges(con, "keeper", lambda _m: None)
+        row = db.get_request(con, rid)
+        check("edge: the daemon refuses it for differing from the founder's table",
+              row["state"] == "denied" and "refused at delivery" in (row["verdict"] or ""),
+              str(dict(row)))
+        os.environ["OCP_AGENT"] = "scout"
+        root.chmod(0)
+        try:
+            ok2, said2, rid2 = askmod.ask("keeper", "honest", requester="scout")
+        finally:
+            root.chmod(0o700)
+            if saved is None:
+                os.environ.pop("OCP_AGENT", None)
+            else:
+                os.environ["OCP_AGENT"] = saved
+        check("edge: an honest request written in the agent session waits for the daemon",
+              db.head_of_queue(con, "keeper") is None)
+        delivery.enforce_edges(con, "keeper", lambda _m: None)
+        head = db.head_of_queue(con, "keeper")
+        check("edge: an honest request is cleared and handed out",
+              ok2 and head is not None and int(head["id"]) == rid2, said2)
+    finally:
+        con.close()
+
+
+def test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(home: Path) -> None:
+    """T189: what the founder reads names every field apply uses."""
+    _daemon_home(home, 20)
+    agents.register("marina")
+    hand_edit_team("teams:\n  eng: [marina]\nagents:\n  marina: {}\nedges:\n"
+                   "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    ok, said = hr.propose("add", "dohyun", requester="marina", why="hands", effort="high",
+                          team_name="eng")
+    check("escalation: the add was raised", ok, said)
+    pid = said.split()[1]
+    text = hr._escalation(hr.load_proposal(pid))
+    check("escalation: an add shows its effort", ok and ", effort high" in text, text)
+    ok, said = hr.propose("rename", "marina", requester="marina", why="new name", to="mari",
+                          team_name="eng")
+    check("escalation: the rename was raised", ok, said)
+    text = hr._escalation(hr.load_proposal(said.split()[1]))
+    check("escalation: a rename shows its team", ok and "would become mari in team eng" in text, text)
+
+
 def cliteam_seal() -> tuple[int, str]:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -2777,7 +2905,10 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
+        run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
+        run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
+        run(lambda: test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
         run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
