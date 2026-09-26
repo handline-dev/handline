@@ -1895,6 +1895,31 @@ def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
                        ("not cancelled - gone", "error"), ("cancelled", "information")], str(s.toasts))
 
 
+def test_a_send_that_went_shows_no_toast_and_a_refused_one_does() -> None:
+    """Founder #1193: the "queued as #n" toast after a send is gone."""
+    from ocp.ui import chat_page as cp
+
+    class Box:
+        text = ""
+        move_cursor = lambda self, *a: None
+        document = type("D", (), {"end": 0})()
+
+    class Stub:
+        sending, pending, is_attached = 2, [], True
+        toasts: list = []
+        _toast = lambda self, said, ok: self.toasts.append((said, ok))
+        query_one = lambda self, sel, *a: Box() if sel == "#compose" else type("S", (), {"update": lambda s, t: None})()
+        _status = lambda self: ""
+        refresh_conversation = lambda self, force=False: None
+
+    rec = type("R", (), {"widget": type("W", (), {"remove": lambda s: None})()})()
+    s = Stub()
+    cp.ChatPage.sent(s, True, "queued as #5 for x", "hi", rec)
+    cp.ChatPage.sent(s, False, "not sent: nope", "hi", rec)
+    check("chat: no toast for a send that went, an error toast for a refusal",
+          s.toasts == [("not sent: nope", False)], str(s.toasts))
+
+
 def test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on() -> None:
     from ocp.ui import chat_page as cp
 
@@ -2825,6 +2850,7 @@ async def _run_all() -> None:
     await test_merge_lands_in_the_task_the_confirm_named_after_a_reorder()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
+    test_a_send_that_went_shows_no_toast_and_a_refused_one_does()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()

@@ -1549,7 +1549,8 @@ class ChatPage(Screen):
         if not self.is_attached:
             return
         rec.widget.remove()
-        self._toast(said, ok)
+        if not ok:      # a send that went says nothing: the message and its queue line show it
+            self._toast(said, ok)
         if not ok:
             box = self.query_one("#compose", ChatBox)
             box.text = body if not box.text else body + "\n" + box.text
