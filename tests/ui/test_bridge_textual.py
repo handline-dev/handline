@@ -1638,21 +1638,41 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
           ok and agents.read("backend")["weight"] == "heavy", said)
 
 
-def test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() -> None:
+def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() -> None:
     from ocp.ui import chat_page as cp
-    def row(i, ts, delivered):
-        return {"id": i, "ts": ts, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
+    def row(i, ts, delivered, requester=actions.HUMAN):
+        return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
                 "dismissed_reason": None, "delivered_at": delivered, "replied": 0}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
+    between = cp.messages_of([row(1, 100, 400, "alpha"), row(2, 200, 300, "beta"), row(3, 150, None, "alpha")],
+                             "reviewer")
+    check("chat: agents' messages to each other too, by when they were delivered, undelivered last",
+          [m["text"] for m in between] == ["m2", "m1", "m3"], str([m["text"] for m in between]))
     kinds = [type(w).__name__ for w in cp.transcript_widgets(msgs, True)]
     check("chat: one line sits ahead of the queued message", kinds == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"],
           str(kinds))
     spare = cp.transcript_widgets(msgs[:2], True)
     check("chat: nothing queued leaves a spare row at the bottom, without a rule",
           type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
+
+
+def test_a_delivery_changes_the_chat_signature() -> None:
+    from ocp.ui import chat_page as cp
+    _home("sigdeliver")
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "alpha", "reviewer", "one", None, None, None, None, 0, None)
+        con.commit()
+        before = cp.signature(con, "reviewer", True)
+        con.execute("UPDATE requests SET delivered_at = 5 WHERE id = ?", (rid,))
+        con.commit()
+        check("chat: a delivery moves the signature though the state stays queued",
+              cp.signature(con, "reviewer", True) != before)
+    finally:
+        con.close()
 
 
 def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
@@ -2357,6 +2377,7 @@ async def _run_all() -> None:
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
+    test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()
     await test_the_agent_tasks_tab_is_the_tasks_view_scoped_to_the_agent()
@@ -2410,7 +2431,7 @@ async def _run_all() -> None:
     await test_home_tab_bar_focus_mouse_and_columns()
     await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
     await test_the_home_accounts_row_shows_the_alias()
-    test_a_message_of_yours_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
+    test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()

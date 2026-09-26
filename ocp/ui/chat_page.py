@@ -85,6 +85,7 @@ def signature(con, agent: str, everyone: bool) -> tuple:
     where, params = _scope(agent, everyone)
     row = con.execute(
         "SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(resolved_at), 0), "
+        "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
         params).fetchone()
     return tuple(row)
@@ -111,8 +112,8 @@ def messages_of(rows, agent: str) -> list[dict]:
             held = (part == 0 and speaker != human and r["target"] != human
                     and r["state"] == "queued" and not r["delivered_at"])
             waiting_to_go = held or queued and not r["delivered_at"]
-            if part == 0 and speaker == human and r["delivered_at"]:
-                at = r["delivered_at"]      # a message of yours sits where the agent read it
+            if part == 0 and r["delivered_at"]:
+                at = r["delivered_at"]      # a message sits where its agent read it, not where it queued
             who = ("you" if speaker == human else speaker) + (
                 "" if human in (speaker, to) else f" → {to}")
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
