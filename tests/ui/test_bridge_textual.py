@@ -452,6 +452,57 @@ async def test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back() -> Non
               type(app.screen).__name__)
 
 
+def cp_verbs():
+    from ocp.ui import chat_page as cp
+    return cp.CHAT_VERBS
+
+
+async def test_a_slash_agent_action_in_the_chat_runs_the_home_pages_flow() -> None:
+    """Founder #1196: `/park` typed in the chat asks first, as `p` does on the home page."""
+    from ocp.ui.components.confirm import Confirm
+    _home("chatverb")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        page = app.screen
+        check("chat verb: the chat page is open", isinstance(page, ChatPage), type(page).__name__)
+        page.query_one("#compose").text = "/park"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("chat verb: /park asks first", isinstance(app.screen, Confirm),
+              type(app.screen).__name__ + str([n.message for n in app._notifications]))
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        page.query_one("#compose").text = "/move alpha"
+        await pilot.pause(0.2)
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("chat verb: /move alpha skips the account prompt and asks to confirm",
+              isinstance(app.screen, Confirm) and "alpha" in str(app.screen.query("Static").first().render()),
+              type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        page.verbs_pool = ()      # what the menu offers is not what typing may do
+        sent = []
+        page.start_send = lambda body, rid: sent.append(body)
+        page.query_one("#compose").text = "/wake"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("chat verb: a verb the agent cannot take is toasted, never sent as a message",
+              not sent, str(sent))
+        con = db.connect()
+        try:
+            pool = tuple(v for v in cp_verbs() if actions.can(con, page.agent, v)[0])
+        finally:
+            con.close()
+        page.refresh_pools()
+        check("chat verb: the menu's verbs are the ones actions.can allows now",
+              page.verbs_pool == pool, f"{page.verbs_pool} != {pool}")
+
+
 async def test_a_double_click_on_a_row_is_enter() -> None:
     _home("dblclick")
     app = bt.BridgeApp()
@@ -1279,6 +1330,11 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
           pick.tab == "/task 84" and pick.action == "open" and pick.arg == "84")
     ref = cp.suggest("see #", tasks, reqs)[0]
     check("menu: a task reference inserts T<n>", ref.action == "insert" and ref.arg == "T84")
+    verbs = cp.suggest("/w", tasks, reqs, ("terminal", "wake"))
+    check("menu: the agent actions on offer are listed after the page commands and narrow by letters",
+          [(x.label[0], x.action) for x in verbs] == [("/wake", "verb")]
+          and [x.label[0] for x in cp.suggest("/", tasks, reqs, ("move",))][-1] == "/move"
+          and "/move" not in names("/"))
 
 
 def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> None:
@@ -1875,12 +1931,13 @@ def test_a_delivery_changes_the_chat_signature() -> None:
 def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
     """T186: send-now, cancel and send report through toasts, not the sub-title."""
     from ocp.ui import chat_page as cp
+    from ocp.ui.components.jobs_aware import Toasts
 
     class Stub:
         is_attached = True
         toasts: list = []
         notify = lambda self, text, **kw: self.toasts.append((text, kw["severity"]))
-        _toast = cp.ChatPage._toast
+        toast = Toasts.toast
         refresh_conversation = lambda self, force=False: None
         _restore = lambda self, body: None
         query_one = lambda self, *a: type("B", (), {"text": "x"})()
@@ -1907,7 +1964,7 @@ def test_a_send_that_went_shows_no_toast_and_a_refused_one_does() -> None:
     class Stub:
         sending, pending, is_attached = 2, [], True
         toasts: list = []
-        _toast = lambda self, said, ok: self.toasts.append((said, ok))
+        toast = lambda self, said, ok: self.toasts.append((said, ok))
         query_one = lambda self, sel, *a: Box() if sel == "#compose" else type("S", (), {"update": lambda s, t: None})()
         _status = lambda self: ""
         refresh_conversation = lambda self, force=False: None
@@ -2831,6 +2888,7 @@ async def _run_all() -> None:
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()
     await test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back()
+    await test_a_slash_agent_action_in_the_chat_runs_the_home_pages_flow()
     await test_a_double_click_on_a_row_is_enter()
     await test_wake_on_a_stalled_agent_asks_first()
     await test_messages_panel_acts_on_a_folded_row()

@@ -53,10 +53,11 @@ class JobsAware(Toasts):
         return said
 
 
-async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> None:
+async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str, arg: str = "") -> None:
     """Run one `AGENT_KEYS` verb against `name`, whichever screen it was
     pressed or typed on: what asks first and what needs a prompt is decided
-    here, the work goes through `jobs.Jobs`."""
+    here, the work goes through `jobs.Jobs`. `arg` is the account a typed `/move alpha` names,
+    so the prompt for it is skipped."""
     allowed, why = actions.can(con, name, label)
     if not allowed:
         screen.toast(why, False)
@@ -80,7 +81,7 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str) -> 
         screen.toast(screen._start("terminal", name, f"starting {name}", (name, repo.strip())), False)
         return
     if label == "move":
-        dest = await screen.app.push_screen_wait(TextPrompt(f"move {name} to which account:"))
+        dest = arg or await screen.app.push_screen_wait(TextPrompt(f"move {name} to which account:"))
         if not dest:
             screen.toast("not moved")
             return

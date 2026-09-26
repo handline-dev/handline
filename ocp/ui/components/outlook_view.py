@@ -174,10 +174,7 @@ class OutlookView(Vertical):
         self.query_one("#outlook_chart", Static).update(
             chart(o, width, height, self.range, self.over if self.picked else None) if width > 0 else Text(""))
         self.query_one("#outlook_note", Static).update(
-            "cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
-            "week resets what it had used comes back. Enter or a click on an agent draws what it ate (magenta, in "
-            "front of the headroom), again to remove. ~ week % is an estimate: the agent's cost share of each account times the points "
-            "of the week that account used in the range, averaged over the accounts")
+            "cyan: recorded · yellow: guess · Enter on an agent: what it used (magenta) · ~ is an estimate")
 
     def _picked_pct(self) -> str:
         u = next((r.use for r in self.uses if r.key == self.picked), None)
