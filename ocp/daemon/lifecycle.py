@@ -386,10 +386,11 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         # Taking the parked branch here would tell an agent that was never
         # parked that its context was cleared. What the close recorded is in
         # the system prompt of the session it started, if it recorded one.
+        record = db.get_handoff(con, agent) if con else None
         parts.append("Your session was closed while you were idle and could not be "
                      "resumed, so this is a fresh one. "
                      + ("Your handoff is in your system prompt above."
-                        if con and db.get_handoff(con, agent) else
+                        if record else
                         "There is no handoff. Read your journal and your inbox "
                         "before carrying on."))
     else:
@@ -398,15 +399,21 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         record = db.get_handoff(con, agent) if con else None
         if record:
             parts.append(record)
-    if not record:
-        st = status.read_for_agent(agent, agents.current_account(agent, con))
-        if st.transcript_path:
+    if not record and con:
+        # Nothing carried the request or the transcript, so this says both,
+        # finding the path by the session's id when the status names none.
+        session, path = handoffmod.previous_session(con, agent, agents.current_account(agent, con))
+        if not moved_to:
+            parts.append(handoffmod._request_line(con, agent))
+        if path:
             parts.append(
-                f"Your previous session is {st.session_id}, recorded at "
-                f"{st.transcript_path}\n"
+                f"Your previous session is {session}, recorded at {path}\n"
                 f"Grep it for what you need - do not read it whole, it is a JSONL "
                 f"transcript with every tool result in it, and reading it back would "
                 f"undo the point of parking you.")
+        elif not moved_to:
+            parts.append("Your previous session's transcript could not be found; "
+                         "read your journal and your inbox to see where you were.")
     return "\n\n".join(parts)
 
 

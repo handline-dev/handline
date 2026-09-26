@@ -23,6 +23,7 @@ has been handed.
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -94,7 +95,7 @@ def _progress_lines(con, agent: str) -> list[str]:
     return ["progress (written by the agent):"] + ["  " + l for l in note.splitlines()]
 
 
-def find_transcript(session: str, account: str) -> Path | None:
+def find_transcript(session: str, account: str | None) -> Path | None:
     """Where a session's transcript is, found by its id rather than by a status
     snapshot: nothing refreshes a closed agent's snapshot, so by the time a
     closed session is looked at the snapshot no longer names it. The account it
@@ -103,7 +104,7 @@ def find_transcript(session: str, account: str) -> Path | None:
         return None
     # One directory level under the vendor's memory root is where a transcript
     # is written, so the search is that deep and no deeper.
-    for acct in [account, *(a for a in paths.list_accounts() if a != account)]:
+    for acct in [*([account] if account else []), *(a for a in paths.list_accounts() if a != account)]:
         try:
             root = vendors.for_account(acct).memory_root(vendors.config_dir(acct))
         except vendors.UnknownVendor:
@@ -115,14 +116,52 @@ def find_transcript(session: str, account: str) -> Path | None:
     return None
 
 
-def _session_lines(agent: str, account: str,
-                   closed_session: str | None = None) -> tuple[list[str], str | None]:
+# The events a session that has actually been talked to leaves behind. A fresh
+# or just-cleared session has only its SessionStart, so it is never mistaken for
+# the one a restart came from.
+_TALKED_EVENTS = ("UserPromptSubmit", "Stop", "StopFailure")
+
+
+def _last_talked_session(con, agent: str) -> tuple[str | None, str | None]:
+    """(session id, transcript path) from the agent's newest hook event of a
+    session that was actually used, for when the status snapshot names neither."""
+    rows = con.execute(
+        "SELECT payload FROM events WHERE agent = ? AND kind IN (?, ?, ?) "
+        "ORDER BY id DESC LIMIT 20", (agent, *_TALKED_EVENTS)).fetchall()
+    for r in rows:
+        try:
+            data = json.loads(r["payload"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(data, dict) and isinstance(data.get("session_id"), str):
+            path = data.get("transcript_path")
+            return data["session_id"], path if isinstance(path, str) and path else None
+    return None, None
+
+
+def previous_session(con, agent: str, account: str | None,
+                     closed_session: str | None = None) -> tuple[str | None, str | None]:
+    """(session id, transcript path) of the session an agent is restarting
+    from, as much of it as can be found: the status snapshot, then the agent's
+    own hook events for an id, then the id looked up by name for a path."""
     if closed_session:
-        found = find_transcript(closed_session, account)
-        session, path = closed_session, str(found) if found else None
+        session, path = closed_session, None
     else:
         st = status.read_for_agent(agent, account)
         session, path = st.session_id, st.transcript_path
+        if not session or not path:
+            ev_session, ev_path = _last_talked_session(con, agent)
+            session = session or ev_session
+            path = path or (ev_path if ev_session == session else None)
+    if session and not path:
+        found = find_transcript(session, account or "")
+        path = str(found) if found else None
+    return session, path
+
+
+def _session_lines(con, agent: str, account: str | None,
+                   closed_session: str | None = None) -> tuple[list[str], str | None]:
+    session, path = previous_session(con, agent, account, closed_session)
     if not path:
         return [], "the session's transcript path"
     return [f"previous session: {session}, recorded at {path}",
@@ -162,7 +201,7 @@ def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, li
     lines = [f"# handoff · {agent}", f"captured: {time.strftime('%Y-%m-%d %H:%M:%S')}",
              _request_line(con, agent), *_progress_lines(con, agent)]
     missing: list[str] = []
-    for got, gap in (_session_lines(agent, agents.current_account(agent, con), closed_session),
+    for got, gap in (_session_lines(con, agent, agents.current_account(agent, con), closed_session),
                      _worktree_lines(worktree)):
         lines += got
         if gap:
