@@ -2171,6 +2171,11 @@ async def test_a_dialog_on_an_agent_terminal_is_answered_from_its_page() -> None
             d = actions.dialog_of(con, "reviewer")
             check("dialog: a dialog on the terminal is read as title and numbered options",
                   d and d["kind"] == "dialog" and d["title"] == dialog.title and d["options"][1][1].startswith("Yes, and"), str(d))
+            screen["dialog"] = orcamod.Dialog(dialog.title, dialog.options, dialog.footer,
+                                              (dialog.title, "Edit /tmp/x.py", "1. Yes", "2. Yes, and don't ask again", "3. No"))
+            check("dialog: the panel's other lines ride along, not the title or the options",
+                  actions.dialog_of(con, "reviewer")["body"] == ["Edit /tmp/x.py"])
+            screen["dialog"] = dialog
             ok, said = actions.answer_dialog(con, "reviewer", "Some other title", 1)
             check("dialog: a changed dialog is not pressed", not ok and not pressed, said)
             screen["dialog"] = dialog

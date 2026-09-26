@@ -4,6 +4,8 @@ answers the founder saved with "always" - a trusted folder for the folder-trust 
 `dialog_rules` rule for any other dialog."""
 from __future__ import annotations
 
+import re
+
 from ..infra import textsafe
 from ..session import orca
 from ..team import agents, trust
@@ -27,7 +29,7 @@ def _vendor(agent: str) -> str:
 
 def dialog_of(con, agent: str) -> dict | None:
     """What this agent's terminal is asking, or None: {agent, vendor, kind, title, options,
-    folder}. `kind` is `trust` for the folder-trust screen (one option: trust the folder shown)
+    folder, body}. `kind` is `trust` for the folder-trust screen (one option: trust the folder shown)
     and `dialog` for a numbered dialog, whose options are (number, label)."""
     handle = _handle(con, agent)
     if handle is None:
@@ -36,12 +38,22 @@ def dialog_of(con, agent: str) -> dict | None:
     folder = orca.trust_prompt_folder(handle)
     if folder:
         return {"agent": agent, "vendor": vendor, "kind": TRUST, "title": f"Trust {textsafe.oneline(folder)}?",
-                "options": [(1, TRUST_LABEL)], "folder": textsafe.oneline(folder)}
+                "options": [(1, TRUST_LABEL)], "folder": textsafe.oneline(folder), "body": []}
     dialog = orca.dialog_on_screen(handle)
     if dialog is None:
         return None
     return {"agent": agent, "vendor": vendor, "kind": "dialog", "title": dialog.title,
-            "options": list(dialog.options), "folder": ""}
+            "options": list(dialog.options), "folder": "", "body": _context(dialog)}
+
+
+_NUMBERED = re.compile(r"^(?:\u276f\s*)?\d+\.\s")
+
+
+def _context(dialog) -> list[str]:
+    """The panel's own lines the modal does not already show as title or option buttons."""
+    shown = {dialog.title.strip()} | {label.strip() for _, label in dialog.options}
+    return [textsafe.oneline(l) for l in dialog.body
+            if l.strip() not in shown and not _NUMBERED.match(l.strip())]
 
 
 def answer_dialog(con, agent: str, title: str, number: int, always: bool = False) -> tuple[bool, str]:

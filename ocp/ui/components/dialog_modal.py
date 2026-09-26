@@ -23,6 +23,7 @@ class DialogModal(ModalScreen["tuple[int, bool] | None"]):
     DialogModal #who { color: $text-muted; }
     DialogModal #title { margin: 1 0; text-style: bold; }
     DialogModal Button { width: 100%; margin-bottom: 1; }
+    DialogModal #body { margin-bottom: 1; }
     DialogModal #hint { color: $text-muted; }
     """
 
@@ -35,6 +36,8 @@ class DialogModal(ModalScreen["tuple[int, bool] | None"]):
         with Vertical(id="dialog"):
             yield Static(Text(f"{textsafe.oneline(d['agent'])} is asking", style="dim"), id="who")
             yield Static(Text(textsafe.oneline(d["title"])), id="title")
+            if d.get("body"):
+                yield Static(Text("\n".join(textsafe.oneline(l) for l in d["body"]), style="dim"), id="body")
             for number, label in d["options"]:
                 yield Button(Text(f"{number}. {textsafe.oneline(label)}"), id=f"opt_{number}", compact=True)
             yield Checkbox("always choose the one I pick", id="always")
