@@ -5639,6 +5639,7 @@ def test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(home: Path)
         ids = [db.new_task(con, f"t{i}", "worker", "manager") for i in range(11)]
         a, b = ids[9], ids[10]
         actions.edit_task(con, b, "manager", priority=1)
+        db.set_task_queued(con, ids[1], "manager")
         rows = actions.task_rows(con)
         by_num = [r["id"] for r in actions.sort_task_rows(rows, "number")]
         by_prio = [r["id"] for r in actions.sort_task_rows(rows, "priority")]
@@ -5653,11 +5654,16 @@ def test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(home: Path)
         check("sort: idle puts the longest idle last, and first when reversed",
               actions.sort_task_rows(rows, "idle", True, old["last_activity"] + 9)[0]["last_activity"]
               == min(r["last_activity"] for r in rows))
+        by_state = [r["state"] for r in actions.sort_task_rows(rows, "state")]
+        check("sort: state puts drafts before queued", by_state == ["draft"] * 10 + ["queued"], str(by_state))
         now = old["last_activity"] + 3 * 86400
-        check("stale: a waiting task idle 3 days is flagged", actions.task_stale(old, now))
-        check("stale: not at 2 days", not actions.task_stale(old, old["last_activity"] + 2 * 86400))
-        check("stale: a task that is not waiting is never flagged",
-              not actions.task_stale({**old, "state": "done"}, now))
+        queued = next(r for r in rows if r["state"] == "queued")
+        check("stale: a draft idle 3 days is flagged", old["state"] == "draft" and actions.task_stale(old, now))
+        check("stale: a queued task idle 3 days is flagged", actions.task_stale(queued, queued["last_activity"] + 3 * 86400))
+        check("stale: not at 2 days", not actions.task_stale(old, old["last_activity"] + 2 * 86400)
+              and not actions.task_stale(queued, queued["last_activity"] + 2 * 86400))
+        check("stale: a task that is doing or done is never flagged",
+              not actions.task_stale({**old, "state": "doing"}, now) and not actions.task_stale({**old, "state": "done"}, now))
         mine = [r["id"] for r in rows if actions.task_related_to(r, "manager")]
         check("related: a task its opener or owner is named is related", set(mine) == set(ids), mine)
         check("related: a stranger has none", not any(actions.task_related_to(r, "nobody") for r in rows))
