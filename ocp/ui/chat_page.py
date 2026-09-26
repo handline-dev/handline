@@ -344,13 +344,13 @@ def task_page(d: dict) -> dict:
 
 class QueueLine(Static):
     """The line between what the agent has read and what is still queued for
-    it; a spinner sits in it while the agent is working."""
+    it; a spinner sits in it while the agent is working, and what it waits on when idle."""
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, working: bool, rule: bool = True, why: str = "") -> None:
+    def __init__(self, working: bool, rule: bool = True, why: str = "", wait: str = "") -> None:
         super().__init__(classes="queueline")
-        self.working, self.rule, self.why, self._frame = working, rule, why, 0
+        self.working, self.rule, self.why, self.wait, self._frame = working, rule, why, wait, 0
 
     def on_mount(self) -> None:
         self.set_interval(0.1, self._tick)
@@ -361,7 +361,8 @@ class QueueLine(Static):
             self.refresh()
 
     def render(self) -> Text:
-        mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working else ""
+        mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working \
+            else f" {safe(self.wait)} " if self.wait else ""
         if not self.rule:
             return Text(mid, style="dim")
         if self.why:
@@ -376,20 +377,16 @@ class QueueLine(Static):
 def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str = "") -> list:
     """The messages as widgets, the queue line ahead of the first message the
     agent has not read yet; with none unread, a spare row at the bottom that
-    only shows the spinner. `wait` (what the agent waits on) sits just above that line."""
+    only shows the spinner. `wait` (what the agent waits on) shows where the spinner does."""
     out: list = []
     line = False
     for m in msgs:
         if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
-            if wait:
-                out.append(Static(safe(wait), classes="waitnote"))
-            out.append(QueueLine(working, why=why))
+            out.append(QueueLine(working, why=why, wait=wait))
             line = True
         out.append(ChatMessage(m, working))
     if not line:
-        if wait:
-            out.append(Static(safe(wait), classes="waitnote"))
-        out.append(QueueLine(working, rule=False))
+        out.append(QueueLine(working, rule=False, wait=wait))
     return out
 
 
@@ -972,7 +969,7 @@ class ChatPage(Screen):
         word, detail = self.agent_state
         return Text.assemble(
             ("Reply" if reply else "Chat", "bold blue"), (" · ", "dim"), self.agent, "  ",
-            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the wait note above the queue line says it
+            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the queue line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
             (f"   {safe(reply.m['who'])}: {safe(reply.m['text'])[:40]}" if reply else "", "dim"),
