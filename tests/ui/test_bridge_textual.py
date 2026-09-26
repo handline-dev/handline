@@ -1153,6 +1153,16 @@ async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
         ids = {r["id"] for r in screen.query_one("#tasks_view").rows}
         check("checks: b opens the tasks screen on the done tasks the founder signs off",
               isinstance(screen, TasksScreen) and mine in ids and theirs not in ids, ids)
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        from ocp.ui.components import summary as sm
+        text = sm.summary_text(True, "t", sm.Summary(0, 0, 1))
+        check("checks: the to-check part of the header is a link to the screen's checks action",
+              any(getattr(sp.style, "meta", {}).get("@click") == "screen.checks" for sp in text.spans))
+        await app.screen.run_action("checks")
+        await pilot.pause(0.3)
+        check("checks: that action opens the same screen", isinstance(app.screen, TasksScreen)
+              and mine in {r["id"] for r in app.screen.query_one("#tasks_view").rows})
 
 
 async def test_read_only_page_shows_foreign_text_inert() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from typing import NamedTuple
 
+from rich.style import Style
 from rich.text import Text
 
 from ... import actions, db
@@ -26,7 +27,8 @@ def summarize(con) -> Summary:
 
 def summary_text(daemon_running: bool, clock: str, s: Summary) -> Text:
     """`daemon running · 1 working · 2 to decide · 3 to check · 16:05:22`:
-    each part after the daemon appears only when it is not zero."""
+    each part after the daemon appears only when it is not zero; `to check` is a link
+    that runs the screen's `checks` action."""
     out = Text()
     out.append("daemon ", "dim")
     out.append(*(("running", "green") if daemon_running else ("NOT RUNNING", "red")))
@@ -35,7 +37,8 @@ def summary_text(daemon_running: bool, clock: str, s: Summary) -> Text:
     if s.to_decide:
         out.append(f" · {s.to_decide} to decide", "bold yellow")
     if s.to_check:
-        out.append(f" · {s.to_check} to check", "yellow")
+        out.append(" · ", "dim")
+        out.append(f"{s.to_check} to check", Style(color="yellow", underline=True, meta={"@click": "screen.checks"}))
     out.append(f" · {clock}", "dim")
     return out
 

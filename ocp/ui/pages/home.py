@@ -161,6 +161,10 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab == "settings":
             self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
 
+    def action_checks(self) -> None:
+        """The founder's done tasks waiting for a sign-off: the `b` key and the header's `to check`."""
+        self.app.push_screen(TasksScreen(states={"done"}, closer=actions.HUMAN))
+
     def _save_settings(self) -> None:
         _, said = actions.set_default_cap(self.query_one("#default_cap", Input).value)
         self.query_one("#settings_flash", Static).update(Text(said))
@@ -442,7 +446,7 @@ class HomePage(RowActions, JobsAware, Screen):
             self.app.push_screen(TasksScreen())
             return
         if k == "b":     # the founder's done tasks waiting for a sign-off - free on every panel
-            self.app.push_screen(TasksScreen(states={"done"}, closer=actions.HUMAN))
+            self.action_checks()
             return
         if k in tui.NEXT_ROW and self._on_bottom_row():
             return      # the last row is the end: ↓ does not wrap round to the top
