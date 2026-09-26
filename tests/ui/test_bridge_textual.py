@@ -937,16 +937,16 @@ async def test_stats_screen_draws_the_weekly_graph() -> None:
         check("stats: r steps the date range and the graph follows",
               view.range == "3d" and view.outlook.future[-1][0] - view.outlook.past[-1][0] >= 71 * 3600,
               (view.range, view.outlook.future[-1][0] - view.outlook.past[-1][0]))
-        from ocp.ui.components.outlook_view import AgentUseScreen
         table = view.query_one("#outlook_table")
         check("stats: the agents' use is a table under the graph", table.row_count == len(view.uses) and len(view.uses) >= 1,
               table.row_count)
         await pilot.press("enter")
         await pilot.pause(0.3)
-        check("stats: enter on an agent opens its use as a graph", isinstance(app.screen, AgentUseScreen),
-              type(app.screen).__name__)
-        await pilot.press("escape")
-        await pilot.pause(0.2)
+        check("stats: enter on an agent draws its use in the same graph, on the same screen",
+              view.picked == "writer" and app.screen is screen and view.series, (view.picked, type(app.screen).__name__))
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("stats: enter on it again goes back to the week", view.picked is None, view.picked)
         await pilot.press("escape")
         await pilot.pause(0.2)
         from textual.widgets import Tabs

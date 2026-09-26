@@ -9,7 +9,6 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import Screen
 from textual.widgets import DataTable, Select, Static
 
 from ... import actions, db
@@ -86,41 +85,6 @@ def bars(series: list[tuple[int, float]], width: int, height: int, span: str) ->
     return _grid(vals, [False] * cols, top, (f"${top:.2f}", f"${top / 2:.2f}", "$0"), height, axis)
 
 
-class AgentUseScreen(Screen):
-    """One agent's use over the range, as a graph of list-price cost per slot."""
-
-    BINDINGS = [Binding("escape", "app.pop_screen", "back"), Binding("q,ctrl+c", "app.quit", "quit", show=False)]
-
-    def __init__(self, agent: str, range_name: str) -> None:
-        super().__init__()
-        self.agent = agent
-        self.range_name = range_name
-
-    def compose(self) -> ComposeResult:
-        yield Static(id="au_title")
-        yield Static(id="au_chart")
-        yield KeyGuide([Key("esc", "back", 1, "back")], id="au_foot")
-
-    def on_mount(self) -> None:
-        self._draw()
-
-    def on_resize(self) -> None:
-        if self.is_mounted:
-            self._draw()
-
-    def _draw(self) -> None:
-        con = db.connect()
-        try:
-            series = actions.agent_use_series(con, self.agent, int(time.time()), dict(RANGES)[self.range_name])
-        finally:
-            con.close()
-        total = sum(c for _, c in series)
-        self.query_one("#au_title", Static).update(Text.assemble(
-            (f"{self.agent}  ", "bold"), (f"cost at list price per slot, last {self.range_name}: ${total:.2f} in all", "dim")))
-        self.query_one("#au_chart", Static).update(
-            bars(series, self.size.width - 2, max(4, min(HEIGHT, self.size.height - 5)), self.range_name))
-
-
 class OutlookView(Vertical):
     can_focus = True
     BINDINGS = [Binding("r", "range", "range"), Binding("question_mark", "key_help", "keys")]
@@ -136,6 +100,8 @@ class OutlookView(Vertical):
         self.back = back
         self.outlook = Outlook()
         self.uses: list = []
+        self.picked: str | None = None
+        self.series: list[tuple[int, float]] = []
         self.range = "24h"
 
     def _keys(self) -> list[Key]:
@@ -165,7 +131,11 @@ class OutlookView(Vertical):
         con = db.connect()
         try:
             self.outlook = actions.weekly_outlook(con, int(time.time()), dict(RANGES)[self.range])
-            self.uses = actions.agent_use(con, int(time.time()), dict(RANGES)[self.range])
+            now, hours = int(time.time()), dict(RANGES)[self.range]
+            self.uses = actions.agent_use(con, now, hours)
+            if self.picked not in {u.agent for u in self.uses}:
+                self.picked = None
+            self.series = actions.agent_use_series(con, self.picked, now, hours) if self.picked else []
         finally:
             con.close()
         table = self.query_one(DataTable)
@@ -182,18 +152,28 @@ class OutlookView(Vertical):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
         if event.row_key.value is not None:
-            self.app.push_screen(AgentUseScreen(str(event.row_key.value), self.range))
+            agent = str(event.row_key.value)
+            self.picked = None if self.picked == agent else agent
+            self.refresh_rows()
 
     def _draw(self) -> None:
         o = self.outlook
-        self.query_one("#outlook_title", Static).update(Text.assemble(
-            ("WEEK LEFT  ", "bold"), (f"{o.accounts} account{'s' if o.accounts != 1 else ''} together", "dim")))
         width = self.size.width - 2
-        self.query_one("#outlook_chart", Static).update(
-            chart(o, width, max(4, min(HEIGHT, (self.size.height - 9) // 2)), self.range) if width > 0 else Text(""))
-        self.query_one("#outlook_note", Static).update(
-            "cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
-            "week resets what it had used comes back")
+        height = max(4, min(HEIGHT, (self.size.height - 9) // 2))
+        if self.picked:
+            total = sum(c for _, c in self.series)
+            self.query_one("#outlook_title", Static).update(Text.assemble(
+                (f"{self.picked}  ", "bold"), (f"cost at list price per slot, last {self.range}: ${total:.2f} in all", "dim")))
+            drawn = bars(self.series, width, height, self.range) if width > 0 else Text("")
+            note = "enter or a click on the same row goes back to the week left"
+        else:
+            self.query_one("#outlook_title", Static).update(Text.assemble(
+                ("WEEK LEFT  ", "bold"), (f"{o.accounts} account{'s' if o.accounts != 1 else ''} together", "dim")))
+            drawn = chart(o, width, height, self.range) if width > 0 else Text("")
+            note = ("cyan: recorded, yellow: a guess - each account keeps its pace of the last day, and when its "
+                    "week resets what it had used comes back. Enter or a click on an agent draws its use here")
+        self.query_one("#outlook_chart", Static).update(drawn)
+        self.query_one("#outlook_note", Static).update(note)
 
     def action_range(self) -> None:
         names = [n for n, _ in RANGES]
