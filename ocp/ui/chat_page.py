@@ -103,7 +103,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                 (0, r["requester"], r["target"], r["body"], r["ts"]),
                 (1, r["target"], r["requester"], shown, r["resolved_at"] or r["ts"])):
             cancelled = r["state"] == "rejected" and r["verdict"] == askmod.CANCEL_VERDICT
-            if part == 1 and (not shown or cancelled):
+            if part == 1 and (not shown or cancelled or db.dismissal(r)[0]):
                 continue
             side = "you" if speaker == human else "agent" if speaker == agent else "other"
             queued = (part == 0 and speaker == human and r["target"] != human

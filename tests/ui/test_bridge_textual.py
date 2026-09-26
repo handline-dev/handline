@@ -1316,6 +1316,23 @@ def _page_rows(con, rid: int) -> list:
     return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
 
 
+def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("dismissline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, rid = askmod.ask("human", "fyi: done", requester="reviewer")
+        ok2, said = actions.dismiss(con, rid, actions.HUMAN, no_task="just an fyi")
+        msgs = cp.messages_of(_page_rows(con, rid), "reviewer")
+        check("chat: a dismissal is not drawn as a line, the ask itself stays",
+              ok and ok2 and [m["part"] for m in msgs] == [0] and not any("dismissed" in m["text"] for m in msgs),
+              str(msgs))
+    finally:
+        con.close()
+
+
 def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -2307,6 +2324,7 @@ async def _run_all() -> None:
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
+    test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_table_lists_owned_and_opened_and_sorts()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     await test_the_agent_tasks_tab_shows_the_pane_when_wide()
