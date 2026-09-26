@@ -90,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--role-file", default=None, help="file to install as ROLE.md")
     p.add_argument("--repo", default=None,
                    help="where it works; lets the daemon start it when work arrives")
+    p.add_argument("--skip-permissions", default=None, choices=["on", "off"],
+                   help="start its sessions without asking before they act (default off); "
+                   "applies from the next launch; on re-registration, omit to keep the current one")
     p.set_defaults(fn=cmd_agent_register)
     ag.add_parser("list", help="list agents").set_defaults(fn=cmd_agent_list)
     p = ag.add_parser("show", help="everything known about one agent")

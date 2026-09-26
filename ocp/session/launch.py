@@ -370,6 +370,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     preamble = context_for(agent)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
                            hide=hidden_transcripts(agent, drv))
+    if agents.skip_permissions(cfg):
+        flags = drv.skip_permissions_argv()
+        if not flags:
+            print(f"warning: agent '{agent}' has skip_permissions on, but {drv.name} "
+                  f"has no such switch - starting it as usual", file=sys.stderr)
+        argv += [f for f in flags if f not in (extra or [])]
     argv += list(extra or [])
 
     env = accounts.env_for(acct, agent)

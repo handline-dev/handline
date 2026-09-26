@@ -52,6 +52,13 @@ def context_tokens(cfg: dict) -> int:
     return v
 
 
+def skip_permissions(cfg: dict) -> bool:
+    """Whether this agent's sessions start without asking before they act.
+    Only a real true turns it on: an absent, null, or garbage value ("yes", 1,
+    "false") reads as off, so a bad config never grants what was not asked."""
+    return cfg.get("skip_permissions") is True
+
+
 def kind(cfg: dict) -> str:
     """What an agent is, for a column: the model and its effort.
 
@@ -103,7 +110,8 @@ NOT_TEXT = ("It would not be read back as text from the YAML files it is written
 def register(name: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
              role_file: str | None = None, repo: str | None = None,
-             vendor: str | None = None, context_tokens: int | None = None) -> Path:
+             vendor: str | None = None, context_tokens: int | None = None,
+             skip_permissions: bool | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
     # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
@@ -126,7 +134,8 @@ def register(name: str, role: str = "", model: str | None = None,
         text = dump({"name": name, "model": model or DEFAULT_MODEL,
                      "effort": effort or DEFAULT_EFFORT, "weight": weight or "light",
                      "enabled": True, **({"repo": repo} if repo else {}),
-                     **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {})})
+                     **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
+                     **({"skip_permissions": True} if skip_permissions else {})})
     for sub in ("inbox", "journal"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
@@ -150,6 +159,11 @@ def register(name: str, role: str = "", model: str | None = None,
             cfg["repo"] = repo
         if context_tokens:
             cfg["context_tokens"] = context_tokens
+        if skip_permissions is not None:
+            if skip_permissions:
+                cfg["skip_permissions"] = True
+            else:
+                cfg.pop("skip_permissions", None)
         if vendor and vendor != DEFAULT_VENDOR:
             cfg["vendor"] = vendor
         cfg.setdefault("effort", DEFAULT_EFFORT)

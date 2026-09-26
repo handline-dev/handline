@@ -111,6 +111,9 @@ class Claude:
             argv += ["--settings", json.dumps(settings)]
         return argv
 
+    def skip_permissions_argv(self) -> list[str]:
+        return ["--dangerously-skip-permissions"]
+
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
         return {}
 
