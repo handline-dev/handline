@@ -2395,14 +2395,17 @@ def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) ->
 
 
 def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> None:
-    """T154 (founder #789): should_close's queued-work guard used to hold a
-    session open for as long as anything about it was unresolved, delivered
-    or not - even past its prompt cache's life, where a resume costs the same
-    re-read a wake's cold start does anyway. `_cold_before_typing` declines
-    here (the request was already told, and already nudged once) - it is
-    `should_close`'s own idle window that closes it, and the request left
-    queued is retold once the wake's fresh session is on screen
-    (`_session_changed`)."""
+    """T154 (founder #789), auditor #821: should_close's queued-work guard
+    used to hold a session open for as long as anything about it was
+    unresolved, delivered or not - even past its prompt cache's life, where a
+    resume costs the same re-read a wake's cold start does anyway.
+    `_cold_before_typing` declines here (the request was already told, and
+    already nudged once) - it is `should_close`'s own idle window that closes
+    it. A request already told before the close is not on its own a reason to
+    wake it back up (that would close it right back up next window, forever,
+    #821) - only something new is: an undelivered request or an answer, and
+    that wake also retells what was already open, once its fresh session is
+    on screen (`_session_changed`)."""
     _daemon_home(home, 20)
     credentialed(home, "alpha")
     con = db.connect()
@@ -2432,15 +2435,28 @@ def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> 
         check("cold queue close: the request itself is untouched, left for the wake",
               [r["id"] for r in db.queued_for(con, "backend")] == [rid])
 
-        dmn_delivery._session_changed = lambda *a: True   # the wake's fresh session, once up
+        # Nothing new for it: ticks pass, cache stays gone, and it stays
+        # closed rather than relaunching for the same open request forever.
         del sent[:]
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 5, {}, [])
-        check("cold queue close: the wake relaunches it",
+        for later in (now + 5, now + 3600, now + 7200):
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, later, {}, [])
+        check("cold queue close: not woken again for the request it already told",
+              db.get_agent_state(con, "backend")["closed_at"] and not sent, str(sent))
+
+        # Something new arrives - the wake it deserves, and it retells the
+        # old request too, once its fresh session is on screen.
+        db.add_request(con, "marina", "backend", "and one more thing", None,
+                       "peer", "async", None, 0, None)
+        dmn_delivery._session_changed = lambda *a: True   # the wake's fresh session, once up
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 7205, {}, [])
+        check("cold queue close: the new request wakes it",
               any(" launch " in t for t in sent), str(sent))
         del sent[:]
         db.add_event(con, "backend", "Stop", {})   # the fresh session's own first turn
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 10, {}, [])
-        check("cold queue close: the still-queued request is retold to the fresh session",
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend' AND id = "
+                    "(SELECT MAX(id) FROM events WHERE agent = 'backend')", (now + 7208,))
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 7210, {}, [])
+        check("cold queue close: the old, already-told request is retold first",
               any("carry on" in t for t in sent), str(sent))
     finally:
         orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send = real

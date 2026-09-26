@@ -132,7 +132,7 @@ def holder(name: str) -> int | None:
         except ProcessLookupError:
             return 0
         except OSError:
-            pass  # could not confirm either way; the flock already did
+            pass  # not ESRCH - see the docstring
         return pid
     finally:
         os.close(fd)

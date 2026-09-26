@@ -73,10 +73,12 @@ def queued_or_idle(con, agent: str, when: str) -> str:
     """Write QUEUED when there is a request still queued or an answer this
     agent asked for and has not been told about, IDLE otherwise - and return
     which. That is the project's one definition of work waiting, not this
-    helper's: `would_wake`, `_move_plan` and `supervise` ask the same two
-    questions, and the founder's screen lists what is queued and what is untold
-    from the same two queries, so a row this calls IDLE is one the screen shows
-    nothing queued and nothing untold for.
+    helper's: `_move_plan` and `supervise` ask the same two questions, and the
+    founder's screen lists what is queued and what is untold from the same two
+    queries, so a row this calls IDLE is one the screen shows nothing queued
+    and nothing untold for. `would_wake` asks a narrower one for a closed
+    agent (T154): a request already delivered before the close is queued
+    here, but is not on its own a reason to wake it back up.
     Shared by every writer of a due wake_at (a stale one, from an unrelated
     throttle or park, can come due after the turn it was set during already
     went idle on its own - Stop only clears RUNNING), so QUEUED stays a claim
@@ -209,7 +211,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # wake typed into a TUI that is still coming up loses its opening
     # characters and leaves the rest in the input box, unsent.
     if row and row["closed_at"] and not started_now:
-        waiting = db.queued_for(con, agent)
+        # Not `db.queued_for`: a request already delivered before the close
+        # (T154) is only sitting on the agent unresolved, and waking for that
+        # alone would close it right back up on the very next idle window,
+        # forever - it is redelivered once something below actually wakes it.
+        waiting = db.undelivered_for(con, agent)
         # An agent that asked something, parked on the answer and was then
         # closed is waiting on a reply, not on work - and resolving its request
         # writes QUEUED over the park and clears the wake_at that would have
