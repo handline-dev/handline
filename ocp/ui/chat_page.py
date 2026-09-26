@@ -36,6 +36,7 @@ from .components.confirm import Confirm
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
+from .components.switch_row import SwitchRow
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
 # They are not part of the conversation, so no chat query reads them.
@@ -954,10 +955,7 @@ class ChatPage(Screen):
                 with Horizontal(classes="frow"):
                     yield Static("repo", classes="flabel")
                     yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
-                with Horizontal(classes="frow"):
-                    yield Static("skip prompts", classes="flabel")
-                    yield Switch(id="s_skip", value=False)
-                    yield Static("  claude --dangerously-skip-permissions, from the next launch", classes="fhint")
+                yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
                 with Horizontal(classes="frow"):
                     yield Static("hand off at", classes="flabel")
                     yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
