@@ -74,6 +74,12 @@ def test_trust_roots(home: Path) -> None:
     check("trust: a rejected proposal is never applied", not ok, msg)
     check("trust: and its file records the reject at once",
           trustmod.load_proposal(pid3)["state"] == "rejected")
+    trustmod.propose(str(home / "repos" / "multi"), "needs it", requester="backend")
+    multi = next(p for p in trustmod.listing()
+                 if p["root"] == trustmod._resolved(home / "repos" / "multi"))
+    ok, msg = askmod.resolve(multi["request"], "reject - not yet\nask again next week")
+    check("trust: a two-line reject still answers the proposer, and the file records it",
+          ok and trustmod.load_proposal(multi["id"])["state"] == "rejected", msg)
     check("trust: and the root stays undeclared",
           not trustmod.is_declared(home / "repos" / "third"))
 

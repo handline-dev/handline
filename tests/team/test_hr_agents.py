@@ -2055,6 +2055,14 @@ edges:
         check("reject: nothing is applied", "yerin" not in paths.list_agents()
               and db.get_request(con, rid3)["verdict"] == "reject - no")
         check("reject: and the proposal's file records it", hr.load_proposal(pid3)["state"] == "rejected")
+
+        ok, said = hr.propose("add", "mira", requester="hr", why="three")
+        pid4 = said.split()[1]
+        rid4 = int(said.split("#")[1].split(".")[0])
+        ok, said = askmod.resolve(rid4, "reject - not yet\nask again next week")
+        check("reject: a two-line reject still answers the proposer, and the file records it",
+              ok and hr.load_proposal(pid4)["state"] == "rejected"
+              and "ask again" in db.get_request(con, rid4)["verdict"], said)
     finally:
         con.close()
 

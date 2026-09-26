@@ -176,7 +176,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         call = hr.decision(verdict)
         if call == "rejected":
             prop["state"] = "rejected"
-            prop["verdict"] = verdict
+            prop["verdict"] = textsafe.oneline(verdict or "")
             _save_proposal(prop)
             return False, f"proposal {pid} was rejected: {(verdict or '').strip()[:120]}"
         if call != "approved":
