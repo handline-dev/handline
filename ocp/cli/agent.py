@@ -44,8 +44,12 @@ def cmd_agent_move(args) -> int:
 def cmd_agent_register(args) -> int:
     d = agents.register(args.name, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
-                        repo=args.repo, vendor=args.vendor)
+                        repo=args.repo, vendor=args.vendor,
+                        skip_permissions=None if args.skip_permissions is None
+                        else args.skip_permissions == "on")
     print(f"registered agent '{args.name}': {d}")
+    if args.skip_permissions:
+        print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
     return 0

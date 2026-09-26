@@ -467,6 +467,51 @@ def test_an_agent_is_never_launched_on_another_vendors_account(home: Path) -> No
               "agent orphan: no opencode account is registered" in names, str(names))
 
 
+def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> None:
+    """T170: off by default; on adds the driver's flag once at the next launch;
+    only a real true counts; a vendor with no such switch is told, not broken."""
+    use_home(home)
+    accounts.register("alpha")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    agents.register("backend")
+    cdrv = vendors.get("claude")
+    cdrv.binary = lambda: "/x/bin/claude"
+    flag = "--dangerously-skip-permissions"
+    try:
+        check("skip: off by default", flag not in launch.build("backend")[0])
+        agents.register("backend", skip_permissions=True)
+        check("skip: register turns it on, in agent.yaml",
+              agents.read("backend").get("skip_permissions") is True)
+        check("skip: a launch after it carries the flag", flag in launch.build("backend")[0])
+        check("skip: once, even when the caller passed it too",
+              launch.build("backend", [flag])[0].count(flag) == 1)
+        agents.register("backend", effort="high")
+        check("skip: a re-registration that omits it keeps it",
+              flag in launch.build("backend")[0])
+        for bad in ("yes", "true", 1, "on"):
+            p = agents.agent_file("backend")
+            cfg = agents.load(p.read_text())
+            cfg["skip_permissions"] = bad
+            p.write_text(agents.dump(cfg))
+            check(f"skip: {bad!r} is not a true, so it is off",
+                  not agents.skip_permissions(agents.read("backend"))
+                  and flag not in launch.build("backend")[0])
+        agents.register("backend", skip_permissions=True)
+        agents.register("backend", skip_permissions=False)
+        check("skip: turning it off removes the key and the flag",
+              "skip_permissions" not in agents.read("backend")
+              and flag not in launch.build("backend")[0])
+        out = _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "on"]))
+        check("skip: the CLI sets it and says when it applies",
+              agents.read("backend").get("skip_permissions") is True and "next launch" in out, out)
+        _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))
+        check("skip: and off from the CLI", "skip_permissions" not in agents.read("backend"))
+        check("skip: opencode has no such switch, so it adds nothing",
+              vendors.get("opencode").skip_permissions_argv() == [])
+    finally:
+        del cdrv.binary
+
+
 def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
     """#43: accounts.env_for starts from the launching process's environment,
     and an opencode session's own tools carry OPENCODE_CONFIG_CONTENT - another
@@ -1741,6 +1786,7 @@ def main() -> int:
         run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
+        run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))

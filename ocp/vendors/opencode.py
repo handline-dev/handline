@@ -236,6 +236,9 @@ class Opencode:
             argv += ["-m", str(model)]
         return argv
 
+    def skip_permissions_argv(self) -> list[str]:
+        return []
+
     def transcript_dir(self, config_dir: Path, worktree: str) -> Path | None:
         return None  # its sessions are not kept per worktree in a folder we can name
 

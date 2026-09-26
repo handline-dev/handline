@@ -185,6 +185,10 @@ class Driver(Protocol):
         """argv for one session, before any caller-supplied extras. `hide` is
         paths the session may not read."""
 
+    def skip_permissions_argv(self) -> list[str]:
+        """argv that makes this vendor's session stop asking before it acts,
+        empty when it has no such switch."""
+
     def transcript_dir(self, config_dir: Path, worktree: str) -> Path | None:
         """The folder holding the transcripts of sessions run in `worktree`,
         or None when the vendor keeps none we can name."""

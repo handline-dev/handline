@@ -1172,6 +1172,8 @@ class SecondVendor:
         return "--resume" in (extra or [])
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None):
         return [exe]
+    def skip_permissions_argv(self):
+        return ["--yolo"]
     def transcript_dir(self, config_dir, worktree):
         return None
     def launch_env(self, preamble, disallowed, state_dir):
