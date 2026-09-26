@@ -12,8 +12,12 @@ class TasksScreen(Screen):
     BINDINGS = [Binding("escape", "app.pop_screen", "back"),
                 Binding("q,ctrl+c", "app.quit", "quit", show=False)]
 
+    def __init__(self, **view) -> None:
+        super().__init__()
+        self._view_args = view
+
     def compose(self) -> ComposeResult:
-        yield TasksView(back=True, id="tasks_view")
+        yield TasksView(back=True, id="tasks_view", **self._view_args)
 
     def on_mount(self) -> None:
         self.query_one("#tasks_table").focus()

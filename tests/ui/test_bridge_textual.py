@@ -39,7 +39,6 @@ from textual import events  # noqa: E402
 from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
 from ocp.ui.pages.account import AccountPage  # noqa: E402
 from ocp.ui.pages.home import HomePage  # noqa: E402
-from ocp.ui.pages.task_checks import TaskChecks  # noqa: E402
 from textual.widgets import DataTable, Static  # noqa: E402
 
 PASS: list[str] = []
@@ -1026,139 +1025,28 @@ async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
               list(view.query_one("#f_agent", Select)._options) == opts)
 
 
-async def test_task_checks_lists_and_acts_on_the_founders_own() -> None:
-    """Task #72 (founder #2154/#2155): the bridge's own 'done - waiting for
-    check' list (#71), reached with `b` from the dashboard - only the tasks
-    the founder is the asker of (`actions.task_asker`, the bridge always
-    acting as `actions.HUMAN`), never a task someone else opened and asks
-    for themselves. `c` closes the row under the cursor, `r` reopens it with
-    a typed one-line reason, and space + `C` close several at once."""
+async def test_b_opens_the_tasks_screen_on_the_founders_done_tasks() -> None:
+    from ocp.ui.pages.tasks import TasksScreen
     _home("checks")
+    agents.register("reviewer")
     con = db.connect()
     try:
-        t_mine = db.new_task(con, "manager's own", "worker", "manager")
-        t_founder1 = db.new_task(con, "founder's first", "worker", "manager")
-        t_founder2 = db.new_task(con, "founder's second", "worker", "manager")
-        t_open = db.new_task(con, "not done yet", "worker", "manager")
-        r1 = db.add_request(con, actions.HUMAN, "manager", "please", None, None, None, None, 0, None)
-        db.link_request(con, t_founder1, r1)
-        r2 = db.add_request(con, actions.HUMAN, "manager", "please too", None, None, None, None, 0, None)
-        db.link_request(con, t_founder2, r2)
-        db.mark_task_done(con, t_mine, "shipped it")
-        db.mark_task_done(con, t_founder1, "shipped that too")
-        db.mark_task_done(con, t_founder2, "and this")
+        mine = db.new_task(con, "founder's done", "worker", actions.HUMAN)
+        theirs = db.new_task(con, "someone else's done", "worker", "orcapipe")
+        for t in (mine, theirs):
+            con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (t,))
+        con.commit()
     finally:
         con.close()
-
     app = bt.BridgeApp()
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
         await pilot.press("b")
-        await pilot.pause()
+        await pilot.pause(0.3)
         screen = app.screen
-        check("checks: b opens the screen from the dashboard",
-              isinstance(screen, TaskChecks), type(screen).__name__)
-        foot = str(screen.query_one("#foot").render())
-        check("checks: the guide is one line and ends with ?",
-              "\n" not in foot and foot.rstrip().endswith("? keys"), foot)
-        await pilot.press("question_mark")
-        await pilot.pause(0.2)
-        from ocp.ui.components.key_guide import KeyHelp
-        check("checks: ? opens the key box", isinstance(app.screen, KeyHelp), type(app.screen).__name__)
-        await pilot.press("escape")
-        await pilot.pause(0.2)
-        check("checks: esc closes the box and stays on the screen", isinstance(app.screen, TaskChecks),
-              type(app.screen).__name__)
-        listed = [t["id"] for t in screen.rows]
-        check("checks: the founder's own done tasks are both listed",
-              t_founder1 in listed and t_founder2 in listed, listed)
-        check("checks: not the manager's own, and not the still-open one",
-              t_mine not in listed and t_open not in listed, listed)
-
-        await pilot.press("c")
-        await pilot.pause()
-        con = db.connect()
-        try:
-            row = db.get_task(con, t_founder1)
-        finally:
-            con.close()
-        check("checks: c closes the row under the cursor",
-              row["closed_by"] == actions.HUMAN, dict(row))
-        check("checks: a closed row drops off the list",
-              t_founder1 not in [t["id"] for t in screen.rows], screen.rows)
-
-        await pilot.press("r")
-        await pilot.pause()
-        for ch in "not really done":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause()
-        con = db.connect()
-        try:
-            row = db.get_task(con, t_founder2)
-        finally:
-            con.close()
-        check("checks: r reopens the row under the cursor",
-              row["done_evidence"] is None and row["closed_by"] is None, dict(row))
-        con = db.connect()
-        try:
-            payload = con.execute(
-                "SELECT payload FROM events WHERE kind = 'reopen_task' "
-                "ORDER BY id DESC LIMIT 1").fetchone()
-        finally:
-            con.close()
-        check("checks: the typed reason is recorded, not silently dropped",
-              payload and json.loads(payload["payload"])["reason"] == "not really done", payload)
-
-
-async def test_task_checks_closes_several_checked_at_once() -> None:
-    """Founder #2154's own worry: on a day with more of these than are worth
-    doing one at a time, space marks several rows and `C` closes them all in
-    one key, not one at a time."""
-    _home("checks2")
-    con = db.connect()
-    try:
-        tids = []
-        for i in range(3):
-            tid = db.new_task(con, f"founder's #{i}", "worker", "manager")
-            rid = db.add_request(con, actions.HUMAN, "manager", "please", None, None, None,
-                                 None, 0, None)
-            db.link_request(con, tid, rid)
-            db.mark_task_done(con, tid, f"shipped {i}")
-            tids.append(tid)
-    finally:
-        con.close()
-
-    app = bt.BridgeApp()
-    async with app.run_test(size=(100, 24)) as pilot:
-        await pilot.pause()
-        await pilot.press("b")
-        await pilot.pause()
-        screen = app.screen
-
-        await pilot.press("space")
-        await pilot.press("down")
-        await pilot.press("space")
-        await pilot.press("down")
-        await pilot.press("space")
-        await pilot.press("space")             # space again: unchecks the same row
-        await pilot.pause()
-        check("checks: space toggles - two stay checked, the third toggled back off",
-              len(screen.checked) == 2, screen.checked)
-
-        await pilot.press("C")
-        await pilot.pause()
-        con = db.connect()
-        try:
-            rows = {tid: db.get_task(con, tid) for tid in tids}
-        finally:
-            con.close()
-        check("checks: both checked rows closed, the third left alone",
-              rows[tids[0]]["closed_by"] == actions.HUMAN
-              and rows[tids[1]]["closed_by"] == actions.HUMAN
-              and rows[tids[2]]["closed_by"] is None,
-              {k: v["closed_by"] for k, v in rows.items()})
-        check("checks: checked is cleared once acted on", not screen.checked, screen.checked)
+        ids = {r["id"] for r in screen.query_one("#tasks_view").rows}
+        check("checks: b opens the tasks screen on the done tasks the founder signs off",
+              isinstance(screen, TasksScreen) and mine in ids and theirs not in ids, ids)
 
 
 async def test_read_only_page_shows_foreign_text_inert() -> None:
@@ -2341,8 +2229,7 @@ async def _run_all() -> None:
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
-    await test_task_checks_lists_and_acts_on_the_founders_own()
-    await test_task_checks_closes_several_checked_at_once()
+    await test_b_opens_the_tasks_screen_on_the_founders_done_tasks()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
     await test_dashboard_messages_table_is_fed_by_messages_data()

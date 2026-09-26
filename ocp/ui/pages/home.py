@@ -29,7 +29,6 @@ from ..components.stats_view import StatsView
 from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
-from .task_checks import TaskChecks
 from .stats import StatsScreen
 from .tasks import TasksScreen
 
@@ -429,8 +428,8 @@ class HomePage(RowActions, JobsAware, Screen):
         if k == "T":     # T69: every open task - free on every panel
             self.app.push_screen(TasksScreen())
             return
-        if k == "b":     # task #72: "done - waiting for check" - free on every panel
-            self.app.push_screen(TaskChecks())
+        if k == "b":     # the founder's done tasks waiting for a sign-off - free on every panel
+            self.app.push_screen(TasksScreen(states={"done"}, closer=actions.HUMAN))
             return
         if k in tui.NEXT_ROW and self._on_bottom_row():
             return      # the last row is the end: ↓ does not wrap round to the top

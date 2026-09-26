@@ -1,8 +1,8 @@
 """ocp bridge: the Textual app the team is run from.
 
 The app opens on the home page (`ui.pages.home.HomePage`), from which Enter opens an agent's chat page
-(`chat_page.ChatPage`); the founder's "done - waiting for check" list is
-`ui.pages.task_checks.TaskChecks`. Pages draw what the data functions in `tui.py`
+(`chat_page.ChatPage`); the founder's tasks
+are `ui.pages.tasks.TasksScreen`. Pages draw what the data functions in `tui.py`
 and `actions` say and decide nothing themselves, so a row or a page means the same
 here as in `ocp status` and the daemon. The widgets and modals pages share are in
 `ui.components`.

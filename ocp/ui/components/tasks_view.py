@@ -81,7 +81,8 @@ class StatePicker(ModalScreen["set[str] | None"]):
 
 
 class TasksView(Vertical):
-    """`mine` limits it to what concerns the founder; `f` steps through the owners."""
+    """`mine` limits it to what concerns the founder, `closer` to the tasks that one signs off
+    (`b`: the founder's done tasks); `f` steps through the owners."""
 
     BINDINGS = [
         Binding("space", "check", "mark"),
@@ -122,14 +123,16 @@ class TasksView(Vertical):
     HEADS = (("", "mark"), ("#", "number"), ("P", "priority"), ("state", "state"), ("title", "title"),
              ("owner", "owner"), ("idle", "idle"), ("may close", "closer"), ("blocked by", "blocked"))
 
-    def __init__(self, mine: bool = False, back: bool = False, **kw) -> None:
+    def __init__(self, mine: bool = False, back: bool = False, states: set[str] | None = None,
+                 closer: str | None = None, **kw) -> None:
         super().__init__(**kw)
         self.mine = mine
+        self.closer = closer
         self.back = back
         self.checked: set[int] = set()
         self.by = "priority"
         self.rev = False
-        self.states: set[str] = set(actions.OPEN_STATES)
+        self.states: set[str] = set(states or actions.OPEN_STATES)
         self.owner: str | None = None
         self.owners: list[str] = []
         self.rows: list[dict] = []
@@ -203,6 +206,8 @@ class TasksView(Vertical):
             con.close()
         if self.mine:
             rows = [r for r in rows if actions.task_related_to(r, actions.HUMAN)]
+        if self.closer:
+            rows = [r for r in rows if r["closer"] == self.closer]
         self.owners = sorted({r["owner"] for r in rows})
         if self.owner not in self.owners:
             self.owner = None
