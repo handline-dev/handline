@@ -310,6 +310,11 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
     return cur.rowcount > 0
 
 
+def append_verdict(con, rid: int, text: str) -> None:
+    """Add a line to the verdict of a request already closed, before its requester is told."""
+    con.execute("UPDATE requests SET verdict = verdict || ? WHERE id = ?", ("\n\n" + text, rid))
+
+
 def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None) -> bool:
     """Move a still-queued, undelivered request to a terminal state, atomically.
 
