@@ -78,8 +78,9 @@ class Driver(Protocol):
         """What on this vendor's rendered screen a typed line would answer or
         merge into, as an `orca.Blocker`, or None when its prompt is ready."""
 
-    def credential_present(self, config_dir: Path) -> bool:
-        """Whether a credential exists. Never reads or returns it."""
+    def credential_present(self, config_dir: Path) -> bool | None:
+        """Whether a credential exists. Never reads or returns it. None when
+        this process cannot tell, which is not the same as no."""
 
     def login_argv(self) -> list[str]:
         """The login a human finishes, run with `config_dir_env` set."""

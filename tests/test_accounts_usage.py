@@ -1011,6 +1011,36 @@ def test_read_claude_tells_a_dead_credential_apart_from_transient() -> None:
         usage_api._access_token_detailed, usage_api.urllib.request.urlopen = real_token, real_urlopen
 
 
+def test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(home: Path) -> None:
+    """A sandboxed agent's `security` lookup answers "not found" for an item
+    that exists. That is unknown, not "not logged in": only outside the
+    sandbox is an absent item a refusal (T213)."""
+    from ocp.vendors import claude as claude_mod
+    drv = vendors.get("claude")
+    cdir = home / "no-credentials"
+    real_run, real_env, real_platform = claude_mod.subprocess.run, dict(os.environ), sys.platform
+
+    class R:
+        returncode = 44
+
+    try:
+        claude_mod.subprocess.run = lambda *a, **k: R()
+        sys.platform = "darwin"
+        os.environ.pop("SANDBOX_RUNTIME", None)
+        check("outside the sandbox an absent keychain item is a plain no",
+              drv.credential_present(cdir) is False)
+        os.environ["SANDBOX_RUNTIME"] = "1"
+        check("inside it the same answer is unknown", drv.credential_present(cdir) is None)
+        check("and an unknown login does not refuse a launch", accounts.logged_in("alpha"))
+        R.returncode = 0
+        check("a present item is still yes in the sandbox", drv.credential_present(cdir) is True)
+    finally:
+        claude_mod.subprocess.run = real_run
+        sys.platform = real_platform
+        os.environ.clear()
+        os.environ.update(real_env)
+
+
 def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None:
     """`_access_token_detailed` (#2186's SHOULD-FIX 1): `security` exit 44 or
     a parsed item with no accessToken is the credential genuinely gone; every
@@ -5670,6 +5700,7 @@ def main() -> int:
         run(lambda: test_usage_api_reads_a_window_nothing_has_been_spent_in())
         run(lambda: test_read_claude_tells_a_dead_credential_apart_from_transient())
         run(lambda: test_access_token_detailed_tells_missing_apart_from_could_not_read())
+        run(lambda: test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(Path(td) / 'sbxlogin'))
         run(lambda: test_the_zai_meter_reads_the_plan_and_hides_its_key(Path(td) / 'zaimeter'))
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))
         run(lambda: test_usage_recover_is_a_per_account_switch(Path(td) / 'recoverswitch'))

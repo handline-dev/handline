@@ -187,12 +187,13 @@ def logged_in(acct: str) -> bool:
     """Whether this account has credentials, as its driver's
     `credential_present` answers: a file's existence for claude, a run of
     `opencode auth list` (about 0.6s) for opencode. An account whose vendor
-    has no driver cannot be driven, so it is not."""
+    has no driver cannot be driven, so it is not. Only a confirmed absence
+    is "not logged in": a driver that cannot tell (None) is not a refusal."""
     try:
         drv = vendors.for_account(acct)
     except vendors.UnknownVendor:
         return False
-    return drv.credential_present(vendors.config_dir(acct))
+    return drv.credential_present(vendors.config_dir(acct)) is not False
 
 
 def login_command(acct: str) -> str:
