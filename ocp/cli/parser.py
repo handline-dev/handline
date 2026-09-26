@@ -8,6 +8,7 @@ from ..team import agents
 from ..team import team
 
 from .account import cmd_account_add, cmd_account_cap, cmd_account_list, cmd_account_recover, cmd_account_register, cmd_account_remove
+from .memory import cmd_memory_migrate, cmd_memory_status
 from .agent import cmd_agent_list, cmd_agent_move, cmd_agent_register, cmd_agent_show, cmd_base_promote, cmd_command, cmd_handoff_write, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
 from .ask import WAIT_DEFAULT_S, cmd_ask, cmd_cancel, cmd_digest, cmd_dismiss, cmd_handoff, cmd_inbox, cmd_read, cmd_resolve, cmd_withdraw
 from .bridge import cmd_bridge
@@ -456,6 +457,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--item", required=True)
     p.add_argument("--force", action="store_true", help="accept going over budget")
     p.set_defaults(fn=cmd_base_promote)
+
+    ms = sub.add_parser("memory", help="per-agent memory against its budget").add_subparsers(
+        dest="sub", required=True)
+    p = ms.add_parser("status", help="bytes and entries against budget, files not indexed "
+                      "or unused for 28 days")
+    p.add_argument("agent", nargs="?")
+    p.set_defaults(fn=cmd_memory_status)
+    p = ms.add_parser("migrate", help="move shared/memory topic files to their owners "
+                      "(dry run unless --apply)")
+    p.add_argument("--apply", action="store_true")
+    p.set_defaults(fn=cmd_memory_migrate)
 
     p = sub.add_parser("progress", help="keep a note of what is done and what is left on "
                        "your request in progress (no note shows it; '' clears it)")

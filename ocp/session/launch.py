@@ -411,6 +411,7 @@ def _static_preamble(agent: str) -> str:
             text = p.read_text().strip()
             if text:
                 parts.append(f"# Your {label} ({fn})\n{text}")
+    parts.extend(_team_rules(agent))
     return "\n\n".join(parts)
 
 
@@ -431,6 +432,16 @@ def _waiting_handoff(agent: str) -> str | None:
         return db.get_handoff(con, agent)
     finally:
         con.close()
+
+
+def _team_rules(agent: str) -> list[str]:
+    """The shared/team/<team>.md of each team this agent is in, beside base.md."""
+    from .. import actions  # actions -> daemon -> launch
+    from ..team import memory
+
+    t = actions.routing()
+    return [f"# Rules for team {team}\n{text}"
+            for team, text in memory.team_layers(agent, t.teams if t else {})]
 
 
 def _your_team(agent: str) -> str:
