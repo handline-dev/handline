@@ -1231,12 +1231,6 @@ def test_an_account_records_its_vendor(home: Path) -> None:
             check("vendor record: an account's vendor is not changed under it",
                   "already a zai account" in str(e) and vendors.account_vendor("zeta") == "zai",
                   str(e))
-        mem = paths.account_dir("alpha") / ".claude" / "projects" / "-w" / "memory"
-        mem.mkdir(parents=True)
-        (mem / "MEMORY.md").write_text("- a fact\n")
-        check("vendor record: memory is not carried to another vendor's account",
-              accounts.migrate_memory("alpha", "zeta") == []
-              and not (vendors.config_dir("zeta") / "sessions").exists())
         (paths.account_dir("zeta") / "vendor").write_text("")
         check("vendor record: an empty record names no vendor, so the account is not usable",
               not accounts.logged_in("zeta") and status.pick_account(["zeta"], bootstrap=True)[0] is None)
@@ -1540,8 +1534,6 @@ def test_the_opencode_driver(home: Path) -> None:
         mem = paths.account_dir("alpha") / ".claude" / "projects" / "-tmp-a-b"
         (mem / "memory").mkdir(parents=True)
         (mem / "sess1.jsonl").write_text(_call_line("req_alpha", 10))
-        check("opencode: memory moves between two of its accounts carry nothing",
-              accounts.migrate_memory("zai", "zai2") == [])
         check("opencode: a transcript is still found on claude's account past it",
               handoffmod.find_transcript("sess1", "zai") == mem / "sess1.jsonl",
               str(handoffmod.find_transcript("sess1", "zai")))

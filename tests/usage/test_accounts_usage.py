@@ -2527,128 +2527,10 @@ def test_carry_bounds_and_losses(home: Path) -> None:
           t.kind != "usage_unknown", t.reason)
 
 
-def test_migrate_memory_carries_projects_between_accounts(home: Path) -> None:
-    """Claude Code's own memory - not ocp's - lives under the account's config
-    dir, keyed by project, so a move to another account has to carry it."""
-    os.environ["OCP_HOME"] = str(home)
-    src = home / "accounts" / "alpha" / ".claude" / "projects" / "-Users-x-orcapipe" / "memory"
-    src.mkdir(parents=True)
-    (src / "MEMORY.md").write_text("- [a fact](a.md) - a hook\n")
-    (src / "a.md").write_text("---\nname: a\n---\nsome fact\n")
-    # Never in reach of the glob this walks - the guard belongs here anyway,
-    # as the one thing this function must never carry.
-    (home / "accounts" / "alpha" / ".claude" / ".credentials.json").write_text("{shh}")
-
-    carried = accounts.migrate_memory("alpha", "beta")
-    check("migrate_memory: names the project it carried",
-          carried == ["-Users-x-orcapipe"], str(carried))
-    dst = home / "accounts" / "beta" / ".claude" / "projects" / "-Users-x-orcapipe" / "memory"
-    check("migrate_memory: the memory file is copied",
-          (dst / "a.md").read_text() == (src / "a.md").read_text())
-    check("migrate_memory: MEMORY.md is copied too", (dst / "MEMORY.md").exists())
-    check("migrate_memory: never touches a credential file",
-          not (home / "accounts" / "beta" / ".claude" / ".credentials.json").exists())
-
-    # Migrating twice, or onto an account that has since learned something of
-    # its own, must not clobber either side.
-    (dst / "a.md").write_text("beta's own version, learned independently\n")
-    (src / "b.md").write_text("a second fact, only ever on alpha\n")
-    accounts.migrate_memory("alpha", "beta")
-    check("migrate_memory: never overwrites what the destination already has",
-          "independently" in (dst / "a.md").read_text())
-    check("migrate_memory: but still carries what the destination is missing",
-          (dst / "b.md").exists())
-
-    check("migrate_memory: nothing to carry from an account with no projects dir",
-          accounts.migrate_memory("never-existed", "also-never-existed") == [])
-
-
-def test_migrate_memory_merges_the_index_and_stays_in_scope(home: Path) -> None:
-    os.environ["OCP_HOME"] = str(home)
-    proj = "-Users-x-orcapipe"
-    root = lambda a: home / "accounts" / a / ".claude" / "projects"  # noqa: E731
-    src, dst = root("alpha") / proj / "memory", root("beta") / proj / "memory"
-    src.mkdir(parents=True)
-    dst.mkdir(parents=True)
-    (dst / "MEMORY.md").write_text("- [old](old.md) - beta's\n")
-    (dst / "old.md").write_text("beta's fact\n")
-    (src / "MEMORY.md").write_text("- [new](new.md) - alpha's\n- [old](old.md) - beta's\n")
-    (src / "new.md").write_text("alpha's fact\n")
-    # The source's index is the newer file, which must not let it replace the
-    # destination's: a memory file that drops out of the index is never loaded.
-    os.utime(dst / "MEMORY.md", (1, 1))
-    accounts.migrate_memory("alpha", "beta", project=proj)
-    index = (dst / "MEMORY.md").read_text().splitlines()
-    check("migrate_memory: the index keeps the destination's lines and gains the source's",
-          index == ["- [old](old.md) - beta's", "- [new](new.md) - alpha's"], str(index))
-
-    # The same file indexed under two descriptions is one entry, from the side
-    # whose file wins the copy.
-    (src / "both.md").write_text("alpha's newer text\n")
-    (dst / "both.md").write_text("beta's older text\n")
-    os.utime(dst / "both.md", (1, 1))
-    os.utime(src / "both.md", (9, 9))
-    (dst / "MEMORY.md").write_text((dst / "MEMORY.md").read_text() + "- [both](both.md) - beta's take\n")
-    (src / "MEMORY.md").write_text((src / "MEMORY.md").read_text() + "- [both](both.md) - alpha's take\n")
-    accounts.migrate_memory("alpha", "beta", project=proj)
-    both = [ln for ln in (dst / "MEMORY.md").read_text().splitlines() if "(both.md)" in ln]
-    check("migrate_memory: one index entry per file, the winning side's description",
-          both == ["- [both](both.md) - alpha's take"], str(both))
-    os.utime(src / "both.md", (0, 0))
-    (dst / "MEMORY.md").write_text((dst / "MEMORY.md").read_text().replace("alpha's take", "beta's take"))
-    accounts.migrate_memory("alpha", "beta", project=proj)
-    both = [ln for ln in (dst / "MEMORY.md").read_text().splitlines() if "(both.md)" in ln]
-    check("migrate_memory: and the destination's when its file is the newer one",
-          both == ["- [both](both.md) - beta's take"], str(both))
-
-    # Files whose names sort before "MEMORY.md" are copied no later than it:
-    # the index must still be judged on the mtimes from before any copy.
-    for name in ("Alpha.md", "2fa.md"):
-        (src / name).write_text("alpha's newer text\n")
-        (dst / name).write_text("beta's older text\n")
-        os.utime(dst / name, (1, 1))
-        os.utime(src / name, (9, 9))
-        link = name[:-3]
-        (dst / "MEMORY.md").write_text((dst / "MEMORY.md").read_text() + f"- [{link}]({name}) - beta's take\n")
-        (src / "MEMORY.md").write_text((src / "MEMORY.md").read_text() + f"- [{link}]({name}) - alpha's take\n")
-    accounts.migrate_memory("alpha", "beta", project=proj)
-    for name in ("Alpha.md", "2fa.md"):
-        got = [ln for ln in (dst / "MEMORY.md").read_text().splitlines() if f"({name})" in ln]
-        check(f"migrate_memory: the newer description wins for {name}, whatever it sorts as",
-              got == [f"- [{name[:-3]}]({name}) - alpha's take"], str(got))
-
-    # Newest wins for an ordinary file, in both directions.
-    os.utime(src / "new.md", (1, 1))
-    (dst / "new.md").write_text("beta edited this later\n")
-    accounts.migrate_memory("alpha", "beta", project=proj)
-    check("migrate_memory: a newer destination file is not replaced by an older source one",
-          "later" in (dst / "new.md").read_text())
-    os.utime(dst / "new.md", (1, 1))
-    os.utime(src / "new.md", (5, 5))
-    accounts.migrate_memory("alpha", "beta", project=proj)
-    check("migrate_memory: a newer source file replaces an older destination one",
-          (dst / "new.md").read_text() == "alpha's fact\n")
-
-    # Only the named project moves, and a symlink is never followed.
-    other = root("alpha") / "-Users-x-other" / "memory"
-    other.mkdir(parents=True)
-    (other / "n.md").write_text("another repo's fact\n")
-    (src / "link.md").symlink_to(home / "accounts" / "alpha" / "status.json")
-    (home / "accounts" / "alpha" / "status.json").write_text("{}")
-    accounts.migrate_memory("alpha", "beta", project=proj)
-    check("migrate_memory: another repo's memory stays where it was",
-          not (root("beta") / "-Users-x-other").exists())
-    check("migrate_memory: a symlinked file is not carried", not (dst / "link.md").exists())
-
-    check("memory_project_dir: '/' and '.' and '_' all map to '-'",
-          accounts.memory_project_dir("alpha", "/Users/ron/work/my.repo_x") == "-Users-ron-work-my-repo-x",
-          accounts.memory_project_dir("alpha", "/Users/ron/work/my.repo_x"))
-
-
-def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> None:
-    """The single choke point every launch passes through - a daemon wake, a
-    move to room elsewhere, a human typing `ocp launch` by hand - is where
-    this has to happen once, rather than in each of those separately."""
+def test_an_account_change_and_a_new_account_leave_project_memory_alone(home: Path) -> None:
+    """Memory is per agent now (`ocp memory`), so neither a launch that lands on
+    another account nor `register` moves, links or logs anything of the old
+    repo-keyed project memory."""
     os.environ["OCP_HOME"] = str(home)
     agents.register("mover")
     con = db.connect()
@@ -2659,57 +2541,21 @@ def test_record_terminal_migrates_memory_on_an_account_change(home: Path) -> Non
         (mem / "note.md").write_text("learned on alpha\n")
 
         launch._record_terminal("mover", "beta")
-        check("record_terminal: carries memory when the landing account changes",
-              (home / "accounts" / "beta" / ".claude" / "projects"
-               / "-x" / "memory" / "note.md").exists())
-        check("record_terminal: and records the new account",
+        check("record_terminal: still records the new account",
               agents.current_account("mover", con) == "beta",
               agents.current_account("mover", con))
-
-        # A second launch on the same account it is already on has nothing to
-        # carry - and nothing new appears if a stray file did somehow show up
-        # after the fact, which would say this fires on every launch rather
-        # than only on a change.
-        (mem / "late.md").write_text("written to alpha after the move\n")
-        launch._record_terminal("mover", "beta")
-        check("record_terminal: no migration when the account has not changed",
-              not (home / "accounts" / "beta" / ".claude" / "projects"
-                   / "-x" / "memory" / "late.md").exists())
+        check("record_terminal: carries no memory to the landing account",
+              not (home / "accounts" / "beta" / ".claude" / "projects" / "-x").exists())
+        check("record_terminal: logs no memory_migrated event",
+              not con.execute("SELECT 1 FROM events WHERE kind = 'memory_migrated'").fetchone())
+        check("record_terminal: the old account's memory is untouched",
+              mem.is_dir() and not mem.is_symlink() and (mem / "note.md").exists())
     finally:
         con.close()
-
-
-def test_memory_is_one_folder_per_project_shared_by_every_account(home: Path) -> None:
-    """T74: each account kept its own copy of a project's memory, and the copies
-    drifted. share_memory merges them into shared/ and links each account."""
-    os.environ["OCP_HOME"] = str(home)
-    proj = "-Users-x-orcapipe"
-    mems = {a: home / "accounts" / a / ".claude" / "projects" / proj / "memory"
-            for a in ("alpha", "beta")}
-    for a, m in mems.items():
-        m.mkdir(parents=True)
-        (m / f"{a}.md").write_text(f"only on {a}\n")
-    shared = home / "shared" / "memory" / "claude" / proj
-    check("share: links the project's folder",
-          accounts.share_memory("alpha", "/Users/x/orcapipe") == [proj])
-    check("share: the account's memory is now the shared folder",
-          mems["alpha"].is_symlink() and mems["alpha"].resolve() == shared.resolve())
-    check("share: its own notes are in the shared folder", (shared / "alpha.md").exists())
-    check("share: the old folder is kept aside, not deleted",
-          (mems["alpha"].parent / "memory.before-shared" / "alpha.md").exists())
-    accounts.share_memory("beta")
-    check("share: another account's notes join it and it links the same folder",
-          (shared / "beta.md").exists() and mems["beta"].resolve() == shared.resolve())
-    check("share: a note written through one account shows through the other",
-          (mems["alpha"] / "beta.md").exists() and (mems["beta"] / "alpha.md").exists())
-    check("share: again changes nothing",
-          accounts.share_memory("alpha", "/Users/x/orcapipe") == [])
     accounts.register("gamma")
-    gamma = home / "accounts" / "gamma" / ".claude" / "projects" / proj / "memory"
-    check("share: a new account is linked to every shared project",
-          gamma.is_symlink() and gamma.resolve() == shared.resolve())
-    check("share: migrate_memory has nothing to carry between linked accounts",
-          accounts.migrate_memory("alpha", "beta") == [])
+    check("register: links no project memory to shared/",
+          not (home / "shared" / "memory").exists()
+          and not (home / "accounts" / "gamma" / ".claude" / "projects").exists())
 
 
 def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
@@ -2985,7 +2831,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "cold_start", "dialog_declined", "edit_task", "background_work_ended",
                     "block_task", "unblock_task", "task_unblocked", "queue_task", "draft_task",
                     "fold", "fold_failed",
-                    "forced_move", "handoff", "memory_migrated", "moved_account", "nudged",
+                    "forced_move", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
                     "SessionEnd", "timebox_exceeded", "unasked_running", "stale_background",
@@ -5926,10 +5772,7 @@ def main() -> int:
             Path(td) / 'newacct'))
         run(lambda: test_status_edge_cases(Path(td) / 'se'))
         run(lambda: test_carry_bounds_and_losses(Path(td) / 'carry'))
-        run(lambda: test_migrate_memory_carries_projects_between_accounts(Path(td) / 'memmig'))
-        run(lambda: test_migrate_memory_merges_the_index_and_stays_in_scope(Path(td) / 'memmerge'))
-        run(lambda: test_record_terminal_migrates_memory_on_an_account_change(Path(td) / 'memrec'))
-        run(lambda: test_memory_is_one_folder_per_project_shared_by_every_account(Path(td) / 'memshare'))
+        run(lambda: test_an_account_change_and_a_new_account_leave_project_memory_alone(Path(td) / 'memshare'))
         run(lambda: test_unobserved_spend_stays_off_unreadable_accounts(Path(td) / 'spend'))
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
