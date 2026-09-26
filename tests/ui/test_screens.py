@@ -3043,7 +3043,7 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
         check("map: a PARKED requester on its own async ask is IDLE, with who it waits for",
               state(state=dmn_states.PARKED, wake_at=wake,
                    detail=askmod.await_reply_detail(1627, "keeper"))
-              == ("IDLE", "#1627 keeper"))
+              == ("IDLE", "waiting for keeper's reply (#1627)"))
         check("map: FATAL is today's STALLED, with its own detail",
               state(state=dmn_states.STALLED, detail="ran out of attempts")
               == ("FATAL", "ran out of attempts"))
