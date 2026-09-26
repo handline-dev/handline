@@ -192,9 +192,16 @@ class Driver(Protocol):
 
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
                     mcp: list[str], preamble: str | None,
-                    hide: list[str] | None = None) -> list[str]:
+                    hide: list[str] | None = None,
+                    memory_dir: Path | None = None) -> list[str]:
         """argv for one session, before any caller-supplied extras. `hide` is
-        paths the session may not read."""
+        paths the session may not read; `memory_dir` is the folder the session
+        keeps its own memory in (`memory_settings`)."""
+
+    def memory_settings(self, memory_dir: Path) -> dict:
+        """The settings that point this vendor's auto-memory at `memory_dir`
+        (an absolute path), so a session keeps its memory per agent rather than
+        per repo. Empty for a vendor with no auto-memory."""
 
     def skip_permissions_argv(self) -> list[str]:
         """argv that makes this vendor's session stop asking before it acts,

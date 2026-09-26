@@ -191,6 +191,31 @@ def _worktree_lines(worktree: str | None) -> tuple[list[str], str | None]:
     return lines, None
 
 
+def memory_line(agent: str) -> str:
+    """One line for the agent's next session when its memory needs tending -
+    over budget, files the index does not list, files unused for a month - and
+    "" when it does not. Never an edit: the agent merges or deletes, and ocp
+    only says what it found (`team/memory.py`)."""
+    try:
+        from ..team import memory  # core's
+        st = memory.status(agent)
+    except Exception:  # noqa: BLE001 - a memory that cannot be read is not worth a handoff
+        return ""
+    over, unindexed, stale = bool(st.get("over")), list(st.get("unindexed") or []), list(st.get("stale") or [])
+    if not (over or unindexed or stale):
+        return ""
+    parts = [f"memory: index {st.get('bytes')}/{memory.INDEX_BYTES} bytes, "
+             f"{st.get('entries')}/{memory.INDEX_ENTRIES} entries"
+             + (" - over budget, so writes that grow it are refused until you merge or delete entries"
+                if over else "")]
+    if unindexed:
+        parts.append(f"not in the index (never loaded): {', '.join(unindexed[:6])}")
+    if stale:
+        parts.append(f"unused for {memory.STALE_DAYS}+ days: {', '.join(stale[:6])}")
+    parts.append("merge, promote or delete these before you finish")
+    return "; ".join(parts)
+
+
 def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, list[str]]:
     """The record, and what could not be read for it (empty when it is whole).
 
@@ -200,6 +225,8 @@ def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, li
     worktree = spawnmod.worktree_path(row["worktree"] if row else None)
     lines = [f"# handoff · {agent}", f"captured: {time.strftime('%Y-%m-%d %H:%M:%S')}",
              _request_line(con, agent), *_progress_lines(con, agent)]
+    if note := memory_line(agent):
+        lines.append(note)
     missing: list[str] = []
     for got, gap in (_session_lines(con, agent, agents.current_account(agent, con), closed_session),
                      _worktree_lines(worktree)):

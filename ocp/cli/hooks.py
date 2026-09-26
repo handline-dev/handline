@@ -65,7 +65,7 @@ def cmd_hook_install(args) -> int:
     exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
     added, pruned = [], 0
     for h in vendors.state_hooks():
-        a, p = h.install(exe, events.CAPTURED | events.ANSWERS)
+        a, p = h.install(exe, events.CAPTURED | events.ANSWERS | events.GUARDS)
         added += a
         pruned += p
     msg = []
