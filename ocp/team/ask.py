@@ -701,8 +701,11 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
-        from . import hr
-        pid = hr.open_proposal_of(rid) if row["state"] == "queued" else None
+        from . import hr, trust
+        proposal = None
+        if row["state"] == "queued":
+            proposal = next(((m, i) for m, i in ((hr, hr.open_proposal_of(rid)),
+                                                 (trust, trust.open_proposal_of(rid))) if i), None)
         if open_tasks is not None:
             con.execute("BEGIN IMMEDIATE")
         try:
@@ -730,26 +733,33 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
                 # here.
                 return False, f"#{rid} was not resolved - it is still queued"
             return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
-        applied = _apply_approved(con, row, pid, verdict) if pid else ""
+        applied = _apply_answered(con, row, *proposal, verdict) if proposal else ""
         return True, (applied + "\n" if applied else "") + _after_close(con, rid, row, state, notify)
     finally:
         con.close()
 
 
-def _apply_approved(con, row, pid: str, verdict: str | None) -> str:
-    """The founder approved roster proposal `pid`: carry it out now, and put
-    the outcome on the answer the proposer is about to be told. A failed apply
-    is also reported to the founder; the proposal stays `proposed` so
-    `ocp hr apply` or `ocp hr withdraw` can still settle it."""
-    from . import hr
+def _apply_answered(con, row, mod, pid: str, verdict: str | None) -> str:
+    """The founder answered roster or trust proposal `pid` (`mod` is `hr` or
+    `trust`). An approve is carried out now, and the outcome goes on the answer
+    the proposer is about to be told; a failed apply is also reported to the
+    founder, and the proposal stays `proposed` so `apply` or `withdraw` can
+    still settle it. A reject is only recorded on the proposal's file."""
+    from . import hr, trust
 
-    if hr.decision(verdict) != "approved":
+    call = hr.decision(verdict)
+    if call == "rejected":
+        mod.apply(pid, con)
         return ""
-    ok, said = hr.apply(pid, con)
+    if call != "approved":
+        return ""
+    ok, said = mod.apply(pid, con)
+    kind = "trust" if mod is trust else "hr"
     line = f"proposal {pid} " + ("applied: " if ok else "could not be applied: ") + said
     db.append_verdict(con, row["id"], line)
     if not ok:
         report(con, row["requester"], f"{line}\nThe proposal is still open; "
-               f"`ocp hr apply {pid}` retries it, `ocp hr withdraw {pid}` drops it.",
-               "roster proposal approved, apply failed")
+               f"`ocp {kind} apply {pid}` retries it"
+               + (f", `ocp hr withdraw {pid}` drops it." if kind == "hr" else "."),
+               "proposal approved, apply failed")
     return line

@@ -29,7 +29,7 @@ def open_proposals(con) -> list[dict]:
     fields plus `rid` and `asked` (the request's id and time) and `status`.
     DECIDE is one whose escalation is still queued; STRANDED is one closed with a
     reply that is neither approve nor reject (`reply` holds it), which only a
-    withdraw can end. One approved or rejected is out: it waits on the proposer."""
+    withdraw can end. One approved or rejected is out: an approve is applied at once, a reject recorded."""
     out = []
     for prop in hr.listing():
         if prop.get("state") != "proposed":

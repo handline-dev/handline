@@ -5704,7 +5704,8 @@ def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: P
         check("states: the owner cannot queue its own task", not ok and "manager" in msg, msg)
         opened = db.new_task(con, "u", "manager", "worker")
         ok, msg = actions.set_queued(con, opened, "worker", True)
-        check("states: an opener that is not the owner's manager cannot queue it", not ok, msg)
+        check("states: an opener that is not the owner's manager cannot queue it",
+              not ok and "manager" in msg, msg)
         ok, msg = actions.set_queued(con, t, "manager", True)
         check("states: the owner's manager queues it", ok and st() == "queued", msg)
         check("states: queuing twice is refused", not actions.set_queued(con, t, "manager", True)[0])

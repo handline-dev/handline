@@ -18,7 +18,10 @@ from __future__ import annotations
 
 # Pattern in the model id -> USD per million input tokens, most specific first.
 INPUT_PRICE = {
-    "fable": 10.0,        # Fable 5, 5.1 (and Mythos)
+    "fable-5-1": 10.0,    # Fable 5.1
+    "mythos-5-1": 10.0,   # Mythos 5.1, the Fable 5.1 price
+    "fable": 10.0,        # Fable 5
+    "mythos": 10.0,       # Mythos 5
     "opus-5-5": 4.0,
     "opus": 5.0,          # Opus 5, 4.x
     "sonnet-5": 2.0,
@@ -28,8 +31,10 @@ INPUT_PRICE = {
 DEFAULT = "sonnet"
 
 # A cache read as a multiple of the input price, where it is not 0.1x: Opus 5.5
-# reads at $0.20 of its $4, Fable 5.1 at $0.25 of its $10.
-CACHE_READ = {"opus-5-5": 0.05, "fable": 0.025}
+# reads at $0.20 of its $4, Fable 5.1 and Mythos 5.1 at $0.25 of their $10. Fable 5
+# and Mythos 5 read at the usual 0.1x (the claude-api reference gives $0.25 as new
+# with 5.1).
+CACHE_READ = {"opus-5-5": 0.05, "fable-5-1": 0.025, "mythos-5-1": 0.025}
 
 # Each kind's price as a multiple of the model's input price. Thinking is
 # billed as output, and is part of `out` in the log (`output_tokens_details`):

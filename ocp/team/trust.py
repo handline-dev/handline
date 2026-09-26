@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import ask as askmod, hr
 from .. import db
-from ..infra import atomic, paths
+from ..infra import atomic, paths, textsafe
 from ..infra.yamlcompat import dump, load
 
 # JSON, not yamlcompat: this file is a list of maps, and the bundled parser -
@@ -94,6 +94,14 @@ def _save_proposal(prop: dict) -> None:
     atomic.write_text(p, dump(prop))
 
 
+def open_proposal_of(rid: int) -> str | None:
+    """The id of the trust proposal still waiting on an answer whose escalation is request `rid`."""
+    for p in listing():
+        if p.get("state") == "proposed" and int(p.get("request") or 0) == rid:
+            return p["id"]
+    return None
+
+
 def listing() -> list[dict]:
     out = []
     for f in sorted(_proposal_dir().glob("*.yaml")):
@@ -118,7 +126,7 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
     prop["request"] = rid
     _save_proposal(prop)
     return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
-                  f"founder answers it; then `ocp trust apply {prop['id']}`.")
+                  f"founder answers it; an approve is applied then, and you are told how it went.")
 
 
 def _root_read(body: str | None, requester: str) -> str | None:
@@ -168,7 +176,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         call = hr.decision(verdict)
         if call == "rejected":
             prop["state"] = "rejected"
-            prop["verdict"] = verdict
+            prop["verdict"] = textsafe.oneline(verdict or "")
             _save_proposal(prop)
             return False, f"proposal {pid} was rejected: {(verdict or '').strip()[:120]}"
         if call != "approved":
@@ -189,7 +197,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         _save(rows)
         prop["state"] = "applied"
         prop["applied"] = int(time.time())
-        prop["verdict"] = verdict
+        prop["verdict"] = textsafe.oneline(verdict or "")
         _save_proposal(prop)
         return True, f"{prop['root']} is now a declared root"
     finally:
