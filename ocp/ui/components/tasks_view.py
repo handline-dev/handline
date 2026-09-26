@@ -375,7 +375,7 @@ class TasksView(Vertical):
     def action_act(self, verb: str) -> None:
         self.run_worker(self._act(verb), exclusive=True, group="tasks_act")
 
-    def _confirm(self, verb: str, tids: list[int], arg: str) -> Confirm:
+    def _confirm(self, verb: str, tids: list[int], arg: str, keep: int | None = None) -> Confirm:
         by_id = {r["id"]: r for r in self.rows}
         if verb == "merge":
             tids = [t for t in tids if t != self.rows[self.cur]["id"]]
@@ -385,7 +385,7 @@ class TasksView(Vertical):
             lines.append(f"... and {len(tids) - 8} more")
         what = {"close": "Close", "discard": "Discard", "owner": "Change the owner of",
                 "priority": "Set the priority of", "merge": "Merge"}[verb]
-        into = f" into {actions.task_ref(self.rows[self.cur]['id'])}" if verb == "merge" else ""
+        into = f" into {actions.task_ref(keep)}" if verb == "merge" else ""
         with_arg = f"\n{textsafe.oneline(arg)}" if arg else ""
         return Confirm(f"{what} {len(tids)} task{'s' if len(tids) != 1 else ''}{into}?",
                        "\n".join(lines) + with_arg, yes=what.split()[0], danger=verb in ("close", "discard", "merge"))
@@ -402,24 +402,20 @@ class TasksView(Vertical):
                 self.notify("left alone")
                 return
 
-        def merge_row_gone() -> bool:
-            # a background refresh can empty or reorder self.rows while the modals above
-            # are open, so the row under the cursor is checked again right before use.
-            return verb == "merge" and self.cur >= len(self.rows)
-
-        if merge_row_gone():
-            self.notify("no row under the cursor to merge into", severity="warning")
-            return
-        if not await self.app.push_screen_wait(self._confirm(verb, tids, arg)):
+        # a background refresh can reorder or empty self.rows while the modals are open, so the
+        # merge target is fixed here and the Confirm names that same task.
+        keep = None
+        if verb == "merge":
+            if self.cur >= len(self.rows):
+                self.notify("no row under the cursor to merge into", severity="warning")
+                return
+            keep = self.rows[self.cur]["id"]
+        if not await self.app.push_screen_wait(self._confirm(verb, tids, arg, keep)):
             self.notify("left alone")
-            return
-        if merge_row_gone():
-            self.notify("no row under the cursor to merge into", severity="warning")
             return
         con = db.connect()
         try:
             if verb == "merge":
-                keep = self.rows[self.cur]["id"]
                 ok, msg = actions.merge_tasks(con, keep, [t for t in tids if t != keep], actions.HUMAN)
                 results = [(keep, ok, msg)]
             else:

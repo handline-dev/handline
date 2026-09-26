@@ -1634,8 +1634,45 @@ async def test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone() -
         check("mergerace: no crash - the app is still on the tasks screen", app.screen is not None
               and not isinstance(app.screen, Confirm), type(app.screen).__name__)
         check("mergerace: refused with a plain reason instead",
-              any("no row under the cursor" in n.message for n in app._notifications),
+              any("closed" in n.message for n in app._notifications),
               [n.message for n in app._notifications])
+
+
+async def test_merge_lands_in_the_task_the_confirm_named_after_a_reorder() -> None:
+    """A refresh under the open Confirm moves another task under the cursor; the merge still
+    goes into the task the modal named."""
+    from ocp.ui.components.tasks_view import TasksView
+    from ocp.ui.components.confirm import Confirm
+    _home("mergereorder")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "keep", "worker", "manager")
+        b = db.new_task(con, "fold", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        view = app.screen.query_one("#tasks_view", TasksView)
+        await pilot.press("space", "down", "space")
+        await pilot.pause()
+        named = view.rows[view.cur]["id"]
+        await pilot.press("m")
+        await pilot.pause(0.2)
+        check("mergereorder: merge asks first", isinstance(app.screen, Confirm), type(app.screen).__name__)
+        view.rows.reverse()      # what a refresh that reorders would leave under the cursor
+        await pilot.press("y")
+        await pilot.pause(0.2)
+        con = db.connect()
+        try:
+            other = a if named == b else b
+            states = {t: db.get_task(con, t)["closed_by"] for t in (a, b)}
+        finally:
+            con.close()
+        check("mergereorder: the named task kept, the other one folded",
+              not states[named] and states[other], str(states))
 
 
 async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
@@ -1830,6 +1867,29 @@ def test_a_delivery_changes_the_chat_signature() -> None:
               cp.signature(con, "reviewer", True) != before)
     finally:
         con.close()
+
+
+def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
+    """T186: send-now, cancel and send report through toasts, not the sub-title."""
+    from ocp.ui import chat_page as cp
+
+    class Stub:
+        is_attached = True
+        toasts: list = []
+        notify = lambda self, text, **kw: self.toasts.append((text, kw["severity"]))
+        _toast = cp.ChatPage._toast
+        refresh_conversation = lambda self, force=False: None
+        _restore = lambda self, body: None
+        query_one = lambda self, *a: type("B", (), {"text": "x"})()
+
+    s = Stub()
+    cp.ChatPage._sent_now(s, "not sent - busy")
+    cp.ChatPage._sent_now(s, "sent")
+    cp.ChatPage._cancelled(s, "not cancelled - gone", "b")
+    cp.ChatPage._cancelled(s, "cancelled", "b")
+    check("toast: refusals are errors, successes information",
+          s.toasts == [("not sent - busy", "error"), ("sent", "information"),
+                       ("not cancelled - gone", "error"), ("cancelled", "information")], str(s.toasts))
 
 
 def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
@@ -2745,6 +2805,8 @@ async def _run_all() -> None:
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_marks_hidden_by_a_state_change_are_dropped_so_an_action_cannot_reach_them()
     await test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone()
+    await test_merge_lands_in_the_task_the_confirm_named_after_a_reorder()
+    test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     await test_copy_reaches_the_system_clipboard()
     await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
     await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()

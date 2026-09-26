@@ -1454,10 +1454,12 @@ class ChatPage(Screen):
 
     def _sent_now(self, said: str) -> None:
         if self.is_attached:
-            ok = not said.startswith("not sent")
-            self.notify(safe(said), severity="information" if ok else "error",
-                        timeout=5 if ok else 10, markup=False)
+            self._toast(said, not said.startswith("not sent"))
             self.refresh_conversation(force=True)
+
+    def _toast(self, said: str, ok: bool) -> None:
+        self.notify(safe(said), severity="information" if ok else "error",
+                    timeout=5 if ok else 10, markup=False)
 
     def cancel_message(self, rid: int, body: str) -> bool:
         """Take request `rid` back and put its text in the box. Not yet
@@ -1499,8 +1501,7 @@ class ChatPage(Screen):
 
     def _cancelled(self, said: str, body: str) -> None:
         ok = not said.startswith("not cancelled")
-        self.notify(safe(said), severity="information" if ok else "error",
-                    timeout=5 if ok else 10, markup=False)
+        self._toast(said, ok)
         if ok:
             box = self.query_one("#compose", ChatBox)
             if not box.text.strip():
@@ -1549,8 +1550,7 @@ class ChatPage(Screen):
         if not self.is_attached:
             return
         rec.widget.remove()
-        self.notify(safe(said), severity="information" if ok else "error",
-                    timeout=5 if ok else 10, markup=False)
+        self._toast(said, ok)
         if not ok:
             box = self.query_one("#compose", ChatBox)
             box.text = body if not box.text else body + "\n" + box.text
