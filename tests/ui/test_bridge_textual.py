@@ -2006,7 +2006,7 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
     from types import SimpleNamespace
     from ocp.ui.components.agent_rows import Extra
     row = lambda **kw: SimpleNamespace(**{"twig": "", "shown": "boss", "under": 0, "state": "IDLE",
-                                          "until": "", **kw})
+                                          "until": "", "fire": "", **kw})
     extra = lambda **kw: Extra(**{"kind_short": "m", "cache_left": None, "block": "", "stuck": "",
                                   "asks": 0, "urgency": None, **kw})
     page = HomePage.__new__(HomePage)
@@ -2031,10 +2031,16 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
           HomePage._alarm(row(state="DIALOG"), extra()) and HomePage._alarm(row(), extra(block="b"))
           and not HomePage._alarm(row(state="RUNNING"), extra()))
     state = lambda r, x: page._state_cell(r, x, False).plain
-    check("home: the agent's row says why it is stuck, and a block in its own words",
-          "⚠ its delivery is not moving" in state(row(), extra(stuck="its delivery is not moving"))
-          and state(row(), extra(block="dialog open")).endswith(" dialog open")
-          and "⚠" not in state(row(), extra()))
+    note = lambda r, x, wall="": page._note_cell(r, x, wall).plain
+    check("home: the state column is the state word alone, whatever the row is stuck on or until",
+          state(row(until="12:30"), extra(stuck="its delivery is not moving")) == state(row(), extra())
+          and state(row(), extra(block="dialog open")) == state(row(), extra()))
+    check("home: the last column says why it is stuck, and a block in its own words",
+          "⚠ its delivery is not moving" in note(row(), extra(stuck="its delivery is not moving"))
+          and note(row(), extra(block="dialog open")) == "dialog open" and note(row(), extra()) == "")
+    check("home: the last column also holds what the state is until, then the rest, joined by ·",
+          note(row(until="12:30"), extra(stuck="stuck")) == "12:30 · ⚠ stuck"
+          and note(row(until="12:30"), extra(), "⏳ 14:00") .startswith("12:30 · "))
 
 
 async def test_home_tab_bar_focus_mouse_and_columns() -> None:
