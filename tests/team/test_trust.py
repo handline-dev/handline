@@ -646,11 +646,59 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
 
 
 
+def test_dialog_rules_are_the_founders_and_match_by_label(home: Path) -> None:
+    """T199: a rule is {vendor, title, label}, kept in the protected store; an
+    agent's session is refused without a raise; match answers by exact label."""
+    from ocp.team import dialog_rules as dr
+    _daemon_home(home, 20)
+    check("rules: none to begin with", dr.list_rules() == [])
+    ok, said = dr.add("claude", "Allow this tool?", "Yes, always")
+    check("rules: the founder adds one", ok and dr.list_rules() ==
+          [{"vendor": "claude", "title": "Allow this tool?", "label": "Yes, always"}], said)
+    check("rules: adding it again is a no-op", dr.add("claude", "Allow this tool?", "Yes, always")[0]
+          and len(dr.list_rules()) == 1)
+    ok, said = dr.add("claude", "Allow this tool?", "No")
+    check("rules: a second label for the same prompt is refused", not ok and len(dr.list_rules()) == 1, said)
+    check("rules: an empty or control-character field is refused",
+          not dr.add("", "t", "l")[0] and not dr.add("claude", "t\x1b", "l")[0])
+
+    options = [(1, "Yes"), (2, "Yes, always"), (3, "No")]
+    check("match: the label's own number, not a fixed one",
+          dr.match("claude", "Allow this tool?", options) == 2
+          and dr.match("claude", "Allow this tool?", [(1, "Yes, always"), (2, "No")]) == 1)
+    check("match: another vendor, another title, or a label that is not offered gives None",
+          dr.match("opencode", "Allow this tool?", options) is None
+          and dr.match("claude", "Allow this?", options) is None
+          and dr.match("claude", "Allow this tool?", [(1, "Yes"), (2, "No")]) is None
+          and dr.match("claude", "Allow this tool?", [(1, "yes, always")]) is None)
+    check("match: two options with the label are ambiguous, so None",
+          dr.match("claude", "Allow this tool?", [(1, "Yes, always"), (2, "Yes, always")]) is None)
+
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "manager"
+    try:
+        ok, said = dr.add("claude", "Trust this folder?", "Yes")
+        check("rules: an agent's session gets (False, msg), not a raise, and adds nothing",
+              not ok and len(dr.list_rules()) == 1, said)
+        ok, said = dr.remove("claude", "Allow this tool?", "Yes, always")
+        check("rules: nor can it remove one", not ok and len(dr.list_rules()) == 1, said)
+    finally:
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+
+    ok, said = dr.remove("claude", "Allow this tool?", "Yes, always")
+    check("rules: the founder removes it", ok and dr.list_rules() == [], said)
+    check("rules: removing what is not there says so", not dr.remove("claude", "x", "y")[0])
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_trust_roots(Path(td) / 'trust_roots'))
+        run(lambda: test_dialog_rules_are_the_founders_and_match_by_label(Path(td) / 'dlgrules'))
         run(lambda: test_trust_roots_live_in_the_protected_store(Path(td) / 'trustprot'))
         run(lambda: test_ocp_trust_cli_is_wired(Path(td) / 'trust_cli'))
         run(lambda: test_eligible_worktrees_splits_declared_from_not(Path(td) / 'eligible_wt'))
