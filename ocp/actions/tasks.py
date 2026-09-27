@@ -161,6 +161,12 @@ def task_asker(con, row) -> str:
     return row["opened_by"]
 
 
+def _asks(r) -> bool:
+    """Is this linked request work still being asked for? A report (`--fyi`) asks
+    nothing, so linking one never makes a task doing (T266)."""
+    return r["state"] == "queued" and not r["fyi"]
+
+
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved
@@ -177,9 +183,9 @@ def task_state(con, row) -> str:
         return "closed"
     if row["done_evidence"]:
         return "done"
-    if any(r["state"] == "queued" for r in db.task_requests(con, row["id"])):
+    if any(_asks(r) for r in db.task_requests(con, row["id"])):
         return "doing"
-    if any(r["state"] == "queued"
+    if any(_asks(r)
            for c in db.open_child_tasks(con, row["id"])
            for r in db.task_requests(con, c["id"])):
         return "doing"
@@ -201,7 +207,7 @@ def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
     if state in ("done", "closed", "discarded", "merged"):
         return None
     linked = {r["id"] for r in db.task_requests(con, row["id"])}
-    open_linked = [r for r in open_requests if r["id"] in linked]
+    open_linked = [r for r in open_requests if r["id"] in linked and not r["fyi"]]
     if not row["queued_by"] and open_linked:
         return f"never approved, but request #{open_linked[0]['id']} is out"
     if state == "queued" and not open_linked:
@@ -370,7 +376,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if blockers:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
-    live = [r for r in db.task_requests(con, tid) if r["state"] == "queued"]
+    live = [r for r in db.task_requests(con, tid) if _asks(r)]
     if live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
         return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
