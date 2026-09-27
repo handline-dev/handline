@@ -336,15 +336,9 @@ def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
 
 
 def missing(wanted: set[str]) -> set[str]:
-    """Which of `wanted` have no entry of ours in the shared settings.
-
-    Read-only, using the same recognition `install()` writes with
-    (`_is_our_hook`). `install()` only runs by hand (`ocp init`, or
-    `ocp install-hooks` again later) - a wanted set that grows after the
-    last run (a new guard or captured event) leaves that event uninstalled
-    on every machine that installed before it existed, silently: nothing
-    else notices. `ocp doctor` is what reads this to catch it.
-    """
+    """Which of `wanted` have no entry of ours in the shared settings -
+    read-only, using the same recognition `install()` writes with
+    (`_is_our_hook`)."""
     data = _read_json(target_settings())
     have = set()
     for event, groups in data.get("hooks", {}).items():

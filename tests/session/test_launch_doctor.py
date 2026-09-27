@@ -1159,12 +1159,57 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
           {"PermissionRequest", "TeammateIdle"} <= evmod.CAPTURED)
 
 
+def test_a_launch_installs_a_hook_event_added_since_the_last_install(home: Path) -> None:
+    """T326: the cause, not just the symptom - `build` closes a gap left by a
+    wanted event that grew after the shared settings were last installed, on
+    its own, the same moment `ensure_shared` already runs at every launch."""
+    _daemon_home(home, 20)
+    bindir = home / "stub"
+    bindir.mkdir(parents=True, exist_ok=True)
+    stub = bindir / "claude"
+    stub.write_text("#!/bin/sh\ntrue\n")
+    stub.chmod(0o755)
+    real_path = os.environ["PATH"]
+    os.environ["PATH"] = f"{bindir}:{real_path}"
+    try:
+        agents.register("launchtest")
+        credentialed(home, "alpha")
+        write_status(home, "alpha", pct_5h=5, pct_7d=5)
+        target = home / "shared" / ".claude" / "settings.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        hooks.install("/x/ocp", evmod.CAPTURED | evmod.ANSWERS)   # PreToolUse (GUARDS) left out
+
+        launch.build("launchtest")
+        check("launch: a wanted event missing since the last install is added",
+              not hooks.missing(evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS),
+              json.loads(target.read_text()).get("hooks", {}).keys())
+
+        data = json.loads(target.read_text())
+        data.get("hooks", {}).pop("PreToolUse", None)             # the gap, again
+        target.write_text(json.dumps(data))
+        real_write = Path.write_text
+
+        def failing_write(self, *a, **kw):
+            if self.name.startswith("settings.json"):
+                raise OSError("disk full")
+            return real_write(self, *a, **kw)
+        Path.write_text = failing_write
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                launch.build("launchtest")
+        finally:
+            Path.write_text = real_write
+        check("launch: a write that cannot land warns and names install-hooks, not a crash",
+              "ocp install-hooks" in err.getvalue(), err.getvalue())
+    finally:
+        os.environ["PATH"] = real_path
+
+
 def test_doctor_catches_a_wanted_event_installed_before_it_existed(home: Path) -> None:
-    """T326: a live machine had PreToolUse in `wanted` (T247's memory guard) but
-    no entry of ours for it - `install()` only runs by hand, so an event added
-    to CAPTURED/ANSWERS/GUARDS after the last run sits uninstalled forever,
-    silently: the guard it was meant to wire up does nothing. Doctor's
-    `_check_ocp_hooks` is what is meant to catch that, read-only."""
+    """T326: `_check_ocp_hooks` is the backstop for whoever is not watching a
+    launch's stderr - the same event gap `build` now closes on its own
+    (`test_a_launch_installs_a_hook_event_added_since_the_last_install`)."""
     use_home(home)
     orcamod.live_terminals = lambda: None
     target = home / "shared" / ".claude" / "settings.json"
@@ -2003,6 +2048,7 @@ def main() -> int:
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
+        run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))
         run(lambda: test_doctor_catches_a_wanted_event_installed_before_it_existed(Path(td) / 'hookgap'))
         run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
         run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))

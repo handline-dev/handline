@@ -31,7 +31,7 @@ from ..team import accounts, agents
 from .. import db, vendors
 from ..infra import gitrun, paths, textsafe
 from ..usage import status
-from . import triggers
+from . import events, triggers
 
 
 # `build` and `fingerprint` must name the same tools, or a change to one
@@ -337,6 +337,22 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
             hooks.ensure_shared()  # settings ocp keeps, e.g. notifications off
         except ValueError:
             pass  # an unreadable settings file is doctor's to report, not a reason not to start
+        # A wanted event added after the shared settings were last installed
+        # (T247's PreToolUse guard did this) would otherwise sit uninstalled
+        # forever, silently: every launch is where install() gets the chance
+        # to catch up, not just the one-off `ocp init`/`ocp install-hooks`.
+        wanted = events.CAPTURED | events.ANSWERS | events.GUARDS
+        if hooks.missing(wanted):
+            exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
+            try:
+                hooks.install(exe, wanted)
+            except OSError as e:
+                # An agent's own sandbox denies this write by design (it must
+                # not be able to disable its own gate hooks); `ocp doctor` is
+                # the backstop for whoever is watching stderr here is not.
+                print(f"warning: ocp's own hooks are behind and could not be installed "
+                      f"({e}) - run `ocp install-hooks` from outside an agent's sandbox",
+                      file=sys.stderr)
     if not accounts.may_start(acct):
         raise SystemExit(
             f"account '{acct}' is not logged in.\n"
