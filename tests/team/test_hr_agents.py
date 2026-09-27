@@ -1487,7 +1487,7 @@ def test_a_refused_register_leaves_no_account_and_names_a_type_clash(home: Path)
     check("type clash: a file here against a directory in shared is named as that",
           "d: a file here, a directory in shared" in said, said)
     check("type clash: a directory here against a file in shared is named as that",
-          "f: a directory here, not in shared" in said, said)
+          "f: a directory here, a file in shared" in said, said)
 
 
 def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:

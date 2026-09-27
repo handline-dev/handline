@@ -46,7 +46,7 @@ def _adopt_plan(src: Path, dest: Path, moves: list, clashes: list) -> None:
         if here_dir and there_dir:
             _adopt_plan(child, there, moves, clashes)
         elif here_dir != there_dir:
-            clashes.append((child, "a directory here, not in shared" if here_dir
+            clashes.append((child, "a directory here, a file in shared" if here_dir
                             else "a file here, a directory in shared"))
         else:
             clashes.append((child, "shared has a different item of that name"))
