@@ -5859,6 +5859,61 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
         con.close()
 
 
+def test_task_list_and_board_show_only_yours_and_your_reports(home: Path) -> None:
+    """T256: an agent sees the tasks of itself and everyone under it; a peer
+    team's are hidden; the founder and --everyone see all."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  boss: {}
+  mid: {}
+  leaf: {}
+  other: {}
+
+edges:
+  - { from: "boss", to: "mid", relation: supervisor, response: fire_and_forget }
+  - { from: "mid", to: "leaf", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("boss", "mid", "leaf", "other"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ids = {n: db.new_task(con, f"work of {n}", n, n) for n in ("boss", "mid", "leaf", "other")}
+    finally:
+        con.close()
+    shows = lambda out, *names: all(f"T{ids[n]} " in out for n in names)
+    hides = lambda out, *names: not any(f"T{ids[n]} " in out for n in names)
+
+    rc, out = _cli(["task", "list"], as_agent="mid")
+    check("scope: a manager sees its own and its report's tasks, not its boss's or a peer team's",
+          shows(out, "mid", "leaf") and hides(out, "boss", "other"), out)
+    rc, out = _cli(["task", "list"], as_agent="boss")
+    check("scope: the reach goes down the whole roster", shows(out, "boss", "mid", "leaf")
+          and hides(out, "other"), out)
+    rc, out = _cli(["task", "list"], as_agent="leaf")
+    check("scope: a leaf sees only its own", shows(out, "leaf") and hides(out, "boss", "mid", "other"), out)
+    rc, out = _cli(["task", "list"], as_agent=askmod.HUMAN)
+    check("scope: the founder sees all", shows(out, "boss", "mid", "leaf", "other"), out)
+    rc, out = _cli(["task", "list", "--everyone"], as_agent="leaf")
+    check("scope: --everyone shows all", shows(out, "boss", "mid", "leaf", "other"), out)
+    rc, out = _cli(["task", "list", "--owner", "leaf"], as_agent="mid")
+    check("scope: --owner works within what may be seen", rc == 0 and shows(out, "leaf")
+          and hides(out, "mid"), out)
+    rc, out = _cli(["task", "list", "--owner", "other"], as_agent="mid")
+    check("scope: --owner outside it is refused, pointing at --everyone",
+          rc == 1 and "--everyone" in out and hides(out, "other"), out)
+    rc, out = _cli(["task", "board"], as_agent="mid")
+    check("scope: the board shows the same reach", shows(out, "mid", "leaf")
+          and hides(out, "boss", "other"), out)
+    rc, out = _cli(["task", "board", "--everyone"], as_agent="mid")
+    check("scope: board --everyone shows all", shows(out, "boss", "other"), out)
+
+
 def test_requests_parent_id_is_indexed(home: Path) -> None:
     """T92: the replied EXISTS looks a request up by parent_id once per row on
     the page; without an index that is a table scan each."""
@@ -5964,6 +6019,7 @@ def main() -> int:
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
+        run(lambda: test_task_list_and_board_show_only_yours_and_your_reports(Path(td) / 'taskscope'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
         run(lambda: test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(Path(td) / 'taskscreenlogic'))

@@ -505,6 +505,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
     p.add_argument("--owner", default=None, help="only this agent's tasks")
+    p.add_argument("--everyone", action="store_true",
+                   help="every team's tasks, not just yours and your reports'")
     p.add_argument("--state", default=None,
                    choices=("draft", "queued", "doing", "done", "closed", "discarded", "merged"),
                    help="only tasks in this state; a closed one shows even without --all")
@@ -557,7 +559,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_discard)
-    p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
+    p = tk.add_parser("board", help="your open tasks and your reports', and who holds each now")
+    p.add_argument("--everyone", action="store_true",
+                   help="every team's tasks, not just yours and your reports'")
     p.set_defaults(fn=cmd_task_board)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")

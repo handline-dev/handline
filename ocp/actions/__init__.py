@@ -18,7 +18,7 @@ it in - so those return the command to run and let the caller hand the terminal
 over.
 """
 
-from .routing import (HUMAN, _TEAM, routing, supervisor_of, listing_refusal, listable_agents, agent_tree)  # noqa: F401
+from .routing import (HUMAN, _TEAM, routing, supervisor_of, listing_refusal, listable_agents, reach, agent_tree)  # noqa: F401
 from .dialogs import dialog_of, answer_dialog, standing_answers, remove_answer  # noqa: F401
 from .confirmations import pending as pending_confirmation, pending_all as pending_confirmations, answer as answer_confirmation  # noqa: F401
 from .control import (wake, close, unstall, park, fold, STARTED_TIMEOUT_S, start, terminal, login_argv, move, can, ASYNC_VERBS, _IDLE_WAIT_S, _DELIVERY_S, WAITS, perform)  # noqa: F401
