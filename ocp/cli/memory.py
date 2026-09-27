@@ -12,7 +12,7 @@ def cmd_memory_status(args) -> int:
         return 1
     for a in agents:
         print(memory.summary(memory.status(a)))
-    for _key, files in memory.promotion_candidates():
+    for _key, files in memory.promotion_candidates(args.agent):
         print("same text in more than one agent, a candidate for AGENTS.md or ROLE.md: "
               + ", ".join(files))
     return 0
@@ -25,7 +25,8 @@ def cmd_memory_migrate(args) -> int:
         return 0
     say = {"copy": "copy to", "merge": "copy to (owner merges the group)",
            "promote": "leaves memory, goes to", "delete": "leaves memory:",
-           "no-owner": "has no owner in the table", "no-agent": "owner is not registered:"}
+           "no-owner": "has no owner in the table",
+           "long-name": "not copied: the file name is too long for an index line:", "no-agent": "owner is not registered:"}
     for r in rows:
         print(f"{r['file'].parent.name}/{r['file'].name}: {say[r['action']]} "
               f"{r['to'] or ''}".rstrip())

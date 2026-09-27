@@ -24,9 +24,8 @@ INDEX = "MEMORY.md"
 PROJECT_SUFFIX = "-orcapipe"  # Claude keys a repo folder by its path
 
 # Who owns each file of shared/memory/claude/<orcapipe repo> (design doc,
-# "Migrating"). A value that is not an agent name says what happens instead.
-PROMOTED = "AGENTS.md"
-DROPPED = "delete"
+# "Migrating"). Only agent names are values here; a file that leaves memory is
+# in PROMOTED or DROPPED instead, so no agent name can collide with them.
 OWNERS = {
     "batch-per-owner": "orcapipe",
     "idle-not-free": "orcapipe",
@@ -38,10 +37,9 @@ OWNERS = {
     "feedback-minimal-ui-tests": "orcapipe.ui",
     "feedback-full-suite-before-review": "orcapipe.ui",
     "feedback-no-tests-until-ok": "orcapipe.ui",
-    "ocp-cli-habits": PROMOTED,
-    "ocp-resolve-quoting": PROMOTED,
-    "project-ocp-home-wipe": DROPPED,
 }
+PROMOTED = {"ocp-cli-habits", "ocp-resolve-quoting"}  # to AGENTS.md
+DROPPED = {"project-ocp-home-wipe"}
 # Files that say one thing between them; the owner merges them at confirmation,
 # ocp copies each verbatim.
 MERGE_GROUPS = [{"feedback-testing", "feedback-minimal-ui-tests",
@@ -128,9 +126,10 @@ def _body(path: Path) -> str:
     return " ".join(text.lower().split())
 
 
-def promotion_candidates() -> list[tuple[str, list[str]]]:
+def promotion_candidates(only: str | None = None) -> list[tuple[str, list[str]]]:
     """Topic files whose text is the same in more than one agent's memory:
-    a lesson every agent needs belongs in AGENTS.md or ROLE.md."""
+    a lesson every agent needs belongs in AGENTS.md or ROLE.md. With `only`,
+    just the groups that agent is in."""
     seen: dict[str, list[str]] = {}
     for agent in paths.list_agents():
         d = memory_dir(agent)
@@ -143,7 +142,8 @@ def promotion_candidates() -> list[tuple[str, list[str]]]:
             if body:
                 key = hashlib.sha1(body.encode()).hexdigest()
                 seen.setdefault(key, []).append(f"{agent}/{f.relative_to(d).as_posix()}")
-    return [(k, v) for k, v in seen.items() if len({x.split("/")[0] for x in v}) > 1]
+    return [(k, v) for k, v in seen.items() if len({x.split("/")[0] for x in v}) > 1
+            and (only is None or any(x.startswith(only + "/") for x in v))]
 
 
 # ------------------------------------------------------------- team layer
@@ -189,11 +189,32 @@ def _front(path: Path) -> dict:
     return meta
 
 
+def _fits_index(filename: str) -> bool:
+    """A link needs `- [x](` + name + `)`; a longer file name cannot be listed."""
+    return len(filename) + 7 <= INDEX_LINE
+
+
 def _index_line(path: Path) -> str:
+    """`- [title](file) — hook`, at most INDEX_LINE characters for any input.
+
+    The link is built first and never cut: the title is shortened to fit, then
+    the hook takes what room is left (or is dropped). A file name too long to
+    fit at all raises ValueError rather than being written over budget."""
+    if not _fits_index(path.name):
+        raise ValueError(f"{path.name}: file name too long for an index line")
     meta = _front(path)
+    name = meta.get("name") or path.stem
+    room = INDEX_LINE - len(path.name) - 6  # for the title
+    if len(name) > room:
+        name = name[:room - 1] + "…"
+    head = f"- [{name}]({path.name})"
     hook = meta.get("description", "")
-    line = f"- [{meta.get('name') or path.stem}]({path.name})" + (f" — {hook}" if hook else "")
-    return line if len(line) <= INDEX_LINE else line[:INDEX_LINE - 1] + "…"
+    left = INDEX_LINE - len(head) - 3  # for the hook after " — "
+    if not hook or left < 2:
+        return head
+    if len(hook) > left:
+        hook = hook[:left - 1] + "…"
+    return f"{head} — {hook}"
 
 
 def shared_sources() -> list[Path]:
@@ -211,17 +232,20 @@ def plan_migration() -> list[dict]:
 
     action: copy (into an existing agent), merge (copy, and the owner merges the
     group), promote / delete (leaves memory, nothing copied), no-owner (not in
-    the table; left for a human), no-agent (the owner is not registered)."""
+    the table; left for a human), no-agent (the owner is not registered),
+    long-name (its name cannot be listed in an index line; rename it first)."""
     known = set(paths.list_agents())
     rows = []
     for f in shared_sources():
         to = OWNERS.get(f.stem)
-        if to is None:
-            action = "no-owner"
-        elif to == PROMOTED:
-            action = "promote"
-        elif to == DROPPED:
+        if f.stem in PROMOTED:
+            action, to = "promote", "AGENTS.md"
+        elif f.stem in DROPPED:
             action = "delete"
+        elif to is None:
+            action = "no-owner"
+        elif not _fits_index(f.name):
+            action = "long-name"
         elif to not in known:
             action = "no-agent"
         elif any(f.stem in g for g in MERGE_GROUPS):
