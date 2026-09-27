@@ -88,9 +88,14 @@ def test_question_keys_match_the_measured_key_sequence(home: Path) -> None:
           question_keys(q, text="my-lib") == ["4", "my-lib", ENTER])
     check("keys: an out-of-range choice is refused", question_keys(q, choices=(9,)) is None)
 
+    # dark mode (0) and offline sync (2) are already checked on this real
+    # capture - a number TOGGLES a checkbox, never sets it, so wanting
+    # exactly what is already checked presses nothing before Right/Submit.
     m = Claude().ask_question(MULTI_SELECT)
-    check("keys: multiSelect toggles by number, then Right, then Submit's own '1'",
-          question_keys(m, choices=(0, 2)) == ["1", "3", RIGHT, "1"])
+    check("keys: an option already checked and still wanted is not pressed",
+          question_keys(m, choices=(0, 2)) == [RIGHT, "1"])
+    check("keys: only the options that must change are toggled",
+          question_keys(m, choices=(1,)) == ["1", "2", "3", RIGHT, "1"])
     check("keys: free text on a multiSelect question is refused, not guessed",
           question_keys(m, text="anything") is None)
 
@@ -150,12 +155,44 @@ def test_a_pending_question_is_listed_and_answered_through_actions(home: Path) -
         con.close()
 
 
+def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: Path) -> None:
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        _Term(SINGLE_DEFAULT)
+        waiting.note("backend", "AskUserQuestion",
+                     {"questions": [{"header": "Dates", "question": "Pick a date library",
+                                    "options": [{"label": "date-fns", "description": "the one to use"},
+                                                {"label": "dayjs", "description": ""},
+                                                {"label": "luxon", "description": ""}],
+                                    "multiSelect": False}]}, 7)
+        found = ask_question.pending(con, "backend")
+        check("pending: question_data's own words are shown when its shape still matches the screen",
+              found["header"] == "Dates" and found["question"] == "Pick a date library"
+              and found["options"][0]["description"] == "the one to use", str(found))
+
+        waiting.note("backend", "AskUserQuestion",
+                     {"questions": [{"header": "Stale", "question": "a question already answered",
+                                    "options": [{"label": "X"}, {"label": "Y"}], "multiSelect": False}]}, 8)
+        found = ask_question.pending(con, "backend")
+        check("pending: a stale question_data (wrong option count) falls back to the screen's own words",
+              found["header"] == "Library" and [o["label"] for o in found["options"]]
+              == ["date-fns", "dayjs", "luxon"], str(found))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_claude_adapter_recognizes_the_askuserquestion_prompt(Path(td) / 'q0'))
         run(lambda: test_question_keys_match_the_measured_key_sequence(Path(td) / 'q1'))
         run(lambda: test_answer_question_sends_the_keys_and_confirms_it_cleared(Path(td) / 'q2'))
         run(lambda: test_a_pending_question_is_listed_and_answered_through_actions(Path(td) / 'q3'))
+        run(lambda: test_question_data_is_preferred_only_when_it_still_matches_the_screen(Path(td) / 'q4'))
     return run_area(tests)
 
 

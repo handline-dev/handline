@@ -1,11 +1,18 @@
 """An agent's pending AskUserQuestion, answered by the founder from the bridge
-instead of the raw JSON its tool call shows there today (T304).
+instead of the raw JSON its tool call shows there today (T304/T322).
 
 `pending` reads what one agent's terminal asks, through the vendor's own
-recognition (`Driver.ask_question`), gated the same way `confirmations.pending`
-is: only an agent the permission hook already recorded as waiting on this
-exact tool has its screen read. Each is a plain dict, the same for every
-vendor: {agent, vendor, header, question, options, multi_select, other_number,
+recognition (`Driver.ask_question`) - still required even now that the hook
+records the call's own `question_data` (T304, waiting.py): the screen read is
+the only thing that says this prompt is on screen *now*, at all, and is what
+`answer` later re-checks before pressing anything. `question_data`'s label
+and description text is preferred for display over the screen's own, since it
+is Claude's own words with nothing to mis-OCR, but only when its option count
+and multiSelect flag agree with what the screen just showed - otherwise a
+stale record (the wait file from a question already answered and gone) would
+show the founder the wrong words for the right buttons, so the screen's own
+parse is kept instead. Each is a plain dict, the same for every vendor:
+{agent, vendor, header, question, options, multi_select, other_number,
 other_text, lines}. `answer` sends the founder's picks or free text, given the
 dict they were shown."""
 from __future__ import annotations
@@ -17,10 +24,28 @@ from .dialogs import _handle, _vendor
 TOOL = "AskUserQuestion"
 
 
-def _as_dict(agent: str, q) -> dict:
-    return {"agent": agent, "vendor": _vendor(agent), "header": q.header, "question": q.question,
-            "options": [{"label": o.label, "description": o.description, "checked": o.checked}
-                       for o in q.options],
+def _question_data_of(held: dict | None, q) -> dict | None:
+    data = (held or {}).get("question_data")
+    questions = data.get("questions") if isinstance(data, dict) else None
+    if not isinstance(questions, list) or len(questions) != 1:
+        return None
+    q0 = questions[0]
+    options = q0.get("options") if isinstance(q0, dict) else None
+    if not isinstance(options, list) or len(options) != len(q.options):
+        return None
+    if bool(q0.get("multiSelect")) != q.multi_select:
+        return None
+    return q0
+
+
+def _as_dict(agent: str, q, held: dict | None = None) -> dict:
+    q0 = _question_data_of(held, q)
+    options = q0["options"] if q0 else [{"label": o.label, "description": o.description} for o in q.options]
+    return {"agent": agent, "vendor": _vendor(agent),
+            "header": (q0.get("header") if q0 else None) or q.header,
+            "question": (q0.get("question") if q0 else None) or q.question,
+            "options": [{"label": str(o.get("label") or ""), "description": str(o.get("description") or ""),
+                        "checked": q.options[i].checked} for i, o in enumerate(options)],
             "multi_select": q.multi_select, "other_number": q.other_number,
             "other_text": q.other_text, "lines": list(q.lines)}
 
@@ -36,7 +61,11 @@ def pending(con, agent: str, row=None, held=None) -> dict | None:
     if handle is None:
         return None
     q = orca.question_on_screen(handle)
-    return _as_dict(agent, q) if q is not None else None
+    if q is None:
+        return None
+    if held is None:
+        held = waiting.read(agent)
+    return _as_dict(agent, q, held)
 
 
 def pending_all(con) -> list[dict]:
@@ -48,8 +77,8 @@ def pending_all(con) -> list[dict]:
         if held and held.get("tool") == TOOL:
             found = pending(con, row["agent"], row, held)
             if found:
-                out.append(found)
-    return sorted(out, key=lambda p: (waiting.read(p["agent"]) or {}).get("since") or 0)
+                out.append((held.get("since") or 0, found))
+    return [found for _, found in sorted(out, key=lambda pair: pair[0])]
 
 
 def answer(con, agent: str, seen: dict, choices: tuple[int, ...] = (),

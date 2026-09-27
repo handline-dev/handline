@@ -67,10 +67,15 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
 
     A single-select question submits on its one number - conch's own words,
     "a lone single-choice question ... a number submits outright". A
-    multiSelect question's numbers only toggle; RIGHT moves it onto its own
-    "Submit" tab, whose one worthwhile option ("1. Submit answers", the other
-    being Cancel) is never read back to confirm - `orca.answer_question`
-    checks the question card itself is gone instead.
+    multiSelect question's numbers only TOGGLE a checkbox, never set it, so
+    `choices` (the final checked set the founder wants) is compared against
+    `q.options[i].checked` (what the screen just read shows now) and only
+    the options that differ are pressed - an option already checked and
+    still wanted is left alone, not pressed and un-checked by mistake. RIGHT
+    then moves onto the question's own "Submit" tab, whose one worthwhile
+    option ("1. Submit answers", the other being Cancel) is never read back
+    to confirm - `orca.answer_question` checks the question card itself is
+    gone instead.
     """
     if text is not None:
         if q.multi_select or choices:
@@ -80,7 +85,9 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
         return None
     if not q.multi_select:
         return [str(choices[0] + 1)] if len(choices) == 1 else None
-    return [str(c + 1) for c in choices] + [RIGHT, "1"]
+    desired = set(choices)
+    current = {i for i, o in enumerate(q.options) if o.checked}
+    return [str(i + 1) for i in sorted(desired ^ current)] + [RIGHT, "1"]
 
 
 def recognize(tail: list[str]) -> Question | None:
