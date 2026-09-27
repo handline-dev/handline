@@ -373,6 +373,61 @@ def test_the_supervisor_is_told_once_per_stale_stretch(home: Path) -> None:
         con.close()
 
 
+def test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("manager", "marina", "do the thing")
+        check("setup: marina holds a current task", ok, msg)
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = int(time.time())
+        S = timebox.STOP_WAIT_BACKSTOP_S
+
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now)
+        check("backstop: the clock starts, nobody told yet",
+              not db.get_cursor(con, "stop_wait_told:marina"))
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + S - 1)
+        check("backstop: nothing just under the limit",
+              not db.get_cursor(con, "stop_wait_told:marina"))
+        before = len(sent)
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + S + 1)
+        check("backstop: the founder is told once, past the limit - never typed at",
+              db.get_cursor(con, "stop_wait_told:marina") == 1 and len(sent) == before, str(sent))
+        check("backstop: recorded as an event naming the task",
+              f"T{tid}" in con.execute("SELECT payload FROM events WHERE kind = "
+                                       "'stop_wait_stuck'").fetchone()[0])
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + S + 100)
+        check("backstop: once per stretch", db.get_cursor(con, "stop_wait_told:marina") == 1)
+
+        # Activity in between (a real turn that never records a wait) must
+        # not buy the task a fresh 15 minutes.
+        db.clear_cursor(con, "stop_wait_since:marina")
+        db.clear_cursor(con, "stop_wait_told:marina")
+        now2 = int(time.time())
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now2)
+        since = db.get_cursor(con, "stop_wait_since:marina")
+        db.set_agent_state(con, "marina", dmn_states.RUNNING)
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now2 + S - 1)
+        check("backstop: RUNNING mid-stretch does not reset the clock",
+              db.get_cursor(con, "stop_wait_since:marina") == since)
+        db.set_agent_state(con, "marina", dmn_states.IDLE)
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now2 + S + 1)
+        check("backstop: told at the original deadline, not a fresh one after the activity",
+              db.get_cursor(con, "stop_wait_told:marina") == 1)
+
+        # Recording a wait ends the stretch.
+        ok, msg, t_blocker = actions.task_new("manager", "marina", "unrelated")
+        check("setup: a second task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "manager")
+        check("setup: t is now blocked", ok, msg)
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now2 + S + 200)
+        check("backstop: a recorded wait clears the mark",
+              not db.get_cursor(con, "stop_wait_since:marina")
+              and not db.get_cursor(con, "stop_wait_told:marina"))
+    finally:
+        con.close()
+
+
 def test_the_row_says_how_long_and_when_stale(home: Path) -> None:
     _world(home)
     con = db.connect()
@@ -514,6 +569,8 @@ def main() -> int:
             run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
             run(lambda: test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(Path(td) / 'tb11'))
             run(lambda: test_the_supervisor_is_told_once_per_stale_stretch(Path(td) / 'tb12'))
+            run(lambda: test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(
+                Path(td) / 'tb12b'))
             run(lambda: test_the_row_says_how_long_and_when_stale(Path(td) / 'tb13'))
             run(lambda: test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_read(Path(td) / 'tb14'))
             run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb15'))

@@ -2605,6 +2605,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
         "launch": "execs claude",
         "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
+        "hooks gate": "writes the protected store; driven in "
+                      "test_the_enforce_switch_is_the_founders_to_flip "
+                      "(tests/session/test_stopgate.py), not this scene",
         "install-hooks": "writes the shared settings",
         "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
         "hr rename": "writes a proposal; prints its id",
