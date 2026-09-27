@@ -4899,6 +4899,15 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
         edge = con.execute("SELECT payload FROM events WHERE kind = 'block_task'").fetchall()
         check("hold: its wait is recorded as a block_task event",
               any(json.loads(e["payload"]).get("task_id") == h["id"] for e in edge), str(edge))
+        # T294 (auditor's #1930 MUST-FIX 1): a hold is a child task too, so
+        # its parent is explicitly blocked on it - not only through
+        # close_task's own open-child-task check, which the next line
+        # exercises but does not make visible on the board or in
+        # task_blockers.
+        check("hold: T294 - the parent is explicitly blocked on the hold, "
+              "not just structurally unable to close over it",
+              [b["id"] for b in db.task_blockers(con, t_parent)] == [h["id"]],
+              [dict(b) for b in db.task_blockers(con, t_parent)])
         ok, msg = actions.close_task(con, t_parent, "manager")
         check("hold: the parent cannot close over it", not ok, msg)
     finally:
@@ -4908,8 +4917,25 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     check("hold: the holder's board says what it waits on",
           _now_line(out, h["id"]) == f"now: waiting on T{t_blocker}", out)
     rc, out = _cli(["task", "board"], as_agent="worker")
-    check("hold: the asker's board reads it held, not done or nobody's",
-          _now_line(out, t_parent) == f"now: held as sub-task T{h['id']} (manager)", out)
+    check("hold: T294 - the asker's board now reads it as waiting on the "
+          "hold directly (the explicit block outranks 'held as sub-task'), "
+          "not done or nobody's",
+          _now_line(out, t_parent) == f"now: waiting on T{h['id']}", out)
+    con = db.connect()
+    try:
+        ok, msg = actions.mark_task_done(con, h["id"], "manager", reason="merged")
+        check("hold: marking the hold done", ok, msg)
+        ok, msg = actions.close_task(con, h["id"], "manager")
+        check("hold: T294 - closing it while it still waits on t_blocker is "
+              "refused", not ok and "waiting on" in msg, msg)
+        ok, msg = actions.unblock(con, h["id"], t_blocker, "manager")
+        check("hold: clearing the hold's own wait", ok, msg)
+        ok, msg = actions.close_task(con, h["id"], "manager")
+        check("hold: T294 - now the hold itself closes", ok, msg)
+        check("hold: T294 - and the parent's explicit block on it clears too",
+              db.task_blockers(con, t_parent) == [])
+    finally:
+        con.close()
 
     rc, out = _cli(["resolve", str(rid), "again", "--hold", "y"], as_agent="manager")
     check("hold: an answered request is not held twice", rc == 1, out)

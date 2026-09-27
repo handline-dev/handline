@@ -77,6 +77,19 @@ def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[i
     return tids
 
 
+def _block_parent_on_child(con, parent: int | None, tid: int, by: str) -> None:
+    """T294 (orcapipe's #1910): a child task always blocks its parent,
+    explicitly - not only through the structural open-child-task check
+    `close_task` and `stop_wait_reason` already had. Shared by every place a
+    child task comes into being (`task_new`, `open_hold_task`), so the
+    board's "waiting on" line and the unblock notice on close see it
+    wherever it is actually true, not only on the one path that happened to
+    write it."""
+    if parent is not None:
+        db.add_block(con, parent, tid)
+        db.add_event(con, by, "block_task", {"task_id": parent, "blocks_on": tid})
+
+
 def hold_refusal(con, rid: int, blocks_on: list[int]) -> str | None:
     """The reason a hold on request `rid` cannot wait on these tasks, or None.
     A task the hold sits under can never be one of them: the parent cannot
@@ -102,9 +115,11 @@ def open_hold_task(con, rid: int, title: str, holder: str, blocks_on: list[int])
     the same block edge `ocp task link --blocks-on` writes: closing the last
     one notifies the holder. Callers check `hold_refusal` first."""
     linked = [t for t in db.tasks_for_request(con, rid) if not t["closed_by"]]
+    parent = linked[0]["id"] if linked else None
     tid = db.new_task(con, textsafe.oneline(title).strip(), holder, holder,
-                      parent_task=linked[0]["id"] if linked else None)
+                      parent_task=parent)
     db.link_request(con, tid, rid)
+    _block_parent_on_child(con, parent, tid, holder)
     for b in blocks_on:
         ok, msg = add_block(con, tid, b, holder)
         if not ok:
@@ -662,9 +677,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
             db.set_current_task(con, owner, tid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
                                            "expects": expects})
-        if parent is not None:
-            db.add_block(con, parent, tid)
-            db.add_event(con, me, "block_task", {"task_id": parent, "blocks_on": tid})
+        _block_parent_on_child(con, parent, tid, me)
     finally:
         con.close()
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
