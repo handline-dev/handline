@@ -186,6 +186,29 @@ def task_state(con, row) -> str:
     return "queued" if row["queued_by"] else "draft"
 
 
+_TASK_NAMED = re.compile(r"\bT(\d+)\b")
+
+
+def task_ids_named(text: str) -> list[int]:
+    """The task ids a text names as T<n>, in order, once each."""
+    return list(dict.fromkeys(int(m) for m in _TASK_NAMED.findall(text)))
+
+
+def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
+    """Where a task's state and its requests disagree, or None (T250). A draft
+    with a request out was never approved, and a queued one has nobody working on
+    it. `open_requests` is the queued requests."""
+    if state in ("done", "closed", "discarded", "merged"):
+        return None
+    linked = {r["id"] for r in db.task_requests(con, row["id"])}
+    open_linked = [r for r in open_requests if r["id"] in linked]
+    if not row["queued_by"] and open_linked:
+        return f"never approved, but request #{open_linked[0]['id']} is out"
+    if state == "queued" and not open_linked:
+        return "approved, but no request is out"
+    return None
+
+
 def _request_answered(row) -> bool:
     """Has this request been told something back, as opposed to still
     sitting queued? Mirrors cli._answered's own reading (verdict set, or a
