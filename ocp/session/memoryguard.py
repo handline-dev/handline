@@ -12,6 +12,8 @@ writes the sidecar and `ocp memory status` alone reads it.
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import time
@@ -23,7 +25,7 @@ GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 USE_TOOLS = GUARDED_TOOLS + ("Read",)
 # A file already noted this recently is not rewritten: a day's granularity is
 # all the 28-day rule needs, and every tool call runs this.
-RENOTE_S = 3600
+RENOTE_S = 24 * 3600
 
 
 def _relative(agent: str, tool_input: object) -> str | None:
@@ -37,6 +39,26 @@ def _relative(agent: str, tool_input: object) -> str | None:
     return os.path.relpath(target, root) if target.startswith(root + os.sep) else None
 
 
+@contextlib.contextmanager
+def _use_file_lock(f):
+    """Held across the read-modify-write below: two PostToolUse hooks from
+    calls in the same turn can run concurrently, and without this the second
+    to write clobbers the first's timestamp with its own read, dropping it
+    (T247, merger #1343 finding 3). Unlike infra/lock.py's holds this one
+    waits - the file is tiny and the hold is brief, and giving up would drop
+    the update anyway, the very bug this exists to fix."""
+    try:
+        fd = os.open(str(f) + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        yield  # no lock is the pre-existing race, not a new failure
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # releases the flock too
+
+
 def note_use(agent: str, tool: str | None, tool_input: object, now: int | None = None) -> None:
     """Record that the agent touched a memory file - the index itself is not a use."""
     if tool not in USE_TOOLS:
@@ -46,16 +68,17 @@ def note_use(agent: str, tool: str | None, tool_input: object, now: int | None =
         return
     now = int(time.time()) if now is None else now
     f = memory.use_file(agent)
-    try:
-        used = json.loads(f.read_text())
-    except (OSError, ValueError):
-        used = {}
-    if not isinstance(used, dict):
-        used = {}
-    if rel in used and now - int(used[rel] or 0) < RENOTE_S:
-        return
-    used[rel] = now
-    atomic.write_text(f, json.dumps(used, sort_keys=True, indent=1) + "\n")
+    with _use_file_lock(f):
+        try:
+            used = json.loads(f.read_text())
+        except (OSError, ValueError):
+            used = {}
+        if not isinstance(used, dict):
+            used = {}
+        if rel in used and now - int(used[rel] or 0) < RENOTE_S:
+            return
+        used[rel] = now
+        atomic.write_text(f, json.dumps(used, sort_keys=True, indent=1) + "\n")
 
 
 def _would_be(current: str, tool: str, tool_input: dict) -> str | None:
