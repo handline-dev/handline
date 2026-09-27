@@ -19,10 +19,9 @@ def _kinds(con) -> list[str]:
 
 def test_the_setting_defaults_on_and_a_stuck_prompt_is_not_pressed_every_tick(home: Path) -> None:
     """T249: this used to run through a waiting browser-tool prompt, the only
-    tool call Claude's driver ever said yes to; launch.py now denies that MCP
-    server outright (no prompt of that shape is left to accept), so this uses
-    the rule mechanism instead - a live path sharing the same stuck/backoff
-    cursor (_stuck, STUCK_BACKOFF_S) with the one this test is actually about."""
+    tool call Claude's driver ever said yes to; Claude.launch_argv now passes
+    --no-chrome, leaving no prompt of that shape to accept. Uses the rule
+    mechanism instead - a live path sharing the same stuck/backoff cursor."""
     con, term = _rule_world(home, RULE_DIALOG, term=_HighlightTerm(RULE_DIALOG, ignores_enter=True))
     try:
         check("setting: on by default", autoaccept.enabled())

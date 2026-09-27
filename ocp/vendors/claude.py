@@ -12,11 +12,6 @@ from pathlib import Path
 
 from ..infra.paths import user_home
 
-# The built-in browser-automation MCP server (docs.claude.com/en/chrome). ocp
-# denies it at launch (Claude.launch_argv) rather than answering its connect
-# dialog, so this is the one thing about it worth a name here.
-CHROME_MCP_SERVER = "claude-in-chrome"
-
 
 def keychain_service(config_dir: Path) -> str:
     """The macOS Keychain service name Claude Code uses for this config dir.
@@ -108,19 +103,14 @@ class Claude:
             argv += ["--model", str(model)]
         argv += ["--disallowedTools", disallowed]
         argv += ["--effort", effort]
+        # --no-chrome (claude --help) keeps the unanswered "Claude wants to
+        # use your browser" dialog off every session's start.
+        argv += ["--no-chrome"]
         argv += mcp
         if preamble:
             argv += ["--append-system-prompt", preamble]
         # One --settings object: a second one would replace the first.
         settings = self.memory_settings(memory_dir) if memory_dir else {}
-        # Denying the built-in claude-in-chrome server (docs.claude.com/en/chrome:
-        # "If your organization blocks the claude-in-chrome MCP server with the
-        # deniedMcpServers ... setting, Claude Code doesn't show the install
-        # prompt") is what keeps the unanswered "Claude wants to use your
-        # browser" dialog off every session's start - the denylist applies
-        # unconditionally, before the allowlist check a built-in server would
-        # otherwise skip (docs.claude.com/en/managed-mcp).
-        settings["deniedMcpServers"] = [{"serverName": CHROME_MCP_SERVER}]
         if hide:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.
             settings["sandbox"] = {"filesystem": {"denyRead": hide}}

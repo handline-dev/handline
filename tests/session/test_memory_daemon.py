@@ -16,7 +16,7 @@ from support import *  # noqa: E402,F401,F403
 from ocp.session import handoff as handoffmod, launch as launchmod, memoryguard  # noqa: E402
 from ocp.team import memory as memorymod  # noqa: E402
 from ocp.vendors import claude_hooks  # noqa: E402
-from ocp.vendors.claude import CHROME_MCP_SERVER, Claude  # noqa: E402
+from ocp.vendors.claude import Claude  # noqa: E402
 from ocp.vendors.opencode import Opencode  # noqa: E402
 
 
@@ -71,19 +71,15 @@ def test_the_claude_driver_points_one_settings_object_at_the_agents_memory(home:
     drv, mem = Claude(), Path("/h/agents/backend/memory")
     argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None, memory_dir=mem)
     settings = [json.loads(a) for i, a in enumerate(argv) if argv[i - 1] == "--settings"]
-    check("memory: the folder is passed as autoMemoryDirectory, an absolute path, "
-          "beside the standing chrome denylist",
-          len(settings) == 1 and settings[0]["autoMemoryDirectory"] == str(mem)
-          and settings[0]["deniedMcpServers"] == [{"serverName": CHROME_MCP_SERVER}], str(argv))
+    check("memory: the folder is passed as autoMemoryDirectory, an absolute path",
+          settings == [{"autoMemoryDirectory": str(mem)}], str(argv))
     argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None, hide=["/a"], memory_dir=mem)
     settings = [json.loads(a) for i, a in enumerate(argv) if argv[i - 1] == "--settings"]
     check("memory: with hidden paths it is still ONE --settings object carrying both",
           len(settings) == 1 and settings[0]["autoMemoryDirectory"] == str(mem)
           and settings[0]["sandbox"]["filesystem"]["denyRead"] == ["/a"], str(argv))
-    bare = drv.launch_argv("/x/claude", None, "high", "Agent", [], None)
-    settings = [json.loads(a) for i, a in enumerate(bare) if bare[i - 1] == "--settings"]
-    check("memory: no folder and nothing hidden still carries the standing chrome denylist, nothing else",
-          settings == [{"deniedMcpServers": [{"serverName": CHROME_MCP_SERVER}]}], str(bare))
+    check("memory: no folder and nothing hidden adds no --settings",
+          "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
     check("memory: a vendor with no auto-memory has no setting for it", Opencode().memory_settings(mem) == {})
 
 

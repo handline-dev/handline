@@ -7,13 +7,9 @@ screen just read; a dialog no rule matches is left for the founder. The
 folder-trust screen is `lifecycle`'s standing consent and stays on the trust
 roots, never on a rule. This setting gates both.
 
-A third, `_accept`, answers a tool call the permission hook reported as
-waiting when `Driver.accepts_tool` says yes to it (`Driver.accepting_key`
-presses the plain "Yes", never "don't ask again"). No vendor has said yes to
-anything through it since T249 removed claude's one case (the browser tool,
-whose MCP server launch.py now denies outright, leaving no prompt of that
-shape to accept); it stays only because a future vendor or tool category
-could still implement `accepts_tool` for real."""
+`_accept` answers a hook-reported tool call a driver's `accepts_tool` takes;
+no current vendor takes any (T249 removed claude's one case, the browser
+tool)."""
 from __future__ import annotations
 
 import time
