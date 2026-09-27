@@ -5884,6 +5884,9 @@ limits:
     con = db.connect()
     try:
         ids = {n: db.new_task(con, f"work of {n}", n, n) for n in ("boss", "mid", "leaf", "other")}
+        done = {n: db.new_task(con, f"finished by {n}", n, n) for n in ("leaf", "other")}
+        for t in done.values():
+            db.mark_task_done(con, t, "shipped it")
     finally:
         con.close()
     shows = lambda out, *names: all(f"T{ids[n]} " in out for n in names)
@@ -5892,6 +5895,10 @@ limits:
     rc, out = _cli(["task", "list"], as_agent="mid")
     check("scope: a manager sees its own and its report's tasks, not its boss's or a peer team's",
           shows(out, "mid", "leaf") and hides(out, "boss", "other"), out)
+    check("scope: the done-waiting-for-check group is scoped too",
+          f"T{done['leaf']} " in out and f"T{done['other']} " not in out, out)
+    check("scope: --everyone shows the other team's finished task",
+          f"T{done['other']} " in _cli(["task", "list", "--everyone"], as_agent="mid")[1])
     rc, out = _cli(["task", "list"], as_agent="boss")
     check("scope: the reach goes down the whole roster", shows(out, "boss", "mid", "leaf")
           and hides(out, "other"), out)

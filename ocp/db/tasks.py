@@ -36,12 +36,6 @@ def open_tasks(con) -> list:
         "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY priority, id").fetchall()
 
 
-def open_tasks_for(con, owner: str) -> list:
-    return con.execute(
-        "SELECT * FROM tasks WHERE closed_by IS NULL AND owner = ? ORDER BY priority, id",
-        (owner,)).fetchall()
-
-
 def all_tasks(con) -> list:
     return con.execute("SELECT * FROM tasks ORDER BY priority, id").fetchall()
 
