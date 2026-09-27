@@ -259,10 +259,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     whichever edge assigned it. `park` False skips the requester's own async
     park below - T293's `say` never records a wait beyond its reply window.
     `send_now` marks the new row (`db.mark_send_now`) on this same
-    connection, before it is ever visible as queued - `say`'s own delivery
-    depends on that mark, so it is written here rather than in a second call
-    on a second connection, which a crash between the two could leave
-    unmarked and, since a say is never a head, unreachable for good.
+    connection - `say` needs that mark, and a second connection for it could
+    leave it unmarked, and unreachable, if one crashed between the two.
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):
@@ -479,25 +477,35 @@ SAY_TIMEBOX_S = 30 * 60
 
 def say(target: str, body: str, requester: str | None = None,
         parent_id: int | None = None) -> tuple[bool, str, int | None]:
-    """T293 (auditor #1655/#1657): a question answerable from what the
-    receiver already knows or a quick look - never new work (that is still
-    `task new`). No files and none of `ask`'s other shape flags - a say is
-    only ever a target and a body, optionally a reply's `parent_id`.
-
-    Delivered ahead of the queue (`db.mark_send_now`, the same mechanism the
-    founder's own send-now uses, written by `ask` itself so the mark can
-    never be lost between the row's insert and here) and never itself a
-    head of one (`db.head_of_queue` skips kind='say'), so a say can neither
-    block nor be blocked by the ordinary one-doing queue. The requester
-    never parks on it (`park=False`); the only wait is the fixed 30-minute
-    reply window (`SAY_TIMEBOX_S`), not the routing edge's own default -
-    except to the founder, who is never timeboxed (`ask` itself refuses one
-    there; the founder's own screen is how a say to it is seen, not a park
-    timer).
+    """T293 (#1655/#1657): a question answered from a look-up, not new work
+    - always ahead of the queue, never a head, no park beyond the fixed
+    30-minute reply window (none to the founder). `parent_id` replies to and
+    closes the say it answers (`_close_replied_say`) - otherwise the table
+    only ever grows.
     """
     timebox = None if target == HUMAN else SAY_TIMEBOX_S
-    return ask(target, body, requester=requester, parent_id=parent_id,
-              kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True)
+    ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
+                      kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True)
+    if ok and parent_id is not None and rid is not None:
+        _close_replied_say(parent_id, rid, body)
+    return ok, msg, rid
+
+
+def _close_replied_say(parent_id: int, reply_id: int, reply_body: str) -> None:
+    """T293/auditor #1742: a say answers the one it replies to - closed with
+    the reply as its verdict, silently (`notify=False`): the reply itself,
+    delivered as its own say, is what tells the requester, so closing it
+    again would say the same thing twice. Only its own target's own reply
+    closes it - naming a live say's id as --parent from anywhere else must
+    not let a third party close someone else's say."""
+    con = db.connect()
+    try:
+        parent, reply = db.get_request(con, parent_id), db.get_request(con, reply_id)
+    finally:
+        con.close()
+    if (parent is not None and parent["kind"] == SAY_KIND and parent["state"] == "queued"
+            and reply is not None and reply["requester"] == parent["target"]):
+        resolve(parent_id, reply_body, notify=False)
 
 
 def push(con, target: str) -> str:

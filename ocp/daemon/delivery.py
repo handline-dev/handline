@@ -312,15 +312,11 @@ def enforce_edges(con, agent: str, log) -> bool:
 
 
 def deliver_queued(con, agent: str, log) -> bool:
-    """Tell an agent about the head of its own queue (`db.head_of_queue`) -
-    and only the head, per request #189 - plus any request the human marked
-    "send now" (`db.mark_send_now`), which goes ahead of an open head - or a
-    say (T293), which is always `send_now` and never a head at all, so this
-    is also where one is told when nothing else is queued to be the head.
-    `ocp ask`/`ocp say` write a row and put a file in the target's inbox;
-    neither reaches the target's screen, which is why this exists at all.
-    Told once per head: the cursor holds the id last announced, so a
-    reminder only goes out once the head actually changes.
+    """Tell an agent about the head of its own queue (`db.head_of_queue`),
+    plus anything marked `send_now` ahead of it - a say (T293) among them,
+    which is always marked and never a head, so with nothing else queued
+    this is also where one gets told. Told once per head: the cursor holds
+    the id last announced.
     """
     if not enforce_edges(con, agent, log):
         return False
@@ -615,10 +611,14 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
 
 
 def _answer_verb(head) -> str:
-    """How the agent closes what it was just told: a report asks nothing, so
-    it is dismissed, not answered."""
+    """How the agent closes what it was just told: a report is dismissed,
+    a say (T293) answered with `say` itself - #1657's own way out - and
+    everything else resolved."""
     if head["kind"] == "report":
         return f"it asks nothing - `ocp dismiss {head['id']}` when read"
+    if head["kind"] == "say":
+        from ..actions import say as say_actions
+        return say_actions.delivery_line(head["id"])
     return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
 
 

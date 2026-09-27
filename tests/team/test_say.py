@@ -85,8 +85,90 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
         check("say: the reply is never a head either",
               db.head_of_queue(con, "manager") is None
               or db.head_of_queue(con, "manager")["id"] != reply_rid)
+        check("say: the reply closes the say it answers, recorded as its verdict "
+              "(auditor #1742 must-change 1) - otherwise the table only grows",
+              original["state"] == "done" and original["verdict"] == "close - one file left",
+              str(dict(original)))
     finally:
         con.close()
+    con = db.connect()
+    real_available = orcamod.available
+    try:
+        orcamod.available = lambda: False   # stuck() asks orca only if it must
+        check("say: closing it silently means no timebox notice fires for an "
+              "already-answered say",
+              not any(r["id"] == rid for r in db.timeboxed_open(con)))
+        check("say: stuck() lists nothing for an answered say",
+              not any(f"#{rid}" in r["what"] for r in actions.stuck(con)), actions.stuck(con))
+    finally:
+        orcamod.available = real_available
+        con.close()
+
+
+def test_only_the_says_own_target_can_close_it_by_replying(home: Path) -> None:
+    """Code review finding: naming a live say's id as --parent from anywhere
+    else must not let a third party close someone else's say - only the
+    say's own target's own reply may (`_close_replied_say` checks the
+    reply's actual requester against the parent's target, not just its
+    kind and state)."""
+    _say_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    rc, out = _cli(["say", "worker", "is X true?"], as_agent="manager")
+    check("setup: a say to worker opens", rc == 0, out)
+    rid = int(out.split("queued as #", 1)[1].split()[0])
+    # manager - the say's own sender, not its target - tries to close it by
+    # naming it as --parent on an unrelated say of its own.
+    rc, out = _cli(["say", askmod.HUMAN, "unrelated", "--parent", str(rid)], as_agent="manager")
+    check("attack: the unrelated say still delivers", rc == 0, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        check("attack: but the original say to worker is not closed by it",
+              row["state"] == "queued", str(dict(row)))
+    finally:
+        con.close()
+    # worker - the actual target - replies for real, and that does close it.
+    rc, out = _cli(["say", "manager", "yes", "--parent", str(rid)], as_agent="worker")
+    check("real reply: worker's own reply delivers", rc == 0, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        check("real reply: and it does close the say, this time",
+              row["state"] == "done" and row["verdict"] == "yes", str(dict(row)))
+    finally:
+        con.close()
+
+
+def test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(home: Path) -> None:
+    """Code review finding (auditor #1742 must-change 2): what actually gets
+    typed at the receiver's terminal (`tell_text`/`_answer_verb`) was never
+    taught kind='say' - a say was typed as "answer with `ocp resolve`", not
+    #1657's own way out."""
+    _say_world(home)
+    ok, msg, rid = askmod.say("worker", "is the deploy done?", requester="manager")
+    check("say: opens", ok, msg)
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        text = dmn_delivery.tell_text(con, row, 1)
+    finally:
+        con.close()
+    check("tell_text: a say is not told to `ocp resolve`", "ocp resolve" not in text, text)
+    check("tell_text: it carries the say's own delivery line instead",
+          actions.delivery_line(rid) in text, text)
 
 
 def test_inbox_unread_only_falls_back_to_a_marked_say_with_no_head(home: Path) -> None:
@@ -275,13 +357,24 @@ def test_is_lookup_bash_matches_the_allowlist_by_prefix(home: Path) -> None:
     flag on a listed command is still a look-up, but an unlisted command
     is not, whatever its own flags."""
     for cmd in ("git log", "git log --oneline -5", "git show HEAD", "git diff --stat",
-               "git status", "git branch -a", "ls", "ls -la", "cat foo.py",
+               "git status", "ls", "ls -la", "cat foo.py",
                "head -n 20 bar.py", "ocp read 42", "ocp inbox --all", "ocp task list",
                "ocp team", "ocp task board"):
         check(f"is_lookup_bash: {cmd!r} is a look-up", actions.is_lookup_bash(cmd))
     for cmd in ("git commit -m x", "git push", "rm -rf /", "curl http://x", "pytest",
-               "npm test", "gitlog", "cats foo.py"):
+               "npm test", "gitlog", "cats foo.py",
+               "git branch", "git branch -a", "git branch -D main"):
         check(f"is_lookup_bash: {cmd!r} is not a look-up", not actions.is_lookup_bash(cmd))
+
+
+def test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(home: Path) -> None:
+    """Code review finding (auditor #1742): matching by prefix alone let a
+    pipe, redirect or chain turn a listed look-up into a write - refused
+    outright now, whatever command it names."""
+    for cmd in ("cat > x", "git log | sh", "head -1 a && make", "ls; rm -rf /",
+               "cat foo `whoami`", "git log $(echo x)", "cat foo\nrm bar"):
+        check(f"is_lookup_bash: {cmd!r} is refused for its shell operator, not "
+              f"read as a look-up", not actions.is_lookup_bash(cmd))
 
 
 def main() -> int:
@@ -291,6 +384,10 @@ def main() -> int:
         run(lambda: test_say_delivers_ahead_of_the_queue_and_never_parks(Path(td) / 'sayqueue'))
         run(lambda: test_say_survives_enforce_edges_own_kind_recheck(Path(td) / 'sayedges'))
         run(lambda: test_a_reply_to_a_say_is_a_say_in_its_own_thread(Path(td) / 'sayreply'))
+        run(lambda: test_only_the_says_own_target_can_close_it_by_replying(
+            Path(td) / 'sayclosetarget'))
+        run(lambda: test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(
+            Path(td) / 'saytelltext'))
         run(lambda: test_inbox_unread_only_falls_back_to_a_marked_say_with_no_head(
             Path(td) / 'sayinbox'))
         run(lambda: test_say_delivery_line_and_needs_task(Path(td) / 'sayneedstask'))
@@ -301,6 +398,8 @@ def main() -> int:
             Path(td) / 'saystuck'))
         run(lambda: test_needs_task_command_quotes_a_title_with_its_own_quote(Path(td) / 'sayquote'))
         run(lambda: test_is_lookup_bash_matches_the_allowlist_by_prefix(Path(td) / 'saylookup'))
+        run(lambda: test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(
+            Path(td) / 'sayshellop'))
     return run_area(tests)
 
 
