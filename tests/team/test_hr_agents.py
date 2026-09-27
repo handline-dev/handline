@@ -2213,10 +2213,6 @@ edges:
     check("link: and so is the asking end", not ok and "not in team.yaml" in said, said)
 
 
-def agents_dir_names() -> list[str]:
-    return paths.list_agents()
-
-
 def test_hr_team_is_one_proposal_and_a_team_has_default_links(home: Path) -> None:
     """T263: a manager and its members are proposed and approved once, and the
     ordinary links (`team.DEFAULT_LINKS`) need no edge; an explicit deny still wins."""
@@ -2253,6 +2249,16 @@ deny:
         check("team: refused until the founder answers", not ok, said)
         decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(prop))
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (prop["request"],))
+        for label, key, value in [("a member added", "members", prop["members"] + ",boat.spy"),
+                                  ("a member's repo changed", "repo.boat.sea", "/elsewhere"),
+                                  ("the manager's repo changed", "repo", "/elsewhere")]:
+            edited = dict(prop)
+            edited[key] = value
+            hr.save(edited)
+            ok, said = hr.apply(pid, con)
+            check(f"team: {label} after the approval is refused", not ok
+                  and "boat.spy" not in team.Team.load().agents, said)
+        hr.save(prop)
         ok, said = hr.apply(pid, con)
         check("team: one approval creates the team", ok, said)
     finally:
@@ -2308,7 +2314,7 @@ deny:
           and agents.read("reef.dive").get("repo") == "/w/dive", out)
     rc, out = _cli(["hr", "team", "reef2", "--member", "a", "--why", "w"], as_agent="orca")
     check("team: an agent's `hr team` is a proposal", rc == 0 and "raised as" in out
-          and "reef2" not in agents_dir_names(), out)
+          and "reef2" not in paths.list_agents(), out)
     from ocp.team import guide
     check("guide: the rule is written down once, in the team topic",
           all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
