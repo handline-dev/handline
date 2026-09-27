@@ -2357,12 +2357,18 @@ edges:
         kinds = hr.KINDS
         hr.KINDS = tuple(k for k in kinds if k != "team")
         try:
-            askmod.resolve(prop["request"], "approve")
+            ok, said = askmod.resolve(prop["request"], "approve")
+            ok2, said2 = askmod.resolve(prop["request"], "reject")
+            still_queued = db.get_request(con, prop["request"])["state"] == "queued"
         finally:
             hr.KINDS = kinds
-        check("stale: answered by a process that did not know the kind, nothing was applied",
-              hr.load_proposal(pid)["state"] == "proposed" and decisions.get("hr", pid) is None
-              and "old" not in paths.list_agents())
+        check("stale: a process that does not know the kind refuses the answer and says to restart",
+              not ok and not ok2 and "does not know" in said and "Restart" in said, said)
+        check("stale: the escalation is still queued, nothing recorded or applied",
+              still_queued and hr.load_proposal(pid)["state"] == "proposed"
+              and decisions.get("hr", pid) is None and "old" not in paths.list_agents())
+        # What such a process used to do: close the row, unapplied.
+        db.close_if_queued(con, prop["request"], "done", "approve")
         ok, said = hr.apply(pid, con)
         check("stale: apply refuses, as the report said", not ok and "no answer from the founder" in said, said)
         os.environ["OCP_AGENT"] = "orca"

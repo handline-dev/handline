@@ -565,6 +565,22 @@ def open_proposal_of(rid: int) -> str | None:
     return None
 
 
+def unknown_kind_of(rid: int) -> str | None:
+    """The kind of a proposal file waiting on request `rid` that this process does
+    not know, else None. `listing` skips such a file, so without this a process
+    older than the kind would close the escalation and throw the answer away."""
+    for f in dir_().glob("*.yaml"):
+        try:
+            data = load(f.read_text())
+        except (ConfigError, UnicodeDecodeError, OSError):
+            continue
+        if (isinstance(data, dict) and data.get("id") and data.get("agent")
+                and data.get("kind") not in KINDS and data.get("state") == "proposed"
+                and str(data.get("request") or "") == str(rid)):
+            return str(data.get("kind"))
+    return None
+
+
 def is_open_proposal(rid: int) -> bool:
     """Is request `rid` the escalation of a proposal still waiting on approve or reject?"""
     return open_proposal_of(rid) is not None
