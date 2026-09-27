@@ -2655,6 +2655,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust migrate": "founder-only; moves the old trust_roots.json once - driven in "
                          "test_trust_roots_live_in_the_protected_store",
         "venv install": "creates a real venv and pip installs into it",
+        "say": "T293: opens and delivers a say (send_now, never a head), or --needs-task "
+               "replies to the sender; driven in tests/team/test_say.py, not this scene",
     }
     have = set(driven_now := scene.driven) | set(skipped)
     every = set(leaves())

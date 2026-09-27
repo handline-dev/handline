@@ -131,9 +131,22 @@ def head_of_queue(con, target: str):
     Request #189: an agent is given one request at a time, not its whole
     queue - this is where that is decided, once, for every reader (delivery,
     `ocp inbox`, resolve's hand-off to the next one) to agree on.
+
+    T293: a say is never this - it is delivered ahead of the queue on its
+    own (`ask.say`'s `mark_send_now`), and skipping it here means one
+    sitting unanswered can never become, or block, the head the one-doing
+    rule actually tracks.
     """
-    rows = queued_for(con, target)
+    rows = [r for r in queued_for(con, target) if r["kind"] != "say"]
     return rows[0] if rows and rows[0]["edge_ok"] else None
+
+
+def head_of_queue_or_marked(con, target: str):
+    """`head_of_queue`, or - with none - the oldest `send_now_pending` row
+    (T293): what a say-only queue still has to tell, for the two readers
+    (`waiting_prompt`, `ask.inbox`) that only ever want the one thing to
+    show, not `deliver_queued`'s fuller ordering of several at once."""
+    return head_of_queue(con, target) or next(iter(send_now_pending(con, target)), None)
 
 
 def clear_edge(con, rid: int) -> None:

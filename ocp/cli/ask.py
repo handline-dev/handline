@@ -461,6 +461,9 @@ def cmd_read(args) -> int:
               f"depth {row['chain_depth']}")
         print()
         print(textsafe.text(row["body"] or "(empty)"))
+        if row["kind"] == "say" and row["state"] == "queued":
+            print()
+            print(actions.delivery_line(row["id"]))
         dismissed, by, reason = db.dismissal(row)
         if dismissed:
             print()
