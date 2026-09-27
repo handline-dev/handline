@@ -159,9 +159,7 @@ class Claude:
         return TRUST_PROMPT_DOWN_ARROW
 
     def accepts_tool(self, tool: str | None) -> bool:
-        # The one tool call this ever said yes to was the browser's, and
-        # launch_argv now denies that MCP server outright, so no prompt of
-        # this shape is left to accept.
+        # launch_argv passes --no-chrome, so there is no browser prompt to accept.
         return False
 
     def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:
