@@ -3741,6 +3741,107 @@ def test_task_new_list_and_link(home: Path) -> None:
           and f"request #{rid}" in out, out)
 
 
+def test_task_new_parent_auto_blocks(home: Path) -> None:
+    """T294 (orcapipe's #1910): every `task new --parent` blocks the parent
+    on the child too, not only the structural open-child-task check - so the
+    board reads `waiting on T<child>`, and closing the review/audit/check
+    child fires the same unblock notice an explicit `--blocked-by` would.
+    A re-check reopens the same child rather than opening a new one, and the
+    parent stays blocked the whole time it is done but not yet closed."""
+    _board_world(home)
+    rc, out = _cli(["task", "new", "--owner", "worker", "parent work"])
+    check("task new: opens the parent", rc == 0, out)
+    t_parent = int(out.split("task T", 1)[1].split()[0])
+
+    rc, out = _cli(["task", "new", "--owner", "manager", "review it",
+                    "--parent", f"T{t_parent}", "--expects", "verdict"], as_agent="worker")
+    check("task new --parent: opens the child", rc == 0, out)
+    t_child = int(out.split("task T", 1)[1].split()[0])
+
+    con = db.connect()
+    try:
+        check("task new --parent: adds the block automatically, no --blocked-by needed",
+              [b["id"] for b in db.task_blockers(con, t_parent)] == [t_child],
+              [dict(b) for b in db.task_blockers(con, t_parent)])
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: the parent reads waiting on the review child",
+          _now_line(out, t_parent) == f"now: waiting on T{t_child}", out)
+
+    # A re-check is `task reopen` of the same child, before it closes - not a
+    # new task - and the parent stays blocked the whole time: nothing about
+    # task_blocks changes between done and reopened, only closing clears it.
+    rc, out = _cli(["task", "done", f"T{t_child}", "FAIL: needs another pass"],
+                   as_agent="manager")
+    check("task done: the auditor's verdict", rc == 0, out)
+    rc, out = _cli(["task", "reopen", f"T{t_child}", "sent back for another pass"],
+                   as_agent="worker")
+    check("task reopen: the same child, sent back rather than opening a new one",
+          rc == 0, out)
+    con = db.connect()
+    try:
+        check("task reopen: the parent is still blocked on it",
+              [b["id"] for b in db.task_blockers(con, t_parent)] == [t_child],
+              [dict(b) for b in db.task_blockers(con, t_parent)])
+    finally:
+        con.close()
+
+    rc, out = _done_and_close(t_child, "manager", "PASS", closer="worker")
+    check("close: the review closes on its verdict", rc == 0, out)
+    con = db.connect()
+    try:
+        check("close: the parent's block clears with the child",
+              db.task_blockers(con, t_parent) == [])
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: the parent no longer reads as waiting once the review closes",
+          _now_line(out, t_parent) == "now: worker", out)
+
+
+def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
+    """T294 (code-review, T-A #1897): the auto-block on a `--parent` child
+    must not turn into a new merge refusal - before it existed, a task with
+    an open child could already be merged away (the child just reparents to
+    `keep`, `merge_task_links`), so the block that only makes that wait
+    visible must not make merge see a reason to refuse where none was there
+    before. An unrelated, explicit `--blocked-by` still refuses as always."""
+    _board_world(home)
+    rc, out = _cli(["task", "new", "--owner", "worker", "parent work"])
+    t_parent = int(out.split("task T", 1)[1].split()[0])
+    rc, out = _cli(["task", "new", "--owner", "manager", "review it",
+                    "--parent", f"T{t_parent}"], as_agent="worker")
+    check("task new --parent: opens the open child", rc == 0, out)
+    t_child = int(out.split("task T", 1)[1].split()[0])
+    rc, out = _cli(["task", "new", "--owner", "worker", "other work"])
+    t_other = int(out.split("task T", 1)[1].split()[0])
+
+    rc, out = _cli(["task", "merge", f"T{t_other}", f"T{t_parent}"])
+    check("merge: a parent with only its auto-blocking child still merges away",
+          rc == 0, out)
+    con = db.connect()
+    try:
+        check("merge: the child reparents to the task it was merged into",
+              db.get_task(con, t_child)["parent_task"] == t_other)
+        check("merge: the child's auto-block moves with it, still naming the "
+              "child it actually waits on", [b["id"] for b in db.task_blockers(con, t_other)]
+              == [t_child], [dict(b) for b in db.task_blockers(con, t_other)])
+        check("merge: no stray block left naming the merged-away task",
+              db.task_blockers(con, t_parent) == [] and db.blocks_on_ids(con, t_parent) == [])
+
+        t_gate = db.new_task(con, "gate", "worker", "manager")
+        t_blocked = db.new_task(con, "blocked", "worker", "manager")
+        db.add_block(con, t_blocked, t_gate)
+        t_keep = db.new_task(con, "keep2", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "merge", f"T{t_keep}", f"T{t_blocked}"])
+    check("merge: an explicit, non-child blocker still refuses the merge",
+          rc == 1 and "waiting on" in out, out)
+
+
 def test_task_new_is_its_own_delivery(home: Path) -> None:
     """T292 (auditor #1655 section 4): `task new` is the request now, not a
     separate step after it - checked against the routing table (C2), one
@@ -6576,6 +6677,9 @@ def main() -> int:
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
         run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
+        run(lambda: test_task_new_parent_auto_blocks(Path(td) / 'tasknewparentblock'))
+        run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
+            Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
             Path(td) / 'nexttask'))

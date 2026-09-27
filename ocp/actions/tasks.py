@@ -633,6 +633,13 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
 
     The owner's current task (bullet 1) is set to this one only if it holds
     none yet - never for a human owner, who holds no current task at all.
+
+    T294: a child task always blocks its parent (orcapipe's #1910: every
+    `--parent` adds the block, no --expects gate, even when the parent's own
+    owner opens the child for itself) - close_task already refuses to close
+    while any child is open, so this only makes that true in `task_blockers`,
+    the board's "waiting on" line, and the notice `_clear_blocks_on` sends
+    once the child closes.
     """
     if priority is None:
         priority = db.DEFAULT_PRIORITY
@@ -655,6 +662,9 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
             db.set_current_task(con, owner, tid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
                                            "expects": expects})
+        if parent is not None:
+            db.add_block(con, parent, tid)
+            db.add_event(con, me, "block_task", {"task_id": parent, "blocks_on": tid})
     finally:
         con.close()
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
@@ -808,8 +818,14 @@ def _merge_refusal(con, keep_row, row, by: str) -> str | None:
         return f"task T{tid} is already closed"
     if row["done_evidence"]:
         return f"task T{tid} is done - `ocp close T{tid}` signs it off, it is not merged"
-    if db.task_blockers(con, tid):
-        ids = ", ".join(f"T{b['id']}" for b in db.task_blockers(con, tid))
+    # T294's auto-block on a child (parent_task == tid) is not a reason to
+    # refuse: `move_task_links` already reparents that child to `keep`, same
+    # as before the auto-block existed. Only a blocker that is not also a
+    # child - an explicit `--blocked-by`, or a wait it inherited some other
+    # way - still refuses.
+    blockers = [b for b in db.task_blockers(con, tid) if b["parent_task"] != tid]
+    if blockers:
+        ids = ", ".join(f"T{b['id']}" for b in blockers)
         return f"task T{tid} is waiting on {ids} - it cannot be merged until they close"
     if _under(con, keep, tid):
         return f"task T{keep} is under T{tid} - folding T{tid} into it would loop them"
