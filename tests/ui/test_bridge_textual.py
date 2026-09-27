@@ -770,6 +770,51 @@ async def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
           and tui._ANSI.sub("", tui.fold_suffix(3, ("\u26a0", 2, tui.RED))) == " +3 \u26a02")
 
 
+async def test_agents_data_counts_waiting_tasks_and_flags_a_ready_idle_agent() -> None:
+    """T300: `tasks` is a queued task against its owner, plus a doing task
+    against whoever the open request naming it is actually out with (founder
+    #1719) - never its owner instead, once delegated on, and never a draft
+    (founder #1710: nobody is answerable for one until it is approved to
+    run). `ready` is only set once an agent has a queued task of its own that
+    nothing open still blocks, and it is IDLE to take it."""
+    from ocp.team import ask as askmod
+    _home("agenttasks")
+    agents.register("frontend")
+    con = db.connect()
+    try:
+        db.new_task(con, "draft one", "backend", "orcapipe")     # not approved: counts nowhere
+        queued = db.new_task(con, "ready one", "backend", "orcapipe")
+        ok, said = actions.set_queued(con, queued, actions.HUMAN, True)
+        con.commit()
+        check("set_queued: approves the draft to run", ok, said)
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: tasks counts the queued one, not the draft",
+              r.tasks == 1, r)
+        check("agents_data: ready once IDLE with a queued task no open blocker holds",
+              r.state == "IDLE" and r.ready, r)
+
+        delegated = db.new_task(con, "delegated", "frontend", "product")
+        ok, said, rid = askmod.ask("backend", "handle it", requester="product")
+        check("ask: product may hand eng.* work (design team's routing)", ok, said)
+        db.link_request(con, delegated, rid)
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        by_name = {x.name: x for x in rows}
+        check("agents_data: a doing task counts against the request's target, not its owner",
+              by_name["backend"].tasks == 2 and by_name["frontend"].tasks == 0, rows)
+
+        blocker = db.new_task(con, "blocker", "backend", "orcapipe")
+        db.add_block(con, queued, blocker)
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: an open blocker on the only queued task clears ready, not the count",
+              r.tasks == 2 and not r.ready, r)
+    finally:
+        con.close()
+
+
 async def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
     """The FOR YOU panel is a DataTable fed by `tui.messages_data`: a title that
     counts what is waiting, a row per message (sender, kind, its first line
@@ -2637,7 +2682,7 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
     from types import SimpleNamespace
     from ocp.ui.components.agent_rows import Extra
     row = lambda **kw: SimpleNamespace(**{"twig": "", "shown": "boss", "under": 0, "state": "IDLE",
-                                          "until": "", "fire": "", **kw})
+                                          "until": "", "fire": "", "ready": False, **kw})
     extra = lambda **kw: Extra(**{"kind_short": "m", "cache_left": None, "block": "", "stuck": "",
                                   "asks": 0, "urgency": None, **kw})
     page = HomePage.__new__(HomePage)
@@ -2666,6 +2711,8 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
     check("home: the state column is the state word alone, whatever the row is stuck on or until",
           state(row(until="12:30"), extra(stuck="its delivery is not moving")) == state(row(), extra())
           and state(row(), extra(block="dialog open")) == state(row(), extra()))
+    check("home: a ready row (T300) wears ⚑ after the state word",
+          state(row(ready=True), extra()) == state(row(), extra()) + " ⚑")
     check("home: the last column says why it is stuck, and a block in its own words",
           "⚠ its delivery is not moving" in note(row(), extra(stuck="its delivery is not moving"))
           and note(row(), extra(block="dialog open")) == "dialog open" and note(row(), extra()) == "")
@@ -3008,6 +3055,7 @@ async def _run_all() -> None:
     await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
+    await test_agents_data_counts_waiting_tasks_and_flags_a_ready_idle_agent()
     await test_dashboard_messages_table_is_fed_by_messages_data()
     await test_stuck_data_with_no_agent_to_act_on_leaves_the_home_page_safe()
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()

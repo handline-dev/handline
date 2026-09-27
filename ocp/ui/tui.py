@@ -364,6 +364,8 @@ class AgentRow(NamedTuple):
     kind: str = ""
     ctx: str = ""                # ANSI: yellow at its context limit
     inbox: int = 0
+    tasks: int = 0                # queued tasks it owns, plus doing ones out with it now (T300)
+    ready: bool = False           # IDLE with a queued task no open blocker holds (T300)
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
 
@@ -400,6 +402,20 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
     # are what a row costs.
     state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
     shown = {k: oneline(v) for k, v in shown_names(drawn_tree).items()}
+    # Read once for every agent, not per row: `task_rows` itself scans every
+    # open task, so calling it once per agent would rescan the whole board as
+    # many times as there are agents drawn. A draft is nobody's yet (founder
+    # #1710: not even its owner's - it has not been approved to run), so it is
+    # left out. A queued task counts against its owner, who is the one meant to
+    # pick it up; a doing task counts against whoever the open request naming
+    # it is actually out with (founder #1719: work already under way follows
+    # the request's target, not the owner that opened it), which can differ
+    # from the owner once it has been delegated on.
+    waiting_by_owner: dict[str, list] = {}
+    for wt in actions.task_rows(con, state=["queued", "doing"]):
+        targets = actions.doing_targets(con, wt["id"]) if wt["state"] == "doing" else {wt["owner"]}
+        for tgt in targets:
+            waiting_by_owner.setdefault(tgt, []).append(wt)
     rows = []
     for name, depth, hidden in drawn_tree:
         under = len(hidden)
@@ -437,9 +453,12 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         w = dmn_lifecycle.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
+        waiting_tasks = waiting_by_owner.get(name, [])
+        ready = s == "IDLE" and any(
+            wt["state"] == "queued" and not wt["blocked_by"] for wt in waiting_tasks)
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct or "-"), oneline(agents.kind(cfg)), ctxs,
-                             len(db.queued_for(con, name)), fire, wall))
+                             len(db.queued_for(con, name)), len(waiting_tasks), ready, fire, wall))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 
@@ -594,9 +613,11 @@ def snapshot() -> str:
             out.append(f"  {plain(r.twig)}{r.shown}  config error: {oneline(r.error)}")
             continue
         wall = f"  ⏳ {r.wall.account}{r.wall.mark} {r.wall.when}" if r.wall else ""
+        flag = " ⚑" if r.ready else ""
         out.append(f"  {plain(r.twig)}{r.shown}{plain(fold_suffix(r.under, r.urgency))}  {r.acct}  "
-                   f"{r.kind}  {plain(state_cell(r.state, r.until))}  {plain(r.ctx)}  "
-                   f"{r.inbox or '·'}{'  ' + plain(r.fire) if r.fire else ''}{wall}")
+                   f"{r.kind}  {plain(state_cell(r.state, r.until))}{flag}  {plain(r.ctx)}  "
+                   f"{r.inbox or '·'}  {r.tasks or '·'}"
+                   f"{'  ' + plain(r.fire) if r.fire else ''}{wall}")
     out += [f"  {n}" for n in agent_notes]
     out += ["", title]
     for r in messages_:

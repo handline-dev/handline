@@ -167,6 +167,19 @@ def _asks(r) -> bool:
     return r["state"] == "queued" and not r["fyi"]
 
 
+def doing_targets(con, tid: int) -> set[str]:
+    """Who a doing task is actually out with right now - the target of its own
+    live request, or of an open child task's, whichever `task_state` found
+    (T300: the Home board counts a doing task against the one working it,
+    not its owner). Empty for a task `task_state` would not call doing."""
+    targets = {r["target"] for r in db.task_requests(con, tid) if _asks(r)}
+    if targets:
+        return targets
+    for c in db.open_child_tasks(con, tid):
+        targets |= {r["target"] for r in db.task_requests(con, c["id"]) if _asks(r)}
+    return targets
+
+
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved
