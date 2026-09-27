@@ -54,6 +54,31 @@ def cmd_hr(args) -> int:
         print(said)
         return 0 if ok else 1
     if args.hr_cmd == "apply":
+        if args.confirm_answer:
+            if protected.in_agent_session():
+                print("recording the founder's answer is the founder's, from a terminal or "
+                      "the bridge, not an agent's", file=sys.stderr)
+                return 1
+            if not args.yes:
+                prop = hr.load_proposal(args.id) or {}
+                con = db.connect()
+                try:
+                    row = db.get_request(con, int(prop.get("request") or 0))
+                finally:
+                    con.close()
+                if row is None:
+                    print(f"no proposal {args.id}")
+                    return 1
+                print(row["body"], f"\nanswered: {row['verdict']!r}", sep="\n")
+                if not sys.stdin.isatty():
+                    print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
+                    return 1
+                if input("record this as your answer and apply it? [y/N] ").strip().lower() not in ("y", "yes"):
+                    print("left alone")
+                    return 1
+            ok, said = hr.confirm_answer(args.id)
+            print(said)
+            return 0 if ok else 1
         ok, said = hr.apply(args.id)
         print(said)
         return 0 if ok else 1
