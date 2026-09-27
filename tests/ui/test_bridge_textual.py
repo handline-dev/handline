@@ -771,12 +771,8 @@ async def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
 
 
 async def test_agents_data_counts_waiting_tasks_and_flags_a_ready_idle_agent() -> None:
-    """T300: `tasks` is a queued task against its owner, plus a doing task
-    against whoever the open request naming it is actually out with (founder
-    #1719) - never its owner instead, once delegated on, and never a draft
-    (founder #1710: nobody is answerable for one until it is approved to
-    run). `ready` is only set once an agent has a queued task of its own that
-    nothing open still blocks, and it is IDLE to take it."""
+    """T300: draft excluded; queued counts to its owner, doing to its live
+    request's target (#1719). `ready` needs an unblocked queued task and IDLE."""
     from ocp.team import ask as askmod
     _home("agenttasks")
     agents.register("frontend")
@@ -811,6 +807,32 @@ async def test_agents_data_counts_waiting_tasks_and_flags_a_ready_idle_agent() -
         r = next(x for x in rows if x.name == "backend")
         check("agents_data: an open blocker on the only queued task clears ready, not the count",
               r.tasks == 2 and not r.ready, r)
+    finally:
+        con.close()
+
+
+async def test_a_doing_task_seen_only_through_a_child_does_not_double_count() -> None:
+    """T300: `task_state` calls a parent doing once an open child of it carries
+    the live request, but that child is its own row with its own live request -
+    counting the parent too would count the same piece of live work twice, once
+    on each of two different agents (auditor #1739)."""
+    from ocp.team import ask as askmod
+    _home("parentchild")
+    agents.register("frontend")
+    con = db.connect()
+    try:
+        parent = db.new_task(con, "parent", "backend", "product")
+        child = db.new_task(con, "child", "frontend", "product", parent_task=parent)
+        ok, said, rid = askmod.ask("frontend", "do the child", requester="product")
+        check("ask: product may hand eng.* work (design team's routing)", ok, said)
+        db.link_request(con, child, rid)
+        con.commit()
+        check("task_state: the parent reads doing through its open child",
+              actions.task_state(con, db.get_task(con, parent)) == "doing")
+        rows, _ = tui.agents_data(con)
+        by_name = {x.name: x for x in rows}
+        check("agents_data: the child's live work counts once, on frontend, not again on backend",
+              by_name["frontend"].tasks == 1 and by_name["backend"].tasks == 0, rows)
     finally:
         con.close()
 
@@ -2711,8 +2733,12 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
     check("home: the state column is the state word alone, whatever the row is stuck on or until",
           state(row(until="12:30"), extra(stuck="its delivery is not moving")) == state(row(), extra())
           and state(row(), extra(block="dialog open")) == state(row(), extra()))
-    check("home: a ready row (T300) wears ⚑ after the state word",
-          state(row(ready=True), extra()) == state(row(), extra()) + " ⚑")
+    check("home: the state word does not carry the ready flag (founder #1738: it goes by the name)",
+          state(row(ready=True), extra()) == state(row(), extra()))
+    check("home: a ready row (T300, founder #1738) wears ⚑ by its name, blinking like an alarm",
+          name(row(ready=True), extra(), True) == "boss ⚑"
+          and name(row(ready=True), extra(), False) == "boss  "
+          and len(name(row(ready=True), extra(), False)) == len(name(row(ready=True), extra(), True)))
     check("home: the last column says why it is stuck, and a block in its own words",
           "⚠ its delivery is not moving" in note(row(), extra(stuck="its delivery is not moving"))
           and note(row(), extra(block="dialog open")) == "dialog open" and note(row(), extra()) == "")
@@ -3056,6 +3082,7 @@ async def _run_all() -> None:
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
     await test_agents_data_counts_waiting_tasks_and_flags_a_ready_idle_agent()
+    await test_a_doing_task_seen_only_through_a_child_does_not_double_count()
     await test_dashboard_messages_table_is_fed_by_messages_data()
     await test_stuck_data_with_no_agent_to_act_on_leaves_the_home_page_safe()
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()

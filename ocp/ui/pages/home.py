@@ -315,7 +315,7 @@ class HomePage(RowActions, JobsAware, Screen):
                           Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
                           Text(str(r.tasks) if r.tasks else "·"),
                           self._note_cell(r, x, wall), key=r.name)
-            if self._alarm(r, x) or self._fold_errs(r, x):
+            if self._alarm(r, x) or self._fold_errs(r, x) or r.ready:
                 self._blinking[r.name] = (r, x)
         self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
         self._notes("#agent-notes", notes)
@@ -407,6 +407,8 @@ class HomePage(RowActions, JobsAware, Screen):
             out.append(f" ✉{x.asks}", style="yellow")
         if self._alarm(r, x):
             out.append(" ⚠" if on else "  ", style="bold red")
+        if r.ready:
+            out.append(" ⚑" if on else "  ", style="bold red")
         return out
 
     def _note_cell(self, r, x, wall: str) -> Text:
@@ -428,8 +430,6 @@ class HomePage(RowActions, JobsAware, Screen):
 
     def _state_cell(self, r, x, on: bool) -> Text:
         cell = Text.from_ansi(tui.state_cell(r.state, ""))
-        if r.ready:
-            cell.append(" ⚑", style="bold red")
         if self._alarm(r, x) and on:
             cell.stylize("reverse")
         return cell

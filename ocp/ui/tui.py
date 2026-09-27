@@ -402,15 +402,8 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
     # are what a row costs.
     state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
     shown = {k: oneline(v) for k, v in shown_names(drawn_tree).items()}
-    # Read once for every agent, not per row: `task_rows` itself scans every
-    # open task, so calling it once per agent would rescan the whole board as
-    # many times as there are agents drawn. A draft is nobody's yet (founder
-    # #1710: not even its owner's - it has not been approved to run), so it is
-    # left out. A queued task counts against its owner, who is the one meant to
-    # pick it up; a doing task counts against whoever the open request naming
-    # it is actually out with (founder #1719: work already under way follows
-    # the request's target, not the owner that opened it), which can differ
-    # from the owner once it has been delegated on.
+    # Read once, not per row. Draft excluded; queued counts to its owner,
+    # doing to its live request's target (#1719).
     waiting_by_owner: dict[str, list] = {}
     for wt in actions.task_rows(con, state=["queued", "doing"]):
         targets = actions.doing_targets(con, wt["id"]) if wt["state"] == "doing" else {wt["owner"]}
@@ -614,8 +607,8 @@ def snapshot() -> str:
             continue
         wall = f"  ⏳ {r.wall.account}{r.wall.mark} {r.wall.when}" if r.wall else ""
         flag = " ⚑" if r.ready else ""
-        out.append(f"  {plain(r.twig)}{r.shown}{plain(fold_suffix(r.under, r.urgency))}  {r.acct}  "
-                   f"{r.kind}  {plain(state_cell(r.state, r.until))}{flag}  {plain(r.ctx)}  "
+        out.append(f"  {plain(r.twig)}{r.shown}{flag}{plain(fold_suffix(r.under, r.urgency))}  {r.acct}  "
+                   f"{r.kind}  {plain(state_cell(r.state, r.until))}  {plain(r.ctx)}  "
                    f"{r.inbox or '·'}  {r.tasks or '·'}"
                    f"{'  ' + plain(r.fire) if r.fire else ''}{wall}")
     out += [f"  {n}" for n in agent_notes]

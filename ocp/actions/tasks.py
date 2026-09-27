@@ -168,16 +168,14 @@ def _asks(r) -> bool:
 
 
 def doing_targets(con, tid: int) -> set[str]:
-    """Who a doing task is actually out with right now - the target of its own
-    live request, or of an open child task's, whichever `task_state` found
-    (T300: the Home board counts a doing task against the one working it,
-    not its owner). Empty for a task `task_state` would not call doing."""
-    targets = {r["target"] for r in db.task_requests(con, tid) if _asks(r)}
-    if targets:
-        return targets
-    for c in db.open_child_tasks(con, tid):
-        targets |= {r["target"] for r in db.task_requests(con, c["id"]) if _asks(r)}
-    return targets
+    """Who this task's own live request is out with (T300: the Home board
+    counts a doing task against the one working it, not its owner). Empty
+    when it has none of its own - `task_state` still calls the task doing
+    then, on an open child's live request, but that child is its own row
+    with its own live request, so counting here too would count the same
+    piece of live work twice, once on each of two different agents
+    (auditor #1739)."""
+    return {r["target"] for r in db.task_requests(con, tid) if _asks(r)}
 
 
 def task_state(con, row) -> str:
