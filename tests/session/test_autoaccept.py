@@ -336,7 +336,19 @@ def test_the_exit_over_background_work_dialog_is_answered_by_a_standing_rule(hom
     dialog-rule path (T200's answer_dialog, saved with 'always') already does
     once the rule exists; no new one-off matcher, just proof it works on the
     real screen text, matched by title and label rather than the position the
-    screen happens to highlight."""
+    screen happens to highlight.
+
+    Once saved, this rule is unconditional - unlike orca.stopping_key /
+    blocked.stop_work_and_exit, the narrow path lifecycle._answer_exit_dialog
+    uses for ocp's OWN /exit (pressed only when the work is stale and its
+    supervisor has had its say), a standing rule fires on this title from any
+    sweep tick, on any agent, whatever is actually running. That is the
+    founder's own want here (a person meeting this dialog wants out, staleness
+    or not) but it does mean the rule and the staleness gate can disagree if
+    ocp's own close ever raises this same dialog while work is genuinely not
+    stale (only reachable if orca.background_work() under-detects, since
+    lifecycle.close refuses to type /exit at all when it does not) - worth
+    knowing before the rule is saved, not something this test can gate."""
     con, term = _rule_world(home, EXIT_DIALOG, rules=(("claude", "Background work is running",
                                                         "Exit and stop tasks"),), clears="1")
     try:
@@ -360,6 +372,10 @@ def test_the_exit_over_background_work_dialog_is_answered_by_a_standing_rule(hom
         autoaccept.sweep(con, lambda _m: None)
         check("exit dialog: found by label at its new position, not the old '1' or the new highlight",
               term.sent == [("3", False)], str(term.sent))
+        row = con.execute("SELECT payload FROM events WHERE kind = 'dialog_accepted'").fetchone()
+        check("exit dialog: reordered, the answer is still on the record",
+              row is not None and "Exit and stop tasks" in row[0])
+        check("exit dialog: reordered, and it is gone too", term.tail == list(CLEARED_SCREEN), term.tail)
     finally:
         con.close()
 
