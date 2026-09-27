@@ -215,7 +215,12 @@ def merge_task(con, tid: int, into: int, by: str) -> bool:
 
 def move_task_links(con, tid: int, into: int) -> None:
     """Hand `tid`'s linked requests, sub-tasks and the edges that name it as
-    a blocker to `into`. A request already linked to both stays linked once."""
+    a blocker to `into`. A request already linked to both stays linked once.
+
+    T294: `tid`'s own children reparent to `into` above, so any block `tid`
+    holds on one of them (the auto-block a child task always gets on its
+    parent) moves to `into` too - the child still blocks whoever its parent
+    now is, not a merged-away id nobody reads `task_blockers` on again."""
     con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) "
                 "SELECT ?, request_id FROM task_requests WHERE task_id = ?", (into, tid))
     con.execute("DELETE FROM task_requests WHERE task_id = ?", (tid,))
@@ -224,6 +229,9 @@ def move_task_links(con, tid: int, into: int) -> None:
     con.execute("UPDATE OR IGNORE task_blocks SET blocks_on = ? WHERE blocks_on = ? AND task_id != ?",
                 (into, tid, into))
     con.execute("DELETE FROM task_blocks WHERE blocks_on = ?", (tid,))
+    con.execute("UPDATE OR IGNORE task_blocks SET task_id = ? WHERE task_id = ? AND blocks_on != ?",
+                (into, tid, into))
+    con.execute("DELETE FROM task_blocks WHERE task_id = ?", (tid,))
 
 
 def task_last_activity(con, tid: int) -> int:
