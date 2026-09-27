@@ -2320,6 +2320,77 @@ deny:
           all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
 
 
+def test_an_approve_on_a_team_proposal_is_recorded_and_applied(home: Path) -> None:
+    """T273: raise, the founder answers approve, it is recorded and applied. And an
+    answer given to a process that did not know the proposal kind (an older daemon
+    or bridge) is closed unapplied; the founder's `confirm_answer` records and applies it,
+    an agent's session cannot, and a draft changed since is refused."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
+teams:
+  orca: [orca]
+agents:
+  orca: {}
+edges:
+  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    agents.register("orca")
+    con = db.connect()
+    try:
+        ok, said = hr.propose("team", "crew", requester="orca", why="a crew",
+                              members=["a", "b"], repos={"crew.a": "/w/a"})
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        ok, said = askmod.resolve(prop["request"], "approve")
+        check("team answer: the approve is applied by the answer itself", ok and "applied" in said, said)
+        check("team answer: it is recorded, names the request, and the team exists",
+              (decisions.get("hr", pid) or {}).get("request") == prop["request"]
+              and hr.load_proposal(pid)["state"] == "applied"
+              and team.Team.load().teams.get("crew") == ["crew", "crew.a", "crew.b"]
+              and "crew.b" in paths.list_agents())
+
+        ok, said = hr.propose("team", "old", requester="orca", why="an older process answers",
+                              members=["x"])
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        kinds = hr.KINDS
+        hr.KINDS = tuple(k for k in kinds if k != "team")
+        try:
+            askmod.resolve(prop["request"], "approve")
+        finally:
+            hr.KINDS = kinds
+        check("stale: answered by a process that did not know the kind, nothing was applied",
+              hr.load_proposal(pid)["state"] == "proposed" and decisions.get("hr", pid) is None
+              and "old" not in paths.list_agents())
+        ok, said = hr.apply(pid, con)
+        check("stale: apply refuses, as the report said", not ok and "no answer from the founder" in said, said)
+        os.environ["OCP_AGENT"] = "orca"
+        try:
+            ok, said = hr.confirm_answer(pid, con)
+            rc, out = _cli(["hr", "apply", pid, "--confirm-answer", "--yes"], as_agent="orca")
+        finally:
+            os.environ.pop("OCP_AGENT", None)
+        check("stale: an agent's session cannot record it", not ok and "founder" in said
+              and rc == 1 and decisions.get("hr", pid) is None, said + out)
+        edited = dict(hr.load_proposal(pid))
+        edited["members"] = "old.x,old.spy"
+        hr.save(edited)
+        ok, said = hr.confirm_answer(pid, con)
+        check("stale: a draft changed since the answer is refused", not ok and "raise it again" in said, said)
+        hr.save(prop)
+        rc, out = _cli(["hr", "apply", pid, "--confirm-answer", "--yes"], as_agent=askmod.HUMAN)
+        check("stale: the founder's own session records and applies it",
+              rc == 0 and hr.load_proposal(pid)["state"] == "applied"
+              and "old.x" in paths.list_agents(), out)
+        ok, said = hr.propose("team", "open", requester="orca", why="not answered", members=["y"])
+        ok, said = hr.confirm_answer(said.split()[1], con)
+        check("stale: a proposal the founder has not answered cannot be confirmed",
+              not ok and "not answered" in said, said)
+    finally:
+        con.close()
+
+
 def test_hr_link_and_unlink_edit_one_edge_and_nothing_else(home: Path) -> None:
     """An ask edge is added or removed through hr, as text so the file's comments
     survive, validated before it is written, and gated like any roster change."""
@@ -3465,6 +3536,7 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
+        run(lambda: test_an_approve_on_a_team_proposal_is_recorded_and_applied(Path(td) / 'teamanswer'))
         run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))

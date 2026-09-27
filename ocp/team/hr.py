@@ -445,6 +445,45 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             con.close()
 
 
+def confirm_answer(pid: str, con=None) -> tuple[bool, str]:
+    """The founder records, from their own session, an answer that was given but
+    never recorded (a running daemon or bridge on older code did not know the
+    proposal, so it closed the escalation without applying it), then applies it.
+
+    The recorded answer is what makes an approve believable, and a verdict in the
+    db alone is no proof, so only the founder's session may do this, and only for
+    an escalation that is closed with a decision and still shows the draft the
+    founder was asked. An agent's session is refused by the protected store."""
+    try:
+        prop = load_proposal(pid)
+    except (ConfigError, UnicodeDecodeError, OSError) as e:
+        return False, f"proposal {pid} cannot be read: {e}"
+    if not is_proposal(prop):
+        return False, f"no proposal {pid}"
+    if prop.get("state") != "proposed":
+        return False, f"proposal {pid} is already {prop.get('state')}"
+    own = con is None
+    con = con or db.connect()
+    try:
+        row = db.get_request(con, int(prop.get("request") or 0))
+        if row is None or row["state"] == "queued":
+            return False, f"the founder has not answered #{prop.get('request')} yet"
+        call = decision(row["verdict"])
+        if call == "unclear":
+            return False, f"#{row['id']} was answered without approve or reject"
+        subject, why_not = answered(prop, row)
+        if why_not:
+            return False, why_not
+        try:
+            decisions.record("hr", pid, row["id"], call, subject)
+        except PermissionError as e:
+            return False, str(e)
+    finally:
+        if own:
+            con.close()
+    return apply(pid)
+
+
 class _Unwound(Exception):
     """A withdraw that had to be taken back, with the reason to show."""
 

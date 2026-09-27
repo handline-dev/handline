@@ -195,6 +195,10 @@ def build_parser() -> argparse.ArgumentParser:
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
+    q.add_argument("--confirm-answer", action="store_true",
+                   help="the founder only: the escalation was answered but the answer was never "
+                        "recorded; show it, ask, record it and apply")
+    q.add_argument("--yes", action="store_true", help="with --confirm-answer: do not ask")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
