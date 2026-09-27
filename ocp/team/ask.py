@@ -741,6 +741,11 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     if p.exists():
         p.unlink()
     said = push_answer(con, row["requester"]) if notify else ""
+    # T318: this row may have been what kept the target's current task (T292)
+    # worth holding - a no-op for a plain, task-less request, or for the
+    # founder (advance_current_task's own HUMAN guard).
+    from ..actions import tasks as taskmod
+    taskmod.advance_current_task(con, row["target"])
     # The next request in target's own queue, if any, becomes deliverable
     # only now - tell them right away, the same as asking does. This runs
     # whether or not the requester was told: a dismiss skips the

@@ -3911,6 +3911,181 @@ limits:
         con.close()
 
 
+def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) -> None:
+    """T318: once the current task ends, the next of the owner's open tasks -
+    by priority then age, skipping one blocked - becomes current, through
+    either `task done` or the owner resolving its linked request directly."""
+    _board_world(home)
+
+    def _new(title: str, priority: str | None = None, blocked_by: int | None = None) -> int:
+        argv = ["task", "new", "--owner", "worker", title]
+        if priority is not None:
+            argv += ["--priority", priority]
+        if blocked_by is not None:
+            argv += ["--blocked-by", f"T{blocked_by}"]
+        rc, out = _cli(argv)
+        check(f"setup: {title!r} opens", rc == 0, out)
+        return int(out.split("task T", 1)[1].split()[0])
+
+    def _own_request_id(con, tid: int) -> int:
+        return [r for r in db.task_requests(con, tid) if r["target"] == "worker"][0]["id"]
+
+    # Path B: `task done`, the owner's own linked request never resolved by
+    # hand - the older, lower-priority task would win a plain FIFO race.
+    t1 = _new("first")
+    t_low = _new("low priority, older", priority="P3")
+    t_high = _new("high priority, younger", priority="P1")
+    con = db.connect()
+    try:
+        rid1, rid_high = _own_request_id(con, t1), _own_request_id(con, t_high)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "done", f"T{t1}", "done without ever resolving the delivery"],
+                    as_agent="worker")
+    check("task done: succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        check("T318: t1's own linked request is retired, not left stuck at the head",
+              db.get_request(con, rid1)["state"] == "done", dict(db.get_request(con, rid1)))
+        check("T318: the higher-priority, younger task becomes current - not the older one",
+              db.current_task(con, "worker") == t_high, db.current_task(con, "worker"))
+        check("T318: and its own request jumps to the front of the queue",
+              db.head_of_queue(con, "worker")["id"] == rid_high)
+    finally:
+        con.close()
+
+    # A blocked task is skipped even though its priority would otherwise win.
+    t_blocked = _new("blocked, would win on priority", priority="P1", blocked_by=t_low)
+    rc, out = _cli(["task", "done", f"T{t_high}", "reason"], as_agent="worker")
+    check("task done: the second one closes the same way", rc == 0, out)
+    con = db.connect()
+    try:
+        check("T318: the blocked task is skipped even though its priority would win",
+              db.current_task(con, "worker") == t_low, db.current_task(con, "worker"))
+    finally:
+        con.close()
+
+    # Path A: the owner resolves the request directly - `task done` never
+    # runs for t_low at all - and the same promotion still happens.
+    t_next = _new("next, also P1")
+    con = db.connect()
+    try:
+        rid_low = _own_request_id(con, t_low)
+    finally:
+        con.close()
+    ok, msg = askmod.resolve(rid_low, "answered directly, task done never ran")
+    check("resolve: succeeds", ok, msg)
+    con = db.connect()
+    try:
+        check("T318 path A: resolving the linked request directly also advances "
+              "to the next waiting task", db.current_task(con, "worker") == t_next,
+              db.current_task(con, "worker"))
+        check("T318: t_blocked stays skipped - its own blocker task was never closed, "
+              "only its request answered", db.task_blockers(con, t_blocked) != [])
+    finally:
+        con.close()
+
+
+def test_advance_current_task_never_touches_the_founder(home: Path) -> None:
+    """Auditor #1873 finding 1: a decision task (owner human) ending must
+    never set a current-task row or reorder a queue for the founder - it
+    holds neither."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    ok, msg, t_done = actions.task_new("worker", askmod.HUMAN, "decision: done path")
+    check("setup: first decision task opens", ok, msg)
+    ok, msg, t_close = actions.task_new("worker", askmod.HUMAN, "decision: close path")
+    check("setup: second decision task opens", ok, msg)
+    ok, msg, t_discard = actions.task_new("worker", askmod.HUMAN, "decision: discard path")
+    check("setup: third decision task opens", ok, msg)
+    ok, msg, t_untouched = actions.task_new("worker", askmod.HUMAN, "decision: left queued")
+    check("setup: fourth decision task opens, its own request left queued throughout", ok, msg)
+
+    con = db.connect()
+    try:
+        rid_untouched = db.task_requests(con, t_untouched)[0]["id"]
+        order_before = db.get_request(con, rid_untouched)["queue_order"]
+
+        ok, msg = actions.mark_task_done(con, t_done, askmod.HUMAN, reason="decided")
+        check("mark_task_done: succeeds for a decision task", ok, msg)
+        check("finding 1: done - the founder still holds no current-task row",
+              db.current_task(con, askmod.HUMAN) is None, db.current_task(con, askmod.HUMAN))
+
+        ok, msg = actions.close_task(con, t_close, askmod.HUMAN)
+        check("close_task: needs done_evidence first", not ok, msg)
+        actions.mark_task_done(con, t_close, askmod.HUMAN, reason="decided")
+        ok, msg = actions.close_task(con, t_close, askmod.HUMAN)
+        check("close_task: succeeds for a decision task", ok, msg)
+        check("finding 1: close - the founder still holds no current-task row",
+              db.current_task(con, askmod.HUMAN) is None, db.current_task(con, askmod.HUMAN))
+
+        rid_discard = db.task_requests(con, t_discard)[0]["id"]
+        askmod.cancel(rid_discard)
+        ok, msg = actions.discard_task(con, t_discard, askmod.HUMAN, "no longer needed")
+        check("discard_task: succeeds for a decision task", ok, msg)
+        check("finding 1: discard - the founder still holds no current-task row",
+              db.current_task(con, askmod.HUMAN) is None, db.current_task(con, askmod.HUMAN))
+
+        order_after = db.get_request(con, rid_untouched)["queue_order"]
+        check("finding 1: an untouched decision request's own queue order never moves",
+              order_after == order_before, (order_before, order_after))
+    finally:
+        con.close()
+
+
+def test_promote_to_front_never_jumps_a_delivered_head(home: Path) -> None:
+    """Auditor #1873 finding 2: promote_to_front must land below the target's
+    undelivered rows only - never ahead of one already delivered, which
+    breaks #189's one-request-at-a-time head."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, msg, plain = askmod.ask("worker", "plain ask, already shown", requester="manager")
+        check("setup: the plain ask lands", ok, msg)
+        db.mark_delivered(con, plain)
+    finally:
+        con.close()
+
+    ok, msg, t1 = actions.task_new("manager", "worker", "first")
+    check("setup: t1 opens", ok, msg)
+    ok, msg, t2 = actions.task_new("manager", "worker", "second")
+    check("setup: t2 opens", ok, msg)
+    con = db.connect()
+    try:
+        check("setup: the delivered plain request is still worker's head",
+              db.head_of_queue(con, "worker")["id"] == plain,
+              dict(db.head_of_queue(con, "worker")))
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "done", f"T{t1}", "done"], as_agent="worker")
+    check("task done: succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        check("finding 2: t2 becomes current, promoted among the undelivered rows",
+              db.current_task(con, "worker") == t2, db.current_task(con, "worker"))
+        check("finding 2: but its own request never jumps ahead of the delivered head",
+              db.head_of_queue(con, "worker")["id"] == plain,
+              dict(db.head_of_queue(con, "worker")))
+    finally:
+        con.close()
+
+
 def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home: Path) -> None:
     """#1880/#19: change a task's owner and/or title, only for the opener or
     the founder, and always stamped with who and when (the same evidence
@@ -6402,6 +6577,10 @@ def main() -> int:
         run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
+            Path(td) / 'nexttask'))
+        run(lambda: test_advance_current_task_never_touches_the_founder(Path(td) / 'nexttaskhuman'))
+        run(lambda: test_promote_to_front_never_jumps_a_delivered_head(Path(td) / 'nexttaskhead'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
