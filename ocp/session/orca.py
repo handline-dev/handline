@@ -896,6 +896,63 @@ def answer_confirmation(handle: str, yes: bool, seen: tuple[str, ...],
     return outcome, title, (refused[0] if refused and outcome == NOT_PRESSED else why)
 
 
+def question_on_screen(handle: str):
+    """The AskUserQuestion prompt this terminal shows now, as a `Question`
+    (T304), or None when there is none or it cannot be read. Read from the raw
+    screen, not `dialog_on_screen`: this prompt's shape defeats `parse_dialog`
+    (see `vendors.claude_ask`'s own docstring), so each vendor reads its `tail`
+    itself, the way `trust_screen` does."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return None
+    return _driver_for(handle).ask_question(tail)
+
+
+QUESTION_KEY_GAP_S = 0.2
+
+
+def answer_question(handle: str, seen: tuple[str, ...], choices: tuple[int, ...] = (),
+                    text: str | None = None) -> tuple[str, str, str]:
+    """Send a person's answer to the AskUserQuestion prompt on this terminal;
+    (outcome, title, why) as `decline_dialog`.
+
+    Pressed only when the screen just read is a recognized prompt whose lines
+    are exactly `seen`, the lines the person answered. Unlike a permission
+    prompt's one key, an answer is several keys in a row (`answer_question_keys`),
+    so the match is made once here, before the first - a key already sent
+    cannot be un-sent on a later mismatch. Whether it landed is read off the
+    question card itself going, never off the "Review your answers" screen a
+    multiSelect answer passes through (vendors.claude_ask's own docstring)."""
+    driver = _driver_for(handle)
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return NOT_PRESSED, "", "its screen could not be read"
+    found = driver.ask_question(tail)
+    if found is None:
+        return NOT_PRESSED, "", NO_DIALOG
+    if found.lines != tuple(seen):
+        return NOT_PRESSED, found.header, "the question is not the one that was answered"
+    keys = driver.answer_question_keys(found, choices, text)
+    if keys is None:
+        return NOT_PRESSED, found.header, "this answer is not one ocp sends"
+    for key in keys:
+        ok, out = send(handle, "") if key == ENTER else send(handle, key, enter=False)
+        if not ok:
+            return NOT_PRESSED, found.header, f"a key could not be sent: {out[:120]}"
+        time.sleep(QUESTION_KEY_GAP_S)
+    for _ in range(PRESS_SETTLE_READS):
+        time.sleep(PRESS_SETTLE_S)
+        after_term = _screen(handle)
+        after_tail = after_term.get("tail") if after_term else None
+        if not isinstance(after_tail, list) or after_term.get("source") != "screen":
+            continue
+        if driver.ask_question(after_tail) is None:
+            return CLEARED, found.header, ""
+    return STILL_OPEN, found.header, "the question is still on screen after its answer"
+
+
 # Claude Code's hint row under the composer counts what still runs in the
 # background as "<n> <noun>" segments between its mode and its key hints, e.g.
 # "⏵⏵ auto mode on · 2 monitors · ← for agents · ↓ to manage" (measured live

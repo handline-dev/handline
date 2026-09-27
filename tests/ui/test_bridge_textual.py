@@ -2612,6 +2612,45 @@ async def test_a_claude_permission_prompt_is_answered_from_its_chat_page() -> No
                   app.screen is page and not answered[1:], str(answered))
 
 
+async def test_an_askuserquestion_prompt_is_answered_from_its_chat_page() -> None:
+    from unittest import mock
+    from ocp.session import orca as orcamod
+    from ocp.vendors.base import Question, QuestionOption
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("questionmodal")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    q = Question("Library", "Which library should we use for dates?",
+                (QuestionOption("date-fns", "small, tree-shakeable"),
+                 QuestionOption("dayjs", "momentjs-compatible API")),
+                False, 3, None, ("Library", "date-fns", "dayjs"))
+    screen = {"found": q}
+    answered = []
+
+    def answer(handle, seen, choices=(), text=None):
+        answered.append((handle, choices, text))
+        screen["found"] = None
+        return orcamod.CLEARED, "Library", ""
+
+    with mock.patch.object(orcamod, "question_on_screen", lambda h: screen["found"]), \
+            mock.patch.object(orcamod, "answer_question", answer):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            page = ChatPage("backend")
+            await app.push_screen(page)
+            await pilot.pause(1.0)
+            check("question: the agent's page shows the question modal", isinstance(app.screen, QuestionModal),
+                  type(app.screen).__name__)
+            await pilot.click("#opt_0")
+            await pilot.pause(1.2)
+            check("question: a click on an option answers it with that choice",
+                  answered == [("term_q", (0,), None)], str(answered))
+            check("question: answered, and the terminal has not redrawn", app.screen is page)
+
+
 async def test_home_settings_lists_the_standing_answers_and_removes_one() -> None:
     import sys
     from unittest import mock
@@ -3071,6 +3110,7 @@ async def _run_all() -> None:
     await test_home_settings_lists_the_standing_answers_and_removes_one()
     await test_a_dialog_on_an_agent_terminal_is_answered_from_its_page()
     await test_a_claude_permission_prompt_is_answered_from_its_chat_page()
+    await test_an_askuserquestion_prompt_is_answered_from_its_chat_page()
     await test_the_bridge_follows_the_os_light_dark_setting_while_open()
     await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
     await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()

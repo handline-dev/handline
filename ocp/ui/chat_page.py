@@ -35,6 +35,7 @@ from .components.ime import ImeInput
 from .components.confirm import Confirm
 from .components.dialog_modal import DialogModal
 from .components.permission_modal import PermissionModal
+from .components.question_modal import QuestionModal
 from .components.jobs_aware import JobsAware, dispatch_agent_verb
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
@@ -934,6 +935,8 @@ class ChatPage(JobsAware, Screen):
         self._dialog_closed: str | None = None      # the title of a dialog the founder closed
         self._confirm_busy, self._confirm_at = False, 0.0
         self._confirm_closed: int | None = None      # the wait id of a permission prompt the founder closed
+        self._question_busy, self._question_at = False, 0.0
+        self._question_closed: tuple[str, ...] | None = None      # the lines of a question the founder closed
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
@@ -1035,7 +1038,7 @@ class ChatPage(JobsAware, Screen):
         if found is None:
             self._dialog_closed = None          # gone: the same dialog coming back is asked again
             return
-        if found["title"] == self._dialog_closed or isinstance(self.app.screen, DialogModal):
+        if found["title"] == self._dialog_closed or isinstance(self.app.screen, (DialogModal, QuestionModal)):
             return
         self.app.push_screen(DialogModal(found), lambda picked: self.dialog_answered(found, picked))
 
@@ -1087,7 +1090,7 @@ class ChatPage(JobsAware, Screen):
             self._confirm_closed = None          # gone: the same prompt coming back is asked again
             return
         if found["wait"] is None or found["wait"] == self._confirm_closed \
-                or isinstance(self.app.screen, (DialogModal, PermissionModal)):
+                or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal)):
             return
         self.app.push_screen(PermissionModal(found), lambda picked: self.confirmation_answered(found, picked))
 
@@ -1109,6 +1112,57 @@ class ChatPage(JobsAware, Screen):
                                       severity="information" if ok else "error",
                                       timeout=10, markup=False)
         self.run_worker(press, thread=True, group="confirm_press")
+
+    QUESTION_POLL_S = 2.0
+
+    def poll_question(self) -> None:
+        """Ask the agent's terminal, off the event loop, whether it is showing a
+        pending AskUserQuestion (T304)."""
+        if self._question_busy or time.time() - self._question_at < self.QUESTION_POLL_S:
+            return
+        self._question_busy, self._question_at = True, time.time()
+
+        def read() -> None:
+            con = db.connect()
+            try:
+                found = actions.pending_question(con, self.agent)
+            except Exception:  # noqa: BLE001 - an unreadable screen shows no modal
+                found = None
+            finally:
+                con.close()
+            self.app.call_from_thread(self.question_seen, found)
+        self.run_worker(read, thread=True, exclusive=True, group="question")
+
+    def question_seen(self, found: dict | None) -> None:
+        self._question_busy = False
+        if found is None:
+            self._question_closed = None          # gone: the same question coming back is asked again
+            return
+        lines = tuple(found["lines"])
+        if lines == self._question_closed \
+                or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal)):
+            return
+        self.app.push_screen(QuestionModal(found), lambda picked: self.question_answered(found, picked))
+
+    def question_answered(self, found: dict, picked: "tuple[tuple[int, ...], str | None] | None") -> None:
+        lines = tuple(found["lines"])
+        if picked is None:
+            self._question_closed = lines     # closed by hand: not offered again while it stays
+            return
+        self._question_closed = lines     # answered: not offered again before the screen catches up
+        choices, text = picked
+
+        def press() -> None:
+            con = db.connect()
+            try:
+                ok, said = actions.answer_question(con, self.agent, found, choices, text)
+            finally:
+                con.close()
+            log_action(f"question {self.agent}: {'ok' if ok else 'refused'} - {said}")
+            self.app.call_from_thread(self.notify, safe(said), title=f"question {self.agent}",
+                                      severity="information" if ok else "error",
+                                      timeout=10, markup=False)
+        self.run_worker(press, thread=True, group="question_press")
 
     def refresh_agent_state(self) -> None:
         con = db.connect()
@@ -1137,6 +1191,7 @@ class ChatPage(JobsAware, Screen):
         self.refresh_agent_state()
         self.poll_dialog()
         self.poll_confirmation()
+        self.poll_question()
         self.refresh_pools()
         if self.showing_settings:
             return
