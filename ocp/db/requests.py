@@ -157,6 +157,13 @@ def open_escalations_of(con, agent: str) -> int:
                        "AND state = 'queued'", (agent,)).fetchone()[0]
 
 
+def open_escalation_ids(con, agent: str, prefix: str) -> list[int]:
+    """The still-waiting escalations about this agent whose body starts with `prefix`."""
+    return [r[0] for r in con.execute(
+        "SELECT id FROM requests WHERE requester = ? AND kind = 'escalate' AND state = 'queued' "
+        "AND substr(body, 1, ?) = ?", (agent, len(prefix), prefix))]
+
+
 def mark_delivered(con, rid: int) -> bool:
     """Record that this request has been shown to its target. Idempotent.
 

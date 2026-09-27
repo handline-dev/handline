@@ -204,15 +204,29 @@ def screen_text(handle: str) -> str | None:
     return "\n".join(tail)
 
 
+def _trust_screen_showing(handle: str) -> bool | None:
+    """Whether this terminal shows its vendor's folder-trust screen, None when
+    the screen could not be read - never mistaken for "not showing"."""
+    text = screen_text(handle)
+    return None if text is None else _driver_for(handle).trust_screen(text.split("\n")) is not None
+
+
 def trust_prompt_showing(handle: str) -> bool:
     """Is this session sitting at its vendor's folder-trust screen?
 
     Read before typing anything: a handoff followed by Enter, the daemon's
     ordinary wake, answers the default option on this screen every time -
-    "No, exit" on claude's.
+    "No, exit" on claude's. An unreadable screen answers False, fine for a gate
+    that then types nothing.
     """
-    text = screen_text(handle)
-    return text is not None and _driver_for(handle).trust_screen(text.split("\n")) is not None
+    return _trust_screen_showing(handle) is True
+
+
+def trust_prompt_gone(handle: str) -> bool:
+    """True only when the screen was read and it is not a folder-trust screen:
+    the answer for something that lets go of a stall, which an unreadable
+    screen must not."""
+    return _trust_screen_showing(handle) is False
 
 
 def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
