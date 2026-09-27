@@ -155,7 +155,7 @@ def stuck(con) -> list[dict]:
             h["agent"])
 
     queued = con.execute(
-        "SELECT id, requester, target, ts FROM requests WHERE state = 'queued' "
+        "SELECT id, requester, target, ts, send_now FROM requests WHERE state = 'queued' "
         "AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
@@ -196,8 +196,11 @@ def stuck(con) -> list[dict]:
             told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
             if told:
                 add(what, age, f"{r['target']} was told and has not answered", r["target"])
-            elif head is not None and int(head["id"]) != int(r["id"]):
-                # Only the head of a queue is told; the rest wait their turn.
+            elif not r["send_now"] and head is not None and int(head["id"]) != int(r["id"]):
+                # Only the head of a queue is told; the rest wait their turn -
+                # except a send_now row (T293's say among them), which is
+                # never behind the head at all (`queue_reason` checks this
+                # the same way).
                 add(what, age, f"waiting behind #{head['id']}", r["target"])
             else:
                 # Nothing structural is in the way and it still has not been

@@ -314,33 +314,37 @@ def enforce_edges(con, agent: str, log) -> bool:
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about the head of its own queue (`db.head_of_queue`) -
     and only the head, per request #189 - plus any request the human marked
-    "send now" (`db.mark_send_now`), which goes ahead of an open head.
-    `ocp ask` writes a row and puts a file in the target's inbox; neither
-    reaches the target's screen, which is why this exists at all. Told once
-    per head: the cursor holds the id last announced, so a reminder only goes
-    out once the head actually changes.
+    "send now" (`db.mark_send_now`), which goes ahead of an open head - or a
+    say (T293), which is always `send_now` and never a head at all, so this
+    is also where one is told when nothing else is queued to be the head.
+    `ocp ask`/`ocp say` write a row and put a file in the target's inbox;
+    neither reaches the target's screen, which is why this exists at all.
+    Told once per head: the cursor holds the id last announced, so a
+    reminder only goes out once the head actually changes.
     """
     if not enforce_edges(con, agent, log):
         return False
     head = db.head_of_queue(con, agent)
-    if not head:
-        return False
-    # Ahead of an open head: what the human marked "send now", and a reply in
-    # the head's own thread - the follow-up to what the agent is working on.
-    marked = [r for r in db.send_now_pending(con, agent) if r["id"] != head["id"]]
-    if head["delivered_at"]:
+    # Ahead of an open head: what the human marked "send now", a say (T293,
+    # always marked the same way), and a reply in the head's own thread - the
+    # follow-up to what the agent is working on. With no head at all, a
+    # marked say is all there is to tell.
+    marked = [r for r in db.send_now_pending(con, agent) if not head or r["id"] != head["id"]]
+    if head and head["delivered_at"]:
         marked += [r for r in db.followups_pending(con, agent, int(head["id"]))
                    if r["id"] not in {m["id"] for m in marked}]
         # The founder's message is told as if he had pressed Send now: an open
         # head is not a turn in progress, and only that holds him (T131).
         marked += [r for r in db.founder_pending(con, agent)
                    if r["id"] not in {m["id"] for m in marked}]
-    head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
-        or _session_changed(con, agent)
-    if head_due and head["told_out_of_turn"] and not _session_changed(con, agent):
-        # Told already, out of turn; becoming the head is not news.
-        db.set_cursor(con, f"notify:{agent}", int(head["id"]))
-        head_due = False
+    head_due = False
+    if head:
+        head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
+            or _session_changed(con, agent)
+        if head_due and head["told_out_of_turn"] and not _session_changed(con, agent):
+            # Told already, out of turn; becoming the head is not news.
+            db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+            head_due = False
     if not head_due and not marked:
         return False
     if wall_reason(con, agent):
@@ -368,8 +372,9 @@ def deliver_queued(con, agent: str, log) -> bool:
         # typed mid-turn. The rest go out on later ticks, each behind its own
         # typeable_now.
         # A session that has read nothing hears the head first: "a follow-up to
-        # #N, which is still open" means nothing before #N itself (T111).
-        if marked and not _session_changed(con, agent):
+        # #N, which is still open" means nothing before #N itself (T111) - a
+        # rule with nothing to apply to when there is no head to hear first.
+        if marked and (not head or not _session_changed(con, agent)):
             return _tell(con, agent, marked[0], depth, handle, log, ahead_of=head)
         return _tell(con, agent, head, depth, handle, log)
 
@@ -683,7 +688,9 @@ def waiting_prompt(con, agent: str, log):
     Marked delivered here, before the launch, for the reason `_tell` is."""
     if not enforce_edges(con, agent, log):
         return None
-    head = db.head_of_queue(con, agent)
+    # T293: a say is never a head, but with nothing else queued it is still
+    # what a resumed session should open on (`db.head_of_queue_or_marked`).
+    head = db.head_of_queue_or_marked(con, agent)
     if head:
         if not db.mark_delivered(con, int(head["id"])):
             return None

@@ -18,6 +18,7 @@ from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_status, cmd_hooks_sync
 from .hr import cmd_hr, cmd_trust
 from .idle import cmd_auto_accept, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
+from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
 from .task import _expects_arg, _priority_arg, _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_reopen, cmd_task_start
 from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
@@ -276,6 +277,22 @@ def build_parser() -> argparse.ArgumentParser:
                         "delivered (45s, 90m, 2h, 1d); default is config.yaml's "
                         "timebox_s, 2h")
     p.set_defaults(fn=cmd_ask)
+
+    p = sub.add_parser("say", help="a question answerable from what the receiver knows or a "
+                                   "quick look (T293) - never new work, that is `ocp task new`")
+    p.add_argument("target", nargs="?")
+    p.add_argument("body", nargs="?", default=None)
+    p.add_argument("--file", default=None, metavar="PATH",
+                   help="read the body from this file instead of the inline argument")
+    p.add_argument("--of", default=None,
+                   help="requester (defaults to $OCP_AGENT, or to the human "
+                        "when a human types this at a terminal)")
+    p.add_argument("--parent", type=int, default=None,
+                   help="the say this replies to, for its thread - a reply to a say is a say")
+    p.add_argument("--needs-task", dest="needs_task", type=int, default=None, metavar="ID",
+                   help="flag a say you received as really needing a task instead - replies "
+                        "to its sender with a ready `task new` command")
+    p.set_defaults(fn=cmd_say)
 
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
     p.add_argument("id", type=int)

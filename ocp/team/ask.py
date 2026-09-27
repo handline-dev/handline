@@ -159,7 +159,7 @@ def report(con, agent: str, text: str, reason: str) -> int:
 
 
 def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
-                    exclude_id: int | None = None) -> str | None:
+                    exclude_id: int | None = None, kind: str | None = None) -> str | None:
     """Detect A->B->A inside one chain (team model section 6).
 
     Depth alone does not catch this: two agents can bounce a request back and
@@ -170,8 +170,12 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
     "you replied to my reply" would make a threaded conversation illegal from
     its second turn, and the escalation it raised would be addressed to the
     same human who is typing.
+
+    T293: a say is exempt too - #1655's "a reply to a say is a say" makes
+    A->B->A its ordinary shape, not a runaway; `max_chain_depth` is still the
+    backstop, and the daemon (#1657) reports a pair exchanging too many.
     """
-    if not chain_id or HUMAN in (requester, target):
+    if not chain_id or HUMAN in (requester, target) or kind == SAY_KIND:
         return None
     rows = db.chain_members(con, chain_id, exclude_id=exclude_id)
     for r in rows:
@@ -227,18 +231,21 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
     return int(rows["id"])
 
 
-# T292: the `kind` overrides `ask` accepts for a task or a task note,
-# regardless of what the routing edge itself carries. `enforce_edges` (daemon
-# delivery) must not treat that override as a changed edge, so it skips the
-# kind half of its re-check for these - it still checks relation and response.
-OVERRIDE_KINDS = {"task", "task_note"}
+# T292/T293: the `kind` overrides `ask` accepts for a task, a task note or a
+# say, regardless of what the routing edge itself carries. `enforce_edges`
+# (daemon delivery) must not treat that override as a changed edge, so it
+# skips the kind half of its re-check for these - it still checks relation
+# and response.
+SAY_KIND = "say"
+OVERRIDE_KINDS = {"task", "task_note", SAY_KIND}
 
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False, first: bool = False,
         replaces: int | None = None, fyi: bool = False,
         reason: str | None = None,
-        timebox_s: int | None = None, kind: str | None = None) -> tuple[bool, str, int | None]:
+        timebox_s: int | None = None, kind: str | None = None,
+        park: bool = True, send_now: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -249,7 +256,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `kind` overrides the routing edge's own `decision.kind` on the request
     row - T292's `task new` uses it to write 'task' regardless of what the
     edge between opener and owner happens to carry, since a task is a task
-    whichever edge assigned it.
+    whichever edge assigned it. `park` False skips the requester's own async
+    park below - T293's `say` never records a wait beyond its reply window.
+    `send_now` marks the new row (`db.mark_send_now`) on this same
+    connection, before it is ever visible as queued - `say`'s own delivery
+    depends on that mark, so it is written here rather than in a second call
+    on a second connection, which a crash between the two could leave
+    unmarked and, since a say is never a head, unreachable for good.
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):
@@ -333,7 +346,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         # that vanishes leaves the team stuck with nobody knowing why. `old`
         # is excluded: it is about to be retired below and counting it here
         # would count a round that, from the target's side, never happened.
-        for detect in (_cycle_in_chain(con, chain_id, requester, target, exclude_id=replaces),
+        for detect in (_cycle_in_chain(con, chain_id, requester, target, exclude_id=replaces,
+                                      kind=kind),
                        _review_pingpong(con, chain_id, target, files, exclude_id=replaces)):
             if detect:
                 eid = _escalate(con, requester, target, body, files, chain_id,
@@ -410,6 +424,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                              queue_order=(old["queue_order"]
                                          if old is not None and old["target"] == target
                                          else None))
+        if send_now:
+            db.mark_send_now(con, rid)
         deliver(rid, requester, target, body, files, decision)
         if fyi:
             # One live report per sender: the newer one says what the older did.
@@ -440,7 +456,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         # their name is bookkeeping about nobody - and it is drawn: `ocp ps`
         # listed the founder among the agents, parked, for as long as it sat
         # there.
-        if decision.response == "async" and requester != HUMAN \
+        if park and decision.response == "async" and requester != HUMAN \
                 and not _terminal(con, requester):
             db.set_agent_state(con, requester, "PARKED",
                                wake_at=int(time.time()) + AWAIT_FALLBACK_S,
@@ -456,6 +472,32 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         return True, note, rid
     finally:
         con.close()
+
+
+SAY_TIMEBOX_S = 30 * 60
+
+
+def say(target: str, body: str, requester: str | None = None,
+        parent_id: int | None = None) -> tuple[bool, str, int | None]:
+    """T293 (auditor #1655/#1657): a question answerable from what the
+    receiver already knows or a quick look - never new work (that is still
+    `task new`). No files and none of `ask`'s other shape flags - a say is
+    only ever a target and a body, optionally a reply's `parent_id`.
+
+    Delivered ahead of the queue (`db.mark_send_now`, the same mechanism the
+    founder's own send-now uses, written by `ask` itself so the mark can
+    never be lost between the row's insert and here) and never itself a
+    head of one (`db.head_of_queue` skips kind='say'), so a say can neither
+    block nor be blocked by the ordinary one-doing queue. The requester
+    never parks on it (`park=False`); the only wait is the fixed 30-minute
+    reply window (`SAY_TIMEBOX_S`), not the routing edge's own default -
+    except to the founder, who is never timeboxed (`ask` itself refuses one
+    there; the founder's own screen is how a say to it is seen, not a park
+    timer).
+    """
+    timebox = None if target == HUMAN else SAY_TIMEBOX_S
+    return ask(target, body, requester=requester, parent_id=parent_id,
+              kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True)
 
 
 def push(con, target: str) -> str:
@@ -534,7 +576,10 @@ def inbox(agent: str, unread_only: bool = True) -> list[dict]:
     con = db.connect()
     try:
         if unread_only:
-            head = db.head_of_queue(con, agent)
+            # T293: `db.head_of_queue_or_marked` falls back to a marked say
+            # with nothing else queued - never a head itself, still the one
+            # thing waiting.
+            head = db.head_of_queue_or_marked(con, agent)
             return [dict(head)] if head else []
         rows = con.execute(
             "SELECT * FROM requests WHERE target = ? ORDER BY id", (agent,)).fetchall()
