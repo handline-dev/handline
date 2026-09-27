@@ -63,7 +63,7 @@ def _priority_arg(text: str) -> int:
 
 def cmd_close(args) -> int:
     """One verb, two things it can close: a task by its reference (`ocp close
-    T7`) - the asker's own sign-off, once it is done (`ocp task done` first;
+    T7`) - the asker's or the founder's sign-off, once it is done (`ocp task done` first;
     #71) - or an agent's session by its name, keeping its terminal. A task
     is always T<number> and a bare number is refused (it could as well be a
     request), so the argument decides; evidence given to either is refused
@@ -148,7 +148,7 @@ def cmd_task_done(args) -> int:
 
 
 def cmd_task_discard(args) -> int:
-    """Throw away a task that is not done - the asker's own call, with a
+    """Throw away a task that is not done - the asker's or the founder's call, with a
     one-line reason."""
     me = askmod.asking_agent()
     if me is None:
@@ -191,7 +191,7 @@ def cmd_task_draft(args) -> int:
 
 
 def cmd_task_reopen(args) -> int:
-    """Send a done task back to doing (#71) - the asker's own call, needing
+    """Send a done task back to doing (#71) - the asker's or the founder's call, needing
     a one-line reason."""
     me = askmod.asking_agent()
     if me is None:

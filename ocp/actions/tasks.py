@@ -257,9 +257,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         return False, f"task T{tid} is already closed ({row['closed_by']})"
     if row["done_evidence"]:
         return False, f"task T{tid} is already done ({row['done_evidence']})"
-    if by != row["owner"] and by not in _task_done_targets(con, tid):
+    if by not in (row["owner"], HUMAN) and by not in _task_done_targets(con, tid):
         return False, (f"task T{tid} can only be marked done by its owner "
-                       f"({row['owner']}) or the target of a request linked to it")
+                       f"({row['owner']}), the target of a request linked to it, or the founder")
     given = [x for x in (sha, request_id, reason) if x is not None]
     if len(given) != 1:
         return False, "done needs exactly one of a sha, --request, or a reason"
@@ -284,7 +284,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
 
 
 def close_task(con, tid: int, by: str) -> tuple[bool, str]:
-    """Close a task on the board (#71) - the asker's own sign-off, final.
+    """Close a task on the board (#71) - the asker's or the founder's sign-off, final.
     See `task_asker` for who that is.
 
     Refused before the task is done (nothing to sign off on yet), while a
@@ -313,14 +313,14 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     if not row["done_evidence"]:
         return False, f"task T{tid} is not done yet - `ocp task done` first"
     asker = task_asker(con, row)
-    if by != asker:
-        return False, f"task T{tid} can only be closed by {asker} - whoever asked for it"
+    if by not in (asker, HUMAN):
+        return False, f"task T{tid} can only be closed by {asker} - whoever asked for it - or the founder"
     kids = db.open_child_tasks(con, tid)
     if kids:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
     blockers = db.task_blockers(con, tid)
-    if blockers:
+    if blockers and by != HUMAN:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it closes only once they do"
     con.execute("BEGIN IMMEDIATE")
@@ -329,6 +329,8 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
             con.execute("ROLLBACK")
             return False, f"task T{tid} was closed by someone else just now"
         db.add_event(con, by, "close_task", {"task_id": tid, "closed_by": by})
+        for b in blockers:  # only the founder gets here with any
+            db.remove_block(con, tid, b["id"])
         notices = _clear_blocks_on(con, tid, by)
         con.execute("COMMIT")
     except Exception:
@@ -343,7 +345,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
 
 
 def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
-    """Throw a task away before it is done (task #85) - the asker's own call
+    """Throw a task away before it is done (task #85) - the asker's or the founder's call
     (see `task_asker`), in one step with a one-line reason. It is recorded as
     discarded (who, why, and when in closed_at), never as finished work: no
     board, list or 'waiting for check' group reads it as done.
@@ -363,8 +365,8 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if row["done_evidence"]:
         return False, f"task T{tid} is done - `ocp close T{tid}` signs it off"
     asker = task_asker(con, row)
-    if by != asker:
-        return False, f"task T{tid} can only be discarded by {asker} - whoever asked for it"
+    if by not in (asker, HUMAN):
+        return False, f"task T{tid} can only be discarded by {asker} - whoever asked for it - or the founder"
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "discarding needs a one-line reason"
@@ -373,20 +375,23 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - deal with them first"
     blockers = db.task_blockers(con, tid)
-    if blockers:
+    if blockers and by != HUMAN:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
     live = [r for r in db.task_requests(con, tid) if _asks(r)]
     if live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
         return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
-                       "first, or its target keeps working on thrown-away work")
+                       "first (the founder's `ocp cancel <id>`), or its target keeps working "
+                       "on thrown-away work")
     con.execute("BEGIN IMMEDIATE")
     try:
         if not db.discard_task(con, tid, by, said):
             con.execute("ROLLBACK")
             return False, f"task T{tid} was done or closed by someone else just now"
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
+        for b in blockers:  # only the founder gets here with any: the wait ends with the task
+            db.remove_block(con, tid, b["id"])
         notices = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
     except Exception:
@@ -401,7 +406,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
 
 
 def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
-    """Send a done task back to doing (#71) - the asker's own call, the
+    """Send a done task back to doing (#71) - the asker's or the founder's call, the
     opposite of closing it. Needs a one-line reason, the same as any other
     undo in this system. Refused for a task not currently done (nothing to
     undo) or already closed (closing is final - see close_task)."""
@@ -413,8 +418,8 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if not row["done_evidence"]:
         return False, f"task T{tid} is not done - nothing to reopen"
     asker = task_asker(con, row)
-    if by != asker:
-        return False, f"task T{tid} can only be reopened by {asker} - whoever asked for it"
+    if by not in (asker, HUMAN):
+        return False, f"task T{tid} can only be reopened by {asker} - whoever asked for it - or the founder"
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "reopening needs a one-line reason"
