@@ -34,6 +34,7 @@ from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
 from .components.dialog_modal import DialogModal
+from .components.permission_modal import PermissionModal
 from .components.jobs_aware import JobsAware, dispatch_agent_verb
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
@@ -899,6 +900,12 @@ class TaskDetail(TaskActions, Screen):
          "back": self.app.pop_screen}[event.button.id]()
 
 
+# Never a real wait id (`actions.pending_confirmation`'s ints or its own None,
+# for a prompt with no hook record to pin it to): distinct from both, so
+# "nothing closed yet" is never mistaken for "closed the one with no id".
+_NOT_CLOSED = object()
+
+
 class ChatPage(JobsAware, Screen):
     BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history")]
 
@@ -931,6 +938,9 @@ class ChatPage(JobsAware, Screen):
         self._sig: tuple | None = None
         self._dialog_busy, self._dialog_at = False, 0.0
         self._dialog_closed: str | None = None      # the title of a dialog the founder closed
+        self._confirm_busy, self._confirm_at = False, 0.0
+        self._confirm_closed = _NOT_CLOSED          # the wait id of a permission prompt the founder closed -
+        # a sentinel, not None, since a prompt with no wait record to pin it to (T223) has wait=None itself
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
@@ -1054,6 +1064,53 @@ class ChatPage(JobsAware, Screen):
                                       timeout=10, markup=False)
         self.run_worker(press, thread=True, group="dialog_press")
 
+    CONFIRM_POLL_S = 2.0
+
+    def poll_confirmation(self) -> None:
+        """Ask the agent's terminal, off the event loop, whether it is showing a
+        Claude permission prompt (T224)."""
+        if self._confirm_busy or time.time() - self._confirm_at < self.CONFIRM_POLL_S:
+            return
+        self._confirm_busy, self._confirm_at = True, time.time()
+
+        def read() -> None:
+            con = db.connect()
+            try:
+                found = actions.pending_confirmation(con, self.agent)
+            except Exception:  # noqa: BLE001 - an unreadable screen shows no modal
+                found = None
+            finally:
+                con.close()
+            self.app.call_from_thread(self.confirmation_seen, found)
+        self.run_worker(read, thread=True, exclusive=True, group="confirm")
+
+    def confirmation_seen(self, found: dict | None) -> None:
+        self._confirm_busy = False
+        if found is None:
+            self._confirm_closed = _NOT_CLOSED   # gone: the same prompt coming back is asked again
+            return
+        if found["wait"] == self._confirm_closed or isinstance(self.app.screen, (DialogModal, PermissionModal)):
+            return
+        self.app.push_screen(PermissionModal(found), lambda picked: self.confirmation_answered(found, picked))
+
+    def confirmation_answered(self, found: dict, picked: "bool | None") -> None:
+        if picked is None:
+            self._confirm_closed = found["wait"]     # closed by hand: not offered again while it stays
+            return
+        yes = picked
+
+        def press() -> None:
+            con = db.connect()
+            try:
+                ok, said = actions.answer_confirmation(con, self.agent, yes, found)
+            finally:
+                con.close()
+            log_action(f"confirm {self.agent}: {'yes' if yes else 'no'}: {'ok' if ok else 'refused'} - {said}")
+            self.app.call_from_thread(self.notify, safe(said), title=f"confirm {self.agent}",
+                                      severity="information" if ok else "error",
+                                      timeout=10, markup=False)
+        self.run_worker(press, thread=True, group="confirm_press")
+
     def refresh_agent_state(self) -> None:
         con = db.connect()
         try:
@@ -1080,6 +1137,7 @@ class ChatPage(JobsAware, Screen):
     def refresh_view(self) -> None:
         self.refresh_agent_state()
         self.poll_dialog()
+        self.poll_confirmation()
         self.refresh_pools()
         if self.showing_settings:
             return
