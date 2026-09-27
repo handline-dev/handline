@@ -8,9 +8,12 @@ import sys
 
 from ..team import ask as askmod
 from ..session import drift
-from ..session import events, stopgate
+from ..session import edittask, events, stopgate
 from ..infra import paths, protected
 from .. import vendors
+
+# Every gate T298 rolls out warn-only, by the name `ocp hooks gate` takes.
+GATES = {"stop-wait": stopgate, "edit-task": edittask}
 
 
 # ---------------------------------------------------------------- hooks
@@ -39,16 +42,16 @@ def cmd_hooks_status(args) -> int:
 
 
 def cmd_hooks_gate(args) -> int:
-    """Show or set T288's Stop-hook gate: whether a recorded wait is required
-    to end a turn, or only logged (T298)."""
+    """Show or set one of T298's warn-only gates: refuse for real, or only log."""
+    mod = GATES[args.name]
     if args.state is not None:
         try:
-            stopgate.set_enforced(args.state == "on")
+            mod.set_enforced(args.state == "on")
         except protected.NotTheFounder as e:
             print(e, file=sys.stderr)
             return 1
-    on = stopgate.enforced()
-    print(f"stop-wait gate: {'on' if on else 'off (warn-only)'}")
+    on = mod.enforced()
+    print(f"{args.name} gate: {'on' if on else 'off (warn-only)'}")
     return 0
 
 
