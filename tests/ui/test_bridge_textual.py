@@ -2492,12 +2492,13 @@ async def test_a_claude_permission_prompt_is_answered_from_its_chat_page() -> No
     waiting.note("backend", "Bash", {"command": "rm -rf build/", "description": "cleaning old build output"},
                  after_event_id=1)
     lines = ("Bash(rm -rf build/)", "cleaning old build output", "1. Yes", "2. No")
-    screen = {"found": Confirmation("Bash(rm -rf build/)", lines, 1, 2)}
+    screen = {"found": Confirmation("Bash(rm -rf build/)", lines, 1, 2), "clear_after_answer": True}
     answered = []
 
     def answer(handle, yes, seen, same_wait=lambda: True):
         answered.append((handle, yes))
-        screen["found"] = None
+        if screen["clear_after_answer"]:
+            screen["found"] = None
         return orcamod.CLEARED, "Bash(rm -rf build/)", ""
 
     with mock.patch.object(orcamod, "confirmation_on_screen", lambda h: screen["found"]), \
@@ -2519,32 +2520,54 @@ async def test_a_claude_permission_prompt_is_answered_from_its_chat_page() -> No
             check("confirm: the agent's page shows the permission modal", isinstance(app.screen, PermissionModal),
                   type(app.screen).__name__)
             await pilot.press("escape")
-            await pilot.pause(0.3)
+            await pilot.pause(0.5)
             page._confirm_at = 0.0
             page.poll_confirmation()
-            await pilot.pause(0.8)
+            await pilot.pause(1.2)
             check("confirm: closed by hand, it is not offered again while it stays", app.screen is page)
             screen["found"] = None
             page._confirm_at = 0.0
             page.poll_confirmation()
-            await pilot.pause(0.5)
+            await pilot.pause(0.8)
             screen["found"] = Confirmation("Bash(rm -rf build/)", lines, 1, 2)
             page._confirm_at = 0.0
             page.poll_confirmation()
-            await pilot.pause(0.8)
+            await pilot.pause(1.2)
             check("confirm: gone and back, it is offered again", isinstance(app.screen, PermissionModal))
             await pilot.click("#yes")
-            await pilot.pause(0.8)
+            await pilot.pause(1.2)
             check("confirm: a click on Yes answers yes", answered == [("term_p", True)], str(answered))
+
+            # The terminal has not redrawn yet: the very prompt just answered is still on
+            # screen, and a poll right after must not offer it again.
+            answered.clear()
+            waiting.note("backend", "Bash", {"command": "rm -rf build/", "description": "cleaning old build output"},
+                         after_event_id=2)
+            screen["clear_after_answer"] = False
+            screen["found"] = Confirmation("Bash(rm -rf build/)", lines, 1, 2)
+            page._confirm_at = 0.0
+            page.poll_confirmation()
+            await pilot.pause(1.2)
+            check("confirm: a fresh prompt is offered", isinstance(app.screen, PermissionModal))
+            await pilot.click("#yes")
+            await pilot.pause(1.2)
+            check("confirm: answered, and the terminal has not redrawn", answered == [("term_p", True)]
+                  and app.screen is page, str(answered))
+            page._confirm_at = 0.0
+            page.poll_confirmation()
+            await pilot.pause(1.2)
+            check("confirm: the same prompt, still on screen, is not offered again",
+                  app.screen is page and answered == [("term_p", True)], str(answered))
+            screen["clear_after_answer"] = True
 
             # A prompt with no wait record to pin it to (T223's `wait: None`) is left for
             # the agent's own terminal: answer_confirmation refuses one on principle, so
-            # Yes/No buttons for it would always fail (auditor #1454 must-change 1).
+            # Yes/No buttons for it would always fail.
             waiting.clear("backend")
             screen["found"] = Confirmation("Bash(rm -rf build/)", lines, 1, 2)
             page._confirm_at = 0.0
             page.poll_confirmation()
-            await pilot.pause(0.8)
+            await pilot.pause(1.2)
             check("confirm: an unidentified prompt (no wait id) is not offered a modal",
                   app.screen is page and not answered[1:], str(answered))
 

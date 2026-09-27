@@ -1078,11 +1078,10 @@ class ChatPage(JobsAware, Screen):
         self.run_worker(read, thread=True, exclusive=True, group="confirm")
 
     def confirmation_seen(self, found: dict | None) -> None:
-        """`found["wait"]` None (auditor #1454 must-change 1) is a prompt the hook has
-        not pinned an identity to yet: `answer_confirmation` refuses one on principle
-        (T223), so a Yes/No for it would be two buttons that always fail. It is left
-        for the agent's own terminal instead - the founder still sees it there, and
-        on the header's own `founder_waits` list."""
+        """`found["wait"]` None is a prompt with no hook record to pin an identity to:
+        `answer_confirmation` refuses one on principle (T223), so a Yes/No for it would
+        be two buttons that always fail. It is left for the agent's own terminal
+        instead."""
         self._confirm_busy = False
         if found is None:
             self._confirm_closed = None          # gone: the same prompt coming back is asked again
