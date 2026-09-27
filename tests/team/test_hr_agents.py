@@ -1276,6 +1276,214 @@ def test_an_account_links_from_its_own_vendors_shared_dir(home: Path) -> None:
               ("zeta", "skills") in accounts.unlinked())
 
 
+def test_register_force_keeps_what_a_real_skills_dir_held(home: Path) -> None:
+    """Claude can create skills/synced before the link exists. `register
+    --force` links it anyway, and the bucket moves into shared. Nothing is
+    deleted that was not moved: a clash, or a move that fails, changes nothing."""
+    import shutil
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    shared = vendors.shared_dir("claude") / "skills"
+    (shared / "synced" / "old").mkdir(parents=True)
+    (shared / "synced" / "old" / "keep").write_text("shared")
+    link = vendors.config_dir("gamma") / "skills"
+    link.unlink()
+
+    def account_side(*files: str) -> None:
+        shutil.rmtree(link, ignore_errors=True)
+        for f in files:
+            (link / f).parent.mkdir(parents=True, exist_ok=True)
+            (link / f).write_text("account")
+
+    def refused() -> str | None:
+        try:
+            accounts.register("gamma", force=True)
+        except accounts.AdoptRefused as e:
+            return str(e)
+        return None
+
+    def untouched(*files: str) -> bool:
+        return (link.is_dir() and not link.is_symlink()
+                and all((link / f).read_text() == "account" for f in files)
+                and (shared / "synced" / "old" / "keep").read_text() == "shared")
+
+    account_side("synced/b1/manifest.json", "synced/.bucket-b1", "synced/old/new")
+    check("relink_all: a real directory is left alone", not accounts.relink_all())
+    accounts.register("gamma", force=True)
+    check("force: the directory is now the shared link",
+          link.is_symlink() and os.readlink(link) == str(shared))
+    check("force: the bucket, its marker and a file beside shared's own moved",
+          (shared / "synced" / "b1" / "manifest.json").exists()
+          and (shared / "synced" / ".bucket-b1").exists()
+          and (shared / "synced" / "old" / "new").exists()
+          and (shared / "synced" / "old" / "keep").read_text() == "shared")
+
+    link.unlink()
+    (shared / "synced" / "old" / "new").unlink()
+    (shared / "dirsame").mkdir()
+    account_side("dirsame", "synced/other")
+    msg = refused()
+    check("clash: a file where shared has a directory is refused, naming it",
+          msg is not None and "dirsame" in msg, str(msg))
+    check("clash: the account side is untouched", untouched("dirsame", "synced/other")
+          and not (shared / "synced" / "other").exists())
+
+    (shared / "dirsame").rmdir()
+    (shared / "filesame").write_text("shared")
+    account_side("filesame", "synced/other")
+    check("clash: a file both have is refused too", refused() is not None)
+    check("clash: and nothing moved", untouched("filesame", "synced/other")
+          and (shared / "filesame").read_text() == "shared"
+          and not (shared / "synced" / "other").exists())
+
+    (shared / "filesame").unlink()
+    account_side("a", "b", "synced/c")
+    real_move, calls = shutil.move, []
+
+    def flaky(a, b, *rest):
+        calls.append(a)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        return real_move(a, b, *rest)
+    shutil.move = flaky
+    try:
+        accounts.register("gamma", force=True)
+        failed = False
+    except OSError:
+        failed = True
+    finally:
+        shutil.move = real_move
+    check("failed move: it is raised", failed)
+    check("failed move: the account is as it was and shared has none of it",
+          untouched("a", "b", "synced/c")
+          and not any((shared / n).exists() for n in ("a", "b")))
+
+
+def test_register_force_plans_every_item_before_changing_one(home: Path) -> None:
+    """A real file is replaced only when identical to shared's; otherwise the
+    whole registration is refused and nothing at all is changed - not even an
+    item earlier in the list that would have been fine."""
+    import shutil
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    root = vendors.shared_dir("claude")
+    cdir = vendors.config_dir("gamma")
+    (root / "CLAUDE.md").write_text("shared rules")
+    settings, claude_md, skills = cdir / "settings.json", cdir / "CLAUDE.md", cdir / "skills"
+    (root / "skills").mkdir(exist_ok=True)
+    settings.unlink()
+    settings.write_text((root / "settings.json").read_text())
+    claude_md.write_text("my own rules")
+    skills.unlink()
+    (skills / "synced" / "b1").mkdir(parents=True)
+    (skills / "synced" / "b1" / "m.json").write_text("{}")
+
+    def refusal() -> str | None:
+        try:
+            accounts.register("gamma", force=True)
+        except accounts.AdoptRefused as e:
+            return str(e)
+        return None
+
+    msg = refusal()
+    check("file: a real file that differs is refused, naming it and saying nothing changed",
+          msg is not None and "CLAUDE.md" in msg and "nothing was changed" in msg, str(msg))
+    check("file: nothing changed, not even the identical settings.json or the skills dir",
+          not settings.is_symlink() and not skills.is_symlink()
+          and claude_md.read_text() == "my own rules"
+          and (skills / "synced" / "b1" / "m.json").exists()
+          and not (root / "skills" / "synced").exists())
+    accounts.register("gamma", force=False)
+    check("file: without --force the same files are left alone, no refusal",
+          claude_md.read_text() == "my own rules" and not settings.is_symlink())
+
+    claude_md.write_text("shared rules")
+    accounts.register("gamma", force=True)
+    check("file: a real file identical to shared's is replaced by the link",
+          claude_md.is_symlink() and settings.is_symlink())
+    check("file: and the directory's bucket moved into shared",
+          (root / "skills" / "synced" / "b1" / "m.json").exists() and skills.is_symlink())
+
+    claude_md.unlink()
+    claude_md.write_text("mine")
+    settings.unlink()
+    settings.write_text((root / "settings.json").read_text())
+    skills.unlink()
+    (skills / "n1").mkdir(parents=True)
+    (skills / "n1" / "f").write_text("x")
+    real_move, calls = shutil.move, []
+
+    def failing(a, b, *rest):
+        raise OSError("disk full")
+    shutil.move = failing
+    try:
+        accounts.register("gamma", force=True)
+        said = None
+    except (accounts.AdoptRefused, OSError) as e:
+        said = str(e)
+    finally:
+        shutil.move = real_move
+    check("file: a differing file refuses before any move is tried", said is not None
+          and "CLAUDE.md" in said and "nothing was changed" in said, str(said))
+    claude_md.write_text("shared rules")
+    shutil.move = failing
+    try:
+        accounts.register("gamma", force=True)
+        said = None
+    except OSError as e:
+        said = str(e)
+    finally:
+        shutil.move = real_move
+    check("partial: a failure after earlier items says what was already linked",
+          said is not None and "skills failed" in said and "already linked before it" in said
+          and "nothing was deleted" in said, str(said))
+    check("partial: the failed directory and its file are intact",
+          (skills / "n1" / "f").read_text() == "x" and not skills.is_symlink())
+
+
+def test_a_refused_register_leaves_no_account_and_names_a_type_clash(home: Path) -> None:
+    """The plan comes before the account directory and its vendor record, so a
+    refusal leaves nothing behind; a file/directory clash says which is which."""
+    os.environ["OCP_HOME"] = str(home)
+    real = accounts._plan_item
+    accounts._plan_item = lambda *a, **k: ("skip", ["CLAUDE.md: a real file that differs"], [])
+    try:
+        with second_vendor():
+            for vendor in (None, "zai"):
+                try:
+                    accounts.register("fresh", force=True, vendor=vendor)
+                    said = None
+                except accounts.AdoptRefused as e:
+                    said = str(e)
+                check(f"refused ({vendor}): it says nothing was changed",
+                      said is not None and "nothing was changed" in said, str(said))
+                check(f"refused ({vendor}): no directory, no account row, no vendor record",
+                      not paths.account_dir("fresh").exists()
+                      and "fresh" not in paths.list_accounts())
+    finally:
+        accounts._plan_item = real
+
+    accounts.register("gamma")
+    shared = vendors.shared_dir("claude") / "skills"
+    shared.mkdir(parents=True, exist_ok=True)
+    link = vendors.config_dir("gamma") / "skills"
+    link.unlink()
+    (shared / "d").mkdir()
+    (shared / "f").write_text("s")
+    (link / "d").parent.mkdir(parents=True)
+    (link / "d").write_text("a file here")
+    (link / "f").mkdir()
+    try:
+        accounts.register("gamma", force=True)
+        said = ""
+    except accounts.AdoptRefused as e:
+        said = str(e)
+    check("type clash: a file here against a directory in shared is named as that",
+          "d: a file here, a directory in shared" in said, said)
+    check("type clash: a directory here against a file in shared is named as that",
+          "f: a directory here, a file in shared" in said, said)
+
+
 def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
     """T231: memory is reported against its budget and never rewritten;
     migrate is a dry run until --apply and never touches shared/memory; the
@@ -3138,6 +3346,9 @@ def main() -> int:
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
+        run(lambda: test_register_force_keeps_what_a_real_skills_dir_held(Path(td) / 'forceadopt'))
+        run(lambda: test_register_force_plans_every_item_before_changing_one(Path(td) / 'planall'))
+        run(lambda: test_a_refused_register_leaves_no_account_and_names_a_type_clash(Path(td) / 'refusedreg'))
         run(lambda: test_agent_memory_budget_migration_and_team_layer(Path(td) / 'memory'))
         run(lambda: test_team_rules_reach_the_prompt_and_doctor_reports_memory(Path(td) / 'teamrules'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))

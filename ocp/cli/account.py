@@ -24,7 +24,11 @@ from ..infra.yamlcompat import ConfigError
 
 # ---------------------------------------------------------------- account
 def cmd_account_register(args) -> int:
-    d = accounts.register(args.name, force=args.force)
+    try:
+        d = accounts.register(args.name, force=args.force)
+    except (accounts.AdoptRefused, OSError) as e:
+        print(f"not registered: {e}")
+        return 1
     print(f"registered account '{args.name}': {d}")
     if not accounts.logged_in(args.name):
         print(f"\nnot logged in yet. From a terminal you can type into:\n\n"
