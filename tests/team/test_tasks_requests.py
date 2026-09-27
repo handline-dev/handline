@@ -5782,6 +5782,267 @@ def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: P
         con.close()
 
 
+def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
+    """T250: `ask --task N` links the request, so a draft task reads doing; text
+    that names a T<n> is refused without --task or --no-task; `task list` and
+    `task board` mark a draft with a request out and a queued task with none."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "work", "worker", "manager")
+        u = db.new_task(con, "other", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["ask", "worker", f"please do T{t}"])
+    check("ask: text naming a task is refused without --task", rc == 1 and f"T{t}" in out
+          and "--task" in out and "--no-task" in out, out)
+    con = db.connect()
+    try:
+        check("ask: and nothing was sent", con.execute("SELECT COUNT(*) c FROM requests").fetchone()["c"] == 0)
+    finally:
+        con.close()
+    rc, out = _cli(["ask", "worker", f"see T{u}", "--no-task", ""])
+    check("ask: an empty --no-task reason is refused", rc == 1 and "reason" in out, out)
+    rc, out = _cli(["ask", "worker", f"see T{t}", "--task", f"T{t}", "--no-task", "x"])
+    check("ask: --task with --no-task is refused", rc == 1 and "contradict" in out, out)
+    try:
+        rc, out = _cli(["ask", "worker", "do it", "--task", "5"])
+    except SystemExit as e:
+        rc, out = e.code, ""
+    check("ask: a bare number for --task is refused", rc not in (0, None))
+    rc, out = _cli(["ask", "worker", "do it", "--task", "T999"])
+    check("ask: --task for a task that does not exist is refused", rc == 1 and "no task T999" in out, out)
+    con = db.connect()
+    try:
+        ended = db.new_task(con, "ended", "worker", "manager")
+        db.discard_task(con, ended, "manager", "not needed")
+    finally:
+        con.close()
+    rc, out = _cli(["ask", "worker", "do it", "--task", f"T{ended}"])
+    check("ask: --task for an ended task is refused and sends nothing",
+          rc == 1 and "discarded" in out
+          and _cli(["inbox"], as_agent="worker")[1].count("do it") == 0, out)
+
+    rc, out = _cli(["ask", "worker", f"only mentions T{u} in passing", "--no-task", "context only"])
+    check("ask: --no-task with a reason gets past the guard", rc == 0, out)
+    rc, out = _cli(["ask", "worker", f"please do T{t}", "--task", f"T{t}"])
+    check("ask: --task sends, links, and says the draft now reads doing",
+          rc == 0 and f"linked to T{t}" in out and "doing" in out, out)
+    con = db.connect()
+    try:
+        check("ask: the request is linked and the task is doing",
+              len(db.task_requests(con, t)) == 1
+              and actions.task_state(con, db.get_task(con, t)) == "doing")
+        check("ask: the task was never approved, so the mismatch names it",
+              "never approved" in (actions.task_mismatch(
+                  con, db.get_task(con, t), "doing",
+                  con.execute("SELECT * FROM requests WHERE state='queued'").fetchall()) or ""))
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list"])
+    check("list: a draft with a request out is marked", "! never approved" in out, out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: and so is it there", "! never approved" in out, out)
+    check("list: a --no-task request is not flagged as an unlinked one",
+          "not linked" not in _cli(["task", "list"])[1])
+
+    con = db.connect()
+    try:
+        v = db.new_task(con, "approved idle", "worker", "manager")
+        actions.set_queued(con, v, "manager", True)
+        check("mismatch: a queued task with no request out is marked",
+              "approved, but no request" in (actions.task_mismatch(
+                  con, db.get_task(con, v), "queued", []) or ""))
+        check("mismatch: a finished task is never marked",
+              actions.task_mismatch(con, db.get_task(con, v), "done", []) is None)
+    finally:
+        con.close()
+
+
+def test_the_founder_may_discard_close_and_finish_any_task(home: Path) -> None:
+    """T259: the asker of a task an agent opened is that agent, so the founder was
+    refused. The founder may act on any task, from a terminal (the CLI) and from the
+    bridge (which calls the actions as HUMAN); an agent that is not the asker may not,
+    and a wait on another task or a request still out is the founder's to lift
+    (the wait) or to cancel first (the request)."""
+    _board_world(home)
+    H = askmod.HUMAN
+    con = db.connect()
+    try:
+        by_cli, by_bridge, blocked, live, done_one = (
+            db.new_task(con, n, "worker", "manager") for n in ("a", "b", "c", "d", "e"))
+        blocker = db.new_task(con, "blocker", "worker", "manager")
+        db.add_block(con, blocked, blocker)
+        db.link_request(con, live, _request("manager", "worker"))
+        ok, msg = actions.discard_task(con, by_bridge, "worker", "no")
+        check("founder: an agent that is not the asker is still refused", not ok and "founder" in msg, msg)
+        check("founder: the asker is the agent that opened it",
+              actions.task_asker(con, db.get_task(con, by_bridge)) == "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "discard", f"T{by_cli}", "not wanted"], as_agent=H)
+    check("founder: the terminal discards a task an agent asked for", rc == 0 and "discarded by human" in out, out)
+    con = db.connect()
+    try:
+        ok, msg = actions.discard_task(con, by_bridge, H, "not wanted")
+        check("founder: the bridge discards one too", ok, msg)
+        ok, msg = actions.discard_task(con, blocked, H, "not wanted")
+        check("founder: a task waiting on another can be discarded, and the wait ends",
+              ok and not db.task_blockers(con, blocked), msg)
+        ok, msg = actions.discard_task(con, live, H, "not wanted")
+        check("founder: a request still out is refused, naming ocp cancel",
+              not ok and "ocp cancel" in msg, msg)
+        ok, msg = actions.mark_task_done(con, done_one, H, reason="settled by the founder")
+        check("founder: marks a task done that it does not own", ok, msg)
+        ok, msg = actions.reopen_task(con, done_one, H, "one more look")
+        check("founder: reopens it", ok, msg)
+        actions.mark_task_done(con, done_one, H, reason="settled")
+        ok, msg = actions.close_task(con, done_one, H)
+        check("founder: closes it", ok, msg)
+        d2 = db.new_task(con, "waits", "worker", "manager")
+        db.add_block(con, d2, blocker)
+        actions.mark_task_done(con, d2, H, reason="x")
+        ok, msg = actions.close_task(con, d2, H)
+        check("founder: closes a done task that still waits on another", ok and not db.task_blockers(con, d2), msg)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list", "--all"], as_agent=H)
+    check("founder: what it closed reads closed", "closed" in out, out)
+
+
+def test_task_list_and_board_show_only_yours_and_your_reports(home: Path) -> None:
+    """T256: an agent sees the tasks of itself and everyone under it; a peer
+    team's are hidden; the founder and --everyone see all."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  boss: {}
+  mid: {}
+  leaf: {}
+  other: {}
+
+edges:
+  - { from: "boss", to: "mid", relation: supervisor, response: fire_and_forget }
+  - { from: "mid", to: "leaf", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("boss", "mid", "leaf", "other"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ids = {n: db.new_task(con, f"work of {n}", n, n) for n in ("boss", "mid", "leaf", "other")}
+        done = {n: db.new_task(con, f"finished by {n}", n, n) for n in ("leaf", "other")}
+        for t in done.values():
+            db.mark_task_done(con, t, "shipped it")
+    finally:
+        con.close()
+    shows = lambda out, *names: all(f"T{ids[n]} " in out for n in names)
+    hides = lambda out, *names: not any(f"T{ids[n]} " in out for n in names)
+
+    rc, out = _cli(["task", "list"], as_agent="mid")
+    check("scope: a manager sees its own and its report's tasks, not its boss's or a peer team's",
+          shows(out, "mid", "leaf") and hides(out, "boss", "other"), out)
+    check("scope: the done-waiting-for-check group is scoped too",
+          f"T{done['leaf']} " in out and f"T{done['other']} " not in out, out)
+    check("scope: --everyone shows the other team's finished task",
+          f"T{done['other']} " in _cli(["task", "list", "--everyone"], as_agent="mid")[1])
+    rc, out = _cli(["task", "list"], as_agent="boss")
+    check("scope: the reach goes down the whole roster", shows(out, "boss", "mid", "leaf")
+          and hides(out, "other"), out)
+    rc, out = _cli(["task", "list"], as_agent="leaf")
+    check("scope: a leaf sees only its own", shows(out, "leaf") and hides(out, "boss", "mid", "other"), out)
+    rc, out = _cli(["task", "list"], as_agent=askmod.HUMAN)
+    check("scope: the founder sees all", shows(out, "boss", "mid", "leaf", "other"), out)
+    rc, out = _cli(["task", "list", "--everyone"], as_agent="leaf")
+    check("scope: --everyone shows all", shows(out, "boss", "mid", "leaf", "other"), out)
+    rc, out = _cli(["task", "list", "--owner", "leaf"], as_agent="mid")
+    check("scope: --owner works within what may be seen", rc == 0 and shows(out, "leaf")
+          and hides(out, "mid"), out)
+    rc, out = _cli(["task", "list", "--owner", "other"], as_agent="mid")
+    check("scope: --owner outside it is refused, pointing at --everyone",
+          rc == 1 and "--everyone" in out and hides(out, "other"), out)
+    rc, out = _cli(["task", "board"], as_agent="mid")
+    check("scope: the board shows the same reach", shows(out, "mid", "leaf")
+          and hides(out, "boss", "other"), out)
+    rc, out = _cli(["task", "board", "--everyone"], as_agent="mid")
+    check("scope: board --everyone shows all", shows(out, "boss", "other"), out)
+
+
+def test_a_report_linked_to_a_task_never_changes_its_state(home: Path) -> None:
+    """T266: an --fyi linked to a task is not work being asked for, so the task keeps
+    its state; a real request to a done task is refused with how to reopen it, and a
+    report to an ended task is allowed."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    con = db.connect()
+    try:
+        merged, done, closed = (db.new_task(con, n, "worker", "manager") for n in ("merged", "done", "closed"))
+        db.mark_task_done(con, done, "shipped")
+        db.mark_task_done(con, closed, "shipped")
+        db.close_task(con, closed, "manager")
+        state = lambda t: actions.task_state(con, db.get_task(con, t))
+        check("fyi: a draft is a draft", state(merged) == "draft")
+        rid = db.add_request(con, "manager", "human", "T%d merged" % merged, None, "supervisor",
+                             "fire_and_forget", None, 0, None, fyi=True)
+        db.link_request(con, merged, rid)
+        check("fyi: an --fyi linked to it leaves it a draft, not doing", state(merged) == "draft", state(merged))
+        actions.set_queued(con, merged, actions.HUMAN, True)
+        check("fyi: a queued task stays queued", state(merged) == "queued", state(merged))
+        check("fyi: and is not flagged as never approved or with a request out",
+              actions.task_mismatch(con, db.get_task(con, merged), state(merged),
+                                    con.execute("SELECT * FROM requests WHERE state='queued'").fetchall())
+              == "approved, but no request is out")
+        real = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                              "fire_and_forget", None, 0, None)
+        db.link_request(con, merged, real)
+        check("fyi: a real request linked to it still makes it doing", state(merged) == "doing")
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        mine = db.new_task(con, "report only", "manager", "manager")
+        db.link_request(con, mine, db.add_request(con, "manager", "human", "T%d is merged" % mine, None,
+                                                  "supervisor", "fire_and_forget", None, 0, None, fyi=True))
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="manager")
+    section = out.split(f"T{mine} ", 1)[1].split("\n", 2)[1] if f"T{mine} " in out else out
+    check("board: a linked --fyi is not the task being held by its target",
+          "now: nobody holds it" in section and "human" not in section, out)
+    rc, out = _cli(["ask", "worker", f"more on T{done}", "--task", f"T{done}"], as_agent="manager")
+    check("ended: a real ask to a done task is refused, saying to reopen it first",
+          rc == 1 and "reopen" in out and f"T{done}" in out, out)
+    rc, out = _cli(["ask", "worker", f"more on T{closed}", "--task", f"T{closed}"], as_agent="manager")
+    check("ended: a real ask to a closed task is refused", rc == 1 and "closed" in out, out)
+    for t, what in ((done, "done"), (closed, "closed")):
+        rc, out = _cli(["ask", "human", f"T{t} merged", "--fyi", "--task", f"T{t}"], as_agent="manager")
+        con = db.connect()
+        try:
+            ok = (rc == 0 and len(db.task_requests(con, t)) == 1
+                  and actions.task_state(con, db.get_task(con, t)) == what)
+        finally:
+            con.close()
+        check(f"ended: a report to a {what} task is sent, linked, and leaves it {what}", ok, out)
+
+
 def test_requests_parent_id_is_indexed(home: Path) -> None:
     """T92: the replied EXISTS looks a request up by parent_id once per row on
     the page; without an index that is a table scan each."""
@@ -5886,6 +6147,10 @@ def main() -> int:
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
+        run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
+        run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
+        run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
+        run(lambda: test_task_list_and_board_show_only_yours_and_your_reports(Path(td) / 'taskscope'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
         run(lambda: test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(Path(td) / 'taskscreenlogic'))

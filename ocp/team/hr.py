@@ -44,7 +44,7 @@ from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 
-KINDS = ("add", "retire", "rename", "link", "unlink")
+KINDS = ("add", "retire", "rename", "link", "unlink", "team")
 EDGE_KINDS = ("link", "unlink")
 
 
@@ -104,8 +104,11 @@ def _draft(kind: str, name: str, requester: str, why: str,
            team_name: str | None, repo: str | None, model: str | None,
            to: str | None, effort: str | None = None,
            vendor: str | None = None, response: str | None = None,
-           relation: str | None = None) -> tuple[dict, str]:
-    """Check what was asked for and write it down. Returns (proposal, refusal)."""
+           relation: str | None = None, members: list[str] | None = None,
+           repos: dict[str, str] | None = None) -> tuple[dict, str]:
+    """Check what was asked for and write it down. Returns (proposal, refusal).
+    A `team` is `name` (its manager and the team's name) with `members`, each a
+    suffix (`sea` is `name.sea`) or a full name, and `repos` by member."""
     if kind not in KINDS:
         return {}, f"kind must be one of {', '.join(KINDS)}"
     if not name or "/" in name or name.startswith("."):
@@ -116,6 +119,11 @@ def _draft(kind: str, name: str, requester: str, why: str,
         return {}, "say why: the founder is being asked to decide, not to rubber-stamp"
 
     registered = paths.list_agents()
+    full: list[str] = []
+    if kind == "team":
+        full, err = _team_names(name, members or [], repos or {}, registered)
+        if err:
+            return {}, err
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
     if kind in ("retire", "rename") + EDGE_KINDS and name not in registered:
@@ -155,7 +163,43 @@ def _draft(kind: str, name: str, requester: str, why: str,
                        ("response", response), ("relation", relation)):
         if value:
             prop[key] = value
+    if full:
+        prop["members"] = ",".join(full)
+        for n in full:
+            if (repos or {}).get(n):
+                prop[f"repo.{n}"] = repos[n]
     return prop, ""
+
+
+def _team_names(name: str, members: list[str], repos: dict[str, str],
+                registered: list[str]) -> tuple[list[str], str]:
+    """(members' full names, refusal) for a team: the manager is `name`, a member
+    given as a suffix is `<name>.<suffix>`. Nothing may exist yet, in the roster or
+    in team.yaml, so the one approval adds exactly what it says."""
+    if not members:
+        return [], "a team needs at least one member (--member); one agent is `hr add`"
+    full = [m if m.startswith(f"{name}.") else f"{name}.{m}" for m in members]
+    for n in [name, *full]:
+        if not is_plain_text(n) or "/" in n or "," in n or " " in n:
+            return [], f"bad agent name: {n!r}. {agents.NOT_TEXT}"
+    if len(set(full)) != len(full) or name in full:
+        return [], "a member is named twice"
+    taken = [n for n in [name, *full] if n in registered]
+    if taken:
+        return [], f"{', '.join(taken)} already an agent"
+    stray = [m for m in repos if m not in full and m != name]
+    if stray:
+        return [], f"a repo was given for {', '.join(stray)}, who is not in the team"
+    try:
+        t = team.Team.load()
+    except Exception as e:  # noqa: BLE001
+        return [], f"team.yaml cannot be read ({e})"
+    if name in t.teams:
+        return [], f"team {name} is already in team.yaml"
+    listed = [n for n in [name, *full] if n in t.agents]
+    if listed:
+        return [], f"{', '.join(listed)} already in team.yaml agents"
+    return full, ""
 
 
 def propose(kind: str, name: str, requester: str, why: str,
@@ -163,10 +207,11 @@ def propose(kind: str, name: str, requester: str, why: str,
             model: str | None = None, to: str | None = None,
             effort: str | None = None, vendor: str | None = None,
             response: str | None = None,
-            relation: str | None = None) -> tuple[bool, str]:
+            relation: str | None = None, members: list[str] | None = None,
+            repos: dict[str, str] | None = None) -> tuple[bool, str]:
     """Write the proposal down and raise it to the founder. Nothing changes yet."""
     prop, err = _draft(kind, name, requester, why, team_name, repo, model,
-                       to, effort, vendor, response, relation)
+                       to, effort, vendor, response, relation, members, repos)
     if err:
         return False, err
     # Written down before it is raised: a proposal that cannot be recorded must
@@ -189,7 +234,8 @@ def enact(kind: str, name: str, why: str,
           model: str | None = None, to: str | None = None,
           effort: str | None = None, con=None,
           vendor: str | None = None, response: str | None = None,
-          relation: str | None = None) -> tuple[bool, str]:
+          relation: str | None = None, members: list[str] | None = None,
+          repos: dict[str, str] | None = None) -> tuple[bool, str]:
     """The founder changing the roster directly. No proposal to approve.
 
     The gate exists to stop an *agent* hiring on its own, and the founder is the
@@ -201,7 +247,7 @@ def enact(kind: str, name: str, why: str,
     change that fails halfway still leaves a record of what was attempted.
     """
     prop, err = _draft(kind, name, "human", why, team_name, repo, model,
-                       to, effort, vendor, response, relation)
+                       to, effort, vendor, response, relation, members, repos)
     if err:
         return False, err
     prop["state"] = "enacting"
@@ -262,6 +308,20 @@ def _escalation(prop: dict, caveat: bool = True) -> str:
                      if prop.get("vendor") and prop["vendor"] != agents.DEFAULT_VENDOR else "")
                   + ".",
                   "team.yaml gains its name; nothing else in the routing changes."]
+    elif prop["kind"] == "team":
+        lines += [f"Team {prop['agent']} would be created: manager {prop['agent']}"
+                  + (f" (working in {prop['repo']})" if prop.get("repo") else "") + ", and"]
+        lines += [f"  {n}" + (f" (working in {prop[f'repo.{n}']})" if prop.get(f"repo.{n}") else "")
+                  for n in _members_of(prop)]
+        lines += ["all registered"
+                  + (f", model {prop['model']}" if prop.get("model") else "")
+                  + (f", effort {prop['effort']}" if prop.get("effort") else "")
+                  + (f", vendor {prop['vendor']}"
+                     if prop.get("vendor") and prop["vendor"] != agents.DEFAULT_VENDOR else "")
+                  + ". team.yaml gains the team, the agents and one edge "
+                  f"({prop['agent']} -> {prop['agent']}.*, supervisor); the default links "
+                  "then apply:"]
+        lines += [f"  - {d}" for d in team.DEFAULT_LINKS]
     elif prop["kind"] == "rename":
         lines += [f"{prop['agent']} would become {prop.get('to')}"
                   + (f" in team {prop['team']}" if prop.get("team") else "")
@@ -279,13 +339,18 @@ def _escalation(prop: dict, caveat: bool = True) -> str:
 
 
 _SUBJECT_FIELDS = ("kind", "agent", "to", "team", "repo", "model", "effort", "vendor",
-                   "response", "relation", "requested_by", "why")
+                   "response", "relation", "requested_by", "why", "members")
+
+
+def _members_of(prop: dict) -> list[str]:
+    return [m for m in str(prop.get("members") or "").split(",") if m]
 
 
 def subject_of(prop: dict) -> str:
     """What the founder is deciding on: every field of the draft that changes
     what applying it does, as a digest."""
-    return decisions.digest({k: prop.get(k) for k in _SUBJECT_FIELDS})
+    return decisions.digest({**{k: prop.get(k) for k in _SUBJECT_FIELDS},
+                             **{k: v for k, v in prop.items() if k.startswith("repo.")}})
 
 
 def answered(prop: dict, row) -> tuple[str | None, str | None]:
@@ -380,6 +445,45 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             con.close()
 
 
+def confirm_answer(pid: str, con=None) -> tuple[bool, str]:
+    """The founder records, from their own session, an answer that was given but
+    never recorded (a running daemon or bridge on older code did not know the
+    proposal, so it closed the escalation without applying it), then applies it.
+
+    The recorded answer is what makes an approve believable, and a verdict in the
+    db alone is no proof, so only the founder's session may do this, and only for
+    an escalation that is closed with a decision and still shows the draft the
+    founder was asked. An agent's session is refused by the protected store."""
+    try:
+        prop = load_proposal(pid)
+    except (ConfigError, UnicodeDecodeError, OSError) as e:
+        return False, f"proposal {pid} cannot be read: {e}"
+    if not is_proposal(prop):
+        return False, f"no proposal {pid}"
+    if prop.get("state") != "proposed":
+        return False, f"proposal {pid} is already {prop.get('state')}"
+    own = con is None
+    con = con or db.connect()
+    try:
+        row = db.get_request(con, int(prop.get("request") or 0))
+        if row is None or row["state"] == "queued":
+            return False, f"the founder has not answered #{prop.get('request')} yet"
+        call = decision(row["verdict"])
+        if call == "unclear":
+            return False, f"#{row['id']} was answered without approve or reject"
+        subject, why_not = answered(prop, row)
+        if why_not:
+            return False, why_not
+        try:
+            decisions.record("hr", pid, row["id"], call, subject)
+        except PermissionError as e:
+            return False, str(e)
+    finally:
+        if own:
+            con.close()
+    return apply(pid)
+
+
 class _Unwound(Exception):
     """A withdraw that had to be taken back, with the reason to show."""
 
@@ -461,6 +565,22 @@ def open_proposal_of(rid: int) -> str | None:
     return None
 
 
+def unknown_kind_of(rid: int) -> str | None:
+    """The kind of a proposal file waiting on request `rid` that this process does
+    not know, else None. `listing` skips such a file, so without this a process
+    older than the kind would close the escalation and throw the answer away."""
+    for f in dir_().glob("*.yaml"):
+        try:
+            data = load(f.read_text())
+        except (ConfigError, UnicodeDecodeError, OSError):
+            continue
+        if (isinstance(data, dict) and data.get("id") and data.get("agent")
+                and data.get("kind") not in KINDS and data.get("state") == "proposed"
+                and str(data.get("request") or "") == str(rid)):
+            return str(data.get("kind"))
+    return None
+
+
 def is_open_proposal(rid: int) -> bool:
     """Is request `rid` the escalation of a proposal still waiting on approve or reject?"""
     return open_proposal_of(rid) is not None
@@ -481,6 +601,34 @@ def _add(prop: dict, con) -> tuple[bool, str]:
     return True, (f"{name} is an agent"
                   + (f", team {prop['team']}" if prop.get("team") else "")
                   + f". {said}")
+
+
+def _team(prop: dict, con) -> tuple[bool, str]:
+    """A whole team in one approval: the manager and its members in team.yaml with
+    the one supervisor edge (the rest is `team.DEFAULT_LINKS`), then each one
+    registered. team.yaml is written first, as `_add` does, and once."""
+    name, members = prop["agent"], _members_of(prop)
+    everyone = [name, *members]
+
+    def edit(text: str) -> str:
+        for n in everyone:
+            text = _add_text(text, n, name)
+        return _link_text(text, name, f"{name}.*", "async", "supervisor", pattern=True)
+
+    def verify(tm) -> None:
+        for n in members:
+            _need(tm.route(name, n).allowed, f"{name} -> {n} is not routable")
+
+    ok, said = _edit_team_yaml(edit, present=name, verify=verify)
+    if not ok:
+        return False, said
+    role = (f"Added on {timefmt.stamp(prop.get('created'), timefmt.DATE_TIME, 'an unknown date')} at "
+            f"{prop['requested_by']}'s request, with team {name}: {prop['why']}")
+    for n in everyone:
+        agents.register(n, model=prop.get("model"), effort=prop.get("effort"),
+                        repo=prop.get("repo") if n == name else prop.get(f"repo.{n}"),
+                        vendor=prop.get("vendor"), role=role)
+    return True, f"team {name}: {', '.join(everyone)} are agents. {said}"
 
 
 def _still_allowed_by(t, frm: str, to: str) -> str:
@@ -551,12 +699,13 @@ def _edge_lines(lines: list[str], head: int, end: int):
 
 
 def _link_text(text: str, frm: str, to: str, response: str | None,
-               relation: str | None) -> str:
+               relation: str | None, pattern: bool = False) -> str:
     """One edge added. It goes before the first edge with a wildcard or a team at
     an end, because the first match wins and a specific edge behind a wildcard
     one would never be reached."""
     _text_only("agent", frm)
-    _text_only("agent", to)
+    if not pattern:  # a `<team>.*` target is a pattern, not a name YAML could misread
+        _text_only("agent", to)
     if relation and not re.fullmatch(r"[\w.-]+", relation):
         raise ConfigError(f"bad relation: {relation!r}")
     lines = text.splitlines()
@@ -756,7 +905,7 @@ def label(con, agent: str) -> tuple[bool, str]:
 
 
 _DOERS = {"add": _add, "retire": _retire, "rename": _rename,
-          "link": _link, "unlink": _unlink}
+          "link": _link, "unlink": _unlink, "team": _team}
 
 
 def _edges_touching(t, name: str) -> set[str]:

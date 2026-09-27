@@ -170,6 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
                            help="async (default) waits for a reply; fire_and_forget does not")
             q.add_argument("--relation", default=None, help="e.g. peer")
         q.set_defaults(team=None, repo=None, model=None, effort=None, vendor=None)
+    q = hrsub.add_parser("team", help="propose a whole team in one approval: a manager "
+                                      "and its members, with the default links")
+    q.add_argument("name", help="the team and its manager")
+    q.add_argument("--member", action="append", required=True, metavar="SUFFIX[=REPO]",
+                   help="a member, `sea` for <team>.sea, with where it works after '='; repeat")
+    q.add_argument("--repo", default=None, help="where the manager works")
+    q.add_argument("--model", default=None, help="for every agent in the team")
+    q.add_argument("--effort", default=None, choices=sorted(agents.VALID_EFFORT))
+    q.add_argument("--vendor", default=None)
+    q.add_argument("--why", required=True, help="what the founder is deciding")
     q = hrsub.add_parser("list", help="proposals and what became of them")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
@@ -185,6 +195,10 @@ def build_parser() -> argparse.ArgumentParser:
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
+    q.add_argument("--confirm-answer", action="store_true",
+                   help="the founder only: the escalation was answered but the answer was never "
+                        "recorded; show it, ask, record it and apply")
+    q.add_argument("--yes", action="store_true", help="with --confirm-answer: do not ask")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
@@ -248,6 +262,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "ID is retired and this takes its place in line")
     p.add_argument("--reason", default=None,
                    help="why --replaces retires the old request; stored as typed")
+    p.add_argument("--task", type=_task_arg, default=None, metavar="T",
+                   help="link this request to task T<n>; a draft task reads doing while "
+                        "it is out")
+    p.add_argument("--no-task", default=None, metavar="REASON",
+                   help="the text names a T<n> that this request is not for; say why")
     p.add_argument("--fyi", action="store_true",
                    help="a report to the human that asks nothing of them: not red, not "
                         "counted as waiting on them, gone once read or when your next "
@@ -478,8 +497,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="close a done task (ocp close T7), the asker's own "
-                                     "sign-off, or end an idle agent's session, keeping "
+    p = sub.add_parser("close", help="close a done task (ocp close T7), the asker's or "
+                                     "the founder's sign-off, or end an idle agent's session, keeping "
                                      "its terminal")
     p.add_argument("target", help="a task (T<n>), or an agent's name")
     p.add_argument("evidence", nargs="?",
@@ -500,6 +519,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
     p.add_argument("--owner", default=None, help="only this agent's tasks")
+    p.add_argument("--everyone", action="store_true",
+                   help="every team's tasks, not just yours and your reports'")
     p.add_argument("--state", default=None,
                    choices=("draft", "queued", "doing", "done", "closed", "discarded", "merged"),
                    help="only tasks in this state; a closed one shows even without --all")
@@ -543,16 +564,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="record the evidence as words even if it looks like hex")
     p.set_defaults(fn=cmd_task_done)
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
-                                     "only, needs a one-line reason")
+                                     "or the founder; needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
-    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker "
-                                      "only, needs a one-line reason")
+    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker or the founder; "
+                                      "needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_discard)
-    p = tk.add_parser("board", help="your own open tasks, and who holds each one now")
+    p = tk.add_parser("board", help="your open tasks and your reports', and who holds each now")
+    p.add_argument("--everyone", action="store_true",
+                   help="every team's tasks, not just yours and your reports'")
     p.set_defaults(fn=cmd_task_board)
 
     p = sub.add_parser("resume", help="hand a parked agent back its handoff")

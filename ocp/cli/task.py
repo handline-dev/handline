@@ -63,7 +63,7 @@ def _priority_arg(text: str) -> int:
 
 def cmd_close(args) -> int:
     """One verb, two things it can close: a task by its reference (`ocp close
-    T7`) - the asker's own sign-off, once it is done (`ocp task done` first;
+    T7`) - the asker's or the founder's sign-off, once it is done (`ocp task done` first;
     #71) - or an agent's session by its name, keeping its terminal. A task
     is always T<number> and a bare number is refused (it could as well be a
     request), so the argument decides; evidence given to either is refused
@@ -148,7 +148,7 @@ def cmd_task_done(args) -> int:
 
 
 def cmd_task_discard(args) -> int:
-    """Throw away a task that is not done - the asker's own call, with a
+    """Throw away a task that is not done - the asker's or the founder's call, with a
     one-line reason."""
     me = askmod.asking_agent()
     if me is None:
@@ -191,7 +191,7 @@ def cmd_task_draft(args) -> int:
 
 
 def cmd_task_reopen(args) -> int:
-    """Send a done task back to doing (#71) - the asker's own call, needing
+    """Send a done task back to doing (#71) - the asker's or the founder's call, needing
     a one-line reason."""
     me = askmod.asking_agent()
     if me is None:
@@ -351,6 +351,7 @@ def _print_board(con, tasks: list) -> None:
     if not tasks:
         print("no open tasks.")
         return
+    open_requests = con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall()
     for t in tasks:
         parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
         edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
@@ -368,6 +369,9 @@ def _print_board(con, tasks: list) -> None:
               f"{parent}{edited}{done}{closed}{merged}  "
               f"{actions.priority_ref(t['priority'])}  may close: {actions.task_asker(con, t)}"
               f"{waits}  active {active}")
+        odd = actions.task_mismatch(con, t, state, open_requests)
+        if odd:
+            print(f"        ! {odd}")
         for r in db.task_requests(con, t["id"]):
             when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
@@ -388,13 +392,24 @@ def _print_needing_close(con, tasks: list) -> None:
         print(_fit100(f"      done: {textsafe.oneline(t['done_evidence'])}"))
 
 
+def _visible_owners(args) -> set[str] | None:
+    """Whose tasks this call shows: the caller and its reports, or everyone for
+    the founder and for `--everyone` (T256)."""
+    return None if args.everyone else actions.reach(askmod.asking_agent())
+
+
 def cmd_task_list(args) -> int:
+    owners = _visible_owners(args)
+    if args.owner is not None and owners is not None and args.owner not in owners:
+        print(f"{args.owner} is not you or one of your reports: --everyone shows every team's tasks")
+        return 1
     con = db.connect()
     try:
         rows = actions.task_rows(con, owner=args.owner, state=args.state,
-                                 include_closed=args.all)
+                                 include_closed=args.all, owners=owners)
         _print_board(con, [r["row"] for r in rows])
-        _print_needing_close(con, db.tasks_needing_close(con))
+        _print_needing_close(con, [t for t in db.tasks_needing_close(con)
+                                   if owners is None or t["owner"] in owners])
         gaps = actions.reason_gaps(con)
         print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
               f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
@@ -441,17 +456,20 @@ def cmd_task_board(args) -> int:
         return 1
     con = db.connect()
     try:
-        tasks = db.open_tasks_for(con, me)
+        # The founder's board is the tasks it asked for, as before; the full view is `list`.
+        owners = {me} if me == askmod.HUMAN and not args.everyone else _visible_owners(args)
+        tasks = [t for t in db.open_tasks(con) if owners is None or t["owner"] in owners]
         needing_close = [t for t in db.tasks_needing_close(con)
                         if actions.task_asker(con, t) == me]
         if not tasks and not needing_close:
             print("no open tasks.")
             return 0
+        open_requests = con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall()
         for t in tasks:
             reqs = db.task_requests(con, t["id"])
-            held = sorted({r["target"] for r in reqs if r["state"] == "queued"})
+            held = sorted({r["target"] for r in reqs if actions._asks(r)})
             kids = sorted({r["target"] for c in db.open_child_tasks(con, t["id"])
-                          for r in db.task_requests(con, c["id"]) if r["state"] == "queued"})
+                          for r in db.task_requests(con, c["id"]) if actions._asks(r)})
             last = reqs[-1] if reqs else None
             back = (last is not None and last["state"] == "done"
                     and last["target"] not in (me, askmod.HUMAN))
@@ -469,6 +487,9 @@ def cmd_task_board(args) -> int:
             parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
             print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
             print(_fit100(f"      now: {now}"))
+            odd = actions.task_mismatch(con, t, actions.task_state(con, t), open_requests)
+            if odd:
+                print(_fit100(f"      ! {odd}"))
         _print_needing_close(con, needing_close)
     finally:
         con.close()

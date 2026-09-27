@@ -17,6 +17,18 @@ from dataclasses import dataclass
 from ..infra import paths, sealed
 from ..infra.yamlcompat import ConfigError, load
 
+# The links a team has without any edge written for them, so nobody runs
+# `ocp hr link` by hand for the ordinary shape. A team's manager is the member
+# named like the team (team `harbor` is [harbor, harbor.sea, ...]); its reviewer
+# is `<team>.reviewer`. Explicit `deny` entries still win over these, and an
+# edge in team.yaml is found first; `hr link` / `hr unlink` are for exceptions.
+DEFAULT_LINKS = (
+    "a manager and its team's members may ask each other",
+    "a manager may ask the founder (an escalation) and the other teams' managers",
+    "a member may ask its team's reviewer, `<team>.reviewer`",
+)
+HUMAN = "human"
+
 DEFAULT_MAX_CHAIN_DEPTH = 4
 DEFAULT_ASK_RATE_PER_HOUR = 20
 
@@ -153,11 +165,37 @@ class Team:
             if "*" not in str(e.get("to", ""))
         )
 
+    def managers(self) -> dict[str, str]:
+        """Team name -> its manager, the member named like the team."""
+        return {t: t for t, ms in self.teams.items() if t in (ms or [])}
+
+    def default_link(self, requester: str, target: str) -> Decision | None:
+        """The link `DEFAULT_LINKS` gives this pair, or None."""
+        managers = self.managers()
+
+        def hit(why: str, **kw) -> Decision:
+            return Decision(True, f"default link: {why}", **kw)
+
+        for t, m in managers.items():
+            members = self.members(t)
+            if requester == m and target in members and target != m:
+                return hit(f"{m} manages {target}", relation="supervisor")
+            if target == m and requester in members and requester != m:
+                return hit(f"{requester} reports to {m}", relation="subordinate")
+            if target == f"{t}.reviewer" and target in members and requester in members:
+                return hit(f"{requester} may ask {t}'s reviewer", relation="peer")
+        if requester in managers:
+            if target == HUMAN:
+                return hit(f"{requester} may ask the founder", kind="escalate", creates_gate=True)
+            if target in managers and target != requester:
+                return hit(f"{requester} and {target} are peer managers", relation="peer")
+        return None
+
     # ------------------------------------------------------------ routing
     def route(self, requester: str, target: str, chain_depth: int = 0) -> Decision:
         if requester == target:
             return Decision(False, "an agent cannot ask itself")
-        if not self.known(target):
+        if not self.known(target) and not (target == HUMAN and self.default_link(requester, target)):
             return Decision(False, f"unknown target '{target}'")
 
         if chain_depth >= self.max_chain_depth:
@@ -190,6 +228,11 @@ class Team:
                     creates_gate=bool(e.get("creates_gate")),
                     chain_depth=chain_depth,
                 )
+
+        default = self.default_link(requester, target)
+        if default is not None:
+            default.chain_depth = chain_depth
+            return default
 
         return Decision(
             False,

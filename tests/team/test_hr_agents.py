@@ -1231,12 +1231,6 @@ def test_an_account_records_its_vendor(home: Path) -> None:
             check("vendor record: an account's vendor is not changed under it",
                   "already a zai account" in str(e) and vendors.account_vendor("zeta") == "zai",
                   str(e))
-        mem = paths.account_dir("alpha") / ".claude" / "projects" / "-w" / "memory"
-        mem.mkdir(parents=True)
-        (mem / "MEMORY.md").write_text("- a fact\n")
-        check("vendor record: memory is not carried to another vendor's account",
-              accounts.migrate_memory("alpha", "zeta") == []
-              and not (vendors.config_dir("zeta") / "sessions").exists())
         (paths.account_dir("zeta") / "vendor").write_text("")
         check("vendor record: an empty record names no vendor, so the account is not usable",
               not accounts.logged_in("zeta") and status.pick_account(["zeta"], bootstrap=True)[0] is None)
@@ -1280,6 +1274,214 @@ def test_an_account_links_from_its_own_vendors_shared_dir(home: Path) -> None:
         link.symlink_to(home / "elsewhere")
         check("unlinked: reports it against the second vendor's own shared dir",
               ("zeta", "skills") in accounts.unlinked())
+
+
+def test_register_force_keeps_what_a_real_skills_dir_held(home: Path) -> None:
+    """Claude can create skills/synced before the link exists. `register
+    --force` links it anyway, and the bucket moves into shared. Nothing is
+    deleted that was not moved: a clash, or a move that fails, changes nothing."""
+    import shutil
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    shared = vendors.shared_dir("claude") / "skills"
+    (shared / "synced" / "old").mkdir(parents=True)
+    (shared / "synced" / "old" / "keep").write_text("shared")
+    link = vendors.config_dir("gamma") / "skills"
+    link.unlink()
+
+    def account_side(*files: str) -> None:
+        shutil.rmtree(link, ignore_errors=True)
+        for f in files:
+            (link / f).parent.mkdir(parents=True, exist_ok=True)
+            (link / f).write_text("account")
+
+    def refused() -> str | None:
+        try:
+            accounts.register("gamma", force=True)
+        except accounts.AdoptRefused as e:
+            return str(e)
+        return None
+
+    def untouched(*files: str) -> bool:
+        return (link.is_dir() and not link.is_symlink()
+                and all((link / f).read_text() == "account" for f in files)
+                and (shared / "synced" / "old" / "keep").read_text() == "shared")
+
+    account_side("synced/b1/manifest.json", "synced/.bucket-b1", "synced/old/new")
+    check("relink_all: a real directory is left alone", not accounts.relink_all())
+    accounts.register("gamma", force=True)
+    check("force: the directory is now the shared link",
+          link.is_symlink() and os.readlink(link) == str(shared))
+    check("force: the bucket, its marker and a file beside shared's own moved",
+          (shared / "synced" / "b1" / "manifest.json").exists()
+          and (shared / "synced" / ".bucket-b1").exists()
+          and (shared / "synced" / "old" / "new").exists()
+          and (shared / "synced" / "old" / "keep").read_text() == "shared")
+
+    link.unlink()
+    (shared / "synced" / "old" / "new").unlink()
+    (shared / "dirsame").mkdir()
+    account_side("dirsame", "synced/other")
+    msg = refused()
+    check("clash: a file where shared has a directory is refused, naming it",
+          msg is not None and "dirsame" in msg, str(msg))
+    check("clash: the account side is untouched", untouched("dirsame", "synced/other")
+          and not (shared / "synced" / "other").exists())
+
+    (shared / "dirsame").rmdir()
+    (shared / "filesame").write_text("shared")
+    account_side("filesame", "synced/other")
+    check("clash: a file both have is refused too", refused() is not None)
+    check("clash: and nothing moved", untouched("filesame", "synced/other")
+          and (shared / "filesame").read_text() == "shared"
+          and not (shared / "synced" / "other").exists())
+
+    (shared / "filesame").unlink()
+    account_side("a", "b", "synced/c")
+    real_move, calls = shutil.move, []
+
+    def flaky(a, b, *rest):
+        calls.append(a)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        return real_move(a, b, *rest)
+    shutil.move = flaky
+    try:
+        accounts.register("gamma", force=True)
+        failed = False
+    except OSError:
+        failed = True
+    finally:
+        shutil.move = real_move
+    check("failed move: it is raised", failed)
+    check("failed move: the account is as it was and shared has none of it",
+          untouched("a", "b", "synced/c")
+          and not any((shared / n).exists() for n in ("a", "b")))
+
+
+def test_register_force_plans_every_item_before_changing_one(home: Path) -> None:
+    """A real file is replaced only when identical to shared's; otherwise the
+    whole registration is refused and nothing at all is changed - not even an
+    item earlier in the list that would have been fine."""
+    import shutil
+    os.environ["OCP_HOME"] = str(home)
+    accounts.register("gamma")
+    root = vendors.shared_dir("claude")
+    cdir = vendors.config_dir("gamma")
+    (root / "CLAUDE.md").write_text("shared rules")
+    settings, claude_md, skills = cdir / "settings.json", cdir / "CLAUDE.md", cdir / "skills"
+    (root / "skills").mkdir(exist_ok=True)
+    settings.unlink()
+    settings.write_text((root / "settings.json").read_text())
+    claude_md.write_text("my own rules")
+    skills.unlink()
+    (skills / "synced" / "b1").mkdir(parents=True)
+    (skills / "synced" / "b1" / "m.json").write_text("{}")
+
+    def refusal() -> str | None:
+        try:
+            accounts.register("gamma", force=True)
+        except accounts.AdoptRefused as e:
+            return str(e)
+        return None
+
+    msg = refusal()
+    check("file: a real file that differs is refused, naming it and saying nothing changed",
+          msg is not None and "CLAUDE.md" in msg and "nothing was changed" in msg, str(msg))
+    check("file: nothing changed, not even the identical settings.json or the skills dir",
+          not settings.is_symlink() and not skills.is_symlink()
+          and claude_md.read_text() == "my own rules"
+          and (skills / "synced" / "b1" / "m.json").exists()
+          and not (root / "skills" / "synced").exists())
+    accounts.register("gamma", force=False)
+    check("file: without --force the same files are left alone, no refusal",
+          claude_md.read_text() == "my own rules" and not settings.is_symlink())
+
+    claude_md.write_text("shared rules")
+    accounts.register("gamma", force=True)
+    check("file: a real file identical to shared's is replaced by the link",
+          claude_md.is_symlink() and settings.is_symlink())
+    check("file: and the directory's bucket moved into shared",
+          (root / "skills" / "synced" / "b1" / "m.json").exists() and skills.is_symlink())
+
+    claude_md.unlink()
+    claude_md.write_text("mine")
+    settings.unlink()
+    settings.write_text((root / "settings.json").read_text())
+    skills.unlink()
+    (skills / "n1").mkdir(parents=True)
+    (skills / "n1" / "f").write_text("x")
+    real_move, calls = shutil.move, []
+
+    def failing(a, b, *rest):
+        raise OSError("disk full")
+    shutil.move = failing
+    try:
+        accounts.register("gamma", force=True)
+        said = None
+    except (accounts.AdoptRefused, OSError) as e:
+        said = str(e)
+    finally:
+        shutil.move = real_move
+    check("file: a differing file refuses before any move is tried", said is not None
+          and "CLAUDE.md" in said and "nothing was changed" in said, str(said))
+    claude_md.write_text("shared rules")
+    shutil.move = failing
+    try:
+        accounts.register("gamma", force=True)
+        said = None
+    except OSError as e:
+        said = str(e)
+    finally:
+        shutil.move = real_move
+    check("partial: a failure after earlier items says what was already linked",
+          said is not None and "skills failed" in said and "already linked before it" in said
+          and "nothing was deleted" in said, str(said))
+    check("partial: the failed directory and its file are intact",
+          (skills / "n1" / "f").read_text() == "x" and not skills.is_symlink())
+
+
+def test_a_refused_register_leaves_no_account_and_names_a_type_clash(home: Path) -> None:
+    """The plan comes before the account directory and its vendor record, so a
+    refusal leaves nothing behind; a file/directory clash says which is which."""
+    os.environ["OCP_HOME"] = str(home)
+    real = accounts._plan_item
+    accounts._plan_item = lambda *a, **k: ("skip", ["CLAUDE.md: a real file that differs"], [])
+    try:
+        with second_vendor():
+            for vendor in (None, "zai"):
+                try:
+                    accounts.register("fresh", force=True, vendor=vendor)
+                    said = None
+                except accounts.AdoptRefused as e:
+                    said = str(e)
+                check(f"refused ({vendor}): it says nothing was changed",
+                      said is not None and "nothing was changed" in said, str(said))
+                check(f"refused ({vendor}): no directory, no account row, no vendor record",
+                      not paths.account_dir("fresh").exists()
+                      and "fresh" not in paths.list_accounts())
+    finally:
+        accounts._plan_item = real
+
+    accounts.register("gamma")
+    shared = vendors.shared_dir("claude") / "skills"
+    shared.mkdir(parents=True, exist_ok=True)
+    link = vendors.config_dir("gamma") / "skills"
+    link.unlink()
+    (shared / "d").mkdir()
+    (shared / "f").write_text("s")
+    (link / "d").parent.mkdir(parents=True)
+    (link / "d").write_text("a file here")
+    (link / "f").mkdir()
+    try:
+        accounts.register("gamma", force=True)
+        said = ""
+    except accounts.AdoptRefused as e:
+        said = str(e)
+    check("type clash: a file here against a directory in shared is named as that",
+          "d: a file here, a directory in shared" in said, said)
+    check("type clash: a directory here against a file in shared is named as that",
+          "f: a directory here, a file in shared" in said, said)
 
 
 def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
@@ -1340,6 +1542,67 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
           rows == {"idle-not-free": "copy", "ocp-cli-habits": "promote",
                    "project-ocp-home-wipe": "delete", "unknown": "no-owner",
                    "feedback-testing": "merge"}, str(rows))
+    long_src = src / "long.md"
+    long_src.write_text("---\nname: long\ndescription: " + "d" * 300 + "\n---\nb")
+    line = memory._index_line(long_src)
+    check("index line: a long hook is cut after the link, which stays whole",
+          len(line) <= memory.INDEX_LINE and line.startswith("- [long](long.md) — d")
+          and line.endswith("…"), line)
+    long_src.write_text("---\nname: " + "n" * 200 + "\n---\nb")
+    line = memory._index_line(long_src)
+    check("index line: a long title is shortened, the link target is intact",
+          len(line) <= memory.INDEX_LINE and line.endswith("](long.md)"), line)
+    long_src.unlink()
+    bad = []
+    for fname in ("a.md", "topic.md", "x" * 40 + ".md", "x" * 89 + ".md", "x" * 90 + ".md",
+                  "x" * 91 + ".md", "x" * 92 + ".md", "x" * 147 + ".md"):
+        f = src / fname
+        for nlen in range(0, 121):
+            for hlen in (0, 1, 2, 3, 4, 50, 300):
+                meta = "---\n" + (f"name: {'n' * nlen}\n" if nlen else "") \
+                    + (f"description: {'d' * hlen}\n" if hlen else "") + "---\nb"
+                f.write_text(meta)
+                try:
+                    line = memory._index_line(f)
+                except ValueError:
+                    if memory._fits_index(fname):
+                        bad.append((fname, nlen, hlen, "raised"))
+                    continue
+                if (not memory._fits_index(fname) or len(line) > memory.INDEX_LINE
+                        or not re.fullmatch(r"- \[[^\]]+\]\(" + re.escape(fname) + r"\)( — .+)?",
+                                            line)):
+                    bad.append((fname, nlen, hlen, line))
+        f.unlink()
+    check("index line: for every name, file name and hook length the line is within "
+          "budget, the link whole, and a file name that cannot fit raises", not bad, str(bad[:3]))
+    exact = src / "topic.md"
+    exact.write_text("---\nname: " + "n" * 86 + "\ndescription: some words\n---\nb")
+    line = memory._index_line(exact)
+    check("index line: a link of exactly 100 characters keeps its closing paren",
+          line == "- [" + "n" * 86 + "](topic.md)", line)
+    exact.unlink()
+    long_file = src / ("x" * 150 + ".md")
+    long_file.write_text("x")
+    memory.OWNERS[long_file.stem] = "orcapipe"
+    try:
+        acts = [r["action"] for r in memory.plan_migration() if r["file"] == long_file]
+    finally:
+        del memory.OWNERS[long_file.stem]
+    check("migrate: a file name too long to be listed is reported, not copied",
+          acts == ["long-name"], str(acts))
+    long_file.unlink()
+    promote =[r for r in memory.plan_migration() if r["file"].stem == "ocp-cli-habits"]
+    check("migrate: a promoted file names AGENTS.md, apart from agent names",
+          promote[0]["action"] == "promote" and promote[0]["to"] == "AGENTS.md"
+          and not set(memory.OWNERS.values()) & {"AGENTS.md", "delete"})
+    (home / "agents" / "orcapipe.ui" / "memory" / "a.md").write_text("rule a")
+    said = _capture(lambda: climemory.cmd_memory_status(argparse.Namespace(agent="orcapipe.ui")))
+    check("status: named for an agent, only its own duplicate groups are shown",
+          "orcapipe/a.md" in said and "orcapipe.ui/a.md" in said, said)
+    agents.register("orcapipe.auditor")
+    (home / "agents" / "orcapipe.auditor" / "memory" / "z.md").write_text("only mine")
+    lone = _capture(lambda: climemory.cmd_memory_status(argparse.Namespace(agent="orcapipe.auditor")))
+    check("status: an agent in no duplicate group sees none", "same text" not in lone, lone)
     check("migrate: another repo's folder is not read",
           all(r["file"].parent == src for r in memory.plan_migration()))
     args = argparse.Namespace(apply=False)
@@ -1540,8 +1803,6 @@ def test_the_opencode_driver(home: Path) -> None:
         mem = paths.account_dir("alpha") / ".claude" / "projects" / "-tmp-a-b"
         (mem / "memory").mkdir(parents=True)
         (mem / "sess1.jsonl").write_text(_call_line("req_alpha", 10))
-        check("opencode: memory moves between two of its accounts carry nothing",
-              accounts.migrate_memory("zai", "zai2") == [])
         check("opencode: a transcript is still found on claude's account past it",
               handoffmod.find_transcript("sess1", "zai") == mem / "sess1.jsonl",
               str(handoffmod.find_transcript("sess1", "zai")))
@@ -1950,6 +2211,190 @@ edges:
           not ok and "not in team.yaml" in said and "loose" in said, said)
     ok, said = hr.enact("link", "loose", to="scout", why="w")
     check("link: and so is the asking end", not ok and "not in team.yaml" in said, said)
+
+
+def test_hr_team_is_one_proposal_and_a_team_has_default_links(home: Path) -> None:
+    """T263: a manager and its members are proposed and approved once, and the
+    ordinary links (`team.DEFAULT_LINKS`) need no edge; an explicit deny still wins."""
+    _daemon_home(home, 20)
+    original = """# routing
+teams:
+  orca: [orca]
+agents:
+  orca: {}
+edges:
+  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+deny:
+  - { from: "orca.*", to: "boat.rude", reason: "never" }
+"""
+    hand_edit_team(original)
+    agents.register("orca")
+    tf = home / "team.yaml"
+    con = db.connect()
+    try:
+        ok, said = hr.propose("team", "boat", requester="orca", why="a new team",
+                              members=["sea", "shore", "reviewer"], repos={"boat.sea": "/w/sea"},
+                              repo="/w/boat")
+        check("team: an agent proposes it, one proposal, nothing written yet",
+              ok and "boat:" not in tf.read_text() and not agents.agent_file("boat").exists(), said)
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        body = db.get_request(con, prop["request"])["body"]
+        check("team: the founder reads every agent, every repo and the default links",
+              all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
+              and "may ask each other" in body and "approve" in body, body)
+        check("team: one escalation for the whole team",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 1)
+        ok, said = hr.apply(pid, con)
+        check("team: refused until the founder answers", not ok, said)
+        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(prop))
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (prop["request"],))
+        for label, key, value in [("a member added", "members", prop["members"] + ",boat.spy"),
+                                  ("a member's repo changed", "repo.boat.sea", "/elsewhere"),
+                                  ("the manager's repo changed", "repo", "/elsewhere")]:
+            edited = dict(prop)
+            edited[key] = value
+            hr.save(edited)
+            ok, said = hr.apply(pid, con)
+            check(f"team: {label} after the approval is refused", not ok
+                  and "boat.spy" not in team.Team.load().agents, said)
+        hr.save(prop)
+        ok, said = hr.apply(pid, con)
+        check("team: one approval creates the team", ok, said)
+    finally:
+        con.close()
+    t = team.Team.load()
+    check("team: the team and every agent are in team.yaml, with one supervisor edge",
+          t.teams.get("boat") == ["boat", "boat.sea", "boat.shore", "boat.reviewer"]
+          and all(n in t.agents for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer"))
+          and sum(1 for e in t.edges if e["from"] == "boat") == 1
+          and "# routing" in tf.read_text() and original.splitlines()[-4] in tf.read_text())
+    check("team: every agent is registered, with its own repo",
+          all(n in paths.list_agents() for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer"))
+          and agents.read("boat.sea").get("repo") == "/w/sea"
+          and agents.read("boat").get("repo") == "/w/boat"
+          and agents.read("boat.shore").get("repo") in (None, ""))
+    check("team: the manager is boat's supervisor",
+          actions.supervisor_of(t, "boat.sea") == "boat")
+    ok, said = hr.enact("team", "boat", why="again", members=["x"])
+    check("team: a team that exists is refused", not ok and "already" in said, said)
+    ok, said = hr.enact("team", "solo", why="w", members=[])
+    check("team: no members is refused", not ok and "at least one" in said, said)
+    ok, said = hr.enact("team", "solo", why="w", members=["a", "a"])
+    check("team: a member twice is refused", not ok and "twice" in said, said)
+    ok, said = hr.enact("team", "solo", why="w", members=["a"], repos={"ghost": "/x"})
+    check("team: a repo for a stranger is refused", not ok and "ghost" in said, said)
+
+    data = {"teams": {"boat": ["boat", "boat.sea", "boat.reviewer", "boat.shore"],
+                      "orca": ["orca", "orca.core", "orca.reviewer"]},
+            "agents": {}, "edges": [],
+            "deny": [{"from": "boat.*", "to": "orca.reviewer", "reason": "no"}]}
+    tm = team.Team(data)
+    for who, whom, want in [
+            ("boat", "boat.sea", True), ("boat.sea", "boat", True),
+            ("boat.sea", "boat.reviewer", True), ("boat", "human", True),
+            ("boat", "orca", True), ("orca", "boat", True),
+            ("boat.sea", "boat.shore", False), ("boat.sea", "human", False),
+            ("boat.sea", "orca", False), ("boat.sea", "orca.reviewer", False),
+            ("boat.sea", "orca.core", False), ("boat", "orca.core", False)]:
+        d = tm.route(who, whom)
+        check(f"default links: {who} -> {whom} is {'allowed' if want else 'denied'}",
+              d.allowed == want, d.reason)
+    d = tm.route("boat", "human")
+    check("default links: the founder is asked as an escalation", d.kind == "escalate" and d.creates_gate)
+    check("default links: an explicit deny still wins",
+          not tm.route("boat.sea", "orca.reviewer").allowed and "denied: " in tm.route("boat.sea", "orca.reviewer").reason)
+    check("default links: an explicit edge still comes first",
+          team.Team({**data, "edges": [{"from": "boat.sea", "to": "boat", "response": "fire_and_forget"}]})
+          .route("boat.sea", "boat").response == "fire_and_forget")
+    rc, out = _cli(["hr", "team", "reef", "--member", "dive=/w/dive", "--member", "reef.map",
+                    "--repo", "/w/reef", "--why", "cli path"], as_agent=askmod.HUMAN)
+    check("team: the founder's `hr team` creates it directly, suffix or full names, repo after '='",
+          rc == 0 and team.Team.load().teams.get("reef") == ["reef", "reef.dive", "reef.map"]
+          and agents.read("reef.dive").get("repo") == "/w/dive", out)
+    rc, out = _cli(["hr", "team", "reef2", "--member", "a", "--why", "w"], as_agent="orca")
+    check("team: an agent's `hr team` is a proposal", rc == 0 and "raised as" in out
+          and "reef2" not in paths.list_agents(), out)
+    from ocp.team import guide
+    check("guide: the rule is written down once, in the team topic",
+          all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
+
+
+def test_an_approve_on_a_team_proposal_is_recorded_and_applied(home: Path) -> None:
+    """T273: raise, the founder answers approve, it is recorded and applied. And an
+    answer given to a process that did not know the proposal kind (an older daemon
+    or bridge) is closed unapplied; the founder's `confirm_answer` records and applies it,
+    an agent's session cannot, and a draft changed since is refused."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
+teams:
+  orca: [orca]
+agents:
+  orca: {}
+edges:
+  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    agents.register("orca")
+    con = db.connect()
+    try:
+        ok, said = hr.propose("team", "crew", requester="orca", why="a crew",
+                              members=["a", "b"], repos={"crew.a": "/w/a"})
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        ok, said = askmod.resolve(prop["request"], "approve")
+        check("team answer: the approve is applied by the answer itself", ok and "applied" in said, said)
+        check("team answer: it is recorded, names the request, and the team exists",
+              (decisions.get("hr", pid) or {}).get("request") == prop["request"]
+              and hr.load_proposal(pid)["state"] == "applied"
+              and team.Team.load().teams.get("crew") == ["crew", "crew.a", "crew.b"]
+              and "crew.b" in paths.list_agents())
+
+        ok, said = hr.propose("team", "old", requester="orca", why="an older process answers",
+                              members=["x"])
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        kinds = hr.KINDS
+        hr.KINDS = tuple(k for k in kinds if k != "team")
+        try:
+            ok, said = askmod.resolve(prop["request"], "approve")
+            ok2, said2 = askmod.resolve(prop["request"], "reject")
+            still_queued = db.get_request(con, prop["request"])["state"] == "queued"
+        finally:
+            hr.KINDS = kinds
+        check("stale: a process that does not know the kind refuses the answer and says to restart",
+              not ok and not ok2 and "does not know" in said and "Restart" in said, said)
+        check("stale: the escalation is still queued, nothing recorded or applied",
+              still_queued and hr.load_proposal(pid)["state"] == "proposed"
+              and decisions.get("hr", pid) is None and "old" not in paths.list_agents())
+        # What such a process used to do: close the row, unapplied.
+        db.close_if_queued(con, prop["request"], "done", "approve")
+        ok, said = hr.apply(pid, con)
+        check("stale: apply refuses, as the report said", not ok and "no answer from the founder" in said, said)
+        os.environ["OCP_AGENT"] = "orca"
+        try:
+            ok, said = hr.confirm_answer(pid, con)
+            rc, out = _cli(["hr", "apply", pid, "--confirm-answer", "--yes"], as_agent="orca")
+        finally:
+            os.environ.pop("OCP_AGENT", None)
+        check("stale: an agent's session cannot record it", not ok and "founder" in said
+              and rc == 1 and decisions.get("hr", pid) is None, said + out)
+        edited = dict(hr.load_proposal(pid))
+        edited["members"] = "old.x,old.spy"
+        hr.save(edited)
+        ok, said = hr.confirm_answer(pid, con)
+        check("stale: a draft changed since the answer is refused", not ok and "raise it again" in said, said)
+        hr.save(prop)
+        rc, out = _cli(["hr", "apply", pid, "--confirm-answer", "--yes"], as_agent=askmod.HUMAN)
+        check("stale: the founder's own session records and applies it",
+              rc == 0 and hr.load_proposal(pid)["state"] == "applied"
+              and "old.x" in paths.list_agents(), out)
+        ok, said = hr.propose("team", "open", requester="orca", why="not answered", members=["y"])
+        ok, said = hr.confirm_answer(said.split()[1], con)
+        check("stale: a proposal the founder has not answered cannot be confirmed",
+              not ok and "not answered" in said, said)
+    finally:
+        con.close()
 
 
 def test_hr_link_and_unlink_edit_one_edge_and_nothing_else(home: Path) -> None:
@@ -3085,6 +3530,9 @@ def main() -> int:
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
+        run(lambda: test_register_force_keeps_what_a_real_skills_dir_held(Path(td) / 'forceadopt'))
+        run(lambda: test_register_force_plans_every_item_before_changing_one(Path(td) / 'planall'))
+        run(lambda: test_a_refused_register_leaves_no_account_and_names_a_type_clash(Path(td) / 'refusedreg'))
         run(lambda: test_agent_memory_budget_migration_and_team_layer(Path(td) / 'memory'))
         run(lambda: test_team_rules_reach_the_prompt_and_doctor_reports_memory(Path(td) / 'teamrules'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
@@ -3094,6 +3542,8 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
+        run(lambda: test_an_approve_on_a_team_proposal_is_recorded_and_applied(Path(td) / 'teamanswer'))
+        run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_an_answer_binds_the_escalation_the_founder_read(Path(td) / 'hrbind'))

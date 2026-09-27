@@ -707,6 +707,12 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
         if row["state"] == "queued":
             proposal = next(((m, i) for m, i in ((hr, hr.open_proposal_of(rid)),
                                                  (trust, trust.open_proposal_of(rid))) if i), None)
+        if row["state"] == "queued" and proposal is None:
+            kind = hr.unknown_kind_of(rid)
+            if kind:
+                return False, (f"#{rid} is a roster proposal of kind {kind!r}, which this "
+                               f"process does not know, so it was not answered. Restart the "
+                               f"daemon and the bridge (they run older code) and answer again.")
         if open_tasks is not None:
             con.execute("BEGIN IMMEDIATE")
         try:

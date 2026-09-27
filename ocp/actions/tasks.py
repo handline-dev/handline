@@ -161,6 +161,12 @@ def task_asker(con, row) -> str:
     return row["opened_by"]
 
 
+def _asks(r) -> bool:
+    """Is this linked request work still being asked for? A report (`--fyi`) asks
+    nothing, so linking one never makes a task doing (T266)."""
+    return r["state"] == "queued" and not r["fyi"]
+
+
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved
@@ -177,13 +183,36 @@ def task_state(con, row) -> str:
         return "closed"
     if row["done_evidence"]:
         return "done"
-    if any(r["state"] == "queued" for r in db.task_requests(con, row["id"])):
+    if any(_asks(r) for r in db.task_requests(con, row["id"])):
         return "doing"
-    if any(r["state"] == "queued"
+    if any(_asks(r)
            for c in db.open_child_tasks(con, row["id"])
            for r in db.task_requests(con, c["id"])):
         return "doing"
     return "queued" if row["queued_by"] else "draft"
+
+
+_TASK_NAMED = re.compile(r"\bT(\d+)\b")
+
+
+def task_ids_named(text: str) -> list[int]:
+    """The task ids a text names as T<n>, in order, once each."""
+    return list(dict.fromkeys(int(m) for m in _TASK_NAMED.findall(text)))
+
+
+def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
+    """Where a task's state and its requests disagree, or None (T250). A draft
+    with a request out was never approved, and a queued one has nobody working on
+    it. `open_requests` is the queued requests."""
+    if state in ("done", "closed", "discarded", "merged"):
+        return None
+    linked = {r["id"] for r in db.task_requests(con, row["id"])}
+    open_linked = [r for r in open_requests if r["id"] in linked and not r["fyi"]]
+    if not row["queued_by"] and open_linked:
+        return f"never approved, but request #{open_linked[0]['id']} is out"
+    if state == "queued" and not open_linked:
+        return "approved, but no request is out"
+    return None
 
 
 def _request_answered(row) -> bool:
@@ -228,9 +257,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         return False, f"task T{tid} is already closed ({row['closed_by']})"
     if row["done_evidence"]:
         return False, f"task T{tid} is already done ({row['done_evidence']})"
-    if by != row["owner"] and by not in _task_done_targets(con, tid):
+    if by not in (row["owner"], HUMAN) and by not in _task_done_targets(con, tid):
         return False, (f"task T{tid} can only be marked done by its owner "
-                       f"({row['owner']}) or the target of a request linked to it")
+                       f"({row['owner']}), the target of a request linked to it, or the founder")
     given = [x for x in (sha, request_id, reason) if x is not None]
     if len(given) != 1:
         return False, "done needs exactly one of a sha, --request, or a reason"
@@ -255,7 +284,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
 
 
 def close_task(con, tid: int, by: str) -> tuple[bool, str]:
-    """Close a task on the board (#71) - the asker's own sign-off, final.
+    """Close a task on the board (#71) - the asker's or the founder's sign-off, final.
     See `task_asker` for who that is.
 
     Refused before the task is done (nothing to sign off on yet), while a
@@ -284,14 +313,14 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     if not row["done_evidence"]:
         return False, f"task T{tid} is not done yet - `ocp task done` first"
     asker = task_asker(con, row)
-    if by != asker:
-        return False, f"task T{tid} can only be closed by {asker} - whoever asked for it"
+    if by not in (asker, HUMAN):
+        return False, f"task T{tid} can only be closed by {asker} - whoever asked for it - or the founder"
     kids = db.open_child_tasks(con, tid)
     if kids:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
     blockers = db.task_blockers(con, tid)
-    if blockers:
+    if blockers and by != HUMAN:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it closes only once they do"
     con.execute("BEGIN IMMEDIATE")
@@ -300,6 +329,8 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
             con.execute("ROLLBACK")
             return False, f"task T{tid} was closed by someone else just now"
         db.add_event(con, by, "close_task", {"task_id": tid, "closed_by": by})
+        for b in blockers:  # only the founder gets here with any
+            db.remove_block(con, tid, b["id"])
         notices = _clear_blocks_on(con, tid, by)
         con.execute("COMMIT")
     except Exception:
@@ -314,7 +345,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
 
 
 def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
-    """Throw a task away before it is done (task #85) - the asker's own call
+    """Throw a task away before it is done (task #85) - the asker's or the founder's call
     (see `task_asker`), in one step with a one-line reason. It is recorded as
     discarded (who, why, and when in closed_at), never as finished work: no
     board, list or 'waiting for check' group reads it as done.
@@ -334,8 +365,8 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if row["done_evidence"]:
         return False, f"task T{tid} is done - `ocp close T{tid}` signs it off"
     asker = task_asker(con, row)
-    if by != asker:
-        return False, f"task T{tid} can only be discarded by {asker} - whoever asked for it"
+    if by not in (asker, HUMAN):
+        return False, f"task T{tid} can only be discarded by {asker} - whoever asked for it - or the founder"
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "discarding needs a one-line reason"
@@ -344,20 +375,23 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - deal with them first"
     blockers = db.task_blockers(con, tid)
-    if blockers:
+    if blockers and by != HUMAN:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
-    live = [r for r in db.task_requests(con, tid) if r["state"] == "queued"]
+    live = [r for r in db.task_requests(con, tid) if _asks(r)]
     if live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
         return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
-                       "first, or its target keeps working on thrown-away work")
+                       "first (the founder's `ocp cancel <id>`), or its target keeps working "
+                       "on thrown-away work")
     con.execute("BEGIN IMMEDIATE")
     try:
         if not db.discard_task(con, tid, by, said):
             con.execute("ROLLBACK")
             return False, f"task T{tid} was done or closed by someone else just now"
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
+        for b in blockers:  # only the founder gets here with any: the wait ends with the task
+            db.remove_block(con, tid, b["id"])
         notices = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
     except Exception:
@@ -372,7 +406,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
 
 
 def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
-    """Send a done task back to doing (#71) - the asker's own call, the
+    """Send a done task back to doing (#71) - the asker's or the founder's call, the
     opposite of closing it. Needs a one-line reason, the same as any other
     undo in this system. Refused for a task not currently done (nothing to
     undo) or already closed (closing is final - see close_task)."""
@@ -384,8 +418,8 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if not row["done_evidence"]:
         return False, f"task T{tid} is not done - nothing to reopen"
     asker = task_asker(con, row)
-    if by != asker:
-        return False, f"task T{tid} can only be reopened by {asker} - whoever asked for it"
+    if by not in (asker, HUMAN):
+        return False, f"task T{tid} can only be reopened by {asker} - whoever asked for it - or the founder"
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "reopening needs a one-line reason"
@@ -648,7 +682,7 @@ def merge_tasks(con, keep: int, others: list[int], by: str) -> tuple[bool, str]:
 
 
 def task_rows(con, owner: str | None = None, state: str | list[str] | None = None,
-              include_closed: bool = False) -> list[dict]:
+              include_closed: bool = False, owners: set[str] | None = None) -> list[dict]:
     """The board as data (T68): one dict per task, ordered by priority then by
     number. What a screen or `ocp task list` draws from, so both say the same.
 
@@ -657,7 +691,8 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     `last_activity` the latest time anything happened to it or a request
     linked to it. Closed, discarded and merged tasks are left out unless
     `include_closed`, or unless `state` names one. `owner` and `state` narrow
-    the rows; `state` may be one name or several.
+    the rows; `state` may be one name or several. `owners`, when given, is every
+    owner that may appear (see `reach`).
     """
     states = None if state is None else {state} if isinstance(state, str) else set(state)
     ended = ("closed", "discarded", "merged")
@@ -665,6 +700,8 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     out = []
     for t in (db.all_tasks(con) if show_ended else db.open_tasks(con)):
         if owner is not None and t["owner"] != owner:
+            continue
+        if owners is not None and t["owner"] not in owners:
             continue
         st = task_state(con, t)
         if states is not None and st not in states:

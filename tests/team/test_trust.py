@@ -610,6 +610,162 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         con.close()
 
 
+def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_runs(home: Path) -> None:
+    """founder #1212: the trust prompt was accepted (standing consent from the
+    blocked sweep, a person, or the vendor) and the agent works, but the row
+    stayed FATAL - STALLED is left for a person, and nothing looked again. The
+    sweep reads the screen: gone means lifted and the escalation closed; still
+    up, unreadable, or a stall for another reason means untouched."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    trust_screen = ("Accessing workspace:\nwt\n"
+                    "Quick safety check: Is this a project you created or one you trust?\n"
+                    "...\nNo, exit\nYes, I trust this folder\n")
+    screen = {"v": trust_screen}
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions, orcamod.screen_text)
+
+    def stalled_on_the_trust_screen() -> int:
+        db.set_agent_state(con, "backend", dmn_states.QUEUED, detail="reset")
+        dmn_lifecycle._escalate_trust_prompt(con, "backend", "term_x", lambda _m: None, "wt", "wt")
+        return db.open_escalation_ids(con, "backend", dmn_lifecycle.TRUST_ESCALATION)[0]
+
+    def open_trust_escalations() -> list[int]:
+        return [r for p in dmn_lifecycle.trust_escalation_prefixes("backend")
+                for r in db.open_escalation_ids(con, "backend", p)]
+
+    def sweep() -> list[str]:
+        said: list[str] = []
+        dmn_reconciler.sweep(con, lambda _m: None, said)
+        return said
+
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        obsmod.live_sessions = lambda: {"backend": 4242}
+        orcamod.screen_text = lambda h: screen["v"]
+        rid = stalled_on_the_trust_screen()
+        check("trust stall: the prompt raised a stall and one escalation",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED, rid)
+
+        sweep()
+        check("trust stall: the prompt still up leaves the stall",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+
+        screen["v"] = None
+        sweep()
+        check("trust stall: a screen that cannot be read leaves the stall",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+
+        screen["v"] = "an ordinary claude screen"
+        obsmod.live_sessions = lambda: {}
+        sweep()
+        check("trust stall: no running session leaves the stall",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+
+        obsmod.live_sessions = lambda: {"backend": 4242}
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("trust stall: the prompt gone and a session running lifts it",
+              row["state"] == dmn_states.IDLE, str(dict(row)))
+        check("trust stall: ...says so", any("STALLED -> IDLE" in a for a in said), str(said))
+        check("trust stall: ...and closes the escalation",
+              db.get_request(con, rid)["state"] == "done"
+              and not open_trust_escalations())
+
+        # A pending standing-consent proposal (team/trust.py) opens with "[trust]" too and is the
+        # founder's to decide: lifting a stall must leave it, and it is not a stall escalation.
+        proposal = askmod.escalate(con, "backend", "[trust] add /some/root - asked by backend\n\nwhy\n\n"
+                                   "Answer `approve` or `reject` (proposal 1).", "trust proposal")
+        rid = stalled_on_the_trust_screen()
+        sweep()
+        check("trust stall: a pending trust proposal survives the lift, the stall's own escalation closes",
+              db.get_request(con, proposal)["state"] == "queued" and db.get_request(con, rid)["state"] == "done",
+              str((db.get_request(con, proposal)["state"], db.get_request(con, rid)["state"])))
+        askmod.resolve(proposal, "test cleanup", state="done", notify=False)
+
+        # An escalation raised before the marker began "[trust] <agent>'s terminal is showing ...".
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="folder-trust prompt")
+        legacy = askmod.escalate(con, "backend", "[trust] backend's terminal is showing claude's folder-trust "
+                                 "prompt for wt", "old")
+        sweep()
+        check("trust stall: an escalation raised under the old marker closes with the lift",
+              db.get_request(con, legacy)["state"] == "done")
+
+        # A closed agent whose session is running, stalled by the trust prompt with the wake
+        # streak at its cap, is lifted once and said once: the wake-stall branch below the lift
+        # must not judge the row from before it and overwrite the lift's detail.
+        stalled_on_the_trust_screen()
+        db.set_closed(con, "backend", "sess-1")
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("trust stall: a closed agent at the wake cap is lifted with the trust detail kept",
+              row["state"] == dmn_states.IDLE and "folder-trust prompt" in row["detail"], str(dict(row)))
+        check("trust stall: ...and the running session clears the wake streak it refutes",
+              row["wake_failures"] == 0, str(dict(row)))
+        check("trust stall: ...and the lift is said once, not again as a wake stall",
+              sum("STALLED -> IDLE" in a for a in said) == 1
+              and not any("wake stall" in a or "running after all" in a for a in said), str(said))
+
+        # The same agent while the prompt is still up: its running session is the one sitting at
+        # the prompt, so the wake-stall branch must not lift a stall the screen has not refuted.
+        screen["v"] = trust_screen
+        rid = stalled_on_the_trust_screen()
+        db.set_closed(con, "backend", "sess-1")
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("trust stall: a running session at the unanswered prompt keeps the stall and its detail",
+              row["state"] == dmn_states.STALLED and dmn_lifecycle.TRUST_STALL in row["detail"], str(dict(row)))
+        check("trust stall: ...and its escalation stays open, nothing said of a wake stall",
+              db.get_request(con, rid)["state"] == "queued"
+              and not any("STALLED -> IDLE" in a for a in said), str(said))
+        check("trust stall: ...while the closed mark it refutes is still cleared",
+              not db.get_agent_state(con, "backend")["closed_at"])
+
+        # An escalation that will not close keeps the stall: the row moves only after it.
+        real_resolve = askmod.resolve
+        def refuse(*_a, **_k):
+            raise RuntimeError("db locked")
+        askmod.resolve = refuse
+        screen["v"] = "an ordinary claude screen"
+        try:
+            sweep()
+        finally:
+            askmod.resolve = real_resolve
+        check("trust stall: a failed close of the escalation leaves the stall in place",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED
+              and db.get_request(con, rid)["state"] == "queued")
+        sweep()
+        check("trust stall: ...and the next tick closes both",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
+              and db.get_request(con, rid)["state"] == "done")
+
+        # A wake stall - the streak at its cap, no trust prompt behind it - is lifted by a running
+        # session, once.
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="3 failed attempts: x")
+        db.set_closed(con, "backend", "sess-1")
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+            db.bump_counter(con, "backend", "wake_failures")
+        said = sweep()
+        row = db.get_agent_state(con, "backend")
+        check("wake stall: a running session lifts it and clears the streak",
+              row["state"] == dmn_states.IDLE and row["wake_failures"] == 0 and not row["closed_at"], str(dict(row)))
+        check("wake stall: ...said once", sum("STALLED -> IDLE" in a for a in said) == 1, str(said))
+
+        # A stall for another reason is not this one's to lift, however the screen reads.
+        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="3 failed attempts: x")
+        sweep()
+        check("trust stall: a stall for another reason is left for a person",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions, orcamod.screen_text = real
+        con.close()
+
+
 def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
     """Should-fix 5 (auditor's #304): the y/N question names exactly the
     worktrees a yes will press, and reports the rest as skipped rather than
@@ -709,6 +865,8 @@ def main() -> int:
         run(lambda: test_trust_prompt_showing_stays_true_when_the_folder_cannot_be_read(
             Path(td) / 'trustunreadable'))
         run(lambda: test_a_declared_root_gets_standing_consent(Path(td) / 'trustroot'))
+        run(lambda: test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_runs(
+            Path(td) / 'truststall'))
         run(lambda: test_offer_to_trust_worktrees_lists_paths_and_skips(
             Path(td) / 'offertrust'))
     return run_area(tests)

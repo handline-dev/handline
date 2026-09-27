@@ -98,14 +98,57 @@ def cmd_ask(args) -> int:
     if args.reason and args.replaces is None:
         print("--reason says why a request was replaced: it needs --replaces ID")
         return 1
-    ok, msg, _ = askmod.ask(args.target, body, files=args.files,
-                            requester=args.of, parent_id=args.parent,
-                            mergeable=args.mergeable, first=args.first,
-                            replaces=args.replaces, fyi=args.fyi, reason=args.reason,
-                            timebox_s=args.timebox)
+    if args.no_task == "":
+        print("--no-task says why this names a task without belonging to it: give the reason")
+        return 1
+    if args.task is not None and args.no_task:
+        print("--task and --no-task contradict each other: use one")
+        return 1
+    named = actions.task_ids_named(body)
+    if args.task is None and not args.no_task and named:
+        print(f"this text names {', '.join(f'T{n}' for n in named)}: add --task T<n> so the "
+              "request is linked and the task shows it is being worked, or "
+              "--no-task 'reason' if it does not belong to one")
+        return 1
+    if args.task is not None:
+        con = db.connect()
+        try:
+            row = db.get_task(con, args.task)
+            state = actions.task_state(con, row) if row else ""
+        finally:
+            con.close()
+        if row is None:
+            print(f"no task T{args.task}")
+            return 1
+        if state in ("done", "closed", "discarded", "merged") and not args.fyi:
+            again = (f"`ocp task reopen T{args.task} <why>` first" if state == "done"
+                     else "it cannot be worked on again; open a new task")
+            print(f"task T{args.task} is {state}: a request linked to it would not reopen it - "
+                  f"{again}. A report (--fyi) may still be linked.")
+            return 1
+    ok, msg, rid = askmod.ask(args.target, body, files=args.files,
+                              requester=args.of, parent_id=args.parent,
+                              mergeable=args.mergeable, first=args.first,
+                              replaces=args.replaces, fyi=args.fyi, reason=args.reason,
+                              timebox_s=args.timebox)
     # ask() already phrases its own refusals; do not prefix them again.
     print(msg)
+    if ok and args.task is not None and rid is not None:
+        con = db.connect()
+        try:
+            db.link_request(con, args.task, rid)
+        finally:
+            con.close()
+        print(f"linked to T{args.task}, which now reads {_task_now(args.task)}")
     return 0 if ok else 1
+
+
+def _task_now(tid: int) -> str:
+    con = db.connect()
+    try:
+        return actions.task_state(con, db.get_task(con, tid))
+    finally:
+        con.close()
 
 
 def cmd_withdraw(args) -> int:

@@ -539,7 +539,8 @@ def fingerprint(agent: str) -> str:
     """What `build()` would launch this agent with right now, boiled down to
     the pieces a running session cannot pick up on its own: the model, the
     effort level, the disallowed-tools list, the shared mcp.json, and the
-    static preamble (team line, ROLE.md, base.md). Never the account or the
+    static preamble (team line, ROLE.md, base.md, the rules file of each
+    team it is in). Never the account or the
     handoff - the account is chosen fresh on every real launch regardless of
     what last time picked, and the handoff is supposed to be different every
     time this agent is parked, so hashing either would call a session stale
@@ -650,27 +651,6 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 spawn.register_worker(con, agent, handle)
                 db.set_launch_fingerprint(con, agent, fp)
             if acct:
-                repo = agents.repo_of(agent)
-                try:
-                    accounts.share_memory(acct, repo)
-                except OSError as e:  # noqa: BLE001 - memory is not worth a launch
-                    print(f"ocp launch: could not share memory for {acct}: {e}", file=sys.stderr)
-                # Every path that starts a session passes through here, so
-                # this is the one place a landing account differing from the
-                # last one is ever seen - and the one place to carry what
-                # that last session had learned along with it, before
-                # `set_account` overwrites the record.
-                previous = agents.current_account(agent, con)
-                if previous and previous != acct:
-                    project = accounts.memory_project_dir(previous, repo) if repo else None
-                    try:
-                        carried = accounts.migrate_memory(previous, acct, project=project)
-                        db.add_event(con, agent, "memory_migrated",
-                                     {"from": previous, "to": acct, "carried": carried})
-                    except Exception as e:  # noqa: BLE001 - record it, keep launching
-                        db.add_event(con, agent, "memory_migrated",
-                                     {"from": previous, "to": acct,
-                                      "error": f"{type(e).__name__}: {e}"})
                 db.set_account(con, agent, acct)
         finally:
             con.close()
