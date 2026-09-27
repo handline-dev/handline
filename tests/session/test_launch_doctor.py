@@ -1159,6 +1159,39 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
           {"PermissionRequest", "TeammateIdle"} <= evmod.CAPTURED)
 
 
+def test_doctor_catches_a_wanted_event_installed_before_it_existed(home: Path) -> None:
+    """T326: a live machine had PreToolUse in `wanted` (T247's memory guard) but
+    no entry of ours for it - `install()` only runs by hand, so an event added
+    to CAPTURED/ANSWERS/GUARDS after the last run sits uninstalled forever,
+    silently: the guard it was meant to wire up does nothing. Doctor's
+    `_check_ocp_hooks` is what is meant to catch that, read-only."""
+    use_home(home)
+    orcamod.live_terminals = lambda: None
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # PreToolUse only reached GUARDS with T247, after this machine's one and
+    # only `ocp install-hooks` - every other wanted event is installed, as it
+    # would be on a machine that has simply never been re-run since.
+    hooks.install("/x/ocp", evmod.CAPTURED | evmod.ANSWERS)
+    data = json.loads(target.read_text())
+    data.setdefault("hooks", {})["PreToolUse"] = [
+        {"hooks": [{"type": "command", "command": "orca-hook pre"}]}]
+    target.write_text(json.dumps(data))
+
+    r = doctor.run()
+    row = _doctor_row(r, "ocp's own hooks")
+    check("doctor: the one wanted event with no entry of ours is named, and only it",
+          row and row[0] == doctor.WARN and row[2].startswith("PreToolUse ")
+          and "ocp install-hooks" in row[2], row)
+
+    subprocess.run([str(ROOT / "bin" / "ocp"), "install-hooks"], capture_output=True, text=True,
+                   env=dict(os.environ, OCP_HOME=str(home), OCP_BIN="/x/ocp"))
+    r = doctor.run()
+    row = _doctor_row(r, "ocp's own hooks")
+    check("doctor: nothing is missing once install-hooks has run",
+          row and row[0] == doctor.OK, row)
+
+
 def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> None:
     """A fresh home needs both before an agent can run in a sandbox: ocp's state
     hooks, and write access to the whole home (SQLite makes its own files there,
@@ -1970,6 +2003,7 @@ def main() -> int:
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
+        run(lambda: test_doctor_catches_a_wanted_event_installed_before_it_existed(Path(td) / 'hookgap'))
         run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
         run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))
         run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
