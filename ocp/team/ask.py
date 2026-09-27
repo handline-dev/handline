@@ -492,12 +492,8 @@ def say(target: str, body: str, requester: str | None = None,
 
 
 def _close_replied_say(parent_id: int, reply_id: int, reply_body: str) -> None:
-    """T293/auditor #1742: a say answers the one it replies to - closed with
-    the reply as its verdict, silently (`notify=False`): the reply itself,
-    delivered as its own say, is what tells the requester, so closing it
-    again would say the same thing twice. Only its own target's own reply
-    closes it - naming a live say's id as --parent from anywhere else must
-    not let a third party close someone else's say."""
+    """Close the say this replies to, silently, only if the reply comes from
+    that say's own target."""
     con = db.connect()
     try:
         parent, reply = db.get_request(con, parent_id), db.get_request(con, reply_id)

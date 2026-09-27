@@ -100,17 +100,16 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
               not any(r["id"] == rid for r in db.timeboxed_open(con)))
         check("say: stuck() lists nothing for an answered say",
               not any(f"#{rid}" in r["what"] for r in actions.stuck(con)), actions.stuck(con))
+        row = db.get_request(con, rid)
+        check("say: --needs-task refuses one already closed by a --parent reply "
+              "(auditor #1760)", actions.needs_task_refusal(row, "worker") is not None)
     finally:
         orcamod.available = real_available
         con.close()
 
 
 def test_only_the_says_own_target_can_close_it_by_replying(home: Path) -> None:
-    """Code review finding: naming a live say's id as --parent from anywhere
-    else must not let a third party close someone else's say - only the
-    say's own target's own reply may (`_close_replied_say` checks the
-    reply's actual requester against the parent's target, not just its
-    kind and state)."""
+    """Only the say's own target's reply closes it - naming its id as --parent from anywhere else must not."""
     _say_world(home)
     hand_edit_team("""
 agents:
@@ -153,10 +152,7 @@ limits:
 
 
 def test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(home: Path) -> None:
-    """Code review finding (auditor #1742 must-change 2): what actually gets
-    typed at the receiver's terminal (`tell_text`/`_answer_verb`) was never
-    taught kind='say' - a say was typed as "answer with `ocp resolve`", not
-    #1657's own way out."""
+    """What is typed at the receiver's terminal for a say is its own delivery line, not `ocp resolve`."""
     _say_world(home)
     ok, msg, rid = askmod.say("worker", "is the deploy done?", requester="manager")
     check("say: opens", ok, msg)
@@ -172,10 +168,7 @@ def test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(home: Path) -> No
 
 
 def test_inbox_unread_only_falls_back_to_a_marked_say_with_no_head(home: Path) -> None:
-    """Code review finding: `askmod.inbox(agent, unread_only=True)` read only
-    `head_of_queue`, so a say with nothing else queued for its target - the
-    exact case `head_of_queue` now excludes - read as an empty inbox, against
-    its own docstring ("the one request currently waiting for `agent`")."""
+    """`inbox(unread_only=True)` still finds a say with nothing else queued for its target."""
     _say_world(home)
     check("inbox: empty before anything is sent", askmod.inbox("worker") == [])
     ok, msg, rid = askmod.say("worker", "quick one", requester="manager")
@@ -222,8 +215,13 @@ def test_say_delivery_line_and_needs_task(home: Path) -> None:
               flag["target"] == "manager", flag["target"])
         check("say --needs-task: it carries a ready `task new` command",
               "task new --owner worker" in flag["body"], flag["body"])
+        check("say --needs-task: it closes the say it flags too (auditor #1760)",
+              db.get_request(con, rid)["state"] == "done")
     finally:
         con.close()
+    rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="worker")
+    check("say --needs-task: refused a second time - already answered",
+          rc == 1 and "already answered" in out, out)
 
     ok, msg, real_task_rid = askmod.ask("worker", "not a say", requester="manager")
     con = db.connect()
@@ -239,11 +237,7 @@ def test_say_delivery_line_and_needs_task(home: Path) -> None:
 
 
 def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
-    """Code review finding: `head_of_queue` skipping kind='say' rows made a
-    say-only queue invisible to `deliver_queued`, `waiting_prompt` and
-    `lifecycle.waiting_for` alike, since all three read a bare `head_of_queue`
-    result and gave up the moment it came back None - the opposite of a say's
-    own promise to always be delivered."""
+    """A say-only queue (no ordinary head) still reaches deliver_queued, waiting_prompt and waiting_for."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[tuple[str, str]] = []
@@ -283,9 +277,7 @@ def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
 
 
 def test_say_to_the_founder_is_not_refused_for_a_timebox_it_never_asked_for(home: Path) -> None:
-    """Code review finding: `say` always passed its own fixed timebox into
-    `ask`, which refuses any timebox to the founder outright - so every say
-    addressed to human failed, blaming a flag the caller never passed."""
+    """A say to the founder carries no timebox at all, so `ask`'s own refusal never fires."""
     _say_world(home)
     hand_edit_team("""
 agents:
@@ -312,9 +304,7 @@ limits:
 
 
 def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path) -> None:
-    """Code review finding: `stuck()`'s per-row diagnostic named the head a
-    send_now row was "waiting behind", the opposite of true - `queue_reason`
-    (same file) already checks `send_now` first; `stuck()` did not."""
+    """`stuck()` never calls a send_now row "waiting behind" the head."""
     con = _blocked_world(home)
     real_typeable = orcamod.typeable_now
     try:
@@ -336,10 +326,7 @@ def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path)
 
 
 def test_needs_task_command_quotes_a_title_with_its_own_quote(home: Path) -> None:
-    """Code review finding: the ready-made `task new` command was built with
-    a bare `'...'` wrap, so a title with its own apostrophe produced an
-    unbalanced-quote command - exactly the text the receiver is meant to
-    copy-paste verbatim."""
+    """A title with its own apostrophe still quotes as one well-formed shell word."""
     command = actions.needs_task_command("worker", "check the worker's flaky test")
     check("needs_task_command: the apostrophe is escaped, not left to break the quoting",
           command == "ocp task new --owner worker "
@@ -368,9 +355,7 @@ def test_is_lookup_bash_matches_the_allowlist_by_prefix(home: Path) -> None:
 
 
 def test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(home: Path) -> None:
-    """Code review finding (auditor #1742): matching by prefix alone let a
-    pipe, redirect or chain turn a listed look-up into a write - refused
-    outright now, whatever command it names."""
+    """A pipe, redirect or chain is refused outright, whatever command it names."""
     for cmd in ("cat > x", "git log | sh", "head -1 a && make", "ls; rm -rf /",
                "cat foo `whoami`", "git log $(echo x)", "cat foo\nrm bar"):
         check(f"is_lookup_bash: {cmd!r} is refused for its shell operator, not "
