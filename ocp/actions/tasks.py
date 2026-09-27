@@ -620,10 +620,12 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
     - "the sha moved", "use branch Y" - not new work (that's `task new
     --parent`). Only the task's opener or the founder may send one.
 
-    Delivered into each target's own head thread (`--parent` the target's
-    `head_of_queue`), so it reaches them ahead of the work it corrects
-    rather than queuing behind it - until T293's `say` gives notes their
-    own non-blocking path, this still owes a reply like any other ask.
+    Delivered as a reply in this task's own open request to each target
+    (`--parent` that request, not whatever else the target's queue holds) -
+    it reaches them ahead of the queue exactly when that request is their
+    current head, and behind it, in its own thread, when it is not - until
+    T293's `say` gives notes their own non-blocking path, this still owes a
+    reply like any other ask.
     """
     row = db.get_task(con, tid)
     if row is None:
@@ -639,12 +641,12 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
     said = textsafe.oneline(text).strip()
     if not said:
         return False, "a note needs text"
-    targets = {r["target"] for r in db.task_requests(con, tid) if _asks(r)} or {row["owner"]}
+    own = {r["target"]: r for r in db.task_requests(con, tid) if _asks(r)}
+    targets = set(own) or {row["owner"]}
     sent = []
     for target in sorted(targets):
-        head = db.head_of_queue(con, target)
         ok, msg, rid = askmod.ask(target, f"T{tid} note: {said}", requester=me, kind="task_note",
-                                  parent_id=head["id"] if head else None)
+                                  parent_id=own[target]["id"] if target in own else None)
         sent.append(f"{target}: #{rid}" if ok else f"{target}: {msg}")
     db.add_event(con, me, "task_note", {"task_id": tid, "text": said})
     return True, f"note sent on T{tid} - " + "; ".join(sent)

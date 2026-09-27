@@ -3808,8 +3808,37 @@ limits:
     try:
         check("task new: but does not steal the owner's current task from the first",
               db.current_task(con, "worker") == tid)
+        req1 = [r for r in db.task_requests(con, tid) if r["target"] == "worker"][0]
+        req2 = [r for r in db.task_requests(con, tid2) if r["target"] == "worker"][0]
+        check("setup: T1's own request is still worker's head - T2's own request is not",
+              db.head_of_queue(con, "worker")["id"] == req1["id"] != req2["id"])
     finally:
         con.close()
+
+    rc, out = _cli(["task", "note", f"T{tid}", "worker: refused"], as_agent="worker")
+    check("task note: refused for anyone but the opener or the founder",
+          rc == 1, out)
+    rc, out = _cli(["task", "note", f"T{tid}", "the sha moved"], as_agent="manager")
+    check("task note: the opener may send one, delivered to the holder",
+          rc == 0 and "worker" in out, out)
+    note1_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
+    check("task note: a note on a task whose own request is not the holder's head "
+          "still delivers", rc == 0 and "worker" in out, out)
+    note2_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    con = db.connect()
+    try:
+        check("task note: T1's note is a follow-up in T1's own request's thread - "
+              "the holder's head, since T1 is what worker holds first (auditor #1718)",
+              any(r["id"] == note1_rid for r in db.followups_pending(con, "worker", req1["id"])))
+        check("task note: T2's note threads under T2's own request, not T1's head, "
+              "even though T2's request is not currently the head (auditor #1718)",
+              any(r["id"] == note2_rid for r in db.followups_pending(con, "worker", req2["id"]))
+              and not any(r["id"] == note2_rid
+                         for r in db.followups_pending(con, "worker", req1["id"])))
+    finally:
+        con.close()
+
     rc, out = _cli(["task", "start", f"T{tid2}"], as_agent="worker")
     check("task start: the owner may pick it up as current explicitly (bullet 3)",
           rc == 0, out)
@@ -3831,28 +3860,6 @@ limits:
     try:
         check("task done: the first task's current-task link cleared on done",
               db.current_task(con, "worker") != tid)
-    finally:
-        con.close()
-
-    rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="worker")
-    check("task note: refused for anyone but the opener or the founder",
-          rc == 1, out)
-    con = db.connect()
-    try:
-        head = db.head_of_queue(con, "worker")
-    finally:
-        con.close()
-    rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
-    check("task note: the opener may send one, delivered to the holder",
-          rc == 0 and "worker" in out, out)
-    note_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
-    con = db.connect()
-    try:
-        pending = db.followups_pending(con, "worker", head["id"])
-        check("task note: reaches the holder ahead of the work it corrects, "
-              "not behind it (1a) - in the head request's own thread",
-              any(r["id"] == note_rid for r in pending),
-              [dict(r) for r in pending])
     finally:
         con.close()
 
