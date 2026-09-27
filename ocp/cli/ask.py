@@ -113,11 +113,15 @@ def cmd_ask(args) -> int:
     if args.task is not None:
         con = db.connect()
         try:
-            missing = db.get_task(con, args.task) is None
+            row = db.get_task(con, args.task)
+            state = actions.task_state(con, row) if row else ""
         finally:
             con.close()
-        if missing:
+        if row is None:
             print(f"no task T{args.task}")
+            return 1
+        if state in ("done", "closed", "discarded", "merged"):
+            print(f"task T{args.task} is {state}: a request linked to it would not reopen it")
             return 1
     ok, msg, rid = askmod.ask(args.target, body, files=args.files,
                               requester=args.of, parent_id=args.parent,

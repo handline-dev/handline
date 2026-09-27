@@ -5785,7 +5785,7 @@ def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: P
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
-    `task board` mark a state that disagrees with the requests."""
+    `task board` mark a draft with a request out and a queued task with none."""
     _board_world(home)
     con = db.connect()
     try:
@@ -5807,6 +5807,16 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     check("ask: --task with --no-task is refused", rc == 1 and "contradict" in out, out)
     rc, out = _cli(["ask", "worker", "do it", "--task", "T999"])
     check("ask: --task for a task that does not exist is refused", rc == 1 and "no task T999" in out, out)
+    con = db.connect()
+    try:
+        ended = db.new_task(con, "ended", "worker", "manager")
+        db.discard_task(con, ended, "manager", "not needed")
+    finally:
+        con.close()
+    rc, out = _cli(["ask", "worker", "do it", "--task", f"T{ended}"])
+    check("ask: --task for an ended task is refused and sends nothing",
+          rc == 1 and "discarded" in out
+          and _cli(["inbox"], as_agent="worker")[1].count("do it") == 0, out)
 
     rc, out = _cli(["ask", "worker", f"only mentions T{u} in passing", "--no-task", "context only"])
     check("ask: --no-task with a reason gets past the guard", rc == 0, out)
@@ -5828,8 +5838,8 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     check("list: a draft with a request out is marked", "! never approved" in out, out)
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("board: and so is it there", "! never approved" in out, out)
-    check("list: the unlinked request that names T%d is marked" % u,
-          f"names it but is not linked: ocp task link T{u}" in _cli(["task", "list"])[1])
+    check("list: a --no-task request is not flagged as an unlinked one",
+          "not linked" not in _cli(["task", "list"])[1])
 
     con = db.connect()
     try:
