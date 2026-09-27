@@ -524,12 +524,36 @@ def _task_edit_guard(row, tid: int, by: str) -> str | None:
     return None
 
 
+def _link_delivery(con, tid: int, owner: str, rid: int) -> None:
+    """Link a task to the request that delivers it, and make it the owner's
+    current task if it holds none yet - shared by `task_new`'s immediate
+    delivery and `set_queued`'s delivery of an approved draft (T325), so
+    approving a task is the same act as opening one, not a second message
+    someone has to remember to send."""
+    db.link_request(con, tid, rid)
+    if owner != HUMAN and db.current_task(con, owner) is None:
+        db.set_current_task(con, owner, tid)
+
+
 def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
     """Approve a draft task to run (`queued`), or send a queued one back to
     draft (T82). The founder or the manager of the task's owner - not its
     opener, so an agent cannot approve its own work; refused for a task that
     is done or ended, or that already has a request out (that is doing, and
-    is not taken back by a word)."""
+    is not taken back by a word).
+
+    T325 (founder #1907): queuing no longer leaves the owner with nothing
+    out ('approved, but no request is out') - it hands the task to
+    `advance_current_task` (T318's picker, shared with `task_new`'s own
+    delivery through `_next_waiting_task` and `_link_delivery`), which
+    delivers it now if the owner is free, or leaves it queued for its turn
+    if not - so queuing several tasks in a row is exactly the "assign and
+    queue, they arrive in order" the founder asked for, with no ask and no
+    second picker built here. The delivery's requester is whoever approved
+    it (recorded as `queued_by`), never the opener - a finding's usual
+    shape has the opener and the owner as the same agent, which `ask`
+    would refuse as asking itself.
+    """
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -550,7 +574,19 @@ def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
     if not db.set_task_queued(con, tid, by if queued else None):
         return False, f"task T{tid} changed under this call - read it again"
     db.add_event(con, by, "queue_task" if queued else "draft_task", {"task_id": tid})
-    return True, f"task T{tid} is {want} ({by})"
+    if queued:
+        # advance_current_task's own True/False says whether the owner's
+        # current task moved on at all, not whether it landed on `tid` -
+        # a busy owner moves on to nothing, and an owner with no other work
+        # can move on by clearing its current task to None just as well as
+        # by delivering `tid`. `task_state` says which actually happened.
+        changed = advance_current_task(con, row["owner"])
+        if changed:
+            askmod.push(con, row["owner"])
+        if task_state(con, db.get_task(con, tid)) == "doing":
+            return True, (f"task T{tid} is queued ({by}) - "
+                          f"{row['owner']} was free, so it went out now")
+    return True, f"task T{tid} is {'queued' if queued else 'draft'} ({by})"
 
 
 EXPECTS = ("sha", "verdict", "decision", "report")
@@ -580,9 +616,13 @@ def _current_task_still_asking(con, agent: str) -> bool:
 
 
 def _next_waiting_task(con, agent: str):
-    """(task row, its own queued request) for the next of `agent`'s open
-    tasks to become current, by priority then age, skipping any waiting on
-    an open blocker or with nothing of its own left to deliver."""
+    """(task row, its own queued request or None) for the next of `agent`'s
+    open tasks to become current, by priority then age, skipping any waiting
+    on an open blocker, still a draft, or with nothing of its own left to
+    deliver. A `queued` task with no request out yet (T325: approving no
+    longer delivers by itself) is still a candidate - `None` in its place
+    is `advance_current_task`'s cue to deliver it there and then, the same
+    way `task_new` would, just later, when its turn actually comes."""
     for row in db.open_tasks(con):
         if row["owner"] != agent or row["done_evidence"]:
             continue
@@ -591,23 +631,72 @@ def _next_waiting_task(con, agent: str):
         req = next((r for r in db.task_requests(con, row["id"]) if _asks(r)), None)
         if req is not None:
             return row, req
+        if row["queued_by"] is not None:
+            return row, None
     return None
 
 
 def advance_current_task(con, agent: str) -> bool:
-    """T318: moves `agent` on to its next open task, by priority then age,
-    once the current one stops being worth holding. True if anything
+    """T318/T325: moves `agent` on to its next open task, by priority then
+    age, once the current one stops being worth holding. True if anything
     changed - the caller's cue to push a delivery now. The founder (C3)
     holds no current-task row at all, so this is always a no-op for it.
-    """
+
+    The task `_next_waiting_task` hands back may have nothing out yet (a
+    queued task `task new` never had to be called on) - delivered here,
+    through the same `askmod.ask` `task_new` and the old `set_queued` used,
+    rather than a second picker built beside T318's. A routing refusal
+    there (the owner or the edge changed since it was opened) leaves the
+    task queued rather than crashing the caller; the next advance tries
+    again."""
     if agent == HUMAN or _current_task_still_asking(con, agent):
         return False
     nxt = _next_waiting_task(con, agent)
     before = db.current_task(con, agent)
-    db.set_current_task(con, agent, nxt[0]["id"] if nxt else None)
     if nxt is None:
+        # T325: a current task that is merely blocked, and not yet done, is
+        # not "not worth holding" - `_next_waiting_task` left it out of its
+        # own candidates for that reason, not because it is finished.
+        # Clearing it here would drop the assignment itself over a wait that
+        # is about to end; leave it current and try again once something
+        # (the blocker closing, `task edit --unblock`) advances. A done task
+        # can carry a stale blocker too (`mark_task_done` never checks one -
+        # only `close_task` does), and that one really is finished: holding
+        # it would freeze the owner behind its own already-done work until
+        # someone closes it, which itself needs the blocker gone first.
+        before_row = db.get_task(con, before) if before is not None else None
+        if before_row is not None and not before_row["done_evidence"] \
+                and db.task_blockers(con, before):
+            return False
+        db.set_current_task(con, agent, None)
         return before is not None
-    db.promote_to_front(con, nxt[1]["id"])
+    row, req = nxt
+    if req is None:
+        # `agent` is never HUMAN here (the guard above already returned) -
+        # a task owned by the founder holds no current-task row to advance.
+        # The requester is whoever approved it (`queued_by`), not whoever
+        # opened it: a self-owned draft (the common finding shape - T325's
+        # own #1907 case) has opened_by == owner, which `ask` refuses as
+        # asking yourself. `set_queued` already checked queuing is never the
+        # owner's own to do, so `queued_by` is always someone else.
+        #
+        # `on_behalf_of`: this call can run long after `queued_by` approved
+        # it, from inside whatever agent's own session happens to finish
+        # something and trigger this advance - never `queued_by`'s own live
+        # session, so the ordinary human-impersonation guard would refuse a
+        # founder-approved delivery the moment anyone else's turn came up.
+        # `park=False`: `queued_by` is not sitting on a reply to this - it
+        # approved a task and moved on, so this must not plant a stale
+        # PARKED state on it for a wait it is not actually in.
+        ok, _msg, rid = askmod.ask(agent, row["title"], requester=row["queued_by"], kind="task",
+                                   on_behalf_of=True, park=False)
+        if not ok:
+            return False
+        _link_delivery(con, row["id"], agent, rid)
+        db.set_current_task(con, agent, row["id"])
+        return True
+    db.set_current_task(con, agent, row["id"])
+    db.promote_to_front(con, req["id"])
     return True
 
 
@@ -650,9 +739,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     con = db.connect()
     try:
         tid = db.new_task(con, title, owner, me, parent, priority, expects=expects)
-        db.link_request(con, tid, rid)
-        if owner != HUMAN and db.current_task(con, owner) is None:
-            db.set_current_task(con, owner, tid)
+        _link_delivery(con, tid, owner, rid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
                                            "expects": expects})
     finally:

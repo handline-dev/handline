@@ -245,7 +245,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         replaces: int | None = None, fyi: bool = False,
         reason: str | None = None,
         timebox_s: int | None = None, kind: str | None = None,
-        park: bool = True, send_now: bool = False) -> tuple[bool, str, int | None]:
+        park: bool = True, send_now: bool = False,
+        on_behalf_of: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -261,6 +262,16 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `send_now` marks the new row (`db.mark_send_now`) on this same
     connection - `say` needs that mark, and a second connection for it could
     leave it unmarked, and unreachable, if one crashed between the two.
+
+    `on_behalf_of` skips the human-impersonation guard below for a
+    `requester` this call already knows is genuine, read from our own
+    database rather than claimed by whoever's session is running right now
+    (T325's `advance_current_task`: `queued_by` was checked as the founder
+    or the owner's actual manager back when the task was approved, and the
+    delivery this triggers can run far later, from a different agent's own
+    session finishing unrelated work - not a live claim to spoof anything).
+    Callers outside that kind of system-triggered, already-authorized
+    delivery must never pass it.
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):
@@ -274,7 +285,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     # hold both: one spoofed hop turns a refused A->B->A into a legal loop.
     # `ocp launch` sets OCP_AGENT, so a caller that has one is not the human.
     speaker = current_agent()
-    if requester == HUMAN and speaker not in (None, HUMAN):
+    if requester == HUMAN and speaker not in (None, HUMAN) and not on_behalf_of:
         return False, (f"{speaker} may not ask as {HUMAN}: that name is the human's, "
                        f"and it is exempt from the loop guards."), None
     if not requester:
