@@ -338,6 +338,25 @@ def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
     return added, pruned
 
 
+def missing(wanted: set[str]) -> set[str]:
+    """Which of `wanted` have no entry of ours in the shared settings -
+    read-only, using the same recognition `install()` writes with
+    (`_is_our_hook`)."""
+    data = _read_json(target_settings())
+    have = set()
+    for event, groups in data.get("hooks", {}).items():
+        if event not in wanted or not isinstance(groups, list):
+            continue
+        for g in groups:
+            if not isinstance(g, dict):
+                continue
+            if any(isinstance(h, dict) and _is_our_hook(h.get("command"), event)
+                   for h in g.get("hooks", [])):
+                have.add(event)
+                break
+    return wanted - have
+
+
 def shared_problems() -> list[tuple[str, str]]:
     """(what, detail) for each way the shared settings would break a session."""
     s = target_settings()
@@ -365,6 +384,7 @@ class ClaudeHooks:
     sync = staticmethod(sync)
     watch = staticmethod(watch)
     install = staticmethod(install)
+    missing = staticmethod(missing)
     allow_home_writes = staticmethod(allow_home_writes)
     ensure_shared = staticmethod(ensure_shared)
     shared_problems = staticmethod(shared_problems)

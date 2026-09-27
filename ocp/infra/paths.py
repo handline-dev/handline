@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import pwd
+import shutil
 from pathlib import Path
 
 # Set by tests/support.py to a temp directory that stands in for the user's
@@ -95,6 +96,11 @@ def agent_dir(name: str) -> Path:
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
+
+
+def ocp_exe() -> str:
+    """The command a hook or launch line should call `ocp` with."""
+    return os.environ.get("OCP_BIN") or shutil.which("ocp") or str(repo_root() / "bin" / "ocp")
 
 
 def list_accounts() -> list[str]:

@@ -118,6 +118,9 @@ class StateHooks(Protocol):
         """Put `exe hook <event>` for each of `wanted` in the shared file, once
         each: (events added, duplicate entries removed)."""
 
+    def missing(self, wanted: set[str]) -> set[str]:
+        """Which of `wanted` have no entry of ours in the shared file, read-only."""
+
     def allow_home_writes(self) -> tuple[bool, list[str]]:
         """Let a sandboxed agent write under OCP_HOME: (changed, blockers)."""
 

@@ -1,8 +1,6 @@
 """Claude Code hooks: hooks sync/status, `ocp hook`, install-hooks."""
 from __future__ import annotations
 
-import os
-import shutil
 import subprocess
 import sys
 
@@ -79,7 +77,7 @@ def cmd_hook(args) -> int:
 
 def cmd_hook_install(args) -> int:
     """Add our event hooks to shared settings, next to Orca's mirrored ones."""
-    exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
+    exe = paths.ocp_exe()
     added, pruned = [], 0
     for h in vendors.state_hooks():
         a, p = h.install(exe, events.CAPTURED | events.ANSWERS | events.GUARDS)
