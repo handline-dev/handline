@@ -5965,6 +5965,17 @@ limits:
     finally:
         con.close()
 
+    con = db.connect()
+    try:
+        mine = db.new_task(con, "report only", "manager", "manager")
+        db.link_request(con, mine, db.add_request(con, "manager", "human", "T%d is merged" % mine, None,
+                                                  "supervisor", "fire_and_forget", None, 0, None, fyi=True))
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="manager")
+    section = out.split(f"T{mine} ", 1)[1].split("\n", 2)[1] if f"T{mine} " in out else out
+    check("board: a linked --fyi is not the task being held by its target",
+          "now: nobody holds it" in section and "human" not in section, out)
     rc, out = _cli(["ask", "worker", f"more on T{done}", "--task", f"T{done}"], as_agent="manager")
     check("ended: a real ask to a done task is refused, saying to reopen it first",
           rc == 1 and "reopen" in out and f"T{done}" in out, out)
