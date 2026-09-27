@@ -54,7 +54,7 @@ def test_the_trusted_environment_names_the_worktree_its_repo_and_its_github_remo
     check("trusted: the worktree, and what is routine in it",
           str(wt) in text and "sed -i" in text, text)
     check("trusted: its repository and the siblings' folder",
-          f"repository is {repo.resolve()}" in text.replace("/private", "") or str(repo) in text, text)
+          f"repository is {repo.resolve()}," in text and f"under {wt.parent}" in text, text)
     check("trusted: the GitHub remotes, both spellings, once each, and nothing else",
           "github.com/acme/widgets" in text and "github.com/acme/tools" in text
           and "example.com" not in text and text.count("acme/widgets") == 1, text)
@@ -74,20 +74,19 @@ def test_a_launch_starts_in_auto_mode_unless_the_agent_skips_permissions(home: P
     flag = ["--permission-mode", "auto"]
     def has(argv):  # the pair, in order
         return any(argv[i:i + 2] == flag for i in range(len(argv)))
-    try:
-        argv = launchmod.build("backend")[0]
-        check("launch: --permission-mode auto is in the argv", has(argv), str(argv))
-        got = _settings(argv)
-        check("launch: autoMode.environment is in --settings, defaults first",
-              len(got) == 1 and got[0]["autoMode"]["environment"][0] == "$defaults"
-              and len(got[0]["autoMode"]["environment"]) > 1, str(got))
-        check("launch: once, even when the caller passed it too",
-              launchmod.build("backend", ["--permission-mode"])[0].count("--permission-mode") == 1)
-        agents.register("backend", skip_permissions=True)
-        check("launch: a granted skip-permissions agent does not also ask for auto",
-              not has(launchmod.build("backend")[0]))
-    finally:
-        pass
+    argv = launchmod.build("backend")[0]
+    check("launch: --permission-mode auto is in the argv", has(argv), str(argv))
+    got = _settings(argv)
+    check("launch: autoMode.environment is in --settings, defaults first",
+          len(got) == 1 and got[0]["autoMode"]["environment"][0] == "$defaults"
+          and len(got[0]["autoMode"]["environment"]) > 1, str(got))
+    for spelling in (["--permission-mode", "plan"], ["--permission-mode=plan"]):
+        argv = launchmod.build("backend", spelling)[0]
+        check(f"launch: a caller's {spelling} is the only mode, no stray 'auto' beside it",
+              "auto" not in argv and not has(argv) and argv[-len(spelling):] == spelling, str(argv))
+    agents.register("backend", skip_permissions=True)
+    check("launch: a granted skip-permissions agent does not also ask for auto",
+          not has(launchmod.build("backend")[0]))
 
 
 def main() -> int:

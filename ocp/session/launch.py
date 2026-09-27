@@ -413,7 +413,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
                            memory_dir=memory_dir, trusted=trusted_environment(Path.cwd()))
     if not (agents.skip_permissions(cfg) and agents.skip_permissions_granted(agent)):
-        argv += [f for f in drv.auto_mode_argv() if f not in (extra or [])]
+        mode = drv.auto_mode_argv()
+        # The pair goes whole or not at all: a caller's own mode wins, and a
+        # lone value left behind would be read as the opening prompt.
+        if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):
+            argv += mode
     if agents.skip_permissions(cfg) and not agents.skip_permissions_granted(agent):
         print(f"warning: agent '{agent}' has skip_permissions in its agent.yaml, but the "
               f"founder never turned it on (`ocp agent register {agent} --skip-permissions on`, "
