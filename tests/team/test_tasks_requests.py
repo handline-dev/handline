@@ -3911,6 +3911,87 @@ limits:
         con.close()
 
 
+def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) -> None:
+    """T318 (founder #1663, #1807): once the current task ends, the next of
+    the owner's own open tasks - by priority then age, skipping one waiting
+    on an open blocker - becomes current and its own request jumps to the
+    front of the queue, through either path: `task done` (which retires its
+    own leftover linked request itself - `_retire_task_requests`) or the
+    owner resolving that request directly, `task done` never called at all
+    (`ask._after_close`). One shared function, `advance_current_task`, either
+    way."""
+    _board_world(home)
+
+    def _new(title: str, priority: str | None = None, blocked_by: int | None = None) -> int:
+        argv = ["task", "new", "--owner", "worker", title]
+        if priority is not None:
+            argv += ["--priority", priority]
+        if blocked_by is not None:
+            argv += ["--blocked-by", f"T{blocked_by}"]
+        rc, out = _cli(argv)
+        check(f"setup: {title!r} opens", rc == 0, out)
+        return int(out.split("task T", 1)[1].split()[0])
+
+    def _own_request_id(con, tid: int) -> int:
+        return [r for r in db.task_requests(con, tid) if r["target"] == "worker"][0]["id"]
+
+    # Path B: `task done`, the owner's own linked request never resolved by
+    # hand - the older, lower-priority task would win a plain FIFO race.
+    t1 = _new("first")
+    t_low = _new("low priority, older", priority="P3")
+    t_high = _new("high priority, younger", priority="P1")
+    con = db.connect()
+    try:
+        rid1, rid_high = _own_request_id(con, t1), _own_request_id(con, t_high)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "done", f"T{t1}", "done without ever resolving the delivery"],
+                    as_agent="worker")
+    check("task done: succeeds", rc == 0, out)
+    con = db.connect()
+    try:
+        check("T318: t1's own linked request is retired, not left stuck at the head",
+              db.get_request(con, rid1)["state"] == "done", dict(db.get_request(con, rid1)))
+        check("T318: the higher-priority, younger task becomes current - not the older one",
+              db.current_task(con, "worker") == t_high, db.current_task(con, "worker"))
+        check("T318: and its own request jumps to the front of the queue",
+              db.head_of_queue(con, "worker")["id"] == rid_high)
+    finally:
+        con.close()
+
+    # A blocked task is skipped even though its priority would otherwise win.
+    t_blocked = _new("blocked, would win on priority", priority="P1", blocked_by=t_low)
+    rc, out = _cli(["task", "done", f"T{t_high}", "reason"], as_agent="worker")
+    check("task done: the second one closes the same way", rc == 0, out)
+    con = db.connect()
+    try:
+        check("T318: the blocked task is skipped even though its priority would win",
+              db.current_task(con, "worker") == t_low, db.current_task(con, "worker"))
+    finally:
+        con.close()
+
+    # Path A: the owner resolves the request directly - `task done` never
+    # runs for t_low at all - and the same promotion still happens.
+    t_next = _new("next, also P1")
+    con = db.connect()
+    try:
+        rid_low = _own_request_id(con, t_low)
+    finally:
+        con.close()
+    ok, msg = askmod.resolve(rid_low, "answered directly, task done never ran")
+    check("resolve: succeeds", ok, msg)
+    con = db.connect()
+    try:
+        check("T318 path A: resolving the linked request directly also advances "
+              "to the next waiting task", db.current_task(con, "worker") == t_next,
+              db.current_task(con, "worker"))
+        check("T318: t_blocked stays skipped - its own blocker task was never closed, "
+              "only its request answered", db.task_blockers(con, t_blocked) != [])
+    finally:
+        con.close()
+
+
 def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home: Path) -> None:
     """#1880/#19: change a task's owner and/or title, only for the opener or
     the founder, and always stamped with who and when (the same evidence
@@ -6402,6 +6483,8 @@ def main() -> int:
         run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
+            Path(td) / 'nexttask'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))

@@ -153,6 +153,22 @@ def clear_edge(con, rid: int) -> None:
     con.execute("UPDATE requests SET edge_ok = 1 WHERE id = ?", (rid,))
 
 
+def promote_to_front(con, rid: int) -> None:
+    """Move a still-queued request ahead of everything else queued for its
+    own target (T318): the next task the daemon picks by priority then age
+    jumps ahead of whatever arrived first, rather than waiting its turn in
+    plain arrival order."""
+    row = con.execute("SELECT target FROM requests WHERE id = ? AND state = 'queued'",
+                      (rid,)).fetchone()
+    if row is None:
+        return
+    floor = con.execute(
+        "SELECT MIN(queue_order) FROM requests WHERE target = ? AND state = 'queued'",
+        (row["target"],)).fetchone()[0]
+    order = float(floor) - 1 if floor is not None else rid
+    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (order, rid))
+
+
 def queue_depth(con, target: str) -> int:
     return len(queued_for(con, target))
 

@@ -307,8 +307,10 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
                        "another way")
     if not db.mark_task_done(con, tid, mark, via):
         return False, f"task T{tid} was marked done by someone else just now"
-    _clear_current_task_if(con, row["owner"], tid)
     db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark})
+    _retire_task_requests(con, tid, f"task T{tid} done ({mark})")
+    if advance_current_task(con, row["owner"]):
+        askmod.push(con, row["owner"])
     return True, f"task T{tid} done ({mark})"
 
 
@@ -365,6 +367,9 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     except Exception:
         con.execute("ROLLBACK")
         raise
+    _retire_task_requests(con, tid, f"task T{tid} closed by {by}")
+    if advance_current_task(con, row["owner"]):
+        askmod.push(con, row["owner"])
     for rid, owner, text in notices:
         askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
                        team.Decision(True, "task unblocked", kind="report",
@@ -418,10 +423,6 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         if not db.discard_task(con, tid, by, said):
             con.execute("ROLLBACK")
             return False, f"task T{tid} was done or closed by someone else just now"
-        # T292: `live` only guarantees nothing is queued *now* - a request
-        # retired some other way (a founder `cancel`) can still leave this
-        # task as the owner's stale current task.
-        _clear_current_task_if(con, row["owner"], tid)
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
@@ -430,6 +431,14 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     except Exception:
         con.execute("ROLLBACK")
         raise
+    # T292: `live` only guaranteed nothing was asking *then* - a request
+    # retired some other way (a founder `cancel`) already moved the owner on
+    # (advance_current_task, reached through that path's own `_after_close`)
+    # by the time this runs, but a lingering fyi report never would; retire
+    # it too (T318), then a direct call in case nothing was left to retire.
+    _retire_task_requests(con, tid, f"task T{tid} discarded by {by}: {said}", state="rejected")
+    if advance_current_task(con, row["owner"]):
+        askmod.push(con, row["owner"])
     for rid, owner, text in notices:
         askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
                        team.Decision(True, "task unblocked", kind="report",
@@ -561,13 +570,77 @@ def parse_expects(text) -> str:
     return t
 
 
-def _clear_current_task_if(con, agent: str, tid: int) -> None:
-    """Clear `agent`'s current task (T292) if it is still this one - `task
-    done` and `discard_task` both end here (T286's `release_task`, parked
-    for now, will too once it lands), and leaving it set past any of them
-    would read as `agent` still holding work that has, in fact, ended."""
-    if db.current_task(con, agent) == tid:
-        db.set_current_task(con, agent, None)
+def _current_task_still_asking(con, agent: str) -> bool:
+    """Does `agent`'s current task (T292) still have a request of its own
+    (not a child's) that is queued and not a mere fyi report - the one
+    concrete thing left to deliver? False with no current task, one already
+    ended (closed_by/done_evidence), or nothing of its own still asking."""
+    tid = db.current_task(con, agent)
+    if tid is None:
+        return False
+    row = db.get_task(con, tid)
+    if row is None or row["closed_by"] or row["done_evidence"]:
+        return False
+    return any(_asks(r) for r in db.task_requests(con, tid))
+
+
+def _next_waiting_task(con, agent: str):
+    """(task row, its own queued request) for the next of `agent`'s open
+    tasks to become current (T318): by priority then age (`db.open_tasks`'s
+    own order), skipping one waiting on an open blocker, and only among
+    tasks with a request of their own still queued - a task 'doing' only
+    because a child's request is open has nothing here to deliver yet. None
+    with nothing eligible."""
+    for row in db.open_tasks(con):
+        if row["owner"] != agent or row["done_evidence"]:
+            continue
+        if db.task_blockers(con, row["id"]):
+            continue
+        req = next((r for r in db.task_requests(con, row["id"]) if _asks(r)), None)
+        if req is not None:
+            return row, req
+    return None
+
+
+def advance_current_task(con, agent: str) -> bool:
+    """T318: called wherever `agent`'s current task might have just stopped
+    being one worth holding - `ocp resolve`/`cancel` on its own linked
+    request (`ask._after_close`, unchanged for a plain, task-less request:
+    this only ever moves `current_task`, never touches the plain FIFO), or
+    `task done`/`close`/`discard` (which route their own leftover linked
+    requests through `resolve` too, landing here the same way - see
+    `_retire_task_requests`).
+
+    A no-op while the current task still has a request of its own asking.
+    Otherwise: the next of the agent's own open tasks by priority then age,
+    skipping one waiting on an open blocker, becomes current, and its own
+    request jumps to the front of the queue so the ordinary head-of-queue
+    delivery that follows reaches it, not whatever arrived first. True if
+    anything changed - the caller's cue to push a delivery now rather than
+    wait for the next tick.
+    """
+    if _current_task_still_asking(con, agent):
+        return False
+    nxt = _next_waiting_task(con, agent)
+    before = db.current_task(con, agent)
+    db.set_current_task(con, agent, nxt[0]["id"] if nxt else None)
+    if nxt is None:
+        return before is not None
+    db.promote_to_front(con, nxt[1]["id"])
+    return True
+
+
+def _retire_task_requests(con, tid: int, verdict: str, state: str = "done") -> None:
+    """T318: a task ending through `done`/`close`/`discard` rather than by
+    its own request being resolved directly can still leave that request
+    queued - stuck at the head of whoever it was delivered to, with nothing
+    ever advancing past it. Retire every one of `tid`'s own linked requests
+    still open, through the ordinary `resolve` path: the requester is told
+    exactly as if the holder had answered it themselves, and `resolve`'s own
+    `_after_close` is what actually moves the holder on (`advance_current_task`)."""
+    for r in db.task_requests(con, tid):
+        if r["state"] == "queued":
+            askmod.resolve(r["id"], verdict, state=state)
 
 
 def task_new(me: str, owner: str, title: str, body: str | None = None,
