@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import time
 from pathlib import Path
@@ -84,7 +83,6 @@ def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
     shared = vendors.shared_dir(drv.name)
     for item in drv.shared_items():
         _link_item(drv, cdir, shared, item, force=force, replace_link=True)
-    share_memory(acct)
     return cdir
 
 
@@ -227,156 +225,6 @@ def memory_project_dir(acct: str, repo: str) -> str:
     """The `<memory_root>/<this>/memory/` folder one repo's memory is kept under
     on this account."""
     return vendors.for_account(acct).memory_project_dir(repo)
-
-
-_INDEX_TARGET = re.compile(r"\]\(([^)\s]+)\)")
-
-
-def _merge_memory_index(src_index: Path, dst_index: Path) -> str | None:
-    """The union of two `MEMORY.md` indexes, one line per file, or None when
-    the destination already says everything the source does.
-
-    Two accounts can describe the same file differently, so the line is keyed
-    on the file it links to. The line kept is the one from the side whose file
-    the copy will leave in place (the newer one), so the description matches
-    the content. A line with no link is kept once, verbatim."""
-    def target(line: str) -> str | None:
-        m = _INDEX_TARGET.search(line)
-        return m.group(1) if m else None
-
-    lines = dst_index.read_text().splitlines()
-    have = {target(ln): i for i, ln in enumerate(lines) if target(ln)}
-    changed = False
-    for ln in src_index.read_text().splitlines():
-        if not ln.strip():
-            continue
-        t = target(ln)
-        if t is None or t not in have:
-            if ln not in lines:
-                lines.append(ln)
-                if t:
-                    have[t] = len(lines) - 1
-                changed = True
-            continue
-        s_file, d_file = src_index.parent / t, dst_index.parent / t
-        if (s_file.is_file() and d_file.is_file()
-                and s_file.stat().st_mtime > d_file.stat().st_mtime and lines[have[t]] != ln):
-            lines[have[t]] = ln
-            changed = True
-    return "\n".join(lines) + "\n" if changed else None
-
-
-def _copy_memory(src_mem: Path, dst_mem: Path) -> bool:
-    """Copy `src_mem`'s files into `dst_mem`, newest winning, MEMORY.md
-    unioned; True if anything changed."""
-    copied_any = False
-    # The index is merged against the files' mtimes as they stand before
-    # any copy moves them, so it goes first by rule, not by name order.
-    for f in sorted(src_mem.rglob("*"), key=lambda f: (f.name != "MEMORY.md", str(f))):
-        if f.is_symlink() or not f.is_file():
-            continue
-        dst_file = dst_mem / f.relative_to(src_mem)
-        if f.name == "MEMORY.md" and dst_file.is_file():
-            merged = _merge_memory_index(f, dst_file)
-            if merged is not None:
-                dst_file.write_text(merged)
-                copied_any = True
-            continue
-        if dst_file.exists() and dst_file.stat().st_mtime >= f.stat().st_mtime:
-            continue
-        dst_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(f, dst_file)
-        copied_any = True
-    return copied_any
-
-
-def migrate_memory(from_acct: str, to_acct: str, project: str | None = None) -> list[str]:
-    """Carry what an agent has learned from one account's config dir to
-    another. Which account a fact happened to be written under is an
-    accident of which one was logged in at the time, so a move has to bring
-    the facts along.
-
-    `project` (see `memory_project_dir`) scopes the copy to one repo's
-    memory - the moving agent's own, not every repo anyone has ever worked
-    in on the old account. None copies every project there is, for a
-    caller that cannot resolve one.
-
-    Newest wins, by mtime (`copy2` preserves it): the source account is
-    where the agent was actually working last, so its copy of a file is
-    never older there than a copy already at the destination unless the
-    destination is itself the newer side - which a straight round trip
-    (an agent moved back to an account it had already been on) makes routine.
-    `MEMORY.md` is the exception: it is the index Claude Code loads, so the
-    two sides' entries are unioned, one per file, rather than one replacing
-    the other, or a file on disk would stop being loaded. The memory is the repo's, not one
-    agent's, so every agent's notes for it travel together.
-    Only ever copies regular files into projects/*/memory/, matching the same
-    restriction AGENTS.md rule 1 states for the whole module.
-    Deletions do not propagate: a fact removed as wrong on one account can
-    still come back from the other on a later move.
-
-    Returns the project names actually carried over, for the caller to log.
-    """
-    drv = vendors.for_account(from_acct)
-    if vendors.account_vendor(to_acct) != drv.name:
-        return []
-    src_root = drv.memory_root(vendors.config_dir(from_acct))
-    if src_root is None or not src_root.is_dir():
-        return []
-    project_dirs = [src_root / project] if project else sorted(src_root.iterdir())
-    carried = []
-    for project_dir in project_dirs:
-        if not project_dir.is_dir():
-            continue
-        src_mem = project_dir / "memory"
-        if not src_mem.is_dir():
-            continue
-        dst_mem = drv.memory_root(vendors.config_dir(to_acct)) / project_dir.name / "memory"
-        if src_mem.resolve() == dst_mem.resolve():
-            continue  # one shared folder (share_memory): nothing to carry
-        copied_any = _copy_memory(src_mem, dst_mem)
-        if copied_any:
-            carried.append(project_dir.name)
-    return carried
-
-
-def share_memory(acct: str, repo: str | None = None) -> list[str]:
-    """Make the memory of every project one folder under shared/, linked from
-    each account (T74). An agent sees whichever memory its current account
-    has, so per-account copies drift apart and duplicate; one folder cannot.
-
-    A project's account folder that is still a real directory is merged into
-    the shared one (see `_copy_memory`) and set aside as `memory.before-shared`,
-    then replaced by a link. `repo`'s project is shared even before the shared
-    side has it, and every project already shared is linked into this account.
-    Returns the project names linked now."""
-    drv = vendors.for_account(acct)
-    root = drv.memory_root(vendors.config_dir(acct))
-    if root is None:
-        return []
-    shared_root = paths.home() / "shared" / "memory" / drv.name
-    names = {p.name for p in shared_root.iterdir()} if shared_root.is_dir() else set()
-    if repo:
-        names.add(drv.memory_project_dir(repo))
-    linked = []
-    for name in sorted(names):
-        shared = shared_root / name
-        mem = root / name / "memory"
-        if mem.is_symlink() and mem.resolve() == shared.resolve():
-            continue
-        shared.mkdir(parents=True, exist_ok=True)
-        mem.parent.mkdir(parents=True, exist_ok=True)
-        if mem.is_symlink():
-            mem.unlink()
-        elif mem.is_dir():
-            _copy_memory(mem, shared)
-            aside = mem.with_name("memory.before-shared")
-            if aside.exists():
-                shutil.rmtree(aside)  # an earlier one, merged when it was set aside
-            mem.rename(aside)
-        mem.symlink_to(shared, target_is_directory=True)
-        linked.append(name)
-    return linked
 
 
 def login_plan(acct: str, force: bool = False) -> tuple[str, str]:

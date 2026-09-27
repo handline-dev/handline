@@ -10,7 +10,7 @@ than none").
 
 - Claude Code keys auto-memory by repo: `<config dir>/projects/<repo>/memory/`.
   ocp links that folder from every account to `shared/memory/claude/<repo>`
-  (`accounts.share_memory`), so the six orcapipe agents share one folder.
+  (`accounts.share_memory`, retired in T246), so the six orcapipe agents share one folder.
 - It holds 13 topic files and a `MEMORY.md` that lists **6** of them. Claude
   loads only the index at start, so the other 7 are never loaded unless an
   agent happens to open them. Two files (`ocp-cli-habits`, `ocp-resolve-quoting`)
