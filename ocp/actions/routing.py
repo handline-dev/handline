@@ -99,6 +99,23 @@ def listable_agents(caller: str | None) -> tuple[str, ...] | None:
     return (caller, *(a for a in paths.list_agents() if supervisor_of(t, a) == caller))
 
 
+def reach(caller: str | None) -> set[str] | None:
+    """The agents whose tasks `caller` sees: itself and everyone under it, walked
+    down the supervisor edges. None (everything) for the human or no name."""
+    if caller in (None, HUMAN):
+        return None
+    t = routing()
+    boss = {a: supervisor_of(t, a) for a in paths.list_agents()}
+    seen, todo = {caller}, [caller]
+    while todo:
+        top = todo.pop()
+        for a, b in boss.items():
+            if b == top and a not in seen:
+                seen.add(a)
+                todo.append(a)
+    return seen
+
+
 def agent_tree() -> list[tuple[str, int]]:
     """Every registered agent as (name, depth), supervisors above their reports.
 

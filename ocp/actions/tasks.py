@@ -671,7 +671,7 @@ def merge_tasks(con, keep: int, others: list[int], by: str) -> tuple[bool, str]:
 
 
 def task_rows(con, owner: str | None = None, state: str | list[str] | None = None,
-              include_closed: bool = False) -> list[dict]:
+              include_closed: bool = False, owners: set[str] | None = None) -> list[dict]:
     """The board as data (T68): one dict per task, ordered by priority then by
     number. What a screen or `ocp task list` draws from, so both say the same.
 
@@ -680,7 +680,8 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     `last_activity` the latest time anything happened to it or a request
     linked to it. Closed, discarded and merged tasks are left out unless
     `include_closed`, or unless `state` names one. `owner` and `state` narrow
-    the rows; `state` may be one name or several.
+    the rows; `state` may be one name or several. `owners`, when given, is every
+    owner that may appear (see `reach`).
     """
     states = None if state is None else {state} if isinstance(state, str) else set(state)
     ended = ("closed", "discarded", "merged")
@@ -688,6 +689,8 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     out = []
     for t in (db.all_tasks(con) if show_ended else db.open_tasks(con)):
         if owner is not None and t["owner"] != owner:
+            continue
+        if owners is not None and t["owner"] not in owners:
             continue
         st = task_state(con, t)
         if states is not None and st not in states:
