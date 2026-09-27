@@ -347,6 +347,7 @@ def cmd_task_edit(args) -> int:
         con.execute("BEGIN IMMEDIATE")
         ok = True
         msgs: list[str] = []
+        unblocked_owner = None
         try:
             if args.owner is not None or args.title is not None or args.priority is not None:
                 ok, msg = actions.edit_task(con, args.task, me, owner=args.owner,
@@ -358,6 +359,8 @@ def cmd_task_edit(args) -> int:
             if ok and args.unblock is not None:
                 ok, msg = actions.unblock(con, args.task, args.unblock, me)
                 msgs.append(msg)
+                if ok and not db.task_blockers(con, args.task):
+                    unblocked_owner = db.get_task(con, args.task)["owner"]
         except Exception:
             con.execute("ROLLBACK")
             raise
@@ -369,6 +372,17 @@ def cmd_task_edit(args) -> int:
     # after a ROLLBACK, so only it is shown.
     for msg in (msgs if ok else msgs[-1:]):
         print(msg)
+    if unblocked_owner is not None:
+        # T325: clearing the last blocker is the task's turn to be
+        # reconsidered, same as a blocker closing - once this transaction has
+        # committed, never inside it (`advance_current_task` writes through
+        # its own connection).
+        con = db.connect()
+        try:
+            if actions.advance_current_task(con, unblocked_owner):
+                askmod.push(con, unblocked_owner)
+        finally:
+            con.close()
     return 0 if ok else 1
 
 
