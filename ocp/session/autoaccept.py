@@ -1,14 +1,15 @@
 """Answering the dialogs a working agent meets all day (T64), behind one global
 setting, on by default: `auto_accept_dialogs` in config.yaml, `ocp auto-accept`.
 
-Three things are answered. A browser tool call is said yes to once when the
-permission hook reported that very tool as waiting AND the screen is that tool's
-prompt with the plain "Yes" highlighted (`Driver.accepting_key`); "don't ask
-again" is never chosen. A dialog the founder gave a standing answer
+Two things are answered. A dialog the founder gave a standing answer
 (`team/dialog_rules`) is answered with that rule's option, by its number on the
 screen just read; a dialog no rule matches is left for the founder. The
 folder-trust screen is `lifecycle`'s standing consent and stays on the trust
-roots, never on a rule. This setting gates all three."""
+roots, never on a rule. This setting gates both.
+
+`_accept` answers a hook-reported tool call a driver's `accepts_tool` takes;
+no current vendor takes any (T249 removed claude's one case, the browser
+tool)."""
 from __future__ import annotations
 
 import time

@@ -1919,6 +1919,14 @@ edges:
           "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
 
 
+def test_launch_argv_always_carries_no_chrome(home: Path) -> None:
+    """T249: --no-chrome keeps the unanswered browser-connect dialog off every
+    session's start, regardless of memory, hide or anything else in --settings."""
+    drv = vendors.get("claude")
+    check("launch: --no-chrome is always in the argv",
+          "--no-chrome" in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
+
+
 def test_atomic_write_replaces_the_file_and_leaves_no_temp(home: Path) -> None:
     from ocp.infra import atomic
     home.mkdir(parents=True, exist_ok=True)
@@ -1978,6 +1986,7 @@ def main() -> int:
         run(lambda: test_a_test_never_reaches_the_real_home(Path(td) / 'realhome'))
         run(lambda: test_atomic_write_replaces_the_file_and_leaves_no_temp(Path(td) / 'atomic'))
         run(lambda: test_an_agent_cannot_read_a_peers_or_its_supervisors_transcripts(Path(td) / 'transcripts'))
+        run(lambda: test_launch_argv_always_carries_no_chrome(Path(td) / 'no_chrome'))
         run(lambda: test_shared_settings_turn_claude_notifications_off_once(Path(td) / 'notif'))
     return run_area(tests)
 
