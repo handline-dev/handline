@@ -170,6 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
                            help="async (default) waits for a reply; fire_and_forget does not")
             q.add_argument("--relation", default=None, help="e.g. peer")
         q.set_defaults(team=None, repo=None, model=None, effort=None, vendor=None)
+    q = hrsub.add_parser("team", help="propose a whole team in one approval: a manager "
+                                      "and its members, with the default links")
+    q.add_argument("name", help="the team and its manager")
+    q.add_argument("--member", action="append", required=True, metavar="SUFFIX[=REPO]",
+                   help="a member, `sea` for <team>.sea, with where it works after '='; repeat")
+    q.add_argument("--repo", default=None, help="where the manager works")
+    q.add_argument("--model", default=None, help="for every agent in the team")
+    q.add_argument("--effort", default=None, choices=sorted(agents.VALID_EFFORT))
+    q.add_argument("--vendor", default=None)
+    q.add_argument("--why", required=True, help="what the founder is deciding")
     q = hrsub.add_parser("list", help="proposals and what became of them")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)

@@ -2213,6 +2213,107 @@ edges:
     check("link: and so is the asking end", not ok and "not in team.yaml" in said, said)
 
 
+def agents_dir_names() -> list[str]:
+    return paths.list_agents()
+
+
+def test_hr_team_is_one_proposal_and_a_team_has_default_links(home: Path) -> None:
+    """T263: a manager and its members are proposed and approved once, and the
+    ordinary links (`team.DEFAULT_LINKS`) need no edge; an explicit deny still wins."""
+    _daemon_home(home, 20)
+    original = """# routing
+teams:
+  orca: [orca]
+agents:
+  orca: {}
+edges:
+  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+deny:
+  - { from: "orca.*", to: "boat.rude", reason: "never" }
+"""
+    hand_edit_team(original)
+    agents.register("orca")
+    tf = home / "team.yaml"
+    con = db.connect()
+    try:
+        ok, said = hr.propose("team", "boat", requester="orca", why="a new team",
+                              members=["sea", "shore", "reviewer"], repos={"boat.sea": "/w/sea"},
+                              repo="/w/boat")
+        check("team: an agent proposes it, one proposal, nothing written yet",
+              ok and "boat:" not in tf.read_text() and not agents.agent_file("boat").exists(), said)
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        body = db.get_request(con, prop["request"])["body"]
+        check("team: the founder reads every agent, every repo and the default links",
+              all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
+              and "may ask each other" in body and "approve" in body, body)
+        check("team: one escalation for the whole team",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 1)
+        ok, said = hr.apply(pid, con)
+        check("team: refused until the founder answers", not ok, said)
+        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(prop))
+        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (prop["request"],))
+        ok, said = hr.apply(pid, con)
+        check("team: one approval creates the team", ok, said)
+    finally:
+        con.close()
+    t = team.Team.load()
+    check("team: the team and every agent are in team.yaml, with one supervisor edge",
+          t.teams.get("boat") == ["boat", "boat.sea", "boat.shore", "boat.reviewer"]
+          and all(n in t.agents for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer"))
+          and sum(1 for e in t.edges if e["from"] == "boat") == 1
+          and "# routing" in tf.read_text() and original.splitlines()[-4] in tf.read_text())
+    check("team: every agent is registered, with its own repo",
+          all(n in paths.list_agents() for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer"))
+          and agents.read("boat.sea").get("repo") == "/w/sea"
+          and agents.read("boat").get("repo") == "/w/boat"
+          and agents.read("boat.shore").get("repo") in (None, ""))
+    check("team: the manager is boat's supervisor",
+          actions.supervisor_of(t, "boat.sea") == "boat")
+    ok, said = hr.enact("team", "boat", why="again", members=["x"])
+    check("team: a team that exists is refused", not ok and "already" in said, said)
+    ok, said = hr.enact("team", "solo", why="w", members=[])
+    check("team: no members is refused", not ok and "at least one" in said, said)
+    ok, said = hr.enact("team", "solo", why="w", members=["a", "a"])
+    check("team: a member twice is refused", not ok and "twice" in said, said)
+    ok, said = hr.enact("team", "solo", why="w", members=["a"], repos={"ghost": "/x"})
+    check("team: a repo for a stranger is refused", not ok and "ghost" in said, said)
+
+    data = {"teams": {"boat": ["boat", "boat.sea", "boat.reviewer", "boat.shore"],
+                      "orca": ["orca", "orca.core", "orca.reviewer"]},
+            "agents": {}, "edges": [],
+            "deny": [{"from": "boat.*", "to": "orca.reviewer", "reason": "no"}]}
+    tm = team.Team(data)
+    for who, whom, want in [
+            ("boat", "boat.sea", True), ("boat.sea", "boat", True),
+            ("boat.sea", "boat.reviewer", True), ("boat", "human", True),
+            ("boat", "orca", True), ("orca", "boat", True),
+            ("boat.sea", "boat.shore", False), ("boat.sea", "human", False),
+            ("boat.sea", "orca", False), ("boat.sea", "orca.reviewer", False),
+            ("boat.sea", "orca.core", False), ("boat", "orca.core", False)]:
+        d = tm.route(who, whom)
+        check(f"default links: {who} -> {whom} is {'allowed' if want else 'denied'}",
+              d.allowed == want, d.reason)
+    d = tm.route("boat", "human")
+    check("default links: the founder is asked as an escalation", d.kind == "escalate" and d.creates_gate)
+    check("default links: an explicit deny still wins",
+          not tm.route("boat.sea", "orca.reviewer").allowed and "denied: " in tm.route("boat.sea", "orca.reviewer").reason)
+    check("default links: an explicit edge still comes first",
+          team.Team({**data, "edges": [{"from": "boat.sea", "to": "boat", "response": "fire_and_forget"}]})
+          .route("boat.sea", "boat").response == "fire_and_forget")
+    rc, out = _cli(["hr", "team", "reef", "--member", "dive=/w/dive", "--member", "reef.map",
+                    "--repo", "/w/reef", "--why", "cli path"], as_agent=askmod.HUMAN)
+    check("team: the founder's `hr team` creates it directly, suffix or full names, repo after '='",
+          rc == 0 and team.Team.load().teams.get("reef") == ["reef", "reef.dive", "reef.map"]
+          and agents.read("reef.dive").get("repo") == "/w/dive", out)
+    rc, out = _cli(["hr", "team", "reef2", "--member", "a", "--why", "w"], as_agent="orca")
+    check("team: an agent's `hr team` is a proposal", rc == 0 and "raised as" in out
+          and "reef2" not in agents_dir_names(), out)
+    from ocp.team import guide
+    check("guide: the rule is written down once, in the team topic",
+          all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
+
+
 def test_hr_link_and_unlink_edit_one_edge_and_nothing_else(home: Path) -> None:
     """An ask edge is added or removed through hr, as text so the file's comments
     survive, validated before it is written, and gated like any roster change."""
@@ -3358,6 +3459,7 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
+        run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_an_answer_binds_the_escalation_the_founder_read(Path(td) / 'hrbind'))
