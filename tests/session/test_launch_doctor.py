@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from ocp.vendors import claude_hooks as hooks  # noqa: E402
+from ocp.vendors.claude import CHROME_MCP_SERVER  # noqa: E402
 
 
 
@@ -1915,8 +1916,10 @@ edges:
           settings["sandbox"]["filesystem"]["denyRead"] == ["/a", "/b"], argv)
     check("transcripts: and the Read tool is denied the same folders",
           settings["permissions"]["deny"] == ["Read(//a/**)", "Read(//b/**)"], argv)
-    check("transcripts: nothing to hide adds no --settings",
-          "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
+    bare = drv.launch_argv("/x/claude", None, "high", "Agent", [], None)
+    bare_settings = json.loads(bare[bare.index("--settings") + 1])
+    check("transcripts: nothing to hide still carries the standing chrome denylist, nothing else",
+          bare_settings == {"deniedMcpServers": [{"serverName": CHROME_MCP_SERVER}]}, bare)
 
 
 def test_atomic_write_replaces_the_file_and_leaves_no_temp(home: Path) -> None:
