@@ -392,13 +392,24 @@ def _print_needing_close(con, tasks: list) -> None:
         print(_fit100(f"      done: {textsafe.oneline(t['done_evidence'])}"))
 
 
+def _visible_owners(args) -> set[str] | None:
+    """Whose tasks this call shows: the caller and its reports, or everyone for
+    the founder and for `--everyone` (T256)."""
+    return None if args.everyone else actions.reach(askmod.asking_agent())
+
+
 def cmd_task_list(args) -> int:
+    owners = _visible_owners(args)
+    if args.owner is not None and owners is not None and args.owner not in owners:
+        print(f"{args.owner} is not you or one of your reports: --everyone shows every team's tasks")
+        return 1
     con = db.connect()
     try:
         rows = actions.task_rows(con, owner=args.owner, state=args.state,
-                                 include_closed=args.all)
+                                 include_closed=args.all, owners=owners)
         _print_board(con, [r["row"] for r in rows])
-        _print_needing_close(con, db.tasks_needing_close(con))
+        _print_needing_close(con, [t for t in db.tasks_needing_close(con)
+                                   if owners is None or t["owner"] in owners])
         gaps = actions.reason_gaps(con)
         print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
               f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
@@ -445,7 +456,9 @@ def cmd_task_board(args) -> int:
         return 1
     con = db.connect()
     try:
-        tasks = db.open_tasks_for(con, me)
+        # The founder's board is the tasks it asked for, as before; the full view is `list`.
+        owners = {me} if me == askmod.HUMAN and not args.everyone else _visible_owners(args)
+        tasks = [t for t in db.open_tasks(con) if owners is None or t["owner"] in owners]
         needing_close = [t for t in db.tasks_needing_close(con)
                         if actions.task_asker(con, t) == me]
         if not tasks and not needing_close:

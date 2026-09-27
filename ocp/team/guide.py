@@ -6,6 +6,7 @@ here only when they actually need it, so it costs no tokens the rest of the time
 from __future__ import annotations
 
 from ..infra import paths
+from .team import DEFAULT_LINKS
 
 TOPICS = {
     "accounts": """accounts
@@ -176,6 +177,17 @@ STALLED, or has a request waiting.""",
 Orca integrates with Claude Code through hooks in ~/.claude/settings.json. If a
 per-account CLAUDE_CONFIG_DIR lacks those hooks, our agents disappear from the
 Orca dashboard.""",
+    "team": """who may ask whom
+  ocp hr team <name> --member sea=<repo> --member shore --why "..."
+                                   a manager and its members as one proposal, one approval
+  ocp hr add / link / unlink       one agent or one edge, for what the defaults do not cover
+
+Every team has these links without any edge written (the manager is the member
+named like the team, the reviewer is `<team>.reviewer`):
+""" + "\n".join(f"  - {d}" for d in DEFAULT_LINKS) + """
+
+Anything else is denied, and the refusal says so: ask your manager, or propose an
+edge with `ocp hr link`. A `deny` in team.yaml still beats a default link.""",
     "doctor": """checks
   ocp doctor                       verify the preconditions of each phase
 

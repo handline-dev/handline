@@ -67,6 +67,24 @@ def cmd_hr(args) -> int:
     if not me:
         print(_who_refusal("propos"))
         return 1
+    if args.hr_cmd == "team":
+        repos: dict[str, str] = {}
+        members = []
+        for m in args.member:
+            n, _, r = m.partition("=")
+            members.append(n)
+            if r:
+                repos[n if n.startswith(f"{args.name}.") else f"{args.name}.{n}"] = r
+        if args.repo:
+            repos[args.name] = args.repo
+        kw = dict(why=args.why, repo=args.repo, model=args.model, effort=args.effort,
+                  vendor=args.vendor, members=members, repos=repos)
+        if me == askmod.HUMAN:
+            ok, said = hr.enact("team", args.name, **kw)
+        else:
+            ok, said = hr.propose("team", args.name, requester=me, **kw)
+        print(said)
+        return 0 if ok else 1
     kw = dict(why=args.why, team_name=args.team,
               repo=args.repo, model=args.model, to=getattr(args, "to", None),
               effort=args.effort, vendor=getattr(args, "vendor", None),
