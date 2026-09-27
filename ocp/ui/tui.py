@@ -364,7 +364,7 @@ class AgentRow(NamedTuple):
     kind: str = ""
     ctx: str = ""                # ANSI: yellow at its context limit
     inbox: int = 0
-    tasks: int = 0                # queued tasks it owns, plus doing ones out with it now (T300)
+    tasks: int = 0                # 1 if it has a current task (T292), else 0 (T300)
     ready: bool = False           # IDLE with a queued task no open blocker holds (T300)
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
@@ -402,13 +402,6 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
     # are what a row costs.
     state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
     shown = {k: oneline(v) for k, v in shown_names(drawn_tree).items()}
-    # Read once, not per row. Draft excluded; queued counts to its owner,
-    # doing to its live request's target (#1719).
-    waiting_by_owner: dict[str, list] = {}
-    for wt in actions.task_rows(con, state=["queued", "doing"]):
-        targets = actions.doing_targets(con, wt["id"]) if wt["state"] == "doing" else {wt["owner"]}
-        for tgt in targets:
-            waiting_by_owner.setdefault(tgt, []).append(wt)
     rows = []
     for name, depth, hidden in drawn_tree:
         under = len(hidden)
@@ -446,12 +439,17 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         w = dmn_lifecycle.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
-        waiting_tasks = waiting_by_owner.get(name, [])
-        ready = s == "IDLE" and any(
-            wt["state"] == "queued" and not wt["blocked_by"] for wt in waiting_tasks)
+        # T292 landed: this is its one stored current task, not a scan of every
+        # open one (#1764).
+        cur = db.current_task(con, name)
+        task_n, ready = 0, False
+        if cur is not None:
+            task_n = 1
+            ready = (s == "IDLE" and actions.task_state(con, db.get_task(con, cur)) == "queued"
+                     and not db.task_blockers(con, cur))
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct or "-"), oneline(agents.kind(cfg)), ctxs,
-                             len(db.queued_for(con, name)), len(waiting_tasks), ready, fire, wall))
+                             len(db.queued_for(con, name)), task_n, ready, fire, wall))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 

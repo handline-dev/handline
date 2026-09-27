@@ -167,12 +167,6 @@ def _asks(r) -> bool:
     return r["state"] == "queued" and not r["fyi"]
 
 
-def doing_targets(con, tid: int) -> set[str]:
-    """Who this task's own live request is out with; own live request only,
-    not a child's - a child counts itself (auditor #1739)."""
-    return {r["target"] for r in db.task_requests(con, tid) if _asks(r)}
-
-
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved

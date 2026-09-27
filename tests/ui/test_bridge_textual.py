@@ -770,69 +770,42 @@ async def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
           and tui._ANSI.sub("", tui.fold_suffix(3, ("\u26a0", 2, tui.RED))) == " +3 \u26a02")
 
 
-async def test_agents_data_counts_waiting_tasks_and_flags_a_ready_idle_agent() -> None:
-    """T300: draft excluded; queued counts to its owner, doing to its live
-    request's target (#1719). `ready` needs an unblocked queued task and IDLE."""
-    from ocp.team import ask as askmod
-    _home("agenttasks")
-    agents.register("frontend")
+async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
+    """T300 (#1764): once T292 landed, `tasks` is the agent's own stored
+    current task (0 or 1), not a scan of every open one. `ready` needs that
+    task queued (approved to run), no open blocker on it, and the agent IDLE."""
+    _home("currenttask")
     con = db.connect()
     try:
-        db.new_task(con, "draft one", "backend", "orcapipe")     # not approved: counts nowhere
-        queued = db.new_task(con, "ready one", "backend", "orcapipe")
-        ok, said = actions.set_queued(con, queued, actions.HUMAN, True)
-        con.commit()
-        check("set_queued: approves the draft to run", ok, said)
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: tasks counts the queued one, not the draft",
-              r.tasks == 1, r)
-        check("agents_data: ready once IDLE with a queued task no open blocker holds",
-              r.state == "IDLE" and r.ready, r)
+        check("agents_data: no current task is no task", r.tasks == 0, r)
 
-        delegated = db.new_task(con, "delegated", "frontend", "product")
-        ok, said, rid = askmod.ask("backend", "handle it", requester="product")
-        check("ask: product may hand eng.* work (design team's routing)", ok, said)
-        db.link_request(con, delegated, rid)
+        tid = db.new_task(con, "write the report", "backend", "product")
+        ok, said = actions.task_start(con, "backend", tid)
         con.commit()
+        check("task_start: makes it backend's current task",
+              ok and db.current_task(con, "backend") == tid, said)
         rows, _ = tui.agents_data(con)
-        by_name = {x.name: x for x in rows}
-        check("agents_data: a doing task counts against the request's target, not its owner",
-              by_name["backend"].tasks == 2 and by_name["frontend"].tasks == 0, rows)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: tasks is 1 for a draft current task, not yet ready",
+              r.tasks == 1 and not r.ready, r)
 
-        blocker = db.new_task(con, "blocker", "backend", "orcapipe")
-        db.add_block(con, queued, blocker)
+        ok, said = actions.set_queued(con, tid, actions.HUMAN, True)
+        con.commit()
+        check("set_queued: approves it to run", ok, said)
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: ready once its current task is queued, unblocked and IDLE",
+              r.state == "IDLE" and r.tasks == 1 and r.ready, r)
+
+        blocker = db.new_task(con, "blocker", "backend", "product")
+        db.add_block(con, tid, blocker)
         con.commit()
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: an open blocker on the only queued task clears ready, not the count",
-              r.tasks == 2 and not r.ready, r)
-    finally:
-        con.close()
-
-
-async def test_a_doing_task_seen_only_through_a_child_does_not_double_count() -> None:
-    """T300: `task_state` calls a parent doing once an open child of it carries
-    the live request, but that child is its own row with its own live request -
-    counting the parent too would count the same piece of live work twice, once
-    on each of two different agents (auditor #1739)."""
-    from ocp.team import ask as askmod
-    _home("parentchild")
-    agents.register("frontend")
-    con = db.connect()
-    try:
-        parent = db.new_task(con, "parent", "backend", "product")
-        child = db.new_task(con, "child", "frontend", "product", parent_task=parent)
-        ok, said, rid = askmod.ask("frontend", "do the child", requester="product")
-        check("ask: product may hand eng.* work (design team's routing)", ok, said)
-        db.link_request(con, child, rid)
-        con.commit()
-        check("task_state: the parent reads doing through its open child",
-              actions.task_state(con, db.get_task(con, parent)) == "doing")
-        rows, _ = tui.agents_data(con)
-        by_name = {x.name: x for x in rows}
-        check("agents_data: the child's live work counts once, on frontend, not again on backend",
-              by_name["frontend"].tasks == 1 and by_name["backend"].tasks == 0, rows)
+        check("agents_data: an open blocker clears ready, not the count",
+              r.tasks == 1 and not r.ready, r)
     finally:
         con.close()
 
@@ -3081,8 +3054,7 @@ async def _run_all() -> None:
     await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()
     await test_dashboard_accounts_table_is_fed_by_accounts_data()
     await test_dashboard_agents_table_is_fed_by_agents_data()
-    await test_agents_data_counts_waiting_tasks_and_flags_a_ready_idle_agent()
-    await test_a_doing_task_seen_only_through_a_child_does_not_double_count()
+    await test_agents_data_shows_its_current_task_and_flags_it_ready()
     await test_dashboard_messages_table_is_fed_by_messages_data()
     await test_stuck_data_with_no_agent_to_act_on_leaves_the_home_page_safe()
     await test_a_key_never_acts_on_a_row_nobody_pointed_at()
