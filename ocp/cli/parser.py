@@ -19,7 +19,7 @@ from .hr import cmd_hr, cmd_trust
 from .idle import cmd_auto_accept, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _priority_arg, _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_new, cmd_task_queue, cmd_task_reopen
+from .task import _expects_arg, _priority_arg, _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_reopen, cmd_task_start
 from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
 from .usage import cmd_collect, cmd_usage
 
@@ -506,16 +506,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
-    p = tk.add_parser("new", help="open a task")
+    p = tk.add_parser("new", help="open and deliver a task in one step (T292): a request "
+                                  "to --owner, checked against the routing table")
     p.add_argument("title")
-    p.add_argument("--owner", required=True)
+    p.add_argument("body", nargs="?", default=None,
+                   help="the work itself, sent to --owner; the title is used if omitted")
+    p.add_argument("--owner", required=True, help="an agent, or 'human' for a decision task")
     p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
                    help="the task this is a part of, written T<number>")
     p.add_argument("--blocked-by", type=_task_arg, default=None, metavar="T",
                    help="cannot be worked until this task closes")
     p.add_argument("--priority", type=_priority_arg, default=None, metavar="P",
                    help="P1 (high), P2 (default) or P3 (low)")
+    p.add_argument("--expects", type=_expects_arg, default="report", metavar="K",
+                   help="what `task done` must give back: sha, verdict, decision or "
+                        "report (default)")
     p.set_defaults(fn=cmd_task_new)
+    p = tk.add_parser("start", help="pick up T<n> as your current task (T292) - for one "
+                                    "delivered while you already held another")
+    p.add_argument("task", type=_task_arg, metavar="T")
+    p.set_defaults(fn=cmd_task_start)
+    p = tk.add_parser("note", help="a mid-task correction to whoever holds T<n> (T292) - "
+                                   "the opener or the founder only; new work is a child task")
+    p.add_argument("task", type=_task_arg, metavar="T")
+    p.add_argument("text")
+    p.set_defaults(fn=cmd_task_note)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
     p.add_argument("--owner", default=None, help="only this agent's tasks")

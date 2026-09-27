@@ -14,6 +14,24 @@ def set_task(con, agent: str, task: str | None) -> None:
     )
 
 
+def set_current_task(con, agent: str, tid: int | None) -> None:
+    """T292: the one task board task `agent` is holding right now - set on
+    delivery of a `task new` or by `task start`, cleared on done or release.
+    Not `set_task`'s `task` column: that one is the free-text prompt a
+    spawned terminal starts on, unrelated to the task board."""
+    con.execute(
+        "INSERT INTO agent_state(agent, state, updated, current_task) VALUES(?,?,?,?) "
+        "ON CONFLICT(agent) DO UPDATE SET current_task=excluded.current_task, "
+        "updated=excluded.updated",
+        (agent, "IDLE", int(time.time()), tid),
+    )
+
+
+def current_task(con, agent: str) -> int | None:
+    row = con.execute("SELECT current_task FROM agent_state WHERE agent = ?", (agent,)).fetchone()
+    return int(row["current_task"]) if row and row["current_task"] is not None else None
+
+
 # ---------------------------------------------------------------- agent state
 def set_agent_state(con, agent: str, state: str, wake_at: int | None = None,
                     detail: str | None = None) -> None:
@@ -152,6 +170,10 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
 AGENT_ACTIVITY_KINDS = frozenset({
     "ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw",
     "no_task",
+    # T292: task_new is the opener asking (its own delivery, C1); task_start
+    # and task_note are likewise always the calling agent's own doing -
+    # picking up a task or writing a note - never something ocp did to them.
+    "task_new", "task_start", "task_note",
     "UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact",
     "PermissionRequest", "TeammateIdle",
 })

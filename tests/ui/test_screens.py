@@ -2622,6 +2622,10 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                        "(tests/session/test_autoaccept.py), not this scene",
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_no_open_child_and_only_the_asker",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
+        "task start": "T292: writes agent_state.current_task; driven in "
+                      "test_task_new_is_its_own_delivery, not this scene",
+        "task note": "T292: sends an ordinary task-kind ask to the task's holder; driven in "
+                     "test_task_new_is_its_own_delivery, not this scene",
         "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",

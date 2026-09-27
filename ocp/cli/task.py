@@ -61,6 +61,14 @@ def _priority_arg(text: str) -> int:
         raise argparse.ArgumentTypeError(str(e))
 
 
+def _expects_arg(text: str) -> str:
+    """argparse `type` for --expects: sha, verdict, decision or report (T292)."""
+    try:
+        return actions.parse_expects(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def cmd_close(args) -> int:
     """One verb, two things it can close: a task by its reference (`ocp close
     T7`) - the asker's or the founder's sign-off, once it is done (`ocp task done` first;
@@ -210,10 +218,19 @@ def cmd_task_reopen(args) -> int:
 
 
 def _task_owner_ok(name: str) -> bool:
-    return name in paths.list_agents()
+    # T292 C3: a task owned by the founder is a decision task, so HUMAN is a
+    # valid owner too, not only a registered agent.
+    return name == askmod.HUMAN or name in paths.list_agents()
 
 
 def cmd_task_new(args) -> int:
+    """T292: open and deliver in one step - `actions.task_new` sends the
+    request (routing-checked, C2) before any task row exists, so a refused
+    owner leaves nothing behind. --blocked-by is task-board bookkeeping only
+    and runs after, on its own connection: it cannot be folded into that
+    same delivery (`ask` owns its own connection - see `task_new`'s
+    docstring), so a refusal here leaves the task opened and delivered, not
+    rolled back with it."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("open a task"))
@@ -229,36 +246,70 @@ def cmd_task_new(args) -> int:
     if not title:
         print("a task needs a title")
         return 1
+    body = textsafe.text(args.body).strip() if args.body else None
+    if args.blocked_by is not None:
+        # Checked before anything is opened or delivered - a blocker that
+        # cannot be waited on (missing, or already closed) must refuse the
+        # whole thing, not leave a task behind with no way to add the block
+        # that was actually asked for (auditor's #2065 SHOULD-FIX C; there is
+        # no shared transaction any more to roll back instead - see
+        # `task_new`'s docstring - so this has to be a precheck).
+        con = db.connect()
+        try:
+            why = actions._blocker_refusal(con, args.blocked_by)
+        finally:
+            con.close()
+        if why:
+            print(why)
+            return 1
+    ok, msg, tid = actions.task_new(me, args.owner, title, body, parent=args.parent,
+                                    expects=args.expects, priority=priority)
+    if not ok:
+        print(msg)
+        return 1
+    if args.blocked_by is not None:
+        con = db.connect()
+        try:
+            bok, bmsg = actions.add_block(con, tid, args.blocked_by, me)
+        finally:
+            con.close()
+        print(f"{msg}\n{bmsg}")
+        return 0 if bok else 1
+    print(msg)
+    return 0
+
+
+def cmd_task_start(args) -> int:
+    """T292 bullet 3: pick up T<n> as your current task explicitly, for a
+    task delivered while you already held one."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("start a task"))
+        return 1
     con = db.connect()
     try:
-        if args.parent is not None and db.get_task(con, args.parent) is None:
-            print(f"no task T{args.parent}")
-            return 1
-        if args.blocked_by is not None and db.get_task(con, args.blocked_by) is None:
-            print(f"no task T{args.blocked_by}")
-            return 1
-        # new_task and a refused add_block are one transaction (auditor's
-        # #2065 SHOULD-FIX C: add_block's own closed-blocker refusal used to
-        # land after the task row already existed, leaving a task nobody
-        # asked for - the same defect #2042 SHOULD-FIX 5 fixed for edit).
-        con.execute("BEGIN IMMEDIATE")
-        tid = None
-        try:
-            tid = db.new_task(con, title, args.owner, me, args.parent, priority)
-            if args.blocked_by is not None:
-                ok, msg = actions.add_block(con, tid, args.blocked_by, me)
-                if not ok:
-                    con.execute("ROLLBACK")
-                    print(msg)
-                    return 1
-        except Exception:
-            con.execute("ROLLBACK")
-            raise
-        con.execute("COMMIT")
+        ok, msg = actions.task_start(con, me, args.task)
+        print(msg)
     finally:
         con.close()
-    print(f"task T{tid} opened for {args.owner} ({actions.priority_ref(priority)})")
-    return 0
+    return 0 if ok else 1
+
+
+def cmd_task_note(args) -> int:
+    """T292/#1655 (1a): a mid-task correction to whoever holds T<n>, not new
+    work - `task new --parent` is that. Delivered as an ordinary task-kind
+    ask until T293's `say` gives it its own, lighter path."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("send a task note"))
+        return 1
+    con = db.connect()
+    try:
+        ok, msg = actions.task_note(con, me, args.task, args.text)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
 
 
 def cmd_task_link(args) -> int:
