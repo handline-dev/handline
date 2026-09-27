@@ -106,7 +106,7 @@ def cmd_ask(args) -> int:
         return 1
     named = actions.task_ids_named(body)
     if args.task is None and not args.no_task and named:
-        print(f"this text names {', '.join(f'T{n}' for n in named)}: add --task <n> so the "
+        print(f"this text names {', '.join(f'T{n}' for n in named)}: add --task T<n> so the "
               "request is linked and the task shows it is being worked, or "
               "--no-task 'reason' if it does not belong to one")
         return 1

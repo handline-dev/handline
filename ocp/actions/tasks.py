@@ -211,7 +211,7 @@ def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
              if r["id"] not in linked and row["id"] in task_ids_named(r["body"])]
     if named:
         return (f"request #{named[0]} names it but is not linked: "
-                f"ocp task link {row['id']} {named[0]}")
+                f"ocp task link T{row['id']} {named[0]}")
     return None
 
 

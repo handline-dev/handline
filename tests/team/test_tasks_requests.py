@@ -5803,14 +5803,14 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
         con.close()
     rc, out = _cli(["ask", "worker", f"see T{u}", "--no-task", ""])
     check("ask: an empty --no-task reason is refused", rc == 1 and "reason" in out, out)
-    rc, out = _cli(["ask", "worker", f"see T{t}", "--task", str(t), "--no-task", "x"])
+    rc, out = _cli(["ask", "worker", f"see T{t}", "--task", f"T{t}", "--no-task", "x"])
     check("ask: --task with --no-task is refused", rc == 1 and "contradict" in out, out)
-    rc, out = _cli(["ask", "worker", "do it", "--task", "999"])
+    rc, out = _cli(["ask", "worker", "do it", "--task", "T999"])
     check("ask: --task for a task that does not exist is refused", rc == 1 and "no task T999" in out, out)
 
     rc, out = _cli(["ask", "worker", f"only mentions T{u} in passing", "--no-task", "context only"])
     check("ask: --no-task with a reason gets past the guard", rc == 0, out)
-    rc, out = _cli(["ask", "worker", f"please do T{t}", "--task", str(t)])
+    rc, out = _cli(["ask", "worker", f"please do T{t}", "--task", f"T{t}"])
     check("ask: --task sends, links, and says the draft now reads doing",
           rc == 0 and f"linked to T{t}" in out and "doing" in out, out)
     con = db.connect()
@@ -5829,7 +5829,7 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("board: and so is it there", "! never approved" in out, out)
     check("list: the unlinked request that names T%d is marked" % u,
-          f"names it but is not linked: ocp task link {u}" in _cli(["task", "list"])[1])
+          f"names it but is not linked: ocp task link T{u}" in _cli(["task", "list"])[1])
 
     con = db.connect()
     try:
