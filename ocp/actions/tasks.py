@@ -257,12 +257,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         return False, f"task T{tid} is already closed ({row['closed_by']})"
     if row["done_evidence"]:
         return False, f"task T{tid} is already done ({row['done_evidence']})"
-    # T292 (auditor #1655 section 4): a sha-expecting task is the one
-    # exception to #2195's rule that the opener never stands in for whoever
-    # is actually doing the work - "the opener or the founder" may close it
-    # another way when the sha it was waiting on is never going to land.
-    # Every other task keeps #2195 exactly as it was: the opener alone is
-    # not enough.
+    # T292 (#1655 section 4): a sha-expecting task's opener or the founder
+    # may close it another way when the sha is never going to land - the
+    # one exception to #2195's rule that the opener alone is not enough.
     sha_override = by == row["opened_by"] and row["expects"] == "sha"
     if by not in (row["owner"], HUMAN) and by not in _task_done_targets(con, tid) \
             and not sha_override:
@@ -285,10 +282,8 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         mark, via = f"request #{request_id}", "request"
     else:
         mark, via = reason, "reason"
-    # T292 (auditor #1655 section 4): "a sha task can't close on a reason
-    # unless the opener or the founder does it" - the one structural
-    # difference --expects makes; verdict/decision/report are labels for
-    # what the reason means, not a second form `mark_task_done` checks.
+    # T292 (#1655 section 4): a sha task can't close on a reason unless the
+    # opener or the founder does it; verdict/decision/report are just labels.
     if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], HUMAN):
         return False, (f"task T{tid} expects a sha - `ocp task done T{tid} --sha <sha>`, "
                        f"or its opener ({row['opened_by']}) or the founder may close it "
@@ -406,11 +401,9 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         if not db.discard_task(con, tid, by, said):
             con.execute("ROLLBACK")
             return False, f"task T{tid} was done or closed by someone else just now"
-        # T292: a discarded task can still be an owner's stale current task -
-        # the `live` check above only guarantees nothing is queued against it
-        # *now*; a request that was retired some other way (a founder
-        # `cancel`) leaves this exactly reachable with current_task still
-        # set.
+        # T292: `live` only guarantees nothing is queued *now* - a request
+        # retired some other way (a founder `cancel`) can still leave this
+        # task as the owner's stale current task.
         _clear_current_task_if(con, row["owner"], tid)
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
@@ -563,30 +556,17 @@ def _clear_current_task_if(con, agent: str, tid: int) -> None:
 def task_new(me: str, owner: str, title: str, body: str | None = None,
             parent: int | None = None, expects: str = "report",
             priority: int | None = None) -> tuple[bool, str, int | None]:
-    """T292 (auditor #1655 section 4): `task new` is the delivery, not a
-    separate step after it - opening the task and asking its owner for the
-    work happen together, in one call. The request that makes it real goes
-    through the routing table exactly as any `ocp ask` does (`askmod.ask`,
-    C2): an owner nobody may assign work to is refused here, by the same
-    edges, before any task row exists. Its kind is 'task' regardless of
-    what edge carried it, since `task done` is always the answer whichever
-    route got it there.
+    """T292 (auditor #1655 section 4): opens the task and asks its owner in
+    one call, through the routing table (`askmod.ask`, C2) - a refused owner
+    leaves no task row behind. The request is kind='task' except for a human
+    owner (C3), which keeps the edge's own 'escalate' so the bridge's gate
+    and `founder_waits` still see it.
 
-    No `con`: like `ask`/`cancel`/`withdraw`, this manages its own
-    connection(s), because `ask` (which does the routing, rate-limit and
-    delivery work) does too and cannot be handed one. The task row and its
-    link are still one write on one connection; only the two calls into
-    `ask` are on separate ones, matching how every other caller of `ask`
-    already lives with its own commit rather than a caller's transaction.
+    No `con`: like `ask`, this manages its own connection(s); the task row
+    and its link are one write, only the call into `ask` is separate.
 
-    Tasks owned by the founder (`HUMAN`) are decision tasks (#1655 C3): the
-    request behind one is the agent's own founder-gate escalation, and
-    nothing here treats it differently - only the daemon's one-doing rule
-    and T286's timeout (elsewhere, still parked) are meant to exempt it.
-
-    The owner's current task (bullet 1) is set to this one only if it has
-    none: an owner already holding one keeps it, and this task waits as an
-    ordinary queued request until T287's own queue takes that over.
+    The owner's current task (bullet 1) is set to this one only if it holds
+    none yet - never for a human owner, who holds no current task at all.
     """
     if priority is None:
         priority = db.DEFAULT_PRIORITY
@@ -597,14 +577,15 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
                 return False, f"no task T{parent}", None
         finally:
             con.close()
-    ok, msg, rid = askmod.ask(owner, body or title, requester=me, kind="task")
+    kind = None if owner == HUMAN else "task"
+    ok, msg, rid = askmod.ask(owner, body or title, requester=me, kind=kind)
     if not ok:
         return False, msg, None
     con = db.connect()
     try:
         tid = db.new_task(con, title, owner, me, parent, priority, expects=expects)
         db.link_request(con, tid, rid)
-        if db.current_task(con, owner) is None:
+        if owner != HUMAN and db.current_task(con, owner) is None:
             db.set_current_task(con, owner, tid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
                                            "expects": expects})
@@ -635,17 +616,14 @@ def task_start(con, me: str, tid: int) -> tuple[bool, str]:
 
 
 def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
-    """T292/auditor #1655 section (1a): a mid-task correction to whoever
-    holds T<n> - "the sha moved", "use branch Y" - information about the
-    work they already have, not new work (a child task, `task new
-    --parent`, is that). Only the task's opener or the founder may send
-    one.
+    """T292/auditor #1655 (1a): a mid-task correction to whoever holds T<n>
+    - "the sha moved", "use branch Y" - not new work (that's `task new
+    --parent`). Only the task's opener or the founder may send one.
 
-    Delivered as an ordinary task-kind `ask` to each target still holding
-    an open request under it (or the owner, if none is), until T293's
-    `say` gives notes their own lighter, non-blocking path - so this is not
-    yet quite #1655's "grants nothing": its target still owes it a reply
-    the way any other ask does.
+    Delivered into each target's own head thread (`--parent` the target's
+    `head_of_queue`), so it reaches them ahead of the work it corrects
+    rather than queuing behind it - until T293's `say` gives notes their
+    own non-blocking path, this still owes a reply like any other ask.
     """
     row = db.get_task(con, tid)
     if row is None:
@@ -664,7 +642,9 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
     targets = {r["target"] for r in db.task_requests(con, tid) if _asks(r)} or {row["owner"]}
     sent = []
     for target in sorted(targets):
-        ok, msg, rid = askmod.ask(target, f"T{tid} note: {said}", requester=me, kind="task_note")
+        head = db.head_of_queue(con, target)
+        ok, msg, rid = askmod.ask(target, f"T{tid} note: {said}", requester=me, kind="task_note",
+                                  parent_id=head["id"] if head else None)
         sent.append(f"{target}: #{rid}" if ok else f"{target}: {msg}")
     db.add_event(con, me, "task_note", {"task_id": tid, "text": said})
     return True, f"note sent on T{tid} - " + "; ".join(sent)

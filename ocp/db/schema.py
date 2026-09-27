@@ -655,10 +655,7 @@ def _add_missing_columns(con) -> None:
         con.execute("ALTER TABLE agent_state ADD COLUMN current_task INTEGER "
                     "REFERENCES tasks(id)")
     if "expects" not in task_cols:
-        # T292: what `task done` must be given to close this task - a sha, a
-        # verdict, a decision or (the default, NULL reads as this) a free
-        # text reason. Set once, at `task new`, from --expects; checked, not
-        # stored on the request the way `kind` is, because a task can outlive
-        # several requests (a re-review reopens the same task) and this must
-        # not drift between them.
+        # T292: what `task done` must be given - sha, verdict, decision, or
+        # (NULL) a free reason. Set once at `task new`, on the task itself
+        # since it can outlive several requests.
         con.execute("ALTER TABLE tasks ADD COLUMN expects TEXT")

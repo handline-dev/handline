@@ -224,13 +224,9 @@ def _task_owner_ok(name: str) -> bool:
 
 
 def cmd_task_new(args) -> int:
-    """T292: open and deliver in one step - `actions.task_new` sends the
-    request (routing-checked, C2) before any task row exists, so a refused
-    owner leaves nothing behind. --blocked-by is task-board bookkeeping only
-    and runs after, on its own connection: it cannot be folded into that
-    same delivery (`ask` owns its own connection - see `task_new`'s
-    docstring), so a refusal here leaves the task opened and delivered, not
-    rolled back with it."""
+    """T292: open and deliver in one step (`actions.task_new`, C2 routing-
+    checked). --blocked-by runs after, on its own connection, so its
+    refusal leaves the task opened and delivered, not rolled back."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("open a task"))
@@ -248,12 +244,9 @@ def cmd_task_new(args) -> int:
         return 1
     body = textsafe.text(args.body).strip() if args.body else None
     if args.blocked_by is not None:
-        # Checked before anything is opened or delivered - a blocker that
-        # cannot be waited on (missing, or already closed) must refuse the
-        # whole thing, not leave a task behind with no way to add the block
-        # that was actually asked for (auditor's #2065 SHOULD-FIX C; there is
-        # no shared transaction any more to roll back instead - see
-        # `task_new`'s docstring - so this has to be a precheck).
+        # Precheck (auditor's #2065 SHOULD-FIX C): a bad blocker must refuse
+        # before anything is opened, since there is no shared transaction to
+        # roll back afterward.
         con = db.connect()
         try:
             why = actions._blocker_refusal(con, args.blocked_by)
@@ -528,9 +521,9 @@ def cmd_task_board(args) -> int:
             linked_rids = {r["id"] for r in reqs}
             holds = [c for c in db.open_child_tasks(con, t["id"])
                      if linked_rids & {r["id"] for r in db.task_requests(con, c["id"])}]
-            now = (", ".join(held) if held
+            now = ("waiting on " + ", ".join(f"T{b['id']}" for b in blockers) if blockers
+                  else ", ".join(held) if held
                   else "sub-task: " + ", ".join(kids) if kids
-                  else "waiting on " + ", ".join(f"T{b['id']}" for b in blockers) if blockers
                   else "held as sub-task " + ", ".join(
                       f"T{c['id']} ({c['owner']})" for c in holds) if holds
                   else "you - a result is in" if back

@@ -3794,6 +3794,9 @@ limits:
               str([dict(r) for r in reqs]))
         check("task new: bullet 1/3 - the owner's current task is set on delivery",
               db.current_task(con, "worker") == tid)
+        check("task new: the 'task' kind override survives enforce_edges' own re-check "
+              "at delivery (T202/T204) - it stays queued, not silently denied",
+              reqs[0]["state"] == "queued", str(dict(reqs[0])))
     finally:
         con.close()
 
@@ -3834,13 +3837,42 @@ limits:
     rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="worker")
     check("task note: refused for anyone but the opener or the founder",
           rc == 1, out)
+    con = db.connect()
+    try:
+        head = db.head_of_queue(con, "worker")
+    finally:
+        con.close()
     rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
     check("task note: the opener may send one, delivered to the holder",
           rc == 0 and "worker" in out, out)
+    note_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    con = db.connect()
+    try:
+        pending = db.followups_pending(con, "worker", head["id"])
+        check("task note: reaches the holder ahead of the work it corrects, "
+              "not behind it (1a) - in the head request's own thread",
+              any(r["id"] == note_rid for r in pending),
+              [dict(r) for r in pending])
+    finally:
+        con.close()
 
     rc, out = _cli(["task", "new", "--owner", askmod.HUMAN, "founder decision needed"])
     check("task new: the founder is a valid owner - a decision task (C3)",
           rc == 0 and "task T" in out, out)
+    tid_human = int(out.split("task T", 1)[1].split()[0])
+    con = db.connect()
+    try:
+        req = db.task_requests(con, tid_human)[0]
+        check("task new: a human-owned task keeps the edge's 'escalate' kind, not 'task'",
+              req["kind"] == "escalate", req["kind"])
+        check("task new: C3 - it shows in founder_waits as a gate",
+              any(w["kind"] == "escalation" for w in actions.founder_waits(con)),
+              actions.founder_waits(con))
+        check("task new: the founder holds no current-task row of its own",
+              askmod.HUMAN not in {r["agent"] for r in db.all_agent_states(con)},
+              [dict(r) for r in db.all_agent_states(con)])
+    finally:
+        con.close()
 
     rc, out = _cli(["task", "note", f"T{tid}", "too late now"], as_agent="manager")
     check("task note: refused on an already-done task - nothing left to note",

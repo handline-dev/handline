@@ -227,6 +227,13 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
     return int(rows["id"])
 
 
+# T292: the `kind` overrides `ask` accepts for a task or a task note,
+# regardless of what the routing edge itself carries. `enforce_edges` (daemon
+# delivery) must not treat that override as a changed edge, so it skips the
+# kind half of its re-check for these - it still checks relation and response.
+OVERRIDE_KINDS = {"task", "task_note"}
+
+
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False, first: bool = False,
         replaces: int | None = None, fyi: bool = False,

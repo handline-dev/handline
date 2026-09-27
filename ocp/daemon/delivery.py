@@ -5,7 +5,7 @@ import hashlib
 import time
 from pathlib import Path
 
-from ..team import agents, team as teammod
+from ..team import agents, ask as askmod, team as teammod
 from ..infra.yamlcompat import ConfigError
 from ..infra import paths, protected, sealed, timefmt
 from ..session import blocked, idle_close
@@ -297,7 +297,7 @@ def enforce_edges(con, agent: str, log) -> bool:
             db.clear_edge(con, int(r["id"]))
             continue
         d = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0))
-        kind = r["kind"] if r["fyi"] else d.kind
+        kind = r["kind"] if r["fyi"] or r["kind"] in askmod.OVERRIDE_KINDS else d.kind
         if not d.allowed:
             why = d.reason
         elif (r["relation"], r["response"], r["kind"]) != (d.relation, d.response, kind):
