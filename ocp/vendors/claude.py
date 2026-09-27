@@ -97,7 +97,8 @@ class Claude:
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
                     mcp: list[str], preamble: str | None,
                     hide: list[str] | None = None,
-                    memory_dir: Path | None = None) -> list[str]:
+                    memory_dir: Path | None = None,
+                    trusted: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -112,6 +113,10 @@ class Claude:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.
             settings["sandbox"] = {"filesystem": {"denyRead": hide}}
             settings["permissions"] = {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}
+        if trusted:
+            # The classifier reads autoMode from --settings, not from the
+            # project's settings; "$defaults" keeps the built-in entries.
+            settings["autoMode"] = {"environment": ["$defaults", *trusted]}
         if settings:
             argv += ["--settings", json.dumps(settings)]
         return argv
@@ -121,6 +126,11 @@ class Claude:
 
     def skip_permissions_argv(self) -> list[str]:
         return ["--dangerously-skip-permissions"]
+
+    def auto_mode_argv(self) -> list[str]:
+        # The flag, not permissions.defaultMode: a settings file's "auto" is
+        # ignored in a project's settings and unreliable elsewhere.
+        return ["--permission-mode", "auto"]
 
     def launch_env(self, preamble: str | None, disallowed: str, state_dir: Path) -> dict[str, str]:
         return {}
