@@ -6245,6 +6245,72 @@ def test_requests_parent_id_is_indexed(home: Path) -> None:
         con.close()
 
 
+def test_stop_wait_reason_reads_the_task_boards_own_wait(home: Path) -> None:
+    """T288/#1748: `actions.stop_wait_reason`, the Stop-hook gate's own
+    data-only predicate. An agent holding no current task is none of this
+    predicate's business (None). One that does may stop only while its
+    current task carries a recorded wait - an open child task, an open
+    --blocked-by, an open decision task to human still unanswered, or an
+    open say inside its reply window; lacking every one of those, the
+    predicate names the task and refuses. The decision-task check must read
+    the linked request's own 'queued' state, not `task_state`'s OPEN_STATES
+    (which counts 'done' - a decision already made - as still open)."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        check("stop_wait_reason: no current task at all is None",
+              actions.stop_wait_reason(con, "worker") is None)
+
+        tid = db.new_task(con, "build the thing", "worker", "manager")
+        db.set_current_task(con, "worker", tid)
+        reason = actions.stop_wait_reason(con, "worker")
+        check("stop_wait_reason: current task, nothing recorded, refuses the stop",
+              reason is not None and f"T{tid}" in reason, reason)
+
+        # An open child task is a recorded wait; closed, it is not.
+        kid = db.new_task(con, "sub part", "worker", "manager", parent_task=tid)
+        check("stop_wait_reason: an open child task is a recorded wait",
+              actions.stop_wait_reason(con, "worker") is None)
+        db.close_task(con, kid, "manager")
+        check("stop_wait_reason: a closed child is no longer a wait",
+              actions.stop_wait_reason(con, "worker") is not None)
+
+        # A --blocked-by task is a recorded wait; removed, it is not.
+        blocker = db.new_task(con, "blocker task", "worker", "manager")
+        db.add_block(con, tid, blocker)
+        check("stop_wait_reason: a --blocked-by task is a recorded wait",
+              actions.stop_wait_reason(con, "worker") is None)
+        db.remove_block(con, tid, blocker)
+        check("stop_wait_reason: removing the block restores the refusal",
+              actions.stop_wait_reason(con, "worker") is not None)
+
+        # An open decision task to human is a recorded wait - answered, it
+        # is not.
+        dec = db.new_task(con, "founder decision needed", askmod.HUMAN, "worker")
+        dec_rid = db.add_request(con, "worker", askmod.HUMAN, "decide", None,
+                                 "supervisor", "fire_and_forget", "escalate", 0, None)
+        db.link_request(con, dec, dec_rid)
+        check("stop_wait_reason: an open decision task to human is a recorded wait",
+              actions.stop_wait_reason(con, "worker") is None)
+        db.close_if_queued(con, dec_rid, "done", "approved")
+        check("stop_wait_reason: once the founder answers, it is no longer a wait "
+              "(not task_state's OPEN_STATES, which counts 'done' as open)",
+              actions.stop_wait_reason(con, "worker") is not None)
+
+        # A say sent inside its reply window is a recorded wait; past it, it
+        # is not.
+        ok, msg, say_rid = askmod.say("manager", "quick one?", requester="worker")
+        check("setup: a say", ok, msg)
+        check("stop_wait_reason: a say inside its reply window is a recorded wait",
+              actions.stop_wait_reason(con, "worker") is None)
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (int(time.time()) - askmod.SAY_TIMEBOX_S - 1, say_rid))
+        check("stop_wait_reason: past its reply window, it no longer is",
+              actions.stop_wait_reason(con, "worker") is not None)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -6345,6 +6411,7 @@ def main() -> int:
         run(lambda: test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(Path(td) / 'taskscreenlogic'))
         run(lambda: test_a_merge_says_when_it_drops_the_kept_tasks_wait_on_a_folded_one(Path(td) / 'mergewait'))
         run(lambda: test_requests_parent_id_is_indexed(Path(td) / 'parentidx'))
+        run(lambda: test_stop_wait_reason_reads_the_task_boards_own_wait(Path(td) / 'stopwait'))
         run(lambda: test_the_priority_columns_migrate_an_old_tasks_table(Path(td) / 'taskprimig'))
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
