@@ -86,8 +86,14 @@ def note(agent: str, tool: str | None, tool_input: object,
     """
     f = _file(agent)
     f.parent.mkdir(parents=True, exist_ok=True)
-    atomic.write_text(f, json.dumps({"tool": tool or "", "command": summary(tool_input),
-                                     "reason": reason(tool_input), "since": int(time.time()), "after_event_id": after_event_id}))
+    data = {"tool": tool or "", "command": summary(tool_input),
+            "reason": reason(tool_input), "since": int(time.time()), "after_event_id": after_event_id}
+    # ui (T304): the founder's screen needs the whole AskUserQuestion call to
+    # render its questions and options, not the one-line summary() other
+    # readers get - added only for this tool, so their shape stays unchanged.
+    if tool == "AskUserQuestion" and isinstance(tool_input, dict):
+        data["question_data"] = tool_input
+    atomic.write_text(f, json.dumps(data))
 
 
 def read(agent: str) -> dict | None:

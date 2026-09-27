@@ -139,6 +139,21 @@ def test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(hom
         con.close()
 
 
+def test_askuserquestion_carries_its_raw_input_beside_the_summary(home: Path) -> None:
+    """T304: ui renders the founder's own questions and options, not the one-line
+    summary() every other tool's wait record gets - added only for this tool."""
+    q = {"questions": [{"question": "Which?", "options": [{"label": "A"}, {"label": "B"}]}]}
+    waiting.note("backend", "AskUserQuestion", q, 11)
+    w = waiting.read("backend")
+    check("question_data: carries the whole call, untouched",
+          w["question_data"] == q, str(w))
+    check("question_data: the flat summary is still there too",
+          w["command"] and w["tool"] == "AskUserQuestion", str(w))
+    waiting.note("backend", "Bash", {"command": "ls"}, 12)
+    check("question_data: absent for every other tool",
+          "question_data" not in waiting.read("backend"))
+
+
 def test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(home: Path) -> None:
     orcamod.PRESS_SETTLE_S = 0
     con, term = _world(home, PROMPT)
@@ -201,6 +216,7 @@ def main() -> int:
         run(lambda: test_the_claude_adapter_recognizes_only_the_one_time_permission_prompt(Path(td) / 'c0'))
         run(lambda: test_a_confirmation_is_answered_with_the_plain_yes_or_no_and_nothing_else(Path(td) / 'c1'))
         run(lambda: test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(Path(td) / 'c2'))
+        run(lambda: test_askuserquestion_carries_its_raw_input_beside_the_summary(Path(td) / 'c2b'))
         run(lambda: test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(Path(td) / 'c3'))
         run(lambda: test_the_live_prompt_with_a_boxed_command_and_a_reason_line_is_recognized(Path(td) / 'c4'))
     return run_area(tests)
