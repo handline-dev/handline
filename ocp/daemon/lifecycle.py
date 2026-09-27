@@ -339,9 +339,11 @@ NOTHING_WAITING = "nothing is waiting for it; it is woken when something is sent
 
 def waiting_for(con, agent: str) -> bool:
     """Is anything waiting to be told to `agent`: a request at the head of its
-    queue, or an answer to something it asked. A closed agent is woken for
-    that and for nothing else."""
-    return bool(db.head_of_queue(con, agent) or db.unannounced_answers(con, agent))
+    queue, an answer to something it asked, or a say (T293) - never a head,
+    but still owed a delivery with nothing else queued. A closed agent is
+    woken for that and for nothing else."""
+    return bool(db.head_of_queue(con, agent) or db.unannounced_answers(con, agent)
+                or db.send_now_pending(con, agent))
 
 
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,

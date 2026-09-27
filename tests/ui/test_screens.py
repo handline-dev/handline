@@ -2605,6 +2605,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
         "launch": "execs claude",
         "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
+        "hooks gate": "writes the protected store; driven in "
+                      "test_the_enforce_switch_is_the_founders_to_flip "
+                      "(tests/session/test_stopgate.py), not this scene",
         "install-hooks": "writes the shared settings",
         "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
         "hr rename": "writes a proposal; prints its id",
@@ -2655,6 +2658,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust migrate": "founder-only; moves the old trust_roots.json once - driven in "
                          "test_trust_roots_live_in_the_protected_store",
         "venv install": "creates a real venv and pip installs into it",
+        "say": "T293: opens and delivers a say (send_now, never a head), or --needs-task "
+               "replies to the sender; driven in tests/team/test_say.py, not this scene",
     }
     have = set(driven_now := scene.driven) | set(skipped)
     every = set(leaves())

@@ -176,6 +176,10 @@ AGENT_ACTIVITY_KINDS = frozenset({
     "task_new", "task_start", "task_note",
     "UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact",
     "PermissionRequest", "TeammateIdle",
+    # T288: fires on the same Stop hook call as "Stop" - the only one of the
+    # two written when the stop is actually blocked, so it is this agent's
+    # own activity too, not something ocp did to it.
+    "stop_gate",
 })
 
 
