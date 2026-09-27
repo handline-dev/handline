@@ -33,8 +33,9 @@ OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
 QUIET_NOTIFICATIONS = ("inputNeededNotifEnabled", "agentPushNotifEnabled")
 
 # The tools a hook of ours is limited to, for the events that fire on every
-# call: PreToolUse is ours for the memory budget and looks at file writes only.
-MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit"}
+# call: PreToolUse is ours for the memory budget (T247) and the edit gate
+# (T295), and looks at file writes only.
+MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit"}
 
 # How we recognize a hook Orca installed. Every Orca hook command mentions one
 # of these paths or variables.

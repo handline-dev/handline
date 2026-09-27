@@ -241,7 +241,8 @@ def test_the_pre_tool_hook_is_installed_for_file_writes_only(home: Path) -> None
     added, _ = claude_hooks.install("/x/ocp", {"PreToolUse", "Stop"})
     groups = json.loads(claude_hooks.target_settings().read_text())["hooks"]
     check("install: PreToolUse is added, matched to the write tools",
-          "PreToolUse" in added and groups["PreToolUse"][0]["matcher"] == "Write|Edit|MultiEdit", str(groups))
+          "PreToolUse" in added
+          and groups["PreToolUse"][0]["matcher"] == "Write|Edit|MultiEdit|NotebookEdit", str(groups))
     check("install: an event that fires on every call carries no matcher of ours",
           "matcher" not in groups["Stop"][0])
     added, pruned = claude_hooks.install("/x/ocp", {"PreToolUse", "Stop"})
