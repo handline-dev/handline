@@ -548,12 +548,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="record the evidence as words even if it looks like hex")
     p.set_defaults(fn=cmd_task_done)
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
-                                     "only, needs a one-line reason")
+                                     "and needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
-    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker "
-                                      "only, needs a one-line reason")
+    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker or the founder "
+                                      "and needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_discard)

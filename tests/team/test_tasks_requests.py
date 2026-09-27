@@ -5859,6 +5859,57 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
         con.close()
 
 
+def test_the_founder_may_discard_close_and_finish_any_task(home: Path) -> None:
+    """T259: the asker of a task an agent opened is that agent, so the founder was
+    refused. The founder may act on any task, from a terminal (the CLI) and from the
+    bridge (which calls the actions as HUMAN); an agent that is not the asker may not,
+    and a wait on another task or a request still out is the founder's to lift
+    (the wait) or to cancel first (the request)."""
+    _board_world(home)
+    H = askmod.HUMAN
+    con = db.connect()
+    try:
+        by_cli, by_bridge, blocked, live, done_one = (
+            db.new_task(con, n, "worker", "manager") for n in ("a", "b", "c", "d", "e"))
+        blocker = db.new_task(con, "blocker", "worker", "manager")
+        db.add_block(con, blocked, blocker)
+        db.link_request(con, live, _request("manager", "worker"))
+        ok, msg = actions.discard_task(con, by_bridge, "worker", "no")
+        check("founder: an agent that is not the asker is still refused", not ok and "founder" in msg, msg)
+        check("founder: the asker is the agent that opened it",
+              actions.task_asker(con, db.get_task(con, by_bridge)) == "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "discard", f"T{by_cli}", "not wanted"], as_agent=H)
+    check("founder: the terminal discards a task an agent asked for", rc == 0 and "discarded by human" in out, out)
+    con = db.connect()
+    try:
+        ok, msg = actions.discard_task(con, by_bridge, H, "not wanted")
+        check("founder: the bridge discards one too", ok, msg)
+        ok, msg = actions.discard_task(con, blocked, H, "not wanted")
+        check("founder: a task waiting on another can be discarded, and the wait ends",
+              ok and not db.task_blockers(con, blocked), msg)
+        ok, msg = actions.discard_task(con, live, H, "not wanted")
+        check("founder: a request still out is refused, naming ocp cancel",
+              not ok and "ocp cancel" in msg, msg)
+        ok, msg = actions.mark_task_done(con, done_one, H, reason="settled by the founder")
+        check("founder: marks a task done that it does not own", ok, msg)
+        ok, msg = actions.reopen_task(con, done_one, H, "one more look")
+        check("founder: reopens it", ok, msg)
+        actions.mark_task_done(con, done_one, H, reason="settled")
+        ok, msg = actions.close_task(con, done_one, H)
+        check("founder: closes it", ok, msg)
+        d2 = db.new_task(con, "waits", "worker", "manager")
+        db.add_block(con, d2, blocker)
+        actions.mark_task_done(con, d2, H, reason="x")
+        ok, msg = actions.close_task(con, d2, H)
+        check("founder: closes a done task that still waits on another", ok and not db.task_blockers(con, d2), msg)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list", "--all"], as_agent=H)
+    check("founder: what it closed reads closed", "closed" in out, out)
+
+
 def test_requests_parent_id_is_indexed(home: Path) -> None:
     """T92: the replied EXISTS looks a request up by parent_id once per row on
     the page; without an index that is a table scan each."""
@@ -5964,6 +6015,7 @@ def main() -> int:
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
+        run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
         run(lambda: test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(Path(td) / 'taskscreenlogic'))
