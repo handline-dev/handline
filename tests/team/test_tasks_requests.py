@@ -6246,16 +6246,22 @@ def test_requests_parent_id_is_indexed(home: Path) -> None:
 
 
 def test_stop_wait_reason_reads_the_task_boards_own_wait(home: Path) -> None:
-    """T288/#1748: `actions.stop_wait_reason`, the Stop-hook gate's own
-    data-only predicate. An agent holding no current task is none of this
-    predicate's business (None). One that does may stop only while its
-    current task carries a recorded wait - an open child task, an open
-    --blocked-by, an open decision task to human still unanswered, or an
-    open say inside its reply window; lacking every one of those, the
-    predicate names the task and refuses. The decision-task check must read
-    the linked request's own 'queued' state, not `task_state`'s OPEN_STATES
-    (which counts 'done' - a decision already made - as still open)."""
+    """T288/#1748: `actions.stop_wait_reason`, checked branch by branch."""
     _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
     con = db.connect()
     try:
         check("stop_wait_reason: no current task at all is None",
@@ -6286,10 +6292,9 @@ def test_stop_wait_reason_reads_the_task_boards_own_wait(home: Path) -> None:
 
         # An open decision task to human is a recorded wait - answered, it
         # is not.
-        dec = db.new_task(con, "founder decision needed", askmod.HUMAN, "worker")
-        dec_rid = db.add_request(con, "worker", askmod.HUMAN, "decide", None,
-                                 "supervisor", "fire_and_forget", "escalate", 0, None)
-        db.link_request(con, dec, dec_rid)
+        ok, msg, dec = actions.task_new("worker", askmod.HUMAN, "founder decision needed")
+        check("setup: a decision task", ok, msg)
+        dec_rid = db.task_requests(con, dec)[0]["id"]
         check("stop_wait_reason: an open decision task to human is a recorded wait",
               actions.stop_wait_reason(con, "worker") is None)
         db.close_if_queued(con, dec_rid, "done", "approved")

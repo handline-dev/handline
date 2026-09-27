@@ -193,19 +193,8 @@ def task_state(con, row) -> str:
 
 
 def stop_wait_reason(con, agent: str) -> str | None:
-    """Data-only predicate for the Stop-hook gate (T288, #1748): why `agent`
-    should not stop right now, or None when nothing here objects.
-
-    An agent holding no current task is not this predicate's business. One
-    that holds one may stop only if the task has a recorded wait: an open
-    child task, an open `--blocked-by`, or an open decision task to human
-    (`db.open_decision_tasks_of` - not `task_state`'s OPEN_STATES, which
-    counts a decision already answered as still open). A say the agent sent
-    counts too, but only inside its 30-minute reply window - past it,
-    nothing keeps the other side waiting. Background work and the daemon's
-    own loop guards are the caller's job, not this one's - it only ever
-    reads the task board and the requests under it.
-    """
+    """Why `agent` should not stop right now (T288, #1748): it holds a
+    current task with no recorded wait. None if it holds none, or has one."""
     tid = db.current_task(con, agent)
     if tid is None:
         return None

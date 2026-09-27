@@ -186,13 +186,9 @@ def tasks_blocked_by(con, tid: int) -> list:
 
 def open_decision_tasks_of(con, agent: str) -> int:
     """Decision tasks (owner `HUMAN`, T292 C3) `agent` opened whose linked
-    request to the founder is still unanswered.
-
-    Not `task_state`'s OPEN_STATES (T288, #1748): that counts 'done' as
-    open, but a decision task goes 'done' the moment the founder answers -
-    it is the request underneath, still 'queued', that says nobody has
-    weighed in yet.
-    """
+    request to the founder is still 'queued' - not `task_state`'s
+    OPEN_STATES (T288, #1748), which counts an already-answered 'done' as
+    open too."""
     return con.execute(
         "SELECT COUNT(*) FROM tasks t JOIN task_requests l ON l.task_id = t.id "
         "JOIN requests r ON r.id = l.request_id "
