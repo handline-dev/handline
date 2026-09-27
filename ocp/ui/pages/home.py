@@ -56,7 +56,7 @@ _ACCT_TIERS = (
 _GLOBAL_KEYS = (Key("←→", "panel", 3, "move between the panels"), Key("↑↓", "row", 3, "move between the rows"),
                 Key("q", "quit", 2, "quit the bridge"), Key("b", "checks", 2, "done tasks waiting for your check"),
                 Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "the week left, last and next 24h"))
-_AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "note")
+_AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "task", "note")
 _MESSAGE_HEADS = ("", "", "from", "message")
 
 
@@ -303,7 +303,7 @@ class HomePage(RowActions, JobsAware, Screen):
                 name = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}"
                                       + tui.fold_suffix(r.under, r.urgency))
                 table.add_row(name, "", "", Text(f"config error: {tui.oneline(r.error or '')}", style="red"),
-                              "", "", "", "", key=r.name)
+                              "", "", "", "", "", key=r.name)
                 continue
             wall = ""
             if r.wall:
@@ -313,8 +313,9 @@ class HomePage(RowActions, JobsAware, Screen):
                           self._state_cell(r, x, self._on),
                           Text.from_ansi(agent_rows.cache_cell(x.cache_left, x.cache_ignored)),
                           Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
+                          Text(str(r.tasks) if r.tasks else "·"),
                           self._note_cell(r, x, wall), key=r.name)
-            if self._alarm(r, x) or self._fold_errs(r, x):
+            if self._alarm(r, x) or self._fold_errs(r, x) or r.ready:
                 self._blinking[r.name] = (r, x)
         self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
         self._notes("#agent-notes", notes)
@@ -406,6 +407,8 @@ class HomePage(RowActions, JobsAware, Screen):
             out.append(f" ✉{x.asks}", style="yellow")
         if self._alarm(r, x):
             out.append(" ⚠" if on else "  ", style="bold red")
+        if r.ready:
+            out.append(" ⚑" if on else "  ", style="bold red")
         return out
 
     def _note_cell(self, r, x, wall: str) -> Text:
