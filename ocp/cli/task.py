@@ -351,6 +351,7 @@ def _print_board(con, tasks: list) -> None:
     if not tasks:
         print("no open tasks.")
         return
+    open_requests = con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall()
     for t in tasks:
         parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
         edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
@@ -368,6 +369,9 @@ def _print_board(con, tasks: list) -> None:
               f"{parent}{edited}{done}{closed}{merged}  "
               f"{actions.priority_ref(t['priority'])}  may close: {actions.task_asker(con, t)}"
               f"{waits}  active {active}")
+        odd = actions.task_mismatch(con, t, state, open_requests)
+        if odd:
+            print(f"        ! {odd}")
         for r in db.task_requests(con, t["id"]):
             when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
@@ -447,6 +451,7 @@ def cmd_task_board(args) -> int:
         if not tasks and not needing_close:
             print("no open tasks.")
             return 0
+        open_requests = con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall()
         for t in tasks:
             reqs = db.task_requests(con, t["id"])
             held = sorted({r["target"] for r in reqs if r["state"] == "queued"})
@@ -469,6 +474,9 @@ def cmd_task_board(args) -> int:
             parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
             print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
             print(_fit100(f"      now: {now}"))
+            odd = actions.task_mismatch(con, t, actions.task_state(con, t), open_requests)
+            if odd:
+                print(_fit100(f"      ! {odd}"))
         _print_needing_close(con, needing_close)
     finally:
         con.close()

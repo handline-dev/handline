@@ -5782,6 +5782,68 @@ def test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(home: P
         con.close()
 
 
+def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
+    """T250: `ask --task N` links the request, so a draft task reads doing; text
+    that names a T<n> is refused without --task or --no-task; `task list` and
+    `task board` mark a state that disagrees with the requests."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "work", "worker", "manager")
+        u = db.new_task(con, "other", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["ask", "worker", f"please do T{t}"])
+    check("ask: text naming a task is refused without --task", rc == 1 and f"T{t}" in out
+          and "--task" in out and "--no-task" in out, out)
+    con = db.connect()
+    try:
+        check("ask: and nothing was sent", con.execute("SELECT COUNT(*) c FROM requests").fetchone()["c"] == 0)
+    finally:
+        con.close()
+    rc, out = _cli(["ask", "worker", f"see T{u}", "--no-task", ""])
+    check("ask: an empty --no-task reason is refused", rc == 1 and "reason" in out, out)
+    rc, out = _cli(["ask", "worker", f"see T{t}", "--task", str(t), "--no-task", "x"])
+    check("ask: --task with --no-task is refused", rc == 1 and "contradict" in out, out)
+    rc, out = _cli(["ask", "worker", "do it", "--task", "999"])
+    check("ask: --task for a task that does not exist is refused", rc == 1 and "no task T999" in out, out)
+
+    rc, out = _cli(["ask", "worker", f"only mentions T{u} in passing", "--no-task", "context only"])
+    check("ask: --no-task with a reason gets past the guard", rc == 0, out)
+    rc, out = _cli(["ask", "worker", f"please do T{t}", "--task", str(t)])
+    check("ask: --task sends, links, and says the draft now reads doing",
+          rc == 0 and f"linked to T{t}" in out and "doing" in out, out)
+    con = db.connect()
+    try:
+        check("ask: the request is linked and the task is doing",
+              len(db.task_requests(con, t)) == 1
+              and actions.task_state(con, db.get_task(con, t)) == "doing")
+        check("ask: the task was never approved, so the mismatch names it",
+              "never approved" in (actions.task_mismatch(
+                  con, db.get_task(con, t), "doing",
+                  con.execute("SELECT * FROM requests WHERE state='queued'").fetchall()) or ""))
+    finally:
+        con.close()
+    rc, out = _cli(["task", "list"])
+    check("list: a draft with a request out is marked", "! never approved" in out, out)
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: and so is it there", "! never approved" in out, out)
+    check("list: the unlinked request that names T%d is marked" % u,
+          f"names it but is not linked: ocp task link {u}" in _cli(["task", "list"])[1])
+
+    con = db.connect()
+    try:
+        v = db.new_task(con, "approved idle", "worker", "manager")
+        actions.set_queued(con, v, "manager", True)
+        check("mismatch: a queued task with no request out is marked",
+              "approved, but no request" in (actions.task_mismatch(
+                  con, db.get_task(con, v), "queued", []) or ""))
+        check("mismatch: a finished task is never marked",
+              actions.task_mismatch(con, db.get_task(con, v), "done", []) is None)
+    finally:
+        con.close()
+
+
 def test_requests_parent_id_is_indexed(home: Path) -> None:
     """T92: the replied EXISTS looks a request up by parent_id once per row on
     the page; without an index that is a table scan each."""
@@ -5886,6 +5948,7 @@ def main() -> int:
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
+        run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
         run(lambda: test_task_screen_logic_sorts_flags_idle_and_batches_with_reasons(Path(td) / 'taskscreenlogic'))

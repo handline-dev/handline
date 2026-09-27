@@ -248,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "ID is retired and this takes its place in line")
     p.add_argument("--reason", default=None,
                    help="why --replaces retires the old request; stored as typed")
+    p.add_argument("--task", type=int, default=None, metavar="N",
+                   help="link this request to task T<N>; a draft task reads doing while "
+                        "it is out")
+    p.add_argument("--no-task", default=None, metavar="REASON",
+                   help="the text names a T<n> that this request is not for; say why")
     p.add_argument("--fyi", action="store_true",
                    help="a report to the human that asks nothing of them: not red, not "
                         "counted as waiting on them, gone once read or when your next "

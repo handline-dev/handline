@@ -53,6 +53,7 @@ back to the account its session lives on.""",
   ocp ask <agent> "<task>"        queue it
   ocp ask <agent> "..." --first   put it at the head of the queue
   ocp ask <agent> "..." --replaces <id>   correct a task you sent, before it is delivered
+  ocp ask <agent> "..." --task <n>        link the request to T<n>; text naming a T<n> needs it (or --no-task "why")
   ocp ask human "..." --fyi       a report that asks nothing: not red, not counted as
                                   waiting on the founder, gone once read or superseded
   ocp ask <agent> "..." --timebox 90m   you are told once if it is still open that long
