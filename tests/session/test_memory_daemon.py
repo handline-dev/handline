@@ -224,7 +224,8 @@ def test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(home: Path) -> N
         tb = threading.Thread(target=lambda: memoryguard.note_use(
             "backend", "Read", {"file_path": b}, now=2000))
         tb.start()
-        time.sleep(0.05)  # give b's flock a chance to be tried, and to block
+        tb.join(timeout=0.2)
+        assert tb.is_alive(), "b finished without ever blocking on a's lock - the test proved nothing"
         let_a_finish.set()
         ta.join(timeout=5)
         tb.join(timeout=5)
