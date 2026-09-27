@@ -19,8 +19,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -258,6 +260,37 @@ def hidden_memories(agent: str) -> list[str]:
     return [str(paths.agent_dir(a) / "memory") for a in paths.list_agents() if a != agent]
 
 
+def _git(worktree: Path, *args: str) -> str:
+    try:
+        r = subprocess.run(["git", "-C", str(worktree), *args], capture_output=True,
+                           text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def trusted_environment(worktree: Path | None) -> list[str]:
+    """What the permission classifier should count as the team's own, as the
+    prose it reads: the state folder, this worktree and its repository, and the
+    GitHub repos its remotes name. Anything else stays outside the boundary."""
+    lines = [f"The team's state folder {paths.home()} and everything under it is the team's own: "
+             f"reading and writing it, and running `ocp`, is routine."]
+    if worktree is None:
+        return lines
+    lines.append(f"This agent's own git worktree is {worktree}: `cd`, editing files, `sed -i`, "
+                 f"running tests and committing inside it are routine.")
+    common = _git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if common:
+        lines.append(f"Its repository is {Path(common).parent}, and the sibling worktrees under "
+                     f"{worktree.parent} are other agents of the same team.")
+    repos = sorted({m.group(1) for line in _git(worktree, "remote", "-v").splitlines()
+                    if (m := re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?\s", line + " "))})
+    if repos:
+        lines.append("Source control: the GitHub repos " + ", ".join(f"github.com/{r}" for r in repos)
+                     + " and their branches.")
+    return lines
+
+
 def hidden_transcripts(agent: str, drv) -> list[str]:
     """The transcript folders `agent` may not read (T40): every other agent's
     except its own and its reports', in every account of this vendor, since
@@ -378,7 +411,9 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     memory_dir.mkdir(parents=True, exist_ok=True)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
-                           memory_dir=memory_dir)
+                           memory_dir=memory_dir, trusted=trusted_environment(Path.cwd()))
+    if not (agents.skip_permissions(cfg) and agents.skip_permissions_granted(agent)):
+        argv += [f for f in drv.auto_mode_argv() if f not in (extra or [])]
     if agents.skip_permissions(cfg) and not agents.skip_permissions_granted(agent):
         print(f"warning: agent '{agent}' has skip_permissions in its agent.yaml, but the "
               f"founder never turned it on (`ocp agent register {agent} --skip-permissions on`, "
