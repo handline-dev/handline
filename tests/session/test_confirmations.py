@@ -178,12 +178,31 @@ def test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(h
         con.close()
 
 
+# The founder's paste of a live prompt (T277): the panel opens with a U+2500 rule,
+# the command is boxed with "│", a description and a reason line follow.
+LIVE_PROMPT = ["─" * 120, " Bash command", "",
+               " │ ocp ask human 'T239 (#1328) is blocked. Need one of: (a) approve that edit'",
+               " │ 2>&1 | tail -3", "   Escalate the block to the founder", "",
+               " │ ocp names a path that is computed at run time, which cannot be checked against "
+               "the read block (permissions.blockReadsOutsideWorkingDirectories)", "",
+               " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "",
+               " Esc to cancel · Tab to amend"]
+
+
+def test_the_live_prompt_with_a_boxed_command_and_a_reason_line_is_recognized(home: Path) -> None:
+    found = Claude().confirmation(_dialog(["earlier output"] + LIVE_PROMPT))
+    check("recognize: the live prompt's title, three lines, and Yes/No numbers",
+          found and found.title == "Bash command" and len(found.lines) == 4
+          and found.lines[-1].startswith("│ ocp names a path") and (found.yes, found.no) == (1, 2), str(found))
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_claude_adapter_recognizes_only_the_one_time_permission_prompt(Path(td) / 'c0'))
         run(lambda: test_a_confirmation_is_answered_with_the_plain_yes_or_no_and_nothing_else(Path(td) / 'c1'))
         run(lambda: test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(Path(td) / 'c2'))
         run(lambda: test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(Path(td) / 'c3'))
+        run(lambda: test_the_live_prompt_with_a_boxed_command_and_a_reason_line_is_recognized(Path(td) / 'c4'))
     return run_area(tests)
 
 

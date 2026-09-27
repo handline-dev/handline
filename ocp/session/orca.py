@@ -439,9 +439,10 @@ class Blocker:
         return f"{base}: {self.detail}" if self.detail else base
 
 
-# A dialog's panel opens with a rule of these (measured on Claude Code's exit
-# confirmation); the title is the first line under it.
-_RULE = re.compile(r"^\u2594{8,}$")
+# A dialog's panel opens with a rule; the title is the first line under it. The
+# exit confirmation draws it with U+2594 (measured), the tool permission prompt
+# with U+2500 (a founder's paste of a live one, T277).
+_RULE = re.compile(r"^[\u2594\u2500]{8,}$")
 _OPTION = re.compile(r"^(?:\u276f\s*)?\d+\.\s+\S")
 DETAIL_CHARS = 200
 
