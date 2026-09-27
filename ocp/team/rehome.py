@@ -6,9 +6,9 @@ even while the folder still carries the old one. This is the other half:
 `ocp hr rehome` actually moves the folder, once nothing still depends on it
 being where it is.
 
-The folder is the key Claude keeps the agent's memory and transcripts under
+The folder is the key Claude keeps the agent's transcripts under
 (`accounts.memory_project_dir`), so moving it without those leaves the agent
-to wake with no memory and no transcript to resume.
+to wake with no transcript to resume. Agent memory is not keyed by it.
 
 Three things move together, or none does: the checkout (`git worktree move`, so
 git's own records follow and uncommitted work stays where it is), each
@@ -221,7 +221,7 @@ def move(con, agent: str, old: str) -> tuple[bool, str]:
     # Refused, not merged: a merge moves files one by one and cannot be undone.
     for _a, b in pairs:
         if b.exists():
-            return False, f"{b} already exists - not merging memory into it; nothing moved"
+            return False, f"{b} already exists - not merging into it; nothing moved"
     git = subprocess.run(["git", "-C", str(src), "worktree", "move", str(src), str(dest)],
                          capture_output=True, text=True)
     if git.returncode != 0:
@@ -234,7 +234,7 @@ def move(con, agent: str, old: str) -> tuple[bool, str]:
                               capture_output=True, text=True)
         if back.returncode != 0:
             return False, (f"moving a Claude project directory failed ({e}) and git would not "
-                           f"move the worktree back: it is at {dest}, its memory is unmoved "
+                           f"move the worktree back: it is at {dest}, its project directories are unmoved "
                            f"({textsafe.oneline((back.stderr or back.stdout).strip())[:120]})")
         return False, f"moving a Claude project directory failed ({e}); nothing moved"
     row = db.get_agent_state(con, agent)
@@ -245,6 +245,6 @@ def move(con, agent: str, old: str) -> tuple[bool, str]:
     con.execute("UPDATE agent_state SET worktree = ?, terminal = NULL WHERE agent = ?",
                 (prefix + str(dest), agent))
     return True, (f"{agent}: worktree moved {src.name} -> {dest.name} (git's records followed; "
-                  f"uncommitted work is where it was), memory and transcripts carried on "
+                  f"uncommitted work is where it was), transcripts carried on "
                   f"{len(pairs)} account(s); its old terminal is forgotten, the next launch "
                   f"opens one in {dest}." + _relabel(entry, dest, agent))

@@ -10,7 +10,7 @@ than none").
 
 - Claude Code keys auto-memory by repo: `<config dir>/projects/<repo>/memory/`.
   ocp links that folder from every account to `shared/memory/claude/<repo>`
-  (`accounts.share_memory`), so the six orcapipe agents share one folder.
+  (`accounts.share_memory`, retired in T246), so the six orcapipe agents share one folder.
 - It holds 13 topic files and a `MEMORY.md` that lists **6** of them. Claude
   loads only the index at start, so the other 7 are never loaded unless an
   agent happens to open them. Two files (`ocp-cli-habits`, `ocp-resolve-quoting`)
@@ -75,10 +75,11 @@ limit (200 lines / 25KB) is 10x looser and is never reached.
 3. **Pruning candidates.** `ocp doctor` and `ocp memory status` list per agent:
    bytes and entries against budget, files not in the index, and files unused
    for 28 days. Candidates are reported, never deleted by ocp.
-4. **Consolidate at handoff.** The handoff prompt carries the agent's status
-   line; when over budget or with candidates, it says "merge or delete these
-   before you finish". The wake prompt repeats it if the next session still
-   starts over budget.
+4. **Consolidate at handoff.** The handoff record is built by the daemon with no
+   model, so it cannot ask the agent anything; instead it carries one `memory:`
+   line (bytes, entries, unindexed and unused files, "merge, promote or delete
+   these before you finish") when the memory needs tending, and a fresh session
+   with no record gets the same line in its wake prompt. Built in T230.
 5. **Promotion.** A lesson every agent needs moves to `AGENTS.md` / `ROLE.md`
    by PR and is deleted from memory; `ocp memory status` flags an entry whose
    text also appears in another agent's memory as a promotion candidate.

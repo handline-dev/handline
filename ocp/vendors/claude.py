@@ -96,7 +96,8 @@ class Claude:
 
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
                     mcp: list[str], preamble: str | None,
-                    hide: list[str] | None = None) -> list[str]:
+                    hide: list[str] | None = None,
+                    memory_dir: Path | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -105,12 +106,18 @@ class Claude:
         argv += mcp
         if preamble:
             argv += ["--append-system-prompt", preamble]
+        # One --settings object: a second one would replace the first.
+        settings = self.memory_settings(memory_dir) if memory_dir else {}
         if hide:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.
-            settings = {"sandbox": {"filesystem": {"denyRead": hide}},
-                        "permissions": {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}}
+            settings["sandbox"] = {"filesystem": {"denyRead": hide}}
+            settings["permissions"] = {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}
+        if settings:
             argv += ["--settings", json.dumps(settings)]
         return argv
+
+    def memory_settings(self, memory_dir: Path) -> dict:
+        return {"autoMemoryDirectory": str(memory_dir)}
 
     def skip_permissions_argv(self) -> list[str]:
         return ["--dangerously-skip-permissions"]

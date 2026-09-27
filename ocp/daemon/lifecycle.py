@@ -393,6 +393,8 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
                         if record else
                         "There is no handoff. Read your journal and your inbox "
                         "before carrying on."))
+        if not record and (note := handoffmod.memory_line(agent)):
+            parts.append(note)
     else:
         parts.append("You were parked and have been resumed. Your context was cleared; "
                      "below is your own handoff record. Carry on from here.")
@@ -830,6 +832,14 @@ def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -
 
 
 TRUST_STALL = "folder-trust prompt"
+# What opens the escalation a trust stall raises, which `sweep` finds it by when the stall
+# is lifted. Not "[trust]" alone: a standing-consent proposal (`team/trust.py`) opens with
+# that too. Stalls raised before this marker began with "[trust] <agent>'s terminal ...".
+TRUST_ESCALATION = "[trust stall]"
+
+
+def trust_escalation_prefixes(agent: str) -> tuple[str, str]:
+    return TRUST_ESCALATION, f"[trust] {agent}'s terminal is showing"
 
 
 def _escalate_trust_prompt(con, agent: str, handle: str, log,
@@ -850,7 +860,7 @@ def _escalate_trust_prompt(con, agent: str, handle: str, log,
     why = (f"{agent}'s terminal is showing {vendor}'s {TRUST_STALL} for "
            f"{shown or 'an unreadable folder'} (account {acct or 'none'}, recorded "
            f"worktree {recorded or 'unknown'}) - nothing was typed into it")
-    askmod.escalate(con, agent, f"[trust] {why}", why)
+    askmod.escalate(con, agent, f"{TRUST_ESCALATION} {why}", why)
     db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
     log(f"  {agent}: {why}")
     return False, why

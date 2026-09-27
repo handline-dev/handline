@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from ..team import agents
+from ..team import ask as askmod
 from .. import db
 from ..session import observe as obs
 from ..session import orca
@@ -155,6 +156,33 @@ def _resumable_session(con, agent: str) -> str | None:
     return session
 
 
+def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
+    """A stall raised for a folder-trust screen is lifted once the screen has
+    been read and is not there. The stall was the daemon's own, made on that
+    screen, and the world has refuted it - a standing-consent press by the
+    blocked sweep, a person at the keyboard, or the vendor itself answered it,
+    and a running session is not something a person needs to clear. Its
+    escalation closes with it. An unreadable screen changes nothing.
+    """
+    with orca.driver_scope():
+        if not orca.trust_prompt_gone(row["terminal"]):
+            return
+    # Escalation first, row second: a lift whose close failed would strand the
+    # escalation, and a kept stall is retried on the next tick.
+    for rid in (r for prefix in lifecycle.trust_escalation_prefixes(agent)
+                for r in db.open_escalation_ids(con, agent, prefix)):
+        try:
+            askmod.resolve(rid, "cleared - its folder-trust prompt is answered", state="done", notify=False)
+        except Exception as e:
+            log(f"  {agent}: could not close escalation {rid} ({e}); the stall stays")
+    if any(db.open_escalation_ids(con, agent, prefix)
+           for prefix in lifecycle.trust_escalation_prefixes(agent)):
+        return
+    db.set_agent_state(con, agent, IDLE, detail="the folder-trust prompt is answered; the stall is lifted")
+    actions.append(f"{agent}: STALLED -> IDLE (its folder-trust prompt is answered)")
+    log(f"  {agent}: its folder-trust prompt is answered; the stall is lifted")
+
+
 def sweep(con, log, actions: list[str]) -> None:
     """Ask the world what is true, and correct the record where it is not.
 
@@ -221,21 +249,34 @@ def sweep(con, log, actions: list[str]) -> None:
         alive = o.session_pid is not None
         closed = bool(row["closed_at"])
 
+        if alive and row["state"] == STALLED and lifecycle.TRUST_STALL in (row["detail"] or ""):
+            _lift_trust_stall(con, agent, row, log, actions)
+            row = db.get_agent_state(con, agent)   # what follows judges the row as it now is
+
         if alive and closed:
             # It came back without us - a human relaunched it, or a resume
             # landed that we never recorded. Believing our own note here would
             # close it a second time on top of a live session.
             db.clear_closed(con, agent)
+            row = db.get_agent_state(con, agent)
             actions.append(f"{agent}: a session is running; the closed mark was wrong")
             log(f"  {agent}: running again (pid {o.session_pid}); cleared the closed mark")
-            if row["state"] == STALLED and row["wake_failures"] >= MAX_FAILED_ATTEMPTS:
+            # Judged before the streak is reset: the reset is what refutes it.
+            wake_stall = (row["state"] == STALLED and row["wake_failures"] >= MAX_FAILED_ATTEMPTS
+                          and lifecycle.TRUST_STALL not in (row["detail"] or ""))
+            if row["wake_failures"]:
+                # A session is running, which refutes a streak of launches that
+                # started nothing - whatever state the row is in by now.
+                db.reset_counter(con, agent, "wake_failures")
+                row = db.get_agent_state(con, agent)
+            if wake_stall:
                 # This stall is ours: we stopped because our launches started
                 # nothing, and a session is running now. 8.6 keeps a human in
                 # the loop for a stall the agent cannot refute - this one the
                 # world just refuted, on the same evidence that cleared the
                 # closed mark, and leaving it would hide a live agent from
-                # every delivery.
-                db.reset_counter(con, agent, "wake_failures")
+                # every delivery. Not a trust stall: a session sitting at the
+                # prompt is running too, and only the screen refutes that one.
                 db.set_agent_state(con, agent, IDLE,
                                    detail="a session is running; the wake stall is lifted")
                 actions.append(f"{agent}: STALLED -> IDLE (it is running after all)")

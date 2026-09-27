@@ -14,7 +14,7 @@ import sys
 
 from ..usage import collect
 from .. import db
-from . import waiting
+from . import memoryguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
 CAPTURED = {
@@ -34,6 +34,11 @@ CAPTURED = {
 # never recorded - PostToolUse fires on every tool call - and all they do is
 # take away the wait a PermissionRequest raised (`waiting.clear`).
 ANSWERS = {"PostToolUse", "PostToolUseFailure"}
+
+# Hooks that can refuse a tool call: installed for the memory budget only
+# (`memoryguard.guard`), and matched to the tools it looks at rather than
+# firing on every call.
+GUARDS = {"PreToolUse"}
 
 # The events after which no prompt can still be pending: a new prompt, or the
 # turn or the session ending.
@@ -123,11 +128,25 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     event = raw.get("hook_event_name") or event
     agent = os.environ.get("OCP_AGENT")
     account = os.environ.get("OCP_ACCOUNT")
+    if agent and event in GUARDS:
+        try:
+            why = memoryguard.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
+        except Exception:  # noqa: BLE001 - a hook must never break the session
+            why = None
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": event, "permissionDecision": "deny", "permissionDecisionReason": why}})
+            if why else "{}")
+        return 0
     if agent and event in ANSWERS:
         try:
             waiting.clear(agent, raw.get("tool_name"), raw.get("tool_input"))
         except Exception:  # noqa: BLE001 - a hook must never break the session
             pass
+        if event == "PostToolUse":
+            try:
+                memoryguard.note_use(agent, raw.get("tool_name"), raw.get("tool_input"))
+            except Exception:  # noqa: BLE001 - same
+                pass
         print("{}")
         return 0
     if not agent or event not in CAPTURED:

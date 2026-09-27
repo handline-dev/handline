@@ -252,6 +252,12 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
     return ["--mcp-config", str(p)], None
 
 
+def hidden_memories(agent: str) -> list[str]:
+    """The memory folders `agent` may not read: every other agent's, with no
+    exception for its reports - a memory is that agent's own."""
+    return [str(paths.agent_dir(a) / "memory") for a in paths.list_agents() if a != agent]
+
+
 def hidden_transcripts(agent: str, drv) -> list[str]:
     """The transcript folders `agent` may not read (T40): every other agent's
     except its own and its reports', in every account of this vendor, since
@@ -368,8 +374,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     # every session - that is what its 2KB budget is a budget for - and the
     # handoff waiting for it is injected so it picks up where it left off.
     preamble = context_for(agent)
+    memory_dir = paths.agent_dir(agent) / "memory"
+    memory_dir.mkdir(parents=True, exist_ok=True)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
-                           hide=hidden_transcripts(agent, drv))
+                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
+                           memory_dir=memory_dir)
     if agents.skip_permissions(cfg) and not agents.skip_permissions_granted(agent):
         print(f"warning: agent '{agent}' has skip_permissions in its agent.yaml, but the "
               f"founder never turned it on (`ocp agent register {agent} --skip-permissions on`, "
@@ -491,7 +500,8 @@ def fingerprint(agent: str) -> str:
     """What `build()` would launch this agent with right now, boiled down to
     the pieces a running session cannot pick up on its own: the model, the
     effort level, the disallowed-tools list, the shared mcp.json, and the
-    static preamble (team line, ROLE.md, base.md). Never the account or the
+    static preamble (team line, ROLE.md, base.md, the rules file of each
+    team it is in). Never the account or the
     handoff - the account is chosen fresh on every real launch regardless of
     what last time picked, and the handoff is supposed to be different every
     time this agent is parked, so hashing either would call a session stale
@@ -602,27 +612,6 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 spawn.register_worker(con, agent, handle)
                 db.set_launch_fingerprint(con, agent, fp)
             if acct:
-                repo = agents.repo_of(agent)
-                try:
-                    accounts.share_memory(acct, repo)
-                except OSError as e:  # noqa: BLE001 - memory is not worth a launch
-                    print(f"ocp launch: could not share memory for {acct}: {e}", file=sys.stderr)
-                # Every path that starts a session passes through here, so
-                # this is the one place a landing account differing from the
-                # last one is ever seen - and the one place to carry what
-                # that last session had learned along with it, before
-                # `set_account` overwrites the record.
-                previous = agents.current_account(agent, con)
-                if previous and previous != acct:
-                    project = accounts.memory_project_dir(previous, repo) if repo else None
-                    try:
-                        carried = accounts.migrate_memory(previous, acct, project=project)
-                        db.add_event(con, agent, "memory_migrated",
-                                     {"from": previous, "to": acct, "carried": carried})
-                    except Exception as e:  # noqa: BLE001 - record it, keep launching
-                        db.add_event(con, agent, "memory_migrated",
-                                     {"from": previous, "to": acct,
-                                      "error": f"{type(e).__name__}: {e}"})
                 db.set_account(con, agent, acct)
         finally:
             con.close()

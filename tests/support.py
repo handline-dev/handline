@@ -1171,9 +1171,11 @@ class SecondVendor:
         return None
     def state_hooks(self):
         return None
+    def memory_settings(self, memory_dir):
+        return {}
     def is_resume(self, extra):
         return "--resume" in (extra or [])
-    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None):
+    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None, memory_dir=None):
         return [exe]
     def skip_permissions_argv(self):
         return ["--yolo"]

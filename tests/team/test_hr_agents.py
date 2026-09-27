@@ -1231,12 +1231,6 @@ def test_an_account_records_its_vendor(home: Path) -> None:
             check("vendor record: an account's vendor is not changed under it",
                   "already a zai account" in str(e) and vendors.account_vendor("zeta") == "zai",
                   str(e))
-        mem = paths.account_dir("alpha") / ".claude" / "projects" / "-w" / "memory"
-        mem.mkdir(parents=True)
-        (mem / "MEMORY.md").write_text("- a fact\n")
-        check("vendor record: memory is not carried to another vendor's account",
-              accounts.migrate_memory("alpha", "zeta") == []
-              and not (vendors.config_dir("zeta") / "sessions").exists())
         (paths.account_dir("zeta") / "vendor").write_text("")
         check("vendor record: an empty record names no vendor, so the account is not usable",
               not accounts.logged_in("zeta") and status.pick_account(["zeta"], bootstrap=True)[0] is None)
@@ -1548,6 +1542,67 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
           rows == {"idle-not-free": "copy", "ocp-cli-habits": "promote",
                    "project-ocp-home-wipe": "delete", "unknown": "no-owner",
                    "feedback-testing": "merge"}, str(rows))
+    long_src = src / "long.md"
+    long_src.write_text("---\nname: long\ndescription: " + "d" * 300 + "\n---\nb")
+    line = memory._index_line(long_src)
+    check("index line: a long hook is cut after the link, which stays whole",
+          len(line) <= memory.INDEX_LINE and line.startswith("- [long](long.md) — d")
+          and line.endswith("…"), line)
+    long_src.write_text("---\nname: " + "n" * 200 + "\n---\nb")
+    line = memory._index_line(long_src)
+    check("index line: a long title is shortened, the link target is intact",
+          len(line) <= memory.INDEX_LINE and line.endswith("](long.md)"), line)
+    long_src.unlink()
+    bad = []
+    for fname in ("a.md", "topic.md", "x" * 40 + ".md", "x" * 89 + ".md", "x" * 90 + ".md",
+                  "x" * 91 + ".md", "x" * 92 + ".md", "x" * 147 + ".md"):
+        f = src / fname
+        for nlen in range(0, 121):
+            for hlen in (0, 1, 2, 3, 4, 50, 300):
+                meta = "---\n" + (f"name: {'n' * nlen}\n" if nlen else "") \
+                    + (f"description: {'d' * hlen}\n" if hlen else "") + "---\nb"
+                f.write_text(meta)
+                try:
+                    line = memory._index_line(f)
+                except ValueError:
+                    if memory._fits_index(fname):
+                        bad.append((fname, nlen, hlen, "raised"))
+                    continue
+                if (not memory._fits_index(fname) or len(line) > memory.INDEX_LINE
+                        or not re.fullmatch(r"- \[[^\]]+\]\(" + re.escape(fname) + r"\)( — .+)?",
+                                            line)):
+                    bad.append((fname, nlen, hlen, line))
+        f.unlink()
+    check("index line: for every name, file name and hook length the line is within "
+          "budget, the link whole, and a file name that cannot fit raises", not bad, str(bad[:3]))
+    exact = src / "topic.md"
+    exact.write_text("---\nname: " + "n" * 86 + "\ndescription: some words\n---\nb")
+    line = memory._index_line(exact)
+    check("index line: a link of exactly 100 characters keeps its closing paren",
+          line == "- [" + "n" * 86 + "](topic.md)", line)
+    exact.unlink()
+    long_file = src / ("x" * 150 + ".md")
+    long_file.write_text("x")
+    memory.OWNERS[long_file.stem] = "orcapipe"
+    try:
+        acts = [r["action"] for r in memory.plan_migration() if r["file"] == long_file]
+    finally:
+        del memory.OWNERS[long_file.stem]
+    check("migrate: a file name too long to be listed is reported, not copied",
+          acts == ["long-name"], str(acts))
+    long_file.unlink()
+    promote =[r for r in memory.plan_migration() if r["file"].stem == "ocp-cli-habits"]
+    check("migrate: a promoted file names AGENTS.md, apart from agent names",
+          promote[0]["action"] == "promote" and promote[0]["to"] == "AGENTS.md"
+          and not set(memory.OWNERS.values()) & {"AGENTS.md", "delete"})
+    (home / "agents" / "orcapipe.ui" / "memory" / "a.md").write_text("rule a")
+    said = _capture(lambda: climemory.cmd_memory_status(argparse.Namespace(agent="orcapipe.ui")))
+    check("status: named for an agent, only its own duplicate groups are shown",
+          "orcapipe/a.md" in said and "orcapipe.ui/a.md" in said, said)
+    agents.register("orcapipe.auditor")
+    (home / "agents" / "orcapipe.auditor" / "memory" / "z.md").write_text("only mine")
+    lone = _capture(lambda: climemory.cmd_memory_status(argparse.Namespace(agent="orcapipe.auditor")))
+    check("status: an agent in no duplicate group sees none", "same text" not in lone, lone)
     check("migrate: another repo's folder is not read",
           all(r["file"].parent == src for r in memory.plan_migration()))
     args = argparse.Namespace(apply=False)
@@ -1748,8 +1803,6 @@ def test_the_opencode_driver(home: Path) -> None:
         mem = paths.account_dir("alpha") / ".claude" / "projects" / "-tmp-a-b"
         (mem / "memory").mkdir(parents=True)
         (mem / "sess1.jsonl").write_text(_call_line("req_alpha", 10))
-        check("opencode: memory moves between two of its accounts carry nothing",
-              accounts.migrate_memory("zai", "zai2") == [])
         check("opencode: a transcript is still found on claude's account past it",
               handoffmod.find_transcript("sess1", "zai") == mem / "sess1.jsonl",
               str(handoffmod.find_transcript("sess1", "zai")))
