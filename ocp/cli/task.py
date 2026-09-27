@@ -467,9 +467,9 @@ def cmd_task_board(args) -> int:
         open_requests = con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall()
         for t in tasks:
             reqs = db.task_requests(con, t["id"])
-            held = sorted({r["target"] for r in reqs if r["state"] == "queued"})
+            held = sorted({r["target"] for r in reqs if actions._asks(r)})
             kids = sorted({r["target"] for c in db.open_child_tasks(con, t["id"])
-                          for r in db.task_requests(con, c["id"]) if r["state"] == "queued"})
+                          for r in db.task_requests(con, c["id"]) if actions._asks(r)})
             last = reqs[-1] if reqs else None
             back = (last is not None and last["state"] == "done"
                     and last["target"] not in (me, askmod.HUMAN))

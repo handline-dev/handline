@@ -5972,6 +5972,77 @@ limits:
     check("scope: board --everyone shows all", shows(out, "boss", "other"), out)
 
 
+def test_a_report_linked_to_a_task_never_changes_its_state(home: Path) -> None:
+    """T266: an --fyi linked to a task is not work being asked for, so the task keeps
+    its state; a real request to a done task is refused with how to reopen it, and a
+    report to an ended task is allowed."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    con = db.connect()
+    try:
+        merged, done, closed = (db.new_task(con, n, "worker", "manager") for n in ("merged", "done", "closed"))
+        db.mark_task_done(con, done, "shipped")
+        db.mark_task_done(con, closed, "shipped")
+        db.close_task(con, closed, "manager")
+        state = lambda t: actions.task_state(con, db.get_task(con, t))
+        check("fyi: a draft is a draft", state(merged) == "draft")
+        rid = db.add_request(con, "manager", "human", "T%d merged" % merged, None, "supervisor",
+                             "fire_and_forget", None, 0, None, fyi=True)
+        db.link_request(con, merged, rid)
+        check("fyi: an --fyi linked to it leaves it a draft, not doing", state(merged) == "draft", state(merged))
+        actions.set_queued(con, merged, actions.HUMAN, True)
+        check("fyi: a queued task stays queued", state(merged) == "queued", state(merged))
+        check("fyi: and is not flagged as never approved or with a request out",
+              actions.task_mismatch(con, db.get_task(con, merged), state(merged),
+                                    con.execute("SELECT * FROM requests WHERE state='queued'").fetchall())
+              == "approved, but no request is out")
+        real = db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                              "fire_and_forget", None, 0, None)
+        db.link_request(con, merged, real)
+        check("fyi: a real request linked to it still makes it doing", state(merged) == "doing")
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        mine = db.new_task(con, "report only", "manager", "manager")
+        db.link_request(con, mine, db.add_request(con, "manager", "human", "T%d is merged" % mine, None,
+                                                  "supervisor", "fire_and_forget", None, 0, None, fyi=True))
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="manager")
+    section = out.split(f"T{mine} ", 1)[1].split("\n", 2)[1] if f"T{mine} " in out else out
+    check("board: a linked --fyi is not the task being held by its target",
+          "now: nobody holds it" in section and "human" not in section, out)
+    rc, out = _cli(["ask", "worker", f"more on T{done}", "--task", f"T{done}"], as_agent="manager")
+    check("ended: a real ask to a done task is refused, saying to reopen it first",
+          rc == 1 and "reopen" in out and f"T{done}" in out, out)
+    rc, out = _cli(["ask", "worker", f"more on T{closed}", "--task", f"T{closed}"], as_agent="manager")
+    check("ended: a real ask to a closed task is refused", rc == 1 and "closed" in out, out)
+    for t, what in ((done, "done"), (closed, "closed")):
+        rc, out = _cli(["ask", "human", f"T{t} merged", "--fyi", "--task", f"T{t}"], as_agent="manager")
+        con = db.connect()
+        try:
+            ok = (rc == 0 and len(db.task_requests(con, t)) == 1
+                  and actions.task_state(con, db.get_task(con, t)) == what)
+        finally:
+            con.close()
+        check(f"ended: a report to a {what} task is sent, linked, and leaves it {what}", ok, out)
+
+
 def test_requests_parent_id_is_indexed(home: Path) -> None:
     """T92: the replied EXISTS looks a request up by parent_id once per row on
     the page; without an index that is a table scan each."""
@@ -6078,6 +6149,7 @@ def main() -> int:
         run(lambda: test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out(Path(td) / 'taskstates'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
+        run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
         run(lambda: test_task_list_and_board_show_only_yours_and_your_reports(Path(td) / 'taskscope'))
         run(lambda: test_merging_tasks_moves_titles_and_requests_and_closes_the_rest(Path(td) / 'taskmerge'))
         run(lambda: test_merge_refusals_leave_everything_as_it_was(Path(td) / 'taskmergeref'))
