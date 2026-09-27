@@ -5805,6 +5805,11 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     check("ask: an empty --no-task reason is refused", rc == 1 and "reason" in out, out)
     rc, out = _cli(["ask", "worker", f"see T{t}", "--task", f"T{t}", "--no-task", "x"])
     check("ask: --task with --no-task is refused", rc == 1 and "contradict" in out, out)
+    try:
+        rc, out = _cli(["ask", "worker", "do it", "--task", "5"])
+    except SystemExit as e:
+        rc, out = e.code, ""
+    check("ask: a bare number for --task is refused", rc not in (0, None))
     rc, out = _cli(["ask", "worker", "do it", "--task", "T999"])
     check("ask: --task for a task that does not exist is refused", rc == 1 and "no task T999" in out, out)
     con = db.connect()
