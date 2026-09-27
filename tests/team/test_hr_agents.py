@@ -1447,6 +1447,49 @@ def test_register_force_plans_every_item_before_changing_one(home: Path) -> None
           (skills / "n1" / "f").read_text() == "x" and not skills.is_symlink())
 
 
+def test_a_refused_register_leaves_no_account_and_names_a_type_clash(home: Path) -> None:
+    """The plan comes before the account directory and its vendor record, so a
+    refusal leaves nothing behind; a file/directory clash says which is which."""
+    os.environ["OCP_HOME"] = str(home)
+    real = accounts._plan_item
+    accounts._plan_item = lambda *a, **k: ("skip", ["CLAUDE.md: a real file that differs"], [])
+    try:
+        with second_vendor():
+            for vendor in (None, "zai"):
+                try:
+                    accounts.register("fresh", force=True, vendor=vendor)
+                    said = None
+                except accounts.AdoptRefused as e:
+                    said = str(e)
+                check(f"refused ({vendor}): it says nothing was changed",
+                      said is not None and "nothing was changed" in said, str(said))
+                check(f"refused ({vendor}): no directory, no account row, no vendor record",
+                      not paths.account_dir("fresh").exists()
+                      and "fresh" not in paths.list_accounts())
+    finally:
+        accounts._plan_item = real
+
+    accounts.register("gamma")
+    shared = vendors.shared_dir("claude") / "skills"
+    shared.mkdir(parents=True, exist_ok=True)
+    link = vendors.config_dir("gamma") / "skills"
+    link.unlink()
+    (shared / "d").mkdir()
+    (shared / "f").write_text("s")
+    (link / "d").parent.mkdir(parents=True)
+    (link / "d").write_text("a file here")
+    (link / "f").mkdir()
+    try:
+        accounts.register("gamma", force=True)
+        said = ""
+    except accounts.AdoptRefused as e:
+        said = str(e)
+    check("type clash: a file here against a directory in shared is named as that",
+          "d: a file here, a directory in shared" in said, said)
+    check("type clash: a directory here against a file in shared is named as that",
+          "f: a directory here, not in shared" in said, said)
+
+
 def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
     """T231: memory is reported against its budget and never rewritten;
     migrate is a dry run until --apply and never touches shared/memory; the
@@ -3252,6 +3295,7 @@ def main() -> int:
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
         run(lambda: test_register_force_keeps_what_a_real_skills_dir_held(Path(td) / 'forceadopt'))
         run(lambda: test_register_force_plans_every_item_before_changing_one(Path(td) / 'planall'))
+        run(lambda: test_a_refused_register_leaves_no_account_and_names_a_type_clash(Path(td) / 'refusedreg'))
         run(lambda: test_agent_memory_budget_migration_and_team_layer(Path(td) / 'memory'))
         run(lambda: test_team_rules_reach_the_prompt_and_doctor_reports_memory(Path(td) / 'teamrules'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))

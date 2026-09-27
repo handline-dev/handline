@@ -35,35 +35,32 @@ class AdoptRefused(ValueError):
 
 
 def _adopt_plan(src: Path, dest: Path, moves: list, clashes: list) -> None:
+    """Walk `src` once: what moves into `dest`, and what clashes (path, why)."""
     for child in src.iterdir():
         there = dest / child.name
         if not there.exists() and not there.is_symlink():
             moves.append((child, there))
-        elif (child.is_dir() and not child.is_symlink()
-              and there.is_dir() and not there.is_symlink()):
+            continue
+        here_dir = child.is_dir() and not child.is_symlink()
+        there_dir = there.is_dir() and not there.is_symlink()
+        if here_dir and there_dir:
             _adopt_plan(child, there, moves, clashes)
+        elif here_dir != there_dir:
+            clashes.append((child, "a directory here, not in shared" if here_dir
+                            else "a file here, a directory in shared"))
         else:
-            clashes.append(child)
+            clashes.append((child, "shared has a different item of that name"))
 
 
-def _adopt(src: Path, dest: Path) -> None:
+def _adopt(src: Path, moves: list) -> None:
     """Move what a real directory holds into the shared one so the link can
     replace it. Claude writes there (`skills/synced`) when it runs before
     `register` does.
 
-    Nothing is deleted that was not moved. Two directories merge; any other
-    name both sides have is a clash, and then `AdoptRefused` names them and
-    nothing is touched. Everything is checked before the first move, and a
-    move that fails puts back the ones already made.
+    `moves` is the plan from `_adopt_plan`, already free of clashes. Nothing is
+    deleted that was not moved, and a move that fails puts back the ones
+    already made.
     """
-    moves: list = []
-    clashes: list = []
-    _adopt_plan(src, dest, moves, clashes)
-    if clashes:
-        raise AdoptRefused(
-            f"{src} was left as it is: shared has a different item under the same "
-            "name as " + ", ".join(str(c.relative_to(src)) for c in clashes)
-            + ". Move or remove one side by hand, then run this again.")
     done: list = []
     try:
         for a, b in moves:
@@ -80,8 +77,9 @@ def _adopt(src: Path, dest: Path) -> None:
 
 
 def _plan_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
-                replace_link: bool = False) -> tuple[str, list[str]]:
-    """What linking one shared item would do, and what stops it, changing nothing.
+                replace_link: bool = False) -> tuple[str, list[str], list]:
+    """What linking one shared item would do, what stops it, and (for `adopt`)
+    what moves, changing nothing.
 
     The action is `skip`, `link`, `replace` (a link elsewhere, or a real file
     identical to shared's) or `adopt` (a real directory whose contents move into
@@ -93,38 +91,41 @@ def _plan_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
     passes `replace_link` (a foreign symlink) and `force` (a real file or dir).
     """
     if item in drv.never_touch():
-        return "skip", []
+        return "skip", [], []
     target = shared / item
     link = cdir / item
     if not target.exists():
-        return "skip", []
+        return "skip", [], []
     if link.is_symlink():
         if os.readlink(link) == str(target):
-            return "skip", []
-        return ("replace" if force or replace_link else "skip"), []
+            return "skip", [], []
+        return ("replace" if force or replace_link else "skip"), [], []
     if not link.exists():
-        return "link", []
+        return "link", [], []
     if not force:
-        return "skip", []
+        return "skip", [], []
     if link.is_dir():
         if not target.is_dir():
-            return "skip", [f"{item}: a real directory here, a file in shared"]
+            return "skip", [f"{item}: a real directory here, a file in shared"], []
         moves: list = []
         clashes: list = []
         _adopt_plan(link, target, moves, clashes)
-        return ("skip", [f"{item}/{c.relative_to(link)}: shared has a different item "
-                         "of that name" for c in clashes]) if clashes else ("adopt", [])
+        if clashes:
+            return "skip", [f"{item}/{c.relative_to(link)}: {why}" for c, why in clashes], []
+        return "adopt", [], moves
     if target.is_file() and filecmp.cmp(link, target, shallow=False):
-        return "replace", []
-    return "skip", [f"{item}: a real file that differs from shared's"]
+        return "replace", [], []
+    if target.is_dir():
+        return "skip", [f"{item}: a real file here, a directory in shared"], []
+    return "skip", [f"{item}: a real file that differs from shared's"], []
 
 
-def _apply_item(action: str, cdir: Path, shared: Path, item: str) -> bool:
+def _apply_item(action: str, moves: list, cdir: Path, shared: Path, item: str) -> bool:
     link = cdir / item
     if action == "skip":
         return False
     if action == "adopt":
-        _adopt(link, shared / item)  # removes the emptied directory, or raises
+        _adopt(link, moves)  # removes the emptied directory, or raises
     elif action == "replace":
         link.unlink()
     link.symlink_to(shared / item)
@@ -134,17 +135,18 @@ def _apply_item(action: str, cdir: Path, shared: Path, item: str) -> bool:
 def _link_item(drv, cdir: Path, shared: Path, item: str, force: bool = False,
                replace_link: bool = False) -> bool:
     """Symlink one shared item into an account's .claude dir; True if it changed."""
-    action, why = _plan_item(drv, cdir, shared, item, force, replace_link)
+    action, why, moves = _plan_item(drv, cdir, shared, item, force, replace_link)
     if why:
         raise AdoptRefused("; ".join(why))
-    return _apply_item(action, cdir, shared, item)
+    return _apply_item(action, moves, cdir, shared, item)
 
 
 def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
     """Create the account directory and link it to shared. Does not log in.
 
-    `vendor` is recorded before anything else is made, so an account is never
-    briefly the default vendor's; a vendor with no driver is refused."""
+    Everything is planned before anything is made, so a refusal leaves no
+    account behind. `vendor` is then recorded before the links, so an account
+    is never briefly the default vendor's; a vendor with no driver is refused."""
     if not acct or "/" in acct or acct.startswith("."):
         raise ValueError(f"bad account name: {acct!r}")
     # It is a key in config.yaml, so it must be text there.
@@ -158,25 +160,24 @@ def register(acct: str, force: bool = False, vendor: str | None = None) -> Path:
         if paths.account_dir(acct).is_dir() and was != vendor:
             raise ValueError(f"account '{acct}' is already a {was} account")
     ensure_shared()
-    paths.account_dir(acct).mkdir(parents=True, exist_ok=True)
-    if vendor is not None and vendor != agents.DEFAULT_VENDOR:
-        vendors.record_vendor(acct, vendor)
-    drv = vendors.for_account(acct)
-    cdir = vendors.config_dir(acct)
-    cdir.mkdir(parents=True, exist_ok=True)
-
+    drv = vendors.get(vendor) if vendor is not None else vendors.for_account(acct)
+    cdir = paths.account_dir(acct) / drv.config_dir_name
     shared = vendors.shared_dir(drv.name)
     plans = [(item, *_plan_item(drv, cdir, shared, item, force, True))
              for item in drv.shared_items()]
-    refused = [w for _i, _a, why in plans for w in why]
+    refused = [w for _i, _a, why, _m in plans for w in why]
     if refused:
         raise AdoptRefused(
             f"nothing was changed for '{acct}'. Move or remove one side by hand, "
             "then run this again: " + "; ".join(refused))
+    paths.account_dir(acct).mkdir(parents=True, exist_ok=True)
+    if vendor is not None and vendor != agents.DEFAULT_VENDOR:
+        vendors.record_vendor(acct, vendor)
+    cdir.mkdir(parents=True, exist_ok=True)
     done: list[str] = []
-    for item, action, _why in plans:
+    for item, action, _why, moves in plans:
         try:
-            if _apply_item(action, cdir, shared, item):
+            if _apply_item(action, moves, cdir, shared, item):
                 done.append(item)
         except OSError as e:
             raise OSError(f"{item} failed ({e}); already linked before it: "
