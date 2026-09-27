@@ -253,7 +253,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         return False, f"task T{tid} is already done ({row['done_evidence']})"
     if by not in (row["owner"], HUMAN) and by not in _task_done_targets(con, tid):
         return False, (f"task T{tid} can only be marked done by its owner "
-                       f"({row['owner']}) the target of a request linked to it, or the founder")
+                       f"({row['owner']}), the target of a request linked to it, or the founder")
     given = [x for x in (sha, request_id, reason) if x is not None]
     if len(given) != 1:
         return False, "done needs exactly one of a sha, --request, or a reason"
@@ -278,7 +278,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
 
 
 def close_task(con, tid: int, by: str) -> tuple[bool, str]:
-    """Close a task on the board (#71) - the asker's own sign-off, final.
+    """Close a task on the board (#71) - the asker's or the founder's sign-off, final.
     See `task_asker` for who that is.
 
     Refused before the task is done (nothing to sign off on yet), while a
@@ -339,7 +339,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
 
 
 def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
-    """Throw a task away before it is done (task #85) - the asker's own call
+    """Throw a task away before it is done (task #85) - the asker's or the founder's call
     (see `task_asker`), in one step with a one-line reason. It is recorded as
     discarded (who, why, and when in closed_at), never as finished work: no
     board, list or 'waiting for check' group reads it as done.
@@ -400,7 +400,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
 
 
 def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
-    """Send a done task back to doing (#71) - the asker's own call, the
+    """Send a done task back to doing (#71) - the asker's or the founder's call, the
     opposite of closing it. Needs a one-line reason, the same as any other
     undo in this system. Refused for a task not currently done (nothing to
     undo) or already closed (closing is final - see close_task)."""

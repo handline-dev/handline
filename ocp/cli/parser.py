@@ -483,8 +483,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="close a done task (ocp close T7), the asker's own "
-                                     "sign-off, or end an idle agent's session, keeping "
+    p = sub.add_parser("close", help="close a done task (ocp close T7), the asker's or "
+                                     "the founder's sign-off, or end an idle agent's session, keeping "
                                      "its terminal")
     p.add_argument("target", help="a task (T<n>), or an agent's name")
     p.add_argument("evidence", nargs="?",
@@ -548,12 +548,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="record the evidence as words even if it looks like hex")
     p.set_defaults(fn=cmd_task_done)
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
-                                     "and needs a one-line reason")
+                                     "or the founder; needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
-    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker or the founder "
-                                      "and needs a one-line reason")
+    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker or the founder; "
+                                      "needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_discard)
