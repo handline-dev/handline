@@ -200,6 +200,40 @@ def test_a_dialog_a_rule_names_is_answered_by_its_number_on_the_screen(home: Pat
         con.close()
 
 
+def test_the_exit_over_background_work_dialog_is_answered_by_a_standing_rule(home: Path) -> None:
+    """T270 (#1528/#1542): a standing rule presses 'Exit and stop tasks' on
+    the live-measured exit dialog, found by label wherever it sits."""
+    con, term = _rule_world(home, EXIT_DIALOG, rules=(("claude", "Background work is running",
+                                                        "Exit and stop tasks"),), clears="1")
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("exit dialog: 'Exit and stop tasks' is pressed, already highlighted or not",
+              term.sent == [("1", False)], str(term.sent))
+        row = con.execute("SELECT payload FROM events WHERE kind = 'dialog_accepted'").fetchone()
+        check("exit dialog: the answer is on the record", row is not None and "Exit and stop tasks" in row[0])
+        check("exit dialog: and it is gone, not left waiting", term.tail == list(CLEARED_SCREEN), term.tail)
+    finally:
+        con.close()
+    # Same dialog, the highlight and the numbering both different: the rule
+    # still finds "Exit and stop tasks" by its label, now option 3, not by
+    # the 1 it was pressed as above or the ❯ now sitting on "Stay".
+    reordered = EXIT_DIALOG[:6] + ["   ❯ 1. Stay", "     2. Move to background and exit",
+                                   "     3. Exit and stop tasks"] + EXIT_DIALOG[-1:]
+    con, term = _rule_world(home / "reordered", reordered,
+                            rules=(("claude", "Background work is running", "Exit and stop tasks"),),
+                            clears="3")
+    try:
+        autoaccept.sweep(con, lambda _m: None)
+        check("exit dialog: found by label at its new position, not the old '1' or the new highlight",
+              term.sent == [("3", False)], str(term.sent))
+        row = con.execute("SELECT payload FROM events WHERE kind = 'dialog_accepted'").fetchone()
+        check("exit dialog: reordered, the answer is still on the record",
+              row is not None and "Exit and stop tasks" in row[0])
+        check("exit dialog: reordered, and it is gone too", term.tail == list(CLEARED_SCREEN), term.tail)
+    finally:
+        con.close()
+
+
 def test_a_dialog_no_rule_covers_is_left_alone_and_costs_no_read(home: Path) -> None:
     con, term = _rule_world(home / "none", RULE_DIALOG, rules=())
     try:
@@ -328,6 +362,7 @@ def main() -> int:
         run(lambda: test_the_trust_screen_is_left_alone_when_consent_or_the_setting_is_missing(Path(td) / 'aa5'))
         run(lambda: test_a_wake_meeting_a_declared_trust_screen_escalates_with_the_setting_off(Path(td) / 'aa7'))
         run(lambda: test_a_dialog_a_rule_names_is_answered_by_its_number_on_the_screen(Path(td) / 'aa9'))
+        run(lambda: test_the_exit_over_background_work_dialog_is_answered_by_a_standing_rule(Path(td) / 'aa15'))
         run(lambda: test_a_dialog_no_rule_covers_is_left_alone_and_costs_no_read(Path(td) / 'aa10'))
         run(lambda: test_a_rule_never_answers_a_folder_trust_screen_or_a_number_over_nine(Path(td) / 'aa11'))
         run(lambda: test_a_rule_press_that_does_not_close_the_dialog_is_not_repeated(Path(td) / 'aa12'))
