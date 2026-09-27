@@ -192,6 +192,23 @@ def task_state(con, row) -> str:
     return "queued" if row["queued_by"] else "draft"
 
 
+def stop_wait_reason(con, agent: str) -> str | None:
+    """Why `agent` should not stop right now (T288, #1748): it holds a
+    current task with no recorded wait. None if it holds none, or has one."""
+    tid = db.current_task(con, agent)
+    if tid is None:
+        return None
+    if db.open_child_tasks(con, tid):
+        return None
+    if db.task_blockers(con, tid):
+        return None
+    if db.open_decision_tasks_of(con, agent):
+        return None
+    if db.open_say_of(con, agent, int(time.time()), askmod.SAY_TIMEBOX_S):
+        return None
+    return f"T{tid} is current with no recorded wait"
+
+
 _TASK_NAMED = re.compile(r"\bT(\d+)\b")
 
 

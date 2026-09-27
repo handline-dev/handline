@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+from .requests import HUMAN
+
 
 # RULE: a task row holds these fields and nothing else. Never a copy of a
 # request's body, a state, a date a request already carries, or a summary of
@@ -180,6 +182,18 @@ def tasks_blocked_by(con, tid: int) -> list:
     return con.execute(
         "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id",
         (tid,)).fetchall()
+
+
+def open_decision_tasks_of(con, agent: str) -> int:
+    """Decision tasks (owner `HUMAN`, T292 C3) `agent` opened whose linked
+    request to the founder is still 'queued' - not `task_state`'s
+    OPEN_STATES (T288, #1748), which counts an already-answered 'done' as
+    open too."""
+    return con.execute(
+        "SELECT COUNT(*) FROM tasks t JOIN task_requests l ON l.task_id = t.id "
+        "JOIN requests r ON r.id = l.request_id "
+        "WHERE t.owner = ? AND t.opened_by = ? AND t.closed_by IS NULL "
+        "AND r.state = 'queued'", (HUMAN, agent)).fetchone()[0]
 
 
 def task_requests(con, tid: int) -> list:

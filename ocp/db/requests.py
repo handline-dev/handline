@@ -177,6 +177,17 @@ def open_escalation_ids(con, agent: str, prefix: str) -> list[int]:
         "AND substr(body, 1, ?) = ?", (agent, len(prefix), prefix))]
 
 
+def open_say_of(con, agent: str, now: int, window_s: int) -> int:
+    """This agent's own say (kind='say', requester=agent), still unanswered
+    and inside its reply window (T288, #1748) - `open_escalations_of`'s
+    shape, on a say's own clock instead of state alone. COALESCE to `now`
+    so one never delivered yet still counts."""
+    return con.execute(
+        "SELECT COUNT(*) FROM requests WHERE requester = ? AND kind = 'say' "
+        "AND state = 'queued' AND ? - COALESCE(delivered_at, ?) < ?",
+        (agent, now, now, window_s)).fetchone()[0]
+
+
 def mark_delivered(con, rid: int) -> bool:
     """Record that this request has been shown to its target. Idempotent.
 
