@@ -2609,6 +2609,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
         "hr rename": "writes a proposal; prints its id",
         "hr link": "writes a proposal; prints its id", "hr unlink": "writes a proposal; prints its id",
+        "hr team": "writes a proposal; prints its id",
         "team init": "writes team.yaml",
         "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
         "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
