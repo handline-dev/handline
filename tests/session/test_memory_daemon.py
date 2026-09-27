@@ -249,6 +249,25 @@ def test_the_pre_tool_hook_is_installed_for_file_writes_only(home: Path) -> None
     check("install: and again adds nothing", not added and not pruned, str((added, pruned)))
 
 
+def test_install_reconciles_an_existing_groups_matcher(home: Path) -> None:
+    """A machine installed before NotebookEdit joined MATCHERS still has the old
+    matcher on disk. Re-running install must widen it, or NotebookEdit never
+    reaches the edit gate (T295, auditor #1928)."""
+    os.environ["OCP_HOME"] = str(home)
+    target = claude_hooks.target_settings()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    claude_hooks.write_settings(target, {"hooks": {"PreToolUse": [{
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [{"type": "command", "command": "/x/ocp hook PreToolUse", "timeout": 10}],
+    }]}})
+    added, pruned = claude_hooks.install("/x/ocp", {"PreToolUse"})
+    groups = json.loads(target.read_text())["hooks"]
+    check("install: an existing group's matcher is widened to match MATCHERS",
+          groups["PreToolUse"][0]["matcher"] == "Write|Edit|MultiEdit|NotebookEdit", str(groups))
+    check("install: the existing group is kept, not added again",
+          not added and not pruned, str((added, pruned)))
+
+
 def test_the_handoff_and_the_wake_say_what_the_memory_needs(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
@@ -292,6 +311,7 @@ def main() -> int:
         run(lambda: test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(Path(td) / 'm4'))
         run(lambda: test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(Path(td) / 'm4b'))
         run(lambda: test_the_pre_tool_hook_is_installed_for_file_writes_only(Path(td) / 'm5'))
+        run(lambda: test_install_reconciles_an_existing_groups_matcher(Path(td) / 'm5b'))
         run(lambda: test_the_handoff_and_the_wake_say_what_the_memory_needs(Path(td) / 'm6'))
     return run_area(tests)
 

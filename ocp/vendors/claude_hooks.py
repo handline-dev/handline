@@ -325,6 +325,8 @@ def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
                     keep.append(g)
                 continue
             seen = True
+            if event in MATCHERS:
+                g["matcher"] = MATCHERS[event]
             keep.append(g)
         groups[:] = keep
         if not seen and event in wanted:
