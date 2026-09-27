@@ -3741,6 +3741,176 @@ def test_task_new_list_and_link(home: Path) -> None:
           and f"request #{rid}" in out, out)
 
 
+def test_task_new_is_its_own_delivery(home: Path) -> None:
+    """T292 (auditor #1655 section 4): `task new` is the request now, not a
+    separate step after it - checked against the routing table (C2), one
+    current task per agent (bullet 1/3), --expects (bullet 4), `task note`
+    (1a) and a founder-owned decision task (C3)."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+  outsider: {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    agents.register("outsider")
+
+    con = db.connect()
+    try:
+        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+    finally:
+        con.close()
+    rc, out = _cli(["task", "new", "--owner", "outsider", "not my line"])
+    check("task new: refused by the routing table, the same as `ocp ask` (C2)",
+          rc == 1 and "denied" in out, out)
+    con = db.connect()
+    try:
+        after = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+        check("task new: a routing refusal leaves no task row behind", after == before)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "new", "--owner", "worker", "do the thing", "the body of it",
+                    "--expects", "sha"])
+    check("task new: opens and delivers in one call, naming the kind and the sha it expects",
+          rc == 0 and "task T1" in out and "expects sha" in out, out)
+    tid = int(out.split("task T", 1)[1].split()[0])
+    con = db.connect()
+    try:
+        row = db.get_task(con, tid)
+        reqs = db.task_requests(con, tid)
+        check("task new: expects is stored on the row", row["expects"] == "sha")
+        check("task new: the delivering request is linked, carries the body, and is kind 'task'",
+              len(reqs) == 1 and reqs[0]["body"] == "the body of it" and reqs[0]["kind"] == "task",
+              str([dict(r) for r in reqs]))
+        check("task new: bullet 1/3 - the owner's current task is set on delivery",
+              db.current_task(con, "worker") == tid)
+        check("task new: the 'task' kind override survives enforce_edges' own re-check "
+              "at delivery (T202/T204) - it stays queued, not silently denied",
+              reqs[0]["state"] == "queued", str(dict(reqs[0])))
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "new", "--owner", "worker", "second one"])
+    check("task new: a second task for an owner who already holds one still opens and "
+          "delivers", rc == 0, out)
+    tid2 = int(out.split("task T", 1)[1].split()[0])
+    con = db.connect()
+    try:
+        check("task new: but does not steal the owner's current task from the first",
+              db.current_task(con, "worker") == tid)
+        req1 = [r for r in db.task_requests(con, tid) if r["target"] == "worker"][0]
+        req2 = [r for r in db.task_requests(con, tid2) if r["target"] == "worker"][0]
+        check("setup: T1's own request is still worker's head - T2's own request is not",
+              db.head_of_queue(con, "worker")["id"] == req1["id"] != req2["id"])
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "note", f"T{tid}", "worker: refused"], as_agent="worker")
+    check("task note: refused for anyone but the opener or the founder",
+          rc == 1, out)
+    rc, out = _cli(["task", "note", f"T{tid}", "the sha moved"], as_agent="manager")
+    check("task note: the opener may send one, delivered to the holder",
+          rc == 0 and "worker" in out, out)
+    note1_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
+    check("task note: a note on a task whose own request is not the holder's head "
+          "still delivers", rc == 0 and "worker" in out, out)
+    note2_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    con = db.connect()
+    try:
+        check("task note: T1's note is a follow-up in T1's own request's thread - "
+              "the holder's head, since T1 is what worker holds first (auditor #1718)",
+              any(r["id"] == note1_rid for r in db.followups_pending(con, "worker", req1["id"])))
+        check("task note: T2's note threads under T2's own request, not T1's head, "
+              "even though T2's request is not currently the head (auditor #1718)",
+              any(r["id"] == note2_rid for r in db.followups_pending(con, "worker", req2["id"]))
+              and not any(r["id"] == note2_rid
+                         for r in db.followups_pending(con, "worker", req1["id"])))
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "start", f"T{tid2}"], as_agent="worker")
+    check("task start: the owner may pick it up as current explicitly (bullet 3)",
+          rc == 0, out)
+    con = db.connect()
+    try:
+        check("task start: current task moved to it", db.current_task(con, "worker") == tid2)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "start", f"T{tid2}"], as_agent="manager")
+    check("task start: refused for anyone but the task's own owner", rc == 1, out)
+
+    rc, out = _cli(["task", "done", f"T{tid}", "not a sha"], as_agent="worker")
+    check("task done: a sha-expecting task refuses a reason from its target",
+          rc == 1 and "expects a sha" in out, out)
+    rc, out = _cli(["task", "done", f"T{tid}", "not a sha"], as_agent="manager")
+    check("task done: but its opener may still close it another way",
+          rc == 0, out)
+    con = db.connect()
+    try:
+        check("task done: the first task's current-task link cleared on done",
+              db.current_task(con, "worker") != tid)
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "new", "--owner", askmod.HUMAN, "founder decision needed"])
+    check("task new: the founder is a valid owner - a decision task (C3)",
+          rc == 0 and "task T" in out, out)
+    tid_human = int(out.split("task T", 1)[1].split()[0])
+    con = db.connect()
+    try:
+        req = db.task_requests(con, tid_human)[0]
+        check("task new: a human-owned task keeps the edge's 'escalate' kind, not 'task'",
+              req["kind"] == "escalate", req["kind"])
+        check("task new: C3 - it shows in founder_waits as a gate",
+              any(w["kind"] == "escalation" for w in actions.founder_waits(con)),
+              actions.founder_waits(con))
+        check("task new: the founder holds no current-task row of its own",
+              askmod.HUMAN not in {r["agent"] for r in db.all_agent_states(con)},
+              [dict(r) for r in db.all_agent_states(con)])
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "note", f"T{tid}", "too late now"], as_agent="manager")
+    check("task note: refused on an already-done task - nothing left to note",
+          rc == 1 and "nothing left to note" in out, out)
+
+    # A discarded task can still be an owner's stale current task (code
+    # review finding): its live request was retired some other way (the
+    # founder's own `cancel`), which clears nothing on the task side, so
+    # discard is reachable while current_task still points at it.
+    rc, out = _cli(["task", "new", "--owner", "worker", "will be discarded", "--expects", "report"])
+    check("setup: a third task for worker", rc == 0, out)
+    tid3 = int(out.split("task T", 1)[1].split()[0])
+    _cli(["task", "start", f"T{tid3}"], as_agent="worker")
+    con = db.connect()
+    try:
+        rid3 = db.task_requests(con, tid3)[0]["id"]
+        check("setup: it is worker's current task", db.current_task(con, "worker") == tid3)
+    finally:
+        con.close()
+    askmod.cancel(rid3)
+    rc, out = _cli(["task", "discard", f"T{tid3}", "no longer needed"], as_agent="manager")
+    check("task discard: succeeds once nothing is queued against it any more",
+          rc == 0, out)
+    con = db.connect()
+    try:
+        check("task discard: the owner's stale current task is cleared too",
+              db.current_task(con, "worker") != tid3)
+    finally:
+        con.close()
+
+
 def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home: Path) -> None:
     """#1880/#19: change a task's owner and/or title, only for the opener or
     the founder, and always stamped with who and when (the same evidence
@@ -4035,22 +4205,27 @@ def test_task_blocked_by_another_task(home: Path) -> None:
 
     con = db.connect()
     try:
+        # T292: t_dep already carries its own delivery request (`task new`
+        # is the delivery now) - the notice is one more link, not the only
+        # one, so it is picked out by its requester rather than assumed to
+        # be the whole list.
         reqs = db.task_requests(con, t_dep)
+        notice = [r for r in reqs if r["requester"] == actions._UNBLOCK_REQUESTER]
         check("close: the owner is told once, as a request linked to the blocked task",
-              len(reqs) == 1 and reqs[0]["target"] == "worker", str([dict(r) for r in reqs]))
+              len(notice) == 1 and notice[0]["target"] == "worker", str([dict(r) for r in reqs]))
         check("close: the notice's requester is never a real agent or the "
               "founder, whoever actually closed the blocker - so resolving "
               "or dismissing it routes no answer back and it never reads as "
               "from human (auditor's #2042 SHOULD-FIX 3)",
-              len(reqs) == 1 and reqs[0]["requester"] == actions._UNBLOCK_REQUESTER
-              and reqs[0]["requester"] not in ("manager", "worker", askmod.HUMAN),
+              len(notice) == 1
+              and notice[0]["requester"] not in ("manager", "worker", askmod.HUMAN),
               str([dict(r) for r in reqs]))
         check("close: not left as a stale block row for a second notice to fire "
               "from - queried against task_blocks directly (auditor's #2065 "
               "SHOULD-FIX A: task_blockers filters closed blockers out, so it "
               "cannot see the row this check is named for)",
               db.blocks_on_ids(con, t_dep) == [])
-        notice_rid = reqs[0]["id"]
+        notice_rid = notice[0]["id"]
     finally:
         con.close()
 
@@ -4076,8 +4251,10 @@ def test_task_blocked_by_another_task(home: Path) -> None:
           rc == 1, out)
     con = db.connect()
     try:
+        # 2, not 1: t_dep's own delivery request (T292) plus the one notice -
+        # the refused re-close must not add a second notice alongside them.
         check("close: still exactly one linked request after the refused re-close",
-              len(db.task_requests(con, t_dep)) == 1)
+              len(db.task_requests(con, t_dep)) == 2)
     finally:
         con.close()
 
@@ -4205,13 +4382,21 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     check("guard: both --task and --no-task is refused", rc == 1, out)
     rc, out = _cli(["resolve", str(r1), "ok", "--task", "T7"])
     check("guard: a task that does not exist is refused", rc == 1 and "no task T7" in out, out)
+    con = db.connect()
+    try:
+        # T292: `task new` is now its own delivery, so T1/T2 already carry
+        # the request that opened them - the guard's own --task link has to
+        # be checked as what --task added, not the whole set.
+        before = {(t, r["id"]) for t in (1, 2) for r in db.task_requests(con, t)}
+    finally:
+        con.close()
     rc, out = _cli(["resolve", str(r1), "ok", "--task", "T1", "T2"])
     check("guard: --task takes a list and resolves", rc == 0, out)
     con = db.connect()
     try:
         linked = {(t, r["id"]) for t in (1, 2) for r in db.task_requests(con, t)}
         check("guard: --task linked the request to every task it names",
-              linked == {(1, r1), (2, r1)}, str(linked))
+              linked == before | {(1, r1), (2, r1)}, str(linked))
     finally:
         con.close()
 
@@ -4891,9 +5076,12 @@ def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None
     check("dismiss: --task on the founder's row succeeds", rc == 0, out)
     con = db.connect()
     try:
+        # T292: T1 already carries its own delivery request (`task new` is
+        # the delivery now), ahead of r by id - --task adds r alongside it,
+        # not in place of it.
         check("dismiss: --task closes it and links it",
               db.get_request(con, r)["state"] == "done"
-              and [x["id"] for x in db.task_requests(con, 1)] == [r], out)
+              and r in [x["id"] for x in db.task_requests(con, 1)], out)
         r2 = _human_request()
         rc, out = _cli(["dismiss", str(r2), "--no-task", "duplicate", "--reason", "dup of #9"])
         check("dismiss: --no-task on the founder's row succeeds", rc == 0, out)
@@ -6142,6 +6330,7 @@ def main() -> int:
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
         run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
+        run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))

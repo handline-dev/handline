@@ -13,17 +13,18 @@ TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
                "discarded_by", "discard_reason", "priority", "merged_into",
-               "queued_by", "queued_at")
+               "queued_by", "queued_at", "expects")
 
 DEFAULT_PRIORITY = 2
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
-             parent_task: int | None = None, priority: int = DEFAULT_PRIORITY) -> int:
+             parent_task: int | None = None, priority: int = DEFAULT_PRIORITY,
+             expects: str | None = None) -> int:
     cur = con.execute(
-        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (title, owner, parent_task, opened_by, int(time.time()), priority))
+        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority, expects) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (title, owner, parent_task, opened_by, int(time.time()), priority, expects))
     return int(cur.lastrowid)
 
 

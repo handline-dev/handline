@@ -647,3 +647,15 @@ def _add_missing_columns(con) -> None:
         # The session the notify cursor's head was typed into. A delivery
         # belongs to the session that read it, not to the agent.
         con.execute("ALTER TABLE agent_state ADD COLUMN notified_session TEXT")
+    if "current_task" not in state_cols:
+        # T292: the one task this agent is holding right now, set on
+        # delivery of a `task new` or by `task start`, cleared on done or
+        # release. REFERENCES tasks(id), never a copy of anything on that
+        # row - the board is still the one place a task's own facts live.
+        con.execute("ALTER TABLE agent_state ADD COLUMN current_task INTEGER "
+                    "REFERENCES tasks(id)")
+    if "expects" not in task_cols:
+        # T292: what `task done` must be given - sha, verdict, decision, or
+        # (NULL) a free reason. Set once at `task new`, on the task itself
+        # since it can outlive several requests.
+        con.execute("ALTER TABLE tasks ADD COLUMN expects TEXT")

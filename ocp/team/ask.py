@@ -227,11 +227,18 @@ def _merge_into_queued(con, requester: str, target: str, body: str,
     return int(rows["id"])
 
 
+# T292: the `kind` overrides `ask` accepts for a task or a task note,
+# regardless of what the routing edge itself carries. `enforce_edges` (daemon
+# delivery) must not treat that override as a changed edge, so it skips the
+# kind half of its re-check for these - it still checks relation and response.
+OVERRIDE_KINDS = {"task", "task_note"}
+
+
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False, first: bool = False,
         replaces: int | None = None, fyi: bool = False,
         reason: str | None = None,
-        timebox_s: int | None = None) -> tuple[bool, str, int | None]:
+        timebox_s: int | None = None, kind: str | None = None) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -239,6 +246,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     request's verdict says after "replaced by #N", exactly as typed; it means
     nothing without `replaces`. `timebox_s` is how long after delivery the
     asker is told it is still open (daemon.timebox); None follows config.yaml.
+    `kind` overrides the routing edge's own `decision.kind` on the request
+    row - T292's `task new` uses it to write 'task' regardless of what the
+    edge between opener and owner happens to carry, since a task is a task
+    whichever edge assigned it.
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):
@@ -356,7 +367,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             rid = db.standing_denial(con, requester, target, body, files, window)
             if rid is None:
                 rid = db.add_request(con, requester, target, body, files, decision.relation,
-                                     decision.response, decision.kind, depth, parent_id,
+                                     decision.response, kind or decision.kind, depth, parent_id,
                                      state="denied", verdict=note, chain_id=chain_id)
             oldest = db.oldest_counted_ask(con, requester, window)
             free_at = now + team.ASK_WINDOW_S if oldest is None else oldest + team.ASK_WINDOW_S
@@ -393,7 +404,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                f"(`ocp ask {old['target']} \"...\" --parent {replaces}`)"), None
 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
-                             decision.response, "report" if fyi else decision.kind, depth, parent_id,
+                             decision.response, kind or ("report" if fyi else decision.kind),
+                             depth, parent_id,
                              chain_id=chain_id, first=first, fyi=fyi, timebox_s=timebox_s,
                              queue_order=(old["queue_order"]
                                          if old is not None and old["target"] == target
