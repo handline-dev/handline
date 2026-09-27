@@ -1202,6 +1202,20 @@ def test_a_launch_installs_a_hook_event_added_since_the_last_install(home: Path)
             Path.write_text = real_write
         check("launch: a write that cannot land warns and names install-hooks, not a crash",
               "ocp install-hooks" in err.getvalue(), err.getvalue())
+
+        for bad in ("{not json", '["a", "list"]'):
+            target.write_text(bad)
+            try:
+                launch.build("launchtest")
+                ok = True
+            except Exception as e:  # noqa: BLE001 - build() itself must not raise here
+                ok = False
+                why = f"{type(e).__name__}: {e}"
+            check(f"launch: an unreadable settings file ({bad[:10]}...) is doctor's to "
+                  "report, not a reason the launch itself dies",
+                  ok, "" if ok else why)
+            check("launch: and it is left exactly as ensure_shared refused it",
+                  target.read_text() == bad, target.read_text())
     finally:
         os.environ["PATH"] = real_path
 

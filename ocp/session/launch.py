@@ -337,22 +337,24 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
             hooks.ensure_shared()  # settings ocp keeps, e.g. notifications off
         except ValueError:
             pass  # an unreadable settings file is doctor's to report, not a reason not to start
-        # A wanted event added after the shared settings were last installed
-        # (T247's PreToolUse guard did this) would otherwise sit uninstalled
-        # forever, silently: every launch is where install() gets the chance
-        # to catch up, not just the one-off `ocp init`/`ocp install-hooks`.
-        wanted = events.CAPTURED | events.ANSWERS | events.GUARDS
-        if hooks.missing(wanted):
-            exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or str(paths.repo_root() / "bin" / "ocp")
-            try:
-                hooks.install(exe, wanted)
-            except OSError as e:
-                # An agent's own sandbox denies this write by design (it must
-                # not be able to disable its own gate hooks); `ocp doctor` is
-                # the backstop for whoever is watching stderr here is not.
-                print(f"warning: ocp's own hooks are behind and could not be installed "
-                      f"({e}) - run `ocp install-hooks` from outside an agent's sandbox",
-                      file=sys.stderr)
+        else:
+            # A wanted event added after the shared settings were last installed
+            # (T247's PreToolUse guard did this) would otherwise sit uninstalled
+            # forever, silently: every launch is where install() gets the chance
+            # to catch up, not just the one-off `ocp init`/`ocp install-hooks`.
+            # Only reached once ensure_shared has confirmed the file is a
+            # readable JSON object - install() does not check that itself.
+            wanted = events.CAPTURED | events.ANSWERS | events.GUARDS
+            if hooks.missing(wanted):
+                try:
+                    hooks.install(paths.ocp_exe(), wanted)
+                except OSError as e:
+                    # `ocp doctor` is the backstop for whoever is not watching
+                    # stderr here - an agent's own sandbox denies this write by
+                    # design, so it cannot disable its own gate hooks.
+                    print(f"warning: ocp's own hooks are behind and could not be installed "
+                          f"({e}) - run `ocp install-hooks` from outside an agent's sandbox",
+                          file=sys.stderr)
     if not accounts.may_start(acct):
         raise SystemExit(
             f"account '{acct}' is not logged in.\n"
