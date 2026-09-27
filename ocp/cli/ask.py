@@ -120,8 +120,11 @@ def cmd_ask(args) -> int:
         if row is None:
             print(f"no task T{args.task}")
             return 1
-        if state in ("done", "closed", "discarded", "merged"):
-            print(f"task T{args.task} is {state}: a request linked to it would not reopen it")
+        if state in ("done", "closed", "discarded", "merged") and not args.fyi:
+            again = (f"`ocp task reopen T{args.task} <why>` first" if state == "done"
+                     else "it cannot be worked on again; open a new task")
+            print(f"task T{args.task} is {state}: a request linked to it would not reopen it - "
+                  f"{again}. A report (--fyi) may still be linked.")
             return 1
     ok, msg, rid = askmod.ask(args.target, body, files=args.files,
                               requester=args.of, parent_id=args.parent,
