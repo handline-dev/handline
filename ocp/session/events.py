@@ -149,6 +149,17 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
                 pass
         print("{}")
         return 0
+    if agent and event == "Stop":
+        # T288: a block means the turn is not really ending, so this returns
+        # before the ordinary Stop capture below would mark the agent IDLE.
+        try:
+            from . import stopgate
+            block, reason = stopgate.decide(agent, raw)
+        except Exception:  # noqa: BLE001 - a hook must never break the session
+            block, reason = False, None
+        if block:
+            print(json.dumps({"decision": "block", "reason": reason}))
+            return 0
     if not agent or event not in CAPTURED:
         # Not one of ours, or not an event we keep. Stay silent and succeed.
         print("{}")

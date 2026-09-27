@@ -1,4 +1,4 @@
-"""Three notices about work that has run long, all read from the db every tick.
+"""Four notices about work that has run long, all read from the db every tick.
 
 A request still open a set time after it was delivered tells its asker once
 (`ocp ask --timebox`, config.yaml's `timebox_s`). An agent that shows RUNNING -
@@ -6,8 +6,10 @@ working, or with background work behind its prompt - while nothing is asked of
 it tells its supervisor once, so the manager can ask what it is doing
 (`unasked_running_s`). Background work with the agent silent for STALE_BG_S
 tells its supervisor it may be stopped after a veto window
-(`delivery.bg_may_stop`; the close itself is `lifecycle`'s). The first two
-act on nothing.
+(`delivery.bg_may_stop`; the close itself is `lifecycle`'s). An agent IDLE
+with its current task's own wait never recorded tells the founder once, the
+Stop-hook gate's own backstop (T288) for whenever it is warn-only or missed.
+The first three act on nothing.
 
 A notice to an agent is a line typed at its open session, so one that cannot be
 typed now is tried again; a notice to the human has no session to type at and is
@@ -21,10 +23,11 @@ from ..session import handoff as progressmod
 from ..session import idle_close
 from .. import db
 from . import delivery
-from .states import RUNNING
+from .states import IDLE, RUNNING
 
 TIMEBOX_S = 7200
 UNASKED_RUNNING_S = 900
+STOP_WAIT_BACKSTOP_S = 900
 # A notice that could not be typed (mid-turn, a modal, no session) is not tried
 # again for this long, per agent.
 NOTICE_RETRY_S = 60
@@ -134,7 +137,35 @@ def sweep_stale_background(con, log, now: int) -> None:
             log(f"  {agent}: background work stale ({timefmt.ago(silent)} silent) - {boss} told")
 
 
+def sweep_stop_wait_backstop(con, log, now: int) -> None:
+    """T288's own backstop: the clock (`since_key`) starts the moment the
+    task-level wait goes missing and only clears once it is recorded or the
+    task moves on - a RUNNING turn in between does not buy a fresh 15
+    minutes. It only tells while IDLE now, once, past the limit."""
+    from .. import actions
+    limit = idle_close.config_seconds("stop_wait_backstop_s", STOP_WAIT_BACKSTOP_S)
+    for agent in paths.list_agents():
+        since_key, told_key = f"stop_wait_since:{agent}", f"stop_wait_told:{agent}"
+        row = db.get_agent_state(con, agent)
+        why = actions.stop_wait_reason(con, agent) if row and not row["closed_at"] else None
+        if why is None:
+            db.clear_cursor(con, since_key)
+            db.clear_cursor(con, told_key)
+            continue
+        since = db.get_cursor(con, since_key)
+        if not since:
+            db.set_cursor(con, since_key, now)
+            continue
+        if row["state"] != IDLE or now - since < limit or db.get_cursor(con, told_key):
+            continue
+        db.set_cursor(con, told_key, 1)
+        db.add_event(con, agent, "stop_wait_stuck", {"why": why, "for_s": now - since})
+        log(f"  {agent}: {why}, idle {timefmt.ago(now - since)} with nothing recorded - "
+            f"founder told")
+
+
 def sweep(con, log, now: int) -> None:
     sweep_timeboxes(con, log, now)
     sweep_unasked_running(con, log, now)
     sweep_stale_background(con, log, now)
+    sweep_stop_wait_backstop(con, log, now)
