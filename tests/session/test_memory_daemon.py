@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -174,7 +175,7 @@ def test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(home: Pat
     check("use: a Read of a memory file is recorded under its path relative to the folder",
           json.loads(side.read_text()) == {"feedback/testing.md": 1000}, side.read_text())
     memoryguard.note_use("backend", "Read", {"file_path": topic}, now=1000 + 60)
-    check("use: noted again within the hour changes nothing",
+    check("use: noted again within the day changes nothing",
           json.loads(side.read_text()) == {"feedback/testing.md": 1000})
     memoryguard.note_use("backend", "Edit", {"file_path": topic}, now=1000 + memoryguard.RENOTE_S)
     check("use: later it is updated, by an Edit as well",
@@ -189,6 +190,49 @@ def test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(home: Pat
     out = _hook("PostToolUse", tool_name="Read", tool_input={"file_path": topic})
     check("use: the PostToolUse hook does it, and still only answers {}",
           out == "{}" and list(json.loads(side.read_text())) == ["feedback/testing.md"], out)
+
+
+def test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(home: Path) -> None:
+    """T247 (merger #1343 finding 3): note_use's read-modify-write of
+    memory-use.json had no lock, so two PostToolUse hooks racing on it could
+    both read the same old dict and the later write clobber the earlier
+    entry. a's write is paused mid-flight, still holding the lock, while b's
+    whole call runs concurrently: without the lock b would read the file
+    before a's entry lands and its own write would drop a's; with it, b's
+    read cannot happen until a's write (and the lock) is released."""
+    _daemon_home(home, 20)
+    mem = memorymod.memory_dir("backend")
+    mem.mkdir(parents=True, exist_ok=True)
+    side = paths.agent_dir("backend") / "memory-use.json"
+    a, b = str(mem / "a.md"), str(mem / "b.md")
+
+    a_writing = threading.Event()
+    let_a_finish = threading.Event()
+    real_write = memoryguard.atomic.write_text
+
+    def slow_write(path, text):
+        a_writing.set()
+        let_a_finish.wait(timeout=5)
+        real_write(path, text)
+
+    memoryguard.atomic.write_text = slow_write
+    try:
+        ta = threading.Thread(target=lambda: memoryguard.note_use(
+            "backend", "Read", {"file_path": a}, now=1000))
+        ta.start()
+        assert a_writing.wait(timeout=5)
+        tb = threading.Thread(target=lambda: memoryguard.note_use(
+            "backend", "Read", {"file_path": b}, now=2000))
+        tb.start()
+        time.sleep(0.05)  # give b's flock a chance to be tried, and to block
+        let_a_finish.set()
+        ta.join(timeout=5)
+        tb.join(timeout=5)
+    finally:
+        memoryguard.atomic.write_text = real_write
+
+    check("lock: b's note is not dropped by a's concurrent write",
+          json.loads(side.read_text()) == {"a.md": 1000, "b.md": 2000}, side.read_text())
 
 
 def test_the_pre_tool_hook_is_installed_for_file_writes_only(home: Path) -> None:
@@ -244,6 +288,7 @@ def main() -> int:
         run(lambda: test_a_write_that_pushes_the_index_over_budget_is_refused_and_says_why(Path(td) / 'm2'))
         run(lambda: test_the_pre_tool_hook_denies_through_claudes_own_format_and_never_breaks_a_session(Path(td) / 'm3'))
         run(lambda: test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(Path(td) / 'm4'))
+        run(lambda: test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(Path(td) / 'm4b'))
         run(lambda: test_the_pre_tool_hook_is_installed_for_file_writes_only(Path(td) / 'm5'))
         run(lambda: test_the_handoff_and_the_wake_say_what_the_memory_needs(Path(td) / 'm6'))
     return run_area(tests)

@@ -68,10 +68,15 @@ limit (200 lines / 25KB) is 10x looser and is never reached.
    file under the agent's memory dir denies a change that makes an over-budget
    `MEMORY.md` bigger, with the reason "merge or delete before adding". Shrinking
    edits pass. No model call.
-2. **Last use.** A PostToolUse hook matched on `Read` (and Edit) writes
-   `agents/<name>/memory-use.json` (`{file: last_ts}`) when the path is under
-   the memory dir; outside it the hook exits at once. The file lives outside the
-   memory dir so it is never loaded or counted.
+2. **Last use.** A PostToolUse hook writes `agents/<name>/memory-use.json`
+   (`{file: last_ts}`) for a Read, Edit, Write or MultiEdit under the memory
+   dir; outside it, or for another tool, it exits at once. The file lives
+   outside the memory dir so it is never loaded or counted. The filtering is
+   `memoryguard.note_use`'s own (`USE_TOOLS`), not a Claude-side matcher on the
+   installed hook: PostToolUse fires unmatched on every tool call because it is
+   also how a permission-wait clears (T247, waiting.py) once the agent's turn
+   continues past *any* tool, not only Read/Edit - narrowing the matcher would
+   fix nothing here and silently stop that clearing for every other tool.
 3. **Pruning candidates.** `ocp doctor` and `ocp memory status` list per agent:
    bytes and entries against budget, files not in the index, and files unused
    for 28 days. Candidates are reported, never deleted by ocp.
