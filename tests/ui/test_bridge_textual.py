@@ -2537,22 +2537,16 @@ async def test_a_claude_permission_prompt_is_answered_from_its_chat_page() -> No
             await pilot.pause(0.8)
             check("confirm: a click on Yes answers yes", answered == [("term_p", True)], str(answered))
 
-            # A prompt with no wait record to pin it to (T223's `wait: None`) closed by hand
-            # must not pop back up on the very next poll (auditor #1279 class of bug).
+            # A prompt with no wait record to pin it to (T223's `wait: None`) is left for
+            # the agent's own terminal: answer_confirmation refuses one on principle, so
+            # Yes/No buttons for it would always fail (auditor #1454 must-change 1).
             waiting.clear("backend")
             screen["found"] = Confirmation("Bash(rm -rf build/)", lines, 1, 2)
             page._confirm_at = 0.0
             page.poll_confirmation()
             await pilot.pause(0.8)
-            check("confirm: an unidentified prompt (no wait id) is still offered",
-                  isinstance(app.screen, PermissionModal))
-            await pilot.press("escape")
-            await pilot.pause(0.3)
-            page._confirm_at = 0.0
-            page.poll_confirmation()
-            await pilot.pause(0.8)
-            check("confirm: closed by hand, an unidentified prompt does not reappear either",
-                  app.screen is page)
+            check("confirm: an unidentified prompt (no wait id) is not offered a modal",
+                  app.screen is page and not answered[1:], str(answered))
 
 
 async def test_home_settings_lists_the_standing_answers_and_removes_one() -> None:

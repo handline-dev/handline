@@ -900,12 +900,6 @@ class TaskDetail(TaskActions, Screen):
          "back": self.app.pop_screen}[event.button.id]()
 
 
-# Never a real wait id (`actions.pending_confirmation`'s ints or its own None,
-# for a prompt with no hook record to pin it to): distinct from both, so
-# "nothing closed yet" is never mistaken for "closed the one with no id".
-_NOT_CLOSED = object()
-
-
 class ChatPage(JobsAware, Screen):
     BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history")]
 
@@ -939,8 +933,7 @@ class ChatPage(JobsAware, Screen):
         self._dialog_busy, self._dialog_at = False, 0.0
         self._dialog_closed: str | None = None      # the title of a dialog the founder closed
         self._confirm_busy, self._confirm_at = False, 0.0
-        self._confirm_closed = _NOT_CLOSED          # the wait id of a permission prompt the founder closed -
-        # a sentinel, not None, since a prompt with no wait record to pin it to (T223) has wait=None itself
+        self._confirm_closed: int | None = None      # the wait id of a permission prompt the founder closed
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
@@ -1085,11 +1078,17 @@ class ChatPage(JobsAware, Screen):
         self.run_worker(read, thread=True, exclusive=True, group="confirm")
 
     def confirmation_seen(self, found: dict | None) -> None:
+        """`found["wait"]` None (auditor #1454 must-change 1) is a prompt the hook has
+        not pinned an identity to yet: `answer_confirmation` refuses one on principle
+        (T223), so a Yes/No for it would be two buttons that always fail. It is left
+        for the agent's own terminal instead - the founder still sees it there, and
+        on the header's own `founder_waits` list."""
         self._confirm_busy = False
         if found is None:
-            self._confirm_closed = _NOT_CLOSED   # gone: the same prompt coming back is asked again
+            self._confirm_closed = None          # gone: the same prompt coming back is asked again
             return
-        if found["wait"] == self._confirm_closed or isinstance(self.app.screen, (DialogModal, PermissionModal)):
+        if found["wait"] is None or found["wait"] == self._confirm_closed \
+                or isinstance(self.app.screen, (DialogModal, PermissionModal)):
             return
         self.app.push_screen(PermissionModal(found), lambda picked: self.confirmation_answered(found, picked))
 
@@ -1097,6 +1096,7 @@ class ChatPage(JobsAware, Screen):
         if picked is None:
             self._confirm_closed = found["wait"]     # closed by hand: not offered again while it stays
             return
+        self._confirm_closed = found["wait"]      # answered: not offered again before the screen catches up
         yes = picked
 
         def press() -> None:
