@@ -264,14 +264,9 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     leave it unmarked, and unreachable, if one crashed between the two.
 
     `on_behalf_of` skips the human-impersonation guard below for a
-    `requester` this call already knows is genuine, read from our own
-    database rather than claimed by whoever's session is running right now
-    (T325's `advance_current_task`: `queued_by` was checked as the founder
-    or the owner's actual manager back when the task was approved, and the
-    delivery this triggers can run far later, from a different agent's own
-    session finishing unrelated work - not a live claim to spoof anything).
-    Callers outside that kind of system-triggered, already-authorized
-    delivery must never pass it.
+    `requester` this call already verified from our own database, not a
+    live claim by whoever's session happens to be running it. Only for a
+    system-triggered, already-authorized delivery (`advance_current_task`).
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):

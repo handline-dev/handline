@@ -2829,7 +2829,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "background_work_ended",
-                    "block_task", "unblock_task", "task_unblocked", "queue_task", "draft_task",
+                    "block_task", "unblock_task", "task_unblocked", "task_deliver_refused",
+                    "queue_task", "draft_task",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
@@ -2852,6 +2853,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # the same shape as edit_task (task #21/#1884); task_unblocked is
     # close_task's own aftermath, recorded under whoever closed the
     # blocker, not the blocked task's owner - never that owner's activity.
+    # task_deliver_refused (T325) is recorded under the owner a queued
+    # task's delivery was attempted for, not anything that owner did.
 
     # Literal add_event(agent, "kind", ...) call sites: every one sorted, and
     # the scan proven to have read every site, not just the ones its regex

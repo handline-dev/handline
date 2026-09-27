@@ -4914,6 +4914,194 @@ def test_advance_moves_past_a_done_task_even_if_it_carries_a_stale_blocker(home:
         con.close()
 
 
+def test_unblock_delivers_the_waiting_task_once_the_last_blocker_clears(home: Path) -> None:
+    """T325 (auditor's #1939 MUST-FIX 1): a queued task skipped over blocked
+    is never reconsidered on its own - clearing its last blocker through
+    `task edit --unblock` must advance its owner itself, or it stays
+    undelivered forever even once free to go."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        dep = db.new_task(con, "dep", "worker", "manager")
+        blocker = db.new_task(con, "blocker", "worker", "manager")
+        ok, msg = actions.task_start(con, "worker", dep)
+        check("setup: dep is worker's current task", ok, msg)
+        ok, msg = actions.add_block(con, dep, blocker, "manager")
+        check("setup: dep waits on blocker", ok, msg)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "queue", f"T{dep}"], as_agent="manager")
+    check("setup: manager approves it, but it is blocked - queued, not delivered",
+          rc == 0 and "was free" not in out, out)
+    con = db.connect()
+    try:
+        check("setup: still queued, blocked",
+              actions.task_state(con, db.get_task(con, dep)) == "queued")
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "edit", f"T{dep}", "--unblock", f"T{blocker}"], as_agent="manager")
+    check("task edit --unblock: the last blocker clears", rc == 0, out)
+    con = db.connect()
+    try:
+        check("unblock: dep is delivered on its own, nobody asked again",
+              actions.task_state(con, db.get_task(con, dep)) == "doing")
+        check("unblock: it is worker's current task", db.current_task(con, "worker") == dep)
+    finally:
+        con.close()
+
+
+def test_closing_a_blocker_delivers_the_dependent_it_freed(home: Path) -> None:
+    """T325 (auditor's #1939 MUST-FIX 1): closing or discarding the last
+    task blocking someone's queued, undelivered task must advance that
+    task's owner too - `_clear_blocks_on` only sends a notice, and
+    close/discard only ever advanced the closer's own task."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        blocker = db.new_task(con, "blocker", "manager", "manager")
+        dep = db.new_task(con, "dep", "worker", "manager")
+        ok, msg = actions.task_start(con, "worker", dep)
+        check("setup: dep is worker's current task", ok, msg)
+        ok, msg = actions.add_block(con, dep, blocker, "manager")
+        check("setup: dep waits on blocker", ok, msg)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "queue", f"T{dep}"], as_agent="manager")
+    check("setup: approved but blocked - queued, not delivered",
+          rc == 0 and "was free" not in out, out)
+
+    rc, out = _done_and_close(blocker, "manager")
+    check("close: the blocker closes", rc == 0, out)
+    con = db.connect()
+    try:
+        check("close: dep is delivered on its own once its last blocker closes",
+              actions.task_state(con, db.get_task(con, dep)) == "doing")
+        check("close: it is worker's current task", db.current_task(con, "worker") == dep)
+    finally:
+        con.close()
+
+    # discard_task shares the same _clear_blocks_on path.
+    con = db.connect()
+    try:
+        blocker2 = db.new_task(con, "blocker2", "manager", "manager")
+        dep2 = db.new_task(con, "dep2", "worker", "manager")
+        ok, msg = actions.task_start(con, "worker", dep2)
+        check("setup: dep2 is worker's current task", ok, msg)
+        ok, msg = actions.add_block(con, dep2, blocker2, "manager")
+        check("setup: dep2 waits on blocker2", ok, msg)
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        ok, msg = actions.discard_task(con, blocker2, "manager", "not needed after all")
+        check("discard: blocker2 is thrown away", ok, msg)
+        check("discard: dep2 is delivered on its own",
+              actions.task_state(con, db.get_task(con, dep2)) == "doing")
+        check("discard: it is worker's current task", db.current_task(con, "worker") == dep2)
+    finally:
+        con.close()
+
+
+def test_closing_a_blocker_delivers_the_closers_own_freed_task_too(home: Path) -> None:
+    """T325 (code review): `_clear_blocks_on` skips the notice when the
+    freed dependent's owner is the closer itself (it does not need telling
+    - it just closed the blocker) - but that dependent still needs
+    advancing. Delivery must not ride on the notice list, or exactly this
+    one, most common case (closing your own blocker) is the one that never
+    gets delivered."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    con = db.connect()
+    try:
+        blocker = db.new_task(con, "blocker", "worker", "manager")
+        dep = db.new_task(con, "dep", "manager", "manager")
+        ok, msg = actions.task_start(con, "manager", dep)
+        check("setup: dep is manager's own current task", ok, msg)
+        ok, msg = actions.add_block(con, dep, blocker, "manager")
+        check("setup: dep waits on blocker", ok, msg)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "queue", f"T{dep}"], as_agent=askmod.HUMAN)
+    check("setup: approved but blocked - queued, not delivered",
+          rc == 0 and "was free" not in out, out)
+
+    rc, out = _done_and_close(blocker, "worker", closer="manager")
+    check("close: manager closes its own blocker - no notice needed for "
+          "itself", rc == 0, out)
+    con = db.connect()
+    try:
+        check("close: dep is delivered anyway - the notice skip must not "
+              "also skip advancing the closer's own freed task",
+              actions.task_state(con, db.get_task(con, dep)) == "doing")
+        check("close: it is manager's current task", db.current_task(con, "manager") == dep)
+    finally:
+        con.close()
+
+
+def test_advance_records_and_skips_a_refused_delivery(home: Path) -> None:
+    """T325 (auditor's #1939 MUST-FIX 2): a refused delivery (the edge or
+    the owner changed since a task was queued) must not silently stall
+    every other queued task behind it - it is recorded as an event, and
+    `advance_current_task` moves on to the next candidate instead."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+
+deny:
+  - { from: "manager", to: "worker", reason: "simulates the edge changing after a was queued" }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    con = db.connect()
+    try:
+        a = db.new_task(con, "a", "worker", "manager", priority=1)
+        db.set_task_queued(con, a, "manager")
+        # b's own queued_by is not denied - only manager -> worker (a's) is.
+        b = db.new_task(con, "b", "worker", askmod.HUMAN, priority=2)
+        db.set_task_queued(con, b, askmod.HUMAN)
+    finally:
+        con.close()
+
+    con = db.connect()
+    try:
+        changed = actions.advance_current_task(con, "worker")
+        check("advance: something changed - it moved past the refused a to b", changed)
+        check("advance: b is now worker's current task, delivered",
+              db.current_task(con, "worker") == b
+              and actions.task_state(con, db.get_task(con, b)) == "doing")
+        check("advance: a stays queued, not delivered, not silently dropped",
+              actions.task_state(con, db.get_task(con, a)) == "queued")
+        events = [json.loads(r["payload"]) for r in con.execute(
+            "SELECT payload FROM events WHERE kind = 'task_deliver_refused'").fetchall()]
+        check("advance: the refusal is recorded as an event naming the task",
+              any(e.get("task_id") == a for e in events), events)
+    finally:
+        con.close()
+
+
 def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     """Task #11 (founder #2298): an answer that puts work on hold leaves an
     open task owned by the holder, under the asker's task, waiting on what it
@@ -6817,6 +7005,14 @@ def main() -> int:
             Path(td) / 'deferreddelivery'))
         run(lambda: test_advance_moves_past_a_done_task_even_if_it_carries_a_stale_blocker(
             Path(td) / 'advancepastdone'))
+        run(lambda: test_unblock_delivers_the_waiting_task_once_the_last_blocker_clears(
+            Path(td) / 'unblockdelivers'))
+        run(lambda: test_closing_a_blocker_delivers_the_dependent_it_freed(
+            Path(td) / 'closedelivers'))
+        run(lambda: test_closing_a_blocker_delivers_the_closers_own_freed_task_too(
+            Path(td) / 'closedeliversself'))
+        run(lambda: test_advance_records_and_skips_a_refused_delivery(
+            Path(td) / 'advanceskip'))
         run(lambda: test_resolve_hold_keeps_the_work_open_and_owned(Path(td) / 'holdtask'))
         run(lambda: test_task_discard(Path(td) / 'discardtask'))
         run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
