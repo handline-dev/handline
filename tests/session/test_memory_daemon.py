@@ -269,6 +269,14 @@ def test_the_pre_tool_hook_is_installed_for_file_writes_only(home: Path) -> None
           "matcher" not in groups["Stop"][0])
     added, pruned = claude_hooks.install("/x/ocp", {"PreToolUse", "Stop"})
     check("install: and again adds nothing", not added and not pruned, str((added, pruned)))
+    data = json.loads(claude_hooks.target_settings().read_text())
+    data["hooks"]["PreToolUse"][0]["matcher"] = "Write|Edit|MultiEdit"
+    claude_hooks.write_settings(claude_hooks.target_settings(), data)
+    added, pruned = claude_hooks.install("/x/ocp", {"PreToolUse", "Stop"})
+    groups = json.loads(claude_hooks.target_settings().read_text())["hooks"]["PreToolUse"]
+    check("install: an entry with the old matcher gains Bash, once",
+          added == ["PreToolUse"] and not pruned and len(groups) == 1
+          and groups[0]["matcher"] == "Write|Edit|MultiEdit|Bash", str((added, groups)))
 
 
 def test_the_handoff_and_the_wake_say_what_the_memory_needs(home: Path) -> None:

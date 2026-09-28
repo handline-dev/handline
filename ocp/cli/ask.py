@@ -61,8 +61,7 @@ def cmd_handoff(args) -> int:
 
 
 def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[str | None, str | None]:
-    """(text, error). One of `inline` or `file_path` - never neither, never
-    both. A shell expands backticks and $() inside double quotes before this
+    """(text, error). `inline` or `file_path`, never both; neither reads stdin. A shell expands backticks and $() inside double quotes before this
     process ever sees argv, so a message with either in it is silently
     rewritten - or, at a live terminal, run - by the caller's own shell. A
     file the caller wrote with a quoted heredoc, `Write`, or any tool that
@@ -77,8 +76,6 @@ def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[st
         except OSError as e:
             return None, f"could not read {file_path}: {e}"
     if inline is None:
-        # A quoted heredoc on stdin is as safe as a file. A terminal has
-        # nothing to read, so it falls through to the error.
         text = "" if sys.stdin.isatty() else sys.stdin.read()
         if not text.strip():
             return None, f"{label} is required (inline, --file PATH, or on stdin)"
