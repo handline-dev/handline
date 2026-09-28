@@ -462,10 +462,12 @@ MODAL_MARKERS = ("Enter to confirm", "Esc to cancel")
 MODAL_ROWS = 3
 
 
-def _screen(handle: str) -> dict | None:
-    """The rendered screen, or None when it cannot be read."""
+def _screen(handle: str, limit: int = 40) -> dict | None:
+    """The rendered screen, or None when it cannot be read. `limit` is how
+    many of the bottom rows come back - `dialog_on_screen` widens it past the
+    default when a dialog's own top border has scrolled out of a narrower read."""
     ok, out = _run(["terminal", "read", "--terminal", handle, "--screen",
-                    "--limit", "40", "--json"], timeout=30)
+                    "--limit", str(limit), "--json"], timeout=30)
     term = _result(out, "terminal") if ok else None
     return term if isinstance(term, dict) else None
 
@@ -548,15 +550,34 @@ class Dialog:
 
 _OPTION_LABEL = re.compile(r"^(?:\u276f\s*)?(\d+)\.\s+(\S.*)$")
 
+# What `parse_dialog` shows as the title when a dialog is real but its own
+# top rule and title are still off-screen at `_DIALOG_READ_MAX` - a stand-in
+# that says so, never a guess dressed up as the real one.
+TRUNCATED_TITLE = "(command not fully shown - its start is off-screen)"
 
-def parse_dialog(tail: list[str], footer: int) -> Dialog | None:
+
+def parse_dialog(tail: list[str], footer: int, allow_truncated: bool = False) -> Dialog | None:
     """The dialog above row `footer` as data, or None when any part of it is
     not there to read: no rule opening the panel, no title, or fewer than two
-    options numbered 1, 2, ... in order. What cannot be parsed is not guessed."""
+    options numbered 1, 2, ... in order. What cannot be parsed is not guessed.
+
+    `allow_truncated` is `dialog_on_screen`'s last resort, once widening the
+    read up to `_DIALOG_READ_MAX` still finds no rule: every visible line
+    becomes the body (there is no title line left to skip - the true one is
+    further back than even that read reached), and `TRUNCATED_TITLE` stands
+    in for it rather than the founder being shown no dialog at all for a
+    command whose preview alone outgrew the widest read this will make."""
     lines = [textsafe.oneline(str(x).strip()) for x in tail[:footer]]
     top = next((i for i in range(len(lines) - 1, -1, -1) if _RULE.match(lines[i])), None)
     if top is None:
-        return None
+        if not allow_truncated:
+            return None
+        body = [ln for ln in lines if ln]
+        options = [(int(m[1]), m[2].strip()) for m in map(_OPTION_LABEL.match, body) if m]
+        if len(options) < 2 or [n for n, _ in options] != list(range(1, len(options) + 1)):
+            return None
+        return Dialog(TRUNCATED_TITLE, tuple(options),
+                      textsafe.oneline(str(tail[footer]).strip()), tuple(body))
     body = [ln for ln in lines[top + 1:] if ln]
     if not body or _OPTION_LABEL.match(body[0]):
         return None
@@ -749,8 +770,54 @@ NO_DIALOG = "no dialog is open"
 # How long a dialog is given to go after Esc, read again each time.
 PRESS_SETTLE_S, PRESS_SETTLE_READS = 0.5, 4
 
+# A dialog's own read starts at the ordinary width and, once a footer is
+# seen at all, doubles up to this before falling back to TRUNCATED_TITLE - a
+# long enough command (a heredoc script, say) pushes the panel's top rule
+# and title past a 40-line read, and a real, answerable dialog would
+# otherwise look like none is there.
+_DIALOG_READ_START = 40
+_DIALOG_READ_MAX = 400
 
-def _press_dialog(handle: str, pick, key_name: str) -> tuple[str, str, str]:
+
+def _read_dialog(handle: str, allow_truncated: bool = True) -> tuple[list[str] | None, int | None, Dialog | None]:
+    """(tail, footer, dialog) for `handle`'s screen now - the one read every
+    caller that looks at or presses a dialog goes through, so a long
+    command's dialog (found only by widening) is exactly as pressable as it
+    is visible; `dialog_on_screen` and `_press_dialog` used to each read the
+    screen their own way, and only one of the two widened.
+
+    `tail` is None when the screen could not be read at all; `footer` stays
+    None when what was read has no dialog on it. `dialog` can still be None
+    with both set - a footer with no dialog parse-able above it, at any
+    width up to the cap, or (`allow_truncated=False`) one whose rule never
+    turned up at all: ocp's own autonomous presses (`decline_dialog`,
+    `stop_work_and_exit`) pass this, since pressing Esc on a dialog it could
+    not read the whole of is a choice made on too little to make it safely -
+    unlike a numbered press, which is a choice someone else already made
+    and is confirmed here, not decided."""
+    term = _screen(handle)
+    limit = _DIALOG_READ_START
+    while True:
+        tail = term.get("tail") if term else None
+        if not isinstance(tail, list) or term.get("source") != "screen":
+            return None, None, None
+        footer = _footer_row(tail)
+        if footer is None:
+            return tail, None, None
+        maxed = limit >= _DIALOG_READ_MAX
+        if maxed or any(_RULE.match(str(x).strip()) for x in tail[:footer]):
+            return tail, footer, parse_dialog(tail, footer, allow_truncated=maxed and allow_truncated)
+        limit = min(limit * 2, _DIALOG_READ_MAX)
+        term = _screen(handle, limit)
+
+
+def dialog_on_screen(handle: str) -> Dialog | None:
+    """The confirmation dialog this terminal shows now, parsed, or None when there is none
+    or it cannot be read - the bridge offers its options to the founder."""
+    return _read_dialog(handle)[2]
+
+
+def _press_dialog(handle: str, pick, key_name: str, allow_truncated: bool = True) -> tuple[str, str, str]:
     """(outcome, dialog title, why): press the key `pick(dialog)` names on the
     dialog on this terminal's screen, if - and only if - the screen just read
     says it may be pressed.
@@ -761,14 +828,11 @@ def _press_dialog(handle: str, pick, key_name: str) -> tuple[str, str, str]:
     dialog, or has a title or options that do not parse; a key that is sent
     and does not close the dialog is reported as still open, not repeated.
     """
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
+    tail, footer, dialog = _read_dialog(handle, allow_truncated)
+    if tail is None:
         return NOT_PRESSED, "", "its screen could not be read"
-    footer = _footer_row(tail)
     if footer is None:
         return NOT_PRESSED, "", NO_DIALOG
-    dialog = parse_dialog(tail, footer)
     if dialog is None:
         return NOT_PRESSED, "", "its title or options could not be parsed"
     key, why = pick(dialog)
@@ -779,14 +843,11 @@ def _press_dialog(handle: str, pick, key_name: str) -> tuple[str, str, str]:
         return NOT_PRESSED, dialog.title, f"the key could not be sent: {out[:120]}"
     for _ in range(PRESS_SETTLE_READS):
         time.sleep(PRESS_SETTLE_S)
-        after_term = _screen(handle)
-        after_tail = after_term.get("tail") if after_term else None
-        if not isinstance(after_tail, list) or after_term.get("source") != "screen":
+        after_tail, after_footer, after_dialog = _read_dialog(handle, allow_truncated)
+        if after_tail is None:
             continue  # not evidence either way - the same screen fails closed everywhere else
-        after_footer = _footer_row(after_tail)
         if after_footer is None:
             return CLEARED, dialog.title, ""
-        after_dialog = parse_dialog(after_tail, after_footer)
         if after_dialog is not None and after_dialog.title != dialog.title:
             # Not the dialog the key was pressed on - that one is gone, whatever
             # this new one is; still-open must never be counted against a
@@ -794,17 +855,6 @@ def _press_dialog(handle: str, pick, key_name: str) -> tuple[str, str, str]:
             # is what a loop is measured by.
             return CLEARED, dialog.title, ""
     return STILL_OPEN, dialog.title, f"the dialog is still on screen after {key_name}"
-
-
-def dialog_on_screen(handle: str) -> Dialog | None:
-    """The confirmation dialog this terminal shows now, parsed, or None when there is none
-    or it cannot be read - the bridge offers its options to the founder."""
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
-        return None
-    footer = _footer_row(tail)
-    return None if footer is None else parse_dialog(tail, footer)
 
 
 def press_option(handle: str, number: int) -> tuple[str, str, str]:
@@ -821,8 +871,12 @@ def press_option(handle: str, number: int) -> tuple[str, str, str]:
 
 def decline_dialog(handle: str) -> tuple[str, str, str]:
     """Press Esc on the dialog on this terminal's screen, if - and only if -
-    the screen just read says that declines it."""
-    return _press_dialog(handle, declining_key, "Esc")
+    the screen just read says that declines it.
+
+    Never on a truncated read (`allow_truncated=False`): this is ocp
+    choosing on its own, and it does not choose Esc on a dialog it could not
+    read the whole of."""
+    return _press_dialog(handle, declining_key, "Esc", allow_truncated=False)
 
 
 # The exit dialog over background work, as Claude Code drew it (fixture
@@ -854,8 +908,9 @@ def stopping_key(dialog: Dialog) -> tuple[str | None, str]:
 
 def stop_work_and_exit(handle: str) -> tuple[str, str, str]:
     """Press Enter on the exit dialog over background work, when `stopping_key`
-    allows; (outcome, title, why) as `decline_dialog`."""
-    return _press_dialog(handle, stopping_key, "Enter")
+    allows; (outcome, title, why) as `decline_dialog` - including never on a
+    truncated read, the same reason."""
+    return _press_dialog(handle, stopping_key, "Enter", allow_truncated=False)
 
 
 def accepts_tool(handle: str, tool: str | None) -> bool:

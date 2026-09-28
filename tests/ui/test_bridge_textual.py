@@ -2687,6 +2687,35 @@ async def test_a_dialog_on_an_agent_terminal_is_answered_from_its_page() -> None
     del teampkg.dialog_rules
 
 
+async def test_the_dialog_modal_offers_always_except_for_a_truncated_title() -> None:
+    from textual.widgets import Checkbox
+    from ocp.session import orca as orcamod
+    from ocp.ui.components.dialog_modal import DialogModal
+    _home("dialogmodalalways")
+    options = [(1, "Yes"), (2, "No")]
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        async def pick(title: str, tick: bool):
+            got = []
+            await app.push_screen(DialogModal({"agent": "reviewer", "title": title, "options": options}),
+                                  lambda r: got.append(r))
+            await pilot.pause(0.3)
+            has_box = bool(app.screen.query("#always"))
+            if tick and has_box:
+                app.screen.query_one("#always", Checkbox).value = True
+            await pilot.press("1")
+            await pilot.pause(0.3)
+            return has_box, got
+        has_box, got = await pick(orcamod.TRUNCATED_TITLE, tick=True)
+        check("dialog modal: a truncated title offers no 'always' box, and a digit still picks",
+              not has_box and got == [(1, False)], str((has_box, got)))
+        has_box, got = await pick("Bash command", tick=True)
+        check("dialog modal: an ordinary title with 'always' ticked picks (n, True)",
+              has_box and got == [(1, True)], str((has_box, got)))
+        has_box, got = await pick("Bash command", tick=False)
+        check("dialog modal: unticked picks (n, False)", has_box and got == [(1, False)], str((has_box, got)))
+
+
 async def test_a_claude_permission_prompt_is_answered_from_its_chat_page() -> None:
     from unittest import mock
     from ocp.session import orca as orcamod, waiting
@@ -3481,6 +3510,7 @@ async def _run_all() -> None:
     test_summary_line()
     await test_home_settings_lists_the_standing_answers_and_removes_one()
     await test_a_dialog_on_an_agent_terminal_is_answered_from_its_page()
+    await test_the_dialog_modal_offers_always_except_for_a_truncated_title()
     await test_a_claude_permission_prompt_is_answered_from_its_chat_page()
     await test_an_askuserquestion_prompt_is_answered_from_its_chat_page()
     await test_an_askuserquestion_multiselect_offers_other_too()
