@@ -2229,6 +2229,25 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
                   db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
                   str(dict(db.get_agent_state(con, "backend"))))
 
+            # A permission prompt or a dialog reads as idle to idle_now too -
+            # nothing is streaming while it waits on a person - so idle_now
+            # alone is not enough here either: a screen_blocker means it is
+            # legitimately waiting, not stuck for no reason (T383).
+            db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+            db.add_event(con, "backend", "Stop", {})
+            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                        (int(time.time()) - dmn_states.STUCK_RUNNING_S - 60,))
+            orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "Bash command")
+            dmn_reconciler.sweep(con, lambda _m: None, [])
+            check("sweep: a screen_blocker (a live prompt) is not unstuck even when idle_now says yes",
+                  db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING,
+                  str(dict(db.get_agent_state(con, "backend"))))
+            orcamod.screen_blocker = lambda h: None
+            dmn_reconciler.sweep(con, lambda _m: None, [])
+            check("sweep: once the prompt clears, the same stuck agent is unstuck",
+                  db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
+                  str(dict(db.get_agent_state(con, "backend"))))
+
             # And the other witness alone is not enough either.
             db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
             db.add_event(con, "backend", "UserPromptSubmit", {})

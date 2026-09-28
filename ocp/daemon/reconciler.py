@@ -349,6 +349,15 @@ def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
     handle = row["terminal"]
     if not handle or not orca.available() or not orca.idle_now(handle):
         return
+    # idle_now alone reads a permission prompt or a dialog as idle: nothing is
+    # streaming while it waits on a person, the same silence this whole check
+    # is looking for. screen_blocker catches what idle_now cannot - an agent
+    # sitting at an unanswered prompt is not stuck for no reason, it is
+    # legitimately waiting on the one thing that already has its own path to
+    # the founder (T223/T187); flipping it to IDLE here only lets ordinary
+    # delivery type new work over a screen nobody has answered yet.
+    if orca.screen_blocker(handle) is not None:
+        return
     db.set_agent_state(con, agent, IDLE,
                        detail=f"RUNNING with nothing heard for {mins}m, and idle")
     db.add_event(con, agent, "unstuck", {"was": RUNNING, "silent_minutes": mins})
