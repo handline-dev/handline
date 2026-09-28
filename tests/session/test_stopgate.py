@@ -31,6 +31,9 @@ def test_stop_wait_reason_becomes_a_reason_naming_the_task(home: Path) -> None:
     check("warn-only by default: never blocks", block is False, (block, reason))
     check("but still gives a reason naming the current task",
           reason is not None and f"T{tid}" in reason, reason)
+    check("T401 item 18: names task handoff as the finish step, not task done, "
+          "and drops the open-say wait",
+          "ocp task handoff" in reason and "ocp say" not in reason, reason)
     con = db.connect()
     try:
         rows = con.execute("SELECT payload FROM events WHERE agent = 'worker' "

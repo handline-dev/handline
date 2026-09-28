@@ -252,8 +252,6 @@ def stop_wait_reason(con, agent: str) -> str | None:
         return None
     if db.open_decision_tasks_of(con, agent):
         return None
-    if db.open_say_of(con, agent, int(time.time()), askmod.SAY_TIMEBOX_S):
-        return None
     return f"T{tid} is current with no recorded wait"
 
 
@@ -274,7 +272,7 @@ def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
     linked = {r["id"] for r in db.task_requests(con, row["id"])}
     open_linked = [r for r in open_requests if r["id"] in linked and not r["fyi"]]
     if not row["queued_by"] and open_linked:
-        return f"never approved, but request #{open_linked[0]['id']} is out"
+        return f"draft with work out (#{open_linked[0]['id']}) - its opener has not queued it"
     if state == "queued" and not open_linked:
         return "approved, but no request is out"
     return None
@@ -1058,10 +1056,15 @@ def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None)
         return "only an auditor gives a verdict (--pass or --fail)"
     if role == "auditor":
         if verdict is None:
-            return "an auditor's handoff must say --pass or --fail"
-        dest = row["opened_by"] if verdict == "PASS" else prev
-        allowed = to == dest
-        hint = f"{dest or 'nobody'} on a {verdict} ({'the task opener' if verdict == 'PASS' else 'who handed it over'})"
+            if prev is not None:
+                return "an auditor's handoff must say --pass or --fail"
+            dest = row["opened_by"]
+            allowed = to == dest
+            hint = f"{dest or 'nobody'} (not a review, so no verdict is needed)"
+        else:
+            dest = row["opened_by"] if verdict == "PASS" else prev
+            allowed = to == dest
+            hint = f"{dest or 'nobody'} on a {verdict} ({'the task opener' if verdict == 'PASS' else 'who handed it over'})"
     elif role == "merger":
         allowed = to == prev
         hint = f"{prev or 'nobody'}, who handed it over - a merger closes it done once merged"

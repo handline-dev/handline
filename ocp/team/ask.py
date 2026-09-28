@@ -643,9 +643,11 @@ def withdraw(rid: int, requester: str | None = None,
                            f"not yours to withdraw")
         if row["state"] != "queued":
             return False, f"#{rid} is already {row['state']} - nothing to withdraw"
+        linked = db.tasks_for_request(con, rid) if row["kind"] == "task" else []
+        release = f", or `ocp task release T{linked[0]['id']}`" if linked else ""
         too_late = (f"#{rid} was already delivered to {row['target']} - too late to withdraw; "
-                   f"send a reply in its thread instead "
-                   f"(`ocp ask {row['target']} \"...\" --parent {rid}`)")
+                   f"tell {row['target']} with a message "
+                   f"(`ocp say {row['target']} \"...\" --parent {rid}`){release}")
         if row["delivered_at"]:
             return False, too_late
         # Atomic: the write itself is the gate against a delivery landing

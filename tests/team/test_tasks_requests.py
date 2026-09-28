@@ -1481,6 +1481,32 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
         con.close()
 
 
+def test_withdraw_too_late_points_at_a_message_and_a_task_release(home: Path) -> None:
+    """T401 item 20: `ocp ask` is the wrong verb to suggest now - a reply
+    goes as a message, and a task-kind request also names `ocp task release`."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "manager", "worker", "just a note", None,
+                             "supervisor", "fire_and_forget", None, 0, None)
+        db.mark_delivered(con, rid)
+        ok, msg = askmod.withdraw(rid, requester="manager")
+        check("a plain message: no task release is offered",
+              not ok and "ocp say worker" in msg and "task release" not in msg, msg)
+
+        tid = db.new_task(con, "do the thing", "worker", "manager")
+        trid = db.add_request(con, "manager", "worker", f"T{tid} handed to you by manager: do the thing",
+                              None, "supervisor", "fire_and_forget", "task", 0, None)
+        db.link_request(con, tid, trid)
+        db.mark_delivered(con, trid)
+        ok, msg = askmod.withdraw(trid, requester="manager")
+        check("a task handoff: named with ocp say and ocp task release, not ocp ask",
+              not ok and "ocp say worker" in msg and f"ocp task release T{tid}" in msg
+              and "ocp ask" not in msg, msg)
+    finally:
+        con.close()
+
+
 def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
     """T57: a report (the unblock notice) asks nothing, so the line typed at its
     target says to dismiss it; any other request says to resolve it."""
@@ -7706,6 +7732,66 @@ limits:
         check("handoff: --pass drives the handoff through the cli",
               rc == 0 and db.get_task(con, cli_t)["owner"] == "manager"
               and db.task_handoffs(con, cli_t)[-1]["verdict"] == "PASS", out)
+
+        # T401 item 17: --file, same as ocp ask/say/resolve, safe against a
+        # shell expanding backticks or $() in the note.
+        file_t = db.new_task(con, "via file", "worker", "manager")
+        note_path = home / "note.txt"
+        note_path.write_text("branch@abc123: fixed it, backtick ` and $( stay literal")
+        rc, out = _cli(["task", "handoff", f"T{file_t}", "dev.auditor", "--file", str(note_path)],
+                       as_agent="worker")
+        check("handoff: --file reads the note from a file", rc == 0, out)
+        check("handoff: the note in the record is the file's content, untouched",
+              db.task_handoffs(con, file_t)[-1]["note"]
+              == "branch@abc123: fixed it, backtick ` and $( stay literal")
+        rc, out = _cli(["task", "handoff", f"T{file_t}", "manager", "inline", "--file",
+                        str(note_path)], as_agent="dev.auditor")
+        check("handoff: inline and --file together is refused",
+              rc == 1 and "not both" in out, out)
+    finally:
+        con.close()
+
+
+def test_an_auditor_handed_a_non_review_task_needs_no_verdict(home: Path) -> None:
+    """T401 item 16: a task opened straight onto an auditor (a report, not a
+    review of someone else's work) has no previous owner to audit, so a
+    handoff off it needs no --pass/--fail."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  dev.auditor: {}
+  worker2: {}
+edges:
+  - { from: "manager", to: "dev.auditor", relation: peer, response: async }
+  - { from: "dev.auditor", to: "manager", relation: peer, response: async }
+  - { from: "manager", to: "worker2", relation: supervisor, response: async }
+  - { from: "worker2", to: "manager", relation: subordinate, response: async }
+  - { from: "worker2", to: "dev.auditor", relation: peer, response: async }
+limits: { max_chain_depth: 4, ask_rate_per_hour: 50 }
+""")
+    for n in ("manager", "dev.auditor", "worker2"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, _, t = actions.task_new("manager", "dev.auditor", "review every X for Y")
+        check("setup: opened straight onto the auditor", ok)
+        check("not a review: no previous owner recorded",
+              actions.previous_owner(con, t, "dev.auditor") is None)
+        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "done, see report")
+        check("handoff: no verdict needed when it is not a review",
+              ok and db.get_task(con, t)["owner"] == "manager", msg)
+
+        # Once an auditor really is reviewing someone's work (received via a
+        # handoff), the plain refusal still applies - no "not a review?"
+        # escape (auditor #2466): that hint led straight to a PASS on work
+        # nobody reviewed, the thing the verdict gate exists to stop.
+        ok, _, u = actions.task_new("manager", "worker2", "the change")
+        actions.task_handoff(con, "worker2", u, "dev.auditor", "branch@abc: fixed it")
+        ok, msg = actions.task_handoff(con, "dev.auditor", u, "manager", "no verdict")
+        check("handoff: a real review still needs a verdict, plainly, no escape hint",
+              not ok and "--pass" in msg and "not a review" not in msg, msg)
     finally:
         con.close()
 
@@ -7856,15 +7942,15 @@ def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
               len(db.task_requests(con, t)) == 1
               and actions.task_state(con, db.get_task(con, t)) == "doing")
         check("ask: the task was never approved, so the mismatch names it",
-              "never approved" in (actions.task_mismatch(
+              "draft with work out" in (actions.task_mismatch(
                   con, db.get_task(con, t), "doing",
                   con.execute("SELECT * FROM requests WHERE state='queued'").fetchall()) or ""))
     finally:
         con.close()
     rc, out = _cli(["task", "list"])
-    check("list: a draft with a request out is marked", "! never approved" in out, out)
+    check("list: a draft with a request out is marked", "! draft with work out" in out, out)
     rc, out = _cli(["task", "board"], as_agent="worker")
-    check("board: and so is it there", "! never approved" in out, out)
+    check("board: and so is it there", "! draft with work out" in out, out)
     check("list: a --no-task request is not flagged as an unlinked one",
           "not linked" not in _cli(["task", "list"])[1])
 
@@ -8145,15 +8231,11 @@ limits:
               "(not task_state's OPEN_STATES, which counts 'done' as open)",
               actions.stop_wait_reason(con, "worker") is not None)
 
-        # A say sent inside its reply window is a recorded wait; past it, it
-        # is not.
-        ok, msg, say_rid = askmod.say("manager", "quick one?", requester="worker")
+        # An open say of the agent's own is never a wait (T401 item 18: a
+        # message needs no answer, so it cannot gate the stop).
+        ok, msg, _ = askmod.say("manager", "quick one?", requester="worker")
         check("setup: a say", ok, msg)
-        check("stop_wait_reason: a say inside its reply window is a recorded wait",
-              actions.stop_wait_reason(con, "worker") is None)
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
-                    (int(time.time()) - askmod.SAY_TIMEBOX_S - 1, say_rid))
-        check("stop_wait_reason: past its reply window, it no longer is",
+        check("stop_wait_reason: an open say is not a recorded wait",
               actions.stop_wait_reason(con, "worker") is not None)
     finally:
         con.close()
@@ -8199,6 +8281,7 @@ def main() -> int:
             Path(td) / 'blockedwake'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
+        run(lambda: test_withdraw_too_late_points_at_a_message_and_a_task_release(Path(td) / 'withdrawtoolate'))
         run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))
         run(lambda: test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(Path(td) / 'reportnudge'))
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
@@ -8273,6 +8356,7 @@ def main() -> int:
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
+        run(lambda: test_an_auditor_handed_a_non_review_task_needs_no_verdict(Path(td) / 'nonreview'))
         run(lambda: test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(Path(td) / 'fe1'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
