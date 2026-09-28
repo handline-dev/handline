@@ -43,6 +43,11 @@ def home() -> Path:
     return h
 
 
+def socket_file() -> Path:
+    """The one unix socket ocp's processes talk over, under the home."""
+    return home() / "ocp.sock"
+
+
 def config_file() -> Path:
     return home() / "config.yaml"
 
