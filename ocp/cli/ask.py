@@ -454,7 +454,12 @@ def cmd_read(args) -> int:
         if row is None:
             print(f"no request #{args.id}")
             return 1
-        if askmod.asking_agent() == actions.HUMAN:
+        viewer = askmod.asking_agent()
+        if viewer == row["target"] and viewer != actions.HUMAN and not row["edge_ok"]:
+            # Not yet checked against the routing table: not the target's to read.
+            print(f"no request #{args.id}")
+            return 1
+        if viewer == actions.HUMAN:
             actions.opened_by_human(con, args.id)
         when = timefmt.stamp(row["ts"], timefmt.DATE_TIME)
         print(f"#{row['id']}  {row['requester']} → {row['target']}  "
