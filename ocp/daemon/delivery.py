@@ -805,6 +805,15 @@ def waiting_prompt(con, agent: str, log):
     answered = db.unannounced_answers(con, agent)
     if answered:
         return answers_text(answered), lambda session: _record_answers(con, agent, answered, log)
+    # T351: a pending message (messaging.py) is the same kind of "owed" as a
+    # head or an answer - `lifecycle.waiting_for` already counts it, and a
+    # resume it woke for has to have this in step or "nothing to resume it
+    # for" fires on every one of them. Typed as-is, not wrapped like a
+    # request's tell: `wake_prompt`'s `resumed` branch returns it unchanged.
+    pending = db.list_pending(con, agent)
+    if pending:
+        row = pending[0]
+        return row["text"], lambda session: db.delete_pending(con, int(row["id"]))
     return None
 
 

@@ -15,11 +15,8 @@ import socket
 
 from ..infra import paths
 
-# A verb can legitimately take as long as waking a closed agent does:
-# control.py's own WAITS puts `move` (a wake's own wait, twice over) at up to
-# ~450s. A shorter default would read a wake still genuinely in progress as
-# "the daemon is not there to answer" - the one thing `send` exists to tell
-# apart from an actual refused connection.
+# A wake can legitimately take up to ~450s (control.py's own WAITS); shorter
+# would misread one still in progress as the daemon being down.
 TIMEOUT_S = 480.0
 
 

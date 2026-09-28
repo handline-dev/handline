@@ -232,10 +232,15 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # writes QUEUED over the park and clears the wake_at that would have
         # brought it back. Without this, nothing in the system ever wakes it.
         answers = db.unannounced_answers(con, agent)
-        if waiting or answers:
+        # T351: a message that could not be typed before the close (or that
+        # arrived while it was closed) is the same kind of arrival - nothing
+        # else ever wakes a closed agent for one.
+        pending = db.list_pending(con, agent)
+        if waiting or answers or pending:
             ok, why = lifecycle.wake_agent(con, agent, log)
             what = (f"{len(waiting)} waiting request(s)" if waiting
-                    else f"{len(answers)} answer(s) it asked for")
+                    else f"{len(answers)} answer(s) it asked for" if answers
+                    else f"{len(pending)} pending message(s)")
             actions.append(f"{agent}: woken for {what}"
                            if ok else f"{agent}: could not wake - {why}")
             if not ok and _SAID.get(agent) != why:

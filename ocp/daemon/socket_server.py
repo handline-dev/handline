@@ -172,10 +172,8 @@ class SocketServer:
         except FileNotFoundError:
             pass
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        # Nobody but this account may reach in: created private, then
-        # narrowed - a window where it is briefly world-writable is the one
-        # thing os.chmod after bind cannot close, since some other process
-        # would have to be racing this exact instant to use it.
+        # Created private via umask, not just chmod after: chmod alone leaves
+        # a window where the file is briefly world-writable.
         old_umask = os.umask(0o177)
         try:
             sock.bind(str(path))

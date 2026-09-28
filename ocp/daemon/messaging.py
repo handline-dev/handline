@@ -97,7 +97,7 @@ def send_message(con, agent: str, text: str, log) -> tuple[bool, str]:
             if ok:
                 return True, f"{agent}: woken and typed"
             return True, f"{agent}: queued - woken, will type once free ({why})"
-        return True, f"{agent}: queued - waking it ({wake_why})"
+        return True, f"{agent}: queued - not woken ({wake_why})"
     return True, f"{agent}: queued - {why}"
 
 

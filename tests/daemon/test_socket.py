@@ -191,22 +191,88 @@ def test_pending_rows_left_by_a_dead_daemon_are_reloaded_at_start(home: Path) ->
         con.close()
 
 
+def test_a_tick_itself_delivers_a_pending_row_not_just_a_direct_call(home: Path) -> None:
+    """evaluate.supervise wires in messaging.deliver_pending (T351) - every
+    other test in this file calls deliver_pending/reload_pending directly,
+    which would stay green even if that wiring were quietly dropped."""
+    sent = _typeable_world(home)
+    orcamod.live_terminals = lambda: {"term_x"}
+    con = db.connect()
+    try:
+        db.add_pending(con, "backend", "typed by the tick itself", int(time.time()))
+        dmn_evaluate.tick(con, lambda m: None)
+        check("tick: a real tick delivers a pending row on its own",
+              sent == [("term_x", "typed by the tick itself")], str(sent))
+        check("tick: and clears the row", db.list_pending(con, "backend") == [])
+    finally:
+        con.close()
+
+
+def test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(home: Path) -> None:
+    """T351: nothing else ever wakes a closed agent for a message alone -
+    not `undelivered_for`, not `unannounced_answers` - so before this a
+    message to a closed agent was accepted (durable, in `pending_messages`)
+    and then never delivered. Modeled on
+    test_only_one_thing_types_at_an_agent_at_a_time's own closed-agent wake."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        sent: list[str] = []
+        table = sessions_are()          # closed - no session running yet
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-1")
+
+        check("waiting_for: false with nothing at all pending for it",
+              not dmn_lifecycle.waiting_for(con, "backend"))
+        db.add_pending(con, "backend", "wake up please", int(time.time()))
+        check("waiting_for: a pending message alone counts as something waiting",
+              dmn_lifecycle.waiting_for(con, "backend"))
+
+        dmn_evaluate.tick(con, lambda m: None)
+        check("wake: a real tick wakes a closed agent for its pending message alone",
+              any("--resume sess-1" in t for t in sent), str(sent))
+        row = db.get_agent_state(con, "backend")
+        check("wake: no longer closed", row is not None and not row["closed_at"], str(dict(row or {})))
+        # The pending text rides the resume as its own first prompt
+        # (delivery.waiting_prompt) - typed once, by the wake itself, not
+        # left for a separate deliver_pending to find.
+        check("wake: the pending message is typed once, as the resume's own prompt",
+              "wake up please" in sent, str(sent))
+        check("wake: and the row is gone", db.list_pending(con, "backend") == [])
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle,
+         orcamod.idle_now, orcamod.send) = real
+        con.close()
+
+
+def _hold_terminal_lock_elsewhere(agent: str) -> subprocess.Popen:
+    """Spawn a process that takes `agent`'s lock.terminal and sits on it, to
+    stand in for the tick mid-send - the race every T351 control verb has to
+    lose cleanly rather than double up on. Caller kills and waits on it."""
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys, time; sys.path.insert(0, %r);"
+         "from ocp.infra import lock;"
+         "ctx = lock.terminal(%r); print(ctx.__enter__(), flush=True);"
+         "time.sleep(30)" % (str(ROOT), agent)],
+        stdout=subprocess.PIPE, text=True, env=dict(os.environ))
+    assert holder.stdout.readline().strip() == "True", "the holder process did not take the lock"
+    return holder
+
+
 def test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(home: Path) -> None:
     """The tick and a socket request both reach for the same agent's
     terminal at once (T351 point 4): whichever loses the race must not type
     at all - and must not lose the message either, since it was made durable
     (a pending row) before either side ever asked for the lock."""
     sent = _typeable_world(home)
-    holder = subprocess.Popen(
-        [sys.executable, "-c",
-         "import sys, time; sys.path.insert(0, %r);"
-         "from ocp.infra import lock;"
-         "ctx = lock.terminal('backend'); print(ctx.__enter__(), flush=True);"
-         "time.sleep(30)" % str(ROOT)],
-        stdout=subprocess.PIPE, text=True, env=dict(os.environ))
+    holder = _hold_terminal_lock_elsewhere("backend")
     try:
-        check("race: the other process (standing in for the tick) holds the lock",
-              holder.stdout.readline().strip() == "True")
         con = db.connect()
         try:
             ok, said = dmn_messaging.send_message(con, "backend", "racing text", lambda m: None)
@@ -227,6 +293,57 @@ def test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(ho
         check("race: freed, the tick delivers the queued text exactly once",
               delivered and sent == [("term_x", "racing text")], str(sent))
     finally:
+        con.close()
+
+
+def test_control_start_refuses_when_the_lock_is_held_elsewhere(home: Path) -> None:
+    """control.start took lock.terminal in this phase (T351) - it had none
+    before. Held elsewhere, it must refuse rather than spawn a second
+    terminal for the same agent."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+    holder = _hold_terminal_lock_elsewhere("backend")
+    try:
+        said = actions.start(con, "backend")
+        check("start: refused while something else holds the terminal",
+              "someone else" in said, said)
+        row = db.get_agent_state(con, "backend")
+        check("start: nothing was spawned - still no terminal",
+              row is None or not row["terminal"], str(dict(row or {})))
+    finally:
+        holder.kill()
+        holder.wait()
+        con.close()
+
+
+def test_dialogs_answer_dialog_refuses_when_the_lock_is_held_elsewhere(home: Path) -> None:
+    """dialogs.answer_dialog took lock.terminal in this phase (T351)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    holder = _hold_terminal_lock_elsewhere("backend")
+    try:
+        ok, said = actions.answer_dialog(con, "backend", "Trust this folder?", 1)
+        check("answer_dialog: refused, not pressed, while something else holds the terminal",
+              not ok and "something else" in said, said)
+    finally:
+        holder.kill()
+        holder.wait()
+        con.close()
+
+
+def test_confirmations_answer_refuses_when_the_lock_is_held_elsewhere(home: Path) -> None:
+    """confirmations.answer took lock.terminal in this phase (T351)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    holder = _hold_terminal_lock_elsewhere("backend")
+    try:
+        ok, said = actions.answer_confirmation(con, "backend", True, {})
+        check("confirm: refused, not pressed, while something else holds the terminal",
+              not ok and "something else" in said, said)
+    finally:
+        holder.kill()
+        holder.wait()
         con.close()
 
 
@@ -255,7 +372,12 @@ def main() -> int:
         run(lambda: test_a_refused_socket_tells_the_client_the_daemon_is_down(Path(td) / 's1'))
         run(lambda: test_a_screen_blocker_defers_to_a_pending_row_a_later_deliver_picks_up(Path(td) / 's2'))
         run(lambda: test_pending_rows_left_by_a_dead_daemon_are_reloaded_at_start(Path(td) / 's3'))
+        run(lambda: test_a_tick_itself_delivers_a_pending_row_not_just_a_direct_call(Path(td) / 's3b'))
+        run(lambda: test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(Path(td) / 's3c'))
         run(lambda: test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(Path(td) / 's4'))
+        run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
+        run(lambda: test_dialogs_answer_dialog_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4b'))
+        run(lambda: test_confirmations_answer_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4c'))
         run(lambda: test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(Path(td) / 's5'))
     return run_area(tests)
 

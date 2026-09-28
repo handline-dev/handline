@@ -312,16 +312,11 @@ CREATE TABLE IF NOT EXISTS usage_samples (
 -- filter on ts alone, which that index cannot serve (account leads it).
 CREATE INDEX IF NOT EXISTS usage_samples_account_ts ON usage_samples(account, ts);
 CREATE INDEX IF NOT EXISTS usage_samples_ts ON usage_samples(ts);
--- One row per API call, from the transcripts (tokenlog.py): what the plan
--- charges for, beside what usage_samples says it charged. Not read by any pick.
--- T351: text the daemon owes an agent's terminal but could not type at once -
--- a screen_blocker was up, or the session was closed and had to be woken
--- first. The one thing a reboot must not lose (#2117): what was typed
--- already lives in the receiver's own session file, so only what is still
--- unsent is kept here, and only the daemon ever writes this table. A row is
--- deleted the instant it is typed, never marked - there is no history to
--- keep, and `list_pending` is read at daemon start to pick up where a
--- restart left off.
+
+-- T351: text still owed to an agent's terminal - a screen_blocker was up, or
+-- the session was closed. Only the daemon writes this table, and a row is
+-- deleted the instant it is typed: what was typed already lives in the
+-- receiver's own session file, so only the unsent survives a restart (#2117).
 CREATE TABLE IF NOT EXISTS pending_messages (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   agent   TEXT    NOT NULL,
@@ -330,6 +325,8 @@ CREATE TABLE IF NOT EXISTS pending_messages (
 );
 CREATE INDEX IF NOT EXISTS pending_messages_agent ON pending_messages(agent, id);
 
+-- One row per API call, from the transcripts (tokenlog.py): what the plan
+-- charges for, beside what usage_samples says it charged. Not read by any pick.
 CREATE TABLE IF NOT EXISTS token_calls (
   account   TEXT    NOT NULL,
   session   TEXT    NOT NULL,
