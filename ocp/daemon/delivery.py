@@ -68,10 +68,7 @@ def _wait_session_gone(agent: str) -> bool:
 
     Always a fresh reading - the sweep's snapshot is what read the old process
     as alive. An unreadable table is a no, the same fail-closed rule as
-    `session_present`: not knowing that it ended is not evidence that it did -
-    including when the table itself read fine but mapping one of its pids
-    back to an agent did not (T146, `observe.live_sessions`): that reads as
-    the whole table being unreadable here too, for the same reason.
+    `session_present`: not knowing that it ended is not evidence that it did.
     """
     deadline = time.time() + END_WAIT_S
     while True:

@@ -801,7 +801,10 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
 
     old, new = prop["agent"], prop["to"]
     live = obs.live_sessions()
-    if live and live.get(old):
+    if live is None:
+        return False, (f"could not confirm whether {old} has a session running "
+                       f"just now - try again in a moment.")
+    if live.get(old):
         return False, (f"{old} has a session running. Close it first "
                        f"(`ocp close {old}`, or `c` on the bridge) - an identity "
                        f"cannot change under a running session.")

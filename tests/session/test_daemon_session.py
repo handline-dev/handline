@@ -2670,6 +2670,39 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         con.close()
 
 
+def test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(home: Path) -> None:
+    """T146 round 2 (auditor #1992): `live_sessions` returning None must not
+    read as "nothing running" - typing over a session that might be there
+    reaches it as a prompt. Refused the same way a confirmed foreign session
+    is, but not counted against the wake-failure streak."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+            obsmod.live_sessions)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        obsmod.live_sessions = lambda: None
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-unknown")
+        support.something_waiting(con, "backend")
+
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: an unreadable process table types nothing",
+              not ok and not sent, f"{why} {sent}")
+        check("wake: and says so, not a false foreign-session claim",
+              "could not be confirmed" in why, why)
+        check("wake: and it is not counted against the streak",
+              row["wake_failures"] == 0, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+         obsmod.live_sessions) = real
+        con.close()
+
+
 def test_a_refused_launch_leaves_its_prompt(home: Path) -> None:
     """The prompt file is taken only by a launch that goes ahead: the daemon
     reads a file still there as "my launch started nothing"."""
@@ -2856,9 +2889,11 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
     agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
-    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session)
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+           obsmod.live_sessions)
     launched: list[str] = []
     try:
+        obsmod.live_sessions = lambda: {}
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
         support.something_waiting(con, "keeper")
@@ -2886,7 +2921,8 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
     finally:
-        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session = real
+        (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+        obsmod.live_sessions) = real
         con.close()
 
 
@@ -4178,15 +4214,9 @@ def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
 
 
 def test_live_sessions_fails_the_whole_reading_on_an_unmappable_pid() -> None:
-    """T146 (founder #737/#743): a live, session-shaped pid whose own two
-    `ps` calls miss - the pid gone by the time they run, an empty read, a
-    mismatched prefix - reads exactly like a transient miss under load would,
-    and was silently left out of the map, so `harbor.shore`, `auditor`, `ui`
-    and `core` were each read as closed while still live. Only a pid that is
-    definitely another user's (`ps` prints its command with no environment,
-    at rc 0) is a real "not ours"; everything else fails the whole reading,
-    the same as `process_table` returning None already does for its callers.
-    """
+    """T146: a claude pid whose own `ps` calls miss fails the whole reading
+    (None, like `process_table` already does), not just that one pid; a pid
+    that is definitely another user's is left out on its own instead."""
 
     class FakeResult:
         def __init__(self, rc: int, out: str) -> None:
@@ -4322,6 +4352,7 @@ def main() -> int:
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
+        run(lambda: test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(Path(td) / 'wakeunreadable'))
         run(lambda: test_a_refused_launch_leaves_its_prompt(Path(td) / 'launchrefused'))
         run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))

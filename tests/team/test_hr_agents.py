@@ -508,6 +508,27 @@ edges:
         con.close()
 
 
+def test_a_rename_refuses_when_liveness_cannot_be_confirmed(home: Path) -> None:
+    """T146 round 2 (auditor #1992): `live_sessions` returning None must not
+    read as "no session running" - `_rename`'s old `if live and live.get(old)`
+    let an identity change go ahead under a session the reading simply could
+    not confirm one way or the other."""
+    _daemon_home(home, 20)
+    agents.register("oldname")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        obsmod.live_sessions = lambda: None
+        ok, said = hr._rename({"agent": "oldname", "to": "newname"}, con)
+        check("rename: refused when liveness cannot be read",
+              not ok and "could not confirm" in said, said)
+        check("rename: nothing renamed", "oldname" in paths.list_agents()
+              and "newname" not in paths.list_agents(), str(paths.list_agents()))
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
 def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Path) -> None:
     """harbor #753: a rename leaves Orca's label right (`hr.label`, already
     covered by test_a_rename_names_the_agents_orca_worktree) but the folder,
@@ -3513,6 +3534,7 @@ def main() -> int:
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
         run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
+        run(lambda: test_a_rename_refuses_when_liveness_cannot_be_confirmed(Path(td) / 'renameunknown'))
         run(lambda: test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(Path(td) / 'rehome'))
         run(lambda: test_hr_rehome_cli_moves_the_folder(Path(td) / 'rehomecli'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))

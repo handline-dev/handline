@@ -78,16 +78,9 @@ def _ps_command(pid: int, flags: str) -> str | None:
 
 
 def _env_or_reason(pid: int) -> tuple[str | None, bool]:
-    """`process_env`'s answer, plus whether a `None` there is a definite "not
-    ours" - a live process printing its command at rc 0 with no environment,
-    which only another user's does - rather than one `ps` call away from
-    saying so: the pid gone, an empty read, or a mismatched prefix, each of
-    which a transient miss under load looks exactly like too (T146: three
-    `ps` calls read one process, and any one of them can miss without it
-    having moved at all - `live_sessions`, the one caller for whom that
-    matters, keeps the two apart instead of reading every kind of `None` as
-    "not this agent's session").
-    """
+    """`process_env`'s answer, plus whether a `None` there is definitely
+    another user's process (T146) rather than one of the other misses that
+    can happen to a live pid we should not give up on."""
     argv = _ps_command(pid, "ww")
     with_env = _ps_command(pid, "eww")
     if argv is None or with_env is None:
@@ -166,13 +159,9 @@ def live_sessions() -> dict[str, int] | None:
     had, and it is not the agent's session.
 
     None the same way `process_table` returns it (T146): a pid the table just
-    named as one of ours, whose own two `ps` calls then missed, is not "not
-    this agent's session" - it is this whole reading not being trustworthy,
-    same as an unreadable table would be, and every caller here already
-    treats that as "I don't know" rather than "there is nothing". Only a
-    live process that is definitely another user's (`_env_or_reason`'s second
-    value) is a real "not ours"; that one is left out and nothing else here
-    is doubted for it.
+    named as one of ours, whose own `ps` calls then missed, fails the whole
+    reading rather than being silently left out - unless it is definitely
+    another user's process, which is left out on its own.
     """
     table = process_table()
     if table is None:
