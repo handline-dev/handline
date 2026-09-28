@@ -246,7 +246,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         reason: str | None = None,
         timebox_s: int | None = None, kind: str | None = None,
         park: bool = True, send_now: bool = False,
-        on_behalf_of: bool = False) -> tuple[bool, str, int | None]:
+        on_behalf_of: bool = False, edge_exempt: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -267,6 +267,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `requester` this call already verified from our own database, not a
     live claim by whoever's session happens to be running it. Only for a
     system-triggered, already-authorized delivery (`advance_current_task`).
+
+    `edge_exempt` lets the request through when only a missing edge would
+    refuse it (`task handoff --fail` to the previous holder, T392); an
+    explicit deny, the loop guards and the rate limit still apply.
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):
@@ -357,7 +361,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                 depth, parent_id, detect)
                 return False, f"{detect}\nEscalated to {ESCALATION_TARGET} as #{eid}.", None
 
-        decision = t.route(requester, target, chain_depth=depth)
+        decision = t.route(requester, target, chain_depth=depth, edge_exempt=edge_exempt)
         if not decision.allowed:
             if db.standing_denial(con, requester, target, body, files,
                                   int(time.time()) - team.ASK_WINDOW_S) is None:
