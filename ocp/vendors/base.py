@@ -35,24 +35,20 @@ class QuestionOption:
 @dataclass(frozen=True)
 class Question:
     """One AskUserQuestion question read off a vendor's screen (T304), in the
-    one shape the rest of ocp sees: `options` are the choices Claude itself
+    one shape the rest of ocp sees. `options` are the choices Claude itself
     proposed, verbatim - never "Type something" or "Chat about this", which
-    are the picker's own controls, not options a founder chose among.
-    `other_number` is that "Type something" control's number (options are
-    numbered from 1, so it is always `len(options) + 1`); typing into it
-    replaces its line with the words typed, which `other_text` carries once
-    that has happened (None while it still reads "Type something").
-    `multi_select` distinguishes a single pick (Enter submits, or moves to
-    the next question of several) from several (numbers toggle `checked`,
-    Enter submits the ones checked). `lines` is the panel's own text, quoted
-    the same way `Dialog.body` is - a caller checking this is still the same
-    prompt looks at it, never at fields this parse already turned into data.
-    `cursor` is the row the "❯" marker is on now (1 for the first option, up
-    through `other_number` and one further for a multiSelect question's own
-    "Submit"): a number toggles Other's own checkbox same as any other, it
-    does not open its text field the way typing a single-select question's
-    Other does - reaching that field takes moving the cursor there with Down
-    presses instead (founder capture, T322 follow-up, 2026-09-28)."""
+    are the picker's own controls. `other_number` is that "Type something"
+    control's number (`len(options) + 1`); `other_text` carries the words
+    typed into it, None while it still reads "Type something". `multi_select`
+    distinguishes a single pick (a number submits outright) from several
+    (numbers toggle `checked`, Enter submits the ones checked). `lines` is
+    the panel's own text, quoted the same way `Dialog.body` is - a caller
+    checking this is still the same prompt looks at it. `cursor` is the row
+    the "❯" marker is on now (1 for the first option, up through
+    `other_number` and one further for a multiSelect question's own
+    "Submit") - a number toggles Other's own checkbox same as any other row,
+    so reaching its text field takes moving the cursor there with Down
+    presses instead."""
     header: str
     question: str
     options: tuple[QuestionOption, ...]
@@ -347,16 +343,13 @@ class Driver(Protocol):
 
     def question_toggle_keys(self, question: Question, choices: tuple[int, ...]) -> list[str] | None:
         """Stage one of a multiSelect question's boxes-and-Other combo: the
-        keys that toggle its checkboxes to `choices`, sent and the screen
-        re-read before Other's own row is reached - toggling a box can move
-        the cursor too, so where it lands matters and is not guessed at
-        blind. None when this vendor has no such combo. Only ever pressed
-        through `orca.answer_question`."""
+        toggle keys to `choices`, re-read before stage two reaches for Other.
+        None when this vendor has no such combo."""
 
     def question_other_after_toggle_keys(self, question: Question, text: str) -> list[str] | None:
         """Stage two, given `question` freshly re-read after stage one's
-        toggles landed - its own current cursor, not the one the question
-        first showed. None when this vendor has no such combo."""
+        toggles landed - its own current cursor, not the first-shown one.
+        None when this vendor has no such combo."""
 
     def credential_present(self, config_dir: Path) -> bool | None:
         """Whether a credential exists. Never reads or returns it. None when

@@ -23,18 +23,13 @@ from .text_prompt import TextPrompt
 class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
     """Dismisses with `press`'s own (ok, said) once it has actually run, or
     None when closed by hand before anything was sent - the terminal is left
-    as it is either way. Pressing an option runs `press` itself, on a thread
-    (T336 follow-up, founder: sending is a real subprocess call to `orca`,
-    slow enough to want its own feedback) - every control here disables and
-    the hint says so while it is in flight, so what used to be a modal that
-    vanished with no sign anything was still happening now stays up, showing
-    that, until `press` actually returns. On a single-select question Other
-    submits by itself (choices then empty) the moment its text is typed,
-    matching the real screen's own one-shot number-then-text-then-Enter. A
+    as it is either way. Pressing an option runs `press` on a thread; every
+    control here disables and the hint says so until it returns, since it is
+    a real subprocess call to `orca` and can take a moment. On a single-select
+    question Other submits by itself the moment its text is typed. A
     multiSelect question's Other only records the text and returns to the
     checklist - Submit picked is what sends, with whatever boxes are checked
-    at that point (T322 follow-up, founder capture 2026-09-28: checked boxes
-    used to be silently dropped the moment Other was answered)."""
+    at that point."""
 
     BINDINGS = [Binding("escape", "dismiss(None)", "close")]
     DEFAULT_CSS = """

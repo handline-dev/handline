@@ -1,37 +1,21 @@
 """Claude Code's AskUserQuestion picker (T304), recognized for a founder to
 answer from the bridge instead of switching to the real terminal.
 
-Measured against four real screens the founder captured on 2026-09-27 (a
-single-select question, the same one with "Other" typed over its "Type
-something." line, a multiSelect question, and its own "Review your answers"
-screen) - not reconstructed from wording the way claude_confirm.py's Yes/No
-prompt was, since this shape is distinctive enough (an extra "Chat about
-this" line below a second rule) that guessing it wrong risked pressing a key
-against a screen this never was.
-
 `parse_dialog` cannot read this screen: it takes the rule closest to the
 footer as the panel's own top, which here is the second rule, above only
 "Chat about this" - one line that itself matches the option-label pattern, so
 `parse_dialog` refuses it as a title with no body. This walks `tail` directly
-from the footer upward instead, through the fixed shape both captures share:
-footer, blank, "N. Chat about this", blank, a rule, the numbered options
-(each optionally an indented description line below it), the question, the
-header, a rule.
+from the footer upward instead, through the fixed shape: footer, blank,
+"N. Chat about this", blank, a rule, the numbered options (each optionally an
+indented description line below it), the question, the header, a rule.
 
-Scope (v1): a lone question, single-select or multiSelect, "Other" on either,
-checked boxes and Other together on a multiSelect question - all measured
-against real screens as of 2026-09-28, the last (T322/T336 follow-up,
-founder #2013) through `orca._answer_question_toggle_and_other`'s own
-two-stage send, never `question_keys` here, which still refuses that one
-combination outright. A call with more than one question adds a tab per
-question before "Submit", and reading that bar past the two tabs a lone
-question shows is not measured here - `recognize` returns None rather than
-guess at it, the same as it does for a multiSelect question's own
-intermediate "Review your answers" screen: `orca.answer_question` sends that
-whole key sequence blind (measured by github.com/stupart/conch's
-`claudeQuestionKeys`, Claude Code 2.1.280) and confirms it worked by checking
-the question screen itself is gone, never by reading the Review screen along
-the way.
+Scope: a lone question, single-select or multiSelect, "Other" on either,
+checked boxes and Other together on a multiSelect question (that last one
+through `orca._answer_question_toggle_and_other`'s own two-stage send, never
+`question_keys` here, which still refuses it outright). A call with more than
+one question, or a multiSelect question's own intermediate "Review your
+answers" screen, is not read here - `recognize` returns None rather than
+guess at either.
 """
 from __future__ import annotations
 
@@ -65,33 +49,17 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     None when this combination is not sent here.
 
     `choices` are 0-based indexes into `q.options`; `text` is free text for
-    `q.other_number`. A multiSelect question's Other does not open its text
-    field on its own number the way single-select's does - that number only
-    toggles its checkbox, same as any other row - so typing into it takes
-    moving the cursor there first: Down from `q.cursor` to `q.other_number`,
-    then the text, then one more Down onto "Submit" and Enter (founder
-    capture, T322 follow-up, 2026-09-28, after two earlier guesses at this -
-    a trailing Right/Submit, and toggling boxes in the same breath as
-    answering Other - both went wrong on the real screen in different ways).
-    `choices` alongside multiSelect's Other is refused here specifically -
-    toggling a box moves the cursor too, so where it lands before the Downs
-    above matters and is not guessed at as one blind sequence. `orca.answer_question`
-    sends that combination itself, in two stages through `toggle_keys_for_other`
-    and `finish_other_keys` below, re-reading the real screen for where the
-    cursor actually landed between them (T322/T336 follow-up, founder capture
-    2026-09-28).
-
-    A single-select question submits on its one number - conch's own words,
-    "a lone single-choice question ... a number submits outright". A
-    multiSelect question's numbers only TOGGLE a checkbox, never set it, so
-    `choices` (the final checked set the founder wants) is compared against
-    `q.options[i].checked` (what the screen just read shows now) and only
-    the options that differ are pressed - an option already checked and
-    still wanted is left alone, not pressed and un-checked by mistake. RIGHT
-    then moves onto the question's own "Submit" tab, whose one worthwhile
-    option ("1. Submit answers", the other being Cancel) is never read back
-    to confirm - `orca.answer_question` checks the question card itself is
-    gone instead.
+    `q.other_number` - never both (see `orca._answer_question_toggle_and_other`
+    for that combination). One path per shape:
+    - single-select, a choice: its own number submits outright.
+    - single-select, Other: its number, the text, Enter.
+    - multiSelect, choices: toggle only what differs from what is already
+      checked (`_toggle_keys`), then Right onto "Submit", then "1".
+    - multiSelect, Other: Down from `q.cursor` to `q.other_number`, the text,
+      one more Down onto "Submit", Enter, then "1" for the Review screen.
+    - multiSelect, choices and Other together: refused here - toggling a box
+      moves the cursor too, so where it lands before the Downs above is not
+      guessed at as one blind sequence.
     """
     if choices and any(c < 0 or c >= len(q.options) for c in choices):
         return None

@@ -1,20 +1,17 @@
 """An agent's pending AskUserQuestion, answered by the founder from the bridge
-instead of the raw JSON its tool call shows there today (T304/T322).
+instead of the raw JSON its tool call shows there (T304/T322).
 
 `pending` reads what one agent's terminal asks, through the vendor's own
-recognition (`Driver.ask_question`) - still required even now that the hook
-records the call's own `question_data` (T304, waiting.py): the screen read is
-the only thing that says this prompt is on screen *now*, at all, and is what
-`answer` later re-checks before pressing anything. `question_data`'s label
-and description text is preferred for display over the screen's own, since it
+recognition (`Driver.ask_question`) - the screen read is the only thing that
+says this prompt is on screen *now*, at all, and is what `answer` later
+re-checks before pressing anything. `question_data` (the hook's own record of
+the tool call) is preferred for display over the screen's own parse, since it
 is Claude's own words with nothing to mis-OCR, but only when its option count
-and multiSelect flag agree with what the screen just showed - otherwise a
-stale record (the wait file from a question already answered and gone) would
-show the founder the wrong words for the right buttons, so the screen's own
-parse is kept instead. Each is a plain dict, the same for every vendor:
-{agent, vendor, header, question, options, multi_select, other_number,
-other_text, lines}. `answer` sends the founder's picks or free text, given the
-dict they were shown."""
+and multiSelect flag still match the screen - a stale record would otherwise
+show the founder the wrong words for the right buttons. Each is a plain dict,
+the same for every vendor: {agent, vendor, header, question, options,
+multi_select, other_number, other_text, lines}. `answer` sends the founder's
+picks or free text, given the dict they were shown."""
 from __future__ import annotations
 
 from .. import db
@@ -53,15 +50,10 @@ def _as_dict(agent: str, q, held: dict | None = None) -> dict:
 def pending(con, agent: str, row=None, held=None) -> dict | None:
     """What this agent's terminal asks now, or None: no terminal, a screen
     that cannot be read, one that is not an AskUserQuestion prompt the
-    vendor recognizes, or one `confirmations.pending` already claims -
-    the founder's own permission prompt (T336, founder #1977: the two
-    detectors read the same tail and, on a live screen, agreed with each
-    other about a plain Bash "Do you want to proceed?" prompt, showing
-    both modals for it). A permission prompt is the narrower, better-tested
-    shape of the two, so it wins; a real question is never mistaken for one
-    since `confirmation_on_screen` requires the exact "Do you want to
-    proceed?" wording no AskUserQuestion screen carries. `row` and `held`
-    are for a caller that has them already."""
+    vendor recognizes, or one `confirmations.pending` already claims - a
+    permission prompt wins when both read the same screen (T336: they once
+    agreed on a plain Bash prompt and showed both modals for it). `row` and
+    `held` are for a caller that has them already."""
     if row is None:
         row = db.get_agent_state(con, agent)
     handle = row["terminal"] if row and row["terminal"] and not row["closed_at"] else None
