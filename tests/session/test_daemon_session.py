@@ -2266,6 +2266,37 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         orcamod._run = real_run
 
 
+def test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(home: Path) -> None:
+    """T146: a pid `observe.live_sessions` cannot map back to its agent reads
+    as the whole reading being unreadable (its own fix) - the sweep's
+    existing "unread answer" guard is what must then leave a live session
+    alone, not a second look at this one agent."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="idle")
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+
+        obsmod.live_sessions = lambda: None
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("sweep: an unmappable pid leaves a session alone, not closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None,
+              str(dict(db.get_agent_state(con, "backend"))))
+
+        # Genuinely gone this time: a decisive reading closes it.
+        obsmod.live_sessions = lambda: {}
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("sweep: a decisive gone reading still closes it",
+              db.get_agent_state(con, "backend")["closed_at"] is not None,
+              str(dict(db.get_agent_state(con, "backend"))))
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        con.close()
+
+
 def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
     """usage_unknown fires across a whole account at once, so it sweeps up the
     agents that are registered but were never started. There is nothing to fold,
@@ -2639,6 +2670,39 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         con.close()
 
 
+def test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(home: Path) -> None:
+    """T146 round 2 (auditor #1992): `live_sessions` returning None must not
+    read as "nothing running" - typing over a session that might be there
+    reaches it as a prompt. Refused the same way a confirmed foreign session
+    is, but not counted against the wake-failure streak."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+            obsmod.live_sessions)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        obsmod.live_sessions = lambda: None
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-unknown")
+        support.something_waiting(con, "backend")
+
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("wake: an unreadable process table types nothing",
+              not ok and not sent, f"{why} {sent}")
+        check("wake: and says so, not a false foreign-session claim",
+              "could not be confirmed" in why, why)
+        check("wake: and it is not counted against the streak",
+              row["wake_failures"] == 0, str(dict(row)))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+         obsmod.live_sessions) = real
+        con.close()
+
+
 def test_a_refused_launch_leaves_its_prompt(home: Path) -> None:
     """The prompt file is taken only by a launch that goes ahead: the daemon
     reads a file still there as "my launch started nothing"."""
@@ -2825,9 +2889,11 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
     agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
-    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session)
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+           obsmod.live_sessions)
     launched: list[str] = []
     try:
+        obsmod.live_sessions = lambda: {}
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
         support.something_waiting(con, "keeper")
@@ -2855,7 +2921,8 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
     finally:
-        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session = real
+        (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+        obsmod.live_sessions) = real
         con.close()
 
 
@@ -4155,6 +4222,42 @@ def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
           obsmod.process_env(1) is None)
 
 
+def test_live_sessions_fails_the_whole_reading_on_an_unmappable_pid() -> None:
+    """T146: a claude pid whose own `ps` calls miss fails the whole reading
+    (None, like `process_table` already does), not just that one pid; a pid
+    that is definitely another user's is left out on its own instead."""
+
+    class FakeResult:
+        def __init__(self, rc: int, out: str) -> None:
+            self.returncode, self.stdout = rc, out
+
+    def ps(eww: FakeResult, ww: FakeResult):
+        return lambda argv, **k: eww if argv[1] == "eww" else ww
+
+    real_run, real_table = obsmod.subprocess.run, obsmod.process_table
+    table = [(101, "/usr/bin/claude")]
+    try:
+        obsmod.process_table = lambda: table
+
+        obsmod.subprocess.run = ps(FakeResult(1, ""), FakeResult(1, ""))
+        check("live_sessions: a claude pid whose own ps calls miss fails the "
+              "whole reading, not just that pid",
+              obsmod.live_sessions() is None)
+
+        obsmod.subprocess.run = ps(FakeResult(0, "/usr/bin/claude\n"),
+                                   FakeResult(0, "/usr/bin/claude\n"))
+        check("live_sessions: another user's claude (command with no "
+              "environment) is left out, deciding nothing else",
+              obsmod.live_sessions() == {})
+
+        obsmod.subprocess.run = ps(FakeResult(0, "/usr/bin/claude OCP_AGENT=backend\n"),
+                                   FakeResult(0, "/usr/bin/claude\n"))
+        check("live_sessions: a readable OCP_AGENT is still found",
+              obsmod.live_sessions() == {"backend": 101})
+    finally:
+        obsmod.subprocess.run, obsmod.process_table = real_run, real_table
+
+
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
     """The failure this exists to prevent is two processes, not two calls: an
     in-process check would pass on a lock that never leaves the process."""
@@ -4254,9 +4357,11 @@ def main() -> int:
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))
         run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
+        run(lambda: test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(Path(td) / 'sweepflaky'))
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
+        run(lambda: test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(Path(td) / 'wakeunreadable'))
         run(lambda: test_a_refused_launch_leaves_its_prompt(Path(td) / 'launchrefused'))
         run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
@@ -4295,6 +4400,7 @@ def main() -> int:
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
         run(lambda: test_process_env_reads_a_gone_pid_as_unreadable(Path(td) / 'procenv'))
+        run(lambda: test_live_sessions_fails_the_whole_reading_on_an_unmappable_pid())
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
     return run_area(tests)
 

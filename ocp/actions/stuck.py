@@ -89,10 +89,17 @@ def _delivery_block(con, agent: str, sessions: dict | None,
 
 def queue_reason(con, agent: str, rid: int) -> str:
     """Why request `rid`, queued for `agent`, has not reached it, for the chat page."""
-    head = db.head_of_queue(con, agent)
     row = db.get_request(con, rid)
     if row and row["send_now"]:
         return _delivery_state(con, agent, *_world())[0] or "sending now"
+    true_head = db.head_of_queue(con, agent)
+    # T337 (auditor #2028's sweep): the true head itself, blocked on record,
+    # is never "behind" whatever effective_head substituted for it - that
+    # reverses queue_order (the true head sits first) and hides the actual
+    # reason. Named directly, before effective_head is even asked.
+    if true_head and int(true_head["id"]) == rid and dmn_delivery.head_task_blocked(con, agent, true_head):
+        return "its own task is blocked"
+    head = dmn_delivery.effective_head(con, agent)
     if head and int(head["id"]) != rid:
         return f"behind #{head['id']}"
     return _delivery_state(con, agent, *_world())[0] or "waiting for the agent"

@@ -1122,10 +1122,42 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
               and db.get_agent_state(con, "backend")["failed_attempts"] == 0
               and db.get_agent_state(con, "backend")["wake_failures"] == 0)
-        check("nudge: not repeated for the same request",
-              not nudge(now + 10 * dmn_delivery.NUDGE_AFTER_S) and len(sent) == 1, str(sent))
+        check("nudge: not repeated before the next rung is due",
+              not nudge(now + dmn_delivery.NUDGE_RETRY_S + 2) and len(sent) == 1, str(sent))
+        # T337 (founder #2002/#2003): a single reminder used to be the last
+        # thing ever typed at a forgotten head - it climbs NUDGE_SCHEDULE_S's
+        # rungs instead (ten minutes, thirty, two hours), spaced further
+        # apart each time, before it stops for good. `at` only ever grows
+        # from here on (real ticks never step backward), well past
+        # NUDGE_RETRY_S each time a nudge actually goes.
+        check("nudge: NUDGE_AFTER_S is the schedule's own first rung",
+              dmn_delivery.NUDGE_SCHEDULE_S[0] == dmn_delivery.NUDGE_AFTER_S)
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 120)
+        check("nudge: not yet at the second rung",
+              not nudge(now + 200) and len(sent) == 1, str(sent))
+        idle_for(dmn_delivery.FORGOTTEN_STUCK_S + 60)
+        check("nudge: the second rung, once due",
+              nudge(now + 300) and len(sent) == 2, str(sent))
+        check("nudge: the repeat still names the request and how many are behind it",
+              f"#{head}" in sent[1] and "2 more waiting" in sent[1], sent[1])
+        idle_for(2 * 3600 - 600)
+        check("nudge: not yet at the third rung",
+              not nudge(now + 400) and len(sent) == 2, str(sent))
+        idle_for(2 * 3600 + 60)
+        check("nudge: the third and last rung",
+              nudge(now + 500) and len(sent) == 3, str(sent))
+        check("nudge: past the schedule, nothing more is typed at it",
+              not nudge(now + 10 * 3600) and len(sent) == 3, str(sent))
+        check("nudge: capped counts as exhausted for the head that earned it",
+              dmn_delivery.nudge_exhausted(con, "backend", head))
+        # T337: the escalation to backend's own supervisor once capped is
+        # `timebox.sweep_forgotten_resolve_capped`'s own test, where the
+        # fixture actually has one (DESIGN_TEAM here does not).
 
-        # The tick reaches it, gated the same way.
+        # The tick reaches it, gated the same way. Back to the same idle
+        # stretch the rest of this test was written against, before the
+        # schedule was climbed any further above.
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         sent.clear()
         db.set_cursor(con, "nudge:backend", 0)
         db.set_cursor(con, "nudge_try:backend", 0)
@@ -1164,6 +1196,207 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
          dmn_delivery.wall_reason) = real
+        con.close()
+
+
+def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) -> None:
+    """T337 (founder #2002/#2003, orcapipe's design on #2024, auditor #2028
+    finding 1): the one-at-a-time rule is for what an agent is doing, not for
+    what it is stuck waiting on. A head whose own task is recorded blocked is
+    left queued exactly where it is, and `effective_head` - what
+    `deliver_queued`, `forgotten_resolve` and `blocked.work_waiting` read the
+    queue through now, instead of `db.head_of_queue` directly - is the
+    request behind it instead. That request IS the head from there on: told
+    once, nudged if forgotten, and nothing else delivered while it stays
+    open - the same one-at-a-time rule as an ordinary head, not the whole
+    queue draining past the block a tick at a time."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+
+        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        check("setup: task_new already delivered it - backend was idle and typeable",
+              sent and "do the blocked thing" in sent[-1], str(sent))
+        sent.clear()
+
+        first = db.add_request(con, "reviewer", "backend", "first thing behind it", None,
+                               "peer", "async", None, 0, None)
+        second = db.add_request(con, "reviewer", "backend", "second thing behind it", None,
+                                "peer", "async", None, 0, None)
+
+        check("blocked: not blocked yet - nothing has recorded a wait",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+        check("blocked: nothing new to deliver while the head is merely open",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("blocked: the head's task is blocked on record",
+              dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+        check("blocked: effective_head is the first request behind it, not the true head",
+              dmn_delivery.effective_head(con, "backend")["id"] == first)
+
+        check("blocked: delivered the ordinary way - its own cursor, not the head's",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and "first thing" in sent[-1] and f"#{first}" in sent[-1], str(sent))
+        check("blocked: the notify cursor moved to it, not the blocked head",
+              db.get_cursor(con, "notify:backend") == first)
+        sent.clear()
+
+        # Auditor #2028 finding 1: the second must wait for the first, the
+        # same as it would behind an ordinary head - not typed on the next
+        # tick just because the true head is out of the way.
+        check("blocked: not told twice, and the second waits for the first",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        check("blocked: the true head is untouched underneath it all - still "
+              "queued, still what head_of_queue finds",
+              db.get_request(con, head)["state"] == "queued"
+              and db.head_of_queue(con, "backend")["id"] == head)
+
+        # The first, left open past its own nudge interval, is what gets
+        # nudged - not the blocked true head, and not the second either.
+        now = int(time.time())
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60, first))
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
+        check("blocked: the open first is what gets nudged",
+              dmn_delivery.nudge_forgotten_resolve(
+                  con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
+              and f"#{first}" in sent[-1], str(sent))
+        sent.clear()
+
+        _set_request_state(con, first, "done", verdict="did it")
+        check("blocked: the second is delivered once the first resolves",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and "second thing" in sent[-1] and f"#{second}" in sent[-1], str(sent))
+
+        db.remove_block(con, tid, t_blocker)
+        check("blocked: clearing the block is read immediately",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+        check("blocked: the head returns to the front on its own - head_of_queue never left it",
+              db.head_of_queue(con, "backend")["id"] == head)
+        check("blocked: and effective_head agrees, once the block is gone",
+              dmn_delivery.effective_head(con, "backend")["id"] == head)
+    finally:
+        con.close()
+
+
+def test_head_task_blocked_by_the_agents_own_linked_ask(home: Path) -> None:
+    """T337, auditor #2028 finding 2: `head_task_blocked`'s other form - an
+    outgoing ask `agent` itself sent, linked to its head's own task - had no
+    test. This is the founder's actual case (#1685/T304: 'mockup to the
+    founder first'), not the --blocked-by one the other test covers."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "needs a mockup first")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        check("setup: not blocked before anything is asked",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+
+        ok, msg, ask_id = askmod.ask("reviewer", "does this mockup work?", requester="backend")
+        check("setup: backend's own ask goes out", ok, msg)
+        check("blocked: an unlinked ask of its own does not block the head",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+
+        db.link_request(con, tid, ask_id)
+        check("blocked: linked to the head's own task, the open ask blocks it",
+              dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+
+        _set_request_state(con, ask_id, "done", verdict="looks right", announced=True)
+        check("blocked: answered, it no longer blocks",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+    finally:
+        con.close()
+
+
+def test_a_blocked_head_is_not_shown_as_a_pending_reminder(home: Path) -> None:
+    """T337, auditor #2028 finding 3: `blocked.work_waiting` reads the queue
+    through `effective_head` now too - a head blocked on record, with
+    nothing behind it to take its place, is not shown as a pending "reminder
+    to resolve" either, since nothing typed at the agent about it ever will
+    be (`nudge_forgotten_resolve` skips it the same way)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        now = int(time.time())
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60, head))
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
+        row = db.get_agent_state(con, "backend")
+        check("setup: an ordinary open head would show as a pending reminder",
+              f"reminder to resolve #{head}" in blockedmod.work_waiting(con, "backend", row, now))
+
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("blocked: no longer a pending reminder - nothing behind it to take its place",
+              blockedmod.work_waiting(con, "backend", row, now) == "")
+    finally:
+        con.close()
+
+
+def test_a_closed_agents_wake_reads_the_blocked_head_through_effective_head(home: Path) -> None:
+    """T337 round 4, auditor #2028's sweep: `lifecycle.waiting_for` (gates
+    whether a closed agent is woken at all) and `delivery.waiting_prompt`
+    (what that wake is told) both read `db.head_of_queue` directly - a
+    closed agent with only a blocked head and nothing behind it would be
+    woken for nothing (a session spent to be told nothing, the T146
+    problem this whole design exists to avoid), and one woken for the
+    request behind it would be told about the blocked head instead, on the
+    wrong cursor."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        check("unblocked: waiting_for sees the plain head",
+              dmn_lifecycle.waiting_for(con, "backend"))
+
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("blocked, nothing behind: waiting_for is False - nothing to wake it for",
+              not dmn_lifecycle.waiting_for(con, "backend"))
+        check("blocked, nothing behind: waiting_prompt has nothing to say either",
+              dmn_delivery.waiting_prompt(con, "backend", lambda _m: None) is None)
+
+        nxt = db.add_request(con, "reviewer", "backend", "fix it instead", None,
+                             "peer", "async", None, 0, None)
+        check("blocked, something behind: waiting_for is True again",
+              dmn_lifecycle.waiting_for(con, "backend"))
+        told = dmn_delivery.waiting_prompt(con, "backend", lambda _m: None)
+        check("blocked, something behind: waiting_prompt tells the one behind it",
+              told is not None and f"#{nxt} from reviewer" in told[0], told)
+        check("blocked, something behind: marked delivered on its own row, the true head untouched",
+              db.get_request(con, nxt)["delivered_at"] is not None
+              and db.get_request(con, head)["delivered_at"] is None)
+    finally:
         con.close()
 
 
@@ -3801,6 +4034,107 @@ def test_task_new_list_and_link(home: Path) -> None:
           and f"request #{rid}" in out, out)
 
 
+def test_task_new_parent_auto_blocks(home: Path) -> None:
+    """T294 (orcapipe's #1910): every `task new --parent` blocks the parent
+    on the child too, not only the structural open-child-task check - so the
+    board reads `waiting on T<child>`, and closing the review/audit/check
+    child fires the same unblock notice an explicit `--blocked-by` would.
+    A re-check reopens the same child rather than opening a new one, and the
+    parent stays blocked the whole time it is done but not yet closed."""
+    _board_world(home)
+    rc, out = _cli(["task", "new", "--owner", "worker", "parent work"])
+    check("task new: opens the parent", rc == 0, out)
+    t_parent = int(out.split("task T", 1)[1].split()[0])
+
+    rc, out = _cli(["task", "new", "--owner", "manager", "review it",
+                    "--parent", f"T{t_parent}", "--expects", "verdict"], as_agent="worker")
+    check("task new --parent: opens the child", rc == 0, out)
+    t_child = int(out.split("task T", 1)[1].split()[0])
+
+    con = db.connect()
+    try:
+        check("task new --parent: adds the block automatically, no --blocked-by needed",
+              [b["id"] for b in db.task_blockers(con, t_parent)] == [t_child],
+              [dict(b) for b in db.task_blockers(con, t_parent)])
+    finally:
+        con.close()
+
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: the parent reads waiting on the review child",
+          _now_line(out, t_parent) == f"now: waiting on T{t_child}", out)
+
+    # A re-check is `task reopen` of the same child, before it closes - not a
+    # new task - and the parent stays blocked the whole time: nothing about
+    # task_blocks changes between done and reopened, only closing clears it.
+    rc, out = _cli(["task", "done", f"T{t_child}", "FAIL: needs another pass"],
+                   as_agent="manager")
+    check("task done: the auditor's verdict", rc == 0, out)
+    rc, out = _cli(["task", "reopen", f"T{t_child}", "sent back for another pass"],
+                   as_agent="worker")
+    check("task reopen: the same child, sent back rather than opening a new one",
+          rc == 0, out)
+    con = db.connect()
+    try:
+        check("task reopen: the parent is still blocked on it",
+              [b["id"] for b in db.task_blockers(con, t_parent)] == [t_child],
+              [dict(b) for b in db.task_blockers(con, t_parent)])
+    finally:
+        con.close()
+
+    rc, out = _done_and_close(t_child, "manager", "PASS", closer="worker")
+    check("close: the review closes on its verdict", rc == 0, out)
+    con = db.connect()
+    try:
+        check("close: the parent's block clears with the child",
+              db.task_blockers(con, t_parent) == [])
+    finally:
+        con.close()
+    rc, out = _cli(["task", "board"], as_agent="worker")
+    check("board: the parent no longer reads as waiting once the review closes",
+          _now_line(out, t_parent) == "now: worker", out)
+
+
+def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
+    """T294 (code-review, T-A #1897): the auto-block on a `--parent` child
+    must not turn into a new merge refusal - before it existed, a task with
+    an open child could already be merged away (the child just reparents to
+    `keep`, `merge_task_links`), so the block that only makes that wait
+    visible must not make merge see a reason to refuse where none was there
+    before. An unrelated, explicit `--blocked-by` still refuses as always."""
+    _board_world(home)
+    rc, out = _cli(["task", "new", "--owner", "worker", "parent work"])
+    t_parent = int(out.split("task T", 1)[1].split()[0])
+    rc, out = _cli(["task", "new", "--owner", "manager", "review it",
+                    "--parent", f"T{t_parent}"], as_agent="worker")
+    check("task new --parent: opens the open child", rc == 0, out)
+    t_child = int(out.split("task T", 1)[1].split()[0])
+    rc, out = _cli(["task", "new", "--owner", "worker", "other work"])
+    t_other = int(out.split("task T", 1)[1].split()[0])
+
+    rc, out = _cli(["task", "merge", f"T{t_other}", f"T{t_parent}"])
+    check("merge: a parent with only its auto-blocking child still merges away",
+          rc == 0, out)
+    con = db.connect()
+    try:
+        check("merge: the child reparents to the task it was merged into",
+              db.get_task(con, t_child)["parent_task"] == t_other)
+        check("merge: the child's auto-block moves with it, still naming the "
+              "child it actually waits on", [b["id"] for b in db.task_blockers(con, t_other)]
+              == [t_child], [dict(b) for b in db.task_blockers(con, t_other)])
+        check("merge: no stray block left naming the merged-away task",
+              db.task_blockers(con, t_parent) == [] and db.blocks_on_ids(con, t_parent) == [])
+
+        t_gate = db.new_task(con, "gate", "worker", "manager")
+        t_blocked = db.new_task(con, "blocked", "worker", "manager")
+        db.add_block(con, t_blocked, t_gate)
+        t_keep = db.new_task(con, "keep2", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "merge", f"T{t_keep}", f"T{t_blocked}"])
+    check("merge: an explicit, non-child blocker still refuses the merge",
+          rc == 1 and "waiting on" in out, out)
+
+
 def test_task_new_is_its_own_delivery(home: Path) -> None:
     """T292 (auditor #1655 section 4): `task new` is the request now, not a
     separate step after it - checked against the routing table (C2), one
@@ -5211,6 +5545,15 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
         edge = con.execute("SELECT payload FROM events WHERE kind = 'block_task'").fetchall()
         check("hold: its wait is recorded as a block_task event",
               any(json.loads(e["payload"]).get("task_id") == h["id"] for e in edge), str(edge))
+        # T294 (auditor's #1930 MUST-FIX 1): a hold is a child task too, so
+        # its parent is explicitly blocked on it - not only through
+        # close_task's own open-child-task check, which the next line
+        # exercises but does not make visible on the board or in
+        # task_blockers.
+        check("hold: T294 - the parent is explicitly blocked on the hold, "
+              "not just structurally unable to close over it",
+              [b["id"] for b in db.task_blockers(con, t_parent)] == [h["id"]],
+              [dict(b) for b in db.task_blockers(con, t_parent)])
         ok, msg = actions.close_task(con, t_parent, "manager")
         check("hold: the parent cannot close over it", not ok, msg)
     finally:
@@ -5220,8 +5563,25 @@ def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     check("hold: the holder's board says what it waits on",
           _now_line(out, h["id"]) == f"now: waiting on T{t_blocker}", out)
     rc, out = _cli(["task", "board"], as_agent="worker")
-    check("hold: the asker's board reads it held, not done or nobody's",
-          _now_line(out, t_parent) == f"now: held as sub-task T{h['id']} (manager)", out)
+    check("hold: T294 - the asker's board now reads it as waiting on the "
+          "hold directly (the explicit block outranks 'held as sub-task'), "
+          "not done or nobody's",
+          _now_line(out, t_parent) == f"now: waiting on T{h['id']}", out)
+    con = db.connect()
+    try:
+        ok, msg = actions.mark_task_done(con, h["id"], "manager", reason="merged")
+        check("hold: marking the hold done", ok, msg)
+        ok, msg = actions.close_task(con, h["id"], "manager")
+        check("hold: T294 - closing it while it still waits on t_blocker is "
+              "refused", not ok and "waiting on" in msg, msg)
+        ok, msg = actions.unblock(con, h["id"], t_blocker, "manager")
+        check("hold: clearing the hold's own wait", ok, msg)
+        ok, msg = actions.close_task(con, h["id"], "manager")
+        check("hold: T294 - now the hold itself closes", ok, msg)
+        check("hold: T294 - and the parent's explicit block on it clears too",
+              db.task_blockers(con, t_parent) == [])
+    finally:
+        con.close()
 
     rc, out = _cli(["resolve", str(rid), "again", "--hold", "y"], as_agent="manager")
     check("hold: an answered request is not held twice", rc == 1, out)
@@ -6981,6 +7341,11 @@ def main() -> int:
         run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
         run(lambda: test_a_trust_screen_is_one_founder_request(Path(td) / 'trustonce'))
         run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
+        run(lambda: test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(Path(td) / 'blockednext'))
+        run(lambda: test_head_task_blocked_by_the_agents_own_linked_ask(Path(td) / 'blockedask'))
+        run(lambda: test_a_blocked_head_is_not_shown_as_a_pending_reminder(Path(td) / 'blockedreminder'))
+        run(lambda: test_a_closed_agents_wake_reads_the_blocked_head_through_effective_head(
+            Path(td) / 'blockedwake'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))
@@ -7035,6 +7400,9 @@ def main() -> int:
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
         run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
+        run(lambda: test_task_new_parent_auto_blocks(Path(td) / 'tasknewparentblock'))
+        run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
+            Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
             Path(td) / 'nexttask'))

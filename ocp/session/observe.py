@@ -77,6 +77,22 @@ def _ps_command(pid: int, flags: str) -> str | None:
     return r.stdout if r.returncode == 0 and r.stdout.strip() else None
 
 
+def _env_or_reason(pid: int) -> tuple[str | None, bool]:
+    """`process_env`'s answer, plus whether a `None` there is definitely
+    another user's process (T146) rather than one of the other misses that
+    can happen to a live pid we should not give up on."""
+    argv = _ps_command(pid, "ww")
+    with_env = _ps_command(pid, "eww")
+    if argv is None or with_env is None:
+        return None, False
+    if with_env == argv:
+        return None, True
+    prefix = argv.rstrip("\n")
+    if not with_env.startswith(prefix):
+        return None, False
+    return with_env[len(prefix):], False
+
+
 def process_env(pid: int) -> str | None:
     """pid's own environment, past its argv - never argv itself, which a
     caller controls and can put an env-looking token inside (a launch
@@ -93,16 +109,14 @@ def process_env(pid: int) -> str | None:
     than guess at where argv ends. None is "I don't know", never "the
     variable was not set".
     """
-    argv = _ps_command(pid, "ww")
-    with_env = _ps_command(pid, "eww")
-    if argv is None or with_env is None:
-        return None
-    if with_env == argv:
-        return None
-    prefix = argv.rstrip("\n")
-    if not with_env.startswith(prefix):
-        return None
-    return with_env[len(prefix):]
+    return _env_or_reason(pid)[0]
+
+
+def _extract(env: str, name: str) -> str | None:
+    for token in env.split():
+        if token.startswith(f"{name}="):
+            return token.split("=", 1)[1]
+    return None
 
 
 def env_of(pid: int, name: str) -> str | None:
@@ -114,12 +128,7 @@ def env_of(pid: int, name: str) -> str | None:
     answer here: neither says the process is somebody else's.
     """
     env = process_env(pid)
-    if env is None:
-        return None
-    for token in env.split():
-        if token.startswith(f"{name}="):
-            return token.split("=", 1)[1]
-    return None
+    return _extract(env, name) if env is not None else None
 
 
 def account_of_process(pid: int) -> str | None:
@@ -148,6 +157,11 @@ def live_sessions() -> dict[str, int] | None:
     binary, which is the same string the rest of the system keys on. A fold is
     excluded: it is a headless run that inherits whatever OCP_AGENT its caller
     had, and it is not the agent's session.
+
+    None the same way `process_table` returns it (T146): a pid the table just
+    named as one of ours, whose own `ps` calls then missed, fails the whole
+    reading rather than being silently left out - unless it is definitely
+    another user's process, which is left out on its own.
     """
     table = process_table()
     if table is None:
@@ -157,7 +171,12 @@ def live_sessions() -> dict[str, int] | None:
     for pid, cmd in table:
         if not is_session(cmd):
             continue
-        name = env_of(pid, "OCP_AGENT")
+        env, not_ours = _env_or_reason(pid)
+        if env is None:
+            if not_ours:
+                continue
+            return None
+        name = _extract(env, "OCP_AGENT")
         if name:
             found.setdefault(name, pid)
     return found

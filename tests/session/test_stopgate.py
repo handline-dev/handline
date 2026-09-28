@@ -105,12 +105,12 @@ def test_the_enforce_switch_is_the_founders_to_flip(home: Path) -> None:
         pass
     finally:
         del os.environ["OCP_AGENT"]
-    rc, out = _cli(["hooks", "gate"], as_agent=None)
+    rc, out = _cli(["hooks", "gate", "stop-wait"], as_agent=None)
     check("founder: show", rc == 0 and "off (warn-only)" in out, out)
-    rc, out = _cli(["hooks", "gate", "on"], as_agent=None)
+    rc, out = _cli(["hooks", "gate", "stop-wait", "on"], as_agent=None)
     check("founder: set on", rc == 0 and "gate: on" in out, out)
     check("enforced() now reads True", stopgate.enforced() is True)
-    rc, out = _cli(["hooks", "gate", "on"])
+    rc, out = _cli(["hooks", "gate", "stop-wait", "on"])
     check("an agent session is refused, not the founder's to set", rc == 1, out)
 
 

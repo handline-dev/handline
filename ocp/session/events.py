@@ -132,6 +132,9 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         try:
             why = (memoryguard.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
                    or shellguard.guard(raw.get("tool_name"), raw.get("tool_input")))
+            if why is None:
+                from . import edittask
+                why = edittask.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
         except Exception:  # noqa: BLE001 - a hook must never break the session
             why = None
         print(json.dumps({"hookSpecificOutput": {
