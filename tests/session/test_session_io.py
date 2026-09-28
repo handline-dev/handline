@@ -1453,6 +1453,61 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
         con.close()
 
 
+def test_an_edge_unconfirmed_request_still_wakes_a_closed_agent(home: Path) -> None:
+    """T146 pt.1 (founder #1970): a request made from inside an agent session
+    queues with `edge_ok` unset until `enforce_edges` clears it - and nothing
+    ever runs that for a closed agent except the wake this same row is meant
+    to justify. `waiting_for` gating on `head_of_queue` (which treats an
+    unconfirmed edge as not there) made that circular: orcapipe.core sat
+    closed with one such request, "1 waiting request(s) and could not be
+    woken - nothing is waiting for it" - the daemon's own count and its own
+    wake refusing each other. The edge is still enforced before anything is
+    told (`waiting_prompt`), so a request whose edge turns out bad is denied
+    then, not delivered blind."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-edge", "pct_5h": 20}))
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="turn ended")
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+
+        # reviewer -> * is DESIGN_TEAM's own verdict edge (kind: verdict, no
+        # named relation) - matching it is what lets `enforce_edges` clear it
+        # rather than deny it once this closed wake reaches that check.
+        rid = db.add_request(con, "reviewer", "backend", "please look at this", None,
+                             None, "async", "verdict", 0, None)
+        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
+        check("edge: an edge-unconfirmed request is still queued for backend",
+              bool(db.queued_for(con, "backend")))
+        check("edge: but head_of_queue does not see it yet",
+              db.head_of_queue(con, "backend") is None)
+        check("edge: waiting_for sees it anyway - this is what a closed wake acts on",
+              dmn_lifecycle.waiting_for(con, "backend"))
+
+        sent.clear()
+        dmn_evaluate.tick(con, lambda _m: None)
+        check("wake: an edge-unconfirmed request still brings a closed agent back",
+              any("--resume sess-edge" in t for t in sent), str(sent[:2]))
+        check("wake: and it is no longer marked closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+        check("wake: its edge is confirmed on the way, not skipped",
+              db.get_request(con, rid)["edge_ok"] == 1, dict(db.get_request(con, rid)))
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
+        con.close()
+
+
 def test_a_delivery_belongs_to_the_session_it_was_typed_into(home: Path) -> None:
     """The head is told once - to one session. A replacement that started
     fresh has read nothing, so it is told again; a resume keeps its id and is
@@ -3478,6 +3533,7 @@ def main() -> int:
         run(lambda: test_the_daemon_never_types_into_a_trust_prompt_via_deliver(
             Path(td) / 'delivertrust'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
+        run(lambda: test_an_edge_unconfirmed_request_still_wakes_a_closed_agent(Path(td) / 'wakeedge'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
         run(lambda: test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(Path(td) / 'sessback'))
         run(lambda: test_what_is_typed_at_an_agent_is_never_more_than_three_lines(Path(td) / 'threelines'))

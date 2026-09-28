@@ -338,11 +338,32 @@ NOTHING_WAITING = "nothing is waiting for it; it is woken when something is sent
 
 
 def waiting_for(con, agent: str) -> bool:
-    """Is anything waiting to be told to `agent`: a request at the head of its
-    queue, an answer to something it asked, or a say (T293) - never a head,
-    but still owed a delivery with nothing else queued. A closed agent is
-    woken for that and for nothing else."""
-    return bool(db.head_of_queue(con, agent) or db.unannounced_answers(con, agent)
+    """Is anything waiting to be told to `agent`: a request queued for it -
+    the head it already holds unresolved counts too, since resuming it is
+    still worth doing with nothing new to say - an answer to something it
+    asked, or a say (T293) - never a head, but still owed a delivery with
+    nothing else queued. A closed agent is woken for that and for nothing
+    else.
+
+    `queued_for`, not `head_of_queue` (T146 pt.1, founder #1970): a request
+    made from inside an agent session queues with `edge_ok` unset until
+    `enforce_edges` clears it, and `head_of_queue` treats an unset one as not
+    there at all. For an *open* agent that is fine - `deliver_queued` runs
+    `enforce_edges` first, every tick - but nothing ever delivers to a
+    *closed* one, so its edge is never enforced until something wakes it,
+    and waking it was exactly what this, gating on `head_of_queue`, refused:
+    a closed agent with only an edge-unconfirmed request sat forever, woken
+    for nothing because nothing had confirmed there was something. The
+    wake this now allows still runs `enforce_edges` before it tells anything
+    (`waiting_prompt`), so a request whose edge turns out bad is denied then,
+    same as it would be for an agent that never closed - it is only decided
+    late, not skipped. `queued_for`, unlike `undelivered_for`, still counts an
+    already-delivered head, matching `head_of_queue`'s own reach and every
+    other reader of "is there work" here (`queued_or_idle`, `would_wake`'s
+    sibling checks) - narrowing to only-undelivered lost the ordinary case of
+    a parked agent closed while still holding the head it asked something on.
+    """
+    return bool(db.queued_for(con, agent) or db.unannounced_answers(con, agent)
                 or db.send_now_pending(con, agent))
 
 
@@ -449,10 +470,14 @@ def _start_for_work(con, agent: str, log) -> str:
     # or to what is uncommitted in it, and a second worktree would strand the
     # first.
     wt = spawnmod.worktree_path(row["worktree"] if row else None)
+    # `ok` is `start_in`/`spawn`'s own answer, not re-derived from the row: a
+    # terminal Orca made is not a session running in it (#1976, T146 pt.2) -
+    # they confirm one themselves now, so a terminal left standing with
+    # nothing in it (oh-my-zsh's own update prompt once ate the launch
+    # command whole) is counted as the failed wake it is, not "started".
     ok, said = (spawnmod.start_in(agent, wt) if wt
                 else spawnmod.spawn(agent, Path(repo).expanduser().resolve()))
-    fresh = db.get_agent_state(con, agent)
-    if fresh and fresh["terminal"]:
+    if ok:
         db.reset_counter(con, agent, "wake_failures")
         db.add_event(con, agent, "started_for_work", {"repo": repo})
         log(f"  {agent}: started in {repo} - work was waiting for it")

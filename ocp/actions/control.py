@@ -75,10 +75,9 @@ def fold(con, agent: str) -> str:
     return msg if ok else f"{agent}: fold rejected - {msg}"
 
 
-# How long to wait for a launched agent to show up in the process table before
-# saying it did not. `ocp launch` execs claude, which takes a few seconds to be
-# visible; the daemon's own wake waits about this long for the same reason.
-STARTED_TIMEOUT_S = 20
+# Re-exported: WAITS below and callers outside this module named it here
+# before the wait it bounds moved into `spawn`/`start_in` themselves.
+STARTED_TIMEOUT_S = spawnmod.STARTED_TIMEOUT_S
 
 
 def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
@@ -88,6 +87,12 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     nothing to type into, so work queued for it waits forever. Everything else
     on this screen assumes a terminal already exists; this is where one comes
     from.
+
+    A terminal is not a session - `ocp launch` execs claude, and claude can
+    exit on its own, a bad flag, a config it will not accept, an account
+    mid-login, leaving the shell prompt the command was typed at - but
+    `start_in`/`spawn` confirm that themselves now (#1976, T146 pt.2), so a
+    failed one is already why, not a terminal to be believed at face value.
     """
     row = db.get_agent_state(con, agent)
     if row and row["terminal"]:
@@ -95,20 +100,9 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     wt = spawnmod.worktree_path(row["worktree"] if row else None)
     if wt:
         # It has somewhere to run already; it lost the window it ran in.
-        ok, msg = spawnmod.start_in(agent, wt)
+        _, msg = spawnmod.start_in(agent, wt)
     else:
-        ok, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
-    if not ok:
-        return msg
-    # A terminal is not a session. `ocp launch` execs claude, and claude can
-    # exit on its own - a bad flag, a config it will not accept, an account
-    # mid-login - leaving the shell prompt the command was typed at. That looks
-    # exactly like a terminal where nothing ran, and saying "started" over it
-    # sends the reader looking for an agent that is not there.
-    if not dmn_delivery.wait_for_session(agent, STARTED_TIMEOUT_S):
-        return (f"{msg}\n  but no session is running in it after {STARTED_TIMEOUT_S}s - "
-                f"the terminal is there and claude is not. Go and look (t): "
-                f"whatever it printed is on that shell.")
+        _, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
     return msg
 
 

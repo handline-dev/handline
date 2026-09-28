@@ -1044,7 +1044,8 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which)
+    real = (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which,
+           dmn_delivery.wait_for_session)
     try:
         spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
         spawnmod._run = fake_run
@@ -1052,6 +1053,9 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.run_current = lambda: None       # register_worker looks for a Run to join;
         orcamod.run_create = lambda objective: None    # there is none, so the worker is not registered
+        # spawn() confirms a session came up before it says "started" (#1976,
+        # T146 pt.2) - not this test's own concern, so it is not made to wait.
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
         check("spawn: the command's main path runs to the end", ok, msg)
@@ -1067,7 +1071,8 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
         check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
     finally:
-        spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which = real
+        (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which,
+        dmn_delivery.wait_for_session) = real
 
 
 def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
@@ -1091,13 +1096,17 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_k"}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create)
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+           dmn_delivery.wait_for_session)
     con = db.connect()
     try:
         spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
         spawnmod._run = fake_run
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
+        # spawn() confirms a session came up before it says "started" (#1976,
+        # T146 pt.2) - not this test's own concern, so it is not made to wait.
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
         # The selector `ocp launch` records, not a plain path.
         db.set_terminal(con, "keeper", None, f"abc123::{wt}")
 
@@ -1121,7 +1130,8 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
               any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
     finally:
         con.close()
-        spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create = real
+        (spawnmod._run, spawnmod.shutil.which, orcamod.run_current,
+        orcamod.run_create, dmn_delivery.wait_for_session) = real
 
 
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
