@@ -16,7 +16,7 @@ from ..infra import paths
 from ..usage import status
 from ..infra import textsafe
 
-from .ask import _who_refusal
+from .ask import _text_arg, _who_refusal
 
 
 def cmd_progress(args) -> int:
@@ -330,9 +330,13 @@ def cmd_task_handoff(args) -> int:
     if me is None:
         print(_who_refusal("hand a task over"))
         return 1
+    note, err = _text_arg(args.note, args.file, "note")
+    if err:
+        print(err)
+        return 1
     con = db.connect()
     try:
-        ok, msg = actions.task_handoff(con, me, args.task, args.to, args.note, args.verdict)
+        ok, msg = actions.task_handoff(con, me, args.task, args.to, note, args.verdict)
         print(msg)
     finally:
         con.close()

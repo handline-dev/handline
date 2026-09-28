@@ -28,9 +28,10 @@ def set_enforced(on: bool) -> None:
 
 
 def _reason(tid: int, why: str) -> str:
-    return (f"{why}. Done: `ocp task done T{tid} ...`. Waiting on something: a "
-            f"child task, `ocp task edit T{tid} --blocked-by T<n>`, a decision "
-            f"task to the founder, or an open `ocp say`.")
+    return (f"{why}. Finished your part: `ocp task handoff T{tid} <next> ...` (or "
+            f"`ocp task done T{tid}` if you are the last step). Waiting on "
+            f"something: `ocp task edit T{tid} --blocked-by T<m>`, or a child or "
+            f"decision task.")
 
 
 def decide(agent: str, raw: dict) -> tuple[bool, str | None]:

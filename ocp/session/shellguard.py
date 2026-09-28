@@ -13,9 +13,11 @@ import re
 _OCP = re.compile(r"(?:^|[\s;&|(])(?:\S*/)?ocp\s")
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 
-REASON = ("This runs part of your message as a command: a backtick or $( inside double "
-          "quotes is shell substitution. Resend the body with --file PATH (write the file "
-          "first), in single quotes, or on stdin through a quoted heredoc (<<'EOF').")
+REASON = ("Refused: nothing in this command ran, including any heredoc or file write in it. "
+          "A backtick or $( inside double quotes is shell substitution. Resend the body in "
+          "single quotes, or written to a file first in a separate step and passed with "
+          "--file PATH (ocp say, ocp ask, ocp resolve, ocp task handoff), or on stdin "
+          "through a quoted heredoc (<<'EOF').")
 
 
 def _expands(text: str) -> bool:

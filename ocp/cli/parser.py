@@ -554,8 +554,12 @@ def build_parser() -> argparse.ArgumentParser:
                                       "over on a FAIL; the opener passes it to a merger")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("to", help="the agent that takes it")
-    p.add_argument("note", help="required: what changed, and what the receiver should know "
-                                "(PASS/FAIL, test results, how to reproduce a FAIL)")
+    p.add_argument("note", nargs="?", default=None,
+                   help="required: what changed, and what the receiver should know "
+                        "(PASS/FAIL, test results, how to reproduce a FAIL)")
+    p.add_argument("--file", default=None, metavar="PATH",
+                   help="read the note from this file instead of the inline argument - "
+                        "safe against a shell expanding backticks or $() in the text")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--pass", dest="verdict", action="store_const", const="PASS",
                    help="an auditor's verdict: on to the opener, who may then pass it to a merger")

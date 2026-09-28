@@ -50,6 +50,8 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
     why = edittask.guard("backend", "Edit", call)
     check("enforced: now a real refusal, naming the agent and the tool",
           why is not None and "backend" in why and "Edit" in why, why)
+    check("T401 item 19: it says to ask whoever gave the work, not just to wait",
+          "ask whoever gave you this work" in why and "ocp say" in why, why)
 
     ok, msg, tid = actions.task_new("product", "backend", "do the thing")
     check("setup: backend now holds a current task", ok, msg)
