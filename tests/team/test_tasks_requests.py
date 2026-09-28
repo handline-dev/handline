@@ -6885,6 +6885,41 @@ def test_merge_refusals_leave_everything_as_it_was(home: Path) -> None:
         con.close()
 
 
+def test_the_open_task_count_is_queued_plus_doing(home: Path) -> None:
+    """T371: the home screen's number is what an agent has to do. A draft is
+    not approved yet, and a done or closed task is over."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        count = lambda who="worker": actions.open_task_count(con, who)
+        check("count: nothing yet is nothing", count() == 0)
+        draft = db.new_task(con, "just a draft", "worker", "manager")
+        check("count: a draft that is not current is not counted", count() == 0)
+        ok, _, doing = actions.task_new("manager", "worker", "in hand")
+        check("count: a delivered task is doing, and counted",
+              ok and actions.task_state(con, db.get_task(con, doing)) == "doing" and count() == 1)
+        queued = db.new_task(con, "next up", "worker", "manager")
+        actions.set_queued(con, queued, "manager", True)
+        check("count: a queued task behind it is counted too", count() == 2, str(count()))
+        finished = db.new_task(con, "finished", "worker", "manager")
+        actions.set_queued(con, finished, "manager", True)
+        actions.mark_task_done(con, finished, "worker", reason="done")
+        check("count: a done task is not", count() == 2, str(count()))
+        actions.close_task(con, finished, "manager")
+        check("count: nor once it is closed", count() == 2)
+        other = db.new_task(con, "someone else's", "manager", "worker")
+        actions.set_queued(con, other, "manager", True)
+        check("count: another agent's tasks are not worker's",
+              count() == 2 and count("manager") >= 0 and actions.task_state(con, db.get_task(con, draft)) == "draft")
+        actions.task_start(con, "worker", draft)
+        check("count: a draft the agent picked up (its current task) is being worked, so it counts",
+              db.current_task(con, "worker") == draft and count() == 3, str(count()))
+        actions.set_queued(con, draft, "manager", True)
+        check("count: and is counted once, when it is approved too", count() == 3, str(count()))
+    finally:
+        con.close()
+
+
 def test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(home: Path) -> None:
     """T82/T325 (founder #1907): draft -> queued -> doing. A new task is a
     draft; its owner's manager or the founder queues it - and queuing alone
@@ -7556,6 +7591,7 @@ def main() -> int:
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(Path(td) / 'taskstates'))
+        run(lambda: test_the_open_task_count_is_queued_plus_doing(Path(td) / 'taskcount'))
         run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
