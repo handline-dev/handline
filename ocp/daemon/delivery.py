@@ -636,13 +636,13 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     acted (T337, founder #2002/#2003). The same silence that earns the first
     nudge earns the next rung too, up to the cap `NUDGE_SCHEDULE_S` sets.
 
-    `forgotten_resolve` already reads the queue through `effective_head`, so
-    `found["head"]` is never the true head while it is blocked on record -
-    only a request behind it that is not is ever this. The `head_task_blocked`
-    check below is for that one behind it turning out to be blocked too
-    (`effective_head` looks past one level, not a chain): nothing is typed
-    about it either, the same as the true head - not forgotten, just not
-    reachable from here.
+    `forgotten_resolve` already reads the queue through `effective_task_head`,
+    falling back to the oldest typed open ask, so `found["head"]` is never a
+    task blocked on record - only one that is not, or a message, is ever
+    this. The `head_task_blocked` check below is for a task behind it turning
+    out to be blocked too (`effective_task_head` looks past one level, not a
+    chain): nothing is typed about it either, the same as the true head - not
+    forgotten, just not reachable from here.
 
     Never resolves for it: the verdict is the agent's to write. Gated like a
     delivery (not at the wall, nothing typed at a modal or a working agent),
