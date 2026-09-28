@@ -77,6 +77,29 @@ def _ps_command(pid: int, flags: str) -> str | None:
     return r.stdout if r.returncode == 0 and r.stdout.strip() else None
 
 
+def _env_or_reason(pid: int) -> tuple[str | None, bool]:
+    """`process_env`'s answer, plus whether a `None` there is a definite "not
+    ours" - a live process printing its command at rc 0 with no environment,
+    which only another user's does - rather than one `ps` call away from
+    saying so: the pid gone, an empty read, or a mismatched prefix, each of
+    which a transient miss under load looks exactly like too (T146: three
+    `ps` calls read one process, and any one of them can miss without it
+    having moved at all - `live_sessions`, the one caller for whom that
+    matters, keeps the two apart instead of reading every kind of `None` as
+    "not this agent's session").
+    """
+    argv = _ps_command(pid, "ww")
+    with_env = _ps_command(pid, "eww")
+    if argv is None or with_env is None:
+        return None, False
+    if with_env == argv:
+        return None, True
+    prefix = argv.rstrip("\n")
+    if not with_env.startswith(prefix):
+        return None, False
+    return with_env[len(prefix):], False
+
+
 def process_env(pid: int) -> str | None:
     """pid's own environment, past its argv - never argv itself, which a
     caller controls and can put an env-looking token inside (a launch
@@ -93,16 +116,14 @@ def process_env(pid: int) -> str | None:
     than guess at where argv ends. None is "I don't know", never "the
     variable was not set".
     """
-    argv = _ps_command(pid, "ww")
-    with_env = _ps_command(pid, "eww")
-    if argv is None or with_env is None:
-        return None
-    if with_env == argv:
-        return None
-    prefix = argv.rstrip("\n")
-    if not with_env.startswith(prefix):
-        return None
-    return with_env[len(prefix):]
+    return _env_or_reason(pid)[0]
+
+
+def _extract(env: str, name: str) -> str | None:
+    for token in env.split():
+        if token.startswith(f"{name}="):
+            return token.split("=", 1)[1]
+    return None
 
 
 def env_of(pid: int, name: str) -> str | None:
@@ -114,12 +135,7 @@ def env_of(pid: int, name: str) -> str | None:
     answer here: neither says the process is somebody else's.
     """
     env = process_env(pid)
-    if env is None:
-        return None
-    for token in env.split():
-        if token.startswith(f"{name}="):
-            return token.split("=", 1)[1]
-    return None
+    return _extract(env, name) if env is not None else None
 
 
 def account_of_process(pid: int) -> str | None:
@@ -148,6 +164,15 @@ def live_sessions() -> dict[str, int] | None:
     binary, which is the same string the rest of the system keys on. A fold is
     excluded: it is a headless run that inherits whatever OCP_AGENT its caller
     had, and it is not the agent's session.
+
+    None the same way `process_table` returns it (T146): a pid the table just
+    named as one of ours, whose own two `ps` calls then missed, is not "not
+    this agent's session" - it is this whole reading not being trustworthy,
+    same as an unreadable table would be, and every caller here already
+    treats that as "I don't know" rather than "there is nothing". Only a
+    live process that is definitely another user's (`_env_or_reason`'s second
+    value) is a real "not ours"; that one is left out and nothing else here
+    is doubted for it.
     """
     table = process_table()
     if table is None:
@@ -157,7 +182,12 @@ def live_sessions() -> dict[str, int] | None:
     for pid, cmd in table:
         if not is_session(cmd):
             continue
-        name = env_of(pid, "OCP_AGENT")
+        env, not_ours = _env_or_reason(pid)
+        if env is None:
+            if not_ours:
+                continue
+            return None
+        name = _extract(env, "OCP_AGENT")
         if name:
             found.setdefault(name, pid)
     return found

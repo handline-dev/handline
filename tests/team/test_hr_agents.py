@@ -1018,7 +1018,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
 
     # And the invariant the miss actually broke: the daemon's own record of a
     # running agent. Real `live_sessions`, over a process table we supply.
-    real = (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+    real = (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
             orcamod.available, orcamod.live_terminals)
     obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
     orcamod.available = lambda: True
@@ -1034,7 +1034,8 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
                 db.set_agent_state(con, "glm", dmn_states.RUNNING, detail="working")
                 table = [(4301, "/opt/zai/bin/glmcode --model glm-4.6")]
                 obsmod.process_table = lambda: list(table)
-                obsmod.process_env = lambda pid: f"OCP_AGENT={'glm' if pid == 4301 else 'x'}"
+                obsmod._env_or_reason = lambda pid: (
+                    f"OCP_AGENT={'glm' if pid == 4301 else 'x'}", False)
                 check("vendor sweep: the premise - its pid is found",
                       obsmod.live_sessions() == {"glm": 4301},
                       str(obsmod.live_sessions()))
@@ -1061,7 +1062,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
             finally:
                 con.close()
         finally:
-            (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+            (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
              orcamod.available, orcamod.live_terminals) = real
 
 

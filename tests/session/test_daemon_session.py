@@ -2248,49 +2248,6 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
         con.close()
 
-
-def test_sweep_does_not_close_a_live_session_on_one_flaky_reading(home: Path) -> None:
-    """T146 (founder #737/#743): mapping a pid to an agent costs `observe`
-    two more `ps` calls of its own, and either can miss on a single poll
-    without the process having moved - `harbor.shore`, `auditor`, `ui` and
-    `core` were all marked closed this way while still live, and a later
-    wake met each as a session it did not start and refused it. The sweep's
-    own docstring promises two witnesses before it moves on a probe; a lone
-    "gone" reading must not be one of them."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="idle")
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
-
-        # The main pass reads it gone; the confirming re-read of just this
-        # agent finds it alive after all - the flaky poll, not a real exit.
-        calls: list[int] = []
-
-        def flaky() -> dict:
-            calls.append(1)
-            return {} if len(calls) == 1 else {"backend": 4242}
-        obsmod.live_sessions = flaky
-        dmn_reconciler.sweep(con, lambda _m: None, [])
-        check("sweep: a second reading is taken before believing the first",
-              len(calls) == 2, str(calls))
-        check("sweep: contradicted, so nothing is marked closed",
-              db.get_agent_state(con, "backend")["closed_at"] is None,
-              str(dict(db.get_agent_state(con, "backend"))))
-
-        # Genuinely gone this time: both readings agree, so it closes.
-        obsmod.live_sessions = lambda: {}
-        dmn_reconciler.sweep(con, lambda _m: None, [])
-        check("sweep: two straight gone readings still closes it",
-              db.get_agent_state(con, "backend")["closed_at"] is not None,
-              str(dict(db.get_agent_state(con, "backend"))))
-    finally:
-        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
-        con.close()
-
     # The distinction has to survive into the implementation, not only the fake.
     restore_world()
     real_run = orcamod._run
@@ -2307,6 +2264,37 @@ def test_sweep_does_not_close_a_live_session_on_one_flaky_reading(home: Path) ->
               orcamod.live_terminals() == {"term_a"}, str(orcamod.live_terminals()))
     finally:
         orcamod._run = real_run
+
+
+def test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(home: Path) -> None:
+    """T146: a pid `observe.live_sessions` cannot map back to its agent reads
+    as the whole reading being unreadable (its own fix) - the sweep's
+    existing "unread answer" guard is what must then leave a live session
+    alone, not a second look at this one agent."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="idle")
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+
+        obsmod.live_sessions = lambda: None
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("sweep: an unmappable pid leaves a session alone, not closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None,
+              str(dict(db.get_agent_state(con, "backend"))))
+
+        # Genuinely gone this time: a decisive reading closes it.
+        obsmod.live_sessions = lambda: {}
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("sweep: a decisive gone reading still closes it",
+              db.get_agent_state(con, "backend")["closed_at"] is not None,
+              str(dict(db.get_agent_state(con, "backend"))))
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        con.close()
 
 
 def test_an_agent_with_nowhere_to_run_is_not_handed_off(home: Path) -> None:
@@ -4189,6 +4177,48 @@ def test_process_env_reads_a_gone_pid_as_unreadable(home: Path) -> None:
           obsmod.process_env(1) is None)
 
 
+def test_live_sessions_fails_the_whole_reading_on_an_unmappable_pid() -> None:
+    """T146 (founder #737/#743): a live, session-shaped pid whose own two
+    `ps` calls miss - the pid gone by the time they run, an empty read, a
+    mismatched prefix - reads exactly like a transient miss under load would,
+    and was silently left out of the map, so `harbor.shore`, `auditor`, `ui`
+    and `core` were each read as closed while still live. Only a pid that is
+    definitely another user's (`ps` prints its command with no environment,
+    at rc 0) is a real "not ours"; everything else fails the whole reading,
+    the same as `process_table` returning None already does for its callers.
+    """
+
+    class FakeResult:
+        def __init__(self, rc: int, out: str) -> None:
+            self.returncode, self.stdout = rc, out
+
+    def ps(eww: FakeResult, ww: FakeResult):
+        return lambda argv, **k: eww if argv[1] == "eww" else ww
+
+    real_run, real_table = obsmod.subprocess.run, obsmod.process_table
+    table = [(101, "/usr/bin/claude")]
+    try:
+        obsmod.process_table = lambda: table
+
+        obsmod.subprocess.run = ps(FakeResult(1, ""), FakeResult(1, ""))
+        check("live_sessions: a claude pid whose own ps calls miss fails the "
+              "whole reading, not just that pid",
+              obsmod.live_sessions() is None)
+
+        obsmod.subprocess.run = ps(FakeResult(0, "/usr/bin/claude\n"),
+                                   FakeResult(0, "/usr/bin/claude\n"))
+        check("live_sessions: another user's claude (command with no "
+              "environment) is left out, deciding nothing else",
+              obsmod.live_sessions() == {})
+
+        obsmod.subprocess.run = ps(FakeResult(0, "/usr/bin/claude OCP_AGENT=backend\n"),
+                                   FakeResult(0, "/usr/bin/claude\n"))
+        check("live_sessions: a readable OCP_AGENT is still found",
+              obsmod.live_sessions() == {"backend": 101})
+    finally:
+        obsmod.subprocess.run, obsmod.process_table = real_run, real_table
+
+
 def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
     """The failure this exists to prevent is two processes, not two calls: an
     in-process check would pass on a lock that never leaves the process."""
@@ -4288,7 +4318,7 @@ def main() -> int:
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))
         run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
-        run(lambda: test_sweep_does_not_close_a_live_session_on_one_flaky_reading(Path(td) / 'sweepflaky'))
+        run(lambda: test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(Path(td) / 'sweepflaky'))
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
@@ -4330,6 +4360,7 @@ def main() -> int:
         run(lambda: test_an_exiting_daemon_leaves_the_live_ones_name(Path(td) / 'pidname'))
         run(lambda: test_one_daemon_is_counted_in_the_process_table(Path(td) / 'dmnps'))
         run(lambda: test_process_env_reads_a_gone_pid_as_unreadable(Path(td) / 'procenv'))
+        run(lambda: test_live_sessions_fails_the_whole_reading_on_an_unmappable_pid())
         run(lambda: test_two_processes_cannot_both_supervise_one_home(Path(td) / 'twoproc'))
     return run_area(tests)
 
