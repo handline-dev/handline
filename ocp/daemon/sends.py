@@ -101,26 +101,12 @@ def ask_verb(con, log, **kw) -> tuple[bool, str]:
 
 
 def say_verb(con, log, **kw) -> tuple[bool, str]:
-    """`ocp say TARGET BODY`, and `ocp say --needs-task ID` (#1657), which is a
-    say back to whoever sent the one it names."""
+    """`ocp say TARGET BODY`: a message that needs no answer, typed at once."""
     me, speaker = _who(kw)
     if me is None:
         return False, _NO_WHO
-    needs = kw.get("needs_task")
-    if needs is not None:
-        row = db.get_request(con, needs)
-        why = actions.needs_task_refusal(row, me)
-        if why:
-            return False, why
-        command = actions.needs_task_command(me, row["body"])
-        ok, msg, rid = askmod.say(row["requester"], actions.flag_notice(row["id"], command),
-                                  requester=me, parent_id=row["id"], speaker=speaker, notify=False)
-        if ok:
-            _after(rid, row["requester"], log)
-        return ok, msg
     ok, msg, rid = askmod.say(kw["target"], kw["body"], requester=me, parent_id=kw.get("parent"),
                               speaker=speaker, notify=False)
-    if not ok:
-        return False, msg
-    _after(rid, kw["target"], log)
-    return True, msg + ("\n" + actions.delivery_line(rid) if rid is not None else "")
+    if ok:
+        _after(rid, kw["target"], log)
+    return ok, msg

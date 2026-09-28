@@ -71,20 +71,12 @@ def _confirmed_reading(con, agent: str, reading, log):
 
 
 def queued_or_idle(con, agent: str, when: str) -> str:
-    """Write QUEUED when there is a request still queued or an answer this
-    agent asked for and has not been told about, IDLE otherwise - and return
-    which. That is the project's one definition of work waiting, not this
-    helper's: `_move_plan` and `supervise` ask the same two questions, and the
-    founder's screen lists what is queued and what is untold from the same two
-    queries, so a row this calls IDLE is one the screen shows nothing queued
-    and nothing untold for. `would_wake` asks a narrower one for a closed
-    agent (T154): a request already delivered before the close is queued
-    here, but is not on its own a reason to wake it back up.
-    Shared by every writer of a due wake_at (a stale one, from an unrelated
-    throttle or park, can come due after the turn it was set during already
-    went idle on its own - Stop only clears RUNNING), so QUEUED stays a claim
-    about the queue everywhere it is made, not only where #645 was noticed."""
-    if db.queued_for(con, agent) or db.unannounced_answers(con, agent):
+    """Write QUEUED when something has not reached the agent yet (`db.unreached_count`:
+    a task waiting behind its current one, a message not yet typed, an answer not yet
+    told), IDLE otherwise - and return which. What is typed already is not waiting,
+    answered or not, so an idle agent with nothing stuck reads IDLE. Shared by every
+    writer of a due wake_at, so QUEUED stays a claim about the queue everywhere."""
+    if db.unreached_count(con, agent):
         db.set_agent_state(con, agent, QUEUED, wake_at=None, detail=when)
         return QUEUED
     db.set_agent_state(con, agent, IDLE, wake_at=None, detail=f"{when}; no requests waiting")
@@ -115,6 +107,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # or a wake still settling - gets one more try every tick, RUNNING
     # included: unlike the rest of this function, a pending message is not
     # gated on being idle.
+    messaging.tell_undelivered(con, agent, log)
     messaging.deliver_pending(con, agent, log)
 
     # A turn still running when the park began can hit the usage wall on its
@@ -207,8 +200,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # back into a terminal the agent still has, so an agent that lost its
     # terminal while waiting on an answer has no way back at all.
     started_now = False
-    if not (row and row["terminal"]) and (db.queued_for(con, agent)
-                                          or db.unannounced_answers(con, agent)):
+    if not (row and row["terminal"]) and db.unreached_count(con, agent):
         actions.append(lifecycle._start_for_work(con, agent, log))
         row = db.get_agent_state(con, agent)
         started_now = bool(row and row["terminal"])

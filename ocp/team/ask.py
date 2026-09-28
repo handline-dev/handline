@@ -486,7 +486,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         if decision.creates_gate and not fyi:
             note += " [escalation: needs a human gate]"
         elif notify:
-            note += "\n" + push(con, target)
+            note += "\n" + push(con, target, rid)
         return True, note, rid
     finally:
         con.close()
@@ -526,8 +526,11 @@ def _close_replied_say(parent_id: int, reply_id: int, reply_body: str) -> None:
         resolve(parent_id, reply_body, notify=False)
 
 
-def push(con, target: str) -> str:
+def push(con, target: str, rid: int | None = None) -> str:
     """Get the request to the agent now, rather than at the next daemon tick.
+
+    `rid`, when it names a message (anything but a task), is typed at once
+    (`messaging.tell_now`, T398); a task still waits for a free agent, one at a time.
 
     One command has to do the whole job. An agent that asks a subordinate for
     something and is told "queued" has not dispatched anything - it has left a
@@ -539,12 +542,16 @@ def push(con, target: str) -> str:
     sender and one delivered by the tick are the same delivery. The daemon
     stays the safety net: anything this could not finish is still queued.
     """
-    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
+    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, messaging
 
     if target == HUMAN:
         return "it is on the founder's screen (`ocp bridge`)"
     if target not in paths.list_agents():
         return f"{target} is not registered with ocp - nothing can be started for it"
+    sent = db.get_request(con, rid) if rid is not None else None
+    if sent is not None and sent["kind"] != "task":
+        told = messaging.tell_now(con, rid, lambda _m: None)
+        return f"  delivered to {target}" if told == "typed" else f"  {target}: {told}"
     said = []
     row = db.get_agent_state(con, target)
     if not (row and row["terminal"]):

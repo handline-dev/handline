@@ -281,17 +281,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "timebox_s, 2h")
     p.set_defaults(fn=cmd_ask)
 
-    p = sub.add_parser("say", help="a question answerable from what the receiver knows or a "
-                                   "quick look (T293) - never new work, that is `ocp task new`")
+    p = sub.add_parser("say", help="a message that needs no answer and starts no work (T293), typed at "
+                                   "once - work is `ocp task new`")
     p.add_argument("target", nargs="?")
     p.add_argument("body", nargs="?", default=None)
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the body from this file instead of the inline argument")
     p.add_argument("--parent", type=int, default=None,
                    help="the say this replies to, for its thread - a reply to a say is a say")
-    p.add_argument("--needs-task", dest="needs_task", type=int, default=None, metavar="ID",
-                   help="flag a say you received as really needing a task instead - replies "
-                        "to its sender with a ready `task new` command")
     p.set_defaults(fn=cmd_say)
 
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")

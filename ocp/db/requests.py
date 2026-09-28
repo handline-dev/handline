@@ -145,6 +145,14 @@ def head_of_queue(con, target: str, skip: int | None = None):
     return rows[0] if rows and rows[0]["edge_ok"] else None
 
 
+def task_head(con, target: str, skip: int | None = None):
+    """The task `target` is to be told about next: the first queued request of
+    kind 'task', when its edge has been checked. A message (an ask, a say) is
+    never this - it is typed at once, not waited for (T398)."""
+    rows = [r for r in queued_for(con, target) if r["kind"] == "task" and r["id"] != skip]
+    return rows[0] if rows and rows[0]["edge_ok"] else None
+
+
 def head_of_queue_or_marked(con, target: str):
     """`head_of_queue`, or - with none - the oldest `send_now_pending` row
     (T293): what a say-only queue still has to tell, for the two readers
@@ -171,6 +179,17 @@ def promote_to_front(con, rid: int) -> None:
         (row["target"],)).fetchone()[0]
     order = float(floor) - 1 if floor is not None else rid
     con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (order, rid))
+
+
+def unreached_count(con, agent: str) -> int:
+    """What is still owed `agent` because it has not reached it (T398): requests
+    never shown to it - a task waiting behind its current one, or a message whose
+    typing is held by a closed session - the messages the daemon has yet to type,
+    and answers not yet told. Something already typed is not counted, whether or not
+    it was answered: 0 means nothing is stuck on the way to the agent."""
+    from .pending import list_pending
+    return (len(undelivered_for(con, agent)) + len(list_pending(con, agent))
+            + len(unannounced_answers(con, agent)))
 
 
 def queue_depth(con, target: str) -> int:
@@ -219,6 +238,11 @@ def mark_delivered(con, rid: int) -> bool:
         "WHERE id = ? AND state = 'queued'",
         (int(time.time()), rid))
     return cur.rowcount > 0
+
+
+def clear_delivered(con, rid: int) -> None:
+    """Undo `mark_delivered` for a request whose typing failed, so it is owed again."""
+    con.execute("UPDATE requests SET delivered_at = NULL WHERE id = ? AND state = 'queued'", (rid,))
 
 
 def timeboxed_open(con):

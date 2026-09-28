@@ -85,6 +85,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             # #2117: whatever a message could not be typed at before the last
             # restart is still owed - try it now, for any agent already free
             # to hear it, rather than waiting out its next tick.
+            messaging.migrate_old_messages(con, log)
             messaging.reload_pending(con, log)
 
             ticks = 0

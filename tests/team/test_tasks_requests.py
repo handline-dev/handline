@@ -1064,9 +1064,9 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         now = int(time.time())
         head = db.add_request(con, "marina", "backend", "the first thing", None,
-                              "peer", "async", None, 0, None)
+                              "peer", "async", "task", 0, None)
         behind = [db.add_request(con, "marina", "backend", f"then thing {i}", None,
-                                 "peer", "async", None, 0, None) for i in (2, 3)]
+                                 "peer", "async", "task", 0, None) for i in (2, 3)]
         db.mark_delivered(con, head)
         db.set_cursor(con, "notify:backend", head)
 
@@ -1089,7 +1089,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         # What it may be waiting on is not a forgotten resolve.
         ask = db.add_request(con, "backend", "auditor", "review this", None,
-                             "peer", "async", None, 0, None)
+                             "peer", "async", "task", 0, None)
         check("nudge: an agent with an ask of its own outstanding is waiting, not forgetful",
               not nudge(now) and not sent, str(sent))
         _set_request_state(con, ask, "done", verdict="fine", announced=True)
@@ -1229,9 +1229,9 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
         sent.clear()
 
         first = db.add_request(con, "reviewer", "backend", "first thing behind it", None,
-                               "peer", "async", None, 0, None)
+                               "peer", "async", "task", 0, None)
         second = db.add_request(con, "reviewer", "backend", "second thing behind it", None,
-                                "peer", "async", None, 0, None)
+                                "peer", "async", "task", 0, None)
 
         check("blocked: not blocked yet - nothing has recorded a wait",
               not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
@@ -3131,9 +3131,9 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
               evmod.at_limit(con, "backend") is not None)
 
         hook("UserPromptSubmit")
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("wall: once it is running again the queued request is delivered",
-              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-              and any("please look at this" in t for t in sent), str(sent))
+              any("please look at this" in t for t in sent), str(sent))
 
         # ---- an answer to an agent parked on usage
         sent.clear()
@@ -3519,7 +3519,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
 
         def ask(requester: str, body: str) -> int:
             return db.add_request(con, requester, "backend", body, None,
-                                  "peer", "async", None, 0, None)
+                                  "peer", "async", "task", 0, None)
 
         head = ask("marina", "the stuck one")
         mine = ask(askmod.HUMAN, "founder's own, behind it")
@@ -4674,6 +4674,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
 
         rid = _human_request("worker")
         behind = _human_request("worker")
+        con.execute("UPDATE requests SET kind = 'task' WHERE id IN (?, ?)", (rid, behind))
         db.link_request(con, tid, rid)
         db.mark_delivered(con, rid)
         db.set_cursor(con, "notify:worker", rid)
@@ -6719,7 +6720,7 @@ limits:
                    as_agent="reviewer")
     check("retires: a legitimate target retiring a founder row must still "
           "say what it becomes",
-          rc == 1 and "say what it becomes" in out, out)
+          rc == 1 and "say whether work follows it" in out, out)
     rc, out = _cli(["resolve", str(own), "answered", "--retires", str(founders2),
                     "--no-task", "closed via the other answer"], as_agent="reviewer")
     check("retires: ...and succeeds once it does",

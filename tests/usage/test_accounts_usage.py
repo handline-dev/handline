@@ -3818,7 +3818,7 @@ def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
               row["state"] == dmn_states.QUEUED and not row["wake_at"] and not row["closed_at"],
               f"{row['state']} wake={row['wake_at']} closed={row['closed_at']}")
         db.add_request(con, "marina", "keeper", "after the move", None,
-                       "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
         told: list[str] = []
         real_send = orcamod.send
         try:

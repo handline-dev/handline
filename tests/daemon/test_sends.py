@@ -70,12 +70,16 @@ def test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_cle
     try:
         check("ask: a blocked screen is not typed at, and is not an error",
               reply["ok"] and sent == [], str((reply, sent)))
-        check("ask: it is held for the daemon, not lost", len(db.list_pending(con, "backend")) == 1)
+        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        check("ask: it stays owed on its row - undelivered, so it can still be withdrawn",
+              row["state"] == "queued" and not row["delivered_at"]
+              and db.unreached_count(con, "backend") == 1, str(dict(row)))
         orcamod.screen_blocker = lambda h: None
-        dmn_messaging.deliver_pending(con, "backend", lambda _m: None)
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("ask: typed once the screen clears, and only once",
               len(sent) == 1 and "when you are free" in sent[0][1]
-              and db.list_pending(con, "backend") == [], str(sent))
+              and db.unreached_count(con, "backend") == 0, str(sent))
     finally:
         con.close()
 
@@ -191,13 +195,119 @@ def test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(home: Pa
         con.close()
 
 
-def test_a_say_is_typed_at_once_and_says_how_to_answer(home: Path) -> None:
+def test_a_say_is_typed_at_once_and_owes_no_answer(home: Path) -> None:
     sent = _world(home)
     reply = _verb({"verb": "say", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "which branch is it on?"})
-    check("say: accepted, and the reply carries the way to answer",
-          reply["ok"] and "ocp say" in reply["said"], str(reply))
+    check("say: accepted, and its sender is told nothing about a way to answer",
+          reply["ok"] and "ocp say" not in reply["said"] and "needs-task" not in reply["said"], str(reply))
     check("say: typed at once", len(sent) == 1 and "which branch is it on?" in sent[0][1], str(sent))
+
+
+def test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(home: Path) -> None:
+    """T398: a say is finished once typed - it stays neither queued nor counted -
+    so the agent it went to reads IDLE, not PENDING."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        reply = _verb({"verb": "say", "requester": "product", "speaker": "product",
+                       "target": "backend", "body": "quick one"})
+        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        check("typed say: typed at once", reply["ok"] and len(sent) == 1, str((reply, sent)))
+        check("typed say: and finished - done, not left queued for a resolve",
+              row["state"] == "done", str(dict(row)))
+        check("typed say: in = 0", db.unreached_count(con, "backend") == 0)
+        check("typed say: the agent reads IDLE",
+              dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
+        check("typed say: a typed ask that is still unanswered does not count either",
+              _verb({"verb": "ask", "requester": "product", "speaker": "product",
+                     "target": "backend", "body": "please"})["ok"]
+              and db.unreached_count(con, "backend") == 0
+              and dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
+    finally:
+        con.close()
+
+
+def test_only_what_has_not_reached_the_agent_counts(home: Path) -> None:
+    sent = _world(home)
+    hand_edit_team(DESIGN_TEAM.replace(
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }')
+        .replace('  - { from: "*",         to: "archivist",', '  - { from: "reviewer",  to: "eng.*",        relation: peer,  response: async }\n  - { from: "*",         to: "archivist",'))
+    con = db.connect()
+    try:
+        agents.register("reviewer")
+        first = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+                       "target": "backend", "body": "a task"})
+        check("in: a task is told when the agent is free - one at a time",
+              first["ok"] and db.unreached_count(con, "backend") == 1 and sent == [], str((first, sent)))
+        orcamod.typeable_now = lambda h: True
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        second = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+                        "target": "backend", "body": "another task"})
+        check("in: the task told is not counted, the one waiting behind it is",
+              second["ok"] and len(sent) == 1 and db.unreached_count(con, "backend") == 1,
+              str((sent, db.unreached_count(con, "backend"))))
+        orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a dialog")
+        _verb({"verb": "ask", "requester": "reviewer", "speaker": "reviewer",
+               "target": "backend", "body": "a message the screen blocks"})
+        check("in: a message held by the screen counts, until it is typed",
+              db.unreached_count(con, "backend") == 2)
+        orcamod.screen_blocker = lambda h: None
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("in: and stops counting once typed", db.unreached_count(con, "backend") == 1
+              and len(sent) == 2, str(sent))
+    finally:
+        con.close()
+
+
+def test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(home: Path) -> None:
+    sent = _world(home)
+    table = sessions_are()
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-0")
+        calls: list = []
+        real = dmn_lifecycle.wake_agent
+        dmn_lifecycle.wake_agent = lambda c, a, log: (calls.append(a), (False, "the account is full"))[1]
+        try:
+            _verb({"verb": "ask", "requester": "product", "speaker": "product",
+                   "target": "backend", "body": "for when you are back"})
+        finally:
+            dmn_lifecycle.wake_agent = real
+        check("closed: a wake that fails leaves the message counted, and nothing typed",
+              calls == ["backend"] and db.unreached_count(con, "backend") == 1 and sent == [],
+              str((calls, sent)))
+        dmn_lifecycle.wake_agent = _stub_wake(table, "backend", [])
+        try:
+            dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        finally:
+            dmn_lifecycle.wake_agent = real
+        check("closed: and stops counting once the woken session is told", 
+              db.unreached_count(con, "backend") == 0 and sent == [], str(sent))
+    finally:
+        con.close()
+
+
+def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> None:
+    """T398 migration: a say queued before immediate typing is settled; an ask
+    already shown stays open, and one never shown is typed by the tick like a new one."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        say = db.add_request(con, "product", "backend", "an old say", None, "peer", "async", "say", 0, None)
+        shown = db.add_request(con, "product", "backend", "an old ask, shown", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, shown)
+        unshown = db.add_request(con, "product", "backend", "an old ask, never shown", None, "peer", "async", None, 0, None)
+        dmn_messaging.migrate_old_messages(con, lambda _m: None)
+        check("migration: the old say is settled", db.get_request(con, say)["state"] == "done")
+        check("migration: an old ask that was shown stays open, still owing its answer",
+              db.get_request(con, shown)["state"] == "queued")
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("migration: an old ask never shown is typed once by the tick",
+              len(sent) == 1 and "never shown" in sent[0][1] and db.unreached_count(con, "backend") == 0, str(sent))
+    finally:
+        con.close()
 
 
 def test_with_the_daemon_down_ask_and_say_send_nothing(home: Path) -> None:
@@ -226,9 +336,13 @@ def main() -> int:
         run(lambda: test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_clear(Path(td) / "s2"))
         run(lambda: test_a_task_kind_ask_keeps_the_one_at_a_time_rule(Path(td) / "s3"))
         run(lambda: test_who_is_asking_comes_from_the_caller_not_the_daemon(Path(td) / "s4"))
-        run(lambda: test_a_say_is_typed_at_once_and_says_how_to_answer(Path(td) / "s5"))
+        run(lambda: test_a_say_is_typed_at_once_and_owes_no_answer(Path(td) / "s5"))
         run(lambda: test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(Path(td) / "s7"))
         run(lambda: test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(Path(td) / "s8"))
+        run(lambda: test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(Path(td) / "s9"))
+        run(lambda: test_only_what_has_not_reached_the_agent_counts(Path(td) / "s10"))
+        run(lambda: test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(Path(td) / "s11"))
+        run(lambda: test_the_daemon_start_settles_old_says_and_leaves_old_asks(Path(td) / "s12"))
         run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
     return run_area(tests)
 

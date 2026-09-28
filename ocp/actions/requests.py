@@ -203,9 +203,9 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):
-        return (f"#{row['id']} is the founder's: say what it becomes. --task T<n> [T<n> ...] "
-                "names the tasks this answer belongs to (one per deliverable "
-                "promised), --no-task 'reason' says nothing needs building. "
+        return (f"#{row['id']} is the founder's: say whether work follows it. --task T<n> "
+                "[T<n> ...] names the tasks it opened (one per deliverable promised), "
+                "--no-task 'reason' says nothing needs building. "
                 "`ocp task new --owner NAME 'title' -t 2h` makes a task.")
     return None
 

@@ -1,15 +1,13 @@
-"""T351: one line typed into an agent's terminal at once - the socket's
-`message` verb, and the pending row that survives a restart when it cannot be.
+"""T351: a message typed into an agent's terminal at once - the socket's `message`
+verb and `tell_now` for a request - and the pending row that survives a restart.
 
-The old idle-gated delivery (`delivery.deliver_queued`, `type_notice`) stays
-as it is: it waits for `orca.typeable_now` (idle *and* nothing on screen)
-because it is telling an agent about a request that starts a fresh turn.
-This is the new, simpler rule the founder settled on (#2104): Claude Code
-queues a line typed mid-turn and reads it once the turn ends, so nothing
-here waits for idle - only for a screen_blocker (`orca.screen_blocker`: a
-dialog, a permission prompt, or a screen that could not be read) or a closed
-session, which is woken first. Never Esc: a screen_blocker is left standing,
-not pressed past.
+Nothing here waits for idle: Claude Code queues a line typed mid-turn and reads it
+once the turn ends (founder #2104). Only a screen_blocker (a dialog, a permission
+prompt, an unreadable screen), the wall, or a closed session holds a message, and a
+closed session is woken first. Never Esc: a blocker is left standing. What is held
+stays owed - on its row (a request) or in `pending_messages` (a bare line) - and the
+tick tries again. Tasks are not messages: they keep `delivery.deliver_queued`'s
+one-at-a-time rule.
 """
 from __future__ import annotations
 
@@ -18,6 +16,7 @@ import time
 from .. import db
 from ..infra import lock, paths
 from ..session import orca
+from ..team import ask as askmod
 
 from . import delivery, lifecycle
 
@@ -39,6 +38,14 @@ def can_type_now(con, agent: str, handle: str) -> tuple[bool, str]:
     if blocker is not None:
         return False, blocker.reason()
     return True, ""
+
+
+def finish_say(row) -> None:
+    """A say is finished once it is typed: nothing is owed on it, so it is settled
+    quietly instead of staying queued (and counting as pending) until someone
+    resolves it. Anything else typed for a request stays open until it is answered."""
+    if row["kind"] == "say":
+        askmod.resolve(int(row["id"]), "typed", notify=False)
 
 
 def _deliver_row(con, agent: str, row_id: int, text: str) -> tuple[bool, str]:
@@ -106,11 +113,13 @@ def tell_now(con, rid: int, log) -> str:
     verb types a line: the notice goes out even mid-turn, and only a screen
     blocker, the wall or a closed session holds it (T351, founder #2104).
 
-    Told out of turn, so the tick's head rule does not say it a second time.
-    A session that is not up yet is woken and reads it as its first prompt
-    (`delivery.waiting_prompt` marks it delivered first); this then finds it
-    delivered and types nothing. Tasks do not come here - they keep the
-    one-at-a-time head rule (`ask.push`). Returns what happened, for the log."""
+    What is held stays on its row, undelivered, and the tick tries again
+    (`tell_undelivered`); the row is marked delivered only once it is typed, so
+    it can be withdrawn until then and counts as owed until then. Told out of
+    turn, so the head rule does not say it a second time. A session that is not
+    up is woken and reads it as its first prompt (`delivery.waiting_prompt` marks
+    it delivered); this then finds it delivered. Tasks do not come here - they
+    keep the one-at-a-time head rule (`ask.push`). Returns what happened."""
     row = db.get_request(con, rid)
     if row is None or row["state"] != "queued":
         return "no longer queued"
@@ -134,17 +143,47 @@ def tell_now(con, rid: int, log) -> str:
         return "answered meanwhile"
     if row["delivered_at"]:
         return "already told"
-    if not delivery.session_present(agent):
+    handle = db.get_terminal(con, agent)
+    if not handle or not delivery.session_present(agent):
         return "queued - no running session; told when it is up"
-    if not db.mark_delivered(con, rid):
-        return "withdrawn first"
-    text = delivery.tell_text(con, row, 1)
-    pending = db.add_pending(con, agent, text, int(time.time()))
-    db.mark_told_out_of_turn(con, rid)
-    db.add_event(con, agent, "notified", {"request_id": rid, "more_waiting": 0})
-    ok, why = _deliver_row(con, agent, pending, text)
-    log(f"  {agent}: told about #{rid} at once" if ok else f"  {agent}: #{rid} waits - {why}")
-    return "typed" if ok else f"queued - {why}"
+    if not orca.available() or not orca.alive(handle):
+        return f"queued - {agent}'s terminal is gone"
+    ok, why = can_type_now(con, agent, handle)
+    if not ok:
+        return f"queued - {why}"
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return f"queued - {agent}: something else is using its terminal"
+        row = db.get_request(con, rid)
+        if row["state"] != "queued" or row["delivered_at"]:
+            return "already told"
+        ok, why = can_type_now(con, agent, handle)
+        if not ok:
+            return f"queued - {why}"
+        if not db.mark_delivered(con, rid):
+            return "withdrawn first"
+        sent, err = delivery._send(handle, delivery.tell_text(con, row, 1))
+        if not sent:
+            db.clear_delivered(con, rid)
+            return f"queued - {err or 'the send failed'}"
+        delivery._mark_typed(con, agent)
+        db.mark_told_out_of_turn(con, rid)
+        db.add_event(con, agent, "notified", {"request_id": rid, "more_waiting": 0})
+    log(f"  {agent}: told about #{rid} at once")
+    finish_say(row)
+    return "typed"
+
+
+def tell_undelivered(con, agent: str, log) -> None:
+    """Each tick, the messages nobody has told `agent` yet - one that reached it
+    while it had no session, or whose edge was still to be checked - the way
+    they are told when they arrive. Tasks are not these: they keep their own turn."""
+    state = db.get_agent_state(con, agent)
+    if not (state and state["terminal"]) or state["closed_at"]:
+        return          # starting or waking it is `supervise`'s own step, with its own gates
+    for row in db.undelivered_for(con, agent):
+        if row["kind"] != "task":
+            tell_now(con, int(row["id"]), log)
 
 
 def deliver_pending(con, agent: str, log) -> bool:
@@ -161,6 +200,16 @@ def deliver_pending(con, agent: str, log) -> bool:
     if ok:
         log(f"  {agent}: typed a pending message (#{row['id']})")
     return ok
+
+
+def migrate_old_messages(con, log) -> None:
+    """Once, at daemon start (T398): an old say was told, or never will be, and is
+    settled. An old ask needs nothing: one shown stays open until answered, one never
+    shown is undelivered, so the tick types it like a new one."""
+    for row in con.execute("SELECT id FROM requests WHERE state = 'queued' AND kind = 'say' "
+                           "AND target != ?", (db.HUMAN,)).fetchall():
+        askmod.resolve(int(row["id"]), "closed: told before says were typed at once", notify=False)
+        log(f"  #{row['id']}: an old say, settled")
 
 
 def reload_pending(con, log) -> None:

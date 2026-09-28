@@ -365,37 +365,32 @@ def effective_head_or_marked(con, agent: str):
     return effective_head(con, agent) or next(iter(db.send_now_pending(con, agent)), None)
 
 
+def effective_task_head(con, agent: str):
+    """`db.task_head`, unless it is blocked on record (`head_task_blocked`, T337):
+    then the next task behind it."""
+    head = db.task_head(con, agent)
+    if head and head_task_blocked(con, agent, head):
+        return db.task_head(con, agent, skip=int(head["id"]))
+    return head
+
+
 def deliver_queued(con, agent: str, log) -> bool:
-    """Tell an agent about its own effective head (`effective_head` -
-    ordinarily `db.head_of_queue`), plus anything marked `send_now` ahead of
-    it - a say (T293) among them, which is always marked and never a head, so
-    with nothing else queued this is also where one gets told. Told once per
-    head: the cursor holds the id last announced.
+    """Tell an agent about its next task - only tasks, one at a time and only when
+    it is free: a message is typed at once (`messaging.tell_now`) and never comes
+    here (T398). Told once per task: the cursor holds the id last announced.
     """
     if not enforce_edges(con, agent, log):
         return False
-    head = effective_head(con, agent)
-    # Ahead of an open head: what the human marked "send now", a say (T293,
-    # always marked the same way), and a reply in the head's own thread - the
-    # follow-up to what the agent is working on. With no head at all, a
-    # marked say is all there is to tell.
-    marked = [r for r in db.send_now_pending(con, agent) if not head or r["id"] != head["id"]]
-    if head and head["delivered_at"]:
-        marked += [r for r in db.followups_pending(con, agent, int(head["id"]))
-                   if r["id"] not in {m["id"] for m in marked}]
-        # The founder's message is told as if he had pressed Send now: an open
-        # head is not a turn in progress, and only that holds him (T131).
-        marked += [r for r in db.founder_pending(con, agent)
-                   if r["id"] not in {m["id"] for m in marked}]
-    head_due = False
-    if head:
-        head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
-            or _session_changed(con, agent)
-        if head_due and head["told_out_of_turn"] and not _session_changed(con, agent):
-            # Told already, out of turn; becoming the head is not news.
-            db.set_cursor(con, f"notify:{agent}", int(head["id"]))
-            head_due = False
-    if not head_due and not marked:
+    head = effective_task_head(con, agent)
+    if not head:
+        return False
+    head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
+        or _session_changed(con, agent)
+    if head_due and head["told_out_of_turn"] and not _session_changed(con, agent):
+        # Told already, out of turn; becoming the head is not news.
+        db.set_cursor(con, f"notify:{agent}", int(head["id"]))
+        head_due = False
+    if not head_due:
         return False
     if wall_reason(con, agent):
         return False              # stays queued; told when it wakes or moves
@@ -412,20 +407,14 @@ def deliver_queued(con, agent: str, log) -> bool:
     # unsent, which is how three agents once came up having been told nothing.
     if not orca.typeable_now(handle):
         return False
-    depth = db.queue_depth(con, agent)
+    depth = sum(1 for r in db.queued_for(con, agent) if r["kind"] == "task")
     with lock.terminal(agent) as mine:
         if not mine:
             return False          # something else is mid-send; next tick
         if _type_gate(con, agent, handle):
             return False          # stale reading above; next tick
-        # One message per pass: it starts the agent's turn, so a second would be
-        # typed mid-turn. The rest go out on later ticks, each behind its own
-        # typeable_now.
-        # A session that has read nothing hears the head first: "a follow-up to
-        # #N, which is still open" means nothing before #N itself (T111) - a
-        # rule with nothing to apply to when there is no head to hear first.
-        if marked and (not head or not _session_changed(con, agent)):
-            return _tell(con, agent, marked[0], depth, handle, log, ahead_of=head)
+        # One task per pass: it starts the agent's turn, so a second would be typed
+        # mid-turn. The rest go out on later ticks, each behind its own typeable_now.
         return _tell(con, agent, head, depth, handle, log)
 
 
@@ -754,15 +743,13 @@ def _task_of(con, req):
 
 
 def answer_verb(con, head) -> str:
-    """How the agent closes what it was just told: a report is dismissed, a say (T293)
-    answered with `say` itself - #1657's own way out - a task handed on or finished
-    (resolving it would leave the task owned by whoever resolved it), and everything
-    else resolved."""
+    """How the agent closes what it was just told: a report is dismissed, a say
+    needs nothing, a task handed on or finished (resolving it would leave the
+    task owned by whoever resolved it), and everything else resolved."""
     if head["kind"] == "report":
         return f"it asks nothing - `ocp dismiss {head['id']}` when read"
     if head["kind"] == "say":
-        from ..actions import say as say_actions
-        return say_actions.delivery_line(head["id"])
+        return "it needs no answer"
     if head["kind"] == "task":
         task = _task_of(con, head)
         if task is not None:
@@ -811,8 +798,8 @@ def tell_text(con, head, depth: int, ahead_of=None) -> str:
                 f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]")
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
-            f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}, "
-            f"or `ocp inbox` any time.")
+            f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}"
+            + ("." if head["kind"] == "say" else ", or `ocp inbox` any time."))
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,
@@ -865,8 +852,13 @@ def waiting_prompt(con, agent: str, log):
         if not db.mark_delivered(con, int(head["id"])):
             return None
         depth = db.queue_depth(con, agent)
-        return (tell_text(con, head, depth),
-                lambda session: _record_told(con, agent, head, depth, log, session))
+
+        def told(session):
+            from . import messaging      # imports this module
+            _record_told(con, agent, head, depth, log, session)
+            if head["kind"] == "say":
+                messaging.finish_say(head)
+        return tell_text(con, head, depth), told
     answered = db.unannounced_answers(con, agent)
     if answered:
         return answers_text(answered), lambda session: _record_answers(con, agent, answered, log)

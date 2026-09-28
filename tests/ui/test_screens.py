@@ -1957,7 +1957,7 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
         orcamod.send = lambda h, t, enter=True: (True, "")
         db.set_terminal(con, "backend", "term_x", "wt")
         rid = db.add_request(con, "marina", "backend", "please", None,
-                             "peer", "async", None, 0, None)
+                             "peer", "async", "task", 0, None)
         con.execute("UPDATE requests SET ts = ?",
                     (int(time.time()) - actions.STUCK_AFTER_S - 60,))
 

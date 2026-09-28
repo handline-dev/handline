@@ -446,7 +446,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
                  and not db.task_blockers(con, cur))
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct or "-"), oneline(agents.kind(cfg)), ctxs,
-                             len(db.queued_for(con, name)), task_n, ready, fire, wall))
+                             db.unreached_count(con, name), task_n, ready, fire, wall))
     return rows, [] if paths.list_agents() else ["no agents registered"]
 
 
@@ -1009,8 +1009,7 @@ def screen_state(con, row) -> tuple[str, str]:
         # queued_or_idle would say IDLE for the same row. A park a person
         # asked for by hand still shows the time they chose.
         if state == dmn_states.PARKED and not detail.startswith(dmn_states.BY_HAND_MARK) \
-                and not db.queued_for(con, row["agent"]) \
-                and not db.unannounced_answers(con, row["agent"]):
+                and not db.unreached_count(con, row["agent"]):
             return "IDLE", ""
         # A wake_at already in the past is a tick the daemon has not run yet,
         # not a clock face worth printing - "due" says so the way the
