@@ -6954,6 +6954,31 @@ def test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(home: 
         con.close()
 
 
+def test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(home: Path) -> None:
+    """T352: T205 went out three times, each answered "already fixed" - the
+    answered request left the task with no request of its own queued, which
+    the picker read as a queued task never delivered."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "t", "worker", "manager")
+        ok, msg = actions.set_queued(con, t, "manager", True)
+        (first,) = db.task_requests(con, t)
+        check("setup: queuing an idle owner's task delivered it", ok and first["state"] == "queued", msg)
+        ok, msg = askmod.resolve(first["id"], "already fixed")
+        check("setup: the owner answers without closing the task", ok, msg)
+        check("resend: the task has still only the one request",
+              [r["id"] for r in db.task_requests(con, t)] == [first["id"]],
+              str([dict(r) for r in db.task_requests(con, t)]))
+        check("resend: nothing is queued for the owner", db.queued_for(con, "worker") == [])
+        actions.advance_current_task(con, "worker")
+        check("resend: nor does another advance send it",
+              len(db.task_requests(con, t)) == 1)
+        check("resend: the task is still open, not done", db.get_task(con, t)["done_evidence"] is None)
+    finally:
+        con.close()
+
+
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
@@ -7413,6 +7438,7 @@ def main() -> int:
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(Path(td) / 'taskstates'))
+        run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
