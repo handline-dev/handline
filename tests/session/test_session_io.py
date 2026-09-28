@@ -2031,10 +2031,16 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
 
 
 def test_a_due_closed_park_enforces_edges_before_the_wake_at_gate(home: Path) -> None:
-    """T146 pt.1, auditor #1994 gap 1: the same edge-unconfirmed-request case
-    as `test_an_edge_unconfirmed_request_still_wakes_a_closed_agent`, met on
-    `supervise`'s own wake_at-due branch (evaluate.py:153) instead of
-    `wake_agent`'s gate directly."""
+    """T146 pt.1, auditor #1994 round-3 gap 1: an allowed edge cannot tell this
+    call apart from `wake_agent`'s own gate (T146 pt.1 lower down) doing the
+    same check - either way the request is confirmed and the session resumed.
+    A denied one can: `wake_agent`'s gate would deny it too, but only after a
+    session-shaped wake was already attempted and failed, which leaves the
+    park QUEUED - one tick short of resolved, waiting on a request that is
+    already dead. Enforcing here, before `waiting_for` is even asked, catches
+    the denial in the same tick `queued_or_idle` runs in, straight to IDLE.
+    Verified empirically: with this call's effect removed and `wake_agent`'s
+    own gate left standing, the same scenario ends QUEUED, not IDLE."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -2057,18 +2063,24 @@ def test_a_due_closed_park_enforces_edges_before_the_wake_at_gate(home: Path) ->
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="parked and closed")
 
-        rid = db.add_request(con, "reviewer", "backend", "please look at this", None,
-                             None, "async", "verdict", 0, None)
+        # marketing (growth.*) -> backend (eng.*) is DESIGN_TEAM's own deny
+        # rule ("go through product") - a real edge enforce_edges will refuse.
+        rid = db.add_request(con, "marketing", "backend", "ship this", None,
+                             None, "async", None, 0, None)
         con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
 
         write_status(home, "alpha", pct_5h=20, pct_7d=10,
                      collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
         sent.clear()
         dmn_evaluate.tick(con, lambda _m: None)
-        check("wake_at-due: an edge-unconfirmed request still wakes a due closed park",
-              any("--resume sess-due" in t for t in sent), str(sent))
-        check("wake_at-due: its edge is confirmed on the way, not skipped",
-              db.get_request(con, rid)["edge_ok"] == 1, dict(db.get_request(con, rid)))
+        check("wake_at-due: a denied edge does not wake a due closed park",
+              not sent, str(sent))
+        check("wake_at-due: the request is denied, not left unconfirmed forever",
+              db.get_request(con, rid)["state"] == "denied", dict(db.get_request(con, rid)))
+        check("wake_at-due: the park resolves to IDLE in this same tick, not left QUEUED "
+              "on a request that is already dead",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
+              dict(db.get_agent_state(con, "backend")))
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context) = real
