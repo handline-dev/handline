@@ -125,7 +125,7 @@ def undelivered_for(con, target: str):
     ).fetchall()
 
 
-def head_of_queue(con, target: str):
+def head_of_queue(con, target: str, skip: int | None = None):
     """The one request `target` is meant to be working on right now, or None.
 
     Request #189: an agent is given one request at a time, not its whole
@@ -136,8 +136,12 @@ def head_of_queue(con, target: str):
     own (`ask.say`'s `mark_send_now`), and skipping it here means one
     sitting unanswered can never become, or block, the head the one-doing
     rule actually tracks.
+
+    `skip` is `delivery.effective_head`'s own use (T337): the true head,
+    blocked on record, is never a row this returns - the id to leave out
+    while it looks for what the one-at-a-time rule falls on instead.
     """
-    rows = [r for r in queued_for(con, target) if r["kind"] != "say"]
+    rows = [r for r in queued_for(con, target) if r["kind"] != "say" and r["id"] != skip]
     return rows[0] if rows and rows[0]["edge_ok"] else None
 
 
@@ -270,20 +274,6 @@ def followups_pending(con, target: str, head_id: int):
         "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
         "AND parent_id = ? AND delivered_at IS NULL ORDER BY queue_order, id",
         (target, head_id)).fetchall()
-
-
-def next_pending_behind(con, target: str, head_id: int):
-    """The next request queued behind `head_id`, not yet shown to `target` -
-    what `deliver_queued` tells past a head whose own task is blocked (T337):
-    the head stays queued right where it was (`head_of_queue` still finds it
-    first once the block clears), so this never resolves or reorders it, only
-    picks the next thing to say while it waits. A say is excluded, like
-    `head_of_queue`'s own: it is delivered ahead of the queue on its own."""
-    return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND state = 'queued' AND id != ? "
-        "AND delivered_at IS NULL AND (kind IS NULL OR kind != 'say') "
-        "ORDER BY queue_order, id LIMIT 1",
-        (target, head_id)).fetchone()
 
 
 def mark_told_out_of_turn(con, rid: int) -> None:

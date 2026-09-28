@@ -312,11 +312,11 @@ def enforce_edges(con, agent: str, log) -> bool:
 
 
 def head_task_blocked(con, agent: str, head) -> bool:
-    """Is the head's own task on record as waited on (T337): blocked by
-    another still-open task (`ocp task edit T<n> --blocked-by T<m>`), or held
-    up on an ask `agent` itself sent that is linked to the same task. Built on
-    what already exists, not a new kind of wait nothing else reads - a head
-    with no task at all is never this, since there is nothing to check it
+    """Is `head`'s own task on record as waited on (T337): blocked by another
+    still-open task (`ocp task edit T<n> --blocked-by T<m>`), or held up on an
+    ask `agent` itself sent that is linked to the same task. Built on what
+    already exists, not a new kind of wait nothing else reads - a head with
+    no task at all is never this, since there is nothing to check it
     against."""
     for t in db.tasks_for_request(con, int(head["id"])):
         tid = int(t["id"])
@@ -328,16 +328,35 @@ def head_task_blocked(con, agent: str, head) -> bool:
     return False
 
 
+def effective_head(con, agent: str):
+    """`db.head_of_queue`, unless it is blocked on record (T337) - then the
+    next request behind it instead, so the one-at-a-time rule falls on
+    whatever the agent can actually act on, not on what it is stuck waiting
+    on. Delivery, `forgotten_resolve` and `blocked.work_waiting` read the
+    queue through here; nobody else does, so the true head - still queued,
+    never touched - is exactly what `db.head_of_queue` itself keeps finding
+    for `ocp inbox`, the board, and everyone else, the moment the block
+    clears.
+
+    Only one level: a request that jumps a blocked head and is itself
+    blocked is not chased further. T337 was written for one open head with
+    ordinary work queued behind it, not a chain of them."""
+    head = db.head_of_queue(con, agent)
+    if head and head_task_blocked(con, agent, head):
+        return db.head_of_queue(con, agent, skip=int(head["id"]))
+    return head
+
+
 def deliver_queued(con, agent: str, log) -> bool:
-    """Tell an agent about the head of its own queue (`db.head_of_queue`),
-    plus anything marked `send_now` ahead of it - a say (T293) among them,
-    which is always marked and never a head, so with nothing else queued
-    this is also where one gets told. Told once per head: the cursor holds
-    the id last announced.
+    """Tell an agent about its own effective head (`effective_head` -
+    ordinarily `db.head_of_queue`), plus anything marked `send_now` ahead of
+    it - a say (T293) among them, which is always marked and never a head, so
+    with nothing else queued this is also where one gets told. Told once per
+    head: the cursor holds the id last announced.
     """
     if not enforce_edges(con, agent, log):
         return False
-    head = db.head_of_queue(con, agent)
+    head = effective_head(con, agent)
     # Ahead of an open head: what the human marked "send now", a say (T293,
     # always marked the same way), and a reply in the head's own thread - the
     # follow-up to what the agent is working on. With no head at all, a
@@ -358,15 +377,6 @@ def deliver_queued(con, agent: str, log) -> bool:
             # Told already, out of turn; becoming the head is not news.
             db.set_cursor(con, f"notify:{agent}", int(head["id"]))
             head_due = False
-    if not head_due and not marked and head and head_task_blocked(con, agent, head):
-        # Not forgotten - waited on, on record (T337 founder #2002/#2003). The
-        # one-at-a-time rule is for what the agent is doing, not for what it
-        # is stuck waiting on: the head stays queued right where it is
-        # (`head_of_queue` still finds it first, once the block clears), and
-        # this only picks the next thing to say while it waits.
-        nxt = db.next_pending_behind(con, agent, int(head["id"]))
-        if nxt:
-            marked = [nxt]
     if not head_due and not marked:
         return False
     if wall_reason(con, agent):
@@ -508,7 +518,8 @@ def bg_holds(con, agent: str, now: int) -> bool:
 
 
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
-    """The head of this agent's queue, if it looks like a resolve nobody wrote.
+    """The agent's effective head (`effective_head`), if it looks like a
+    resolve nobody wrote.
 
     IDLE or QUEUED with a live terminal, the head delivered and told and
     still open, and nothing the agent asked that is still unanswered - which
@@ -520,12 +531,17 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     fresh prompt clears it, so a QUEUED agent whose head was told in its
     current session is the same forgotten resolve. `blocked.work_waiting`
     reads this function, so it also decides whether that agent is reported.
+
+    A true head blocked on record (T337) is never this on its own account:
+    `effective_head` already looked past it, to whatever it is actually
+    telling the agent to work on - which is what nudged, capped and reported
+    from here on.
     """
     if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
     if has_background_work(con, agent) and not bg_stale(con, agent, now):
         return None           # not idle: work it started is still running
-    head = db.head_of_queue(con, agent)
+    head = effective_head(con, agent)
     if not head or not head["delivered_at"] \
             or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
         return None
@@ -604,9 +620,13 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     acted (T337, founder #2002/#2003). The same silence that earns the first
     nudge earns the next rung too, up to the cap `NUDGE_SCHEDULE_S` sets.
 
-    Nothing here for a head whose own task is on record as blocked
-    (`head_task_blocked`) - that is not forgotten, and `deliver_queued` moves
-    the queue on past it instead of nagging the agent about it.
+    `forgotten_resolve` already reads the queue through `effective_head`, so
+    `found["head"]` is never the true head while it is blocked on record -
+    only a request behind it that is not is ever this. The `head_task_blocked`
+    check below is for that one behind it turning out to be blocked too
+    (`effective_head` looks past one level, not a chain): nothing is typed
+    about it either, the same as the true head - not forgotten, just not
+    reachable from here.
 
     Never resolves for it: the verdict is the agent's to write. Gated like a
     delivery (not at the wall, nothing typed at a modal or a working agent),

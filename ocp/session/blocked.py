@@ -113,7 +113,7 @@ def work_waiting(con, agent: str, row, now: int) -> str:
     from ..daemon import delivery as dmn_delivery
 
     parts = []
-    head = db.head_of_queue(con, agent)
+    head = dmn_delivery.effective_head(con, agent)
     if head and (db.get_cursor(con, f"notify:{agent}") != int(head["id"])
                  or dmn_delivery._session_changed(con, agent)):
         behind = db.queue_depth(con, agent) - 1

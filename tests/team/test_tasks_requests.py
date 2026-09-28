@@ -1200,13 +1200,16 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
 
 
 def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) -> None:
-    """T337 (founder #2002/#2003, orcapipe's design on #2024): the one-at-a-
-    time rule is for what an agent is doing, not for what it is stuck
-    waiting on. A head whose own task is recorded blocked (`--blocked-by`;
-    an outgoing ask of the agent's own linked to it is the other form,
-    covered by `head_task_blocked` directly) is left queued exactly where it
-    is, and `deliver_queued` moves on to the next thing instead of leaving
-    the agent idle with everything behind it untold."""
+    """T337 (founder #2002/#2003, orcapipe's design on #2024, auditor #2028
+    finding 1): the one-at-a-time rule is for what an agent is doing, not for
+    what it is stuck waiting on. A head whose own task is recorded blocked is
+    left queued exactly where it is, and `effective_head` - what
+    `deliver_queued`, `forgotten_resolve` and `blocked.work_waiting` read the
+    queue through now, instead of `db.head_of_queue` directly - is the
+    request behind it instead. That request IS the head from there on: told
+    once, nudged if forgotten, and nothing else delivered while it stays
+    open - the same one-at-a-time rule as an ordinary head, not the whole
+    queue draining past the block a tick at a time."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -1225,8 +1228,10 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
               sent and "do the blocked thing" in sent[-1], str(sent))
         sent.clear()
 
-        nxt = db.add_request(con, "reviewer", "backend", "meanwhile, look at this", None,
-                             "peer", "async", None, 0, None)
+        first = db.add_request(con, "reviewer", "backend", "first thing behind it", None,
+                               "peer", "async", None, 0, None)
+        second = db.add_request(con, "reviewer", "backend", "second thing behind it", None,
+                                "peer", "async", None, 0, None)
 
         check("blocked: not blocked yet - nothing has recorded a wait",
               not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
@@ -1237,28 +1242,119 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)
-
         check("blocked: the head's task is blocked on record",
               dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
-        check("blocked: the next queued request is delivered instead",
+        check("blocked: effective_head is the first request behind it, not the true head",
+              dmn_delivery.effective_head(con, "backend")["id"] == first)
+
+        check("blocked: delivered the ordinary way - its own cursor, not the head's",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-              and "meanwhile" in sent[-1] and f"#{head}" in sent[-1], str(sent))
-        check("blocked: the head itself is untouched - still queued, still the head",
+              and "first thing" in sent[-1] and f"#{first}" in sent[-1], str(sent))
+        check("blocked: the notify cursor moved to it, not the blocked head",
+              db.get_cursor(con, "notify:backend") == first)
+        sent.clear()
+
+        # Auditor #2028 finding 1: the second must wait for the first, the
+        # same as it would behind an ordinary head - not typed on the next
+        # tick just because the true head is out of the way.
+        check("blocked: not told twice, and the second waits for the first",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        check("blocked: the true head is untouched underneath it all - still "
+              "queued, still what head_of_queue finds",
               db.get_request(con, head)["state"] == "queued"
               and db.head_of_queue(con, "backend")["id"] == head)
-        check("blocked: told out of turn on its own row, not on the head's cursor",
-              db.get_request(con, nxt)["told_out_of_turn"] == 1
-              and db.get_cursor(con, "notify:backend") == head)
 
+        # The first, left open past its own nudge interval, is what gets
+        # nudged - not the blocked true head, and not the second either.
+        now = int(time.time())
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60, first))
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
+        check("blocked: the open first is what gets nudged",
+              dmn_delivery.nudge_forgotten_resolve(
+                  con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
+              and f"#{first}" in sent[-1], str(sent))
         sent.clear()
-        check("blocked: not delivered a second time once it is already told",
-              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        _set_request_state(con, first, "done", verdict="did it")
+        check("blocked: the second is delivered once the first resolves",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and "second thing" in sent[-1] and f"#{second}" in sent[-1], str(sent))
 
         db.remove_block(con, tid, t_blocker)
-        check("blocked: clearing the block is read immediately, nothing else to do for it",
+        check("blocked: clearing the block is read immediately",
               not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
         check("blocked: the head returns to the front on its own - head_of_queue never left it",
               db.head_of_queue(con, "backend")["id"] == head)
+        check("blocked: and effective_head agrees, once the block is gone",
+              dmn_delivery.effective_head(con, "backend")["id"] == head)
+    finally:
+        con.close()
+
+
+def test_head_task_blocked_by_the_agents_own_linked_ask(home: Path) -> None:
+    """T337, auditor #2028 finding 2: `head_task_blocked`'s other form - an
+    outgoing ask `agent` itself sent, linked to its head's own task - had no
+    test. This is the founder's actual case (#1685/T304: 'mockup to the
+    founder first'), not the --blocked-by one the other test covers."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "needs a mockup first")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        check("setup: not blocked before anything is asked",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+
+        ok, msg, ask_id = askmod.ask("reviewer", "does this mockup work?", requester="backend")
+        check("setup: backend's own ask goes out", ok, msg)
+        check("blocked: an unlinked ask of its own does not block the head",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+
+        db.link_request(con, tid, ask_id)
+        check("blocked: linked to the head's own task, the open ask blocks it",
+              dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+
+        _set_request_state(con, ask_id, "done", verdict="looks right", announced=True)
+        check("blocked: answered, it no longer blocks",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+    finally:
+        con.close()
+
+
+def test_a_blocked_head_is_not_shown_as_a_pending_reminder(home: Path) -> None:
+    """T337, auditor #2028 finding 3: `blocked.work_waiting` reads the queue
+    through `effective_head` now too - a head blocked on record, with
+    nothing behind it to take its place, is not shown as a pending "reminder
+    to resolve" either, since nothing typed at the agent about it ever will
+    be (`nudge_forgotten_resolve` skips it the same way)."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        now = int(time.time())
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60, head))
+        db.set_cursor(con, "notify:backend", head)
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
+        row = db.get_agent_state(con, "backend")
+        check("setup: an ordinary open head would show as a pending reminder",
+              f"reminder to resolve #{head}" in blockedmod.work_waiting(con, "backend", row, now))
+
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("blocked: no longer a pending reminder - nothing behind it to take its place",
+              blockedmod.work_waiting(con, "backend", row, now) == "")
     finally:
         con.close()
 
@@ -7145,6 +7241,8 @@ def main() -> int:
         run(lambda: test_a_trust_screen_is_one_founder_request(Path(td) / 'trustonce'))
         run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
         run(lambda: test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(Path(td) / 'blockednext'))
+        run(lambda: test_head_task_blocked_by_the_agents_own_linked_ask(Path(td) / 'blockedask'))
+        run(lambda: test_a_blocked_head_is_not_shown_as_a_pending_reminder(Path(td) / 'blockedreminder'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))
