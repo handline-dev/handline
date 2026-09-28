@@ -1044,6 +1044,59 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
         con.close()
 
 
+def test_a_forgotten_message_or_a_task_behind_one_is_still_nudged(home: Path) -> None:
+    """T398 (auditor #2427): a message is typed at once and never gets the tick's
+    cursor, so the forgotten-resolve check judges it on its own delivery; a task told
+    behind a typed ask is judged as the task."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        agents.register("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        now = int(time.time())
+        ask = db.add_request(con, "marina", "backend", "please look", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, ask)                # what tell_now does when it types it
+        db.mark_told_out_of_turn(con, ask)
+
+        def idle_for(secs: int) -> None:
+            con.execute("DELETE FROM events WHERE agent = 'backend'")
+            db.add_event(con, "backend", "Stop", {})
+            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - secs,))
+            con.execute("UPDATE requests SET delivered_at = ?", (now - secs,))
+
+        def nudge(at: int) -> bool:
+            return dmn_delivery.nudge_forgotten_resolve(
+                con, "backend", db.get_agent_state(con, "backend"), at, lambda _m: None)
+
+        idle_for(dmn_delivery.NUDGE_AFTER_S - 60)
+        check("forgotten ask: idle for less than the interval is left alone", not nudge(now) and not sent)
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
+        found = dmn_delivery.forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"), now)
+        check("forgotten ask: a typed ask left open is what is judged",
+              found is not None and found["head"]["id"] == ask, str(found))
+        check("forgotten ask: and it is nudged", nudge(now) and len(sent) == 1
+              and f"#{ask}" in sent[0], str(sent))
+
+        sent.clear()
+        task = db.add_request(con, "marina", "backend", "the work", None, "peer", "async", "task", 0, None)
+        db.mark_delivered(con, task)
+        db.set_cursor(con, "notify:backend", task)
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
+        found = dmn_delivery.forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"), now)
+        check("forgotten ask: a task told behind the typed ask is judged as the task",
+              found is not None and found["head"]["id"] == task, str(found))
+        check("forgotten ask: and it is nudged too", nudge(now + dmn_delivery.NUDGE_RETRY_S + 1)
+              and any(f"#{task}" in t for t in sent), str(sent))
+    finally:
+        con.close()
+
+
 def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) -> None:
     """purser finished #492, reported it as a new ask and never resolved it. The
     queue gives an agent one request at a time, so three more waited behind it
@@ -8026,6 +8079,7 @@ def main() -> int:
         run(lambda: test_db_dedup_only_swallows_dedup(Path(td) / 'strict'))
         run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
         run(lambda: test_a_trust_screen_is_one_founder_request(Path(td) / 'trustonce'))
+        run(lambda: test_a_forgotten_message_or_a_task_behind_one_is_still_nudged(Path(td) / 'forgottenask'))
         run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
         run(lambda: test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(Path(td) / 'blockednext'))
         run(lambda: test_head_task_blocked_by_the_agents_own_linked_ask(Path(td) / 'blockedask'))

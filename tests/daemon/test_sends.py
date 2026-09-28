@@ -283,7 +283,7 @@ def test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(home: P
             dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         finally:
             dmn_lifecycle.wake_agent = real
-        check("closed: and stops counting once the woken session is told", 
+        check("closed: and stops counting once the woken session is told",
               db.unreached_count(con, "backend") == 0 and sent == [], str(sent))
     finally:
         con.close()
@@ -306,6 +306,78 @@ def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> No
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("migration: an old ask never shown is typed once by the tick",
               len(sent) == 1 and "never shown" in sent[0][1] and db.unreached_count(con, "backend") == 0, str(sent))
+    finally:
+        con.close()
+
+
+def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
+    """T398 (auditor #2427 3a): a send that fails leaves the row undelivered - owed,
+    withdrawable - and the tick types it once the send works."""
+    sent = _world(home)
+    ok_send = orcamod.send
+    orcamod.send = lambda h, text, enter=True: (False, "the pane is gone")
+    con = db.connect()
+    try:
+        reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+                       "target": "backend", "body": "try again later"})
+        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        check("failed send: accepted, nothing typed, and the row is owed again - not delivered",
+              reply["ok"] and not row["delivered_at"] and db.unreached_count(con, "backend") == 1,
+              str((reply, dict(row))))
+        ok, msg = askmod.withdraw(int(row["id"]), requester="product")
+        check("failed send: and it can still be withdrawn", ok, msg)
+        _verb({"verb": "ask", "requester": "product", "speaker": "product",
+               "target": "backend", "body": "second try"})
+        orcamod.send = ok_send
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("failed send: the next tick types it once the send works",
+              len(sent) == 1 and "second try" in sent[0][1] and db.unreached_count(con, "backend") == 0,
+              str(sent))
+    finally:
+        con.close()
+
+
+def test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(home: Path) -> None:
+    """T398 (auditor #2427 3b): waiting_prompt's told() settles a say the way typing does."""
+    sent = _world(home)
+    table = sessions_are()
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-0")
+        real = dmn_lifecycle.wake_agent
+        dmn_lifecycle.wake_agent = _stub_wake(table, "backend", [])
+        try:
+            _verb({"verb": "say", "requester": "product", "speaker": "product",
+                   "target": "backend", "body": "read this when you are back"})
+        finally:
+            dmn_lifecycle.wake_agent = real
+        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        check("say on wake: told by the first prompt, nothing typed on top",
+              row["delivered_at"] and sent == [], str((dict(row), sent)))
+        check("say on wake: and finished - done, not left queued", row["state"] == "done", str(dict(row)))
+        check("say on wake: nothing counts as owed", db.unreached_count(con, "backend") == 0)
+    finally:
+        con.close()
+
+
+def test_a_delivered_task_whose_terminal_is_lost_is_started_again(home: Path) -> None:
+    """T398 (auditor #2427 2): open work is a reason to give an agent somewhere to
+    run, whether or not it was already told."""
+    _world(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "product", "backend", "the work", None, "peer", "async", "task", 0, None)
+        db.mark_delivered(con, rid)
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        calls: list = []
+        real = dmn_lifecycle._start_for_work
+        dmn_lifecycle._start_for_work = lambda c, a, log: (calls.append(a), "started")[1]
+        try:
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        finally:
+            dmn_lifecycle._start_for_work = real
+        check("lost terminal: an agent holding a delivered, open task is started again",
+              calls == ["backend"], str(calls))
     finally:
         con.close()
 
@@ -343,6 +415,9 @@ def main() -> int:
         run(lambda: test_only_what_has_not_reached_the_agent_counts(Path(td) / "s10"))
         run(lambda: test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(Path(td) / "s11"))
         run(lambda: test_the_daemon_start_settles_old_says_and_leaves_old_asks(Path(td) / "s12"))
+        run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
+        run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
+        run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))
         run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
     return run_area(tests)
 

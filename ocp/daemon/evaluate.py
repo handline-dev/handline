@@ -200,7 +200,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # back into a terminal the agent still has, so an agent that lost its
     # terminal while waiting on an answer has no way back at all.
     started_now = False
-    if not (row and row["terminal"]) and db.unreached_count(con, agent):
+    if not (row and row["terminal"]) and (db.queued_for(con, agent)
+                                          or db.unannounced_answers(con, agent)):
         actions.append(lifecycle._start_for_work(con, agent, log))
         row = db.get_agent_state(con, agent)
         started_now = bool(row and row["terminal"])

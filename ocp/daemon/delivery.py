@@ -529,33 +529,38 @@ def bg_holds(con, agent: str, now: int) -> bool:
 
 
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
-    """The agent's effective head (`effective_head`), if it looks like a
-    resolve nobody wrote.
+    """What the agent is holding, if it looks like a resolve nobody wrote: its next
+    task (`effective_task_head`) when that was told and is still open, otherwise the
+    oldest open ask that was typed at it (T398) - a message is judged on its own
+    delivery, not on a cursor the tick keeps for tasks.
 
-    IDLE or QUEUED with a live terminal, the head delivered and told and
-    still open, and nothing the agent asked that is still unanswered - which
-    is what separates a request forgotten from one being waited on, since an
-    agent waiting on an answer is also IDLE (or QUEUED) with its head open.
-    Idle time counts from the later of its last activity and the delivery.
+    IDLE or QUEUED with a live terminal, delivered and told and still open, and
+    nothing the agent asked that is still unanswered - which is what separates a
+    request forgotten from one being waited on, since an agent waiting on an answer is
+    also IDLE (or QUEUED) with its request open. Idle time counts from the later of its
+    last activity and the delivery.
 
     QUEUED counts as IDLE here: it only means something is queued, and only a
-    fresh prompt clears it, so a QUEUED agent whose head was told in its
-    current session is the same forgotten resolve. `blocked.work_waiting`
-    reads this function, so it also decides whether that agent is reported.
+    fresh prompt clears it, so a QUEUED agent whose task was told in its current
+    session is the same forgotten resolve. `blocked.work_waiting` reads this function,
+    so it also decides whether that agent is reported.
 
-    A true head blocked on record (T337) is never this on its own account:
-    `effective_head` already looked past it, to whatever it is actually
-    telling the agent to work on - which is what nudged, capped and reported
-    from here on.
+    A task blocked on record (T337) is never this on its own account:
+    `effective_task_head` already looked past it.
     """
     if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
     if has_background_work(con, agent) and not bg_stale(con, agent, now):
         return None           # not idle: work it started is still running
-    head = effective_head(con, agent)
+    head = effective_task_head(con, agent)
     if not head or not head["delivered_at"] \
             or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
-        return None
+        cursor = db.get_cursor(con, f"notify:{agent}")
+        head = next((r for r in db.queued_for(con, agent)
+                     if r["kind"] not in ("task", "say") and r["delivered_at"]
+                     and (r["told_out_of_turn"] or cursor == int(r["id"]))), None)
+        if head is None:
+            return None
     if db.open_asks_of(con, agent) or db.unannounced_answers(con, agent):
         return None
     idle = now - max(int(head["delivered_at"]), idle_since(con, agent) or 0)
