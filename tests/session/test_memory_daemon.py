@@ -164,6 +164,29 @@ def test_the_pre_tool_hook_denies_through_claudes_own_format_and_never_breaks_a_
           _hook("PreToolUse", agent="", **call) == "{}")
 
 
+def test_the_pre_tool_hook_refuses_an_ocp_message_the_shell_would_run(home: Path) -> None:
+    _daemon_home(home, 20)
+
+    def out(command: str) -> str:
+        return _hook("PreToolUse", tool_name="Bash", tool_input={"command": command})
+
+    bad = out('ocp ask orcapipe.auditor "found[\'idle_s\'] is `idle`"')
+    deny = json.loads(bad)["hookSpecificOutput"]
+    check("shell: a backtick in a double-quoted ocp body is denied, with the fix in the reason",
+          deny["permissionDecision"] == "deny" and "--file" in deny["permissionDecisionReason"], bad)
+    check("shell: so is $( in one", "deny" in out('ocp resolve 5 "ran $(date)"'))
+    check("shell: and an unquoted heredoc, which expands too", "deny" in out("ocp ask a <<EOF\nsee `x`\nEOF"))
+    for name, cmd in {
+        "single quotes": "ocp ask a 'see `x` and $(y)'",
+        "an escaped backtick": 'ocp ask a "see \\`x\\`"',
+        "--file": "ocp ask a --file /tmp/body.txt",
+        "a quoted heredoc": "ocp ask a <<'EOF'\nsee `x` and $(y)\nEOF",
+        "a plain double quote": 'ocp ask a "no substitution here"',
+        "not ocp": 'git commit -m "`x`"',
+    }.items():
+        check(f"shell: {name} is left alone", out(cmd) == "{}", out(cmd))
+
+
 def test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(home: Path) -> None:
     _daemon_home(home, 20)
     mem = memorymod.memory_dir("backend")
@@ -241,7 +264,7 @@ def test_the_pre_tool_hook_is_installed_for_file_writes_only(home: Path) -> None
     added, _ = claude_hooks.install("/x/ocp", {"PreToolUse", "Stop"})
     groups = json.loads(claude_hooks.target_settings().read_text())["hooks"]
     check("install: PreToolUse is added, matched to the write tools",
-          "PreToolUse" in added and groups["PreToolUse"][0]["matcher"] == "Write|Edit|MultiEdit", str(groups))
+          "PreToolUse" in added and groups["PreToolUse"][0]["matcher"] == "Write|Edit|MultiEdit|Bash", str(groups))
     check("install: an event that fires on every call carries no matcher of ours",
           "matcher" not in groups["Stop"][0])
     added, pruned = claude_hooks.install("/x/ocp", {"PreToolUse", "Stop"})
@@ -288,6 +311,7 @@ def main() -> int:
         run(lambda: test_launch_hides_every_other_agents_memory_and_creates_its_own(Path(td) / 'm1'))
         run(lambda: test_a_write_that_pushes_the_index_over_budget_is_refused_and_says_why(Path(td) / 'm2'))
         run(lambda: test_the_pre_tool_hook_denies_through_claudes_own_format_and_never_breaks_a_session(Path(td) / 'm3'))
+        run(lambda: test_the_pre_tool_hook_refuses_an_ocp_message_the_shell_would_run(Path(td) / 'm3s'))
         run(lambda: test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(Path(td) / 'm4'))
         run(lambda: test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(Path(td) / 'm4b'))
         run(lambda: test_the_pre_tool_hook_is_installed_for_file_writes_only(Path(td) / 'm5'))

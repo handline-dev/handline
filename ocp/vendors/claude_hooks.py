@@ -33,8 +33,9 @@ OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
 QUIET_NOTIFICATIONS = ("inputNeededNotifEnabled", "agentPushNotifEnabled")
 
 # The tools a hook of ours is limited to, for the events that fire on every
-# call: PreToolUse is ours for the memory budget and looks at file writes only.
-MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit"}
+# call: PreToolUse is ours for the memory budget and for ocp commands, so it
+# looks at file writes and Bash only.
+MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit|Bash"}
 
 # How we recognize a hook Orca installed. Every Orca hook command mentions one
 # of these paths or variables.
@@ -324,6 +325,9 @@ def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
                     keep.append(g)
                 continue
             seen = True
+            if event in MATCHERS and g.get("matcher") != MATCHERS[event]:
+                g["matcher"] = MATCHERS[event]
+                added.append(event)
             keep.append(g)
         groups[:] = keep
         if not seen and event in wanted:

@@ -1660,6 +1660,23 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         out = _capture(lambda: climod.main(["ask", "reviewer"]))
         check("ask: neither inline nor --file is a clear refusal, not a crash",
               "required" in out or "--file" in out, out)
+        real_in = sys.stdin
+        sys.stdin = io.StringIO("")
+        try:
+            out = _capture(lambda: climod.main(["ask", "reviewer"]))
+            check("ask: an empty stdin is the same refusal", "required" in out, out)
+            sys.stdin = io.StringIO(hostile)
+            out = _capture(lambda: climod.main(["ask", "reviewer"]))
+        finally:
+            sys.stdin = real_in
+        check("ask: the body comes from stdin, backticks and all",
+              "queued" in out or "delivered" in out, out)
+        con = db.connect()
+        try:
+            check("ask: and lands whole", any(r["body"] == hostile
+                  for r in con.execute("SELECT body FROM requests WHERE target = 'reviewer'")))
+        finally:
+            con.close()
         out = _capture(lambda: climod.main(
             ["ask", "reviewer", "inline text", "--file", str(f)]))
         check("ask: both inline and --file is refused too - one source, not a merge",

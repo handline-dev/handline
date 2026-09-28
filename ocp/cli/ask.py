@@ -77,7 +77,12 @@ def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[st
         except OSError as e:
             return None, f"could not read {file_path}: {e}"
     if inline is None:
-        return None, f"{label} is required (or --file PATH)"
+        # A quoted heredoc on stdin is as safe as a file. A terminal has
+        # nothing to read, so it falls through to the error.
+        text = "" if sys.stdin.isatty() else sys.stdin.read()
+        if not text.strip():
+            return None, f"{label} is required (inline, --file PATH, or on stdin)"
+        return text, None
     return inline, None
 
 
