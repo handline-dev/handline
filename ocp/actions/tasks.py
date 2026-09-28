@@ -646,7 +646,7 @@ def _waiting_tasks(con, agent: str):
     a draft, or with nothing of its own left to deliver. `None` in place of
     the request is a queued task never delivered (T325) - `advance_current_task`
     delivers it there and then, the same way `task_new` would, just later. A
-    task whose request reached its target and was answered is not that (T352)."""
+    task whose request reached its owner and was answered is not that (T352)."""
     for row in db.open_tasks(con):
         if row["owner"] != agent or row["done_evidence"]:
             continue
@@ -654,8 +654,8 @@ def _waiting_tasks(con, agent: str):
             continue
         linked = db.task_requests(con, row["id"])
         req = next((r for r in linked if _asks(r)), None)
-        if req is None and any(not r["fyi"] and r["state"] not in db.NEVER_REACHED_TARGET
-                               for r in linked):
+        if req is None and any(r["target"] == agent and not r["fyi"]
+                               and r["state"] not in db.NEVER_REACHED_TARGET for r in linked):
             continue  # delivered and answered: an answer that did not close it is not a reason to send it again
         if req is not None or row["queued_by"] is not None:
             yield row, req
