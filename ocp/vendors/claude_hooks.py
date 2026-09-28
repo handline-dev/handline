@@ -82,6 +82,14 @@ def _as_path(entry: str) -> Path:
     return Path(entry).expanduser().resolve()
 
 
+def _block(parent: dict, key: str) -> dict:
+    """parent[key] as an object, replacing anything else (a string, a list) with
+    an empty one: a hand-edited settings file must not crash the sandbox edits."""
+    if not isinstance(parent.get(key), dict):
+        parent[key] = {}
+    return parent[key]
+
+
 def allow_home_writes() -> tuple[bool, list[str]]:
     """Let a sandboxed agent write anywhere under OCP_HOME: (changed, blockers).
 
@@ -96,7 +104,7 @@ def allow_home_writes() -> tuple[bool, list[str]]:
     real = home.resolve()
     target = target_settings()
     data = _read_json(target) if target.exists() else {}
-    fs = data.setdefault("sandbox", {}).setdefault("filesystem", {})
+    fs = _block(_block(data, "sandbox"), "filesystem")
     before = json.dumps(data, sort_keys=True)
     allow = [e for e in fs.get("allowWrite", [])
              if not (isinstance(e, str) and _within(_as_path(e), real) and _as_path(e) != real)]
@@ -125,7 +133,7 @@ def allow_home_socket() -> bool:
     sock = paths.socket_file()
     target = target_settings()
     data = _read_json(target) if target.exists() else {}
-    net = data.setdefault("sandbox", {}).setdefault("network", {})
+    net = _block(_block(data, "sandbox"), "network")
     allowed = net.get("allowUnixSockets", [])
     if not isinstance(allowed, list):
         allowed = []

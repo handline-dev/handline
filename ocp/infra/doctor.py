@@ -161,6 +161,22 @@ def _check_ocp_hooks(r: Report) -> None:
             r.add(OK, f"ocp's own hooks installed ({len(wanted)} events)")
 
 
+def _check_home_socket(r: Report) -> None:
+    """`ocp init` used to be the only thing that added the sandbox's
+    allowUnixSockets entry, so a home initialised before T369 has agents that
+    cannot reach the daemon socket: doctor adds it, as launch does."""
+    for h in vendors.state_hooks():
+        try:
+            added = h.allow_home_socket()
+        except (OSError, ValueError) as e:
+            r.add(WARN, "sandboxed agents cannot reach ocp's socket",
+                  f"could not add {paths.socket_file()} to {h.target_settings()} ({e}) - "
+                  "run `ocp init` from outside an agent's sandbox")
+        else:
+            r.add(OK, f"sandboxed agents may connect to {paths.socket_file().name}"
+                      + (" (added just now)" if added else ""))
+
+
 def _check_accounts(r: Report) -> None:
     names = paths.list_accounts()
     if not names:
@@ -578,6 +594,7 @@ def _run() -> Report:
     _check_mcp_config(r)
     _check_orca_hooks(r)
     _check_ocp_hooks(r)
+    _check_home_socket(r)
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)
