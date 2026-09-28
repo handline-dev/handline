@@ -1122,18 +1122,42 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
               and db.get_agent_state(con, "backend")["failed_attempts"] == 0
               and db.get_agent_state(con, "backend")["wake_failures"] == 0)
-        check("nudge: not repeated before the interval has passed again",
-              not nudge(now + dmn_delivery.NUDGE_AFTER_S - 60) and len(sent) == 1, str(sent))
-        # #2004: an agent left silent stayed silent forever past the first
-        # nudge, with whatever piled up behind its head unmentioned until a
-        # human happened to read the stuck screen. It is nudged again instead,
-        # on the same head, spaced the same way the first one was.
-        check("nudge: repeated once the interval has passed again",
-              nudge(now + dmn_delivery.NUDGE_AFTER_S + 60) and len(sent) == 2, str(sent))
+        check("nudge: not repeated before the next rung is due",
+              not nudge(now + dmn_delivery.NUDGE_RETRY_S + 2) and len(sent) == 1, str(sent))
+        # T337 (founder #2002/#2003): a single reminder used to be the last
+        # thing ever typed at a forgotten head - it climbs NUDGE_SCHEDULE_S's
+        # rungs instead (ten minutes, thirty, two hours), spaced further
+        # apart each time, before it stops for good. `at` only ever grows
+        # from here on (real ticks never step backward), well past
+        # NUDGE_RETRY_S each time a nudge actually goes.
+        check("nudge: NUDGE_AFTER_S is the schedule's own first rung",
+              dmn_delivery.NUDGE_SCHEDULE_S[0] == dmn_delivery.NUDGE_AFTER_S)
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 120)
+        check("nudge: not yet at the second rung",
+              not nudge(now + 200) and len(sent) == 1, str(sent))
+        idle_for(dmn_delivery.FORGOTTEN_STUCK_S + 60)
+        check("nudge: the second rung, once due",
+              nudge(now + 300) and len(sent) == 2, str(sent))
         check("nudge: the repeat still names the request and how many are behind it",
               f"#{head}" in sent[1] and "2 more waiting" in sent[1], sent[1])
+        idle_for(2 * 3600 - 600)
+        check("nudge: not yet at the third rung",
+              not nudge(now + 400) and len(sent) == 2, str(sent))
+        idle_for(2 * 3600 + 60)
+        check("nudge: the third and last rung",
+              nudge(now + 500) and len(sent) == 3, str(sent))
+        check("nudge: past the schedule, nothing more is typed at it",
+              not nudge(now + 10 * 3600) and len(sent) == 3, str(sent))
+        check("nudge: capped counts as exhausted for the head that earned it",
+              dmn_delivery.nudge_exhausted(con, "backend", head))
+        # T337: the escalation to backend's own supervisor once capped is
+        # `timebox.sweep_forgotten_resolve_capped`'s own test, where the
+        # fixture actually has one (DESIGN_TEAM here does not).
 
-        # The tick reaches it, gated the same way.
+        # The tick reaches it, gated the same way. Back to the same idle
+        # stretch the rest of this test was written against, before the
+        # schedule was climbed any further above.
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         sent.clear()
         db.set_cursor(con, "nudge:backend", 0)
         db.set_cursor(con, "nudge_try:backend", 0)
@@ -1172,6 +1196,70 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
          dmn_delivery.wall_reason) = real
+        con.close()
+
+
+def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) -> None:
+    """T337 (founder #2002/#2003, orcapipe's design on #2024): the one-at-a-
+    time rule is for what an agent is doing, not for what it is stuck
+    waiting on. A head whose own task is recorded blocked (`--blocked-by`;
+    an outgoing ask of the agent's own linked to it is the other form,
+    covered by `head_task_blocked` directly) is left queued exactly where it
+    is, and `deliver_queued` moves on to the next thing instead of leaving
+    the agent idle with everything behind it untold."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+
+        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        check("setup: task_new already delivered it - backend was idle and typeable",
+              sent and "do the blocked thing" in sent[-1], str(sent))
+        sent.clear()
+
+        nxt = db.add_request(con, "reviewer", "backend", "meanwhile, look at this", None,
+                             "peer", "async", None, 0, None)
+
+        check("blocked: not blocked yet - nothing has recorded a wait",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+        check("blocked: nothing new to deliver while the head is merely open",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+
+        check("blocked: the head's task is blocked on record",
+              dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+        check("blocked: the next queued request is delivered instead",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and "meanwhile" in sent[-1] and f"#{head}" in sent[-1], str(sent))
+        check("blocked: the head itself is untouched - still queued, still the head",
+              db.get_request(con, head)["state"] == "queued"
+              and db.head_of_queue(con, "backend")["id"] == head)
+        check("blocked: told out of turn on its own row, not on the head's cursor",
+              db.get_request(con, nxt)["told_out_of_turn"] == 1
+              and db.get_cursor(con, "notify:backend") == head)
+
+        sent.clear()
+        check("blocked: not delivered a second time once it is already told",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+
+        db.remove_block(con, tid, t_blocker)
+        check("blocked: clearing the block is read immediately, nothing else to do for it",
+              not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
+        check("blocked: the head returns to the front on its own - head_of_queue never left it",
+              db.head_of_queue(con, "backend")["id"] == head)
+    finally:
         con.close()
 
 
@@ -7056,6 +7144,7 @@ def main() -> int:
         run(lambda: test_blocked_agents_come_due_in_one_request(Path(td) / 'blk4'))
         run(lambda: test_a_trust_screen_is_one_founder_request(Path(td) / 'trustonce'))
         run(lambda: test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(Path(td) / 'nudge'))
+        run(lambda: test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(Path(td) / 'blockednext'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))

@@ -272,6 +272,20 @@ def followups_pending(con, target: str, head_id: int):
         (target, head_id)).fetchall()
 
 
+def next_pending_behind(con, target: str, head_id: int):
+    """The next request queued behind `head_id`, not yet shown to `target` -
+    what `deliver_queued` tells past a head whose own task is blocked (T337):
+    the head stays queued right where it was (`head_of_queue` still finds it
+    first once the block clears), so this never resolves or reorders it, only
+    picks the next thing to say while it waits. A say is excluded, like
+    `head_of_queue`'s own: it is delivered ahead of the queue on its own."""
+    return con.execute(
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' AND id != ? "
+        "AND delivered_at IS NULL AND (kind IS NULL OR kind != 'say') "
+        "ORDER BY queue_order, id LIMIT 1",
+        (target, head_id)).fetchone()
+
+
 def mark_told_out_of_turn(con, rid: int) -> None:
     """Record that "send now" already told this row, ahead of its head, so
     becoming the head later (T38) is not a second telling."""

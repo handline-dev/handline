@@ -2419,7 +2419,8 @@ def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> 
         db.mark_delivered(con, rid)
         db.set_cursor(con, "notify:backend", rid)
         db.set_notified_session(con, "backend", "sess-cold")
-        db.set_cursor(con, "nudge:backend", rid)   # already reminded once; nothing left to nudge for
+        db.set_cursor(con, "nudge:backend", rid)   # already reminded, cap reached, T337
+        db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
                     (now - dmn_states.RESUME_WARM_S - 60, rid))
         row = db.get_agent_state(con, "backend")

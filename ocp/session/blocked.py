@@ -124,7 +124,8 @@ def work_waiting(con, agent: str, row, now: int) -> str:
                      + (f" (+{len(answers) - 3})" if len(answers) > 3 else ""))
     idle = dmn_delivery.forgotten_resolve(con, agent, row, now)
     if idle and idle["idle_s"] >= dmn_delivery.NUDGE_AFTER_S \
-            and db.get_cursor(con, f"nudge:{agent}") != int(idle["head"]["id"]):
+            and db.get_cursor(con, f"nudge:{agent}") != int(idle["head"]["id"]) \
+            and not dmn_delivery.head_task_blocked(con, agent, idle["head"]):
         parts.append(f"reminder to resolve #{idle['head']['id']}")
     return "; ".join(parts)
 

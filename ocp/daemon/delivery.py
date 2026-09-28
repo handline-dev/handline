@@ -311,6 +311,23 @@ def enforce_edges(con, agent: str, log) -> bool:
     return True
 
 
+def head_task_blocked(con, agent: str, head) -> bool:
+    """Is the head's own task on record as waited on (T337): blocked by
+    another still-open task (`ocp task edit T<n> --blocked-by T<m>`), or held
+    up on an ask `agent` itself sent that is linked to the same task. Built on
+    what already exists, not a new kind of wait nothing else reads - a head
+    with no task at all is never this, since there is nothing to check it
+    against."""
+    for t in db.tasks_for_request(con, int(head["id"])):
+        tid = int(t["id"])
+        if db.task_blockers(con, tid):
+            return True
+        if any(r["requester"] == agent and int(r["id"]) != int(head["id"])
+               and r["state"] == "queued" for r in db.task_requests(con, tid)):
+            return True
+    return False
+
+
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about the head of its own queue (`db.head_of_queue`),
     plus anything marked `send_now` ahead of it - a say (T293) among them,
@@ -341,6 +358,15 @@ def deliver_queued(con, agent: str, log) -> bool:
             # Told already, out of turn; becoming the head is not news.
             db.set_cursor(con, f"notify:{agent}", int(head["id"]))
             head_due = False
+    if not head_due and not marked and head and head_task_blocked(con, agent, head):
+        # Not forgotten - waited on, on record (T337 founder #2002/#2003). The
+        # one-at-a-time rule is for what the agent is doing, not for what it
+        # is stuck waiting on: the head stays queued right where it is
+        # (`head_of_queue` still finds it first, once the block clears), and
+        # this only picks the next thing to say while it waits.
+        nxt = db.next_pending_behind(con, agent, int(head["id"]))
+        if nxt:
+            marked = [nxt]
     if not head_due and not marked:
         return False
     if wall_reason(con, agent):
@@ -390,6 +416,15 @@ FORGOTTEN_STUCK_S = STUCK_RUNNING_S
 # A nudge that could not be typed (mid-turn, a modal) is not asked again for
 # this long, because the idle probe that says no costs its whole timeout.
 NUDGE_RETRY_S = 60
+# How many times a forgotten head is nudged, and how long it must have sat
+# idle for each: ten minutes, thirty, then two hours - not evenly spaced,
+# because being asked once already and still not answering is worth waiting
+# longer on before asking again. Past the last one nothing more is typed at
+# the agent (T337 founder #2002/#2003: repeating this forever at an agent
+# that turns out to be genuinely stuck, not forgetful, has a real cost of its
+# own); `timebox.sweep_forgotten_resolve_capped` tells its supervisor once
+# instead.
+NUDGE_SCHEDULE_S = (NUDGE_AFTER_S, FORGOTTEN_STUCK_S, 2 * 3600)
 
 
 def track_background_work(con, agent: str, row) -> None:
@@ -542,29 +577,49 @@ def type_notice(con, agent: str, text: str) -> bool:
     return ok
 
 
+def nudge_count(con, agent: str, head_id: int) -> int:
+    """How many times the current head has already been nudged - 0 for a
+    head that is not the one the `nudge:{agent}` cursor names, since that
+    count belongs to whatever head earned it, not this one."""
+    return db.get_cursor(con, f"nudge_count:{agent}") \
+        if db.get_cursor(con, f"nudge:{agent}") == int(head_id) else 0
+
+
+def nudge_exhausted(con, agent: str, head_id: int) -> bool:
+    """True once `NUDGE_SCHEDULE_S` is used up for this head - nothing more
+    will be typed at the agent about it; `timebox.sweep_forgotten_resolve_capped`
+    is what tells its supervisor from here."""
+    return nudge_count(con, agent, head_id) >= len(NUDGE_SCHEDULE_S)
+
+
 def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
-    """Type a reminder at an agent that has left its head request open, and
-    keep typing it again every `NUDGE_AFTER_S` for as long as that stays true.
+    """Type a reminder at an agent that has left its head request open, again
+    at each rung of `NUDGE_SCHEDULE_S` for as long as that stays true, up to
+    its last one.
 
     A single reminder used to be the last thing the daemon ever did about it:
     past that, only `actions.stuck` (the founder's own screen) would notice,
     and nothing typed at the agent again - so a forgotten head, and whatever
     piled up queued behind it, stayed silent until a human read the screen and
-    acted (#2004). The same silence that earns the first nudge earns every one
-    after it, spaced the same way `NUDGE_AFTER_S` spaces the first from having
-    nothing typed at all.
+    acted (T337, founder #2002/#2003). The same silence that earns the first
+    nudge earns the next rung too, up to the cap `NUDGE_SCHEDULE_S` sets.
+
+    Nothing here for a head whose own task is on record as blocked
+    (`head_task_blocked`) - that is not forgotten, and `deliver_queued` moves
+    the queue on past it instead of nagging the agent about it.
 
     Never resolves for it: the verdict is the agent's to write. Gated like a
     delivery (not at the wall, nothing typed at a modal or a working agent),
     and nothing here touches an attempt counter, so it cannot stall an agent.
     """
     found = forgotten_resolve(con, agent, row, now)
-    if not found or found["idle_s"] < NUDGE_AFTER_S:
+    if not found:
         return False
     head = found["head"]
-    already = db.get_cursor(con, f"nudge:{agent}") == int(head["id"])
-    last_nudge_at = db.cursor_updated(con, f"nudge:{agent}") if already else None
-    if already and last_nudge_at is not None and now - last_nudge_at < NUDGE_AFTER_S:
+    if head_task_blocked(con, agent, head):
+        return False
+    count = nudge_count(con, agent, int(head["id"]))
+    if count >= len(NUDGE_SCHEDULE_S) or found["idle_s"] < NUDGE_SCHEDULE_S[count]:
         return False
     if now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
         return False
@@ -582,6 +637,7 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
         + f". {what}")
     if ok:
         db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
+        db.set_cursor(con, f"nudge_count:{agent}", count + 1)
         db.add_event(con, agent, "nudged", {"request_id": head["id"],
                                             "idle_s": found["idle_s"], "behind": behind})
         log(f"  {agent}: idle {timefmt.ago(found['idle_s'])} with #{head['id']} open and "
