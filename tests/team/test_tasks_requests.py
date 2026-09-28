@@ -7227,8 +7227,11 @@ limits:
         B("dev.auditor", "manager", "PASS")
         ok, msg = B("manager", "dev.auditor")
         check("handoff: the opener may not send it back to the auditor that passed it", not ok, msg)
+        B("manager", "dev.merger")
+        B("dev.merger", "manager")
         ok, msg = B("manager", "worker")
-        check("handoff: the opener sends it back to the maker", ok and db.get_task(con, back)["owner"] == "worker", msg)
+        check("handoff: the opener sends it back to the maker, also after a merger sent it back for a conflict the opener still reaches the maker",
+              ok and db.get_task(con, back)["owner"] == "worker", msg)
         ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "the founder may")
         check("handoff: the founder may hand it to anyone", ok and db.get_task(con, t)["owner"] == "worker", msg)
         actions.mark_task_done(con, t, "worker", reason="done")

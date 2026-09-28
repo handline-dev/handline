@@ -921,20 +921,23 @@ def previous_owner(con, tid: int, owner: str) -> str | None:
     return None
 
 
-def last_verdict(con, tid: int) -> str | None:
-    """The verdict on the latest handoff that carried one (PASS or FAIL), or None."""
-    for h in reversed(db.task_handoffs(con, tid)):
-        if h["verdict"]:
-            return h["verdict"]
-    return None
+def last_audit(con, tid: int) -> tuple[str | None, str | None]:
+    """(verdict, maker) of the latest handoff that carried a verdict: PASS or
+    FAIL, and who had handed the task to that auditor. (None, None) if unaudited."""
+    hist = db.task_handoffs(con, tid)
+    for i in range(len(hist) - 1, -1, -1):
+        if hist[i]["verdict"]:
+            maker = next((g["from"] for g in reversed(hist[:i]) if g["to"] == hist[i]["from"]), None)
+            return hist[i]["verdict"], maker
+    return None, None
 
 
 def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None) -> str | None:
     """Why `me` may not hand this task to `to`, or None. The chain is fixed: the
     owner hands it to an auditor; the auditor returns it to the task's opener
-    (a PASS) or the one who handed it over (a FAIL); once it has come back from
-    an auditor, the opener passes it to a merger or sends it back to the maker.
-    Without an audit nobody reaches a merger. The founder may do anything."""
+    (a PASS) or the one who handed it over (a FAIL); while the last audit is a
+    PASS, the opener passes it to a merger or sends it back to the maker.
+    Without a PASS nobody reaches a merger. The founder may do anything."""
     tid = row["id"]
     if row["closed_by"] or row["done_evidence"]:
         return f"task T{tid} is already finished - nothing to hand over"
@@ -961,8 +964,8 @@ def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None)
     elif role == "merger":
         allowed = to == prev
         hint = f"{prev or 'nobody'}, who handed it over - a merger closes it done once merged"
-    elif me == row["opened_by"] and prev and _role(prev) == "auditor" and last_verdict(con, tid) == "PASS":
-        maker = previous_owner(con, tid, prev)
+    elif me == row["opened_by"] and last_audit(con, tid)[0] == "PASS":
+        maker = last_audit(con, tid)[1]
         allowed = target == "merger" or to == maker
         hint = f"a merger, or {maker or 'nobody'} (the maker, to send it back)"
     else:
