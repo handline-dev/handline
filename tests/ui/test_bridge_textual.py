@@ -2087,6 +2087,36 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
         con.close()
 
 
+def test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind() -> None:
+    """T337 round 4, auditor #2028's sweep: queue_reason compared every
+    request against db.head_of_queue directly - once the true head was
+    blocked, it would read 'behind #<effective head>', backward from
+    queue_order (the true head sits first), and the real reason (blocked)
+    was never said."""
+    from ocp.team import ask as askmod
+    _home("qblocked")
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        ok, msg, nxt = askmod.ask("backend", "fix it instead", requester="reviewer")
+        check("setup: another request queues behind it", ok, msg)
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+
+        check("blocked head: names the block, not 'behind' the one that jumped it",
+              actions.queue_reason(con, "backend", head) == "its own task is blocked")
+        check("effective head: its own ordinary reason, not 'blocked' or 'behind'",
+              "behind" not in actions.queue_reason(con, "backend", nxt)
+              and "blocked" not in actions.queue_reason(con, "backend", nxt),
+              actions.queue_reason(con, "backend", nxt))
+    finally:
+        con.close()
+
+
 async def test_the_queue_line_says_why_an_agents_message_waits() -> None:
     _home("heldwhy")
     agents.register("reviewer")
@@ -3095,6 +3125,7 @@ async def _run_all() -> None:
     test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
+    test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_escape_does_not_cancel_a_queued_message()
     await test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter()

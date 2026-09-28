@@ -137,7 +137,7 @@ def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
         return None
     if now - db.get_cursor(con, f"cold_close_try:{agent}") < IDLE_CLOSE_S:
         return None           # a close just failed: type as usual, not held forever
-    head = db.head_of_queue(con, agent)
+    head = delivery.effective_head(con, agent)
     told = bool(head) and db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
         and not delivery._session_changed(con, agent)
     found = delivery.forgotten_resolve(con, agent, row, now)
@@ -338,11 +338,14 @@ NOTHING_WAITING = "nothing is waiting for it; it is woken when something is sent
 
 
 def waiting_for(con, agent: str) -> bool:
-    """Is anything waiting to be told to `agent`: a request at the head of its
-    queue, an answer to something it asked, or a say (T293) - never a head,
-    but still owed a delivery with nothing else queued. A closed agent is
-    woken for that and for nothing else."""
-    return bool(db.head_of_queue(con, agent) or db.unannounced_answers(con, agent)
+    """Is anything waiting to be told to `agent`: its effective head
+    (`delivery.effective_head`, T337 - a true head blocked on record and
+    nothing behind it to stand in for it is not this, the same reason a
+    session is not spent waking one for a request it was already told), an
+    answer to something it asked, or a say (T293) - never a head, but still
+    owed a delivery with nothing else queued. A closed agent is woken for
+    that and for nothing else."""
+    return bool(delivery.effective_head(con, agent) or db.unannounced_answers(con, agent)
                 or db.send_now_pending(con, agent))
 
 

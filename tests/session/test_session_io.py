@@ -2394,6 +2394,48 @@ def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) ->
         con.close()
 
 
+def test_a_cold_session_reads_its_blocked_head_through_effective_head(home: Path) -> None:
+    """T337 round 4, auditor #2028 finding 1: _cold_before_typing compared the
+    notify cursor against db.head_of_queue directly. With a true head blocked
+    on record, the cursor holds effective_head's id (the request behind it)
+    instead, so that comparison read 'untold' and closed a session that had
+    nothing actually untold, for no reason. Reads effective_head now, same
+    as deliver_queued and forgotten_resolve - real blocking (add_block), not
+    a stub, end to end."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send)
+    try:
+        st, now = _cold_backend(home, con, sent)
+        log = lambda _m: None
+
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        db.mark_delivered(con, head)
+        nxt = db.add_request(con, "reviewer", "backend", "the one behind it", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, nxt)
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("setup: effective_head agrees it is the one behind the blocked head",
+              dmn_delivery.effective_head(con, "backend")["id"] == nxt)
+
+        db.set_cursor(con, "notify:backend", nxt)             # the effective head, told
+        db.set_cursor(con, "nudge:backend", nxt)               # nudge cap used up, T337
+        db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        row = db.get_agent_state(con, "backend")
+        check("cold+blocked: nothing untold - the effective head is told, the true head "
+              "is unreachable, not untold",
+              dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is None)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send = real
+        con.close()
+
+
 def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> None:
     """T154 (founder #789), auditor #821: should_close's queued-work guard
     used to hold a session open for as long as anything about it was
@@ -3503,6 +3545,8 @@ def main() -> int:
             Path(td) / 'coldfail'))
         run(lambda: test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(
             Path(td) / 'coldonce'))
+        run(lambda: test_a_cold_session_reads_its_blocked_head_through_effective_head(
+            Path(td) / 'coldblocked'))
         run(lambda: test_a_request_already_told_still_closes_a_cold_idle_session(
             Path(td) / 'coldqueue'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))

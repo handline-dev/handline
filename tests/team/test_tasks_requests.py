@@ -1359,6 +1359,47 @@ def test_a_blocked_head_is_not_shown_as_a_pending_reminder(home: Path) -> None:
         con.close()
 
 
+def test_a_closed_agents_wake_reads_the_blocked_head_through_effective_head(home: Path) -> None:
+    """T337 round 4, auditor #2028's sweep: `lifecycle.waiting_for` (gates
+    whether a closed agent is woken at all) and `delivery.waiting_prompt`
+    (what that wake is told) both read `db.head_of_queue` directly - a
+    closed agent with only a blocked head and nothing behind it would be
+    woken for nothing (a session spent to be told nothing, the T146
+    problem this whole design exists to avoid), and one woken for the
+    request behind it would be told about the blocked head instead, on the
+    wrong cursor."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        check("unblocked: waiting_for sees the plain head",
+              dmn_lifecycle.waiting_for(con, "backend"))
+
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("blocked, nothing behind: waiting_for is False - nothing to wake it for",
+              not dmn_lifecycle.waiting_for(con, "backend"))
+        check("blocked, nothing behind: waiting_prompt has nothing to say either",
+              dmn_delivery.waiting_prompt(con, "backend", lambda _m: None) is None)
+
+        nxt = db.add_request(con, "reviewer", "backend", "fix it instead", None,
+                             "peer", "async", None, 0, None)
+        check("blocked, something behind: waiting_for is True again",
+              dmn_lifecycle.waiting_for(con, "backend"))
+        told = dmn_delivery.waiting_prompt(con, "backend", lambda _m: None)
+        check("blocked, something behind: waiting_prompt tells the one behind it",
+              told is not None and f"#{nxt} from reviewer" in told[0], told)
+        check("blocked, something behind: marked delivered on its own row, the true head untouched",
+              db.get_request(con, nxt)["delivered_at"] is not None
+              and db.get_request(con, head)["delivered_at"] is None)
+    finally:
+        con.close()
+
+
 def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
     """Review of buddyron/one-task-at-a-time, fix #5: deliver_queued reads
     head_of_queue, then waits on idle_now and lock.terminal before _tell marks
@@ -7243,6 +7284,8 @@ def main() -> int:
         run(lambda: test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(Path(td) / 'blockednext'))
         run(lambda: test_head_task_blocked_by_the_agents_own_linked_ask(Path(td) / 'blockedask'))
         run(lambda: test_a_blocked_head_is_not_shown_as_a_pending_reminder(Path(td) / 'blockedreminder'))
+        run(lambda: test_a_closed_agents_wake_reads_the_blocked_head_through_effective_head(
+            Path(td) / 'blockedwake'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))

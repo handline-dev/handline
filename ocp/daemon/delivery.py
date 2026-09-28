@@ -332,11 +332,19 @@ def effective_head(con, agent: str):
     """`db.head_of_queue`, unless it is blocked on record (T337) - then the
     next request behind it instead, so the one-at-a-time rule falls on
     whatever the agent can actually act on, not on what it is stuck waiting
-    on. Delivery, `forgotten_resolve` and `blocked.work_waiting` read the
-    queue through here; nobody else does, so the true head - still queued,
-    never touched - is exactly what `db.head_of_queue` itself keeps finding
-    for `ocp inbox`, the board, and everyone else, the moment the block
-    clears.
+    on.
+
+    Read this, not `db.head_of_queue` directly, by anything asking what the
+    agent is working on or was told - delivery, `forgotten_resolve`,
+    `blocked.work_waiting`, a cold session's own close, a closed agent's wake,
+    the resume prompt, the handoff and the progress note, and `ocp inbox`'s
+    unread view and the stuck screen's own reason for a specific request
+    (T337 round 4, auditor #2028's sweep). `db.head_of_queue` itself is for a
+    different question - what is structurally first, whatever is or is not
+    reachable right now - and every one of its own readers (`ocp inbox`
+    reading its own queue, the board, a plain queue-not-empty check) keeps
+    asking it directly: the true head is never touched by any of this, so it
+    is exactly what they keep finding, the moment the block clears.
 
     Only one level: a request that jumps a blocked head and is itself
     blocked is not chased further. T337 was written for one open head with
@@ -345,6 +353,14 @@ def effective_head(con, agent: str):
     if head and head_task_blocked(con, agent, head):
         return db.head_of_queue(con, agent, skip=int(head["id"]))
     return head
+
+
+def effective_head_or_marked(con, agent: str):
+    """`effective_head`, or - with none - the oldest `send_now_pending` row
+    (`db.head_of_queue_or_marked`'s own fallback, T293): a say is never a
+    head, but with nothing else queued it is still the one thing waiting -
+    what a resumed session opens on, and `ocp inbox`'s own unread view."""
+    return effective_head(con, agent) or next(iter(db.send_now_pending(con, agent)), None)
 
 
 def deliver_queued(con, agent: str, log) -> bool:
@@ -775,9 +791,7 @@ def waiting_prompt(con, agent: str, log):
     Marked delivered here, before the launch, for the reason `_tell` is."""
     if not enforce_edges(con, agent, log):
         return None
-    # T293: a say is never a head, but with nothing else queued it is still
-    # what a resumed session should open on (`db.head_of_queue_or_marked`).
-    head = db.head_of_queue_or_marked(con, agent)
+    head = effective_head_or_marked(con, agent)
     if head:
         if not db.mark_delivered(con, int(head["id"])):
             return None
