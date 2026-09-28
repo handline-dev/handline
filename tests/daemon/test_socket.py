@@ -112,6 +112,43 @@ def test_the_socket_server_binds_a_private_file_a_real_client_can_reach(home: Pa
         srv.stop()
 
 
+def test_a_message_is_not_typed_at_an_agent_that_is_at_the_wall(home: Path) -> None:
+    """delivery.wall_reason's own docstring: no path that types at an agent's
+    terminal may skip it - typed anyway, a turn at the usage wall fails at
+    once and clears the very mark that says so."""
+    sent = _typeable_world(home)
+    con = db.connect()
+    try:
+        db.add_event(con, "backend", "StopFailure", {"limit": "5h"})
+        ok, said = dmn_messaging.send_message(con, "backend", "please wait", lambda m: None)
+        check("messaging: a message to an agent at the wall still reports ok - queued, not lost",
+              ok, said)
+        check("messaging: but nothing is typed while it is at the wall", not sent, str(sent))
+        check("messaging: the text stays pending",
+              len(db.list_pending(con, "backend")) == 1)
+    finally:
+        con.close()
+
+
+def test_a_pending_row_already_delivered_is_never_typed_twice(home: Path) -> None:
+    """The race the socket and the tick can hit on one row: `send_message`'s
+    own attempt and a `deliver_pending` for the same row both reach
+    `_deliver_row`, one after the other, serialized by `lock.terminal` -
+    the second must find the row already gone and type nothing more."""
+    sent = _typeable_world(home)
+    con = db.connect()
+    try:
+        row_id = db.add_pending(con, "backend", "only once", int(time.time()))
+        ok1, _ = dmn_messaging._deliver_row(con, "backend", row_id, "only once")
+        check("messaging: the first delivery types it",
+              ok1 and sent == [("term_x", "only once")], str(sent))
+        ok2, said2 = dmn_messaging._deliver_row(con, "backend", row_id, "only once")
+        check("messaging: a second delivery of the same, already-gone row sends nothing more",
+              ok2 and sent == [("term_x", "only once")], str((said2, sent)))
+    finally:
+        con.close()
+
+
 def test_a_refused_socket_tells_the_client_the_daemon_is_down(home: Path) -> None:
     _daemon_home(home, 20)
     reply = dmn_client.send({"verb": "message", "agent": "backend", "text": "hi"})
@@ -213,6 +250,8 @@ def main() -> int:
                   "this process's sandbox denies AF_UNIX bind() outright (an agent's own Bash tool "
                   "does); the wire protocol it would exercise is covered instead by "
                   "test_serve_one_types_a_message_at_once_over_the_wire, over a socket pair")
+        run(lambda: test_a_message_is_not_typed_at_an_agent_that_is_at_the_wall(Path(td) / 's1w'))
+        run(lambda: test_a_pending_row_already_delivered_is_never_typed_twice(Path(td) / 's1d'))
         run(lambda: test_a_refused_socket_tells_the_client_the_daemon_is_down(Path(td) / 's1'))
         run(lambda: test_a_screen_blocker_defers_to_a_pending_row_a_later_deliver_picks_up(Path(td) / 's2'))
         run(lambda: test_pending_rows_left_by_a_dead_daemon_are_reloaded_at_start(Path(td) / 's3'))

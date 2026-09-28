@@ -13,6 +13,13 @@ def add_pending(con, agent: str, text: str, ts: int) -> int:
     return int(cur.lastrowid)
 
 
+def get_pending(con, row_id: int):
+    """One pending row by id, or None once it has been typed and deleted -
+    the check `messaging._deliver_row` makes under the agent's lock before
+    it ever sends, so a row two callers both reached is typed once."""
+    return con.execute("SELECT * FROM pending_messages WHERE id = ?", (row_id,)).fetchone()
+
+
 def list_pending(con, agent: str | None = None) -> list:
     """Every pending row, oldest first - for one agent, or (at daemon start)
     for all of them."""

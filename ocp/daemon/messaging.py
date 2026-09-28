@@ -22,23 +22,31 @@ from ..session import orca
 from . import delivery, lifecycle
 
 
-def can_type_now(handle: str) -> tuple[bool, str]:
-    """Nothing on screen a typed line would answer instead - the one thing
-    immediate typing waits for. Not `orca.typeable_now`: that also requires
-    idle, which this deliberately does not."""
+def can_type_now(con, agent: str, handle: str) -> tuple[bool, str]:
+    """Nothing on screen a typed line would answer instead, and not at the
+    wall - the two things immediate typing waits for. Not `orca.typeable_now`:
+    that also requires idle, which this deliberately does not.
+
+    `wall_reason` is the same check every other typing path makes (its own
+    docstring: "no caller ... can skip it") - typed anyway, a turn at the
+    usage wall fails at once and clears the very mark that says so."""
     if not orca.available():
         return False, "orca is not on PATH"
+    reason = delivery.wall_reason(con, agent)
+    if reason:
+        return False, reason
     blocker = orca.screen_blocker(handle)
     if blocker is not None:
         return False, blocker.reason()
     return True, ""
 
 
-def type_now(con, agent: str, text: str) -> tuple[bool, str]:
-    """Try to type `text` at `agent` right now; True only once it is actually
-    sent. Any other outcome - no session, a screen_blocker, someone else
-    holding the terminal - is left for `send_message`/`deliver_pending` to
-    leave queued; nothing here writes or clears the pending row."""
+def _deliver_row(con, agent: str, row_id: int, text: str) -> tuple[bool, str]:
+    """Try to type `text` (pending row `row_id`) at `agent` right now; True
+    only once it is actually sent, with the row deleted in the same lock hold
+    that sent it - never as two separate steps, which is what let a message
+    typed here and a concurrent `deliver_pending` elsewhere both find the row
+    still present and type it twice."""
     handle = db.get_terminal(con, agent)
     if not handle:
         return False, f"{agent} has no terminal"
@@ -46,21 +54,28 @@ def type_now(con, agent: str, text: str) -> tuple[bool, str]:
         return False, f"{agent}'s terminal is gone"
     if not delivery.session_present(agent):
         return False, f"{agent} has no running session"
-    ok, why = can_type_now(handle)
+    ok, why = can_type_now(con, agent, handle)
     if not ok:
         return False, why
     with lock.terminal(agent) as mine:
         if not mine:
             return False, f"{agent}: something else is using its terminal"
+        # A concurrent caller for the same row (`send_message`'s own first
+        # try and a tick's `deliver_pending` can both reach here for one
+        # row) already sent and deleted it while this one waited for the
+        # lock - nothing is sent twice for a row that is already gone.
+        if db.get_pending(con, row_id) is None:
+            return True, "already typed"
         # Re-read once the lock is actually held (#1973): a reading taken
         # before asking for it can already be stale.
-        ok, why = can_type_now(handle)
+        ok, why = can_type_now(con, agent, handle)
         if not ok:
             return False, why
-        ok, err = orca.send(handle, text)
+        ok, err = delivery._send(handle, text)
         if not ok:
             return False, err or "the send failed"
         delivery._mark_typed(con, agent)
+        db.delete_pending(con, row_id)
         return True, "typed"
 
 
@@ -72,16 +87,14 @@ def send_message(con, agent: str, text: str, log) -> tuple[bool, str]:
     next tick) or a wake started here to pick up; only a connection the
     socket itself refuses means nothing was accepted at all."""
     row_id = db.add_pending(con, agent, text, int(time.time()))
-    ok, why = type_now(con, agent, text)
+    ok, why = _deliver_row(con, agent, row_id, text)
     if ok:
-        db.delete_pending(con, row_id)
         return True, f"{agent}: typed"
     if not delivery.session_present(agent):
         woke, wake_why = lifecycle.wake_agent(con, agent, log)
         if woke:
-            ok, why = type_now(con, agent, text)
+            ok, why = _deliver_row(con, agent, row_id, text)
             if ok:
-                db.delete_pending(con, row_id)
                 return True, f"{agent}: woken and typed"
             return True, f"{agent}: queued - woken, will type once free ({why})"
         return True, f"{agent}: queued - waking it ({wake_why})"
@@ -98,9 +111,8 @@ def deliver_pending(con, agent: str, log) -> bool:
     if not rows:
         return False
     row = rows[0]
-    ok, why = type_now(con, agent, row["text"])
+    ok, why = _deliver_row(con, agent, int(row["id"]), row["text"])
     if ok:
-        db.delete_pending(con, int(row["id"]))
         log(f"  {agent}: typed a pending message (#{row['id']})")
     return ok
 
