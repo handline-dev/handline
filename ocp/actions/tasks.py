@@ -1057,9 +1057,7 @@ def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None)
     if role == "auditor":
         if verdict is None:
             if prev is not None:
-                return (f"an auditor's handoff must say --pass or --fail; not a review? "
-                        f"`ocp task done T{tid}` or hand it to "
-                        f"{row['opened_by'] or 'the opener'} with --pass")
+                return "an auditor's handoff must say --pass or --fail"
             dest = row["opened_by"]
             allowed = to == dest
             hint = f"{dest or 'nobody'} (not a review, so no verdict is needed)"

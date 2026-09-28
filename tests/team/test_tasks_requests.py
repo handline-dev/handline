@@ -7784,12 +7784,14 @@ limits: { max_chain_depth: 4, ask_rate_per_hour: 50 }
               ok and db.get_task(con, t)["owner"] == "manager", msg)
 
         # Once an auditor really is reviewing someone's work (received via a
-        # handoff), the old refusal still applies, with the new hint.
+        # handoff), the plain refusal still applies - no "not a review?"
+        # escape (auditor #2466): that hint led straight to a PASS on work
+        # nobody reviewed, the thing the verdict gate exists to stop.
         ok, _, u = actions.task_new("manager", "worker2", "the change")
         actions.task_handoff(con, "worker2", u, "dev.auditor", "branch@abc: fixed it")
         ok, msg = actions.task_handoff(con, "dev.auditor", u, "manager", "no verdict")
-        check("handoff: a real review still needs a verdict, with the not-a-review hint",
-              not ok and "--pass" in msg and "task done" in msg, msg)
+        check("handoff: a real review still needs a verdict, plainly, no escape hint",
+              not ok and "--pass" in msg and "not a review" not in msg, msg)
     finally:
         con.close()
 
