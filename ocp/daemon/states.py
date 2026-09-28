@@ -45,6 +45,12 @@ MOVING_MARK = "moving"
 BY_HAND_MARK = "by hand"
 
 
+def awaiting_reply(row) -> bool:
+    """Is this PARKED row the one an async `ocp ask` writes while its asker waits for the answer? The
+    session is live: it is not a usage park, whatever handoff the agent last had."""
+    return (row["detail"] or "").startswith(askmod.AWAIT_REPLY_MARK)
+
+
 def park_wakeable(row) -> tuple[bool, str]:
     """Whether `w` on this PARKED, THROTTLED or DEGRADED row does anything,
     and why not when it does not (founder #1620/#1625/#1633: only a park a
@@ -54,7 +60,7 @@ def park_wakeable(row) -> tuple[bool, str]:
     account switch, or a reply that still is not there).
     """
     detail = row["detail"] or ""
-    if detail.startswith(askmod.AWAIT_REPLY_MARK):
+    if awaiting_reply(row):
         return False, f"{row['agent']} is waiting on a reply, not parked - it wakes when the reply lands"
     if detail.startswith(MOVING_MARK):
         return False, f"{row['agent']} is moving accounts - it retries on its own shortly"

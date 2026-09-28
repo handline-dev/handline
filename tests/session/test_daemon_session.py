@@ -766,6 +766,41 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
         con.close()
 
 
+def test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(home: Path) -> None:
+    """An async `ocp ask` parks its asker with a "reply #N" detail while a live session waits for the
+    answer. The agent's last handoff having been a usage move does not make that a usage park:
+    typing at it must not be refused as "parked until its usage window rolls over" (the bridge
+    then only queued the founder's message), and the usage-recovered wake must not move or wake it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_account(con, "backend", "alpha")
+        _park_via_handoff(con, "backend", "usage_7d")
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
+                           detail="usage_7d; wakes at tomorrow")
+        check("usage park: typing is refused as a wall",
+              "usage window" in (dmn_delivery.wall_reason(con, "backend") or ""),
+              str(dmn_delivery.wall_reason(con, "backend")))
+        waiting_detail = askmod.await_reply_detail(9, "marina")
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
+                           detail=waiting_detail)
+        check("reply wait: the same agent, parked to await a reply, is not at a wall",
+              dmn_delivery.wall_reason(con, "backend") is None,
+              str(dmn_delivery.wall_reason(con, "backend")))
+        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5, reset_5h=int(time.time()) + 1800)
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("reply wait: the usage-recovered wake leaves it waiting for its reply",
+              row["state"] == dmn_states.PARKED and row["detail"] == waiting_detail, str(dict(row)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
 def test_daemon_tick_expires_handoff(home: Path) -> None:
     """The deadline must be enforced every tick, not only at startup."""
     _daemon_home(home, 50)
@@ -4212,6 +4247,7 @@ def main() -> int:
             Path(td) / 'stalewake'))
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
+        run(lambda: test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(Path(td) / 'awaitwall'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
