@@ -1217,6 +1217,33 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         con.close()
 
 
+def test_a_flaky_poll_does_not_read_as_the_session_leaving() -> None:
+    """T146 (founder #737/#743): mapping a pid to an agent costs `observe`
+    two more `ps` calls of its own, and either can miss on a single poll
+    without the process having moved - `harbor.shore`, `auditor`, `ui` and
+    `core` were all marked closed this way while still live, so a later wake
+    met them as a session it did not start and refused. One "gone" reading
+    must not be believed alone; two straight ones still are, and quickly."""
+    real_wait, real_poll, real_live = (dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S,
+                                       obsmod.live_sessions)
+    dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.5, 0.02
+    try:
+        # Alive, one flaky "gone" poll, then alive again: it never actually left.
+        blip = iter([{"backend": 1}, {}, {"backend": 1}, {"backend": 1}, {"backend": 1}])
+        obsmod.live_sessions = lambda: next(blip, {"backend": 1})
+        check("wait_session_gone: a single flaky poll is not read as gone",
+              dmn_delivery._wait_session_gone("backend") is False)
+
+        # Genuinely gone: reads gone on two straight polls, not just one.
+        left = iter([{"backend": 1}, {}, {}])
+        obsmod.live_sessions = lambda: next(left, {})
+        check("wait_session_gone: two straight gone readings is trusted",
+              dmn_delivery._wait_session_gone("backend") is True)
+    finally:
+        dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S, obsmod.live_sessions = (
+            real_wait, real_poll, real_live)
+
+
 def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) -> None:
     """The idle schedule asks `should_close` every tick. A session that does
     not die after /exit must not be typed at again, and must not hold the
@@ -3472,6 +3499,7 @@ def main() -> int:
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
+        run(lambda: test_a_flaky_poll_does_not_read_as_the_session_leaving())
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))

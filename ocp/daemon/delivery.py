@@ -69,13 +69,25 @@ def _wait_session_gone(agent: str) -> bool:
     Always a fresh reading - the sweep's snapshot is what read the old process
     as alive. An unreadable table is a no, the same fail-closed rule as
     `session_present`: not knowing that it ended is not evidence that it did.
+
+    One "gone" reading is not trusted alone (T146, founder #737/#743): mapping
+    a pid to an agent takes two more `ps` calls of its own (`observe.env_of`),
+    and either can miss on a single poll under load without the process
+    itself having moved at all - `set_closed` on a session that never left
+    is exactly what leaves a wake refusing it as foreign later. Two straight
+    "gone" readings, a poll apart, is cheap here (the ordinary case pays one
+    extra `END_POLL_S`) and turns one flaky poll into no verdict rather than
+    a wrong one.
     """
     deadline = time.time() + END_WAIT_S
+    confirming = False
     while True:
         sessions = obs.live_sessions()
-        if sessions is not None and not sessions.get(agent):
+        gone = sessions is not None and not sessions.get(agent)
+        if gone and confirming:
             _seen.pop(agent, None)
             return True
+        confirming = gone
         if time.time() >= deadline:
             return False
         time.sleep(END_POLL_S)

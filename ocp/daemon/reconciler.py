@@ -281,8 +281,19 @@ def sweep(con, log, actions: list[str]) -> None:
                                    detail="a session is running; the wake stall is lifted")
                 actions.append(f"{agent}: STALLED -> IDLE (it is running after all)")
         elif not alive and not closed and row["terminal"]:
-            # It died, or a human ended it. Recording it as closed is what makes
-            # work arriving wake it instead of being typed at a bash prompt.
+            # It died, or a human ended it - or mapping a pid to an agent, which
+            # costs two more `ps` calls of its own (`observe.env_of`), missed on
+            # this one poll without the process having moved at all (T146,
+            # founder #737/#743: harbor.shore, auditor, ui and core were all
+            # marked closed this way while still live, and a later wake met
+            # each as a session it did not start and refused it). This probe is
+            # the one witness `alive` above rested on; a second, fresh one of
+            # just this agent is the docstring's own promise of two before the
+            # sweep moves, and it costs nothing on the ordinary case, where a
+            # session that is really gone reads that way again at once.
+            again = obs.observe([agent], {agent: row["terminal"]})[agent]
+            if not (again.session_seen and again.session_pid is None):
+                continue
             session = _resumable_session(con, agent)
             db.set_closed(con, agent, session)
             if row["state"] == RUNNING:

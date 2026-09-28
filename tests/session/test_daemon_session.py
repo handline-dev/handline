@@ -2248,6 +2248,49 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
         con.close()
 
+
+def test_sweep_does_not_close_a_live_session_on_one_flaky_reading(home: Path) -> None:
+    """T146 (founder #737/#743): mapping a pid to an agent costs `observe`
+    two more `ps` calls of its own, and either can miss on a single poll
+    without the process having moved - `harbor.shore`, `auditor`, `ui` and
+    `core` were all marked closed this way while still live, and a later
+    wake met each as a session it did not start and refused it. The sweep's
+    own docstring promises two witnesses before it moves on a probe; a lone
+    "gone" reading must not be one of them."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="idle")
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+
+        # The main pass reads it gone; the confirming re-read of just this
+        # agent finds it alive after all - the flaky poll, not a real exit.
+        calls: list[int] = []
+
+        def flaky() -> dict:
+            calls.append(1)
+            return {} if len(calls) == 1 else {"backend": 4242}
+        obsmod.live_sessions = flaky
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("sweep: a second reading is taken before believing the first",
+              len(calls) == 2, str(calls))
+        check("sweep: contradicted, so nothing is marked closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None,
+              str(dict(db.get_agent_state(con, "backend"))))
+
+        # Genuinely gone this time: both readings agree, so it closes.
+        obsmod.live_sessions = lambda: {}
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("sweep: two straight gone readings still closes it",
+              db.get_agent_state(con, "backend")["closed_at"] is not None,
+              str(dict(db.get_agent_state(con, "backend"))))
+    finally:
+        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        con.close()
+
     # The distinction has to survive into the implementation, not only the fake.
     restore_world()
     real_run = orcamod._run
@@ -4245,6 +4288,7 @@ def main() -> int:
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))
         run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
+        run(lambda: test_sweep_does_not_close_a_live_session_on_one_flaky_reading(Path(td) / 'sweepflaky'))
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
         run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
