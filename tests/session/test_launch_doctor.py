@@ -1344,8 +1344,8 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
           all(f"denyWrite '{home.parent}' holds" in o for o in outs), str(outs))
     check("init: the rest of the sandbox block is left alone", data["sandbox"]["enabled"] is True)
     check("init: ocp's socket is allowed once, over two runs",
-          data["sandbox"]["network"]["allowUnixSockets"] == [str(home / "ocp.sock")]
-          and "ocp.sock" in outs[0] and "ocp.sock" not in outs[1], str(data["sandbox"]) + str(outs))
+          data["sandbox"]["network"]["allowUnixSockets"] == [str(home / "daemon.sock")]
+          and "daemon.sock" in outs[0] and "daemon.sock" not in outs[1], str(data["sandbox"]) + str(outs))
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "install"], capture_output=True,
                        text=True, env=env, stdin=subprocess.DEVNULL, timeout=20)
     check("hook install: points to install-hooks instead of reading stdin",
@@ -1358,9 +1358,9 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
     use_home(home)
     target = home / "shared" / ".claude" / "settings.json"
     target.parent.mkdir(parents=True, exist_ok=True)
-    sock = str(home / "ocp.sock")
+    sock = str(home / "daemon.sock")
     hook = vendors.state_hooks()[0]
-    check("socket: the path is the home's ocp.sock", str(paths.socket_file()) == sock, sock)
+    check("socket: the path is the daemon's socket under the home", str(paths.socket_file()) == sock, sock)
 
     target.write_text(json.dumps({"sandbox": {"enabled": True, "network": {
         "allowUnixSockets": ["/var/run/mine.sock"], "allowedDomains": ["example.com"]},
@@ -1378,7 +1378,7 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
     check("socket: a second run changes nothing", not hook.allow_home_socket()
           and target.read_text() == before)
 
-    target.write_text(json.dumps({"sandbox": {"network": {"allowUnixSockets": [f"~/{home.name}/ocp.sock"]}}}))
+    target.write_text(json.dumps({"sandbox": {"network": {"allowUnixSockets": [f"~/{home.name}/daemon.sock"]}}}))
     old = os.environ.get("HOME")
     os.environ["HOME"] = str(home.parent.resolve())
     try:
