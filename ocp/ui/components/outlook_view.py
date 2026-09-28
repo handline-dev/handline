@@ -17,6 +17,7 @@ from ...usage import stats
 from ...usage.outlook import Outlook
 from ..chat_page import TaskTable
 from .key_guide import Key, KeyGuide, KeyHelp
+from .table_sync import sync_rows
 
 RANGES = (("12h", 12), ("24h", 24), ("3d", 72), ("7d", 168), ("14d", 336))
 BLOCKS = " ▁▂▃▄▅▆▇█"
@@ -143,15 +144,15 @@ class OutlookView(Vertical):
             con.close()
         table = self.query_one(DataTable)
         keep = table.cursor_row
-        table.clear()
+        out = []
         for r in self.uses:
             u = r.use
             name = Text(("└ " if r.depth else "") + textsafe.oneline(r.label), style="" if r.depth else "bold")
-            table.add_row(name, Text(short_tokens(u.tokens), justify="right"),
-                          Text(f"${u.cost:.2f}", justify="right"), Text(f"{u.share * 100:.0f}%", justify="right"),
-                          Text("-" if u.est_pct is None else f"~{u.est_pct:.1f}%", justify="right"), key=r.key)
-        if self.uses:
-            table.move_cursor(row=min(keep, len(self.uses) - 1))
+            out.append((r.key, (name, Text(short_tokens(u.tokens), justify="right"),
+                                Text(f"${u.cost:.2f}", justify="right"), Text(f"{u.share * 100:.0f}%", justify="right"),
+                                Text("-" if u.est_pct is None else f"~{u.est_pct:.1f}%", justify="right"))))
+        if sync_rows(table, out) and self.uses:
+            table.move_cursor(row=min(keep, len(self.uses) - 1), scroll=False)
         self._draw()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:

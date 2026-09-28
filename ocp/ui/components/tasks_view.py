@@ -18,6 +18,7 @@ from ... import actions, db
 from ...infra import textsafe
 from ..chat_page import TaskPane, TaskTable
 from .action_bar import ActionBar
+from .table_sync import sync_rows
 from .confirm import Confirm
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
@@ -226,16 +227,17 @@ class TasksView(Vertical):
         now = time.time()
         table = self.table
         row = keep
-        table.clear()
+        out = []
         for r in self.rows:
             stale = actions.task_stale(r, now)
+            style = "yellow" if stale else ""
             cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
                      r["state"], textsafe.oneline(r["title"]), r["owner"],
                      idle_text(r, now) + (" !" if stale else ""), r["closer"],
                      " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
-            table.add_row(*(Text(c, style="yellow" if stale else "") for c in cells), key=str(r["id"]))
-        if self.rows:
-            table.move_cursor(row=min(row, len(self.rows) - 1))
+            out.append((str(r["id"]), tuple(Text(c, style=style) for c in cells)))
+        if sync_rows(table, out) and self.rows:
+            table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
         self._show_pane()
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())

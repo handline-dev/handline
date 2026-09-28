@@ -431,6 +431,63 @@ async def test_messages_panel_open_reaches_the_agents_page() -> None:
         check("messages: the message itself is on it", "please review this" in text, text)
 
 
+async def test_chat_refresh_keeps_a_scrolled_up_view_and_skips_a_no_op_rebuild() -> None:
+    """Founder #1975/T309: refresh_conversation used to tear the transcript down
+    and jump to the bottom on every 2s tick, even when nothing on screen had
+    changed (`_sig` is forced dirty by the agent's RUNNING/IDLE word alone) or
+    when a viewer had scrolled up to read something older."""
+    from textual.containers import VerticalScroll
+    _home("chatscroll")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "reviewer", "term_r", "wt")
+        # db.add_request directly, not `ask`: 20 rapid-fire asks from the same
+        # requester would trip its own hour-window throttle, which is not
+        # what this test is about.
+        for i in range(20):
+            rid = db.add_request(con, "reviewer", "human", f"message {i}", None,
+                                 "peer", "async", None, 0, None)
+            db.mark_delivered(con, rid)
+        con.commit()
+    finally:
+        con.close()
+
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 16)) as pilot:
+        await pilot.pause()
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        screen = app.screen
+        check("chatscroll: opened reviewer's chat", isinstance(screen, ChatPage), type(screen).__name__)
+        pane = screen.query_one("#transcript", VerticalScroll)
+        widgets_before = list(pane.children)
+        screen._sig = None      # what the agent's word alone forces dirty every flip
+        screen.refresh_conversation()
+        await pilot.pause()
+        check("chatscroll: `_sig` forced dirty with nothing actually changed still "
+              "skips the rebuild", list(pane.children) == widgets_before, len(pane.children))
+
+        pane.scroll_y = 0
+        await pilot.pause()
+        check("chatscroll: scrolled away from the bottom", not pane.is_vertical_scroll_end, pane.scroll_y)
+        con = db.connect()
+        try:
+            rid = db.add_request(con, "reviewer", "human", "one more", None,
+                                 "peer", "async", None, 0, None)
+            db.mark_delivered(con, rid)
+            con.commit()
+        finally:
+            con.close()
+        screen.refresh_conversation()
+        await pilot.pause()
+        check("chatscroll: a real change while scrolled up does not yank the scroll back down",
+              pane.scroll_y == 0, pane.scroll_y)
+        text = " ".join(str(w.render()) for w in pane.query("Static"))
+        check("chatscroll: the new message is still there, just not scrolled to",
+              "one more" in text, text)
+
+
 async def test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back() -> None:
     """Task #89: Enter on an agent's row opens its chat page over the dashboard,
     and Esc leaves it back to the dashboard."""
@@ -1711,6 +1768,36 @@ async def test_marks_hidden_by_a_state_change_are_dropped_so_an_action_cannot_re
         view.refresh_rows()
         check("marksdrop: the closed task left the row list", a not in {r["id"] for r in view.rows}, view.rows)
         check("marksdrop: its mark was dropped along with it", view.checked == {b}, view.checked)
+
+
+async def test_tasks_tab_refresh_keeps_a_manual_scroll_down() -> None:
+    """Founder #1975/T309: refresh_rows clears the table (dropping its scroll
+    along with its rows) on every 2s tick, so a scroll down a viewer made by
+    hand was undone every time even though nothing else changed. The offset
+    must survive a refresh."""
+    from ocp.ui.components.tasks_view import TasksView
+    _home("taskscroll")
+    con = db.connect()
+    try:
+        for i in range(30):
+            db.new_task(con, f"task {i}", "worker", "manager")
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 12)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        view = app.screen.query_one("#tasks_view", TasksView)
+        table = view.table
+        table.scroll_y = table.max_scroll_y
+        await pilot.pause()
+        scrolled = table.scroll_y
+        check("taskscroll: the table actually scrolled down", scrolled > 0, scrolled)
+        view.refresh_rows()
+        await pilot.pause()
+        check("taskscroll: a refresh with nothing new keeps the scroll where it was",
+              table.scroll_y == scrolled, (table.scroll_y, scrolled))
 
 
 async def test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone() -> None:
@@ -3196,6 +3283,39 @@ async def test_the_home_accounts_row_shows_the_alias() -> None:
               first.plain.strip() == "Work", first.plain)
 
 
+async def test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor() -> None:
+    from rich.text import Text
+    from textual.app import App
+    from ocp.ui.components.table_sync import sync_rows
+
+    class T(App):
+        def compose(self):
+            yield DataTable(cursor_type="row")
+
+    rows = lambda tick: [(str(i), (Text(str(i)), Text(f"t{tick}"))) for i in range(60)]
+    app = T()
+    async with app.run_test(size=(40, 10)) as pilot:
+        table = app.query_one(DataTable)
+        table.add_columns("n", "idle")
+        sync_rows(table, rows(0))
+        await pilot.pause(0.2)
+        table.move_cursor(row=30)
+        await pilot.pause(0.2)
+        at = table.scroll_y
+        check("table sync: scrolled down to the cursor", at > 0, at)
+        rebuilt = sync_rows(table, rows(1))
+        await pilot.pause(0.2)
+        check("table sync: changed cells patch in place, no rebuild", not rebuilt)
+        check("table sync: scroll and cursor untouched", table.scroll_y == at and table.cursor_row == 30,
+              (table.scroll_y, table.cursor_row))
+        check("table sync: the new text is shown", table.get_row_at(5)[1].plain == "t1")
+        sync_rows(table, [("0", (Text("a", style="bold"), Text("x")))])
+        sync_rows(table, [("0", (Text("a", style="dim"), Text("x")))])
+        check("table sync: a style-only change is shown", str(table.get_row_at(0)[0].style) == "dim",
+              str(table.get_row_at(0)[0].style))
+        check("table sync: a changed row set rebuilds", sync_rows(table, rows(1)[:50]))
+
+
 def test_account_settings_alias_and_default_cap() -> None:
     from ocp.usage import load as loadmod
     from ocp.session import triggers
@@ -3261,6 +3381,7 @@ async def _run_all() -> None:
     await test_the_account_page_shows_the_account_and_sets_its_cap()
     await test_accounts_remove_only_fires_on_the_typed_name()
     await test_messages_panel_open_reaches_the_agents_page()
+    await test_chat_refresh_keeps_a_scrolled_up_view_and_skips_a_no_op_rebuild()
     await test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back()
     await test_a_slash_agent_action_in_the_chat_runs_the_home_pages_flow()
     await test_a_double_click_on_a_row_is_enter()
@@ -3278,6 +3399,7 @@ async def _run_all() -> None:
     await test_the_key_guide_stays_on_screen_when_the_table_is_long()
     await test_tasks_screen_marks_batches_and_shows_each_refusal()
     await test_marks_hidden_by_a_state_change_are_dropped_so_an_action_cannot_reach_them()
+    await test_tasks_tab_refresh_keeps_a_manual_scroll_down()
     await test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone()
     await test_merge_lands_in_the_task_the_confirm_named_after_a_reorder()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
@@ -3328,6 +3450,7 @@ async def _run_all() -> None:
     await test_the_queue_line_says_why_an_agents_message_waits()
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
+    await test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor()
 
 
 def main() -> int:

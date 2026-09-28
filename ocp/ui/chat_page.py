@@ -931,6 +931,7 @@ class ChatPage(JobsAware, Screen):
         self.oldest: int | None = None      # id of the oldest request on screen
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
+        self._transcript_key: tuple | None = None   # what the transcript widgets were last built from
         self._dialog_busy, self._dialog_at = False, 0.0
         self._dialog_closed: str | None = None      # the title of a dialog the founder closed
         self._confirm_busy, self._confirm_at = False, 0.0
@@ -1214,7 +1215,16 @@ class ChatPage(JobsAware, Screen):
     def refresh_conversation(self, force: bool = False) -> None:
         """Bring what is on screen up to date. Unchanged, this is one small
         count; changed, it re-reads only the requests already on screen and
-        anything newer, never the whole history."""
+        anything newer, never the whole history.
+
+        `_sig` is forced dirty by the agent's word flipping between RUNNING
+        and IDLE (`refresh_agent_state`), which happens often while it works
+        and says nothing about what is on screen. So the transcript is only
+        actually torn down and remounted when `_transcript_key` - what its
+        rows, their states and the queue line actually say - has changed,
+        and the scroll only jumps to the bottom when the viewer was already
+        there (founder #1975/T309): moving it while someone has scrolled up
+        to read older messages would yank the page out from under them."""
         con = db.connect()
         try:
             sig = signature(con, self.agent, self.everyone)
@@ -1228,9 +1238,6 @@ class ChatPage(JobsAware, Screen):
         finally:
             con.close()
         self.oldest = rows[0]["id"] if rows else None
-        keep = (self.replying.m["rid"], self.replying.m["part"]) if self.replying else None
-        pane = self.query_one("#transcript", VerticalScroll)
-        pane.remove_children()
         msgs = messages_of(rows, self.agent)
         waiting = [m for m in msgs if m["queued"] and not m["delivered"]]
         held = [m for m in msgs if m["held"]]
@@ -1248,10 +1255,20 @@ class ChatPage(JobsAware, Screen):
             finally:
                 con.close()
         state, detail = self.agent_state
-        widgets = transcript_widgets(msgs, state == "RUNNING", why,
-                                     detail if detail.startswith("waiting for") else "")
+        wait = detail if detail.startswith("waiting for") else ""
+        key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["dismissed_by"])
+                     for r in rows), state == "RUNNING", why, wait)
+        if key == self._transcript_key and not force:
+            return          # nothing a viewer would see changed - the widgets and scroll stay put
+        self._transcript_key = key
+        keep = (self.replying.m["rid"], self.replying.m["part"]) if self.replying else None
+        pane = self.query_one("#transcript", VerticalScroll)
+        at_bottom = pane.is_vertical_scroll_end
+        pane.remove_children()
+        widgets = transcript_widgets(msgs, state == "RUNNING", why, wait)
         pane.mount(*widgets)
-        pane.scroll_end(animate=False)
+        if at_bottom:
+            pane.scroll_end(animate=False)
         self.replying = None
         for w in widgets:
             if keep and isinstance(w, ChatMessage) and (w.m["rid"], w.m["part"]) == keep:
@@ -1468,7 +1485,7 @@ class ChatPage(JobsAware, Screen):
         chat = not (self.showing_tasks or self.showing_settings)
         if chat:
             self.last_chat = event.tab.id
-        self.oldest, self.more, self._sig = None, False, None
+        self.oldest, self.more, self._sig, self._transcript_key = None, False, None, None
         self.reply_to(None)
         if self.is_mounted:
             self.query_one("#body").display = chat
