@@ -3512,6 +3512,22 @@ def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Pat
         evaluate.tick(con, lambda _m: None)
         check("human: one tick checks it against the founder's table",
               db.get_request(con, rid)["edge_ok"] == 1, str(dict(db.get_request(con, rid))))
+        # The founder then takes the human's edge away: what an agent already
+        # wrote under the old table is refused, not left for the founder to see.
+        os.environ["OCP_AGENT"] = "scout"
+        try:
+            ok, said, rid2 = askmod.ask("human", "another", requester="scout")
+        finally:
+            if saved is None:
+                os.environ.pop("OCP_AGENT", None)
+            else:
+                os.environ["OCP_AGENT"] = saved
+        hand_edit_team("agents:\n  scout: {}\nedges: []\n")
+        evaluate.tick(con, lambda _m: None)
+        row = db.get_request(con, rid2)
+        check("human: a request the table no longer allows is denied at the tick",
+              row["state"] == "denied" and "refused at delivery" in (row["verdict"] or "")
+              and not row["edge_ok"], str(dict(row)))
     finally:
         con.close()
 
@@ -3596,4 +3612,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
