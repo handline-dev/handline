@@ -197,6 +197,55 @@ def test_the_answer_is_a_socket_verb(home: Path) -> None:
     check("answer_block is a verb of the daemon's socket", "answer_block" in socket_server.VERBS)
 
 
+def test_cancel_sends_esc_after_the_same_checks_and_records_it(home: Path) -> None:
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        waiting.note("backend", "Bash", {"command": "rm -rf build"}, after_event_id=7)
+        term = _Term(PERMISSION_PROMPT)
+        _pass(con)
+        row = _open(con)
+        ok, said = actions.answer_block(con, row["id"], {"cancel": True})
+        check("cancel: a permission prompt gets Esc and it counts as No",
+              ok and term.sent == ["\x1b"] and "No" in said, str((ok, said, term.sent)))
+        check("cancel: the result is recorded on the row",
+              db.get_prompt(con, row["id"])["answer_ok"] == 1 and "Esc" in db.get_prompt(con, row["id"])["answer_said"])
+        term = _Term(SINGLE_DEFAULT)
+        _pass(con)
+        ok, said = actions.answer_block(con, _open(con)["id"], {"cancel": True})
+        check("cancel: a question gets Esc", ok and term.sent == ["\x1b"], str((ok, said, term.sent)))
+        term = _Term(YES_NO_DIALOG)
+        _pass(con)
+        ok, said = actions.answer_block(con, _open(con)["id"], {"cancel": True})
+        check("cancel: a dialog gets Esc, and no rule is saved by it",
+              ok and term.sent == ["\x1b"] and dialog_rules.list_rules() == [], str((ok, said, term.sent)))
+    finally:
+        con.close()
+
+
+def test_cancel_is_refused_on_a_stale_prompt_or_one_that_stays(home: Path) -> None:
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        waiting.note("backend", "Bash", {"command": "rm -rf build"}, after_event_id=7)
+        term = _Term(PERMISSION_PROMPT)
+        _pass(con)
+        row = _open(con)
+        term.tail = list(YES_NO_DIALOG)         # the screen moved on to another prompt
+        ok, said = actions.answer_block(con, row["id"], {"cancel": True})
+        check("cancel: a stale fingerprint is refused and no Esc is sent", not ok and not term.sent, str((ok, said, term.sent)))
+        term = _Term(PERMISSION_PROMPT, ignores_key=True)
+        waiting.note("backend", "Bash", {"command": "rm -rf build"}, after_event_id=7)
+        ok, said = actions.answer_block(con, row["id"], {"cancel": True})
+        check("cancel: Esc that leaves the prompt on screen is reported, not counted as done",
+              not ok and term.sent == ["\x1b"] and "still on screen" in said, str((ok, said, term.sent)))
+        db.prompt_close(con, row["id"], int(time.time()))
+        ok, said = actions.answer_block(con, row["id"], {"cancel": True})
+        check("cancel: a prompt that is already gone is refused", not ok and "gone" in said, said)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_one_prompt_is_one_block_whatever_recognizers_see_it(Path(td) / 'b0'))
@@ -205,6 +254,8 @@ def main() -> int:
         run(lambda: test_a_permission_prompt_with_no_hook_record_is_left_to_the_terminal(Path(td) / 'b3'))
         run(lambda: test_an_answer_needs_the_very_prompt_the_row_names(Path(td) / 'b4'))
         run(lambda: test_a_question_and_a_dialog_are_answered_from_their_blocks(Path(td) / 'b5'))
+        run(lambda: test_cancel_sends_esc_after_the_same_checks_and_records_it(Path(td) / 'b8'))
+        run(lambda: test_cancel_is_refused_on_a_stale_prompt_or_one_that_stays(Path(td) / 'b9'))
         run(lambda: test_the_answer_is_a_socket_verb(Path(td) / 'b7'))
         run(lambda: test_always_is_never_saved_under_a_truncated_dialogs_placeholder(Path(td) / 'b6'))
     return run_area(tests)
