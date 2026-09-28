@@ -7018,6 +7018,25 @@ def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path)
         check("unblock: once the blocker clears it goes out again", ok and len(to_worker(u)) == 1, msg)
         actions.advance_current_task(con, "worker")
         check("unblock: and only once", len(to_worker(u)) == 1)
+
+        # The dependent's owner closes its blocker (it asked for it): no notice is written, but the task
+        # still comes due again.
+        for r in to_worker(u):
+            askmod.resolve(r["id"], "done")
+        actions.mark_task_done(con, u, "worker", reason="done")
+        actions.close_task(con, u, "manager")
+        v = db.new_task(con, "closed by its own owner", "worker", "manager")
+        c = db.new_task(con, "asked by worker", "manager", "worker")
+        actions.set_queued(con, v, "manager", True)
+        (vfirst,) = db.task_requests(con, v)
+        ok, msg = actions.add_block(con, v, c, "manager")
+        check("own blocker: setup", ok, msg)
+        askmod.resolve(vfirst["id"], "blocked")
+        ok, msg = actions.mark_task_done(con, c, "manager", reason="done")
+        ok2, msg2 = actions.close_task(con, c, "worker")
+        actions.advance_current_task(con, "worker")
+        check("own blocker: the owner closing it sends the task out again, once",
+              ok and ok2 and len(to_worker(v)) == 1, f"{msg} {msg2} {len(to_worker(v))}")
     finally:
         con.close()
 

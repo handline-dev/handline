@@ -542,6 +542,9 @@ def _clear_blocks_on(con, tid: int, closer: str,
             continue
         freed_owners.add(dep_row["owner"])
         if dep_row["owner"] == closer:
+            # No notice for the closer, but the task still comes due again.
+            db.add_event(con, closer, "unblock_task", {
+                "task_id": dep["task_id"], "blocks_on": tid, "after_request": _newest_request(con)})
             continue
         notices.append(_notify_unblocked(con, dep["task_id"], dep_row["owner"], closer, tid, how))
     return notices, freed_owners
@@ -679,7 +682,8 @@ def _waiting_tasks(con, agent: str):
             continue
         linked = db.task_requests(con, row["id"])
         req = next((r for r in linked if _asks(r)), None)
-        if req is None and any(r["target"] == agent and not r["fyi"] and r["id"] > _reset_after(con, row["id"])
+        after = _reset_after(con, row["id"]) if req is None else 0
+        if req is None and any(r["target"] == agent and not r["fyi"] and r["id"] > after
                                and r["state"] not in db.NEVER_REACHED_TARGET for r in linked):
             continue  # delivered and answered since it last came due: not a reason to send it again
         if req is not None or row["queued_by"] is not None:
