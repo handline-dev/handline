@@ -607,7 +607,7 @@ def _clear_blocks_on(con, tid: int, closer: str,
     for dep in db.tasks_blocked_by(con, tid):
         db.remove_block(con, dep["task_id"], tid)
         dep_row = db.get_task(con, dep["task_id"])
-        if dep_row is None or dep_row["closed_by"] or _told_at_done(con, tid, dep["task_id"]):
+        if dep_row is None or dep_row["closed_by"]:
             continue
         if db.task_blockers(con, dep["task_id"]):
             continue
@@ -616,6 +616,8 @@ def _clear_blocks_on(con, tid: int, closer: str,
             # No notice for the closer, but the task still comes due again.
             db.add_event(con, closer, "unblock_task", {
                 "task_id": dep["task_id"], "blocks_on": tid, "after_request": _newest_request(con)})
+            continue
+        if _told_at_done(con, tid, dep["task_id"]):
             continue
         notices.append(_notify_unblocked(con, dep["task_id"], dep_row["owner"], closer, tid, how))
     return notices, freed_owners
@@ -643,12 +645,18 @@ def _free_blocked_by(con, tid: int, by: str) -> tuple[list[tuple[int, str, str]]
 
 
 def _told_at_done(con, tid: int, dep: int) -> bool:
-    """Was `dep`'s owner already told, when blocker `tid` was marked done, that it is free?
-    Then the close of `tid` does not tell it again."""
+    """Was `dep`'s owner already told, since blocker `tid`'s most recent reopen
+    (if any), that it is free? Then the close of `tid` does not tell it again -
+    but a reopen voids the earlier release, since `tid` blocks `dep` again from
+    that point and the owner is told afresh once it finishes a second time."""
+    since = con.execute(
+        "SELECT MAX(id) FROM events WHERE kind = 'reopen_task' "
+        "AND json_extract(payload, '$.task_id') = ?", (tid,)).fetchone()[0] or 0
     return con.execute(
         "SELECT 1 FROM events WHERE kind = 'released_at_done' "
         "AND json_extract(payload, '$.task_id') = ? AND json_extract(payload, '$.blocks_on') = ? "
-        "AND json_extract(payload, '$.told') = 1 LIMIT 1", (dep, tid)).fetchone() is not None
+        "AND json_extract(payload, '$.told') = 1 AND id > ? LIMIT 1",
+        (dep, tid, since)).fetchone() is not None
 
 
 def _deliver_unblocked(con, notices, freed_owners) -> None:
@@ -1235,7 +1243,7 @@ def _merge_refusal(con, keep_row, row, by: str) -> str | None:
     blockers = [b for b in db.task_blockers(con, tid) if b["parent_task"] != tid]
     if blockers:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
-        return f"task T{tid} is waiting on {ids} - it cannot be merged until they close"
+        return f"task T{tid} is waiting on {ids} - it cannot be merged until they are done"
     if _under(con, keep, tid):
         return f"task T{keep} is under T{tid} - folding T{tid} into it would loop them"
     for dep in db.tasks_blocked_by(con, tid):
