@@ -6894,7 +6894,7 @@ def test_the_open_task_count_is_queued_plus_doing(home: Path) -> None:
         count = lambda who="worker": actions.open_task_count(con, who)
         check("count: nothing yet is nothing", count() == 0)
         draft = db.new_task(con, "just a draft", "worker", "manager")
-        check("count: a draft is not counted", count() == 0)
+        check("count: a draft that is not current is not counted", count() == 0)
         ok, _, doing = actions.task_new("manager", "worker", "in hand")
         check("count: a delivered task is doing, and counted",
               ok and actions.task_state(con, db.get_task(con, doing)) == "doing" and count() == 1)
@@ -6911,8 +6911,11 @@ def test_the_open_task_count_is_queued_plus_doing(home: Path) -> None:
         actions.set_queued(con, other, "manager", True)
         check("count: another agent's tasks are not worker's",
               count() == 2 and count("manager") >= 0 and actions.task_state(con, db.get_task(con, draft)) == "draft")
+        actions.task_start(con, "worker", draft)
+        check("count: a draft the agent picked up (its current task) is being worked, so it counts",
+              db.current_task(con, "worker") == draft and count() == 3, str(count()))
         actions.set_queued(con, draft, "manager", True)
-        check("count: a draft counts once it is approved", count() == 3, str(count()))
+        check("count: and is counted once, when it is approved too", count() == 3, str(count()))
     finally:
         con.close()
 

@@ -192,12 +192,16 @@ def _begun(con, tid: int) -> bool:
 
 
 def open_task_count(con, agent: str) -> int:
-    """How many tasks `agent` has to do: queued plus doing. A draft is not
-    approved yet and a done task is finished, so neither counts. The state comes
-    from `task_state`, so this cannot disagree with the board about which is which."""
-    return sum(1 for r in db.open_tasks(con)
-               if r["owner"] == agent and not r["done_evidence"]
-               and task_state(con, r) != "draft")
+    """How many tasks `agent` has to do: queued plus doing, plus its current
+    task whatever its state - one it picked up with `task start` is being
+    worked even while still a draft (T317). A draft that is not current is not
+    approved yet and does not count; a done or closed task is over. The state
+    comes from `task_state`, so this cannot disagree with the board."""
+    current = db.current_task(con, agent)
+    rows = con.execute(
+        "SELECT * FROM tasks WHERE owner = ? AND closed_by IS NULL AND done_evidence IS NULL",
+        (agent,)).fetchall()
+    return sum(1 for r in rows if r["id"] == current or task_state(con, r) != "draft")
 
 
 def task_state(con, row) -> str:

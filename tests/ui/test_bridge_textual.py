@@ -867,9 +867,9 @@ async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
               "delivery back", ok and "was free" not in said, said)
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: queued and IDLE, but blocked - not ready, "
-              "and the blocker itself adds to the count",
-              r.state == "IDLE" and r.tasks == 2 and not r.ready, r)
+        check("agents_data: queued and IDLE, but blocked - not ready; the blocker is an "
+              "unapproved draft, so it is not in the count (T371)",
+              r.state == "IDLE" and r.tasks == 1 and not r.ready, r)
 
         db.remove_block(con, tid, blocker)
         con.commit()
@@ -877,7 +877,7 @@ async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
         r = next(x for x in rows if x.name == "backend")
         check("agents_data: ready once its current task is queued, unblocked and IDLE "
               "- the blocker cleared without anything having delivered it yet",
-              r.state == "IDLE" and r.tasks == 2 and r.ready, r)
+              r.state == "IDLE" and r.tasks == 1 and r.ready, r)
 
         db.mark_task_done(con, blocker, "done, T317", via="reason")
         con.commit()
