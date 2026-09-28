@@ -105,6 +105,81 @@ def test_who_is_asking_comes_from_the_caller_not_the_daemon(home: Path) -> None:
         con.close()
 
 
+def _stub_start(table: dict, agent: str, calls: list, what: str):
+    """What a real start or wake does for an agent with work waiting: the session
+    comes up and its first prompt is `delivery.waiting_prompt`, which marks the
+    waiting request delivered before it is launched."""
+    def fake(con, a, log):
+        calls.append((what, a))
+        table[a] = 4300
+        db.set_terminal(con, a, "term_x", "wt")
+        db.clear_closed(con, a)
+        got = dmn_delivery.waiting_prompt(con, a, log)
+        if got:
+            got[1]("sess-1")
+        return (True, what) if what == "woken" else what
+    return fake
+
+
+def test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(home: Path) -> None:
+    """T388 (auditor #2363 must-change 2): tell_now on a closed agent wakes it;
+    the resumed session's first prompt carries the request, and nothing is
+    typed on top of that - by tell_now again or by the tick."""
+    sent = _world(home)
+    table = sessions_are()                       # no session is running
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", "sess-0")
+        calls: list = []
+        real = dmn_lifecycle.wake_agent
+        dmn_lifecycle.wake_agent = _stub_start(table, "backend", calls, "woken")
+        try:
+            reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+                           "target": "backend", "body": "wake up for this"})
+        finally:
+            dmn_lifecycle.wake_agent = real
+        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        check("closed agent: the ask is accepted and the agent is woken once",
+              reply["ok"] and calls == [("woken", "backend")], str((reply, calls)))
+        check("closed agent: the request was delivered by the first prompt, not typed at it",
+              row["delivered_at"] and sent == [], str((dict(row), sent)))
+        check("closed agent: a second telling finds it told and types nothing",
+              dmn_messaging.tell_now(con, int(row["id"]), lambda _m: None) == "already told"
+              and sent == [], str(sent))
+        orcamod.typeable_now = lambda h: True
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("closed agent: and the tick adds nothing either", sent == [], str(sent))
+        check("closed agent: no pending row was left to type it later", db.list_pending(con, "backend") == [])
+    finally:
+        con.close()
+
+
+def test_an_agent_with_no_terminal_is_started_and_told_once(home: Path) -> None:
+    sent = _world(home)
+    table = sessions_are()
+    con = db.connect()
+    try:
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        calls: list = []
+        real = dmn_lifecycle._start_for_work
+        dmn_lifecycle._start_for_work = _stub_start(table, "backend", calls, "started")
+        try:
+            reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+                           "target": "backend", "body": "start for this"})
+        finally:
+            dmn_lifecycle._start_for_work = real
+        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        check("no terminal: the agent is started once for the waiting work",
+              reply["ok"] and calls == [("started", "backend")], str((reply, calls)))
+        check("no terminal: the started session's first prompt carried it; nothing was typed on top",
+              row["delivered_at"] and sent == [], str((dict(row), sent)))
+        orcamod.typeable_now = lambda h: True
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("no terminal: and the tick adds nothing", sent == [], str(sent))
+    finally:
+        con.close()
+
+
 def test_a_say_is_typed_at_once_and_says_how_to_answer(home: Path) -> None:
     sent = _world(home)
     reply = _verb({"verb": "say", "requester": "product", "speaker": "product",
@@ -141,6 +216,8 @@ def main() -> int:
         run(lambda: test_a_task_kind_ask_keeps_the_one_at_a_time_rule(Path(td) / "s3"))
         run(lambda: test_who_is_asking_comes_from_the_caller_not_the_daemon(Path(td) / "s4"))
         run(lambda: test_a_say_is_typed_at_once_and_says_how_to_answer(Path(td) / "s5"))
+        run(lambda: test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(Path(td) / "s7"))
+        run(lambda: test_an_agent_with_no_terminal_is_started_and_told_once(Path(td) / "s8"))
         run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
     return run_area(tests)
 

@@ -128,7 +128,8 @@ def tell_now(con, rid: int, log) -> str:
         state = db.get_agent_state(con, agent)
     if state and state["closed_at"]:
         lifecycle.wake_agent(con, agent, log)
-        row = db.get_request(con, rid)
+    # Started or woken, its first prompt may already have told it (`waiting_prompt`).
+    row = db.get_request(con, rid)
     if row["state"] != "queued":
         return "answered meanwhile"
     if row["delivered_at"]:

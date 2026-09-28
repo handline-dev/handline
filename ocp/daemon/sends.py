@@ -4,8 +4,9 @@ used to, writes the row, returns its id at once, and then - on a thread of its
 own, so the caller never waits for a wake - types the notice.
 
 Who is asking travels in the payload (`requester`, and `speaker`, the caller's
-OCP_AGENT): the daemon has no such environment, and the rule that nobody may
-send as the human is judged against the speaker, not against the daemon.
+OCP_AGENT): the daemon has no such environment, so the rule that nobody may
+send as the human is applied to what the caller says it is - taken at its word,
+exactly as OCP_AGENT always was; the socket is private to the user (0600).
 """
 from __future__ import annotations
 
