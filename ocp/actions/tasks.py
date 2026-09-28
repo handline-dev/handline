@@ -788,6 +788,41 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
                   f"expects {expects}): {msg}"), tid
 
 
+def task_begin(con, me: str, title: str, chat: int, why: str, priority: int | None = None,
+               expects: str = "report") -> tuple[bool, str, int | None]:
+    """T297 (T291, founder #1648 (a)): the founder's own message to `me` is
+    approval enough - `me` opens a task for itself and starts it, with no
+    manager to queue it. What stands in for the approval is the record: `why`
+    (what led to it) on the event, and request #`chat` linked to the task, so
+    the board shows the founder's words behind it. Each message opens one task:
+    a message already linked to a task cannot open another."""
+    if me == HUMAN:
+        return False, "a task is begun by an agent, never in the founder's name", None
+    said = textsafe.oneline(why).strip()
+    if not said:
+        return False, "say what led to this (--why): the record is the approval", None
+    row = db.get_request(con, chat)
+    if row is None:
+        return False, f"no request #{chat}", None
+    if row["requester"] != HUMAN or row["target"] != me:
+        return False, (f"request #{chat} is not a message from the founder to {me}: "
+                       "only that lets you start a task without approval"), None
+    used = db.tasks_for_request(con, chat)
+    if used:
+        return False, f"request #{chat} already opened T{used[0]['id']}", None
+    if priority is None:
+        priority = db.DEFAULT_PRIORITY
+    tid = db.new_task(con, title, me, me, None, priority, expects=expects)
+    db.link_request(con, tid, chat)
+    held = db.current_task(con, me)
+    if held is None:
+        db.set_current_task(con, me, tid)
+    db.add_event(con, me, "task_begin", {"task_id": tid, "chat_request": chat, "why": said})
+    return True, (f"task T{tid} begun from founder message #{chat}" +
+                  (f" and is now your current task" if held is None else
+                   f"; T{held} is still current - `ocp task start T{tid}` when you switch")), tid
+
+
 def task_start(con, me: str, tid: int) -> tuple[bool, str]:
     """T292 bullet 3, the other way a current task is set: `me` picking up
     T<n> explicitly, for when it was not made current at delivery because

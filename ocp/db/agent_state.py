@@ -173,7 +173,7 @@ AGENT_ACTIVITY_KINDS = frozenset({
     # T292: task_new is the opener asking (its own delivery, C1); task_start
     # and task_note are likewise always the calling agent's own doing -
     # picking up a task or writing a note - never something ocp did to them.
-    "task_new", "task_start", "task_note",
+    "task_new", "task_start", "task_note", "task_begin",
     "UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact",
     "PermissionRequest", "TeammateIdle",
     # T288: fires on the same Stop hook call as "Stop" - the only one of the

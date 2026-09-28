@@ -75,7 +75,8 @@ def guard(agent: str, tool: str | None, tool_input: object) -> str | None:
         if not on:
             return None
         return (f"{agent} holds no current task, so this {tool} is refused (T295). "
-                f"`ocp task start T<n>` if you already hold one, otherwise whoever "
-                f"assigned this work opens one for you.")
+                f"`ocp task start T<n>` if you already hold one; if the founder "
+                f"told you to do this, `ocp task begin`; otherwise whoever assigned "
+                f"this work opens one for you.")
     finally:
         con.close()

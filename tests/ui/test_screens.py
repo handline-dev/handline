@@ -2629,6 +2629,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                       "test_task_new_is_its_own_delivery, not this scene",
         "task note": "T292: sends an ordinary task-kind ask to the task's holder; driven in "
                      "test_task_new_is_its_own_delivery, not this scene",
+        "task begin": "T297: opens the caller's own task on a founder message; driven in "
+                      "test_a_founder_message_lets_the_agent_begin_its_own_task, not this scene",
         "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",
