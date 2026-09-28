@@ -7257,6 +7257,73 @@ limits:
         con.close()
 
 
+def test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(home: Path) -> None:
+    """T392: the auditor's --fail handoff back to the maker was refused with "no
+    edge declares dev.auditor -> worker". Only that route is exempt; the edge
+    check still holds for a PASS, for an explicit deny, and at delivery."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+  dev.auditor: {}
+edges:
+  - { from: manager, to: "*", relation: supervisor, response: async }
+  - { from: worker, to: dev.auditor, relation: peer, response: async }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker", "dev.auditor"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, _, t = actions.task_new("manager", "worker", "the change")
+        ok, msg = actions.task_handoff(con, "worker", t, "dev.auditor", "for review")
+        check("fail-edge: setup - the maker reaches the auditor by a declared edge", ok, msg)
+        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "PASS: green", "PASS")
+        check("fail-edge: a PASS to the opener still needs its edge", not ok and "no edge" in msg
+              and db.get_task(con, t)["owner"] == "dev.auditor", msg)
+        ok, msg = actions.task_handoff(con, "dev.auditor", t, "worker", "FAIL: repro x", "FAIL")
+        check("fail-edge: a FAIL to the previous holder goes through with no edge declared",
+              ok and db.get_task(con, t)["owner"] == "worker", msg)
+        row = [r for r in db.task_requests(con, t) if r["target"] == "worker"][-1]
+        check("fail-edge: the request says it is a hand-back, and does not park the auditor on a reply",
+              row["relation"] == "handback" and row["response"] == "fire_and_forget"
+              and (db.get_agent_state(con, "dev.auditor") or {"state": ""})["state"] != "PARKED",
+              str(dict(row)))
+        dmn_delivery.enforce_edges(con, "worker", lambda _m: None)
+        row = db.get_request(con, row["id"])
+        check("fail-edge: and the daemon's delivery re-check keeps it, not refusing it as edgeless",
+              row["state"] == "queued" and row["edge_ok"], str(dict(row)))
+        ok, msg = actions.task_handoff(con, "worker", t, "dev.auditor", "fixed")
+        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "FAIL: wrong way", "FAIL")
+        check("fail-edge: a FAIL to anyone but the previous holder is still refused", not ok, msg)
+    finally:
+        con.close()
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+  dev.auditor: {}
+edges:
+  - { from: manager, to: "*", relation: supervisor, response: async }
+  - { from: worker, to: dev.auditor, relation: peer, response: async }
+deny:
+  - { from: dev.auditor, to: worker, reason: "no hand-backs" }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    con = db.connect()
+    try:
+        ok, msg = actions.task_handoff(con, "dev.auditor", t, "worker", "FAIL: again", "FAIL")
+        check("fail-edge: an explicit deny still stops it", not ok and "no hand-backs" in msg, msg)
+    finally:
+        con.close()
+
+
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
@@ -7721,6 +7788,7 @@ def main() -> int:
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
+        run(lambda: test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(Path(td) / 'fe1'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
