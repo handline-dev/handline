@@ -2697,9 +2697,15 @@ async def test_an_askuserquestion_multiselect_offers_other_too() -> None:
                   isinstance(app.screen, TextPrompt), type(app.screen).__name__)
             for k in list("newone") + ["enter"]:
                 await pilot.press(k)
+            await pilot.pause(0.2)
+            check("question: Other's text returns to the checklist rather than submitting alone "
+                  "- a checked box must survive answering Other too (founder capture 2026-09-28)",
+                  app.screen is modal and not answered, str(answered))
+            await pilot.click("#opt_0")
+            await pilot.click("#submit")
             await pilot.pause(1.2)
-            check("question: multiSelect's Other answers with the typed text, no choices",
-                  answered == [("term_q", (), "newone")], str(answered))
+            check("question: submit carries both the checked box and Other's text together",
+                  answered == [("term_q", (0,), "newone")], str(answered))
 
 
 async def test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll() -> None:

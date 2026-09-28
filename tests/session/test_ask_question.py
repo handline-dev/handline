@@ -96,10 +96,10 @@ def test_question_keys_match_the_measured_key_sequence(home: Path) -> None:
           question_keys(m, choices=(0, 2)) == [RIGHT, "1"])
     check("keys: only the options that must change are toggled",
           question_keys(m, choices=(1,)) == ["1", "2", "3", RIGHT, "1"])
-    check("keys: Other on a multiSelect question types then submits",
-          question_keys(m, text="anything") == ["4", "anything", ENTER, RIGHT, "1"])
-    check("keys: Other and choices together is refused, not guessed",
-          question_keys(m, choices=(1,), text="anything") is None)
+    check("keys: Other on a multiSelect question, boxes left exactly as checked, types then submits",
+          question_keys(m, choices=(0, 2), text="anything") == ["4", "anything", ENTER, RIGHT, "1"])
+    check("keys: Other combines with checked boxes - toggle first, then type and submit",
+          question_keys(m, choices=(1,), text="anything") == ["1", "2", "3", "4", "anything", ENTER, RIGHT, "1"])
 
 
 class _Term:

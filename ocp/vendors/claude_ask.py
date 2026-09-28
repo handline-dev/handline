@@ -63,8 +63,10 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     None when this combination is not sent here.
 
     `choices` are 0-based indexes into `q.options`; `text` is free text for
-    `q.other_number`, on either kind of question - never both, and refused
-    when the question has no "Other" at all.
+    `q.other_number`, on either kind of question, and on a multiSelect one
+    alongside `choices` too - the modal keeps whatever was checked before
+    Other was opened (T322 follow-up, founder capture 2026-09-28: it used to
+    discard them). Refused when the question has no "Other" at all.
 
     A single-select question submits on its one number - conch's own words,
     "a lone single-choice question ... a number submits outright". A
@@ -78,22 +80,28 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     to confirm - `orca.answer_question` checks the question card itself is
     gone instead.
     """
+    if choices and any(c < 0 or c >= len(q.options) for c in choices):
+        return None
     if text is not None:
-        if choices or q.other_number is None:
+        if q.other_number is None:
             return None
         if not q.multi_select:
-            return [str(q.other_number), text, ENTER]
-        # multiSelect + Other: untested against a real screen (2026-09-28) -
-        # the same pattern as single-select's Other, then Right/Submit like
-        # any other multiSelect answer.
-        return [str(q.other_number), text, ENTER, RIGHT, "1"]
-    if not choices or any(c < 0 or c >= len(q.options) for c in choices):
+            return [str(q.other_number), text, ENTER] if not choices else None
+        # multiSelect's Other combined with checked boxes: untested against
+        # a real screen as of 2026-09-28 - toggle the boxes first, then type
+        # Other's text, then Right/Submit like any other multiSelect answer.
+        return _toggle_keys(q, choices) + [str(q.other_number), text, ENTER, RIGHT, "1"]
+    if not choices:
         return None
     if not q.multi_select:
         return [str(choices[0] + 1)] if len(choices) == 1 else None
+    return _toggle_keys(q, choices) + [RIGHT, "1"]
+
+
+def _toggle_keys(q: Question, choices: tuple[int, ...]) -> list[str]:
     desired = set(choices)
     current = {i for i, o in enumerate(q.options) if o.checked}
-    return [str(i + 1) for i in sorted(desired ^ current)] + [RIGHT, "1"]
+    return [str(i + 1) for i in sorted(desired ^ current)]
 
 
 def recognize(tail: list[str]) -> Question | None:

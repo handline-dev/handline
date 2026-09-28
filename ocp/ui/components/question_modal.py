@@ -20,9 +20,14 @@ from .text_prompt import TextPrompt
 
 class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
     """Dismisses with (choices, text) - `choices` the 0-based option indexes
-    picked (one, unless multiSelect), `text` set only when Other was answered
-    instead (choices then empty) - or None when closed by hand: the terminal
-    is left as it is."""
+    picked, `text` Other's own typed answer, or None when closed by hand: the
+    terminal is left as it is. On a single-select question Other submits by
+    itself (choices then empty) the moment its text is typed, matching the
+    real screen's own one-shot number-then-text-then-Enter. A multiSelect
+    question's Other only records the text and returns to the checklist -
+    Submit picked is what dismisses, with whatever boxes are checked at that
+    point (T322 follow-up, founder capture 2026-09-28: checked boxes used to
+    be silently dropped the moment Other was answered)."""
 
     BINDINGS = [Binding("escape", "dismiss(None)", "close")]
     DEFAULT_CSS = """
@@ -40,6 +45,7 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
         super().__init__()
         self.found = found
         self._checked: set[int] = set(i for i, opt in enumerate(found["options"]) if opt.get("checked"))
+        self._other_text: str | None = None
 
     def compose(self) -> ComposeResult:
         d = self.found
@@ -69,7 +75,7 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
         if event.button.id == "other":
             await self._other()
         elif event.button.id == "submit":
-            self.dismiss((tuple(sorted(self._checked)), None))
+            self.dismiss((tuple(sorted(self._checked)), self._other_text))
         else:
             self.dismiss(((int(event.button.id.split("_")[1]),), None))
 
@@ -100,5 +106,11 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
 
     async def _other(self) -> None:
         text = await self.app.push_screen_wait(TextPrompt(f"{self.found['question']} - your own answer:"))
-        if text is not None:
+        if text is None:
+            return
+        if not self.found["multi_select"]:
             self.dismiss(((), text))
+            return
+        self._other_text = text
+        label = f"{self.found['other_number']}. Other: {textsafe.oneline(text)}"
+        self.query_one("#other", Button).label = Text(label)
