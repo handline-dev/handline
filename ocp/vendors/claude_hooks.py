@@ -63,6 +63,21 @@ def _read_json(p: Path) -> dict:
         return {}
 
 
+def _read_object(p: Path) -> dict:
+    """The settings file as an object; {} if there is none. Raises ValueError,
+    changing nothing, when it exists but is not readable JSON or not an object:
+    it holds the human's settings too, and a rewrite from {} would lose them."""
+    if not p.exists():
+        return {}
+    try:
+        value = json.loads(p.read_text())
+    except (OSError, ValueError) as e:
+        raise ValueError(f"{p} could not be read ({e}); ocp changed nothing") from e
+    if not isinstance(value, dict):
+        raise ValueError(f"{p} is not a JSON object; ocp changed nothing")
+    return value
+
+
 def write_settings(target: Path, data: dict) -> None:
     """Replace the settings file in one step.
 
@@ -103,7 +118,7 @@ def allow_home_writes() -> tuple[bool, list[str]]:
     home = paths.home()
     real = home.resolve()
     target = target_settings()
-    data = _read_json(target) if target.exists() else {}
+    data = _read_object(target)
     fs = _block(_block(data, "sandbox"), "filesystem")
     before = json.dumps(data, sort_keys=True)
     allow = [e for e in fs.get("allowWrite", [])
@@ -132,7 +147,7 @@ def allow_home_socket() -> bool:
     """
     sock = paths.socket_file()
     target = target_settings()
-    data = _read_json(target) if target.exists() else {}
+    data = _read_object(target)
     net = _block(_block(data, "sandbox"), "network")
     allowed = net.get("allowUnixSockets", [])
     if not isinstance(allowed, list):

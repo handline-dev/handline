@@ -1496,6 +1496,20 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
         Path.write_text = real_write
     check("T378: where it cannot write, doctor warns naming ocp init instead of crashing",
           r.rows[0][0] == doctor.WARN and "ocp init" in r.rows[0][2], str(r.rows))
+    for bad in ('{"permissions": {"allow": ["Bash(git:*)"]}, "hooks": {},}', '["a", "list"]'):
+        target.write_text(bad)
+        rep = doctor.Report()
+        doctor._check_home_socket(rep)
+        refused = []
+        for fn in (hook.allow_home_socket, hook.allow_home_writes):
+            try:
+                fn()
+            except ValueError:
+                refused.append(fn.__name__)
+        check(f"T378: an unreadable settings file ({bad[:12]}...) is left byte for byte, doctor warns, "
+              "and both allow functions refuse it",
+              target.read_text() == bad and rep.rows[0][0] == doctor.WARN
+              and len(refused) == 2, str((rep.rows, refused)))
 
 
 def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None:
