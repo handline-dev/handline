@@ -1310,6 +1310,8 @@ def test_a_launch_installs_a_hook_event_added_since_the_last_install(home: Path)
         check("launch: a wanted event missing since the last install is added",
               not hooks.missing(evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS),
               json.loads(target.read_text()).get("hooks", {}).keys())
+        check("launch: and so is the daemon socket, for a home initialised before `ocp init` did it (T378)",
+              str(paths.socket_file()) in json.loads(target.read_text())["sandbox"]["network"]["allowUnixSockets"])
 
         data = json.loads(target.read_text())
         data.get("hooks", {}).pop("PreToolUse", None)             # the gap, again
@@ -1458,6 +1460,56 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
     target.write_text(json.dumps({"sandbox": {"network": {"allowUnixSockets": "oops"}}}))
     check("socket: a malformed list is replaced by ours, not crashed on", hook.allow_home_socket()
           and json.loads(target.read_text())["sandbox"]["network"]["allowUnixSockets"] == [sock])
+
+    for bad in ('"oops"', '["x"]', '{"network": "oops"}', '{"filesystem": "oops"}'):
+        target.write_text('{"sandbox": %s}' % bad)
+        data_ok = hook.allow_home_socket()
+        changed, _ = hook.allow_home_writes()
+        got = json.loads(target.read_text())["sandbox"]
+        check(f"T379: a sandbox block of {bad} is replaced, for the socket and the writes alike",
+              data_ok and changed and got["network"]["allowUnixSockets"] == [sock]
+              and got["filesystem"]["allowWrite"] == [str(home)], str(got))
+
+    from ocp.infra import doctor
+    target.write_text(json.dumps({"sandbox": {"network": {"allowUnixSockets": ["/var/run/mine.sock"]}}}))
+    r = doctor.Report()
+    doctor._check_home_socket(r)
+    check("T378: doctor adds the socket a home initialised earlier lacks, and keeps the founder's",
+          r.rows[0][0] == doctor.OK and "added" in r.rows[0][1]
+          and json.loads(target.read_text())["sandbox"]["network"]["allowUnixSockets"]
+          == ["/var/run/mine.sock", sock], str(r.rows))
+    r = doctor.Report()
+    doctor._check_home_socket(r)
+    check("T378: and says plain OK when it is already there", r.rows[0][0] == doctor.OK
+          and "added" not in r.rows[0][1], str(r.rows))
+    real_write = Path.write_text
+    def deny(self, *a, **kw):
+        if self.name.startswith("settings.json"):
+            raise OSError("read-only")
+        return real_write(self, *a, **kw)
+    target.write_text("{}")
+    Path.write_text = deny
+    try:
+        r = doctor.Report()
+        doctor._check_home_socket(r)
+    finally:
+        Path.write_text = real_write
+    check("T378: where it cannot write, doctor warns naming ocp init instead of crashing",
+          r.rows[0][0] == doctor.WARN and "ocp init" in r.rows[0][2], str(r.rows))
+    for bad in ('{"permissions": {"allow": ["Bash(git:*)"]}, "hooks": {},}', '["a", "list"]'):
+        target.write_text(bad)
+        rep = doctor.Report()
+        doctor._check_home_socket(rep)
+        refused = []
+        for fn in (hook.allow_home_socket, hook.allow_home_writes):
+            try:
+                fn()
+            except ValueError:
+                refused.append(fn.__name__)
+        check(f"T378: an unreadable settings file ({bad[:12]}...) is left byte for byte, doctor warns, "
+              "and both allow functions refuse it",
+              target.read_text() == bad and rep.rows[0][0] == doctor.WARN
+              and len(refused) == 2, str((rep.rows, refused)))
 
 
 def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None:

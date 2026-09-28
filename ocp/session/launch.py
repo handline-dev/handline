@@ -355,6 +355,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                     print(f"warning: ocp's own hooks are behind and could not be installed "
                           f"({e}) - run `ocp install-hooks` from outside an agent's sandbox",
                           file=sys.stderr)
+            try:
+                hooks.allow_home_socket()  # a home initialised before `ocp init` added it
+            except OSError as e:
+                print(f"warning: agents' sandbox cannot reach ocp's socket and it could not be "
+                      f"allowed ({e}) - run `ocp init` from outside an agent's sandbox",
+                      file=sys.stderr)
     if not accounts.may_start(acct):
         raise SystemExit(
             f"account '{acct}' is not logged in.\n"
