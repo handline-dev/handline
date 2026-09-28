@@ -16,6 +16,7 @@ from ...infra import textsafe, timefmt
 from .confirm import Confirm
 from .text_prompt import TextPrompt
 from .action_bar import ActionBar
+from .table_sync import sync_rows
 
 # Proposal fields worth showing after the kind and agent, in this order.
 _FIELDS = ("vendor", "model", "effort", "team", "repo", "to")
@@ -109,16 +110,15 @@ class ProposalsView(Vertical):
             self.rows = open_proposals(con)
         finally:
             con.close()
-        table.clear()
-        for p in self.rows:
-            table.add_row(Text(f"#{p['rid']}", style="cyan"), Text(p["kind"]),
-                          Text(textsafe.oneline(str(p["agent"]))),
-                          Text(textsafe.oneline(str(p.get("requested_by") or "?")), style="dim"),
-                          Text(timefmt.ago_short(p["asked"]), style="dim"),
-                          Text(p["status"], style="yellow" if p["status"] == DECIDE else "red"),
-                          key=str(p["rid"]))
-        if self.rows:
-            table.move_cursor(row=next((i for i, p in enumerate(self.rows) if p["rid"] == keep), 0))
+        rebuilt = sync_rows(table, [(str(p["rid"]), (
+            Text(f"#{p['rid']}", style="cyan"), Text(p["kind"]),
+            Text(textsafe.oneline(str(p["agent"]))),
+            Text(textsafe.oneline(str(p.get("requested_by") or "?")), style="dim"),
+            Text(timefmt.ago_short(p["asked"]), style="dim"),
+            Text(p["status"], style="yellow" if p["status"] == DECIDE else "red"))) for p in self.rows])
+        if rebuilt and self.rows:
+            table.move_cursor(row=next((i for i, p in enumerate(self.rows) if p["rid"] == keep), 0),
+                              scroll=False)
         self._show()
 
     def _show(self) -> None:

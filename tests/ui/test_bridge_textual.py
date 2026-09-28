@@ -3283,6 +3283,35 @@ async def test_the_home_accounts_row_shows_the_alias() -> None:
               first.plain.strip() == "Work", first.plain)
 
 
+async def test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor() -> None:
+    from rich.text import Text
+    from textual.app import App
+    from ocp.ui.components.table_sync import sync_rows
+
+    class T(App):
+        def compose(self):
+            yield DataTable(cursor_type="row")
+
+    rows = lambda tick: [(str(i), (Text(str(i)), Text(f"t{tick}"))) for i in range(60)]
+    app = T()
+    async with app.run_test(size=(40, 10)) as pilot:
+        table = app.query_one(DataTable)
+        table.add_columns("n", "idle")
+        sync_rows(table, rows(0))
+        await pilot.pause(0.2)
+        table.move_cursor(row=30)
+        await pilot.pause(0.2)
+        at = table.scroll_y
+        check("table sync: scrolled down to the cursor", at > 0, at)
+        rebuilt = sync_rows(table, rows(1))
+        await pilot.pause(0.2)
+        check("table sync: changed cells patch in place, no rebuild", not rebuilt)
+        check("table sync: scroll and cursor untouched", table.scroll_y == at and table.cursor_row == 30,
+              (table.scroll_y, table.cursor_row))
+        check("table sync: the new text is shown", table.get_row_at(5)[1].plain == "t1")
+        check("table sync: a changed row set rebuilds", sync_rows(table, rows(1)[:50]))
+
+
 def test_account_settings_alias_and_default_cap() -> None:
     from ocp.usage import load as loadmod
     from ocp.session import triggers
@@ -3417,6 +3446,7 @@ async def _run_all() -> None:
     await test_the_queue_line_says_why_an_agents_message_waits()
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
+    await test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor()
 
 
 def main() -> int:

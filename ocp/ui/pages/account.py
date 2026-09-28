@@ -25,6 +25,7 @@ from ..components.account_actions import AccountActions
 from ..components.action_bar import ActionBar
 from ..components.page_header import page_header
 from ..components.switch_row import SwitchRow
+from ..components.table_sync import sync_rows
 
 BAR_W = 30
 _TABS = {"overview": "#detail_pane", "agents": "#a_agents", "settings": "#a_settings"}
@@ -117,12 +118,11 @@ class AccountPage(AccountActions, Screen):
         self._draw_overview(f, row)
         table = self.query_one("#a_agents", DataTable)
         keep = table.cursor_row
-        table.clear()
-        for name, state, detail in f["agents"]:
-            table.add_row(Text(textsafe.oneline(name), style="bold"), Text(state),
-                          Text(textsafe.oneline(detail), style="dim"), key=name)
-        if f["agents"]:
-            table.move_cursor(row=min(keep, len(f["agents"]) - 1))
+        rebuilt = sync_rows(table, [(name, (Text(textsafe.oneline(name), style="bold"), Text(state),
+                                            Text(textsafe.oneline(detail), style="dim")))
+                                    for name, state, detail in f["agents"]])
+        if rebuilt and f["agents"]:
+            table.move_cursor(row=min(keep, len(f["agents"]) - 1), scroll=False)
         self.query_one("#a_vendor", Static).update(f["vendor"])
         self.query_one("#a_config", Static).update(textsafe.oneline(f["config"]))
         label = loadmod.label_of(self.account)

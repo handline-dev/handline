@@ -25,6 +25,7 @@ from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
+from ..components.table_sync import sync_rows
 from ..components.key_guide import Key, KeyGuide, KeyHelp
 from ..components.outlook_view import OutlookView
 from ..components.tasks_view import TasksView
@@ -280,9 +281,7 @@ class HomePage(RowActions, JobsAware, Screen):
             if sum(widths) <= room:
                 break
         _set_columns(table, heads)
-        table.clear()
-        for r, cells in zip(rows, body):
-            table.add_row(*cells, key=r.name)
+        sync_rows(table, [(r.name, tuple(cells)) for r, cells in zip(rows, body)])
         self._sync_cursor(table, "#accounts-box", tui.ACCOUNTS, [r.name for r in rows])
         self._notes("#acct-notes", notes)
 
@@ -295,28 +294,29 @@ class HomePage(RowActions, JobsAware, Screen):
             con.close()
         table = self.query_one("#agents", DataTable)
         _set_columns(table, _AGENT_HEADS)
-        table.clear()
+        out = []
         self._blinking = {}
         for r in rows:
             x = extra.get(r.name)
             if x is None:       # a config error: no cells beyond the message
                 name = Text.from_ansi(r.twig + f"{tui.BOLD}{r.shown}{tui.R}"
                                       + tui.fold_suffix(r.under, r.urgency))
-                table.add_row(name, "", "", Text(f"config error: {tui.oneline(r.error or '')}", style="red"),
-                              "", "", "", "", "", key=r.name)
+                out.append((r.name, (name, "", "", Text(f"config error: {tui.oneline(r.error or '')}", style="red"),
+                                     "", "", "", "", "")))
                 continue
             wall = ""
             if r.wall:
                 who = f"{r.wall.account}{r.wall.mark} " if r.wall.elsewhere else ""
                 wall = f"{tui.YEL}⏳ {who}{r.wall.when}{r.wall.mark if not who else ''}{tui.R}"
-            table.add_row(self._name_cell(r, x, self._on), Text(r.acct), Text(x.kind_short, style="dim"),
-                          self._state_cell(r, x, self._on),
-                          Text.from_ansi(agent_rows.cache_cell(x.cache_left, x.cache_ignored)),
-                          Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
-                          Text(str(r.tasks) if r.tasks else "·"),
-                          self._note_cell(r, x, wall), key=r.name)
+            out.append((r.name, (self._name_cell(r, x, self._on), Text(r.acct), Text(x.kind_short, style="dim"),
+                                 self._state_cell(r, x, self._on),
+                                 Text.from_ansi(agent_rows.cache_cell(x.cache_left, x.cache_ignored)),
+                                 Text.from_ansi(r.ctx), Text(str(r.inbox) if r.inbox else "·"),
+                                 Text(str(r.tasks) if r.tasks else "·"),
+                                 self._note_cell(r, x, wall))))
             if self._alarm(r, x) or self._fold_errs(r, x) or r.ready:
                 self._blinking[r.name] = (r, x)
+        sync_rows(table, out)
         self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
         self._notes("#agent-notes", notes)
 
@@ -332,16 +332,16 @@ class HomePage(RowActions, JobsAware, Screen):
         self.query_one("#messages-box").border_title = title
         table = self.query_one("#messages", DataTable)
         _set_columns(table, _MESSAGE_HEADS)
-        table.clear()
+        out = []
         for r in rows:
             glyph, _ = tui.message_mark(r.flavour)
             text = Text.from_ansi(r.first + r.behind)
             if r.kind == "refused":
                 text = Text.assemble(("refused ", "red"), text)
             text.no_wrap, text.overflow = True, "ellipsis"
-            table.add_row(Text(r.when, style="dim"), Text.from_ansi(glyph),
-                          Text(r.sender, style="dim" if r.flavour == "read" else "bold"), text,
-                          key=r.key)
+            out.append((r.key, (Text(r.when, style="dim"), Text.from_ansi(glyph),
+                                Text(r.sender, style="dim" if r.flavour == "read" else "bold"), text)))
+        sync_rows(table, out)
         self._sync_cursor(table, "#messages-box", tui.MESSAGES, [r.key for r in rows])
         self._notes("#message-notes", notes)
         self.call_after_refresh(self._fit, "#messages", 3)
@@ -356,7 +356,7 @@ class HomePage(RowActions, JobsAware, Screen):
         focused = self.panel == panel
         table.show_cursor = focused
         want = self.sel.get(panel)
-        if focused and want is not None and want in names:
+        if focused and want is not None and want in names and table.cursor_row != names.index(want):
             table.move_cursor(row=names.index(want))
         self.query_one(box).set_class(focused, "focused")
 

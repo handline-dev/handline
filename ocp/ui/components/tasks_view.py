@@ -18,6 +18,7 @@ from ... import actions, db
 from ...infra import textsafe
 from ..chat_page import TaskPane, TaskTable
 from .action_bar import ActionBar
+from .table_sync import sync_rows
 from .confirm import Confirm
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
@@ -140,7 +141,6 @@ class TasksView(Vertical):
         self.rows: list[dict] = []
         self._mark_head = ""
         self._agent_owners: list[str] | None = None
-        self._cells: dict[str, tuple] = {}     # what the table rows were last built from
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks_filters"):
@@ -177,7 +177,6 @@ class TasksView(Vertical):
         """The heads, with an arrow on the sort column; a rebuild is how a head changes."""
         table = self.table
         table.clear(columns=True)
-        self._cells = {}
         self._mark_head = self._mark_label()
         for label, key in self.HEADS:
             label = self._mark_head if key == "mark" else label
@@ -228,32 +227,17 @@ class TasksView(Vertical):
         now = time.time()
         table = self.table
         row = keep
-        cells = {}
+        out = []
         for r in self.rows:
             stale = actions.task_stale(r, now)
-            cells[str(r["id"])] = (
-                "[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
-                r["state"], textsafe.oneline(r["title"]), r["owner"],
-                idle_text(r, now) + (" !" if stale else ""), r["closer"],
-                " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-", stale)
-        old = self._cells
-        self._cells = cells
-        if list(old) == list(cells):
-            # founder #1975/T309: same rows in the same order - patch only the cells that
-            # changed, so the table is never cleared and its scroll and cursor stay put.
-            for key, new in cells.items():
-                if new != old[key]:
-                    for col, text in enumerate(new[:-1]):
-                        table.update_cell(key, self.HEADS[col][1], Text(text, style="yellow" if new[-1] else ""))
-        else:
-            was_scroll_y = table.scroll_y
-            table.clear()
-            for key, new in cells.items():
-                table.add_row(*(Text(c, style="yellow" if new[-1] else "") for c in new[:-1]), key=key)
-            if self.rows:
-                table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
-            # the virtual size is only recomputed after layout; restore the offset then
-            table.call_after_refresh(lambda: table.scroll_to(y=was_scroll_y, animate=False))
+            style = "yellow" if stale else ""
+            cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
+                     r["state"], textsafe.oneline(r["title"]), r["owner"],
+                     idle_text(r, now) + (" !" if stale else ""), r["closer"],
+                     " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
+            out.append((str(r["id"]), tuple(Text(c, style=style) for c in cells)))
+        if sync_rows(table, out) and self.rows:
+            table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
         self._show_pane()
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
