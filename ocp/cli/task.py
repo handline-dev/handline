@@ -69,6 +69,15 @@ def _expects_arg(text: str) -> str:
         raise argparse.ArgumentTypeError(str(e))
 
 
+def _timeout_arg(text: str) -> int:
+    """argparse `type` for a task timeout (T286): `90m`, `2h` - at most
+    actions.MAX_TASK_TIMEOUT_S."""
+    try:
+        return actions.parse_task_timeout(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def cmd_close(args) -> int:
     """One verb, two things it can close: a task by its reference (`ocp close
     T7`) - the asker's or the founder's sign-off, once it is done (`ocp task done` first;
@@ -217,6 +226,25 @@ def cmd_task_reopen(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_task_release(args) -> int:
+    """T286: take a doing task back to queued/draft - the opener's or the
+    founder's answer, besides `task edit --timeout`, to a timeout notice."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("release a task"))
+        return 1
+    con = db.connect()
+    try:
+        if db.get_task(con, args.task) is None:
+            print(f"no task T{args.task}")
+            return 1
+        ok, msg = actions.release_task(con, args.task, me)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
 def _task_owner_ok(name: str) -> bool:
     # T292 C3: a task owned by the founder is a decision task, so HUMAN is a
     # valid owner too, not only a registered agent.
@@ -237,6 +265,10 @@ def cmd_task_new(args) -> int:
     if not _task_owner_ok(args.owner):
         print(f"no agent named {args.owner}")
         return 1
+    if args.timeout is None:
+        print("a task needs -t/--timeout (90m, 2h; at most "
+              f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")
+        return 1
     priority = args.priority if args.priority is not None else db.DEFAULT_PRIORITY
     title = textsafe.oneline(args.title).strip()
     if not title:
@@ -256,7 +288,7 @@ def cmd_task_new(args) -> int:
             print(why)
             return 1
     ok, msg, tid = actions.task_new(me, args.owner, title, body, parent=args.parent,
-                                    expects=args.expects, priority=priority)
+                                    expects=args.expects, priority=priority, timeout_s=args.timeout)
     if not ok:
         print(msg)
         return 1
@@ -374,8 +406,9 @@ def cmd_task_edit(args) -> int:
         print(_who_refusal("edit a task"))
         return 1
     if (args.owner is None and args.title is None and args.priority is None
-            and args.blocked_by is None and args.unblock is None):
-        print("edit needs a new owner, a new title, --priority, --blocked-by, or --unblock")
+            and args.blocked_by is None and args.unblock is None and args.timeout is None):
+        print("edit needs a new owner, a new title, --priority, --blocked-by, --unblock, "
+              "or --timeout")
         return 1
     con = db.connect()
     try:
@@ -384,9 +417,11 @@ def cmd_task_edit(args) -> int:
         msgs: list[str] = []
         unblocked_owner = None
         try:
-            if args.owner is not None or args.title is not None or args.priority is not None:
+            if (args.owner is not None or args.title is not None or args.priority is not None
+                    or args.timeout is not None):
                 ok, msg = actions.edit_task(con, args.task, me, owner=args.owner,
-                                            title=args.title, priority=args.priority)
+                                            title=args.title, priority=args.priority,
+                                            timeout_s=args.timeout)
                 msgs.append(msg)
             if ok and args.blocked_by is not None:
                 ok, msg = actions.add_block(con, args.task, args.blocked_by, me)

@@ -2645,6 +2645,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task draft": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes, not this scene",
         "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
+        "task release": "writes a row; driven in test_release_takes_a_doing_task_back_to_queued (T286), not this scene",
         "task edit": "writes a row; driven in "
                      "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "
                      "not this scene",

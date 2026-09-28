@@ -571,7 +571,7 @@ def cmd_resolve(args) -> int:
             return 1
         if args.finding and row["requester"] not in paths.list_agents():
             print(f"#{args.id} came from {row['requester']}, not an agent - a finding "
-                  f"cannot be tied to it; open it with `ocp task new --owner NAME`")
+                  f"cannot be tied to it; open it with `ocp task new --owner NAME -t 2h`")
             return 1
         if args.on and not args.hold:
             print("--on names what a --hold waits on; give --hold TITLE too")
@@ -590,7 +590,7 @@ def cmd_resolve(args) -> int:
         owner = actions.finding_owner(me) if args.finding else None
         if args.finding and owner is None:
             print(f"no registered manager for {me}'s lane - a finding cannot be owned; "
-                  f"open it with `ocp task new --owner NAME`")
+                  f"open it with `ocp task new --owner NAME -t 2h`")
             return 1
         if args.finding and any(not textsafe.oneline(f).strip() for f in args.finding):
             print("a finding needs a title")

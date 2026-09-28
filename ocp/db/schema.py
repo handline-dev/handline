@@ -159,7 +159,16 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- queued - approved, and the manager pulls it to its owner. `doing` is not
   -- stored: it is read live from a request out against the task.
   queued_by    TEXT,
-  queued_at    INTEGER
+  queued_at    INTEGER,
+  -- T286: `ocp task new` requires -t/--timeout (at most 4h); `ocp task edit
+  -- --timeout` extends it, counting from the edit. timeout_s is the length
+  -- last set; timeout_at is the next deadline the daemon's sweep fires a
+  -- notice at, then pushes out by timeout_s again - repeating until the task
+  -- is done or its timeout is extended (see daemon/timebox.py). NULL on a
+  -- task opened before this column existed, until the migration below backfills
+  -- the open ones; NULL stays NULL on a closed one, which never got a timeout.
+  timeout_s    INTEGER,
+  timeout_at   INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -621,6 +630,28 @@ def _add_missing_columns(con) -> None:
         con.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
     if "merged_into" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN merged_into INTEGER REFERENCES tasks(id)")
+    if "timeout_s" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN timeout_s INTEGER")
+        con.execute("ALTER TABLE tasks ADD COLUMN timeout_at INTEGER")
+        # T286 (4), founder #1627's revision: only a task already *doing* -
+        # a request currently queued against it, or against an open child -
+        # gets a 4h timeout, counted from now, the migration; every other
+        # open task (draft, queued, done-not-closed) gets none, the same as
+        # a task the clock has not yet started for.
+        # actions.MAX_TASK_TIMEOUT_S is duplicated as a literal here (schema.py
+        # imports nothing from actions) since this runs once, at the moment
+        # the column itself is added.
+        now = int(time.time())
+        con.execute(
+            "UPDATE tasks SET timeout_s = 14400, timeout_at = ? "
+            "WHERE closed_by IS NULL AND done_evidence IS NULL AND ("
+            "  EXISTS (SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id"
+            "          WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)"
+            "  OR EXISTS (SELECT 1 FROM tasks c JOIN task_requests l ON l.task_id = c.id"
+            "             JOIN requests r ON r.id = l.request_id"
+            "             WHERE c.parent_task = tasks.id AND c.closed_by IS NULL"
+            "             AND r.state = 'queued' AND r.fyi = 0)"
+            ")", (now + 14400,))
     state_cols = _cols(con, "agent_state")
     for col in ("failed_attempts", "continuations", "throttle_count", "wake_failures"):
         if col not in state_cols:

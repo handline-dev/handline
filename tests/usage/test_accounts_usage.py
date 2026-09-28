@@ -2828,14 +2828,15 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     individually, not just asserted in bulk."""
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
-                    "cold_start", "dialog_declined", "edit_task", "background_work_ended",
+                    "cold_start", "dialog_declined", "edit_task", "release_task", "background_work_ended",
                     "block_task", "unblock_task", "task_unblocked", "task_deliver_refused",
                     "queue_task", "draft_task",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
-                    "SessionEnd", "timebox_exceeded", "unasked_running", "stale_background",
+                    "SessionEnd", "timebox_exceeded", "task_timeout_exceeded",
+                    "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
                     "dialog_accept_failed", "stop_wait_stuck", "forgotten_resolve_capped"}
     # close_task, mark_task_done and reopen_task (#71) are here, not in

@@ -11,6 +11,7 @@ from ..infra import gitrun
 from ..infra import paths
 from ..team import team
 from ..infra import textsafe
+from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError
 
 from .routing import HUMAN, supervisor_of
@@ -204,6 +205,21 @@ def open_task_count(con, agent: str) -> int:
     return sum(1 for r in rows if r["id"] == current or task_state(con, r) != "draft")
 
 
+def reads_doing(con, tid: int) -> bool:
+    """Whether task `tid` has a request currently queued against it, or
+    against an open child, regardless of its own done/closed columns - the
+    live check `task_state`'s "doing" branch is built from, factored out so
+    T286's timeout clock (which must ask this of a task that is, right now,
+    being marked done or reopened - before or after that write, when
+    task_state's own done/closed short-circuits would answer the wrong
+    question) can ask it too."""
+    if any(_asks(r) for r in db.task_requests(con, tid)):
+        return True
+    return any(_asks(r)
+              for c in db.open_child_tasks(con, tid)
+              for r in db.task_requests(con, c["id"]))
+
+
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved
@@ -220,11 +236,7 @@ def task_state(con, row) -> str:
         return "closed"
     if row["done_evidence"]:
         return "done"
-    if any(_asks(r) for r in db.task_requests(con, row["id"])):
-        return "doing"
-    if any(_asks(r)
-           for c in db.open_child_tasks(con, row["id"])
-           for r in db.task_requests(con, c["id"])):
+    if reads_doing(con, row["id"]):
         return "doing"
     if _begun(con, row["id"]):
         return "doing"
@@ -512,11 +524,81 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "reopening needs a one-line reason"
-    if not db.reopen_task(con, tid):
+    # T286: whether it still has a request out decides whether its timeout
+    # clock resumes (reads_doing, not task_state - done_evidence is still set
+    # on `row` here, and task_state would misread that as "done", never doing).
+    if not db.reopen_task(con, tid, reads_doing(con, tid)):
         return False, f"task T{tid} was closed or reopened by someone else just now"
     db.add_event(con, by, "reopen_task",
                  {"task_id": tid, "reason": said, "after_request": _newest_request(con)})
     return True, f"task T{tid} reopened by {by}: {said}"
+
+
+def release_task(con, tid: int, by: str) -> tuple[bool, str]:
+    """T286, founder #1627's revision: the other answer to a timeout notice,
+    besides continuing (`edit_task` with --timeout) - take a doing task back
+    to queued/draft. Only the opener or the founder may, the same guard as
+    edit_task (`_task_edit_guard`): it reshapes the board, not who the task
+    belongs to.
+
+    Ends the task's own open (queued, non-fyi) requests through the retire
+    path `ocp cancel`/`withdraw` use (`askmod.retire_open`) - closed as
+    rejected, its target told to stop and its own requester told, the same
+    as any other resolve - rather than just unlinking them: a released task
+    is no longer holding work over someone who is mid-way through it, and
+    the link stays, so the task's history still shows what it once asked
+    for. task_state's "doing" reads a request's own state, so a retired one
+    reads not-doing under every task it happens to be linked to - a task
+    still doing only through an open child's own separate request has
+    nothing here to retire; it is refused, naming the child to release
+    instead."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task T{tid}"
+    guard = _task_edit_guard(row, tid, by)
+    if guard:
+        return False, guard
+    state = task_state(con, row)
+    if state != "doing":
+        return False, f"task T{tid} is {state}, not doing - nothing to release"
+    direct = [r for r in db.task_requests(con, tid) if _asks(r)]
+    if not direct:
+        child = next((c for c in db.open_child_tasks(con, tid)
+                     if any(_asks(r) for r in db.task_requests(con, c["id"]))), None)
+        return False, (f"task T{tid} is doing through its child T{child['id']} - "
+                       f"release it there" if child else
+                       f"task T{tid} reads doing but nothing here to release - read it again")
+    # Best-effort, not all-or-nothing: each retire_open call is its own
+    # atomic close, so one losing a race to some other close (an agent
+    # resolving it at the same instant) must not throw away what the others
+    # already did - the task and its clock still have to end up matching
+    # whatever did get retired.
+    retired, said, failed = [], [], []
+    for r in direct:
+        ok, msg = askmod.retire_open(con, r["id"], f"T{tid} released by {by}")
+        if ok:
+            retired.append(r["id"])
+            said.append(msg.split("\n", 1)[0])
+        else:
+            failed.append(f"#{r['id']}: {msg}")
+    if not retired:
+        return False, f"task T{tid} released nothing: {'; '.join(failed)}"
+    db.add_event(con, by, "release_task",
+                {"task_id": tid, "retired": retired, **({"failed": failed} if failed else {})})
+    detail = "; ".join(said)
+    tail = f" - not retired: {'; '.join(failed)}" if failed else ""
+    if reads_doing(con, tid):
+        # Still doing - through an open child's own separate request, since
+        # every direct one above just closed.
+        child = next(c for c in db.open_child_tasks(con, tid)
+                     if any(_asks(r) for r in db.task_requests(con, c["id"])))
+        return True, (f"task T{tid} released by {by}: {detail}, but it is still doing "
+                      f"through its child T{child['id']} - release it there too; its own "
+                      f"timeout keeps running until then{tail}")
+    db.pause_task_timeout(con, tid)
+    back = "queued" if row["queued_by"] else "draft"
+    return True, (f"task T{tid} released by {by}: {detail}, back to {back}, "
+                  f"its timeout paused{tail}")
 
 
 def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int,
@@ -767,7 +849,8 @@ def _retire_task_requests(con, tid: int, verdict: str, state: str = "done") -> N
 
 def task_new(me: str, owner: str, title: str, body: str | None = None,
             parent: int | None = None, expects: str = "report",
-            priority: int | None = None) -> tuple[bool, str, int | None]:
+            priority: int | None = None,
+            timeout_s: int | None = None) -> tuple[bool, str, int | None]:
     """T292 (auditor #1655 section 4): opens the task and asks its owner in
     one call, through the routing table (`askmod.ask`, C2) - a refused owner
     leaves no task row behind. The request is kind='task' except for a human
@@ -802,15 +885,17 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         return False, msg, None
     con = db.connect()
     try:
-        tid = db.new_task(con, title, owner, me, parent, priority, expects=expects)
+        tid = db.new_task(con, title, owner, me, parent, priority, expects=expects,
+                          timeout_s=timeout_s)
         _link_delivery(con, tid, owner, rid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
                                            "expects": expects})
         _block_parent_on_child(con, parent, tid, me)
     finally:
         con.close()
+    limit = f", timeout {timefmt.span(timeout_s)}" if timeout_s else ""
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
-                  f"expects {expects}): {msg}"), tid
+                  f"expects {expects}{limit}): {msg}"), tid
 
 
 def task_begin(con, me: str, title: str, chat: int, why: str, priority: int | None = None,
@@ -1033,16 +1118,42 @@ def parse_priority(text) -> int:
     raise ValueError(f"'{text}' is not a priority - write P1 (high), P2 (default) or P3 (low)")
 
 
+# T286: `ocp task new` requires -t/--timeout; `ocp task edit --timeout`
+# extends it. Both refuse anything longer than this.
+MAX_TASK_TIMEOUT_S = 4 * 3600
+# What a task opened inside ocp (a finding, a hold, `task begin`) gets when it
+# becomes doing: those never pass `task new -t`, and "every task has a timeout".
+DEFAULT_TASK_TIMEOUT_S = MAX_TASK_TIMEOUT_S
+
+
+def parse_task_timeout(text) -> int:
+    """A task timeout (`90m`, `2h`) in seconds, refusing anything past
+    MAX_TASK_TIMEOUT_S - the one parser both `-t/--timeout` (new) and
+    `--timeout` (edit) use, so the max is enforced in one place."""
+    secs = timefmt.parse_span(text)
+    if secs > MAX_TASK_TIMEOUT_S:
+        raise ValueError(f"a task timeout is at most {timefmt.span(MAX_TASK_TIMEOUT_S)} "
+                          f"({text} is longer)")
+    return secs
+
+
 def edit_task(con, tid: int, by: str, owner: str | None = None,
-              title: str | None = None, priority: int | None = None) -> tuple[bool, str]:
-    """Change a task's owner, title and/or priority. Only the task's opener or the
-    founder may - #1914: every orcapipe task is owned by orcapipe itself,
+              title: str | None = None, priority: int | None = None,
+              timeout_s: int | None = None) -> tuple[bool, str]:
+    """Change a task's owner, title, priority and/or timeout. Only the task's opener or
+    the founder may - #1914: every orcapipe task is owned by orcapipe itself,
     members only link requests to it, so an owner change here is for fixing
     who was named by mistake, not for handing work along.
 
     Refused if neither field actually changes anything, so a no-op edit
     cannot be used to touch edited_by/edited_at without saying what moved -
-    the same reason close_task refuses a task already closed.
+    the same reason close_task refuses a task already closed. `timeout_s` is
+    the exception (T286, founder #1627's revision): --timeout always sets a
+    new length, even when it equals the current one - what changes is the
+    deadline, not the length - but the deadline itself only starts counting
+    while the task is doing (a request out against it); given to a task that
+    is not, the length is kept for whenever it next becomes doing, and
+    nothing about it fires before then.
     """
     row = db.get_task(con, tid)
     if row is None:
@@ -1050,8 +1161,9 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
-    if owner is None and title is None and priority is None:
-        return False, "edit needs a new owner, a new title, a new priority, or any of them"
+    if owner is None and title is None and priority is None and timeout_s is None:
+        return False, ("edit needs a new owner, a new title, a new priority, --timeout, "
+                        "or any of them")
     changes: dict = {}
     new_owner = None
     if owner is not None and owner != row["owner"]:
@@ -1075,9 +1187,22 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
             new_priority = priority
             changes["priority"] = {"old": priority_ref(row["priority"]),
                                    "new": priority_ref(priority)}
+    if timeout_s is not None:
+        if timeout_s <= 0:
+            return False, "a task timeout is at least 1s - it counts time still to run, not none"
+        if timeout_s > MAX_TASK_TIMEOUT_S:
+            return False, (f"a task timeout is at most {timefmt.span(MAX_TASK_TIMEOUT_S)} - "
+                           f"{timefmt.span(timeout_s)} is longer")
+        is_doing = reads_doing(con, tid)
+        changes["timeout"] = {"old": timefmt.span(row["timeout_s"]) if row["timeout_s"] else "none",
+                              "new": f"{timefmt.span(timeout_s)}, from now" if is_doing
+                              else f"{timefmt.span(timeout_s)}, once it is doing"}
+    else:
+        is_doing = False
     if not changes:
         return False, f"task T{tid} already reads that way - nothing to edit"
-    db.edit_task(con, tid, by, owner=new_owner, title=new_title, priority=new_priority)
+    db.edit_task(con, tid, by, owner=new_owner, title=new_title, priority=new_priority,
+                 timeout_s=timeout_s, is_doing=is_doing)
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
     said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
     return True, f"task T{tid} edited by {by}: {said}"

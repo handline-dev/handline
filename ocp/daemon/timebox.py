@@ -1,7 +1,11 @@
-"""Five notices about work that has run long, all read from the db every tick.
+"""Six notices about work that has run long, all read from the db every tick.
 
 A request still open a set time after it was delivered tells its asker once
-(`ocp ask --timebox`, config.yaml's `timebox_s`). An agent that shows RUNNING -
+(`ocp ask --timebox`, config.yaml's `timebox_s`). A task's own timeout
+(`ocp task new -t/--timeout`, T286) only counts while it is doing; past it,
+its opener is told, and again every further timeout_s stretch, until the
+task answers with one of `ocp task edit --timeout` (continue) or `ocp task
+release` (back to queued) - or is simply done. An agent that shows RUNNING -
 working, or with background work behind its prompt - while nothing is asked of
 it tells its supervisor once, so the manager can ask what it is doing
 (`unasked_running_s`). Background work with the agent silent for STALE_BG_S
@@ -12,7 +16,7 @@ Stop-hook gate's own backstop (T288) for whenever it is warn-only or missed.
 An agent nudged to resolve a forgotten head as many times as
 `delivery.NUDGE_SCHEDULE_S` allows, still open, tells its supervisor once
 (T337) - nothing more is typed at the agent about it past that. The first
-three act on nothing.
+four act on nothing.
 
 A notice to an agent is a line typed at its open session, so one that cannot be
 typed now is tried again; a notice to the human has no session to type at and is
@@ -78,6 +82,52 @@ def sweep_timeboxes(con, log, now: int) -> None:
                          {"request_id": rid, "target": row["target"], "elapsed_s": elapsed})
             log(f"  #{rid}: open {timefmt.ago(elapsed)} past its {timefmt.ago(box)} timebox - "
                 f"{row['requester']} told")
+
+
+def sweep_task_timeouts(con, log, now: int) -> None:
+    """T286, founder #1627's revision: `ocp task new` requires -t/--timeout,
+    but its clock only runs while the task is doing (a request out against
+    it, or against an open child) - task_state's own live read, since
+    nothing here is a column a write path must remember to keep in sync
+    either. Every tick, for every open task that carries a timeout at all:
+
+    - not doing, clock running (timeout_at set): pause it.
+    - doing, clock not yet running: start it, timeout_s from now - no
+      notice; becoming doing is not itself running long. A task with no
+      timeout_s (opened inside ocp, T301, or before timeouts existed) is
+      given actions.DEFAULT_TASK_TIMEOUT_S here, where it becomes doing.
+    - doing, past its deadline: tell its opener, offering the two answers
+      the founder named - continue (`edit --timeout`) or release
+      (`ocp task release`) - and re-arm for another timeout_s. Repeats
+      every stretch until one of those, or the task is done.
+
+    A task opened by the founder is still only an event today (`_tell`
+    returns True for it with nothing typed anywhere) - the same gap
+    `timebox_exceeded` has always had - but the notice text now rides along
+    in the payload, so at least `ocp events` shows what it said, not just
+    the task id (no task is opened by the founder yet, so this is unreached
+    until one is)."""
+    from .. import actions
+    for row in db.tasks_to_clock(con):
+        tid = int(row["id"])
+        if actions.task_state(con, row) != "doing":
+            if row["timeout_at"] is not None:
+                db.pause_task_timeout(con, tid)
+            continue
+        if row["timeout_at"] is None:
+            db.advance_task_timeout(con, tid, now, actions.DEFAULT_TASK_TIMEOUT_S)
+            continue
+        if row["timeout_at"] > now:
+            continue
+        box = int(row["timeout_s"])
+        text = (f"T{tid} '{row['title']}' is doing, past its {timefmt.ago(box)} timeout. "
+                f"`ocp task edit T{tid} --timeout <duration>` to keep going, or "
+                f"`ocp task release T{tid}` to send it back to queued.")
+        if _tell(con, row["opened_by"], text, now):
+            db.advance_task_timeout(con, tid, now, actions.DEFAULT_TASK_TIMEOUT_S)
+            db.add_event(con, row["opened_by"], "task_timeout_exceeded",
+                         {"task_id": tid, "timeout_s": box, "text": text})
+            log(f"  T{tid}: doing, past its {timefmt.ago(box)} timeout - {row['opened_by']} told")
 
 
 def _unasked_running(con, agent: str, row) -> bool:
@@ -204,6 +254,7 @@ def sweep_forgotten_resolve_capped(con, log, now: int) -> None:
 
 def sweep(con, log, now: int) -> None:
     sweep_timeboxes(con, log, now)
+    sweep_task_timeouts(con, log, now)
     sweep_unasked_running(con, log, now)
     sweep_stale_background(con, log, now)
     sweep_stop_wait_backstop(con, log, now)

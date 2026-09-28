@@ -206,7 +206,7 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
         return (f"#{row['id']} is the founder's: say what it becomes. --task T<n> [T<n> ...] "
                 "names the tasks this answer belongs to (one per deliverable "
                 "promised), --no-task 'reason' says nothing needs building. "
-                "`ocp task new --owner NAME 'title'` makes a task.")
+                "`ocp task new --owner NAME 'title' -t 2h` makes a task.")
     return None
 
 

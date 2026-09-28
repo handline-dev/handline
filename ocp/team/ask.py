@@ -667,6 +667,35 @@ def withdraw(rid: int, requester: str | None = None,
 CANCEL_VERDICT = "withdrawn by the founder"
 
 
+def _close_and_tell(con, rid: int, row, verdict: str, notify: bool):
+    """Close a still-queued request as rejected with `verdict`, telling its
+    target to stop if it was delivered and its requester through the
+    ordinary answer path - the write `cancel` and `retire_open` share, so
+    the two can never drift on what closing a request out from under
+    someone actually does. Whatever queued behind it moves up, the same as
+    an ordinary resolve. Closed here, in the one write that can move it out
+    of 'queued', so an agent resolving it at the same instant keeps its own
+    answer and this loses instead of overwriting it - the caller runs
+    nothing below unless this call was the one that closed the row.
+
+    None if this call lost that race; else `(target, after_close_msg, said)`,
+    `said` being what was told to the target, if anything.
+    """
+    from ..daemon import delivery as dmn_delivery
+
+    target = row["target"]
+    if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify):
+        return None
+    said = []
+    if row["delivered_at"]:
+        typed, why = dmn_delivery.notify_cancelled(con, row, verdict)
+        said.append(f"{target} was told to stop" if typed else
+                    f"{target} could not be told now ({why}); resolving #{rid} "
+                    f"is refused to it, so it cannot undo this")
+    msg = _after_close(con, rid, row, "rejected", notify)
+    return target, msg, said
+
+
 def cancel(rid: int) -> tuple[bool, str]:
     """The founder takes a request out of an agent's queue.
 
@@ -680,7 +709,6 @@ def cancel(rid: int) -> tuple[bool, str]:
     delivered. Whatever is behind it delivers next.
     """
     from . import hr
-    from ..daemon import delivery as dmn_delivery
 
     con = db.connect()
     try:
@@ -697,23 +725,13 @@ def cancel(rid: int) -> tuple[bool, str]:
             # it exactly as an unguarded resolve or dismiss would.
             return False, (f"#{rid} is a roster proposal - answer `approve` or "
                            f"`reject`, it cannot be cancelled")
-        target = row["target"]
         notify = row["requester"] != HUMAN
-        # Closed here, in the one write that can move it out of 'queued', so
-        # an agent resolving it at the same instant keeps its own answer and
-        # this loses instead of overwriting it - `_after_close` never runs
-        # unless this call was the one that closed the row.
-        if not db.close_if_queued(con, rid, "rejected", CANCEL_VERDICT, announced=not notify):
+        closed = _close_and_tell(con, rid, row, CANCEL_VERDICT, notify)
+        if closed is None:
             if db.is_still_queued(con, rid):
                 return False, f"#{rid} was not cancelled - it is still queued"
             return False, f"#{rid} was closed while this ran - nothing to cancel"
-        said = []
-        if row["delivered_at"]:
-            typed, why = dmn_delivery.notify_cancelled(con, row, CANCEL_VERDICT)
-            said.append(f"{target} was told to stop" if typed else
-                        f"{target} could not be told now ({why}); resolving #{rid} "
-                        f"is refused to it, so it cannot undo this")
-        msg = _after_close(con, rid, row, "rejected", notify)
+        target, msg, said = closed
         db.add_event(con, HUMAN, "cancel", {"request_id": rid, "target": target,
                                             "requester": row["requester"],
                                             "delivered": bool(row["delivered_at"])})
@@ -721,6 +739,40 @@ def cancel(rid: int) -> tuple[bool, str]:
                       + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
     finally:
         con.close()
+
+
+def retire_open(con, rid: int, verdict: str, notify: bool | None = None) -> tuple[bool, str]:
+    """Close a request that is still queued, out from under whoever holds it -
+    `cancel`'s write (`_close_and_tell`), reached from `ocp task release`
+    (T286) so it can end a task's own open requests the same way instead of
+    merely unlinking them from the board. Closed as rejected with `verdict`;
+    the target is told to stop if it had already been delivered, the
+    requester through the ordinary answer path, and whatever queued behind
+    it moves up. True only if this call is the one that closed it.
+
+    `notify` left out follows `cancel`: the requester is told through the
+    answer path unless it is the founder, who is not sent a rejection of his
+    own request for something an agent did to its task (T302).
+    """
+    from . import hr
+
+    row = db.get_request(con, rid)
+    if row is None:
+        return False, f"#{rid} is gone"
+    if notify is None:
+        notify = row["requester"] != HUMAN
+    if row["state"] != "queued":
+        return False, f"#{rid} is already {row['state']} - nothing to retire"
+    if hr.is_open_proposal(rid):
+        return False, f"#{rid} is a roster proposal - answer `approve` or `reject`"
+    closed = _close_and_tell(con, rid, row, verdict, notify)
+    if closed is None:
+        if db.is_still_queued(con, rid):
+            return False, f"#{rid} was not retired - it is still queued"
+        return False, f"#{rid} was closed while this ran - nothing to retire"
+    target, msg, said = closed
+    return True, (f"#{rid} to {target} retired"
+                  + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
 
 
 def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
