@@ -182,6 +182,15 @@ def _asks(r) -> bool:
     return r["state"] == "queued" and not r["fyi"]
 
 
+def _begun(con, tid: int) -> bool:
+    """Was this task begun on a founder's message (`task_begin`)? Its work is
+    under way from then until it is done or closed, whatever became of the
+    chat request that is its only link."""
+    return con.execute(
+        "SELECT 1 FROM events WHERE kind = 'task_begin' AND json_extract(payload, '$.task_id') = ? "
+        "LIMIT 1", (tid,)).fetchone() is not None
+
+
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved
@@ -203,6 +212,8 @@ def task_state(con, row) -> str:
     if any(_asks(r)
            for c in db.open_child_tasks(con, row["id"])
            for r in db.task_requests(con, c["id"])):
+        return "doing"
+    if _begun(con, row["id"]):
         return "doing"
     return "queued" if row["queued_by"] else "draft"
 
@@ -636,14 +647,15 @@ def parse_expects(text) -> str:
 
 def _current_task_still_asking(con, agent: str) -> bool:
     """Does `agent`'s current task still have its own (not a child's) request
-    queued and not a mere fyi report - the one thing left to deliver?"""
+    queued and not a mere fyi report - the one thing left to deliver? A begun
+    task (`_begun`) always does, until it is done."""
     tid = db.current_task(con, agent)
     if tid is None:
         return False
     row = db.get_task(con, tid)
     if row is None or row["closed_by"] or row["done_evidence"]:
         return False
-    return any(_asks(r) for r in db.task_requests(con, tid))
+    return _begun(con, tid) or any(_asks(r) for r in db.task_requests(con, tid))
 
 
 # Events after which a task's earlier answers no longer mean it was handled: it

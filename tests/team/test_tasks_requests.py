@@ -7071,6 +7071,14 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         check("begin: the reason and the chat are on the event",
               len(ev) == 1 and "founder asked in chat" in ev[0]["payload"] and f'"chat_request": {chat}' in ev[0]["payload"],
               str(ev))
+        check("begin: it reads doing, not a draft nobody queued",
+              actions.task_state(con, db.get_task(con, tid)) == "doing")
+        askmod.resolve(chat, "on it")
+        actions.advance_current_task(con, "worker")
+        check("begin: answering the founder's message does not drop it as current",
+              db.current_task(con, "worker") == tid, str(db.current_task(con, "worker")))
+        check("begin: nor does it go back to draft",
+              actions.task_state(con, db.get_task(con, tid)) == "doing")
         ok, msg, _ = actions.task_begin(con, "worker", "again", chat, "same message")
         check("begin: one message opens one task", not ok and "already" in msg, msg)
         ok, msg, _ = actions.task_begin(con, "human", "x", chat, "y")
