@@ -15,7 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
-from ...infra import textsafe
+from ...infra import paths, textsafe
 from ..chat_page import TaskPane, TaskTable
 from .action_bar import ActionBar
 from .table_sync import sync_rows
@@ -44,6 +44,33 @@ def result_notes(results: list[tuple[int, bool, str]], verb: str) -> list[tuple[
     if refused:
         out.append(("\n".join(refused), "error"))
     return out
+
+
+def view_file():
+    return paths.home() / "tasks_view"
+
+
+def load_view() -> bool:
+    """Was the tree the view last picked?"""
+    try:
+        return view_file().read_text().strip() == "tree"
+    except OSError:
+        return False
+
+
+def save_view(tree: bool) -> None:
+    try:
+        view_file().parent.mkdir(parents=True, exist_ok=True)
+        view_file().write_text("tree" if tree else "list")
+    except OSError:
+        pass
+
+
+def waits_text(row: dict) -> str:
+    """The open tasks a task waits on, short: `waits T1 T2 +1`."""
+    ids = row["blocked_by"]
+    return "waits " + " ".join(actions.task_ref(b) for b in ids[:3]) + (f" +{len(ids) - 3}" if len(ids) > 3 else "") \
+        if ids else ""
 
 
 def idle_text(row: dict, now: float) -> str:
@@ -96,6 +123,7 @@ class TasksView(Vertical):
         Binding("m", "act('merge')", "merge"),
         Binding("a", "closed", "closed"),
         Binding("v", "states", "states"),
+        Binding("t", "tree", "tree"),
         Binding("f", "owner_filter", "agent"),
         Binding("question_mark", "key_help", "keys"),
     ]
@@ -119,9 +147,12 @@ class TasksView(Vertical):
         Key("s", "sort", 3, "sort by the next column; S reverses; a click on a column head sorts by it"),
         Key("a", "closed", 3, "show or hide closed, discarded and merged tasks"),
         Key("v", "states", 3, "pick which states to show, with checkboxes"),
+        Key("t", "tree", 3, "switch between the list and the tree of what waits on what"),
         Key("f", "agent", 3, "show one agent's tasks, and the next agent on each press; or use the agent dropdown"),
     )
 
+    TREE_HEADS = (("", "mark"), ("task", "title"), ("owner", "owner"), ("state", "state"),
+                  ("waits on", "blocked"))
     HEADS = (("", "mark"), ("#", "number"), ("P", "priority"), ("state", "state"), ("title", "title"),
              ("owner", "owner"), ("idle", "idle"), ("may close", "closer"), ("blocked by", "blocked"))
 
@@ -135,6 +166,7 @@ class TasksView(Vertical):
         self.checked: set[int] = set()
         self.by = "priority"
         self.rev = False
+        self.as_tree = load_view()
         self.states: set[str] = set(states or actions.OPEN_STATES)
         self.owner: str | None = None
         self.owners: list[str] = []
@@ -146,6 +178,8 @@ class TasksView(Vertical):
         with Horizontal(id="tasks_filters"):
             if not self.agent:
                 yield Select([("agent: all", "")], id="f_agent", allow_blank=False, compact=True)
+            yield Select([("view: list", "list"), ("view: tree", "tree")], id="f_view", value="tree" if self.as_tree else "list",
+                         allow_blank=False, compact=True)
             yield Select([(f"sort: {c}", c) for c in actions.TASK_SORTS], id="f_sort",
                          allow_blank=False, compact=True)
             yield Button(self._state_label(), id="f_state", compact=True)
@@ -178,13 +212,17 @@ class TasksView(Vertical):
         table = self.table
         table.clear(columns=True)
         self._mark_head = self._mark_label()
-        for label, key in self.HEADS:
+        for label, key in (self.TREE_HEADS if self.as_tree else self.HEADS):
             label = self._mark_head if key == "mark" else label
             arrow = (" ▼" if self.rev else " ▲") if key == self.by else ""
             table.add_column(label + arrow, key=key)
 
+    def _shown_ids(self) -> set[int]:
+        """The tasks the filters let through; a dim row is only there to hold the chain together."""
+        return {r["id"] for r in self.rows if not (r.get("line") or {}).get("dim")}
+
     def _mark_label(self) -> str:
-        ids = {r["id"] for r in self.rows}
+        ids = self._shown_ids()
         return "[x]" if ids and ids <= self.checked else "[ ]"
 
     def on_mount(self) -> None:
@@ -206,6 +244,7 @@ class TasksView(Vertical):
         con = db.connect()
         try:
             rows = actions.task_rows(con, state=sorted(self.states))
+            every = actions.task_rows(con) if self.as_tree else []
         finally:
             con.close()
         if self.mine:
@@ -221,6 +260,13 @@ class TasksView(Vertical):
             rows = [r for r in rows if r["owner"] == self.owner]
         self.rows = actions.sort_task_rows(rows, self.by, self.rev)
         self.checked &= {r["id"] for r in self.rows}
+        if self.as_tree:
+            shown = {r["id"] for r in self.rows}
+            nodes = {r["id"]: r for r in every}
+            nodes.update((r["id"], r) for r in self.rows)
+            nodes = actions.sort_task_rows(list(nodes.values()), self.by, self.rev)
+            by_id = {r["id"]: r for r in nodes}
+            self.rows = [{**by_id[t["id"]], "line": t} for t in actions.task_tree(nodes, shown)]
         keep = self.table.cursor_row
         if self._mark_label() != self._mark_head:
             self._set_columns()
@@ -228,9 +274,19 @@ class TasksView(Vertical):
         table = self.table
         row = keep
         out = []
+        seen: dict[int, int] = {}
         for r in self.rows:
             stale = actions.task_stale(r, now)
             style = "yellow" if stale else ""
+            line = r.get("line")
+            if line:
+                n = seen[r["id"]] = seen.get(r["id"], 0) + 1
+                style = "dim" if line["dim"] else style
+                title = f"{line['prefix']}{r['ref']} " + ("(see above)" if line["again"] else textsafe.oneline(r["title"]))
+                cells = ("[x]" if r["id"] in self.checked else "[ ]", title, "" if line["again"] else r["owner"],
+                         "" if line["again"] else r["state"], "" if line["again"] else waits_text(r))
+                out.append((str(r["id"]) if n == 1 else f"{r['id']}~{n}", tuple(Text(c, style=style) for c in cells)))
+                continue
             cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
                      r["state"], textsafe.oneline(r["title"]), r["owner"],
                      idle_text(r, now) + (" !" if stale else ""), r["closer"],
@@ -252,7 +308,8 @@ class TasksView(Vertical):
     def _sync_filters(self) -> None:
         """Show the state in the dropdowns, touching a dropdown only when it differs, so an
         open one is not rebuilt under the user and no Changed is posted for our own state."""
-        sels = [(self.query_one("#f_sort", Select), self.by)]
+        sels = [(self.query_one("#f_sort", Select), self.by),
+                (self.query_one("#f_view", Select), "tree" if self.as_tree else "list")]
         if not self.agent:
             agent = self.query_one("#f_agent", Select)
             if self.owners != self._agent_owners:
@@ -267,7 +324,11 @@ class TasksView(Vertical):
     def on_select_changed(self, event: Select.Changed) -> None:
         event.stop()
         v = event.value
-        if event.select.id == "f_agent":
+        if event.select.id == "f_view":
+            if (v == "tree") == self.as_tree:
+                return
+            self._set_tree(v == "tree")
+        elif event.select.id == "f_agent":
             if (v or None) == self.owner:
                 return
             self.owner = v or None
@@ -286,6 +347,15 @@ class TasksView(Vertical):
             self.action_states()
         elif bid.startswith("act_"):
             self.action_act(bid[4:])
+
+    def action_tree(self) -> None:
+        self._set_tree(not self.as_tree)
+        self.refresh_rows()
+
+    def _set_tree(self, tree: bool) -> None:
+        self.as_tree = tree
+        save_view(tree)
+        self._set_columns()
 
     def action_states(self) -> None:
         self.app.push_screen(StatePicker(set(self.states)), self._set_states)
@@ -309,7 +379,7 @@ class TasksView(Vertical):
 
     def action_check_all(self) -> None:
         """The head of the mark column: mark every row shown, or unmark them when all are."""
-        ids = {r["id"] for r in self.rows}
+        ids = self._shown_ids()
         self.checked = self.checked - ids if ids <= self.checked else self.checked | ids
         self.refresh_rows()
 
@@ -371,8 +441,8 @@ class TasksView(Vertical):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
         from ..chat_page import TaskDetail
-        if event.row_key.value is not None:
-            self.app.push_screen(TaskDetail(int(event.row_key.value)))
+        if event.cursor_row < len(self.rows):
+            self.app.push_screen(TaskDetail(self.rows[event.cursor_row]["id"]))
 
     def action_act(self, verb: str) -> None:
         self.run_worker(self._act(verb), exclusive=True, group="tasks_act")

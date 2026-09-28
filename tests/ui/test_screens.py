@@ -3404,11 +3404,39 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
         cliask._human_inbox = real_human
 
 
+def test_task_tree_hangs_each_task_under_what_holds_it_up() -> None:
+    def row(i, blocked=(), parent=None):
+        return {"id": i, "blocked_by": list(blocked), "parent_task": parent}
+
+    def draw(rows, shown=None):
+        lines = actions.task_tree(rows, {r["id"] for r in rows} if shown is None else shown)
+        return [(l["prefix"] + str(l["id"]) + (" dim" if l["dim"] else "") + (" again" if l["again"] else ""))
+                for l in lines]
+
+    chain = [row(369), row(351, [369]), row(361, [351]), row(296, [351]), row(7)]
+    check("task tree: a chain hangs under its root, siblings with the last one closing the branch",
+          draw(chain) == ["369", "└─ 351", "   ├─ 361", "   └─ 296", "7"], draw(chain))
+    many = [row(1), row(2), row(3, [1, 2])]
+    check("task tree: a task blocked by two is drawn in full once, then pointed at",
+          draw(many) == ["1", "└─ 3", "2", "└─ 3 again"], draw(many))
+    kid = [row(10, [11]), row(11, parent=10)]
+    check("task tree: a child hangs under its parent, and its block on the parent adds no cycle",
+          draw(kid) == ["10", "└─ 11"], draw(kid))
+    loop = [row(1, [2]), row(2, [1]), row(3, [2])]
+    check("task tree: a cycle ends where it comes back, and every task is still drawn",
+          draw(loop) == ["1", "└─ 2", "   ├─ 1 again", "   └─ 3"], draw(loop))
+    check("task tree: a task on itself does not hang under itself", draw([row(4, [4])]) == ["4"])
+    check("task tree: a hidden task holding up a shown one stays, dim; one it holds up is left out",
+          draw(chain, {361}) == ["369 dim", "└─ 351 dim", "   └─ 361"], draw(chain, {361}))
+    check("task tree: nothing shown, nothing drawn", draw(chain, set()) == [])
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_dump_refuses_every_class_of_character_a_terminal_would_obey())
+        run(lambda: test_task_tree_hangs_each_task_under_what_holds_it_up())
         run(lambda: test_the_panel_says_the_true_thing_about_a_queue(Path(td) / 'blk7'))
         run(lambda: test_a_report_to_the_founder_is_not_a_wait(Path(td) / 'fyi'))
         run(lambda: test_for_you_folds_to_one_line_per_agent(Path(td) / 'fold'))

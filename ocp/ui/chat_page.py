@@ -459,6 +459,26 @@ def history_file() -> Path:
     return paths.home() / "chat_history.json"
 
 
+def scope_file() -> Path:
+    return paths.home() / "chat_scope"
+
+
+def load_scope() -> str:
+    """The chat tab the human last picked, "mine" or "all"; anything else is "mine"."""
+    try:
+        return "all" if scope_file().read_text().strip() == "all" else "mine"
+    except OSError:
+        return "mine"
+
+
+def save_scope(tab: str) -> None:
+    try:
+        scope_file().parent.mkdir(parents=True, exist_ok=True)
+        scope_file().write_text(tab)
+    except OSError:
+        pass
+
+
 def log_file() -> Path:
     return paths.home() / "chat_page.log"
 
@@ -928,6 +948,7 @@ class ChatPage(JobsAware, Screen):
         self._spinning, self._frame = False, 0
         self._send_lock = threading.Lock()  # one send at a time, in the order typed
         self.last_chat = "mine"     # the chat tab Esc returns to from Tasks
+        self._scope_wait: str | None = load_scope()   # the remembered tab, until it has been shown
         self.oldest: int | None = None      # id of the oldest request on screen
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
@@ -998,6 +1019,8 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#tasks_view").display = False
         self.query_one("#compose", ChatBox).menu = self.query_one("#menu", OptionList)
         self.query_one("#compose", ChatBox).focus()
+        if self._scope_wait == "all":
+            self.query_one("#scope", Tabs).active = "all"
         self.refresh_view()
         self.set_interval(2, self.refresh_view)
 
@@ -1485,6 +1508,10 @@ class ChatPage(JobsAware, Screen):
         chat = not (self.showing_tasks or self.showing_settings)
         if chat:
             self.last_chat = event.tab.id
+            if self._scope_wait is None:
+                save_scope(event.tab.id)
+            elif event.tab.id == self._scope_wait:
+                self._scope_wait = None     # the remembered tab is up; from here a pick is the human's
         self.oldest, self.more, self._sig, self._transcript_key = None, False, None, None
         self.reply_to(None)
         if self.is_mounted:

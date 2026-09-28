@@ -1175,6 +1175,36 @@ async def test_stats_screen_draws_the_weekly_graph() -> None:
               (tab.display, tab.outlook.accounts))
 
 
+async def test_the_tasks_tab_switches_to_a_tree_and_remembers_it() -> None:
+    from ocp.ui.components.tasks_view import load_view
+    _home("taskstree")
+    con = db.connect()
+    try:
+        root = db.new_task(con, "root", "worker", "manager")
+        kid = db.new_task(con, "waits on root", "worker", "manager")
+        db.add_block(con, kid, root)
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 26)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        view = app.screen.query_one("#tasks_view")
+        table = view.query_one("#tasks_table", DataTable)
+        check("tasks tree: opens as the list", not view.as_tree and "└─" not in table.get_row_at(0)[1].plain)
+        await pilot.press("t")
+        await pilot.pause(0.3)
+        rows = [table.get_row_at(i)[1].plain for i in range(table.row_count)]
+        check("tasks tree: t draws what waits under what holds it",
+              rows[:2] == [f"T{root} root", f"└─ T{kid} waits on root"], rows)
+        check("tasks tree: the choice is remembered", load_view())
+        await pilot.press("t")
+        await pilot.pause(0.3)
+        check("tasks tree: t again is the list, remembered", not view.as_tree and not load_view())
+
+
 async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
     """T69: T opens the tasks screen; space marks; p sets the priority of the
     marked tasks; c on tasks that are not done shows each refusal with its reason."""
@@ -3316,6 +3346,31 @@ async def test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor() -> None:
         check("table sync: a changed row set rebuilds", sync_rows(table, rows(1)[:50]))
 
 
+async def test_the_chat_page_reopens_on_the_chat_tab_last_picked() -> None:
+    from textual.widgets import Tabs
+    _home("chatscope")
+    agents.register("reviewer")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 20)) as pilot:
+        await pilot.pause()
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        check("chatscope: a first visit opens on My chat", app.screen.query_one("#scope", Tabs).active == "mine")
+        app.screen.query_one("#scope", Tabs).active = "all"
+        await pilot.pause(0.3)
+        await app.pop_screen()
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        check("chatscope: reopened on All chat", app.screen.query_one("#scope", Tabs).active == "all"
+              and app.screen.everyone)
+        app.screen.query_one("#scope", Tabs).active = "mine"
+        await pilot.pause(0.3)
+        await app.pop_screen()
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        check("chatscope: and back to My chat", app.screen.query_one("#scope", Tabs).active == "mine")
+
+
 def test_account_settings_alias_and_default_cap() -> None:
     from ocp.usage import load as loadmod
     from ocp.session import triggers
@@ -3451,6 +3506,8 @@ async def _run_all() -> None:
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
     await test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor()
+    await test_the_chat_page_reopens_on_the_chat_tab_last_picked()
+    await test_the_tasks_tab_switches_to_a_tree_and_remembers_it()
 
 
 def main() -> int:
