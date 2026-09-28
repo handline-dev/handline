@@ -206,13 +206,12 @@ def open_task_count(con, agent: str) -> int:
 
 
 def reads_doing(con, tid: int) -> bool:
-    """Whether task `tid` has a request currently queued against it, or
-    against an open child, regardless of its own done/closed columns - the
-    live check `task_state`'s "doing" branch is built from, factored out so
-    T286's timeout clock (which must ask this of a task that is, right now,
-    being marked done or reopened - before or after that write, when
-    task_state's own done/closed short-circuits would answer the wrong
-    question) can ask it too."""
+    """Whether task `tid` is being worked, whatever its own done/closed columns
+    say: a request is queued against it or an open child, or it was begun on a
+    founder message (`_begun`). `task_state` builds "doing" from this, and the
+    timeout clock asks it of a task that is just being marked done or reopened."""
+    if _begun(con, tid):
+        return True
     if any(_asks(r) for r in db.task_requests(con, tid)):
         return True
     return any(_asks(r)
@@ -237,8 +236,6 @@ def task_state(con, row) -> str:
     if row["done_evidence"]:
         return "done"
     if reads_doing(con, row["id"]):
-        return "doing"
-    if _begun(con, row["id"]):
         return "doing"
     return "queued" if row["queued_by"] else "draft"
 
@@ -535,23 +532,9 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
 
 
 def release_task(con, tid: int, by: str) -> tuple[bool, str]:
-    """T286, founder #1627's revision: the other answer to a timeout notice,
-    besides continuing (`edit_task` with --timeout) - take a doing task back
-    to queued/draft. Only the opener or the founder may, the same guard as
-    edit_task (`_task_edit_guard`): it reshapes the board, not who the task
-    belongs to.
-
-    Ends the task's own open (queued, non-fyi) requests through the retire
-    path `ocp cancel`/`withdraw` use (`askmod.retire_open`) - closed as
-    rejected, its target told to stop and its own requester told, the same
-    as any other resolve - rather than just unlinking them: a released task
-    is no longer holding work over someone who is mid-way through it, and
-    the link stays, so the task's history still shows what it once asked
-    for. task_state's "doing" reads a request's own state, so a retired one
-    reads not-doing under every task it happens to be linked to - a task
-    still doing only through an open child's own separate request has
-    nothing here to retire; it is refused, naming the child to release
-    instead."""
+    """Answer to a timeout notice besides extending it: retire the task's own open
+    requests (so whoever is mid-way is told to stop) and take it back to queued or
+    draft. Opener or founder only; a task doing through a child is released there."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -567,7 +550,7 @@ def release_task(con, tid: int, by: str) -> tuple[bool, str]:
                      if any(_asks(r) for r in db.task_requests(con, c["id"]))), None)
         return False, (f"task T{tid} is doing through its child T{child['id']} - "
                        f"release it there" if child else
-                       f"task T{tid} reads doing but nothing here to release - read it again")
+                       f"task T{tid} was begun on a founder message: it is doing until it is done")
     # Best-effort, not all-or-nothing: each retire_open call is its own
     # atomic close, so one losing a race to some other close (an agent
     # resolving it at the same instant) must not throw away what the others
@@ -588,13 +571,13 @@ def release_task(con, tid: int, by: str) -> tuple[bool, str]:
     detail = "; ".join(said)
     tail = f" - not retired: {'; '.join(failed)}" if failed else ""
     if reads_doing(con, tid):
-        # Still doing - through an open child's own separate request, since
-        # every direct one above just closed.
-        child = next(c for c in db.open_child_tasks(con, tid)
-                     if any(_asks(r) for r in db.task_requests(con, c["id"])))
-        return True, (f"task T{tid} released by {by}: {detail}, but it is still doing "
-                      f"through its child T{child['id']} - release it there too; its own "
-                      f"timeout keeps running until then{tail}")
+        # Every direct request just closed: what is left is a child's, or a founder-begun task.
+        child = next((c for c in db.open_child_tasks(con, tid)
+                      if any(_asks(r) for r in db.task_requests(con, c["id"]))), None)
+        why = (f"through its child T{child['id']} - release it there too" if child
+               else "because it was begun on a founder message")
+        return True, (f"task T{tid} released by {by}: {detail}, but it is still doing {why}; "
+                      f"its own timeout keeps running until then{tail}")
     db.pause_task_timeout(con, tid)
     back = "queued" if row["queued_by"] else "draft"
     return True, (f"task T{tid} released by {by}: {detail}, back to {back}, "
@@ -1140,21 +1123,10 @@ def parse_task_timeout(text) -> int:
 def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
               timeout_s: int | None = None) -> tuple[bool, str]:
-    """Change a task's owner, title, priority and/or timeout. Only the task's opener or
-    the founder may - #1914: every orcapipe task is owned by orcapipe itself,
-    members only link requests to it, so an owner change here is for fixing
-    who was named by mistake, not for handing work along.
-
-    Refused if neither field actually changes anything, so a no-op edit
-    cannot be used to touch edited_by/edited_at without saying what moved -
-    the same reason close_task refuses a task already closed. `timeout_s` is
-    the exception (T286, founder #1627's revision): --timeout always sets a
-    new length, even when it equals the current one - what changes is the
-    deadline, not the length - but the deadline itself only starts counting
-    while the task is doing (a request out against it); given to a task that
-    is not, the length is kept for whenever it next becomes doing, and
-    nothing about it fires before then.
-    """
+    """Change a task's owner, title, priority and/or timeout; opener or founder only
+    (an owner change fixes a wrong name, it is not a handoff - #1914). Refused when
+    nothing changes, except --timeout, which always restarts the deadline (only while
+    doing) so extending by the same length works."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"

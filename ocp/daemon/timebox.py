@@ -85,28 +85,9 @@ def sweep_timeboxes(con, log, now: int) -> None:
 
 
 def sweep_task_timeouts(con, log, now: int) -> None:
-    """T286, founder #1627's revision: `ocp task new` requires -t/--timeout,
-    but its clock only runs while the task is doing (a request out against
-    it, or against an open child) - task_state's own live read, since
-    nothing here is a column a write path must remember to keep in sync
-    either. Every tick, for every open task that carries a timeout at all:
-
-    - not doing, clock running (timeout_at set): pause it.
-    - doing, clock not yet running: start it, timeout_s from now - no
-      notice; becoming doing is not itself running long. A task with no
-      timeout_s (opened inside ocp, T301, or before timeouts existed) is
-      given actions.DEFAULT_TASK_TIMEOUT_S here, where it becomes doing.
-    - doing, past its deadline: tell its opener, offering the two answers
-      the founder named - continue (`edit --timeout`) or release
-      (`ocp task release`) - and re-arm for another timeout_s. Repeats
-      every stretch until one of those, or the task is done.
-
-    A task opened by the founder is still only an event today (`_tell`
-    returns True for it with nothing typed anywhere) - the same gap
-    `timebox_exceeded` has always had - but the notice text now rides along
-    in the payload, so at least `ocp events` shows what it said, not just
-    the task id (no task is opened by the founder yet, so this is unreached
-    until one is)."""
+    """A task's timeout clock, read each tick: it runs only while the task is doing;
+    past it the opener is told, and again every stretch until it is done, extended
+    or released. A task with no timeout_s takes the default where it becomes doing."""
     from .. import actions
     for row in db.tasks_to_clock(con):
         tid = int(row["id"])

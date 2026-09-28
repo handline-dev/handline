@@ -160,13 +160,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- stored: it is read live from a request out against the task.
   queued_by    TEXT,
   queued_at    INTEGER,
-  -- T286: `ocp task new` requires -t/--timeout (at most 4h); `ocp task edit
-  -- --timeout` extends it, counting from the edit. timeout_s is the length
-  -- last set; timeout_at is the next deadline the daemon's sweep fires a
-  -- notice at, then pushes out by timeout_s again - repeating until the task
-  -- is done or its timeout is extended (see daemon/timebox.py). NULL on a
-  -- task opened before this column existed, until the migration below backfills
-  -- the open ones; NULL stays NULL on a closed one, which never got a timeout.
+  -- T286: timeout_s is the length a doing task may run before its opener is told;
+  -- timeout_at the next deadline (NULL while it is not doing). See daemon/timebox.py.
   timeout_s    INTEGER,
   timeout_at   INTEGER
 );
@@ -633,14 +628,8 @@ def _add_missing_columns(con) -> None:
     if "timeout_s" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_s INTEGER")
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_at INTEGER")
-        # T286 (4), founder #1627's revision: only a task already *doing* -
-        # a request currently queued against it, or against an open child -
-        # gets a 4h timeout, counted from now, the migration; every other
-        # open task (draft, queued, done-not-closed) gets none, the same as
-        # a task the clock has not yet started for.
-        # actions.MAX_TASK_TIMEOUT_S is duplicated as a literal here (schema.py
-        # imports nothing from actions) since this runs once, at the moment
-        # the column itself is added.
+        # Tasks already doing get 4h from now, the rest none (MAX_TASK_TIMEOUT_S
+        # as a literal: schema.py imports nothing from actions).
         now = int(time.time())
         con.execute(
             "UPDATE tasks SET timeout_s = 14400, timeout_at = ? "

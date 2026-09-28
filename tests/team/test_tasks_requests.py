@@ -7612,6 +7612,33 @@ limits:
         con.close()
 
 
+def test_a_begun_task_reads_doing_the_same_way_everywhere(home: Path) -> None:
+    """T286 review: `task_state` and `reads_doing` (the timeout clock's read) must
+    agree that a task begun on a founder message is doing, and releasing one says
+    so instead of failing."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        chat = _human_request("worker")
+        ok, msg, tid = actions.task_begin(con, "worker", "begun work", chat, "the founder asked")
+        row = db.get_task(con, tid)
+        check("begun: task_state says doing", ok and actions.task_state(con, row) == "doing", msg)
+        check("begun: and reads_doing agrees", actions.reads_doing(con, tid))
+        db.set_task_queued(con, tid, "worker")
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (chat,))
+        check("begun: still doing after its chat request is answered, in both",
+              actions.task_state(con, db.get_task(con, tid)) == "doing" and actions.reads_doing(con, tid))
+        ok, msg = actions.release_task(con, tid, askmod.HUMAN)
+        check("begun: releasing it says it stays doing, without crashing",
+              not ok and "begun on a founder message" in msg, msg)
+        plain = db.new_task(con, "plain draft", "worker", "manager")
+        check("begun: a task that was not begun and has no request is not doing in either",
+              actions.task_state(con, db.get_task(con, plain)) == "draft"
+              and not actions.reads_doing(con, plain))
+    finally:
+        con.close()
+
+
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
@@ -8081,6 +8108,7 @@ def main() -> int:
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
         run(lambda: test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(Path(td) / 'fe1'))
+        run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))

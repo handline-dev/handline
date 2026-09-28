@@ -104,19 +104,10 @@ def set_task_queued(con, tid: int, by: str | None) -> bool:
 
 
 def reopen_task(con, tid: int, is_doing: bool) -> bool:
-    """Send a done task back to open, atomically - the opposite of marking
-    it done. True only if this call was the one that cleared it. Refuses (by
-    matching no row) a task that is not currently done, or one already
-    closed - closing is final.
-
-    `is_doing` is the caller's read of whether the reopened task still has a
-    request out against it (`actions.reads_doing`, taken before this write -
-    `done_evidence` says nothing about that either way). Doing, its timeout
-    clock resumes from now, not from whatever deadline it had when marked
-    done - that one may have been reached, or long passed, while it sat done
-    and untimed, and firing on it now would notice a stretch nobody was
-    watching. Not doing, the clock stays paused, the same as any task that
-    is open but not doing."""
+    """Send a done task back to open, atomically; True only if this call cleared it
+    (a task not done, or already closed, matches no row). `is_doing` is the caller's
+    read of `reads_doing`: a doing task's clock restarts from now rather than firing
+    on a deadline that passed while it sat done."""
     now = int(time.time())
     if is_doing:
         cur = con.execute(
