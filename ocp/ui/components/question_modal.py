@@ -7,6 +7,8 @@ AskUserQuestion prompt is a one-off Claude asked, the same reasoning PermissionM
 gives for having no "always")."""
 from __future__ import annotations
 
+import asyncio
+
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -18,16 +20,21 @@ from ...infra import textsafe
 from .text_prompt import TextPrompt
 
 
-class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
-    """Dismisses with (choices, text) - `choices` the 0-based option indexes
-    picked, `text` Other's own typed answer, or None when closed by hand: the
-    terminal is left as it is. On a single-select question Other submits by
-    itself (choices then empty) the moment its text is typed, matching the
-    real screen's own one-shot number-then-text-then-Enter. A multiSelect
-    question's Other only records the text and returns to the checklist -
-    Submit picked is what dismisses, with whatever boxes are checked at that
-    point (T322 follow-up, founder capture 2026-09-28: checked boxes used to
-    be silently dropped the moment Other was answered)."""
+class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
+    """Dismisses with `press`'s own (ok, said) once it has actually run, or
+    None when closed by hand before anything was sent - the terminal is left
+    as it is either way. Pressing an option runs `press` itself, on a thread
+    (T336 follow-up, founder: sending is a real subprocess call to `orca`,
+    slow enough to want its own feedback) - every control here disables and
+    the hint says so while it is in flight, so what used to be a modal that
+    vanished with no sign anything was still happening now stays up, showing
+    that, until `press` actually returns. On a single-select question Other
+    submits by itself (choices then empty) the moment its text is typed,
+    matching the real screen's own one-shot number-then-text-then-Enter. A
+    multiSelect question's Other only records the text and returns to the
+    checklist - Submit picked is what sends, with whatever boxes are checked
+    at that point (T322 follow-up, founder capture 2026-09-28: checked boxes
+    used to be silently dropped the moment Other was answered)."""
 
     BINDINGS = [Binding("escape", "dismiss(None)", "close")]
     DEFAULT_CSS = """
@@ -41,11 +48,14 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
     QuestionModal #hint { color: $text-muted; }
     """
 
-    def __init__(self, found: dict) -> None:
+    def __init__(self, found: dict, press, on_start=lambda: None) -> None:
         super().__init__()
         self.found = found
+        self._press = press
+        self._on_start = on_start
         self._checked: set[int] = set(i for i, opt in enumerate(found["options"]) if opt.get("checked"))
         self._other_text: str | None = None
+        self._sending = False
 
     def compose(self) -> ComposeResult:
         d = self.found
@@ -72,21 +82,25 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
+        if self._sending:
+            return
         if event.button.id == "other":
             await self._other()
         elif event.button.id == "submit":
-            self.dismiss((tuple(sorted(self._checked)), self._other_text))
+            await self._submit(tuple(sorted(self._checked)), self._other_text)
         else:
-            self.dismiss(((int(event.button.id.split("_")[1]),), None))
+            await self._submit((int(event.button.id.split("_")[1]),), None)
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         event.stop()
+        if self._sending:
+            return
         i = int(event.checkbox.id.split("_")[1])
         self._checked.add(i) if event.value else self._checked.discard(i)
 
-    def on_key(self, event) -> None:
+    async def on_key(self, event) -> None:
         ch = event.character
-        if not ch:
+        if not ch or self._sending:
             return
         d = self.found
         if ch.isdigit():
@@ -96,21 +110,39 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
                 if d["multi_select"]:
                     self.query_one(f"#opt_{n - 1}", Checkbox).toggle()
                 else:
-                    self.dismiss(((n - 1,), None))
+                    await self._submit((n - 1,), None)
             elif n == d["other_number"]:
                 event.stop()
-                self.run_worker(self._other())
+                await self._other()
         elif ch.lower() == "o" and d["other_number"] is not None:
             event.stop()
-            self.run_worker(self._other())
+            await self._other()
 
     async def _other(self) -> None:
+        if self._sending:
+            return
         text = await self.app.push_screen_wait(TextPrompt(f"{self.found['question']} - your own answer:"))
         if text is None:
             return
         if not self.found["multi_select"]:
-            self.dismiss(((), text))
+            await self._submit((), text)
             return
         self._other_text = text
         label = f"{self.found['other_number']}. Other: {textsafe.oneline(text)}"
         self.query_one("#other", Button).label = Text(label)
+
+    async def _submit(self, choices: tuple[int, ...], text: str | None) -> None:
+        self._sending = True
+        self._on_start()
+        self.query_one("#hint", Static).update("sending to the terminal - this can take a moment")
+        for w in self.query(Button):
+            w.disabled = True
+        for w in self.query(Checkbox):
+            w.disabled = True
+        result = await asyncio.to_thread(self._press, choices, text)
+        self.dismiss(result)
+
+    async def action_dismiss(self, result=None) -> None:
+        if self._sending:
+            return      # answering already: esc would race its own dismiss once press() returns
+        await super().action_dismiss(result)

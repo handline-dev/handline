@@ -909,7 +909,7 @@ def question_on_screen(handle: str):
     return _driver_for(handle).ask_question(tail)
 
 
-QUESTION_KEY_GAP_S = 0.2
+QUESTION_KEY_GAP_S = 0.1
 
 
 def _send_question_keys(handle: str, keys: list[str]) -> tuple[bool, str]:

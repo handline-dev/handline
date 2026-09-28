@@ -1138,38 +1138,36 @@ class ChatPage(JobsAware, Screen):
         self._question_busy = False
         if found is None:
             self._question_closed = None          # gone: the same question coming back is asked again
-            if isinstance(self.app.screen, QuestionModal):
+            if isinstance(self.app.screen, QuestionModal) and not self._question_pressing:
                 self.app.pop_screen()      # the real screen moved on without this modal's own Submit
             return
         lines = tuple(found["lines"])
         if lines == self._question_closed or self._question_pressing \
                 or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal, TextPrompt)):
             return
-        self.app.push_screen(QuestionModal(found), lambda picked: self.question_answered(found, picked))
 
-    def question_answered(self, found: dict, picked: "tuple[tuple[int, ...], str | None] | None") -> None:
-        lines = tuple(found["lines"])
-        if picked is None:
-            self._question_closed = lines     # closed by hand: not offered again while it stays
-            return
-        self._question_closed = lines     # answered: not offered again before the screen catches up
-        choices, text = picked
-        self._question_pressing = True     # its own toggles, still on screen mid-press, are not a new question
-
-        def press() -> None:
+        def press(choices: "tuple[int, ...]", text: "str | None") -> "tuple[bool, str]":
             con = db.connect()
             try:
-                ok, said = actions.answer_question(con, self.agent, found, choices, text)
+                return actions.answer_question(con, self.agent, found, choices, text)
             finally:
                 con.close()
-            log_action(f"question {self.agent}: {'ok' if ok else 'refused'} - {said}")
 
-            def done() -> None:
-                self._question_pressing = False
-                self.notify(safe(said), title=f"question {self.agent}",
-                           severity="information" if ok else "error", timeout=10, markup=False)
-            self.app.call_from_thread(done)
-        self.run_worker(press, thread=True, group="question_press")
+        def start() -> None:
+            self._question_pressing = True     # sending, on the modal's own thread: not a new question
+
+        self.app.push_screen(QuestionModal(found, press, start),
+                             lambda result: self.question_answered(found, result))
+
+    def question_answered(self, found: dict, result: "tuple[bool, str] | None") -> None:
+        self._question_pressing = False
+        self._question_closed = tuple(found["lines"])     # not offered again before the screen catches up
+        if result is None:
+            return      # closed by hand before anything was sent
+        ok, said = result
+        log_action(f"question {self.agent}: {'ok' if ok else 'refused'} - {said}")
+        self.notify(safe(said), title=f"question {self.agent}",
+                   severity="information" if ok else "error", timeout=10, markup=False)
 
     def refresh_agent_state(self) -> None:
         con = db.connect()

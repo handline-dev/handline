@@ -18,11 +18,12 @@ footer, blank, "N. Chat about this", blank, a rule, the numbered options
 (each optionally an indented description line below it), the question, the
 header, a rule.
 
-Scope (v1): a lone question, single-select or multiSelect, "Other" on either.
-A multiSelect question's own "Other" sends the single-select key pattern
-followed by Right/Submit - untested against a real screen as of 2026-09-28,
-so a founder capture of it going through (or not) is still owed. A call with
-more than one question adds a tab per
+Scope (v1): a lone question, single-select or multiSelect, "Other" on either,
+checked boxes and Other together on a multiSelect question - all measured
+against real screens as of 2026-09-28, the last (T322/T336 follow-up,
+founder #2013) through `orca._answer_question_toggle_and_other`'s own
+two-stage send, never `question_keys` here, which still refuses that one
+combination outright. A call with more than one question adds a tab per
 question before "Submit", and reading that bar past the two tabs a lone
 question shows is not measured here - `recognize` returns None rather than
 guess at it, the same as it does for a multiSelect question's own
