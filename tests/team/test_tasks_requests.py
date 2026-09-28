@@ -5215,7 +5215,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         check("close: the task itself is still open after the rollback",
               row["closed_by"] is None, str(dict(row)))
         check("close: the block row is still there too - nothing half-applied",
-              db.task_blockers(con, t_boom_dep) != [])
+              db.blocks_on_ids(con, t_boom_dep) == [t_boom_blocker])
     finally:
         con.close()
 
@@ -5629,6 +5629,51 @@ def test_unblock_delivers_the_waiting_task_once_the_last_blocker_clears(home: Pa
         check("unblock: dep is delivered on its own, nobody asked again",
               actions.task_state(con, db.get_task(con, dep)) == "doing")
         check("unblock: it is worker's current task", db.current_task(con, "worker") == dep)
+    finally:
+        con.close()
+
+
+def test_a_blocker_marked_done_releases_the_task_waiting_on_it(home: Path) -> None:
+    """T397: T392 waited on T390; T390 was marked done at its merge, but only its
+    later close released T392, so the handoff sat queued with its auditor idle until
+    someone unblocked it by hand. Done is the finish: it releases, and a reopen blocks
+    again."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        blocker = db.new_task(con, "blocker", "manager", "manager")
+        dep = db.new_task(con, "dep", "worker", "manager")
+        ok, msg = actions.task_start(con, "worker", dep)
+        ok2, msg2 = actions.add_block(con, dep, blocker, "manager")
+        check("setup: dep is worker's current task and waits on blocker", ok and ok2, msg + msg2)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "queue", f"T{dep}"], as_agent="manager")
+    check("setup: approved but blocked - queued, not delivered", rc == 0 and "was free" not in out, out)
+    con = db.connect()
+    try:
+        check("setup: blocked, and nothing delivered to worker yet",
+              actions.task_state(con, db.get_task(con, dep)) == "queued"
+              and [b["id"] for b in db.task_blockers(con, dep)] == [blocker])
+        ok, msg = actions.mark_task_done(con, blocker, "manager", reason="merged")
+        check("done: the blocker is marked done - not closed", ok and not db.get_task(con, blocker)["closed_by"], msg)
+        check("done: dep no longer reads blocked", db.task_blockers(con, dep) == [])
+        check("done: and its queued delivery goes out without a manual unblock",
+              actions.task_state(con, db.get_task(con, dep)) == "doing"
+              and db.current_task(con, "worker") == dep)
+        told = [r for r in con.execute("SELECT * FROM requests WHERE requester = ? AND target = 'worker'",
+                                       (actions._UNBLOCK_REQUESTER,)).fetchall()]
+        check("done: the owner is told once it is free", len(told) == 1, str([dict(r) for r in told]))
+        ok, msg = actions.reopen_task(con, blocker, "manager", "not actually finished")
+        check("reopen: the blocker reopens", ok, msg)
+        check("reopen: and blocks dep again - the row was kept",
+              [b["id"] for b in db.task_blockers(con, dep)] == [blocker])
+        ok, msg = actions.mark_task_done(con, blocker, "manager", reason="merged for real")
+        ok2, msg2 = actions.close_task(con, blocker, "manager")
+        told = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = 'worker'",
+                           (actions._UNBLOCK_REQUESTER,)).fetchone()[0]
+        check("close: a blocker released at done is not announced a second time by its close",
+              ok and ok2 and db.task_blockers(con, dep) == [] and told == 2, msg + msg2 + str(told))
     finally:
         con.close()
 
@@ -8132,6 +8177,7 @@ def main() -> int:
             Path(td) / 'advancepastdone'))
         run(lambda: test_unblock_delivers_the_waiting_task_once_the_last_blocker_clears(
             Path(td) / 'unblockdelivers'))
+        run(lambda: test_a_blocker_marked_done_releases_the_task_waiting_on_it(Path(td) / 'blockerdone'))
         run(lambda: test_closing_a_blocker_delivers_the_dependent_it_freed(
             Path(td) / 'closedelivers'))
         run(lambda: test_closing_a_blocker_delivers_the_closers_own_freed_task_too(

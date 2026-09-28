@@ -359,6 +359,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     _retire_task_requests(con, tid, f"task T{tid} done ({mark})")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
+    _deliver_unblocked(con, *_free_blocked_by(con, tid, by))
     return True, f"task T{tid} done ({mark})"
 
 
@@ -418,18 +419,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     _retire_task_requests(con, tid, f"task T{tid} closed by {by}")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
-    for rid, owner, text in notices:
-        askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
-                       team.Decision(True, "task unblocked", kind="report",
-                                     response="fire_and_forget", creates_gate=False,
-                                     chain_depth=0))
-    # T325: each dependent this unblocked may itself be someone's next
-    # queued, undelivered task - advance_current_task never runs again for
-    # it on its own once skipped over blocked, so it has to happen here too,
-    # for every freed owner, not only the ones told (never `by` itself).
-    for owner in freed_owners:
-        if advance_current_task(con, owner):
-            askmod.push(con, owner)
+    _deliver_unblocked(con, notices, freed_owners)
     return True, f"task T{tid} closed by {by}"
 
 
@@ -491,15 +481,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     _retire_task_requests(con, tid, f"task T{tid} discarded by {by}: {said}", state="rejected")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
-    for rid, owner, text in notices:
-        askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
-                       team.Decision(True, "task unblocked", kind="report",
-                                     response="fire_and_forget", creates_gate=False,
-                                     chain_depth=0))
-    # T325: as close_task - every freed owner, not only the ones told.
-    for owner in freed_owners:
-        if advance_current_task(con, owner):
-            askmod.push(con, owner)
+    _deliver_unblocked(con, notices, freed_owners)
     return True, f"task T{tid} discarded by {by}: {said}"
 
 
@@ -625,7 +607,7 @@ def _clear_blocks_on(con, tid: int, closer: str,
     for dep in db.tasks_blocked_by(con, tid):
         db.remove_block(con, dep["task_id"], tid)
         dep_row = db.get_task(con, dep["task_id"])
-        if dep_row is None or dep_row["closed_by"]:
+        if dep_row is None or dep_row["closed_by"] or _told_at_done(con, tid, dep["task_id"]):
             continue
         if db.task_blockers(con, dep["task_id"]):
             continue
@@ -637,6 +619,49 @@ def _clear_blocks_on(con, tid: int, closer: str,
             continue
         notices.append(_notify_unblocked(con, dep["task_id"], dep_row["owner"], closer, tid, how))
     return notices, freed_owners
+
+
+def _free_blocked_by(con, tid: int, by: str) -> tuple[list[tuple[int, str, str]], set[str]]:
+    """`tid` was just marked done: the tasks it blocked and that now have no open
+    blocker left are released, as a close would have (T397) - a notice for their owner
+    (not `by`'s own) and the owner to advance. The block rows stay, so a reopened
+    `tid` blocks them again; `_clear_blocks_on` drops them at the close."""
+    notices, freed_owners = [], set()
+    for dep in db.tasks_blocked_by(con, tid):
+        dep_row = db.get_task(con, dep["task_id"])
+        if dep_row is None or dep_row["closed_by"]:
+            continue
+        if db.task_blockers(con, dep["task_id"]):
+            continue
+        freed_owners.add(dep_row["owner"])
+        told = dep_row["owner"] != by       # the one who finished it does not need telling
+        db.add_event(con, by, "released_at_done", {"task_id": dep["task_id"], "blocks_on": tid,
+                                                    "told": told})
+        if told:
+            notices.append(_notify_unblocked(con, dep["task_id"], dep_row["owner"], by, tid, "done"))
+    return notices, freed_owners
+
+
+def _told_at_done(con, tid: int, dep: int) -> bool:
+    """Was `dep`'s owner already told, when blocker `tid` was marked done, that it is free?
+    Then the close of `tid` does not tell it again."""
+    return con.execute(
+        "SELECT 1 FROM events WHERE kind = 'released_at_done' "
+        "AND json_extract(payload, '$.task_id') = ? AND json_extract(payload, '$.blocks_on') = ? "
+        "AND json_extract(payload, '$.told') = 1 LIMIT 1", (dep, tid)).fetchone() is not None
+
+
+def _deliver_unblocked(con, notices, freed_owners) -> None:
+    """The half of a release that happens after the write: tell the owners, and give
+    each freed owner its next task now (T325) rather than at some later tick."""
+    for rid, owner, text in notices:
+        askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
+                       team.Decision(True, "task unblocked", kind="report",
+                                     response="fire_and_forget", creates_gate=False,
+                                     chain_depth=0))
+    for owner in freed_owners:
+        if advance_current_task(con, owner):
+            askmod.push(con, owner)
 
 
 def _task_edit_guard(row, tid: int, by: str) -> str | None:

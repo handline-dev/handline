@@ -228,12 +228,14 @@ def remove_block(con, tid: int, blocks_on: int) -> bool:
 
 
 def task_blockers(con, tid: int) -> list:
-    """The still-open tasks blocking `tid`, whatever `task_blocks` names -
-    a row surviving a blocker's own close is a bug elsewhere, not a reason
-    to trust it here."""
+    """The tasks still blocking `tid`, whatever `task_blocks` names - a row surviving
+    a blocker's own close is a bug elsewhere, not a reason to trust it here. A blocker
+    that is done has finished the work: it no longer blocks (T397), and blocks again
+    if it is reopened."""
     return con.execute(
         "SELECT t.* FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id "
-        "WHERE b.task_id = ? AND t.closed_by IS NULL ORDER BY t.id", (tid,)).fetchall()
+        "WHERE b.task_id = ? AND t.closed_by IS NULL AND t.done_evidence IS NULL ORDER BY t.id",
+        (tid,)).fetchall()
 
 
 def blocks_on_ids(con, tid: int) -> list[int]:
