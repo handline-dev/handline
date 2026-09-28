@@ -53,8 +53,8 @@ That is all of it. The daemon delivers: an idle agent is told, a closed one is
 resumed first and then told, and a busy one is left alone until it is free.
 Nobody has to go and nudge a terminal. An interactive shell with no `OCP_AGENT`
 is a human's, so `ocp ask` from your own prompt comes from `human`; a
-script that lost the variable is refused rather than promoted, and says who it
-is with `--of`.
+script that lost the variable is refused rather than promoted; agents start
+with `ocp launch`, which sets it.
 
 ## Run the supervisor
 

@@ -1641,11 +1641,14 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         hostile = "see `describe_modal` and $(orca terminal send --terminal x --text boom)"
         f = home / "ask_body.txt"
         f.write_text(hostile)
-        out = _capture(lambda: climod.main(["ask", "reviewer", "--file", str(f), "--of", "backend"]))
+        os.environ["OCP_AGENT"] = "backend"
+        out = _capture(lambda: climod.main(["ask", "reviewer", "--file", str(f)]))
         check("ask --file: it went through", "queued" in out or "delivered" in out, out)
         con = db.connect()
         try:
-            row = db.head_of_queue(con, "reviewer")
+            # An agent session's edge is unverified until the daemon confirms it,
+            # so it is not yet the head; the row is queued all the same.
+            row = next(iter(db.queued_for(con, "reviewer")), None)
             check("ask --file: the text landed whole, backticks and all - nothing a shell "
                   "would have expanded ever reached one", row and row["body"] == hostile,
                   str(dict(row) if row else None))
@@ -1653,13 +1656,14 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         finally:
             con.close()
 
-        out = _capture(lambda: climod.main(["ask", "reviewer", "--of", "backend"]))
+        out = _capture(lambda: climod.main(["ask", "reviewer"]))
         check("ask: neither inline nor --file is a clear refusal, not a crash",
               "required" in out or "--file" in out, out)
         out = _capture(lambda: climod.main(
-            ["ask", "reviewer", "inline text", "--file", str(f), "--of", "backend"]))
+            ["ask", "reviewer", "inline text", "--file", str(f)]))
         check("ask: both inline and --file is refused too - one source, not a merge",
               "not both" in out, out)
+        del os.environ["OCP_AGENT"]
 
         vf = home / "verdict.txt"
         vf.write_text("done - `also not run`")
