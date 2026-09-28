@@ -115,6 +115,28 @@ def allow_home_writes() -> tuple[bool, list[str]]:
     return True, blockers
 
 
+def allow_home_socket() -> bool:
+    """Let a sandboxed agent connect to ocp's unix socket: True if it changed.
+
+    Connecting to a socket under the home fails with EPERM in a sandbox unless
+    `sandbox.network.allowUnixSockets` names it. Only that one path is added;
+    entries already there are kept, and a second run changes nothing.
+    """
+    sock = paths.socket_file()
+    target = target_settings()
+    data = _read_json(target) if target.exists() else {}
+    net = data.setdefault("sandbox", {}).setdefault("network", {})
+    allowed = net.get("allowUnixSockets", [])
+    if not isinstance(allowed, list):
+        allowed = []
+    if any(isinstance(e, str) and _as_path(e) == sock.resolve() for e in allowed):
+        return False
+    net["allowUnixSockets"] = [*allowed, str(sock)]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_settings(target, data)
+    return True
+
+
 def _is_orca_entry(entry: dict) -> bool:
     cmd = entry.get("command")
     return isinstance(cmd, str) and any(m in cmd for m in ORCA_MARKERS)
@@ -386,5 +408,6 @@ class ClaudeHooks:
     install = staticmethod(install)
     missing = staticmethod(missing)
     allow_home_writes = staticmethod(allow_home_writes)
+    allow_home_socket = staticmethod(allow_home_socket)
     ensure_shared = staticmethod(ensure_shared)
     shared_problems = staticmethod(shared_problems)

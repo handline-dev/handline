@@ -161,6 +161,9 @@ class StateHooks(Protocol):
     def allow_home_writes(self) -> tuple[bool, list[str]]:
         """Let a sandboxed agent write under OCP_HOME: (changed, blockers)."""
 
+    def allow_home_socket(self) -> bool:
+        """Let a sandboxed agent connect to ocp's unix socket: True if it changed."""
+
     def ensure_shared(self) -> Path:
         """Create the shared config dir and its settings file; refuses, changing
         nothing, when the settings file is not a JSON object."""

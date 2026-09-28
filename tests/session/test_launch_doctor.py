@@ -1343,10 +1343,59 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
     check("init: and the parent's deny is named, each time, for the founder to decide",
           all(f"denyWrite '{home.parent}' holds" in o for o in outs), str(outs))
     check("init: the rest of the sandbox block is left alone", data["sandbox"]["enabled"] is True)
+    check("init: ocp's socket is allowed once, over two runs",
+          data["sandbox"]["network"]["allowUnixSockets"] == [str(home / "daemon.sock")]
+          and "daemon.sock" in outs[0] and "daemon.sock" not in outs[1], str(data["sandbox"]) + str(outs))
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "install"], capture_output=True,
                        text=True, env=env, stdin=subprocess.DEVNULL, timeout=20)
     check("hook install: points to install-hooks instead of reading stdin",
           r.returncode != 0 and "ocp install-hooks" in r.stderr, r.stdout + r.stderr)
+
+
+def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
+    """A sandboxed agent connecting to a unix socket under the home gets EPERM
+    unless sandbox.network.allowUnixSockets names it."""
+    use_home(home)
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    sock = str(home / "daemon.sock")
+    hook = vendors.state_hooks()[0]
+    check("socket: the path is the daemon's socket under the home", str(paths.socket_file()) == sock, sock)
+
+    target.write_text(json.dumps({"sandbox": {"enabled": True, "network": {
+        "allowUnixSockets": ["/var/run/mine.sock"], "allowedDomains": ["example.com"]},
+        "filesystem": {"allowWrite": ["/elsewhere"]}}, "model": "x"}))
+    check("socket: a settings file with the founder's own entries changes", hook.allow_home_socket())
+    data = json.loads(target.read_text())
+    net = data["sandbox"]["network"]
+    check("socket: the founder's socket is kept, ours follows it",
+          net["allowUnixSockets"] == ["/var/run/mine.sock", sock], str(net))
+    check("socket: the rest of the network block and the file is left alone",
+          net["allowedDomains"] == ["example.com"] and data["sandbox"]["enabled"] is True
+          and data["sandbox"]["filesystem"] == {"allowWrite": ["/elsewhere"]} and data["model"] == "x",
+          str(data))
+    before = target.read_text()
+    check("socket: a second run changes nothing", not hook.allow_home_socket()
+          and target.read_text() == before)
+
+    target.write_text(json.dumps({"sandbox": {"network": {"allowUnixSockets": [f"~/{home.name}/daemon.sock"]}}}))
+    old = os.environ.get("HOME")
+    os.environ["HOME"] = str(home.parent.resolve())
+    try:
+        check("socket: an entry that is the same path spelled with `~` counts as there",
+              not hook.allow_home_socket(), target.read_text())
+    finally:
+        if old is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = old
+
+    target.unlink()
+    check("socket: with no settings file it creates one", hook.allow_home_socket()
+          and json.loads(target.read_text())["sandbox"]["network"]["allowUnixSockets"] == [sock])
+    target.write_text(json.dumps({"sandbox": {"network": {"allowUnixSockets": "oops"}}}))
+    check("socket: a malformed list is replaced by ours, not crashed on", hook.allow_home_socket()
+          and json.loads(target.read_text())["sandbox"]["network"]["allowUnixSockets"] == [sock])
 
 
 def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None:
@@ -2131,6 +2180,7 @@ def main() -> int:
         run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))
         run(lambda: test_doctor_catches_a_wanted_event_installed_before_it_existed(Path(td) / 'hookgap'))
         run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
+        run(lambda: test_allow_home_socket_adds_one_path_and_keeps_the_rest(Path(td) / 'homes'))
         run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))
         run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))

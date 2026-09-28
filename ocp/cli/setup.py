@@ -86,6 +86,8 @@ def cmd_init(args) -> int:
         for entry in blockers:
             print(f"sandbox: denyWrite '{entry}' holds {h} and still blocks agents from it; "
                   f"remove it from {sh.target_settings()} if that is not what you want")
+        if sh.allow_home_socket():
+            print(f"sandbox: agents may connect to {paths.socket_file()}")
 
     # Section 3 keeps the whole home in git, so digest generations, rollback
     # and change history come for free. accounts/ stays ignored.
