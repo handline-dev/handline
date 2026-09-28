@@ -20,5 +20,5 @@ step it reached. An agent with an in-flight handoff is excluded from trigger
 evaluation, and a second trigger merges into the existing one as an added
 reason rather than starting a competing handoff.
 """
-from . import (delivery, devmode, evaluate, handoff, lifecycle, locks, loop, reconciler,  # noqa: F401
-               states, usage_poll)
+from . import (delivery, devmode, evaluate, handoff, lifecycle, locks, loop, messaging,  # noqa: F401
+               reconciler, socket_server, states, usage_poll)

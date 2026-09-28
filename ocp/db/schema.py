@@ -312,6 +312,19 @@ CREATE TABLE IF NOT EXISTS usage_samples (
 -- filter on ts alone, which that index cannot serve (account leads it).
 CREATE INDEX IF NOT EXISTS usage_samples_account_ts ON usage_samples(account, ts);
 CREATE INDEX IF NOT EXISTS usage_samples_ts ON usage_samples(ts);
+
+-- T351: text still owed to an agent's terminal - a screen_blocker was up, or
+-- the session was closed. Only the daemon writes this table, and a row is
+-- deleted the instant it is typed: what was typed already lives in the
+-- receiver's own session file, so only the unsent survives a restart (#2117).
+CREATE TABLE IF NOT EXISTS pending_messages (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent   TEXT    NOT NULL,
+  text    TEXT    NOT NULL,
+  ts      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pending_messages_agent ON pending_messages(agent, id);
+
 -- One row per API call, from the transcripts (tokenlog.py): what the plan
 -- charges for, beside what usage_samples says it charged. Not read by any pick.
 CREATE TABLE IF NOT EXISTS token_calls (

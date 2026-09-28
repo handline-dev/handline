@@ -10,7 +10,7 @@ from ..infra import service
 from ..infra import textsafe
 from ..session import triggers
 
-from . import devmode, evaluate, locks, reconciler
+from . import devmode, evaluate, locks, messaging, reconciler, socket_server
 
 
 # ---------------------------------------------------------------- loop
@@ -68,9 +68,22 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         con = db.connect()
         samples: dict = {}
         dev_state: dict = {"fp": None, "warned": None}
+        srv = socket_server.SocketServer(log)
+        try:
+            srv.start()
+        except OSError as e:
+            # Same reasoning as rotate_logs and the dev-mode check below: a
+            # daemon that cannot make its socket still has agents to
+            # supervise, and a tick that never runs loses far more than one
+            # that runs with no one able to reach it over the socket.
+            log(f"daemon socket: could not start ({e}) - continuing without it")
         try:
             log("daemon starting - reconciling")
             reconciler.reconcile(con, log)
+            # #2117: whatever a message could not be typed at before the last
+            # restart is still owed - try it now, for any agent already free
+            # to hear it, rather than waiting out its next tick.
+            messaging.reload_pending(con, log)
 
             ticks = 0
             while not stopping["now"]:
@@ -106,6 +119,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     time.sleep(triggers.POLL_S)
             log(f"stopped after {ticks} tick(s)")
         finally:
+            srv.stop()
             con.close()
 
     if restarting:

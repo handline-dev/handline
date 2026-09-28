@@ -16,3 +16,4 @@ from .tasks import (TASK_FIELDS, DEFAULT_PRIORITY, merge_task, move_task_links, 
 from .blocks import (block_get, blocks, block_open, block_update, block_set_request, press_add, presses_since, block_clear)  # noqa: F401
 from .handoff import (start_handoff, advance_handoff, set_handoff, get_handoff, in_flight_handoffs, in_flight_for, last_handoff)  # noqa: F401
 from .usage import (USAGE_SAMPLE_RETENTION_DAYS, record_usage_sample, prune_usage_samples, usage_samples)  # noqa: F401
+from .pending import (add_pending, get_pending, list_pending, delete_pending)  # noqa: F401

@@ -15,6 +15,7 @@ rule, no timer, no daemon caller.
 from __future__ import annotations
 
 from .. import db
+from ..infra import lock
 from ..session import orca, waiting
 from .dialogs import _handle, _vendor
 
@@ -62,15 +63,21 @@ def answer(con, agent: str, yes: bool, seen: dict) -> tuple[bool, str]:
     """Send Yes or No to the prompt `seen` (a dict `pending` returned). The screen
     is read again first, and nothing is pressed unless it is that same prompt:
     the same panel text and the same wait record. A prompt with no record to pin
-    it to (`wait` None) is not answered."""
-    handle = _handle(con, agent)
-    if handle is None:
-        return False, f"{agent}: it has no terminal to answer in"
+    it to (`wait` None) is not answered.
 
-    def same_wait() -> bool:
-        held = waiting.read(agent) or {}
-        return seen.get("wait") is not None and held.get("after_event_id") == seen.get("wait")
-    outcome, _, why = orca.answer_confirmation(handle, yes, tuple(seen.get("lines") or ()), same_wait)
-    if outcome == orca.CLEARED:
-        return True, f"{agent}: answered {'Yes' if yes else 'No'}"
-    return False, f"{agent}: not answered - {why or outcome}"
+    Locked (T351) the same terminal the tick types into - see
+    `dialogs.answer_dialog`."""
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False, f"{agent}: something else is using its terminal; try again"
+        handle = _handle(con, agent)
+        if handle is None:
+            return False, f"{agent}: it has no terminal to answer in"
+
+        def same_wait() -> bool:
+            held = waiting.read(agent) or {}
+            return seen.get("wait") is not None and held.get("after_event_id") == seen.get("wait")
+        outcome, _, why = orca.answer_confirmation(handle, yes, tuple(seen.get("lines") or ()), same_wait)
+        if outcome == orca.CLEARED:
+            return True, f"{agent}: answered {'Yes' if yes else 'No'}"
+        return False, f"{agent}: not answered - {why or outcome}"

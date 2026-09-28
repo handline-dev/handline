@@ -55,6 +55,14 @@ def db_file() -> Path:
     return home() / "db.sqlite"
 
 
+def socket_file() -> Path:
+    """The daemon's control socket (T351): the only way in to type at an
+    agent's terminal, answer a dialog, or wake/close/park/fold/move/start
+    one - one JSON request per connection, one {ok, said} reply. A refused
+    connection means the daemon is down; there is no other path in."""
+    return home() / "daemon.sock"
+
+
 def mcp_config() -> Path:
     """The MCP server registry every launch passes via `--mcp-config`.
 

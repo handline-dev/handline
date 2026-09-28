@@ -342,15 +342,15 @@ def waiting_for(con, agent: str) -> bool:
     (`delivery.effective_head`, T337 - a true head blocked on record and
     nothing behind it to stand in for it is not this, the same reason a
     session is not spent waking one for a request it was already told), an
-    answer to something it asked, or a say (T293) - never a head, but still
-    owed a delivery with nothing else queued. A closed agent is woken for
-    that and for nothing else.
+    answer to something it asked, a say (T293) - never a head, but still
+    owed a delivery with nothing else queued, or a pending message (T351)
+    still unsent. A closed agent is woken for that and for nothing else.
 
     A caller gating a closed agent's wake on this enforces its edges first;
     see the comment at `_wake_agent`'s own gate (T146 pt.1).
     """
     return bool(delivery.effective_head(con, agent) or db.unannounced_answers(con, agent)
-                or db.send_now_pending(con, agent))
+                or db.send_now_pending(con, agent) or db.list_pending(con, agent))
 
 
 def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
