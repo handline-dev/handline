@@ -796,7 +796,7 @@ class _Terminal:
         orcamod.send = self.send
         orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
 
-    def read(self, handle):
+    def read(self, handle, limit=40):
         self.reads += 1
         return _screen_of(self.tail, source=self.source)
 
@@ -819,7 +819,7 @@ class _ExitTerm:
         self.screen, self.sent = list(COMPOSER_EMPTY), []
         self.torn, self.reads = 0, 0
 
-    def _read(self, handle):
+    def _read(self, handle, limit=40):
         self.reads += 1
         if self.torn and self.screen == list(self.dialog):
             self.torn -= 1

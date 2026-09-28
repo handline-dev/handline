@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from ocp.team import dialog_rules  # noqa: E402
 
 DIALOG = ["  earlier output", "▔" * 60, "   Do you want to proceed?", "   ❯ 1. Yes",
           "     2. Yes, and don't ask again", "     3. No", "   Esc to cancel"]
@@ -78,6 +79,67 @@ def _heredoc_dialog(body_lines: int) -> list[str]:
            "     3. No, and tell Claude what to do differently (esc)",
            "   Esc to cancel · Tab to amend"]
     )
+
+
+class _WideKeyTerm:
+    """Like `_KeyTerm`, but the whole buffer can be longer than one read -
+    `_screen(h, limit)` returns the last `limit` rows of it, and pressing a
+    key (unless `ignores_key`) clears the whole thing, not just the visible
+    slice of it."""
+
+    def __init__(self, full_tail, ignores_key=False):
+        self.full_tail, self.ignores_key, self.sent = list(full_tail), ignores_key, []
+        orcamod._screen = lambda h, limit=40: support._screen_of(self.full_tail[-limit:])
+        orcamod.send = self.send
+
+    def send(self, handle, text, enter=True):
+        self.sent.append((text, enter))
+        if not self.ignores_key:
+            self.full_tail = list(CLEARED_SCREEN)
+        return True, ""
+
+
+def test_answer_dialog_never_remembers_a_press_that_failed(home: Path) -> None:
+    """T383 (auditor finding): dialogs.answer_dialog used to call _remember
+    before orca.press_option, so 'always' could write a standing rule even
+    when the press itself then failed - especially bad under a truncated
+    dialog's shared placeholder title (T383), which would wrongly answer
+    every other long dialog like it too. Now the rule is written only once
+    the press has actually landed."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        # A dialog that never clears when pressed - press_option reports
+        # STILL_OPEN, never CLEARED.
+        _KeyTerm(DIALOG, ignores_key=True)
+        ok, said = actions.answer_dialog(con, "backend", "Do you want to proceed?", 1, always=True)
+        check("answer_dialog: a press that does not clear the dialog is not ok", not ok, said)
+        check("answer_dialog: and nothing was remembered from it",
+              dialog_rules.list_rules() == [], str(dialog_rules.list_rules()))
+
+        # The same dialog, but this time it actually clears.
+        _KeyTerm(DIALOG)
+        ok, said = actions.answer_dialog(con, "backend", "Do you want to proceed?", 1, always=True)
+        check("answer_dialog: a press that clears the dialog is ok", ok, said)
+        check("answer_dialog: and this time it is remembered",
+              len(dialog_rules.list_rules()) == 1, str(dialog_rules.list_rules()))
+    finally:
+        con.close()
+
+
+def test_a_long_heredoc_dialog_can_actually_be_pressed(home: Path) -> None:
+    """dialog_on_screen widening to find a long command's dialog is only
+    half the fix - _press_dialog (press_option, decline_dialog,
+    answer_dialog, ...) must resolve the same dialog the same way, or the
+    founder sees the prompt and every press on it still fails. Both the
+    recoverable (45-line) and the truncated (450-line, past
+    _DIALOG_READ_MAX) cases must actually press."""
+    for body_lines in (45, 450):
+        term = _WideKeyTerm(_heredoc_dialog(body_lines))
+        out = orcamod.press_option("term_x", 1)
+        check(f"heredoc press ({body_lines} lines): the option is actually sent",
+              term.sent == [("1", False)] and out[0] == orcamod.CLEARED,
+              str((body_lines, term.sent, out)))
 
 
 def test_a_long_heredoc_commands_dialog_is_found_by_widening_the_read(home: Path) -> None:
@@ -156,6 +218,8 @@ def test_a_heredoc_permission_prompt_now_reaches_pending_confirmation(home: Path
 def main() -> int:
     def tests(td):
         run(lambda: test_press_option_sends_one_digit_and_refuses_what_it_cannot_send(Path(td) / 'po0'))
+        run(lambda: test_answer_dialog_never_remembers_a_press_that_failed(Path(td) / 'po0a'))
+        run(lambda: test_a_long_heredoc_dialog_can_actually_be_pressed(Path(td) / 'po0b'))
         run(lambda: test_a_long_heredoc_commands_dialog_is_found_by_widening_the_read(Path(td) / 'po1'))
         run(lambda: test_a_command_past_the_widest_read_still_shows_a_truncated_dialog(Path(td) / 'po2'))
         run(lambda: test_an_ordinary_short_dialog_costs_only_the_one_read(Path(td) / 'po3'))

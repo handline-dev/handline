@@ -74,7 +74,10 @@ def answer_dialog(con, agent: str, title: str, number: int, always: bool = False
     """Press option `number` of the dialog titled `title`, after reading the screen again: what
     is pressed is what is on screen now, not what the modal showed. `always` saves the choice
     first-class: the folder becomes a trusted root, any other dialog becomes a rule on its exact
-    title and the chosen label.
+    title and the chosen label - remembered only once the press itself lands, never ahead of it:
+    a rule saved before a press that then fails would stand for a choice nothing confirmed was
+    ever made, and under a truncated dialog's shared placeholder title (T383) would wrongly
+    answer every other long dialog like it too.
 
     Locked (T351) the same terminal the tick types into - a key pressed here
     and a line the tick sends can otherwise land in the same input box."""
@@ -88,17 +91,21 @@ def answer_dialog(con, agent: str, title: str, number: int, always: bool = False
         if label is None:
             return False, f"{agent}: the dialog has no option {number}"
         handle = _handle(con, agent)
-        if always:
-            ok, said = _remember(now, label)
-            if not ok:
-                return False, f"{agent}: not pressed - {said}"
         if now["kind"] == TRUST:
             ok, said = orca.confirm_trust(handle)
-            return ok, f"{agent}: {said}"
-        outcome, _, why = orca.press_option(handle, number)
-        if outcome == orca.CLEARED:
-            return True, f"{agent}: chose {number}. {label}" + (" - and will again" if always else "")
-        return False, f"{agent}: {why or outcome}"
+            if not ok:
+                return False, f"{agent}: {said}"
+        else:
+            outcome, _, why = orca.press_option(handle, number)
+            if outcome != orca.CLEARED:
+                return False, f"{agent}: {why or outcome}"
+        if always:
+            ok, remember_said = _remember(now, label)
+            if not ok:
+                return True, f"{agent}: chose {number}. {label} - but not remembered: {remember_said}"
+        if now["kind"] == TRUST:
+            return True, f"{agent}: {said}"
+        return True, f"{agent}: chose {number}. {label}" + (" - and will again" if always else "")
 
 
 def _remember(dialog: dict, label: str) -> tuple[bool, str]:
