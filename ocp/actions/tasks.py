@@ -905,6 +905,95 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
     return True, f"note sent on T{tid} - " + "; ".join(sent)
 
 
+def _role(agent: str) -> str:
+    """The last dotted segment of an agent's name when it is one of the two roles
+    a handoff knows - `orcapipe.auditor` is an auditor, `harbor.merger` a merger."""
+    last = agent.rsplit(".", 1)[-1]
+    return last if last in ("auditor", "merger") else ""
+
+
+def previous_owner(con, tid: int, owner: str) -> str | None:
+    """Who handed T<tid> to `owner`, read from the handoff record: the latest
+    handoff whose receiver is `owner`. None if nobody did."""
+    for h in reversed(db.task_handoffs(con, tid)):
+        if h["to"] == owner:
+            return h["from"]
+    return None
+
+
+def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
+    """Why `me` may not hand this task to `to`, or None. The chain is fixed: the
+    owner hands it to an auditor; the auditor returns it to the task's opener
+    (a PASS) or the one who handed it over (a FAIL); the opener passes it on to
+    a merger or takes it back to whoever had it. The founder may do anything."""
+    tid = row["id"]
+    if row["closed_by"] or row["done_evidence"]:
+        return f"task T{tid} is already finished - nothing to hand over"
+    if not note:
+        return "a handoff needs a note: what changed, and what the receiver should know"
+    if to not in paths.list_agents():
+        return f"no agent named {to}"
+    if to == row["owner"]:
+        return f"T{tid} is already {to}'s"
+    if me == HUMAN:
+        return None
+    if me != row["owner"]:
+        return f"T{tid} is {row['owner']}'s: only its owner hands it on"
+    prev = previous_owner(con, tid, me)
+    role, target = _role(me), _role(to)
+    if role == "auditor":
+        allowed = to in {row["opened_by"], prev}
+        hint = f"the task's opener ({row['opened_by']}) on a PASS, {prev or 'nobody'} (who handed it over) on a FAIL"
+    elif role == "merger":
+        allowed = to == prev
+        hint = f"{prev or 'nobody'}, who handed it over - a merger closes it done once merged"
+    elif me == row["opened_by"]:
+        allowed = target in ("auditor", "merger") or to == prev
+        hint = f"an auditor or a merger, or {prev or 'nobody'} (who handed it over)"
+    else:
+        allowed = target == "auditor"
+        hint = "an auditor"
+    if not allowed:
+        return f"{me} may hand T{tid} only to {hint}, not {to}"
+    return None
+
+
+def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]:
+    """One verb for passing a task along: its owner changes to `to`, the note goes
+    to `to` with the task, and both the note and the handoff stay in the task's
+    record (`db.task_handoffs`, in the order they happened). A required note
+    replaces the separate ask: nothing else is sent."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task T{tid}"
+    said = textsafe.text(note or "").strip()
+    why = _handoff_refusal(con, row, me, to, said)
+    if why:
+        return False, why
+    # The delivery is the only thing that can be refused past this point (the
+    # routing table), so it goes first: a refusal leaves the task where it was.
+    ok, msg, rid = askmod.ask(to, f"T{tid} handed to you by {me}: {row['title']}\n\n{said}",
+                              requester=me, kind="task")
+    if not ok:
+        return False, msg
+    old = row["owner"]
+    for r in db.task_requests(con, tid):
+        if r["state"] == "queued" and r["target"] == old and r["id"] != rid:
+            askmod.resolve(r["id"], f"handed to {to}", notify=False)
+    db.edit_task(con, tid, me, owner=to)
+    db.link_request(con, tid, rid)
+    db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
+                                            "request_id": rid})
+    if db.current_task(con, old) == tid:
+        db.set_current_task(con, old, None)
+        if advance_current_task(con, old):
+            askmod.push(con, old)
+    if db.current_task(con, to) is None:
+        db.set_current_task(con, to, tid)
+    askmod.push(con, to)
+    return True, f"T{tid} handed to {to}: {msg}"
+
+
 PRIORITIES = (1, 2, 3)
 
 

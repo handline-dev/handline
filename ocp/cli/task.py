@@ -292,6 +292,21 @@ def cmd_task_begin(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_task_handoff(args) -> int:
+    """T377: pass T<n> to another agent with a note that travels with it."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("hand a task over"))
+        return 1
+    con = db.connect()
+    try:
+        ok, msg = actions.task_handoff(con, me, args.task, args.to, args.note)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
 def cmd_task_start(args) -> int:
     """T292 bullet 3: pick up T<n> as your current task explicitly, for a
     task delivered while you already held one."""
