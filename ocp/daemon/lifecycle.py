@@ -343,9 +343,8 @@ def waiting_for(con, agent: str) -> bool:
     but still owed a delivery with nothing else queued. A closed agent is
     woken for that and for nothing else.
 
-    A caller gating a closed agent's wake on this runs `enforce_edges` for it
-    first (T146 pt.1): `head_of_queue` rightly does not count an edge this
-    has not cleared yet, and nothing else ever will for a closed agent.
+    A caller gating a closed agent's wake on this enforces its edges first;
+    see the comment at `_wake_agent`'s own gate (T146 pt.1).
     """
     return bool(db.head_of_queue(con, agent) or db.unannounced_answers(con, agent)
                 or db.send_now_pending(con, agent))
