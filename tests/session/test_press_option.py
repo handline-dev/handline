@@ -215,11 +215,30 @@ def test_a_heredoc_permission_prompt_now_reaches_pending_confirmation(home: Path
         con.close()
 
 
+def test_always_on_a_truncated_dialog_presses_but_saves_no_rule(home: Path) -> None:
+    """T383 (auditor #2322): every long command shares TRUNCATED_TITLE, so a
+    standing rule saved under it would answer them all. The press lands, the
+    rule is refused, and the founder is told it was not remembered."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        _WideKeyTerm(_heredoc_dialog(450))
+        ok, said = actions.answer_dialog(con, "backend", orcamod.TRUNCATED_TITLE, 1, always=True)
+        check("truncated always: the press itself still lands", ok and "chose 1" in said, said)
+        check("truncated always: the founder is told it was not remembered",
+              "not remembered" in said and "and will again" not in said, said)
+        check("truncated always: no rule was saved",
+              dialog_rules.list_rules() == [], str(dialog_rules.list_rules()))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_press_option_sends_one_digit_and_refuses_what_it_cannot_send(Path(td) / 'po0'))
         run(lambda: test_answer_dialog_never_remembers_a_press_that_failed(Path(td) / 'po0a'))
         run(lambda: test_a_long_heredoc_dialog_can_actually_be_pressed(Path(td) / 'po0b'))
+        run(lambda: test_always_on_a_truncated_dialog_presses_but_saves_no_rule(Path(td) / 'po0c'))
         run(lambda: test_a_long_heredoc_commands_dialog_is_found_by_widening_the_read(Path(td) / 'po1'))
         run(lambda: test_a_command_past_the_widest_read_still_shows_a_truncated_dialog(Path(td) / 'po2'))
         run(lambda: test_an_ordinary_short_dialog_costs_only_the_one_read(Path(td) / 'po3'))

@@ -11,6 +11,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Static
 
 from ...infra import textsafe
+from ...session import orca
 
 
 class DialogModal(ModalScreen["tuple[int, bool] | None"]):
@@ -40,14 +41,19 @@ class DialogModal(ModalScreen["tuple[int, bool] | None"]):
                 yield Static(Text("\n".join(textsafe.oneline(l) for l in d["body"]), style="dim"), id="body")
             for number, label in d["options"]:
                 yield Button(Text(f"{number}. {textsafe.oneline(label)}"), id=f"opt_{number}", compact=True)
-            yield Checkbox("always choose the one I pick", id="always")
+            if d["title"] != orca.TRUNCATED_TITLE:      # no rule can be kept for it (dialogs._remember)
+                yield Checkbox("always choose the one I pick", id="always")
             yield Static("click an option or press its number · esc closes (the terminal is left as it is)", id="hint")
+
+    def _always(self) -> bool:
+        boxes = self.query("#always")
+        return bool(boxes) and boxes.first(Checkbox).value
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.dismiss((int(event.button.id.split("_")[1]), self.query_one("#always", Checkbox).value))
+        self.dismiss((int(event.button.id.split("_")[1]), self._always()))
 
     def on_key(self, event) -> None:
         if event.character and event.character.isdigit() and any(n == int(event.character) for n, _ in self.dialog["options"]):
             event.stop()
-            self.dismiss((int(event.character), self.query_one("#always", Checkbox).value))
+            self.dismiss((int(event.character), self._always()))

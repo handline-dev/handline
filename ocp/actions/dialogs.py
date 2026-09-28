@@ -113,6 +113,9 @@ def _remember(dialog: dict, label: str) -> tuple[bool, str]:
         if trust.is_declared(dialog["folder"]):
             return True, "already trusted"
         return trust.enact(dialog["folder"], "chosen from the agent's dialog")
+    if dialog["title"] == orca.TRUNCATED_TITLE:
+        # every long command shares this title, so a rule on it would answer them all
+        return False, "a long command's title is not shown, so no rule can be kept for it"
     from ..team import dialog_rules      # the founder-only store; agents cannot write it
     try:
         return dialog_rules.add(dialog["vendor"], dialog["title"], label)

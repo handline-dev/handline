@@ -411,6 +411,8 @@ def _screen_blocker(orca, tail: list) -> "orca.Blocker | None":
     """`Driver.screen_blocker` on Claude Code's layout, from rows already read."""
     footer = orca._footer_row(tail)
     if footer is not None:
+        # Deliberately not widened: a long command's title stays "", so autoaccept never
+        # matches a standing rule against a dialog it could not read whole.
         dialog = orca.parse_dialog(tail, footer)
         return orca.Blocker(orca.MODAL, orca.describe_modal(tail, footer),
                             title=dialog.title if dialog else "")
