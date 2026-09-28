@@ -364,7 +364,7 @@ class AgentRow(NamedTuple):
     kind: str = ""
     ctx: str = ""                # ANSI: yellow at its context limit
     inbox: int = 0
-    tasks: int = 0                # 1 if it has a current task (T292), else 0 (T300)
+    tasks: int = 0                # owned and not done: waiting plus current (T317)
     ready: bool = False           # IDLE with a queued task no open blocker holds (T300)
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
@@ -439,14 +439,11 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         w = dmn_lifecycle.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
-        # T292 landed: this is its one stored current task, not a scan of every
-        # open one (#1764).
         cur = db.current_task(con, name)
-        task_n, ready = 0, False
-        if cur is not None:
-            task_n = 1
-            ready = (s == "IDLE" and actions.task_state(con, db.get_task(con, cur)) == "queued"
-                     and not db.task_blockers(con, cur))
+        task_n = db.open_task_count(con, name)
+        ready = (cur is not None and s == "IDLE"
+                 and actions.task_state(con, db.get_task(con, cur)) == "queued"
+                 and not db.task_blockers(con, cur))
         rows.append(AgentRow(name, twig, shown[name], under, urgency, s, until, None,
                              oneline(acct or "-"), oneline(agents.kind(cfg)), ctxs,
                              len(db.queued_for(con, name)), task_n, ready, fire, wall))

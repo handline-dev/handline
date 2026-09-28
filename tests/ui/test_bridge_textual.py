@@ -771,8 +771,9 @@ async def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
 
 
 async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
-    """T300 (#1764)/T325: `tasks` is the agent's own stored current task (0
-    or 1), not a scan of every open one. `ready` needs that task queued, no
+    """T317 (#1806): `tasks` is every task the agent owns and has not
+    finished - waiting ones plus its current one, not just 0/1 for whether it
+    has a current task (T300). `ready` needs that current task queued, no
     open blocker on it, and the agent IDLE - T325 makes approving an
     unblocked task deliver it too (no second `ask` needed), so `ready` only
     still shows while an open blocker holds that delivery back, or once it
@@ -788,7 +789,7 @@ async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
     try:
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: no current task is no task", r.tasks == 0, r)
+        check("agents_data: no owned task is no count", r.tasks == 0, r)
 
         tid = db.new_task(con, "write the report", "backend", "product")
         ok, said = actions.task_start(con, "backend", tid)
@@ -809,8 +810,9 @@ async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
               "delivery back", ok and "was free" not in said, said)
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: queued and IDLE, but blocked - not ready",
-              r.state == "IDLE" and r.tasks == 1 and not r.ready, r)
+        check("agents_data: queued and IDLE, but blocked - not ready, "
+              "and the blocker itself adds to the count",
+              r.state == "IDLE" and r.tasks == 2 and not r.ready, r)
 
         db.remove_block(con, tid, blocker)
         con.commit()
@@ -818,7 +820,14 @@ async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
         r = next(x for x in rows if x.name == "backend")
         check("agents_data: ready once its current task is queued, unblocked and IDLE "
               "- the blocker cleared without anything having delivered it yet",
-              r.state == "IDLE" and r.tasks == 1 and r.ready, r)
+              r.state == "IDLE" and r.tasks == 2 and r.ready, r)
+
+        db.mark_task_done(con, blocker, "done, T317", via="reason")
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: a done task drops out of the count",
+              r.tasks == 1 and r.ready, r)
     finally:
         con.close()
 
