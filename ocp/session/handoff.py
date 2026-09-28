@@ -44,9 +44,14 @@ def _git(worktree: str, *args: str) -> str | None:
 
 
 def _request_line(con, agent: str) -> str:
-    """The delivered request. None delivered is a fact about the agent, not a
-    failure to read one: an agent between requests has nothing in progress."""
-    head = db.head_of_queue(con, agent)
+    """The delivered request - the agent's effective head (T337, auditor
+    #2028: not `db.head_of_queue` directly, which a blocked head would name
+    even though the agent was never told it and is working on whatever
+    stood in for it instead). None delivered is a fact about the agent, not
+    a failure to read one: an agent between requests has nothing in
+    progress."""
+    from ..daemon import delivery  # local: daemon.delivery imports daemon.handoff, which imports this module
+    head = delivery.effective_head(con, agent)
     if head is None or not head["delivered_at"]:
         return "request: none in progress"
     first = ((head["body"] or "").splitlines() or [""])[0][:120]
@@ -63,9 +68,11 @@ def _progress_key(request_id: int) -> str:
 
 
 def set_progress(con, agent: str, note: str) -> tuple[bool, str]:
-    """Keep `note` as the progress on the agent's delivered request, replacing
-    the last one. An empty note clears it."""
-    head = db.head_of_queue(con, agent)
+    """Keep `note` as the progress on the agent's delivered request (its
+    effective head, T337 - the one it was actually told, not a blocked true
+    head it never saw), replacing the last one. An empty note clears it."""
+    from ..daemon import delivery  # local: see _request_line
+    head = delivery.effective_head(con, agent)
     if head is None or not head["delivered_at"]:
         return False, "no request is in progress for you"
     note = textsafe.text(note).strip()
@@ -82,7 +89,9 @@ def progress_of(con, request_id: int) -> str | None:
 
 
 def get_progress(con, agent: str) -> str | None:
-    head = db.head_of_queue(con, agent)
+    """The note kept on the agent's effective head (T337 - see _request_line)."""
+    from ..daemon import delivery  # local: see _request_line
+    head = delivery.effective_head(con, agent)
     if head is None or not head["delivered_at"]:
         return None
     return db.get_meta(con, _progress_key(int(head["id"]))) or None

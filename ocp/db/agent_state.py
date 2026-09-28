@@ -180,6 +180,8 @@ AGENT_ACTIVITY_KINDS = frozenset({
     # two written when the stop is actually blocked, so it is this agent's
     # own activity too, not something ocp did to it.
     "stop_gate",
+    # T295: fires on the agent's own PreToolUse call, denied or not.
+    "edit_gate",
 })
 
 

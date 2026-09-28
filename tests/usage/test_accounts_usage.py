@@ -2829,14 +2829,15 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "background_work_ended",
-                    "block_task", "unblock_task", "task_unblocked", "queue_task", "draft_task",
+                    "block_task", "unblock_task", "task_unblocked", "task_deliver_refused",
+                    "queue_task", "draft_task",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_gone",
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
                     "SessionEnd", "timebox_exceeded", "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
-                    "dialog_accept_failed", "stop_wait_stuck"}
+                    "dialog_accept_failed", "stop_wait_stuck", "forgotten_resolve_capped"}
     # close_task, mark_task_done and reopen_task (#71) are here, not in
     # AGENT_ACTIVITY_KINDS, because none of the three is necessarily the
     # agent whose clock a careless future caller might attribute it to: a
@@ -2852,6 +2853,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # the same shape as edit_task (task #21/#1884); task_unblocked is
     # close_task's own aftermath, recorded under whoever closed the
     # blocker, not the blocked task's owner - never that owner's activity.
+    # task_deliver_refused (T325) is recorded under the owner a queued
+    # task's delivery was attempted for, not anything that owner did.
 
     # Literal add_event(agent, "kind", ...) call sites: every one sorted, and
     # the scan proven to have read every site, not just the ones its regex
@@ -4094,9 +4097,11 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
-    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session)
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+           obsmod.live_sessions)
     launched: list[str] = []
     try:
+        obsmod.live_sessions = lambda: {}
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
         # What the close took while the session was live; a snapshot read at
@@ -4131,7 +4136,8 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         check("pinning: the move is a finished handoff, not a degraded one",
               [r["state"] for r in pinned] == ["done"], str([dict(r) for r in pinned]))
     finally:
-        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session = real
+        (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+        obsmod.live_sessions) = real
         con.close()
 
 

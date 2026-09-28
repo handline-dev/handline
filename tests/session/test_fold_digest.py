@@ -491,6 +491,51 @@ def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path)
         con.close()
 
 
+def test_the_handoff_names_the_effective_head_not_a_blocked_one(home: Path) -> None:
+    """T337 round 4, auditor #2028 finding 2: _request_line, set_progress and
+    get_progress read db.head_of_queue directly - with a true head blocked
+    on record, that named the wrong request: one the agent was never told,
+    not the one behind it that it is actually working on. A resumed session
+    would be told it is working on the wrong thing, and a progress note
+    would land on a request that never carries it forward."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", str(_worktree_with_a_dirty_file(home / "wt-backend")))
+        write_agent_status("backend", "alpha", session_id="sess-1",
+                           transcript_path="/tmp/sess-1.jsonl")
+
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        nxt = db.add_request(con, "reviewer", "backend", "fix it", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, nxt)
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+
+        line = handoffmod._request_line(con, "backend")
+        check("handoff line: names the effective head, not the blocked true one",
+              f"#{nxt} from reviewer" in line and f"#{head}" not in line, line)
+
+        ok, said = handoffmod.set_progress(con, "backend", "done: the review\nleft: nothing")
+        check("progress: kept on the effective head, not the blocked one",
+              ok and said == f"#{nxt}", said)
+        check("progress: read back the same way",
+              handoffmod.get_progress(con, "backend") == "done: the review\nleft: nothing")
+        check("progress: the blocked head itself carries no note",
+              handoffmod.progress_of(con, head) is None)
+
+        handoffmod.record(con, "backend")
+        text = db.get_handoff(con, "backend")
+        check("handoff: the record names the effective head",
+              f"#{nxt} from reviewer" in text and f"#{head}" not in text, text)
+    finally:
+        con.close()
+
+
 def test_the_digest_facts_do_not_repeat_one_event_kind(home: Path) -> None:
     """The machine record in a digest counts turn boundaries and quotes what
     happened, instead of repeating one event kind sixteen times."""
@@ -629,6 +674,7 @@ def main() -> int:
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
         run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
         run(lambda: test_the_handoff_carries_the_agents_progress_note_on_its_request(Path(td) / 'hdprog'))
+        run(lambda: test_the_handoff_names_the_effective_head_not_a_blocked_one(Path(td) / 'hdprogblocked'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_fold_falls_back_to_claude_when_the_own_vendor_has_no_usable_account(Path(td) / 'foldfb'))
         run(lambda: test_run_model_asks_the_vendor_for_its_headless_argv(Path(td) / 'headless'))

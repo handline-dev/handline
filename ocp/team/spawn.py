@@ -29,6 +29,26 @@ from ..infra import textsafe
 # and drifting them apart would be silent.
 SUBMIT_WAIT_S = 60
 
+# How long to wait for a launched agent to show up in the process table before
+# saying it did not. `ocp launch` execs claude, which takes a few seconds to be
+# visible; the daemon's own wake waits about this long for the same reason.
+STARTED_TIMEOUT_S = 20
+
+
+def _confirm_session(agent: str) -> str | None:
+    """None once a session is actually running for `agent`; otherwise the
+    warning `start_in` and `spawn` return instead of "started" (#1976, T146
+    pt.2: a terminal handle back from Orca is not a session - oh-my-zsh's own
+    update prompt once ate a launch command whole and left a bare shell,
+    "started" regardless). The one check `ocp spawn`, the daemon's auto-start
+    and `actions.control.start` each need, instead of their own copy.
+    """
+    from ..daemon import delivery  # late: delivery's package pulls lifecycle, which imports this module
+    if delivery.wait_for_session(agent, STARTED_TIMEOUT_S):
+        return None
+    return (f"no session is running in it after {STARTED_TIMEOUT_S}s - the terminal is "
+            f"there and claude is not. Go and look (t): whatever it printed is on that shell.")
+
 
 def _run(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
     """`git`'s or Orca's own text, clean at the source, so a caller that embeds
@@ -157,7 +177,11 @@ def start_in(agent: str, worktree: str) -> tuple[bool, str]:
             register_worker(con, agent, handle)
         finally:
             con.close()
-    return True, f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"
+    said = f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"
+    problem = _confirm_session(agent)
+    if problem:
+        return False, f"{said}\n  but {problem}"
+    return True, said
 
 
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
@@ -227,6 +251,11 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
     lines = [f"{agent}: worktree {wt}",
              f"  {'branched from ' + base_ref if base_ref else 'kept'} ({why})",
              f"  terminal {handle or 'unknown'}"]
+
+    problem = _confirm_session(agent)
+    if problem:
+        lines.append(f"  WARNING: {problem}")
+        return False, "\n".join(lines)
 
     if prompt and not handle:
         # Sending to a handle we could not read means typing into nothing and

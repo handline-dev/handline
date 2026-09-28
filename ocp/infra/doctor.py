@@ -19,6 +19,7 @@ from ..usage import load as loadmod, status
 from . import paths, protected, sealed, service, textsafe
 from . import timefmt
 from ..daemon import reconciler as dmn_reconciler
+from ..session import events
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -141,6 +142,23 @@ def _check_orca_hooks(r: Report) -> None:
                   "run `ocp hooks sync`, or let the watcher do it")
         else:
             r.add(OK, f"Orca hooks in sync ({len(src)} events)")
+
+
+def _check_ocp_hooks(r: Report) -> None:
+    """Ours, not Orca's mirror (`_check_orca_hooks`): the event hooks that carry
+    the memory guard and the T298 gates. `install()` only runs by hand, so a
+    wanted event added after the last run (T247's PreToolUse guard did this)
+    sits uninstalled forever on any machine nobody re-ran it on - the guard it
+    was meant to wire up does nothing, with no error anywhere to say so."""
+    wanted = events.CAPTURED | events.ANSWERS | events.GUARDS
+    for h in vendors.state_hooks():
+        gap = h.missing(wanted)
+        if gap:
+            r.add(WARN, "ocp's own hooks are missing events",
+                  f"{', '.join(sorted(gap))} not installed in {h.target_settings()} - "
+                  "run `ocp install-hooks`")
+        else:
+            r.add(OK, f"ocp's own hooks installed ({len(wanted)} events)")
 
 
 def _check_accounts(r: Report) -> None:
@@ -559,6 +577,7 @@ def _run() -> Report:
     _check_home(r)
     _check_mcp_config(r)
     _check_orca_hooks(r)
+    _check_ocp_hooks(r)
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)

@@ -771,10 +771,19 @@ async def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
 
 
 async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
-    """T300 (#1764): once T292 landed, `tasks` is the agent's own stored
-    current task (0 or 1), not a scan of every open one. `ready` needs that
-    task queued (approved to run), no open blocker on it, and the agent IDLE."""
+    """T300 (#1764)/T325: `tasks` is the agent's own stored current task (0
+    or 1), not a scan of every open one. `ready` needs that task queued, no
+    open blocker on it, and the agent IDLE - T325 makes approving an
+    unblocked task deliver it too (no second `ask` needed), so `ready` only
+    still shows while an open blocker holds that delivery back, or once it
+    clears without anything having advanced the task since."""
     _home("currenttask")
+    # backend has no manager in DESIGN_TEAM's `eng` team (no member named
+    # `eng`), so only the founder may approve its task - which needs its own
+    # routing edge to deliver, the same one production's team.yaml carries.
+    t.hand_edit_team(t.DESIGN_TEAM.replace(
+        "edges:\n", 'edges:\n  - { from: "human", to: "*", relation: supervisor, '
+                    'response: fire_and_forget }\n'))
     con = db.connect()
     try:
         rows, _ = tui.agents_data(con)
@@ -791,21 +800,25 @@ async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
         check("agents_data: tasks is 1 for a draft current task, not yet ready",
               r.tasks == 1 and not r.ready, r)
 
-        ok, said = actions.set_queued(con, tid, actions.HUMAN, True)
-        con.commit()
-        check("set_queued: approves it to run", ok, said)
-        rows, _ = tui.agents_data(con)
-        r = next(x for x in rows if x.name == "backend")
-        check("agents_data: ready once its current task is queued, unblocked and IDLE",
-              r.state == "IDLE" and r.tasks == 1 and r.ready, r)
-
         blocker = db.new_task(con, "blocker", "backend", "product")
         db.add_block(con, tid, blocker)
         con.commit()
+        ok, said = actions.set_queued(con, tid, actions.HUMAN, True)
+        con.commit()
+        check("set_queued: approves it, but an open blocker holds T325's "
+              "delivery back", ok and "was free" not in said, said)
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: an open blocker clears ready, not the count",
-              r.tasks == 1 and not r.ready, r)
+        check("agents_data: queued and IDLE, but blocked - not ready",
+              r.state == "IDLE" and r.tasks == 1 and not r.ready, r)
+
+        db.remove_block(con, tid, blocker)
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: ready once its current task is queued, unblocked and IDLE "
+              "- the blocker cleared without anything having delivered it yet",
+              r.state == "IDLE" and r.tasks == 1 and r.ready, r)
     finally:
         con.close()
 
@@ -2074,6 +2087,36 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
         con.close()
 
 
+def test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind() -> None:
+    """T337 round 4, auditor #2028's sweep: queue_reason compared every
+    request against db.head_of_queue directly - once the true head was
+    blocked, it would read 'behind #<effective head>', backward from
+    queue_order (the true head sits first), and the real reason (blocked)
+    was never said."""
+    from ocp.team import ask as askmod
+    _home("qblocked")
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        ok, msg, nxt = askmod.ask("backend", "fix it instead", requester="reviewer")
+        check("setup: another request queues behind it", ok, msg)
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+
+        check("blocked head: names the block, not 'behind' the one that jumped it",
+              actions.queue_reason(con, "backend", head) == "its own task is blocked")
+        check("effective head: its own ordinary reason, not 'blocked' or 'behind'",
+              "behind" not in actions.queue_reason(con, "backend", nxt)
+              and "blocked" not in actions.queue_reason(con, "backend", nxt),
+              actions.queue_reason(con, "backend", nxt))
+    finally:
+        con.close()
+
+
 async def test_the_queue_line_says_why_an_agents_message_waits() -> None:
     _home("heldwhy")
     agents.register("reviewer")
@@ -3269,6 +3312,7 @@ async def _run_all() -> None:
     test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
+    test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_escape_does_not_cancel_a_queued_message()
     await test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter()

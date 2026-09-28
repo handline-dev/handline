@@ -1217,6 +1217,31 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         con.close()
 
 
+def test_wait_session_gone_treats_an_unmappable_pid_as_unreadable() -> None:
+    """T146: a poll where `observe.live_sessions` cannot map a live pid back
+    to its agent reads as the whole table being unreadable (its own fix), not
+    as the session having left - so a poll or two of that here must not be
+    believed as "gone" either; a genuinely gone session is, as soon as a
+    decisive reading says so."""
+    real_wait, real_poll, real_live = (dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S,
+                                       obsmod.live_sessions)
+    dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.02
+    try:
+        # Unreadable throughout: never read as gone, so the wait runs out.
+        obsmod.live_sessions = lambda: None
+        check("wait_session_gone: an unreadable table the whole time is not gone",
+              dmn_delivery._wait_session_gone("backend") is False)
+
+        # Unreadable for a couple of polls, then a decisive "gone".
+        seq = iter([None, None, {}])
+        obsmod.live_sessions = lambda: next(seq, {})
+        check("wait_session_gone: unreadable polls are outlasted by a decisive one",
+              dmn_delivery._wait_session_gone("backend") is True)
+    finally:
+        dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S, obsmod.live_sessions = (
+            real_wait, real_poll, real_live)
+
+
 def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) -> None:
     """The idle schedule asks `should_close` every tick. A session that does
     not die after /exit must not be typed at again, and must not hold the
@@ -1448,6 +1473,98 @@ def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
               any("--resume sess-9" in t for t in sent), str(sent[:2]))
         check("wake: and it is no longer marked closed",
               db.get_agent_state(con, "backend")["closed_at"] is None)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
+        con.close()
+
+
+def test_an_edge_unconfirmed_request_still_wakes_a_closed_agent(home: Path) -> None:
+    """T146 pt.1 (founder #1970): `wake_agent`'s own closed-agent gate runs
+    `enforce_edges` before asking `waiting_for`, so a request still queued
+    with `edge_ok` unset - nothing else ever clears it for a closed agent -
+    is confirmed and delivered instead of leaving the agent unwoken."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-edge", "pct_5h": 20}))
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="turn ended")
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+
+        # reviewer -> * is DESIGN_TEAM's own verdict edge (kind: verdict, no
+        # named relation) - matching it is what lets `enforce_edges` clear it
+        # rather than deny it once this closed wake reaches that check.
+        rid = db.add_request(con, "reviewer", "backend", "please look at this", None,
+                             None, "async", "verdict", 0, None)
+        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
+        check("edge: an edge-unconfirmed request is still queued for backend",
+              bool(db.queued_for(con, "backend")))
+        check("edge: head_of_queue does not count it yet",
+              db.head_of_queue(con, "backend") is None)
+        check("edge: nor does waiting_for, on its own, before anything enforces it",
+              not dmn_lifecycle.waiting_for(con, "backend"))
+
+        # `_wake_agent`'s own closed-agent gate enforces edges first.
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        check("wake: an edge-unconfirmed request still brings a closed agent back",
+              ok and any("--resume sess-edge" in t for t in sent), f"{why} {sent[:2]}")
+        check("wake: and it is no longer marked closed",
+              db.get_agent_state(con, "backend")["closed_at"] is None)
+        check("wake: its edge is confirmed on the way, not skipped",
+              db.get_request(con, rid)["edge_ok"] == 1, dict(db.get_request(con, rid)))
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
+        con.close()
+
+
+def test_a_closed_agents_only_request_failing_its_edge_stays_closed(home: Path) -> None:
+    """T146 pt.1, auditor #1994 gap 2: the case the design exists for - the
+    edge enforce_edges now gets the chance to check turns out bad. The
+    request is denied there, same as it would be for an agent that never
+    closed, and no session is spent waking one up for nothing."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-denied", "pct_5h": 20}))
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="turn ended")
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+
+        # marketing (growth.*) -> backend (eng.*) is DESIGN_TEAM's own deny
+        # rule ("go through product") - a real edge enforce_edges will refuse.
+        rid = db.add_request(con, "marketing", "backend", "ship this", None,
+                             None, "async", None, 0, None)
+        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
+
+        sent.clear()
+        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        check("wake: a request whose only edge is denied does not wake it",
+              not ok and not sent, f"{why} {sent}")
+        check("wake: it stays closed - no session spent waking it for nothing",
+              db.get_agent_state(con, "backend")["closed_at"] is not None,
+              str(dict(db.get_agent_state(con, "backend"))))
+        check("wake: the request itself is denied, not left unconfirmed forever",
+              db.get_request(con, rid)["state"] == "denied", dict(db.get_request(con, rid)))
     finally:
         orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
         con.close()
@@ -1938,6 +2055,56 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
         con.close()
 
 
+def test_a_due_closed_park_enforces_edges_before_the_wake_at_gate(home: Path) -> None:
+    """T146 pt.1 (auditor #1994 gap 1): a denied edge on a due closed park
+    settles to IDLE in the same tick, not left QUEUED on a request that is
+    already dead."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.available, orcamod.clear_context)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-due", "pct_5h": 20}))
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed")
+
+        # marketing (growth.*) -> backend (eng.*) is DESIGN_TEAM's own deny
+        # rule ("go through product") - a real edge enforce_edges will refuse.
+        rid = db.add_request(con, "marketing", "backend", "ship this", None,
+                             None, "async", None, 0, None)
+        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
+
+        write_status(home, "alpha", pct_5h=20, pct_7d=10,
+                     collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
+        sent.clear()
+        dmn_evaluate.tick(con, lambda _m: None)
+        check("wake_at-due: a denied edge does not wake a due closed park",
+              not sent, str(sent))
+        check("wake_at-due: the request is denied, not left unconfirmed forever",
+              db.get_request(con, rid)["state"] == "denied", dict(db.get_request(con, rid)))
+        check("wake_at-due: the park resolves to IDLE in this same tick, not left QUEUED "
+              "on a request that is already dead",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
+              dict(db.get_agent_state(con, "backend")))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
 def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
     """The case above is proven through tick(), but a daemon that was down
     across the whole window - which is the case launchd exists for, not the
@@ -1985,6 +2152,45 @@ def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
          orcamod.available, orcamod.clear_context) = real
+        con.close()
+
+
+def test_reconcile_enforces_edges_before_waking_a_due_closed_park(home: Path) -> None:
+    """T146 pt.1 (founder #1970): the same edge-unconfirmed-request deadlock
+    as `test_an_edge_unconfirmed_request_still_wakes_a_closed_agent`, met on
+    `reconcile`'s own due_agents step instead of a live tick's wake_agent -
+    the path the founder's report and the auditor's review both named."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-recon", "pct_5h": 20}))
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                        status.read_for_agent("backend", "alpha"))
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
+                           detail="parked and closed, daemon was down since")
+
+        rid = db.add_request(con, "reviewer", "backend", "please look at this", None,
+                             None, "async", "verdict", 0, None)
+        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
+
+        sent.clear()
+        dmn_reconciler.reconcile(con, lambda _m: None)
+        check("reconcile: an edge-unconfirmed request still wakes a due closed park",
+              any("--resume sess-recon" in t for t in sent), str(sent))
+        check("reconcile: its edge is confirmed on the way, not skipped",
+              db.get_request(con, rid)["edge_ok"] == 1, dict(db.get_request(con, rid)))
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available = real
         con.close()
 
 
@@ -2394,6 +2600,48 @@ def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) ->
         con.close()
 
 
+def test_a_cold_session_reads_its_blocked_head_through_effective_head(home: Path) -> None:
+    """T337 round 4, auditor #2028 finding 1: _cold_before_typing compared the
+    notify cursor against db.head_of_queue directly. With a true head blocked
+    on record, the cursor holds effective_head's id (the request behind it)
+    instead, so that comparison read 'untold' and closed a session that had
+    nothing actually untold, for no reason. Reads effective_head now, same
+    as deliver_queued and forgotten_resolve - real blocking (add_block), not
+    a stub, end to end."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send)
+    try:
+        st, now = _cold_backend(home, con, sent)
+        log = lambda _m: None
+
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        db.mark_delivered(con, head)
+        nxt = db.add_request(con, "reviewer", "backend", "the one behind it", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, nxt)
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("setup: effective_head agrees it is the one behind the blocked head",
+              dmn_delivery.effective_head(con, "backend")["id"] == nxt)
+
+        db.set_cursor(con, "notify:backend", nxt)             # the effective head, told
+        db.set_cursor(con, "nudge:backend", nxt)               # nudge cap used up, T337
+        db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        row = db.get_agent_state(con, "backend")
+        check("cold+blocked: nothing untold - the effective head is told, the true head "
+              "is unreachable, not untold",
+              dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is None)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send = real
+        con.close()
+
+
 def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> None:
     """T154 (founder #789), auditor #821: should_close's queued-work guard
     used to hold a session open for as long as anything about it was
@@ -2419,7 +2667,8 @@ def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> 
         db.mark_delivered(con, rid)
         db.set_cursor(con, "notify:backend", rid)
         db.set_notified_session(con, "backend", "sess-cold")
-        db.set_cursor(con, "nudge:backend", rid)   # already reminded once; nothing left to nudge for
+        db.set_cursor(con, "nudge:backend", rid)   # already reminded, cap reached, T337
+        db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
                     (now - dmn_states.RESUME_WARM_S - 60, rid))
         row = db.get_agent_state(con, "backend")
@@ -3472,12 +3721,15 @@ def main() -> int:
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
+        run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_the_daemon_never_types_into_a_trust_prompt_via_deliver(
             Path(td) / 'delivertrust'))
         run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
+        run(lambda: test_an_edge_unconfirmed_request_still_wakes_a_closed_agent(Path(td) / 'wakeedge'))
+        run(lambda: test_a_closed_agents_only_request_failing_its_edge_stays_closed(Path(td) / 'wakeedgedenied'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
         run(lambda: test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(Path(td) / 'sessback'))
         run(lambda: test_what_is_typed_at_an_agent_is_never_more_than_three_lines(Path(td) / 'threelines'))
@@ -3488,7 +3740,9 @@ def main() -> int:
         run(lambda: test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig'))
         run(lambda: test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(Path(td) / 'sessend'))
         run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
+        run(lambda: test_a_due_closed_park_enforces_edges_before_the_wake_at_gate(Path(td) / 'pclosededge2'))
         run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))
+        run(lambda: test_reconcile_enforces_edges_before_waking_a_due_closed_park(Path(td) / 'pclosededge'))
         run(lambda: test_a_due_park_with_nothing_waiting_stays_closed(Path(td) / 'pclosed3'))
         run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
@@ -3502,6 +3756,8 @@ def main() -> int:
             Path(td) / 'coldfail'))
         run(lambda: test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(
             Path(td) / 'coldonce'))
+        run(lambda: test_a_cold_session_reads_its_blocked_head_through_effective_head(
+            Path(td) / 'coldblocked'))
         run(lambda: test_a_request_already_told_still_closes_a_cold_idle_session(
             Path(td) / 'coldqueue'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))

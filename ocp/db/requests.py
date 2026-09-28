@@ -125,7 +125,7 @@ def undelivered_for(con, target: str):
     ).fetchall()
 
 
-def head_of_queue(con, target: str):
+def head_of_queue(con, target: str, skip: int | None = None):
     """The one request `target` is meant to be working on right now, or None.
 
     Request #189: an agent is given one request at a time, not its whole
@@ -136,8 +136,12 @@ def head_of_queue(con, target: str):
     own (`ask.say`'s `mark_send_now`), and skipping it here means one
     sitting unanswered can never become, or block, the head the one-doing
     rule actually tracks.
+
+    `skip` is `delivery.effective_head`'s own use (T337): the true head,
+    blocked on record, is never a row this returns - the id to leave out
+    while it looks for what the one-at-a-time rule falls on instead.
     """
-    rows = [r for r in queued_for(con, target) if r["kind"] != "say"]
+    rows = [r for r in queued_for(con, target) if r["kind"] != "say" and r["id"] != skip]
     return rows[0] if rows and rows[0]["edge_ok"] else None
 
 

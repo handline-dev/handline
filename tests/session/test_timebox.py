@@ -373,6 +373,52 @@ def test_the_supervisor_is_told_once_per_stale_stretch(home: Path) -> None:
         con.close()
 
 
+def test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(home: Path) -> None:
+    """T337 (founder #2002/#2003): `nudge_forgotten_resolve` stops climbing
+    `NUDGE_SCHEDULE_S` rather than typing at the agent forever - an agent that
+    turns out to be genuinely stuck, not forgetful, still needs someone to
+    look, so its supervisor is told once instead, the same way a stale
+    background stretch already is."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        rid = _delivered(con, "manager", "marina", dmn_delivery.NUDGE_SCHEDULE_S[-1] + 60)
+        db.set_cursor(con, "notify:marina", rid)
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = int(time.time())
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now)
+        check("cap notice: nothing before the schedule is used up", not sent, str(sent))
+
+        db.set_cursor(con, "nudge:marina", rid)
+        db.set_cursor(con, "nudge_count:marina", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now)
+        check("cap notice: the supervisor is told, naming the head and the count",
+              len(sent) == 1 and sent[0][0] == "term_manager" and f"#{rid}" in sent[0][1]
+              and f"{len(dmn_delivery.NUDGE_SCHEDULE_S)} times" in sent[0][1], str(sent))
+        check("cap notice: marked and recorded",
+              db.get_cursor(con, "forgotten_capped_told:marina") == rid
+              and con.execute("SELECT COUNT(*) FROM events WHERE kind = "
+                              "'forgotten_resolve_capped'").fetchone()[0] == 1)
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now + 5)
+        check("cap notice: not told twice for the same head", len(sent) == 1, str(sent))
+
+        _set_request_state(con, rid, "done", verdict="did it")
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now + 10)
+        check("cap notice: resolving it clears the mark",
+              db.get_cursor(con, "forgotten_capped_told:marina") == 0)
+
+        rid2 = _delivered(con, "manager", "marina", dmn_delivery.NUDGE_SCHEDULE_S[-1] + 60)
+        db.set_cursor(con, "notify:marina", rid2)
+        db.set_cursor(con, "nudge:marina", rid2)
+        db.set_cursor(con, "nudge_count:marina", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        later = now + timebox.NOTICE_RETRY_S + 15
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, later)
+        check("cap notice: a later head that is also used up is told again",
+              len(sent) == 2, str(sent))
+    finally:
+        con.close()
+
+
 def test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -569,6 +615,7 @@ def main() -> int:
             run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
             run(lambda: test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(Path(td) / 'tb11'))
             run(lambda: test_the_supervisor_is_told_once_per_stale_stretch(Path(td) / 'tb12'))
+            run(lambda: test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(Path(td) / 'tb12a'))
             run(lambda: test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(
                 Path(td) / 'tb12b'))
             run(lambda: test_the_row_says_how_long_and_when_stale(Path(td) / 'tb13'))

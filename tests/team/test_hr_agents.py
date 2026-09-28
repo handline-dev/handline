@@ -508,6 +508,27 @@ edges:
         con.close()
 
 
+def test_a_rename_refuses_when_liveness_cannot_be_confirmed(home: Path) -> None:
+    """T146 round 2 (auditor #1992): `live_sessions` returning None must not
+    read as "no session running" - `_rename`'s old `if live and live.get(old)`
+    let an identity change go ahead under a session the reading simply could
+    not confirm one way or the other."""
+    _daemon_home(home, 20)
+    agents.register("oldname")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        obsmod.live_sessions = lambda: None
+        ok, said = hr._rename({"agent": "oldname", "to": "newname"}, con)
+        check("rename: refused when liveness cannot be read",
+              not ok and "could not confirm" in said, said)
+        check("rename: nothing renamed", "oldname" in paths.list_agents()
+              and "newname" not in paths.list_agents(), str(paths.list_agents()))
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
 def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Path) -> None:
     """harbor #753: a rename leaves Orca's label right (`hr.label`, already
     covered by test_a_rename_names_the_agents_orca_worktree) but the folder,
@@ -1018,7 +1039,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
 
     # And the invariant the miss actually broke: the daemon's own record of a
     # running agent. Real `live_sessions`, over a process table we supply.
-    real = (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+    real = (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
             orcamod.available, orcamod.live_terminals)
     obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
     orcamod.available = lambda: True
@@ -1034,7 +1055,8 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
                 db.set_agent_state(con, "glm", dmn_states.RUNNING, detail="working")
                 table = [(4301, "/opt/zai/bin/glmcode --model glm-4.6")]
                 obsmod.process_table = lambda: list(table)
-                obsmod.process_env = lambda pid: f"OCP_AGENT={'glm' if pid == 4301 else 'x'}"
+                obsmod._env_or_reason = lambda pid: (
+                    f"OCP_AGENT={'glm' if pid == 4301 else 'x'}", False)
                 check("vendor sweep: the premise - its pid is found",
                       obsmod.live_sessions() == {"glm": 4301},
                       str(obsmod.live_sessions()))
@@ -1061,7 +1083,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
             finally:
                 con.close()
         finally:
-            (obsmod.live_sessions, obsmod.process_table, obsmod.process_env,
+            (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
              orcamod.available, orcamod.live_terminals) = real
 
 
@@ -3488,12 +3510,57 @@ def cliteam_seal() -> tuple[int, str]:
     return rc, buf.getvalue()
 
 
+def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Path) -> None:
+    """An agent session's ask leaves edge_ok NULL; the human has no agent
+    supervision to check it, so the tick does."""
+    from ocp.daemon import evaluate
+    _daemon_home(home, 20)
+    agents.register("scout")
+    hand_edit_team("agents:\n  scout: {}\nedges:\n"
+                   "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "scout"
+    try:
+        ok, said, rid = askmod.ask("human", "need a call", requester="scout")
+    finally:
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    con = db.connect()
+    try:
+        check("human: an agent session's ask to the human starts unchecked",
+              ok and db.get_request(con, rid)["edge_ok"] is None, said)
+        evaluate.tick(con, lambda _m: None)
+        check("human: one tick checks it against the founder's table",
+              db.get_request(con, rid)["edge_ok"] == 1, str(dict(db.get_request(con, rid))))
+        # The founder then takes the human's edge away: what an agent already
+        # wrote under the old table is refused, not left for the founder to see.
+        os.environ["OCP_AGENT"] = "scout"
+        try:
+            ok, said, rid2 = askmod.ask("human", "another", requester="scout")
+        finally:
+            if saved is None:
+                os.environ.pop("OCP_AGENT", None)
+            else:
+                os.environ["OCP_AGENT"] = saved
+        hand_edit_team("agents:\n  scout: {}\nedges: []\n")
+        evaluate.tick(con, lambda _m: None)
+        row = db.get_request(con, rid2)
+        check("human: a request the table no longer allows is denied at the tick",
+              row["state"] == "denied" and "refused at delivery" in (row["verdict"] or "")
+              and not row["edge_ok"], str(dict(row)))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
         run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
+        run(lambda: test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(Path(td) / 'humanedge'))
         run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
@@ -3512,6 +3579,7 @@ def main() -> int:
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
         run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
+        run(lambda: test_a_rename_refuses_when_liveness_cannot_be_confirmed(Path(td) / 'renameunknown'))
         run(lambda: test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(Path(td) / 'rehome'))
         run(lambda: test_hr_rehome_cli_moves_the_folder(Path(td) / 'rehomecli'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))

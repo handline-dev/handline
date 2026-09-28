@@ -77,6 +77,19 @@ def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[i
     return tids
 
 
+def _block_parent_on_child(con, parent: int | None, tid: int, by: str) -> None:
+    """T294 (orcapipe's #1910): a child task always blocks its parent,
+    explicitly - not only through the structural open-child-task check
+    `close_task` and `stop_wait_reason` already had. Shared by every place a
+    child task comes into being (`task_new`, `open_hold_task`), so the
+    board's "waiting on" line and the unblock notice on close see it
+    wherever it is actually true, not only on the one path that happened to
+    write it."""
+    if parent is not None:
+        db.add_block(con, parent, tid)
+        db.add_event(con, by, "block_task", {"task_id": parent, "blocks_on": tid})
+
+
 def hold_refusal(con, rid: int, blocks_on: list[int]) -> str | None:
     """The reason a hold on request `rid` cannot wait on these tasks, or None.
     A task the hold sits under can never be one of them: the parent cannot
@@ -102,9 +115,11 @@ def open_hold_task(con, rid: int, title: str, holder: str, blocks_on: list[int])
     the same block edge `ocp task link --blocks-on` writes: closing the last
     one notifies the holder. Callers check `hold_refusal` first."""
     linked = [t for t in db.tasks_for_request(con, rid) if not t["closed_by"]]
+    parent = linked[0]["id"] if linked else None
     tid = db.new_task(con, textsafe.oneline(title).strip(), holder, holder,
-                      parent_task=linked[0]["id"] if linked else None)
+                      parent_task=parent)
     db.link_request(con, tid, rid)
+    _block_parent_on_child(con, parent, tid, holder)
     for b in blocks_on:
         ok, msg = add_block(con, tid, b, holder)
         if not ok:
@@ -362,7 +377,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
         db.add_event(con, by, "close_task", {"task_id": tid, "closed_by": by})
         for b in blockers:  # only the founder gets here with any
             db.remove_block(con, tid, b["id"])
-        notices = _clear_blocks_on(con, tid, by)
+        notices, freed_owners = _clear_blocks_on(con, tid, by)
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -375,6 +390,13 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
                        team.Decision(True, "task unblocked", kind="report",
                                      response="fire_and_forget", creates_gate=False,
                                      chain_depth=0))
+    # T325: each dependent this unblocked may itself be someone's next
+    # queued, undelivered task - advance_current_task never runs again for
+    # it on its own once skipped over blocked, so it has to happen here too,
+    # for every freed owner, not only the ones told (never `by` itself).
+    for owner in freed_owners:
+        if advance_current_task(con, owner):
+            askmod.push(con, owner)
     return True, f"task T{tid} closed by {by}"
 
 
@@ -426,7 +448,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
-        notices = _clear_blocks_on(con, tid, by, "discarded")
+        notices, freed_owners = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -441,6 +463,10 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
                        team.Decision(True, "task unblocked", kind="report",
                                      response="fire_and_forget", creates_gate=False,
                                      chain_depth=0))
+    # T325: as close_task - every freed owner, not only the ones told.
+    for owner in freed_owners:
+        if advance_current_task(con, owner):
+            askmod.push(con, owner)
     return True, f"task T{tid} discarded by {by}: {said}"
 
 
@@ -489,17 +515,22 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     return rid, owner, text
 
 
-def _clear_blocks_on(con, tid: int, closer: str, how: str = "closed") -> list[tuple[int, str, str]]:
+def _clear_blocks_on(con, tid: int, closer: str,
+                     how: str = "closed") -> tuple[list[tuple[int, str, str]], set[str]]:
     """After `tid` closes: drop every block row naming it, and for each task
-    that leaves with no open blocker left, write a notice for its owner.
-    Dropping the row here - not on read - is what makes "once" true: the row
-    that would trigger a second notice is gone before anything can re-read
-    it, and both the drop and the write happen inside the caller's one
-    transaction, so a concurrent close clearing a dependent's other blocker
-    either commits first (seen here) or not yet (seen by it instead) -
-    never both at once. Returns the notices to deliver once that transaction
-    commits."""
+    that leaves with no open blocker left, write a notice for its owner
+    (skipped for the closer's own task - it does not need telling) and
+    collect that owner to advance (T325: every one of them, told or not -
+    its queued, undelivered task is not reconsidered on its own once
+    skipped over blocked). Dropping the row here - not on read - is what
+    makes "once" true: the row that would trigger a second notice is gone
+    before anything can re-read it, and both the drop and the write happen
+    inside the caller's one transaction, so a concurrent close clearing a
+    dependent's other blocker either commits first (seen here) or not yet
+    (seen by it instead) - never both at once. Returns the notices to
+    deliver, and the owners to advance, once that transaction commits."""
     notices = []
+    freed_owners = set()
     for dep in db.tasks_blocked_by(con, tid):
         db.remove_block(con, dep["task_id"], tid)
         dep_row = db.get_task(con, dep["task_id"])
@@ -507,10 +538,11 @@ def _clear_blocks_on(con, tid: int, closer: str, how: str = "closed") -> list[tu
             continue
         if db.task_blockers(con, dep["task_id"]):
             continue
+        freed_owners.add(dep_row["owner"])
         if dep_row["owner"] == closer:
             continue
         notices.append(_notify_unblocked(con, dep["task_id"], dep_row["owner"], closer, tid, how))
-    return notices
+    return notices, freed_owners
 
 
 def _task_edit_guard(row, tid: int, by: str) -> str | None:
@@ -524,12 +556,29 @@ def _task_edit_guard(row, tid: int, by: str) -> str | None:
     return None
 
 
+def _link_delivery(con, tid: int, owner: str, rid: int) -> None:
+    """Link a task to the request that delivers it, and make it the owner's
+    current task if it holds none yet - shared by `task_new`'s immediate
+    delivery and `set_queued`'s delivery of an approved draft (T325), so
+    approving a task is the same act as opening one, not a second message
+    someone has to remember to send."""
+    db.link_request(con, tid, rid)
+    if owner != HUMAN and db.current_task(con, owner) is None:
+        db.set_current_task(con, owner, tid)
+
+
 def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
     """Approve a draft task to run (`queued`), or send a queued one back to
     draft (T82). The founder or the manager of the task's owner - not its
     opener, so an agent cannot approve its own work; refused for a task that
     is done or ended, or that already has a request out (that is doing, and
-    is not taken back by a word)."""
+    is not taken back by a word).
+
+    T325: queuing also delivers, through `advance_current_task` - right away
+    if the owner is free, or once its turn comes if not. `task_state` after
+    the call, not `advance_current_task`'s own True/False, says which: a
+    busy owner moves on to nothing just as validly as a free one delivers.
+    """
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -550,7 +599,19 @@ def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
     if not db.set_task_queued(con, tid, by if queued else None):
         return False, f"task T{tid} changed under this call - read it again"
     db.add_event(con, by, "queue_task" if queued else "draft_task", {"task_id": tid})
-    return True, f"task T{tid} is {want} ({by})"
+    if queued:
+        # advance_current_task's own True/False says whether the owner's
+        # current task moved on at all, not whether it landed on `tid` -
+        # a busy owner moves on to nothing, and an owner with no other work
+        # can move on by clearing its current task to None just as well as
+        # by delivering `tid`. `task_state` says which actually happened.
+        changed = advance_current_task(con, row["owner"])
+        if changed:
+            askmod.push(con, row["owner"])
+        if task_state(con, db.get_task(con, tid)) == "doing":
+            return True, (f"task T{tid} is queued ({by}) - "
+                          f"{row['owner']} was free, so it went out now")
+    return True, f"task T{tid} is {'queued' if queued else 'draft'} ({by})"
 
 
 EXPECTS = ("sha", "verdict", "decision", "report")
@@ -579,36 +640,62 @@ def _current_task_still_asking(con, agent: str) -> bool:
     return any(_asks(r) for r in db.task_requests(con, tid))
 
 
-def _next_waiting_task(con, agent: str):
-    """(task row, its own queued request) for the next of `agent`'s open
-    tasks to become current, by priority then age, skipping any waiting on
-    an open blocker or with nothing of its own left to deliver."""
+def _waiting_tasks(con, agent: str):
+    """`agent`'s open tasks that could become current, by priority then age,
+    each as (row, its own queued request or None). Skips one blocked, still
+    a draft, or with nothing of its own left to deliver. `None` in place of
+    the request is a queued task never delivered (T325) - `advance_current_task`
+    delivers it there and then, the same way `task_new` would, just later."""
     for row in db.open_tasks(con):
         if row["owner"] != agent or row["done_evidence"]:
             continue
         if db.task_blockers(con, row["id"]):
             continue
         req = next((r for r in db.task_requests(con, row["id"]) if _asks(r)), None)
-        if req is not None:
-            return row, req
-    return None
+        if req is not None or row["queued_by"] is not None:
+            yield row, req
 
 
 def advance_current_task(con, agent: str) -> bool:
-    """T318: moves `agent` on to its next open task, by priority then age,
-    once the current one stops being worth holding. True if anything
+    """T318/T325: moves `agent` on to its next open task, by priority then
+    age, once the current one stops being worth holding. True if anything
     changed - the caller's cue to push a delivery now. The founder (C3)
     holds no current-task row at all, so this is always a no-op for it.
-    """
+
+    A candidate with nothing out yet is delivered here, on the spot,
+    through the same `ask` `task_new` used - `on_behalf_of` and `park=False`
+    because the requester is `queued_by`, read from our own db, not whoever's
+    live session this delivery happens to run in and possibly long after it
+    approved this. A refusal (the edge or the owner changed since) is
+    recorded and skipped, not left to silently stall everything behind it."""
     if agent == HUMAN or _current_task_still_asking(con, agent):
         return False
-    nxt = _next_waiting_task(con, agent)
     before = db.current_task(con, agent)
-    db.set_current_task(con, agent, nxt[0]["id"] if nxt else None)
-    if nxt is None:
-        return before is not None
-    db.promote_to_front(con, nxt[1]["id"])
-    return True
+    for row, req in _waiting_tasks(con, agent):
+        if req is not None:
+            db.set_current_task(con, agent, row["id"])
+            db.promote_to_front(con, req["id"])
+            return True
+        ok, msg, rid = askmod.ask(agent, row["title"], requester=row["queued_by"], kind="task",
+                                  on_behalf_of=True, park=False)
+        if not ok:
+            db.add_event(con, agent, "task_deliver_refused", {"task_id": row["id"], "why": msg})
+            continue
+        _link_delivery(con, row["id"], agent, rid)
+        db.set_current_task(con, agent, row["id"])
+        return True
+    # Nothing to advance to. A current task that is merely blocked, and not
+    # yet done, stays current - `_waiting_tasks` left it out for that reason,
+    # not because it is finished, and clearing it would drop the assignment
+    # over a wait that is about to end. A done task can carry a stale
+    # blocker too (only `close_task` checks one), and that one really is
+    # finished - held onto, it would freeze the owner behind its own
+    # already-done work until someone closes it.
+    before_row = db.get_task(con, before) if before is not None else None
+    if before_row is not None and not before_row["done_evidence"] and db.task_blockers(con, before):
+        return False
+    db.set_current_task(con, agent, None)
+    return before is not None
 
 
 def _retire_task_requests(con, tid: int, verdict: str, state: str = "done") -> None:
@@ -633,6 +720,13 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
 
     The owner's current task (bullet 1) is set to this one only if it holds
     none yet - never for a human owner, who holds no current task at all.
+
+    T294: a child task always blocks its parent (orcapipe's #1910: every
+    `--parent` adds the block, no --expects gate, even when the parent's own
+    owner opens the child for itself) - close_task already refuses to close
+    while any child is open, so this only makes that true in `task_blockers`,
+    the board's "waiting on" line, and the notice `_clear_blocks_on` sends
+    once the child closes.
     """
     if priority is None:
         priority = db.DEFAULT_PRIORITY
@@ -650,11 +744,10 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     con = db.connect()
     try:
         tid = db.new_task(con, title, owner, me, parent, priority, expects=expects)
-        db.link_request(con, tid, rid)
-        if owner != HUMAN and db.current_task(con, owner) is None:
-            db.set_current_task(con, owner, tid)
+        _link_delivery(con, tid, owner, rid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
                                            "expects": expects})
+        _block_parent_on_child(con, parent, tid, me)
     finally:
         con.close()
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
@@ -808,8 +901,14 @@ def _merge_refusal(con, keep_row, row, by: str) -> str | None:
         return f"task T{tid} is already closed"
     if row["done_evidence"]:
         return f"task T{tid} is done - `ocp close T{tid}` signs it off, it is not merged"
-    if db.task_blockers(con, tid):
-        ids = ", ".join(f"T{b['id']}" for b in db.task_blockers(con, tid))
+    # T294's auto-block on a child (parent_task == tid) is not a reason to
+    # refuse: `move_task_links` already reparents that child to `keep`, same
+    # as before the auto-block existed. Only a blocker that is not also a
+    # child - an explicit `--blocked-by`, or a wait it inherited some other
+    # way - still refuses.
+    blockers = [b for b in db.task_blockers(con, tid) if b["parent_task"] != tid]
+    if blockers:
+        ids = ", ".join(f"T{b['id']}" for b in blockers)
         return f"task T{tid} is waiting on {ids} - it cannot be merged until they close"
     if _under(con, keep, tid):
         return f"task T{keep} is under T{tid} - folding T{tid} into it would loop them"
@@ -1049,7 +1148,12 @@ def add_block(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
 
 
 def unblock(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
-    """Remove one blocking edge - the counterpart of `add_block`."""
+    """Remove one blocking edge - the counterpart of `add_block`. Never
+    advances `tid`'s owner itself: its only caller (`cmd_task_edit`) runs
+    inside a shared transaction that may still be open, and `advance_current_task`
+    writes through a second connection - the caller does that once its own
+    transaction has committed (T325: otherwise a task skipped over blocked
+    is never reconsidered once its last blocker clears)."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"

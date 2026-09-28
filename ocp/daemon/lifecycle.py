@@ -137,7 +137,7 @@ def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
         return None
     if now - db.get_cursor(con, f"cold_close_try:{agent}") < IDLE_CLOSE_S:
         return None           # a close just failed: type as usual, not held forever
-    head = db.head_of_queue(con, agent)
+    head = delivery.effective_head(con, agent)
     told = bool(head) and db.get_cursor(con, f"notify:{agent}") == int(head["id"]) \
         and not delivery._session_changed(con, agent)
     found = delivery.forgotten_resolve(con, agent, row, now)
@@ -338,11 +338,18 @@ NOTHING_WAITING = "nothing is waiting for it; it is woken when something is sent
 
 
 def waiting_for(con, agent: str) -> bool:
-    """Is anything waiting to be told to `agent`: a request at the head of its
-    queue, an answer to something it asked, or a say (T293) - never a head,
-    but still owed a delivery with nothing else queued. A closed agent is
-    woken for that and for nothing else."""
-    return bool(db.head_of_queue(con, agent) or db.unannounced_answers(con, agent)
+    """Is anything waiting to be told to `agent`: its effective head
+    (`delivery.effective_head`, T337 - a true head blocked on record and
+    nothing behind it to stand in for it is not this, the same reason a
+    session is not spent waking one for a request it was already told), an
+    answer to something it asked, or a say (T293) - never a head, but still
+    owed a delivery with nothing else queued. A closed agent is woken for
+    that and for nothing else.
+
+    A caller gating a closed agent's wake on this enforces its edges first;
+    see the comment at `_wake_agent`'s own gate (T146 pt.1).
+    """
+    return bool(delivery.effective_head(con, agent) or db.unannounced_answers(con, agent)
                 or db.send_now_pending(con, agent))
 
 
@@ -449,10 +456,13 @@ def _start_for_work(con, agent: str, log) -> str:
     # or to what is uncommitted in it, and a second worktree would strand the
     # first.
     wt = spawnmod.worktree_path(row["worktree"] if row else None)
+    # `ok` is `start_in`/`spawn`'s own answer, not re-derived from the row
+    # (T146 pt.2): they confirm a session actually started now, so a
+    # terminal left standing with nothing in it counts as the failed wake
+    # it is, not "started".
     ok, said = (spawnmod.start_in(agent, wt) if wt
                 else spawnmod.spawn(agent, Path(repo).expanduser().resolve()))
-    fresh = db.get_agent_state(con, agent)
-    if fresh and fresh["terminal"]:
+    if ok:
         db.reset_counter(con, agent, "wake_failures")
         db.add_event(con, agent, "started_for_work", {"repo": repo})
         log(f"  {agent}: started in {repo} - work was waiting for it")
@@ -525,6 +535,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # Before anything is typed: an agent.yaml that will not read is this
         # agent's ConfigError, which the callers stall by name.
         agents.read(agent)
+        # Nothing ever delivers to a closed agent, so nothing has enforced its
+        # edges either (T146 pt.1) - do it before `waiting_for` below, which
+        # would otherwise not count a request still edge-unconfirmed.
+        delivery.enforce_edges(con, agent, log)
         # A closed agent is brought back for a message. With none, there is
         # nothing to tell it and no reason to spend a session on it; the
         # message that arrives is what wakes it. A move is the exception: the
@@ -598,6 +612,21 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # it line by line.
         resumed = False
         foreign = False
+
+        def _running_elsewhere() -> tuple[bool, str] | None:
+            """(foreign, why), or None when the table confirms nothing is
+            running there. Unreadable is not "none" (T146 round 2, auditor
+            #1992): typing over a session that might be there reaches it as
+            a prompt, so it is refused the same way (`foreign` True) and for
+            the same reason it is not blamed on the agent's own streak - the
+            caller only takes `why` from here when `foreign` is True, same
+            as it always has for the confirmed case below."""
+            sessions = obs.live_sessions()
+            if sessions is None:
+                return True, "the process table could not be confirmed just now"
+            if sessions.get(agent):
+                return not taken, "a session it did not start is running"
+            return None
         # Past the cache's life a resume costs the whole transcript and a
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
@@ -634,10 +663,11 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # come up late, not foreign, if that attempt's launch took the
             # prompt file - same rule the post-send check below uses. `why`
             # is left as that attempt's own failure reason in that case.
-            if (obs.live_sessions() or {}).get(agent):
-                foreign = not taken
+            found = _running_elsewhere()
+            if found:
+                foreign, found_why = found
                 if foreign:
-                    why = "a session it did not start is running"
+                    why = found_why
                 break
             # Only a resume reads it: a fresh start has read nothing of what the
             # queue held, and is told the ordinary way once it is up.
@@ -661,10 +691,11 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # A session owns the terminal now, and the next attempt's command
             # would be typed into it as a prompt. It is this launch's own, come
             # up late, only if the launch took the prompt.
-            if (obs.live_sessions() or {}).get(agent):
-                foreign = not taken
+            found = _running_elsewhere()
+            if found:
+                foreign, found_why = found
                 if foreign:
-                    why = "a session it did not start is running"
+                    why = found_why
                 break
         if not ok:
             if took:

@@ -122,7 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=5.0)
     p.set_defaults(fn=cmd_hooks_sync)
     hk.add_parser("status", help="show drift").set_defaults(fn=cmd_hooks_status)
-    p = hk.add_parser("gate", help="show or set the Stop-hook gate's enforce switch (T288/T298)")
+    p = hk.add_parser("gate", help="show or set one of T298's warn-only gates")
+    p.add_argument("name", choices=["stop-wait", "edit-task"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_gate)
 
@@ -253,9 +254,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read the body from this file instead of the inline argument - "
                         "safe against a shell expanding backticks or $() in the text")
     p.add_argument("--files", default=None, help="comma-separated paths")
-    p.add_argument("--of", default=None,
-                   help="requester (defaults to $OCP_AGENT, or to the human "
-                        "when a human types this at a terminal)")
     p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
     p.add_argument("--mergeable", action="store_true",
                    help="fold into an already-queued ask to the same target")
@@ -287,9 +285,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("body", nargs="?", default=None)
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the body from this file instead of the inline argument")
-    p.add_argument("--of", default=None,
-                   help="requester (defaults to $OCP_AGENT, or to the human "
-                        "when a human types this at a terminal)")
     p.add_argument("--parent", type=int, default=None,
                    help="the say this replies to, for its thread - a reply to a say is a say")
     p.add_argument("--needs-task", dest="needs_task", type=int, default=None, metavar="ID",
@@ -299,7 +294,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
     p.add_argument("id", type=int)
-    p.add_argument("--of", default=None, help="requester (defaults to $OCP_AGENT)")
     p.add_argument("--reason", default=None, help="why; stored as typed")
     p.set_defaults(fn=cmd_withdraw)
 

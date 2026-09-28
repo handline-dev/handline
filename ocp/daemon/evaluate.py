@@ -17,6 +17,7 @@ from ..usage import measure
 from ..session import observe as obs
 from ..session import orca
 from ..infra import paths
+from ..team.ask import HUMAN
 from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
@@ -150,6 +151,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
+        if restored:
+            # See lifecycle._wake_agent's own closed-agent gate (T146 pt.1):
+            # nothing else ever enforces a closed agent's edges.
+            delivery.enforce_edges(con, agent, log)
         if restored and not lifecycle.waiting_for(con, agent):
             # The deadline is spent and nothing came for it: a closed session
             # is not resumed to be told nothing. It stays closed, and what
@@ -430,6 +435,14 @@ def tick(con, log, samples: dict | None = None) -> Tick:
                 actions.append(msg)
                 log(f"  rollover: {msg}")
     usage_poll._last_rollover_day["day"] = day
+
+    # The human is no agent, so no per-agent delivery checks the edges of what
+    # agents wrote to them; without this an agent session's ask to the human
+    # keeps edge_ok NULL for good.
+    try:
+        delivery.enforce_edges(con, HUMAN, log)
+    except Exception as e:  # noqa: BLE001 - a bad table here is not the tick's failure
+        log(f"  {HUMAN}: edge check failed: {type(e).__name__}: {e}")
 
     for agent in paths.list_agents():
         try:

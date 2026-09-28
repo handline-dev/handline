@@ -33,8 +33,9 @@ OLD_STATUSLINES = ("statusline.sh", "statusline-collect.sh")
 QUIET_NOTIFICATIONS = ("inputNeededNotifEnabled", "agentPushNotifEnabled")
 
 # The tools a hook of ours is limited to, for the events that fire on every
-# call: PreToolUse is ours for the memory budget and looks at file writes only.
-MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit"}
+# call: PreToolUse is ours for the memory budget (T247) and the edit gate
+# (T295), and looks at file writes only.
+MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit"}
 
 # How we recognize a hook Orca installed. Every Orca hook command mentions one
 # of these paths or variables.
@@ -324,6 +325,8 @@ def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
                     keep.append(g)
                 continue
             seen = True
+            if event in MATCHERS:
+                g["matcher"] = MATCHERS[event]
             keep.append(g)
         groups[:] = keep
         if not seen and event in wanted:
@@ -333,6 +336,25 @@ def install(exe: str, wanted: set[str]) -> tuple[list[str], int]:
             added.append(event)
     write_settings(target, data)
     return added, pruned
+
+
+def missing(wanted: set[str]) -> set[str]:
+    """Which of `wanted` have no entry of ours in the shared settings -
+    read-only, using the same recognition `install()` writes with
+    (`_is_our_hook`)."""
+    data = _read_json(target_settings())
+    have = set()
+    for event, groups in data.get("hooks", {}).items():
+        if event not in wanted or not isinstance(groups, list):
+            continue
+        for g in groups:
+            if not isinstance(g, dict):
+                continue
+            if any(isinstance(h, dict) and _is_our_hook(h.get("command"), event)
+                   for h in g.get("hooks", [])):
+                have.add(event)
+                break
+    return wanted - have
 
 
 def shared_problems() -> list[tuple[str, str]]:
@@ -362,6 +384,7 @@ class ClaudeHooks:
     sync = staticmethod(sync)
     watch = staticmethod(watch)
     install = staticmethod(install)
+    missing = staticmethod(missing)
     allow_home_writes = staticmethod(allow_home_writes)
     ensure_shared = staticmethod(ensure_shared)
     shared_problems = staticmethod(shared_problems)

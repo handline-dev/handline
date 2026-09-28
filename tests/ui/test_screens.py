@@ -449,12 +449,17 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
         row = db.get_agent_state(con, "spawny")
         return ((row["terminal"], row["worktree"]) if row else (None, None))
 
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create)
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+           dmn_delivery.wait_for_session)
     con = db.connect()
     try:
         spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
+        # spawn()/start_in() confirm a session came up before saying "started"
+        # (#1976, T146 pt.2) - not this test's own concern, so it is not made
+        # to wait for a real process table it has nothing in.
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
         check("the escaped byte comes back real from the parse (the case is live)",
               "\x9b" in json.loads(fake_run(["orca", "worktree", "create"])[1])
@@ -540,7 +545,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
         os.environ.pop("ORCA_TERMINAL_HANDLE", None)
         os.environ.pop("ORCA_WORKTREE_ID", None)
         (spawnmod._run, spawnmod.shutil.which,
-         orcamod.run_current, orcamod.run_create) = real
+         orcamod.run_current, orcamod.run_create, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -2519,8 +2524,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
             "progress": [(["progress"], {"OCP_AGENT": "reviewer"}, "progress")],
-            "ask": [(["ask", "reviewer", f"a new one {p}", "--of", "marina"], None, "ask")],
-            "withdraw": [["withdraw", str(d + 1), "--of", "marina"]],
+            "ask": [(["ask", "reviewer", f"a new one {p}"], {"OCP_AGENT": "marina"}, "ask")],
+            "withdraw": [(["withdraw", str(d + 1)], {"OCP_AGENT": "marina"}, "withdraw")],
             "unstall": [["unstall", "reviewer"]],
             "venv status": [["venv", "status"]],
         }
@@ -2561,7 +2566,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                     argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
                     run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
             run_it(*driven["ask"][0][:2], key=driven["ask"][0][2])
-            run_it(driven["withdraw"][0])
+            run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
             foldmod.run_model, handoffmod.record = real_model, real_record
@@ -2632,8 +2637,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",
-        "task queue": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out, not this scene",
-        "task draft": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_doing_while_a_request_is_out, not this scene",
+        "task queue": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes, not this scene",
+        "task draft": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes, not this scene",
         "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task edit": "writes a row; driven in "

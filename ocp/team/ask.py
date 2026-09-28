@@ -245,7 +245,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         replaces: int | None = None, fyi: bool = False,
         reason: str | None = None,
         timebox_s: int | None = None, kind: str | None = None,
-        park: bool = True, send_now: bool = False) -> tuple[bool, str, int | None]:
+        park: bool = True, send_now: bool = False,
+        on_behalf_of: bool = False) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -261,6 +262,11 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `send_now` marks the new row (`db.mark_send_now`) on this same
     connection - `say` needs that mark, and a second connection for it could
     leave it unmarked, and unreachable, if one crashed between the two.
+
+    `on_behalf_of` skips the human-impersonation guard below for a
+    `requester` this call already verified from our own database, not a
+    live claim by whoever's session happens to be running it. Only for a
+    system-triggered, already-authorized delivery (`advance_current_task`).
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):
@@ -274,14 +280,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     # hold both: one spoofed hop turns a refused A->B->A into a legal loop.
     # `ocp launch` sets OCP_AGENT, so a caller that has one is not the human.
     speaker = current_agent()
-    if requester == HUMAN and speaker not in (None, HUMAN):
+    if requester == HUMAN and speaker not in (None, HUMAN) and not on_behalf_of:
         return False, (f"{speaker} may not ask as {HUMAN}: that name is the human's, "
                        f"and it is exempt from the loop guards."), None
     if not requester:
         return False, ("cannot tell who is asking: OCP_AGENT is unset and this is "
                        "not an interactive shell. Agents are started with "
-                       "`ocp launch <agent>`, which sets it; otherwise say who "
-                       "is asking with --of."), None
+                       "`ocp launch <agent>`, which sets it."), None
 
     t = team.Team.load()
     con = db.connect()
@@ -580,10 +585,13 @@ def inbox(agent: str, unread_only: bool = True) -> list[dict]:
     con = db.connect()
     try:
         if unread_only:
-            # T293: `db.head_of_queue_or_marked` falls back to a marked say
-            # with nothing else queued - never a head itself, still the one
-            # thing waiting.
-            head = db.head_of_queue_or_marked(con, agent)
+            # The agent's effective head (T337, auditor #2028's sweep) - a
+            # true head blocked on record is not what is actually waiting
+            # for it; `effective_head_or_marked` falls back to a marked say
+            # (T293) with nothing else queued, never a head itself, still
+            # the one thing waiting.
+            from ..daemon import delivery  # local: daemon.delivery imports this module
+            head = delivery.effective_head_or_marked(con, agent)
             return [dict(head)] if head else []
         rows = con.execute(
             "SELECT * FROM requests WHERE target = ? ORDER BY id", (agent,)).fetchall()
