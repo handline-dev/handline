@@ -128,7 +128,7 @@ def tell_now(con, rid: int, log) -> str:
         state = db.get_agent_state(con, agent)
     if state and state["closed_at"]:
         lifecycle.wake_agent(con, agent, log)
-    # Started or woken, its first prompt may already have told it (`waiting_prompt`).
+    # A resume's first prompt may already have told it (`waiting_prompt`); a fresh start does not.
     row = db.get_request(con, rid)
     if row["state"] != "queued":
         return "answered meanwhile"
