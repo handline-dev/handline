@@ -3488,12 +3488,41 @@ def cliteam_seal() -> tuple[int, str]:
     return rc, buf.getvalue()
 
 
+def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Path) -> None:
+    """An agent session's ask leaves edge_ok NULL; the human has no agent
+    supervision to check it, so the tick does."""
+    from ocp.daemon import evaluate
+    _daemon_home(home, 20)
+    agents.register("scout")
+    hand_edit_team("agents:\n  scout: {}\nedges:\n"
+                   "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "scout"
+    try:
+        ok, said, rid = askmod.ask("human", "need a call", requester="scout")
+    finally:
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+    con = db.connect()
+    try:
+        check("human: an agent session's ask to the human starts unchecked",
+              ok and db.get_request(con, rid)["edge_ok"] is None, said)
+        evaluate.tick(con, lambda _m: None)
+        check("human: one tick checks it against the founder's table",
+              db.get_request(con, rid)["edge_ok"] == 1, str(dict(db.get_request(con, rid))))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
         run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
+        run(lambda: test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(Path(td) / 'humanedge'))
         run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
@@ -3567,3 +3596,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
