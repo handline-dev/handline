@@ -581,7 +581,8 @@ def _delivery_reason(con, target: str) -> tuple[str, bool]:
 
 def inbox(agent: str, unread_only: bool = True) -> list[dict]:
     """The one request currently waiting for `agent`, or with
-    unread_only=False, its whole history in every state."""
+    unread_only=False, its whole history in every state - minus rows whose
+    edge nobody has checked yet, which `agent` is not to see."""
     con = db.connect()
     try:
         if unread_only:
@@ -594,7 +595,7 @@ def inbox(agent: str, unread_only: bool = True) -> list[dict]:
             head = delivery.effective_head_or_marked(con, agent)
             return [dict(head)] if head else []
         rows = con.execute(
-            "SELECT * FROM requests WHERE target = ? ORDER BY id", (agent,)).fetchall()
+            "SELECT * FROM requests WHERE target = ? AND edge_ok ORDER BY id", (agent,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         con.close()

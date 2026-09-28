@@ -61,8 +61,7 @@ def cmd_handoff(args) -> int:
 
 
 def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[str | None, str | None]:
-    """(text, error). One of `inline` or `file_path` - never neither, never
-    both. A shell expands backticks and $() inside double quotes before this
+    """(text, error). `inline` or `file_path`, never both; neither reads stdin. A shell expands backticks and $() inside double quotes before this
     process ever sees argv, so a message with either in it is silently
     rewritten - or, at a live terminal, run - by the caller's own shell. A
     file the caller wrote with a quoted heredoc, `Write`, or any tool that
@@ -77,7 +76,10 @@ def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[st
         except OSError as e:
             return None, f"could not read {file_path}: {e}"
     if inline is None:
-        return None, f"{label} is required (or --file PATH)"
+        text = "" if sys.stdin.isatty() else sys.stdin.read()
+        if not text.strip():
+            return None, f"{label} is required (inline, --file PATH, or on stdin)"
+        return text, None
     return inline, None
 
 
@@ -452,7 +454,12 @@ def cmd_read(args) -> int:
         if row is None:
             print(f"no request #{args.id}")
             return 1
-        if askmod.asking_agent() == actions.HUMAN:
+        viewer = askmod.asking_agent()
+        if viewer == row["target"] and viewer != actions.HUMAN and not row["edge_ok"]:
+            # Not yet checked against the routing table: not the target's to read.
+            print(f"no request #{args.id}")
+            return 1
+        if viewer == actions.HUMAN:
             actions.opened_by_human(con, args.id)
         when = timefmt.stamp(row["ts"], timefmt.DATE_TIME)
         print(f"#{row['id']}  {row['requester']} → {row['target']}  "
