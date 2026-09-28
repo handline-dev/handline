@@ -2561,7 +2561,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                     argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
                     run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
             run_it(*driven["ask"][0][:2], key=driven["ask"][0][2])
-            run_it(driven["withdraw"][0])
+            run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
             foldmod.run_model, handoffmod.record = real_model, real_record

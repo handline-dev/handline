@@ -1637,6 +1637,7 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
     argv. `--file` is the way out: text a caller wrote with a quoted heredoc
     or a file tool never goes through a shell at all."""
     _daemon_home(home, 20)
+    real_agent = os.environ.get("OCP_AGENT")
     try:
         hostile = "see `describe_modal` and $(orca terminal send --terminal x --text boom)"
         f = home / "ask_body.txt"
@@ -1663,7 +1664,6 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
             ["ask", "reviewer", "inline text", "--file", str(f)]))
         check("ask: both inline and --file is refused too - one source, not a merge",
               "not both" in out, out)
-        del os.environ["OCP_AGENT"]
 
         vf = home / "verdict.txt"
         vf.write_text("done - `also not run`")
@@ -1681,7 +1681,10 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         finally:
             con.close()
     finally:
-        pass
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
 
 
 def test_an_agent_may_not_list_another_agents_messages(home: Path) -> None:
