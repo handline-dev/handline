@@ -779,7 +779,8 @@ _DIALOG_READ_START = 40
 _DIALOG_READ_MAX = 400
 
 
-def _read_dialog(handle: str, allow_truncated: bool = True) -> tuple[list[str] | None, int | None, Dialog | None]:
+def _read_dialog(handle: str, allow_truncated: bool = True,
+                 term: dict | None = None) -> tuple[list[str] | None, int | None, Dialog | None]:
     """(tail, footer, dialog) for `handle`'s screen now - the one read every
     caller that looks at or presses a dialog goes through, so a long
     command's dialog (found only by widening) is exactly as pressable as it
@@ -794,8 +795,12 @@ def _read_dialog(handle: str, allow_truncated: bool = True) -> tuple[list[str] |
     `stop_work_and_exit`) pass this, since pressing Esc on a dialog it could
     not read the whole of is a choice made on too little to make it safely -
     unlike a numbered press, which is a choice someone else already made
-    and is confirmed here, not decided."""
-    term = _screen(handle)
+    and is confirmed here, not decided.
+
+    `term` is a first read the caller already made at the default width, so a
+    caller that also looks at the raw screen costs one read, not two."""
+    if term is None:
+        term = _screen(handle)
     limit = _DIALOG_READ_START
     while True:
         tail = term.get("tail") if term else None
@@ -1007,6 +1012,37 @@ def answer_confirmation(handle: str, yes: bool, seen: tuple[str, ...],
         return None
     outcome, title, why = answer_dialog(handle, choose)
     return outcome, title, (refused[0] if refused and outcome == NOT_PRESSED else why)
+
+
+PROMPT_PERMISSION, PROMPT_QUESTION, PROMPT_DIALOG = "permission", "question", "dialog"
+PROMPT_NONE, PROMPT_UNREADABLE = "none", "unreadable"
+
+
+def prompt_on_screen(handle: str) -> tuple[str, object]:
+    """The ONE prompt this terminal shows now, read once: (PROMPT_PERMISSION,
+    Confirmation), (PROMPT_QUESTION, Question), (PROMPT_DIALOG, Dialog),
+    (PROMPT_NONE, None) or (PROMPT_UNREADABLE, None). A permission prompt
+    outranks a question, which outranks a plain dialog - so a screen that more
+    than one recognizer accepts is one prompt, not several. The folder-trust
+    screen is not one of them: it has its own path (`trust`), and reads as none.
+    An idle screen costs a single read."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return PROMPT_UNREADABLE, None
+    driver = _driver_for(handle)
+    if driver.trust_screen(tail) is not None:
+        return PROMPT_NONE, None
+    _, _, dialog = _read_dialog(handle, term=term)
+    confirmation = driver.confirmation(dialog) if dialog is not None else None
+    if confirmation is not None:
+        return PROMPT_PERMISSION, confirmation
+    question = driver.ask_question(tail)
+    if question is not None:
+        return PROMPT_QUESTION, question
+    if dialog is not None:
+        return PROMPT_DIALOG, dialog
+    return PROMPT_NONE, None
 
 
 def question_on_screen(handle: str):
