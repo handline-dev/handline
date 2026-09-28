@@ -586,10 +586,13 @@ def inbox(agent: str, unread_only: bool = True) -> list[dict]:
     con = db.connect()
     try:
         if unread_only:
-            # T293: `db.head_of_queue_or_marked` falls back to a marked say
-            # with nothing else queued - never a head itself, still the one
-            # thing waiting.
-            head = db.head_of_queue_or_marked(con, agent)
+            # The agent's effective head (T337, auditor #2028's sweep) - a
+            # true head blocked on record is not what is actually waiting
+            # for it; `effective_head_or_marked` falls back to a marked say
+            # (T293) with nothing else queued, never a head itself, still
+            # the one thing waiting.
+            from ..daemon import delivery  # local: daemon.delivery imports this module
+            head = delivery.effective_head_or_marked(con, agent)
             return [dict(head)] if head else []
         rows = con.execute(
             "SELECT * FROM requests WHERE target = ? ORDER BY id", (agent,)).fetchall()

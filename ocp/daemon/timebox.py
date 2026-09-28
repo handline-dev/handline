@@ -1,4 +1,4 @@
-"""Four notices about work that has run long, all read from the db every tick.
+"""Five notices about work that has run long, all read from the db every tick.
 
 A request still open a set time after it was delivered tells its asker once
 (`ocp ask --timebox`, config.yaml's `timebox_s`). An agent that shows RUNNING -
@@ -9,7 +9,10 @@ tells its supervisor it may be stopped after a veto window
 (`delivery.bg_may_stop`; the close itself is `lifecycle`'s). An agent IDLE
 with its current task's own wait never recorded tells the founder once, the
 Stop-hook gate's own backstop (T288) for whenever it is warn-only or missed.
-The first three act on nothing.
+An agent nudged to resolve a forgotten head as many times as
+`delivery.NUDGE_SCHEDULE_S` allows, still open, tells its supervisor once
+(T337) - nothing more is typed at the agent about it past that. The first
+three act on nothing.
 
 A notice to an agent is a line typed at its open session, so one that cannot be
 typed now is tried again; a notice to the human has no session to type at and is
@@ -164,8 +167,44 @@ def sweep_stop_wait_backstop(con, log, now: int) -> None:
             f"founder told")
 
 
+def sweep_forgotten_resolve_capped(con, log, now: int) -> None:
+    """T337 (founder #2002/#2003): `delivery.nudge_forgotten_resolve` stops
+    once `NUDGE_SCHEDULE_S` is used up rather than typing at the agent
+    forever - an agent that turns out to be genuinely stuck, not forgetful,
+    still needs someone to look, so its supervisor is told once instead.
+    Cleared as soon as it no longer applies (resolved, now blocked on record
+    and so `deliver_queued`'s problem instead, or a different head), so a
+    later head that is also forgotten and also runs out the schedule is told
+    again."""
+    from .. import actions
+    team = actions.routing()
+    for agent in paths.list_agents():
+        told_key = f"forgotten_capped_told:{agent}"
+        found = delivery.forgotten_resolve(con, agent, db.get_agent_state(con, agent), now)
+        head_id = int(found["head"]["id"]) if found else None
+        if not found or delivery.head_task_blocked(con, agent, found["head"]) \
+                or not delivery.nudge_exhausted(con, agent, head_id):
+            db.clear_cursor(con, told_key)
+            continue
+        if db.get_cursor(con, told_key) == head_id:
+            continue
+        boss = actions.supervisor_of(team, agent) or HUMAN
+        behind = found["behind"]
+        text = (f"{agent} has been idle {timefmt.ago(found['idle_s'])} on #{head_id}, nudged "
+                f"{len(delivery.NUDGE_SCHEDULE_S)} times, still open"
+                + (f" with {behind} more waiting behind it" if behind else "")
+                + f". `ocp ask {agent} \"...\"`, or resolve #{head_id} another way.")
+        if _tell(con, boss, text, now):
+            db.set_cursor(con, told_key, head_id)
+            db.add_event(con, agent, "forgotten_resolve_capped",
+                         {"request_id": head_id, "idle_s": found["idle_s"], "told": boss})
+            log(f"  {agent}: idle {timefmt.ago(found['idle_s'])} on #{head_id}, nudge cap "
+                f"reached - {boss} told")
+
+
 def sweep(con, log, now: int) -> None:
     sweep_timeboxes(con, log, now)
     sweep_unasked_running(con, log, now)
     sweep_stale_background(con, log, now)
     sweep_stop_wait_backstop(con, log, now)
+    sweep_forgotten_resolve_capped(con, log, now)
