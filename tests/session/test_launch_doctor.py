@@ -1130,6 +1130,68 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
         con.close()
 
 
+def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
+    """A worktree create that fails with repo_not_found gets one retry, after the
+    repo is put in Orca - never for one Orca already has, and never twice."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    credentialed(home, "alpha")
+    agents.register("regy", repo=str(ROOT))
+    creates: list[list[str]] = []
+    have_repo = {"ok": False}
+    not_found = json.dumps({"ok": False, "error": {"code": "repo_not_found"}})
+
+    def fake_run(args, cwd=None):
+        if args[:3] == ["orca", "worktree", "create"]:
+            creates.append(args)
+            if not have_repo["ok"]:
+                return 1, not_found, ""
+            return 0, json.dumps({"result": {"worktree": {"path": str(home / "wt")}}}), ""
+        if args[:3] == ["orca", "terminal", "create"]:
+            return 0, json.dumps({"result": {"terminal": {"handle": "term_r"}}}), ""
+        return 0, "", ""
+
+    fake = FakeOrca({})
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod._run, orcamod.available,
+            orcamod.wait_idle, dmn_delivery.wait_for_session)
+    try:
+        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        spawnmod._run = fake_run
+        orcamod._run, orcamod.available = fake.run, lambda: True
+        orcamod.wait_idle = lambda *_a, **_k: True
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
+
+        real_add = fake.run
+
+        def add_then_ready(args, timeout=180):
+            if args[0] != "repo":
+                return True, "{}"
+            r = real_add(args, timeout)
+            if args[:2] == ["repo", "add"]:
+                have_repo["ok"] = True
+            return r
+        orcamod._run = add_then_ready
+        real_rc, real_rcr = orcamod.run_current, orcamod.run_create
+        orcamod.run_current, orcamod.run_create = (lambda: None), (lambda objective: None)
+        ok, msg = spawnmod.spawn("regy", ROOT, base="main")
+        check("spawn: repo_not_found registers the repo, then the worktree is made",
+              len(creates) == 2 and fake.repos == [str(ROOT)], f"{msg} {creates} {fake.repos}")
+
+        # Orca already has it: repo_not_found is not ours to fix by adding it again.
+        agents.register("regy2", repo=str(ROOT))
+        creates.clear()
+        have_repo["ok"] = False
+        n = len(fake.calls)
+        ok, msg = spawnmod.spawn("regy2", ROOT, base="main")
+        check("spawn: a repo Orca already lists is not added again, and the failure is shown",
+              not ok and len(creates) == 1 and "repo_not_found" in msg
+              and all(c[:2] != ["repo", "add"] for c in fake.calls[n:]), f"{msg} {fake.calls[n:]}")
+    finally:
+        (spawnmod._run, spawnmod.shutil.which, orcamod._run, orcamod.available,
+         orcamod.wait_idle, dmn_delivery.wait_for_session) = real
+        orcamod.run_current, orcamod.run_create = real_rc, real_rcr
+
+
 def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
     """`worktree create --name keeper` on a name already taken makes keeper-2
     beside it, stranding the branch and whatever is uncommitted in the first.
@@ -2126,6 +2188,7 @@ def main() -> int:
             Path(td) / 'docactive'))
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
         run(lambda: test_spawn_and_start_in_refuse_to_say_started_with_no_session(Path(td) / 'spawnnosess'))
+        run(lambda: test_spawn_registers_a_repo_orca_lacks_and_tries_again(Path(td) / 'spawnrepo'))
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))

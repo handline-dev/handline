@@ -1101,7 +1101,7 @@ def _undefined_globals(path: Path) -> set[tuple[str, str]]:
 
 
 class FakeOrca:
-    """Orca's `worktree show`, `worktree set` and `repo add`, over a dict of
+    """Orca's `worktree show`, `worktree set`, `repo list` and `repo add`, over a dict of
     checkouts by path, and nothing else: any other call is an error, so a test
     that uses it cannot reach the real Orca or type at a terminal. `repos` is
     what `repo add` was given; `adds` False makes it refuse."""
@@ -1110,11 +1110,14 @@ class FakeOrca:
         self.names = dict(worktrees)     # path -> displayName
         self.sets = sets                 # False: it says ok and changes nothing
         self.calls: list[list[str]] = []
-        self.repos: list[str] = []
+        self.repos: list[str] = []       # what Orca has as repos
         self.adds = True
 
     def run(self, args: list[str], timeout: int = 180) -> tuple[bool, str]:
         self.calls.append(list(args))
+        if args[:2] == ["repo", "list"]:
+            return True, json.dumps({"ok": True, "result": {"repos": [
+                {"id": f"r{i}", "path": p} for i, p in enumerate(self.repos)]}})
         if args[:2] == ["repo", "add"]:
             if not self.adds:
                 return False, json.dumps({"ok": False, "error": {"code": "not_a_git_repo"}})

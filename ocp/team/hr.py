@@ -587,26 +587,12 @@ def is_open_proposal(rid: int) -> bool:
 
 
 def register_repo(repo: str | None) -> str:
-    """Put an agent's repo in Orca (`orca repo add`), so its worktree and terminal
-    can be made there. What to tell the founder, "" when there is no repo.
-
-    An agent that is already registered is not undone by Orca refusing: the
-    reply says what to run instead."""
+    """Put an agent's repo in Orca so its worktree can be made there: what to
+    tell the founder, "" when there is no repo. The agent is added whatever Orca
+    says; a refusal, no Orca, or a folder without `git init` says what to run."""
     from ..session import orca
 
-    if not repo:
-        return ""
-    cmd = "orca repo add --path " + shlex.quote(repo)
-    if not orca.available():
-        return f" Orca is not on PATH, so {repo} is not registered there: `{cmd}`"
-    ok, out = orca._run(["repo", "add", "--path", repo, "--json"], timeout=LABEL_TIMEOUT_S)
-    try:
-        ok = ok and bool(json.loads(out).get("ok"))
-    except (json.JSONDecodeError, AttributeError):
-        ok = False
-    if not ok:
-        return f" Orca would not add {repo} ({out.strip()[:160]}): `{cmd}`"
-    return f" Orca now has {repo}."
+    return f" {orca.ensure_repo(repo)[1]}." if repo else ""
 
 
 def _add(prop: dict, con) -> tuple[bool, str]:

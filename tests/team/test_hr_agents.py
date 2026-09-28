@@ -451,21 +451,35 @@ edges:
     orcamod._run, orcamod.available = fake.run, lambda: True
     try:
         repo = str(home / "proj")
+        for d in (repo, repo + "2"):
+            (Path(d) / ".git").mkdir(parents=True)
         ok, said = hr.enact("add", "scout", repo=repo, why="needs a home")
         check("repo: the add went through", ok and "scout" in paths.list_agents(), said)
-        check("repo: Orca was given exactly that path, once, and the message says so",
-              fake.calls == [["repo", "add", "--path", repo, "--json"]] and f"Orca now has {repo}" in said,
-              str(fake.calls) + said)
+        check("repo: Orca was asked what it has, then given exactly that path, once",
+              fake.calls == [["repo", "list", "--json"], ["repo", "add", "--path", repo, "--json"]]
+              and f"Orca now has {repo}" in said, str(fake.calls) + said)
 
         ok, said = hr.enact("add", "bare", why="no repo")
         check("repo: an agent with no repo makes no Orca call",
-              ok and len(fake.calls) == 1 and "Orca" not in said, said)
+              ok and len(fake.calls) == 2 and "Orca" not in said, said)
+
+        n = len(fake.calls)
+        ok, said = hr.enact("add", "again", repo=repo, why="the repo is already there")
+        check("repo: a repo Orca already has is only listed, never added again",
+              ok and fake.calls[n:] == [["repo", "list", "--json"]] and "already has" in said, said)
+
+        loose = home / "loose"
+        loose.mkdir()
+        n = len(fake.calls)
+        ok, said = hr.enact("add", "nogit", repo=str(loose), why="a folder with no git")
+        check("repo: a folder that is not a git repo is not sent to Orca, and git init is named",
+              ok and fake.calls[n:] == [["repo", "list", "--json"]] and "git init" in said, said)
 
         fake.adds = False
-        ok, said = hr.enact("add", "refused", repo=repo, why="orca says no")
+        ok, said = hr.enact("add", "refused", repo=repo + "2", why="orca says no")
         check("repo: Orca refusing does not undo the agent, and the command to run is given",
               ok and "refused" in paths.list_agents() and "would not add" in said
-              and f"orca repo add --path {repo}" in said, said)
+              and f"orca repo add --path {repo}2" in said, said)
 
         orcamod.available = lambda: False
         n = len(fake.calls)

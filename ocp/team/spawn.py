@@ -222,10 +222,16 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
                       f"  orca terminal create --worktree <new> --command \"{cmd}\"")
 
     if not wt:
-        code, out, err = _run([
-            "orca", "worktree", "create", "--repo", f"path:{repo}",
-            "--name", agent, "--base-branch", base_ref, "--json",
-        ])
+        create = ["orca", "worktree", "create", "--repo", f"path:{repo}",
+                  "--name", agent, "--base-branch", base_ref, "--json"]
+        code, out, err = _run(create)
+        if code != 0 and "repo_not_found" in f"{out} {err}":
+            # Orca does not have this folder as a repo yet: register it (never
+            # one it already has, nor a folder without `git init`) and try once more.
+            state, said = orca.ensure_repo(str(repo))
+            if state != "added":
+                return False, f"worktree create failed: {err or out} - {said}"
+            code, out, err = _run(create)
         if code != 0:
             return False, f"worktree create failed: {err or out}"
         wt = _parsed(out, "result", "worktree", "path")
