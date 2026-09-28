@@ -7156,7 +7156,7 @@ limits:
     try:
         ok, _, t = actions.task_new("manager", "worker", "the change")
         check("handoff: setup - worker holds T", ok and db.current_task(con, "worker") == t)
-        H = lambda me, to, note="note": actions.task_handoff(con, me, t, to, note)
+        H = lambda me, to, note="note", v=None: actions.task_handoff(con, me, t, to, note, v)
         ok, msg = H("worker", "dev.auditor", "  ")
         check("handoff: a note is required, and blank is not one", not ok and "note" in msg, msg)
         ok, msg = H("worker", "manager", "straight to the manager")
@@ -7166,6 +7166,8 @@ limits:
         ok, msg = H("worker", "nobody.auditor", "no such agent")
         check("handoff: the receiver must exist", not ok and "no agent" in msg, msg)
 
+        ok, msg = H("worker", "dev.auditor", "verdict from a maker", "PASS")
+        check("handoff: only an auditor gives a verdict", not ok and "only an auditor" in msg, msg)
         ok, msg = H("worker", "dev.auditor", "branch@abc123: fixed the retry")
         row = db.get_task(con, t)
         check("handoff: the maker hands it to the auditor", ok and row["owner"] == "dev.auditor", msg)
@@ -7178,13 +7180,17 @@ limits:
               and not [r for r in db.queued_for(con, "worker") if r["kind"] == "task"])
         check("handoff: the auditor now holds it", db.current_task(con, "dev.auditor") == t)
 
-        ok, msg = H("dev.auditor", "dev.merger", "skipping the manager")
+        ok, msg = H("dev.auditor", "dev.merger", "skipping the manager", "PASS")
         check("handoff: an auditor may not hand it to a merger", not ok and "opener" in msg, msg)
-        ok, msg = H("dev.auditor", "worker", "FAIL: retry loops; repro: run x")
+        ok, msg = H("dev.auditor", "manager", "no verdict given")
+        check("handoff: an auditor's handoff must carry a verdict", not ok and "--pass" in msg, msg)
+        ok, msg = H("dev.auditor", "manager", "wrong way", "FAIL")
+        check("handoff: a FAIL may not go to the opener", not ok and "worker" in msg, msg)
+        ok, msg = H("dev.auditor", "worker", "FAIL: retry loops; repro: run x", "FAIL")
         check("handoff: a FAIL goes back to whoever handed it over",
               ok and db.get_task(con, t)["owner"] == "worker", msg)
         ok, msg = H("worker", "dev.auditor", "fixed the loop")
-        ok2, msg2 = H("dev.auditor", "manager", "PASS: 5900 passed")
+        ok2, msg2 = H("dev.auditor", "manager", "PASS: 5900 passed", "PASS")
         check("handoff: a PASS goes to the opener", ok and ok2 and db.get_task(con, t)["owner"] == "manager", msg + msg2)
         check("handoff: who handed it over is read from the record",
               actions.previous_owner(con, t, "manager") == "dev.auditor"
@@ -7205,14 +7211,20 @@ limits:
                   ("dev.auditor", "manager"), ("manager", "dev.merger"), ("dev.merger", "manager")]
               and hist[0]["note"] == "branch@abc123: fixed the retry" and hist[3]["note"] == "PASS: 5900 passed",
               str(hist))
+        check("handoff: the verdict is recorded with the handoff",
+              [h["verdict"] for h in hist] == [None, "FAIL", None, "PASS", None, None], str(hist))
         own = db.new_task(con, "self-opened", "worker", "worker")
-        G = lambda me, to: actions.task_handoff(con, me, own, to, "note")
+        G = lambda me, to, v=None: actions.task_handoff(con, me, own, to, "note", v)
         ok, msg = G("worker", "dev.merger")
         check("handoff: a self-opened task cannot skip the audit", not ok and "auditor" in msg, msg)
+        G("worker", "dev.auditor")
+        G("dev.auditor", "worker", "FAIL")
+        ok, msg = G("worker", "dev.merger")
+        check("handoff: after a FAIL a self-opened task still cannot reach a merger", not ok, msg)
         back = db.new_task(con, "send back", "worker", "manager")
-        B = lambda me, to: actions.task_handoff(con, me, back, to, "note")
+        B = lambda me, to, v=None: actions.task_handoff(con, me, back, to, "note", v)
         B("worker", "dev.auditor")
-        B("dev.auditor", "manager")
+        B("dev.auditor", "manager", "PASS")
         ok, msg = B("manager", "dev.auditor")
         check("handoff: the opener may not send it back to the auditor that passed it", not ok, msg)
         ok, msg = B("manager", "worker")

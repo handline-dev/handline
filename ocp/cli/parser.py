@@ -554,6 +554,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("to", help="the agent that takes it")
     p.add_argument("note", help="required: what changed, and what the receiver should know "
                                 "(PASS/FAIL, test results, how to reproduce a FAIL)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--pass", dest="verdict", action="store_const", const="PASS",
+                   help="an auditor's verdict: on to the opener, who may then pass it to a merger")
+    g.add_argument("--fail", dest="verdict", action="store_const", const="FAIL",
+                   help="an auditor's verdict: back to whoever handed it over")
     p.set_defaults(fn=cmd_task_handoff)
     p = tk.add_parser("start", help="pick up T<n> as your current task (T292) - for one "
                                     "delivered while you already held another")

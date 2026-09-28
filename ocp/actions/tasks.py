@@ -921,7 +921,15 @@ def previous_owner(con, tid: int, owner: str) -> str | None:
     return None
 
 
-def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
+def last_verdict(con, tid: int) -> str | None:
+    """The verdict on the latest handoff that carried one (PASS or FAIL), or None."""
+    for h in reversed(db.task_handoffs(con, tid)):
+        if h["verdict"]:
+            return h["verdict"]
+    return None
+
+
+def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None) -> str | None:
     """Why `me` may not hand this task to `to`, or None. The chain is fixed: the
     owner hands it to an auditor; the auditor returns it to the task's opener
     (a PASS) or the one who handed it over (a FAIL); once it has come back from
@@ -942,13 +950,18 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
         return f"T{tid} is {row['owner']}'s: only its owner hands it on"
     prev = previous_owner(con, tid, me)
     role, target = _role(me), _role(to)
+    if verdict and role != "auditor":
+        return "only an auditor gives a verdict (--pass or --fail)"
     if role == "auditor":
-        allowed = to in {row["opened_by"], prev}
-        hint = f"the task's opener ({row['opened_by']}) on a PASS, {prev or 'nobody'} (who handed it over) on a FAIL"
+        if verdict is None:
+            return "an auditor's handoff must say --pass or --fail"
+        dest = row["opened_by"] if verdict == "PASS" else prev
+        allowed = to == dest
+        hint = f"{dest or 'nobody'} on a {verdict} ({'the task opener' if verdict == 'PASS' else 'who handed it over'})"
     elif role == "merger":
         allowed = to == prev
         hint = f"{prev or 'nobody'}, who handed it over - a merger closes it done once merged"
-    elif me == row["opened_by"] and prev and _role(prev) == "auditor":
+    elif me == row["opened_by"] and prev and _role(prev) == "auditor" and last_verdict(con, tid) == "PASS":
         maker = previous_owner(con, tid, prev)
         allowed = target == "merger" or to == maker
         hint = f"a merger, or {maker or 'nobody'} (the maker, to send it back)"
@@ -960,16 +973,18 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     return None
 
 
-def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]:
+def task_handoff(con, me: str, tid: int, to: str, note: str,
+                 verdict: str | None = None) -> tuple[bool, str]:
     """One verb for passing a task along: its owner changes to `to`, the note goes
     to `to` with the task, and both the note and the handoff stay in the task's
     record (`db.task_handoffs`, in the order they happened). A required note
-    replaces the separate ask: nothing else is sent."""
+    replaces the separate ask: nothing else is sent. An auditor's handoff carries
+    its verdict, PASS or FAIL, which also picks where it goes."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
     said = textsafe.text(note or "").strip()
-    why = _handoff_refusal(con, row, me, to, said)
+    why = _handoff_refusal(con, row, me, to, said, verdict)
     if why:
         return False, why
     # The delivery is the only thing that can be refused past this point (the
@@ -985,7 +1000,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     db.edit_task(con, tid, me, owner=to)
     db.link_request(con, tid, rid)
     db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
-                                            "request_id": rid})
+                                            "request_id": rid, "verdict": verdict})
     if db.current_task(con, old) == tid:
         db.set_current_task(con, old, None)
         if advance_current_task(con, old):

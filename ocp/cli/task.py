@@ -300,7 +300,7 @@ def cmd_task_handoff(args) -> int:
         return 1
     con = db.connect()
     try:
-        ok, msg = actions.task_handoff(con, me, args.task, args.to, args.note)
+        ok, msg = actions.task_handoff(con, me, args.task, args.to, args.note, args.verdict)
         print(msg)
     finally:
         con.close()
