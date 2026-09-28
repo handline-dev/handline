@@ -490,7 +490,8 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         return False, "reopening needs a one-line reason"
     if not db.reopen_task(con, tid):
         return False, f"task T{tid} was closed or reopened by someone else just now"
-    db.add_event(con, by, "reopen_task", {"task_id": tid, "reason": said})
+    db.add_event(con, by, "reopen_task",
+                 {"task_id": tid, "reason": said, "after_request": _newest_request(con)})
     return True, f"task T{tid} reopened by {by}: {said}"
 
 
@@ -511,7 +512,8 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)
     db.add_event(con, closer, "task_unblocked",
-                {"task_id": dep_tid, "request_id": rid, "closed_task": closed_tid})
+                 {"task_id": dep_tid, "request_id": rid, "closed_task": closed_tid,
+                  "after_request": _newest_request(con)})
     return rid, owner, text
 
 
@@ -598,7 +600,8 @@ def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
         return False, f"task T{tid} is {state} - only a {other} task can be made {want}"
     if not db.set_task_queued(con, tid, by if queued else None):
         return False, f"task T{tid} changed under this call - read it again"
-    db.add_event(con, by, "queue_task" if queued else "draft_task", {"task_id": tid})
+    db.add_event(con, by, "queue_task" if queued else "draft_task",
+                 {"task_id": tid, "after_request": _newest_request(con)})
     if queued:
         # advance_current_task's own True/False says whether the owner's
         # current task moved on at all, not whether it landed on `tid` -
@@ -640,13 +643,35 @@ def _current_task_still_asking(con, agent: str) -> bool:
     return any(_asks(r) for r in db.task_requests(con, tid))
 
 
+# Events after which a task's earlier answers no longer mean it was handled: it
+# was reopened, unblocked or queued (again), and so goes out to its owner anew.
+_RESET_EVENTS = ("reopen_task", "unblock_task", "task_unblocked", "queue_task")
+
+
+def _newest_request(con) -> int:
+    """The `after_request` a `_RESET_EVENTS` event carries. Ids order a request
+    against the event where clock seconds cannot: an answer and a reopen in the
+    same second are still one before the other."""
+    return con.execute("SELECT COALESCE(MAX(id), 0) FROM requests").fetchone()[0]
+
+
+def _reset_after(con, tid: int) -> int:
+    """The highest request id a `_RESET_EVENTS` event on task `tid` has covered."""
+    marks = ",".join("?" * len(_RESET_EVENTS))
+    return con.execute(
+        "SELECT COALESCE(MAX(CAST(json_extract(payload, '$.after_request') AS INTEGER)), 0) "
+        f"FROM events WHERE kind IN ({marks}) AND json_extract(payload, '$.task_id') = ?",
+        (*_RESET_EVENTS, tid)).fetchone()[0]
+
+
 def _waiting_tasks(con, agent: str):
     """`agent`'s open tasks that could become current, by priority then age,
     each as (row, its own queued request or None). Skips one blocked, still
     a draft, or with nothing of its own left to deliver. `None` in place of
     the request is a queued task never delivered (T325) - `advance_current_task`
     delivers it there and then, the same way `task_new` would, just later. A
-    task whose request reached its owner and was answered is not that (T352)."""
+    task whose request reached its owner and was answered since it last came
+    due (`_RESET_EVENTS`) is not that (T352)."""
     for row in db.open_tasks(con):
         if row["owner"] != agent or row["done_evidence"]:
             continue
@@ -654,9 +679,9 @@ def _waiting_tasks(con, agent: str):
             continue
         linked = db.task_requests(con, row["id"])
         req = next((r for r in linked if _asks(r)), None)
-        if req is None and any(r["target"] == agent and not r["fyi"]
+        if req is None and any(r["target"] == agent and not r["fyi"] and r["id"] > _reset_after(con, row["id"])
                                and r["state"] not in db.NEVER_REACHED_TARGET for r in linked):
-            continue  # delivered and answered: an answer that did not close it is not a reason to send it again
+            continue  # delivered and answered since it last came due: not a reason to send it again
         if req is not None or row["queued_by"] is not None:
             yield row, req
 
@@ -1167,7 +1192,8 @@ def unblock(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
         return False, guard
     if not db.remove_block(con, tid, blocks_on):
         return False, f"task T{tid} is not waiting on T{blocks_on}"
-    db.add_event(con, by, "unblock_task", {"task_id": tid, "blocks_on": blocks_on})
+    db.add_event(con, by, "unblock_task",
+                 {"task_id": tid, "blocks_on": blocks_on, "after_request": _newest_request(con)})
     return True, f"task T{tid} no longer waits on T{blocks_on}"
 
 
