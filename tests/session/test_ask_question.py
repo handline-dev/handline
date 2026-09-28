@@ -96,10 +96,10 @@ def test_question_keys_match_the_measured_key_sequence(home: Path) -> None:
           question_keys(m, choices=(0, 2)) == [RIGHT, "1"])
     check("keys: only the options that must change are toggled",
           question_keys(m, choices=(1,)) == ["1", "2", "3", RIGHT, "1"])
-    check("keys: Other on a multiSelect question, boxes left exactly as checked, types then submits",
-          question_keys(m, choices=(0, 2), text="anything") == ["4", "anything", ENTER, RIGHT, "1"])
-    check("keys: Other combines with checked boxes - toggle first, then type and submit",
-          question_keys(m, choices=(1,), text="anything") == ["1", "2", "3", "4", "anything", ENTER, RIGHT, "1"])
+    check("keys: Other on a multiSelect question is refused, not guessed - two live tries both went "
+          "wrong in different ways (2026-09-28), and there is no verified sequence yet",
+          question_keys(m, choices=(0, 2), text="anything") is None
+          and question_keys(m, text="anything") is None)
     check("keys: wanting nothing checked on a multiSelect question still submits, unchecking what was",
           question_keys(m, choices=()) == ["1", "3", RIGHT, "1"])
     check("keys: wanting nothing at all on a single-select question is refused, not a submit",

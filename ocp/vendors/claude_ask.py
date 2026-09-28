@@ -63,10 +63,16 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     None when this combination is not sent here.
 
     `choices` are 0-based indexes into `q.options`; `text` is free text for
-    `q.other_number`, on either kind of question, and on a multiSelect one
-    alongside `choices` too - the modal keeps whatever was checked before
-    Other was opened (T322 follow-up, founder capture 2026-09-28: it used to
-    discard them). Refused when the question has no "Other" at all.
+    `q.other_number`. On a multiSelect question this refuses `text` outright
+    (T322 follow-up, 2026-09-28): two live attempts at toggling boxes and
+    answering Other together both came back wrong in different ways (a
+    silently unanswered tool call, then a checkbox flipped back that was
+    never asked to change) and left the real screen in a state this codebase
+    does not have a verified way to name, let alone recover from by guessing
+    a third key sequence blind. The modal itself still keeps whatever was
+    checked when Other is opened (so at least nothing is lost on the bridge
+    side) - it is `answer_question` that now refuses to press anything until
+    a real capture of this combination exists to measure against.
 
     A single-select question submits on its one number - conch's own words,
     "a lone single-choice question ... a number submits outright". A
@@ -83,14 +89,9 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     if choices and any(c < 0 or c >= len(q.options) for c in choices):
         return None
     if text is not None:
-        if q.other_number is None:
+        if q.other_number is None or q.multi_select:
             return None
-        if not q.multi_select:
-            return [str(q.other_number), text, ENTER] if not choices else None
-        # multiSelect's Other combined with checked boxes: untested against
-        # a real screen as of 2026-09-28 - toggle the boxes first, then type
-        # Other's text, then Right/Submit like any other multiSelect answer.
-        return _toggle_keys(q, choices) + [str(q.other_number), text, ENTER, RIGHT, "1"]
+        return [str(q.other_number), text, ENTER] if not choices else None
     if not q.multi_select:
         return [str(choices[0] + 1)] if len(choices) == 1 else None
     # Empty choices is a real answer on a multiSelect question - nothing
