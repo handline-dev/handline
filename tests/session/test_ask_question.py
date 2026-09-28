@@ -100,6 +100,10 @@ def test_question_keys_match_the_measured_key_sequence(home: Path) -> None:
           question_keys(m, choices=(0, 2), text="anything") == ["4", "anything", ENTER, RIGHT, "1"])
     check("keys: Other combines with checked boxes - toggle first, then type and submit",
           question_keys(m, choices=(1,), text="anything") == ["1", "2", "3", "4", "anything", ENTER, RIGHT, "1"])
+    check("keys: wanting nothing checked on a multiSelect question still submits, unchecking what was",
+          question_keys(m, choices=()) == ["1", "3", RIGHT, "1"])
+    check("keys: wanting nothing at all on a single-select question is refused, not a submit",
+          question_keys(q, choices=()) is None)
 
 
 class _Term:

@@ -91,10 +91,11 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
         # a real screen as of 2026-09-28 - toggle the boxes first, then type
         # Other's text, then Right/Submit like any other multiSelect answer.
         return _toggle_keys(q, choices) + [str(q.other_number), text, ENTER, RIGHT, "1"]
-    if not choices:
-        return None
     if not q.multi_select:
         return [str(choices[0] + 1)] if len(choices) == 1 else None
+    # Empty choices is a real answer on a multiSelect question - nothing
+    # picked, not "no answer at all" - so it still submits, unchecking
+    # whatever the screen showed checked.
     return _toggle_keys(q, choices) + [RIGHT, "1"]
 
 
