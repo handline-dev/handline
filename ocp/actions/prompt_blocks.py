@@ -87,7 +87,8 @@ def request_answer(block_id: int, choice: dict) -> tuple[bool, str]:
 
 def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
     """Answer block `block_id` with `choice` - permission: {"yes": bool}; question:
-    {"choices": [0-based indexes], "text": str | None}; dialog: {"number": int, "always": bool}.
+    {"choices": [0-based indexes], "text": str | None}; dialog: {"number": int, "always": bool};
+    any kind: {"cancel": True}, which sends Esc (a permission prompt reads it as No).
 
     Refused, and recorded as refused, unless the screen read again now shows the very
     prompt the row names: same kind, same panel text and, for a permission prompt, the
@@ -112,7 +113,9 @@ def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
         now = describe(agent, kind, payload, waiting.read(agent))
         if now["kind"] != row["kind"] or fingerprint(now["kind"], now["panel"]) != row["fingerprint"]:
             return _record(con, row, False, f"{agent}: the prompt on screen is not the one shown - nothing sent")
-        if row["kind"] == PERMISSION:
+        if choice.get("cancel"):
+            ok, said = _cancel(agent, handle, row)
+        elif row["kind"] == PERMISSION:
             ok, said = _permission(agent, handle, row, now, bool(choice.get("yes")))
         elif row["kind"] == QUESTION:
             ok, said = _question(agent, handle, now, tuple(choice.get("choices") or ()), choice.get("text"))
@@ -120,6 +123,28 @@ def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
             ok, said = dialogs.press_choice(con, agent, now["title"], int(choice["number"]),
                                             bool(choice.get("always", False)))
     return _record(con, row, ok, said)
+
+
+def _cancel(agent: str, handle: str, row) -> tuple[bool, str]:
+    """Esc, once the prompt was just confirmed to be the row's. A permission prompt or question
+    reads Esc as No or cancel. A plain dialog gets it only where `orca.declining_key` says the
+    screen shows Esc only declines - not one whose Esc leaves the session or stops tasks."""
+    if row["kind"] == DIALOG:
+        outcome, _, why = orca.decline_dialog(handle)
+        if outcome == orca.CLEARED:
+            return True, f"{agent}: cancelled (Esc)"
+        return False, f"{agent}: not cancelled - {why or outcome}"
+    ok, out = orca.send(handle, orca.ESCAPE, enter=False)
+    if not ok:
+        return False, f"{agent}: the key could not be sent: {out[:120]}"
+    for _ in range(orca.PRESS_SETTLE_READS):
+        time.sleep(orca.PRESS_SETTLE_S)
+        kind, payload = orca.prompt_on_screen(handle)
+        if kind == orca.PROMPT_UNREADABLE:
+            continue        # not evidence either way
+        if kind == orca.PROMPT_NONE or fingerprint(kind, describe(agent, kind, payload, None)["panel"]) != row["fingerprint"]:
+            return True, f"{agent}: " + ("answered No (Esc)" if row["kind"] == PERMISSION else "cancelled (Esc)")
+    return False, f"{agent}: the prompt is still on screen after Esc"
 
 
 def _permission(agent: str, handle: str, row, now: dict, yes: bool) -> tuple[bool, str]:
