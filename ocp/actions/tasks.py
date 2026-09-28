@@ -1056,15 +1056,18 @@ def handoff_command(con, row, me: str) -> str:
         return f'`ocp task handoff T{tid} {to or "<who>"} "<note>"{flag}`'
 
     def named(role: str) -> str:
-        return " or ".join(a for a in paths.list_agents() if _role(a) == role) or f"<{role}>"
+        """One command per `role` agent of `me`'s own project (the name's first segment):
+        another project's auditor is not where its work goes."""
+        mine = [a for a in paths.list_agents() if _role(a) == role and a.split(".")[0] == me.split(".")[0]]
+        return " or ".join(cmd(a) for a in mine) or cmd(f"<{role}>")
     role = _role(me)
     if role == "auditor":
         return f"{cmd(row['opened_by'], ' --pass')} on a PASS, or {cmd(prev, ' --fail')} on a FAIL"
     if role == "merger":
         return cmd(prev)
     if me == row["opened_by"] and last_audit(con, tid)[0] == "PASS":
-        return f"{cmd(named('merger'))} to merge it, or {cmd(last_audit(con, tid)[1])} to send it back"
-    return cmd(named("auditor"))
+        return f"{named('merger')} to merge it, or {cmd(last_audit(con, tid)[1])} to send it back"
+    return named("auditor")
 
 
 def task_handoff(con, me: str, tid: int, to: str, note: str,

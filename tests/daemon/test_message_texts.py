@@ -95,10 +95,62 @@ def test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(home: Path) -> N
         con.close()
 
 
+TEAM2 = """
+agents:
+  p.manager: {}
+  p.worker: {}
+  p.auditor: {}
+  p.x.auditor: {}
+  p.merger: {}
+  p.y.merger: {}
+  q.auditor: {}
+  q.merger: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: async }
+"""
+
+
+def test_the_next_holder_is_named_from_the_tasks_own_project(home: Path) -> None:
+    """One runnable command per candidate of the sender's own project; another project's auditor
+    or merger is never offered, and no command lists two names."""
+    _daemon_home(home, 20)
+    hand_edit_team(TEAM2)
+    for a in ("p.manager", "p.worker", "p.auditor", "p.x.auditor", "p.merger", "p.y.merger", "q.auditor", "q.merger"):
+        agents.register(a)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("p.manager", "p.worker", "ship it")
+        check("setup: the task opens", ok, msg)
+        row = db.get_task(con, tid)
+        text = actions.handoff_command(con, row, "p.worker")
+        check("owner: one command per auditor of its own project, none of another's",
+              f'`ocp task handoff T{tid} p.auditor "<note>"` or `ocp task handoff T{tid} p.x.auditor "<note>"`' in text
+              and "q." not in text and " or p." not in text, text)
+        ok, msg = actions.task_handoff(con, "p.worker", tid, "p.auditor", "please review")
+        check("setup: handed to the auditor", ok, msg)
+        ok, msg = actions.task_handoff(con, "p.auditor", tid, "p.manager", "looks right", verdict="PASS")
+        check("setup: the auditor passes it back to the opener", ok, msg)
+        row = db.get_task(con, tid)
+        text = actions.handoff_command(con, row, "p.manager")
+        check("opener after a PASS: a merger of its own project, or the maker to send it back",
+              f'`ocp task handoff T{tid} p.merger "<note>"` or `ocp task handoff T{tid} p.y.merger "<note>"`' in text
+              and f'`ocp task handoff T{tid} p.worker "<note>"` to send it back' in text and "q." not in text, text)
+        ok, msg = actions.task_handoff(con, "p.manager", tid, "p.merger", "merge it")
+        check("setup: the opener hands it to a merger", ok, msg)
+        text = actions.handoff_command(con, db.get_task(con, tid), "p.merger")
+        check("merger: back to whoever handed it over", text == f'`ocp task handoff T{tid} p.manager "<note>"`', text)
+        text = actions.handoff_command(con, db.get_task(con, tid), "zz.worker")
+        check("no auditor in the sender's project: a placeholder, not another project's auditor",
+              f'`ocp task handoff T{tid} <auditor> "<note>"`' == text, text)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(Path(td) / 'm0'))
         run(lambda: test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(Path(td) / 'm1'))
+        run(lambda: test_the_next_holder_is_named_from_the_tasks_own_project(Path(td) / 'm3'))
         run(lambda: test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(Path(td) / 'm2'))
     return run_area(tests)
 

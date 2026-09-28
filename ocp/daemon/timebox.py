@@ -79,8 +79,7 @@ def sweep_timeboxes(con, log, now: int) -> None:
                 f"{note[:300] or 'none'}. `ocp read {rid}` shows it."
                 + ("" if row["kind"] == "say" else
                    f" It is still {row['target']}'s - nothing to do unless you want it back: "
-                   f"a message to {row['target']} (`ocp say {row['target']} \"...\"`) is how; "
-                   f"a request already delivered cannot be withdrawn."))
+                   f"a message to {row['target']} (`ocp say {row['target']} \"...\"`) is how."))
         if _tell(con, row["requester"], text, now):
             db.mark_timebox_noticed(con, rid)
             db.add_event(con, row["requester"], "timebox_exceeded",
@@ -236,9 +235,10 @@ def sweep_forgotten_resolve_capped(con, log, now: int) -> None:
         after = f"after {len(delivery.NUDGE_SCHEDULE_S)} reminders"
         more = f" with {behind} more waiting behind it" if behind else ""
         if task is not None:
-            look = (f"Look at it: `ocp read {head_id}`; take it back with `ocp task release T{task['id']}`"
-                    f"{'' if not actions._begun(con, task['id']) else ' (not for a task begun on a founder message)'}"
-                    f", or ask {agent} by message (`ocp say {agent} \"...\"`).")
+            # A task begun on a founder's message has no queue to go back to: release refuses it.
+            back = "" if actions._begun(con, task["id"]) else \
+                f"; take it back with `ocp task release T{task['id']}`"
+            look = f"Look at it: `ocp read {head_id}`{back}, or ask {agent} by message (`ocp say {agent} \"...\"`)."
         else:
             look = f"Look at it: `ocp read {head_id}`, or message {agent} (`ocp say {agent} \"...\"`)."
         text = f"{agent} has been idle {timefmt.ago(found['idle_s'])} on {on} {after}{more}. {look}"

@@ -753,7 +753,7 @@ def _task_of(con, req):
     return db.get_task(con, parts[0]) if parts else None
 
 
-def _answer_verb(con, head) -> str:
+def answer_verb(con, head) -> str:
     """How the agent closes what it was just told: a report is dismissed, a say (T293)
     answered with `say` itself - #1657's own way out - a task handed on or finished
     (resolving it would leave the task owned by whoever resolved it), and everything
@@ -811,7 +811,7 @@ def tell_text(con, head, depth: int, ahead_of=None) -> str:
                 f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]")
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
-            f"`ocp read {head['id']}` shows it whole; {_answer_verb(con, head)}, "
+            f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}, "
             f"or `ocp inbox` any time.")
 
 

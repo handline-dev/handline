@@ -264,7 +264,7 @@ def cmd_inbox(args) -> int:
     if head["kind"] == "task":
         con = db.connect()
         try:
-            closes = delivery._answer_verb(con, head)
+            closes = delivery.answer_verb(con, head)
         finally:
             con.close()
     else:

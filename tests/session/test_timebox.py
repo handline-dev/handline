@@ -826,6 +826,26 @@ def test_a_forgotten_tasks_nudges_use_task_verbs(home: Path) -> None:
         con.close()
 
 
+def test_the_capped_notice_offers_no_release_for_a_begun_task(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        tid = db.new_task(con, "ship it", "marina", "manager", timeout_s=3600)
+        rid = _delivered(con, "manager", "marina", dmn_delivery.NUDGE_SCHEDULE_S[-1] + 60, kind="task")
+        db.link_request(con, tid, rid)
+        db.add_event(con, "manager", "task_begin", {"task_id": tid})
+        db.set_cursor(con, "notify:marina", rid)
+        db.set_cursor(con, "nudge:marina", rid)
+        db.set_cursor(con, "nudge_count:marina", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, int(time.time()))
+        check("cap notice: a begun task is not offered a release that would be refused",
+              sent and f"T{tid} (#{rid})" in sent[0][1] and "release" not in sent[0][1]
+              and "ocp say marina" in sent[0][1], str(sent))
+    finally:
+        con.close()
+
+
 def test_a_cancelled_task_handoff_names_the_task_state(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -852,6 +872,7 @@ def main() -> int:
             run(lambda: test_the_notices_name_the_next_step_and_use_task_verbs(Path(td) / 'tb17'))
             run(lambda: test_an_unasked_running_notice_points_at_a_message(Path(td) / 'tb18a'))
             run(lambda: test_a_forgotten_tasks_nudges_use_task_verbs(Path(td) / 'tb18'))
+            run(lambda: test_the_capped_notice_offers_no_release_for_a_begun_task(Path(td) / 'tb18b'))
             run(lambda: test_a_cancelled_task_handoff_names_the_task_state(Path(td) / 'tb19'))
             run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
             run(lambda: test_a_folded_ask_keeps_its_timebox(Path(td) / 'tb1b'))
