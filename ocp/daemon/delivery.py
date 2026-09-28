@@ -460,10 +460,14 @@ def track_background_work(con, agent: str, row) -> None:
     A session with such work is not idle: the display shows it working, and
     nothing that acts on idleness (the resolve nudge, the idle close) acts on
     it. The session reports this, so it is read every tick, never assumed from
-    a clock. When the footer stops reporting it, the idle clock starts there
-    (`idle_since`), not at its last hook event; the end is not a model turn, so
-    it stays out of `db.last_activity`, which the prompt cache is judged by."""
-    if not row or row["state"] in (RUNNING, HANDOFF, STALLED) or row["closed_at"] \
+    a clock - RUNNING included (founder #1975/#2125): `screen_state` shows the
+    same background detail while RUNNING, and a cursor frozen from whenever
+    background work was first seen, however long ago, would make that detail
+    wrong for as long as the turn runs. When the footer stops reporting it,
+    the idle clock starts there (`idle_since`), not at its last hook event;
+    the end is not a model turn, so it stays out of `db.last_activity`, which
+    the prompt cache is judged by."""
+    if not row or row["state"] in (HANDOFF, STALLED) or row["closed_at"] \
             or not row["terminal"] or not orca.available():
         return
     running = orca.background_work(row["terminal"])

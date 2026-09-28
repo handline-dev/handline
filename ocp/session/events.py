@@ -14,7 +14,7 @@ import sys
 
 from ..usage import collect
 from .. import db
-from . import memoryguard, waiting
+from . import memoryguard, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
 CAPTURED = {
@@ -35,9 +35,9 @@ CAPTURED = {
 # take away the wait a PermissionRequest raised (`waiting.clear`).
 ANSWERS = {"PostToolUse", "PostToolUseFailure"}
 
-# Hooks that can refuse a tool call: installed for the memory budget only
-# (`memoryguard.guard`), and matched to the tools it looks at rather than
-# firing on every call.
+# Hooks that can refuse a tool call: the memory budget (`memoryguard.guard`)
+# and an ocp command that would substitute in double quotes (`shellguard.guard`),
+# matched to the tools they look at rather than firing on every call.
 GUARDS = {"PreToolUse"}
 
 # The events after which no prompt can still be pending: a new prompt, or the
@@ -130,7 +130,8 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     account = os.environ.get("OCP_ACCOUNT")
     if agent and event in GUARDS:
         try:
-            why = memoryguard.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
+            why = (memoryguard.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
+                   or shellguard.guard(raw.get("tool_name"), raw.get("tool_input")))
             if why is None:
                 from . import edittask
                 why = edittask.guard(agent, raw.get("tool_name"), raw.get("tool_input"))

@@ -1864,6 +1864,42 @@ def test_a_request_can_be_read_whole(home: Path) -> None:
         pass
 
 
+def test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(home: Path) -> None:
+    _daemon_home(home, 20)
+    real_agent = os.environ.get("OCP_AGENT")
+    try:
+        os.environ["OCP_AGENT"] = "backend"
+        out = _capture(lambda: climod.main(["ask", "reviewer", "unchecked body"]))
+        con = db.connect()
+        try:
+            row = next(iter(db.queued_for(con, "reviewer")))
+            rid = row["id"]
+            check("edge: an agent session's ask starts unchecked", not row["edge_ok"], out)
+        finally:
+            con.close()
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("edge: the requester still reads its own row", "unchecked body" in out, out)
+        os.environ["OCP_AGENT"] = "reviewer"
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("edge: the target cannot read it", "unchecked body" not in out and "no request" in out, out)
+        out = _capture(lambda: climod.main(["inbox", "--all"]))
+        check("edge: nor list it", "unchecked body" not in out and f"#{rid}" not in out, out)
+        con = db.connect()
+        try:
+            db.clear_edge(con, rid)
+        finally:
+            con.close()
+        out = _capture(lambda: climod.main(["read", str(rid)]))
+        check("edge: once checked, the target reads it", "unchecked body" in out, out)
+        out = _capture(lambda: climod.main(["inbox", "--all"]))
+        check("edge: and lists it", f"#{rid}" in out, out)
+    finally:
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
+
+
 def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
     """Founder incident: a message typed inline with backticks in it is
     rewritten - or run - by the caller's own shell before ocp ever sees
@@ -1893,6 +1929,23 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         out = _capture(lambda: climod.main(["ask", "reviewer"]))
         check("ask: neither inline nor --file is a clear refusal, not a crash",
               "required" in out or "--file" in out, out)
+        real_in = sys.stdin
+        sys.stdin = io.StringIO("")
+        try:
+            out = _capture(lambda: climod.main(["ask", "reviewer"]))
+            check("ask: an empty stdin is the same refusal", "required" in out, out)
+            sys.stdin = io.StringIO(hostile)
+            out = _capture(lambda: climod.main(["ask", "reviewer"]))
+        finally:
+            sys.stdin = real_in
+        check("ask: the body comes from stdin, backticks and all",
+              "queued" in out or "delivered" in out, out)
+        con = db.connect()
+        try:
+            check("ask: and lands whole", any(r["body"] == hostile
+                  for r in con.execute("SELECT body FROM requests WHERE target = 'reviewer'")))
+        finally:
+            con.close()
         out = _capture(lambda: climod.main(
             ["ask", "reviewer", "inline text", "--file", str(f)]))
         check("ask: both inline and --file is refused too - one source, not a merge",
@@ -7304,6 +7357,7 @@ def main() -> int:
         run(lambda: test_an_answer_line_says_what_it_answers(Path(td) / 'ansline'))
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
+        run(lambda: test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(Path(td) / 'edgeread'))
         run(lambda: test_ask_and_resolve_take_their_text_from_a_file_too(Path(td) / 'askfile'))
         run(lambda: test_an_agent_may_not_list_another_agents_messages(Path(td) / 'nopeek'))
         run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
