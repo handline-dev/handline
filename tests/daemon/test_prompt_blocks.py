@@ -246,6 +246,32 @@ def test_cancel_is_refused_on_a_stale_prompt_or_one_that_stays(home: Path) -> No
         con.close()
 
 
+def test_cancel_never_presses_esc_where_esc_leaves_the_session(home: Path) -> None:
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        exit_dialog = ["  earlier output", support._RULE_ROW,
+                       "   Background tasks are running. Exiting will stop tasks (esc)",
+                       "   ❯ 1. Keep working", "     2. Exit now", "   Enter to confirm · Esc to cancel"]
+        term = _Term(exit_dialog)
+        _pass(con)
+        row = _open(con)
+        check("exit dialog: it is an answerable dialog block", row and row["kind"] == "dialog" and row["answerable"] == 1,
+              str(dict(row or {})))
+        ok, said = actions.answer_block(con, row["id"], {"cancel": True})
+        check("exit dialog: cancel is refused with the reason and sends nothing",
+              not ok and not term.sent and "not cancelled" in said and "(esc)" in said, str((ok, said, term.sent)))
+        check("exit dialog: the refusal is recorded", db.get_prompt(con, row["id"])["answer_ok"] == 0)
+        term = _Term(["  earlier output"] + [f"   line {i}" for i in range(450)] + [
+            "   Overwrite the file?", "   ❯ 1. Yes", "     2. No", "   Enter to confirm · Esc to cancel"])
+        _pass(con)
+        ok, said = actions.answer_block(con, _open(con)["id"], {"cancel": True})
+        check("truncated dialog: cancel is refused, ocp does not choose Esc on what it could not read whole",
+              not ok and not term.sent, str((ok, said, term.sent)))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_one_prompt_is_one_block_whatever_recognizers_see_it(Path(td) / 'b0'))
@@ -256,6 +282,7 @@ def main() -> int:
         run(lambda: test_a_question_and_a_dialog_are_answered_from_their_blocks(Path(td) / 'b5'))
         run(lambda: test_cancel_sends_esc_after_the_same_checks_and_records_it(Path(td) / 'b8'))
         run(lambda: test_cancel_is_refused_on_a_stale_prompt_or_one_that_stays(Path(td) / 'b9'))
+        run(lambda: test_cancel_never_presses_esc_where_esc_leaves_the_session(Path(td) / 'b10'))
         run(lambda: test_the_answer_is_a_socket_verb(Path(td) / 'b7'))
         run(lambda: test_always_is_never_saved_under_a_truncated_dialogs_placeholder(Path(td) / 'b6'))
     return run_area(tests)

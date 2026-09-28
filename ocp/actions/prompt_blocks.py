@@ -101,7 +101,14 @@ def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
 
 
 def _cancel(agent: str, handle: str, row) -> tuple[bool, str]:
-    """Esc, once the prompt was just confirmed to be the row's; done when the screen no longer shows it."""
+    """Esc, once the prompt was just confirmed to be the row's. A permission prompt or question
+    reads Esc as No or cancel. A plain dialog gets it only where `orca.declining_key` says the
+    screen shows Esc only declines - not one whose Esc leaves the session or stops tasks."""
+    if row["kind"] == DIALOG:
+        outcome, _, why = orca.decline_dialog(handle)
+        if outcome == orca.CLEARED:
+            return True, f"{agent}: cancelled (Esc)"
+        return False, f"{agent}: not cancelled - {why or outcome}"
     ok, out = orca.send(handle, orca.ESCAPE, enter=False)
     if not ok:
         return False, f"{agent}: the key could not be sent: {out[:120]}"
