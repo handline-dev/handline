@@ -148,6 +148,78 @@ class _Term:
         return True, ""
 
 
+# MULTI_SELECT_CURSOR_AT_TOP after toggling rows 1 and 3 (options 0 and 2) -
+# the cursor lands on the last one pressed, row 3, same as a real toggle key
+# leaves it. Written out by hand rather than computed, to keep the fixture
+# and the test reading it equally plain (founder #2013 follow-up: prefer the
+# simpler failure mode over a small renderer that could itself be wrong).
+MULTI_SELECT_AFTER_TOGGLING_1_AND_3 = [
+    RULE, "←  ☐ Needed  ✔ Submit  →", "",
+    "Which features should we enable?", "",
+    "  1. [✔] logging", "         request/response logs",
+    "  2. [ ] metrics", "         latency, error rate",
+    "❯ 3. [✔] alerts", "         notify on anomaly",
+    "  4. [ ] user admin", "         roles/accounts screen",
+    "  5. [ ] Type something", "     Submit",
+    RULE, "  6. Chat about this", "",
+    "Enter to select · ↑/↓ to navigate · ctrl+g to edit in VS Code · Esc to cancel",
+]
+
+
+class _TwoStageTerm:
+    """A multiSelect card: `before` until `toggle_count` keys have been sent
+    (the toggles), then `after_toggle` until every key after that has landed
+    too, then CLEARED_SCREEN - the same two-stage shape
+    `orca._answer_question_toggle_and_other` sends and re-reads between
+    (T322/T336 follow-up)."""
+
+    def __init__(self, before: list[str], toggle_count: int, after_toggle: list[str]):
+        self.sent: list[tuple[str, bool]] = []
+        self._before, self._after_toggle = before, after_toggle
+        self._toggle_count = toggle_count
+        orcamod._screen = lambda h: support._screen_of(self.tail)
+        orcamod.send = self.send
+
+    @property
+    def tail(self) -> list[str]:
+        if len(self.sent) < self._toggle_count:
+            return self._before
+        if len(self.sent) == self._toggle_count:
+            return self._after_toggle
+        return list(CLEARED_SCREEN)
+
+    def send(self, handle, text, enter=True):
+        self.sent.append((text, enter))
+        return True, ""
+
+
+def test_multiselect_boxes_and_other_together_toggle_then_reach_other(home: Path) -> None:
+    """T322/T336 follow-up (founder #2013, live 2026-09-28): checking boxes and
+    typing Other together used to be refused outright. It is sent now, in two
+    stages - the toggles, a re-read for where they actually left the cursor,
+    then Other from there - never as one sequence computed blind."""
+    orcamod.PRESS_SETTLE_S = 0
+    q = Claude().ask_question(MULTI_SELECT_CURSOR_AT_TOP)
+    term = _TwoStageTerm(MULTI_SELECT_CURSOR_AT_TOP, toggle_count=2,
+                         after_toggle=MULTI_SELECT_AFTER_TOGGLING_1_AND_3)
+    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="좋아")
+    check("answer: the toggles land first, options 0 and 2 in ascending order",
+          term.sent[:2] == [("1", False), ("3", False)], str(term.sent))
+    check("answer: Other is reached from the re-read cursor (row 3), not the one first shown",
+          term.sent[2:] == [(DOWN, False), (DOWN, False), ("좋아", False),
+                            (DOWN, False), ("", True), ("1", False)], str(term.sent))
+    check("answer: confirmed cleared", out[0] == orcamod.CLEARED, str(out))
+
+    # The re-read after toggling disagrees with what was asked for (a stray
+    # key landed differently on the real screen) - refused, nothing further sent.
+    term = _TwoStageTerm(MULTI_SELECT_CURSOR_AT_TOP, toggle_count=2,
+                         after_toggle=MULTI_SELECT_CURSOR_AT_TOP)      # still unchecked
+    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="좋아")
+    check("answer: a re-read that does not show what was toggled stops there",
+          term.sent == [("1", False), ("3", False)] and out[0] == orcamod.STILL_OPEN
+          and "not what was toggled" in out[2], str((term.sent, out)))
+
+
 def test_answer_question_sends_the_keys_and_confirms_it_cleared(home: Path) -> None:
     orcamod.PRESS_SETTLE_S = 0
     q = Claude().ask_question(SINGLE_DEFAULT)
@@ -253,6 +325,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_the_claude_adapter_recognizes_the_askuserquestion_prompt(Path(td) / 'q0'))
         run(lambda: test_question_keys_match_the_measured_key_sequence(Path(td) / 'q1'))
+        run(lambda: test_multiselect_boxes_and_other_together_toggle_then_reach_other(Path(td) / 'q1b'))
         run(lambda: test_answer_question_sends_the_keys_and_confirms_it_cleared(Path(td) / 'q2'))
         run(lambda: test_a_pending_question_is_listed_and_answered_through_actions(Path(td) / 'q3'))
         run(lambda: test_question_data_is_preferred_only_when_it_still_matches_the_screen(Path(td) / 'q4'))

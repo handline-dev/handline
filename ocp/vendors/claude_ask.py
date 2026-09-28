@@ -72,10 +72,13 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     capture, T322 follow-up, 2026-09-28, after two earlier guesses at this -
     a trailing Right/Submit, and toggling boxes in the same breath as
     answering Other - both went wrong on the real screen in different ways).
-    `choices` alongside multiSelect's Other is still refused: toggling a box
-    moves the cursor too, in some way this has not been measured against a
-    real screen, so where it lands before the Downs above matters and is not
-    guessed at here.
+    `choices` alongside multiSelect's Other is refused here specifically -
+    toggling a box moves the cursor too, so where it lands before the Downs
+    above matters and is not guessed at as one blind sequence. `orca.answer_question`
+    sends that combination itself, in two stages through `toggle_keys_for_other`
+    and `finish_other_keys` below, re-reading the real screen for where the
+    cursor actually landed between them (T322/T336 follow-up, founder capture
+    2026-09-28).
 
     A single-select question submits on its one number - conch's own words,
     "a lone single-choice question ... a number submits outright". A
@@ -115,6 +118,31 @@ def _toggle_keys(q: Question, choices: tuple[int, ...]) -> list[str]:
     desired = set(choices)
     current = {i for i, o in enumerate(q.options) if o.checked}
     return [str(i + 1) for i in sorted(desired ^ current)]
+
+
+def toggle_keys_for_other(q: Question, choices: tuple[int, ...]) -> list[str] | None:
+    """Stage one of a multiSelect question's boxes-and-Other combo: the same
+    toggle keys `question_keys`'s checkbox-only path sends, but never the
+    whole answer by themselves - `orca.answer_question` re-reads the real
+    screen after these land, for the cursor's now-current row, before
+    reaching for Other with `finish_other_keys` below."""
+    if not q.multi_select or any(c < 0 or c >= len(q.options) for c in choices):
+        return None
+    return _toggle_keys(q, choices)
+
+
+def finish_other_keys(q: Question, text: str) -> list[str] | None:
+    """Stage two, given `q` freshly re-read after stage one's toggles have
+    landed - its `cursor` is what the toggles actually left it at, not
+    guessed at from the question as first shown. The rest is `question_keys`'s
+    own Other-on-multiSelect tail: Down to Other's row, the text, one more
+    Down onto Submit, Enter, then "1" for the Review screen's own submit."""
+    if q.other_number is None:
+        return None
+    downs = q.other_number - q.cursor
+    if downs < 0:
+        return None
+    return [DOWN] * downs + [text, DOWN, ENTER, "1"]
 
 
 def recognize(tail: list[str]) -> Question | None:

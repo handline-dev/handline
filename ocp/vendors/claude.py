@@ -187,6 +187,14 @@ class Claude:
         from . import claude_ask
         return claude_ask.question_keys(question, choices, text)
 
+    def question_toggle_keys(self, question, choices):
+        from . import claude_ask
+        return claude_ask.toggle_keys_for_other(question, choices)
+
+    def question_other_after_toggle_keys(self, question, text):
+        from . import claude_ask
+        return claude_ask.finish_other_keys(question, text)
+
     def credential_present(self, config_dir: Path) -> bool | None:
         """Never reads the secret: `security find-generic-password` is called without
         -w, so it reports the item's presence and nothing else.

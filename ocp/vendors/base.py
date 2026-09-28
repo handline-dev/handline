@@ -341,8 +341,22 @@ class Driver(Protocol):
         """The keys, in order, that answer `question` with `choices` (0-based
         indexes into its options) or `text` (for its "Type something"
         control) - never both. None when this vendor has no such prompt, or
-        this combination is not sent (v1: free text on a multiSelect
-        question). Only ever pressed by a person, through `orca.answer_question`."""
+        this combination is not sent this way (a multiSelect question's boxes
+        and Other together go through the two methods below instead). Only
+        ever pressed by a person, through `orca.answer_question`."""
+
+    def question_toggle_keys(self, question: Question, choices: tuple[int, ...]) -> list[str] | None:
+        """Stage one of a multiSelect question's boxes-and-Other combo: the
+        keys that toggle its checkboxes to `choices`, sent and the screen
+        re-read before Other's own row is reached - toggling a box can move
+        the cursor too, so where it lands matters and is not guessed at
+        blind. None when this vendor has no such combo. Only ever pressed
+        through `orca.answer_question`."""
+
+    def question_other_after_toggle_keys(self, question: Question, text: str) -> list[str] | None:
+        """Stage two, given `question` freshly re-read after stage one's
+        toggles landed - its own current cursor, not the one the question
+        first showed. None when this vendor has no such combo."""
 
     def credential_present(self, config_dir: Path) -> bool | None:
         """Whether a credential exists. Never reads or returns it. None when

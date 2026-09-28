@@ -100,5 +100,8 @@ def answer(con, agent: str, seen: dict, choices: tuple[int, ...] = (),
         return False, f"{agent}: it has no terminal to answer in"
     outcome, _, why = orca.answer_question(handle, tuple(seen.get("lines") or ()), choices, text)
     if outcome == orca.CLEARED:
-        return True, f"{agent}: answered"
+        # T336 diagnostics (temporary, founder #2013): the boxes+Other combo's
+        # own trail, when there is one, rides along on a plain success too -
+        # a log line worth having while this path is still new.
+        return True, f"{agent}: answered" + (f" ({why})" if why else "")
     return False, f"{agent}: not answered - {why or outcome}"
