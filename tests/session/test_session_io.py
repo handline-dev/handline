@@ -3683,7 +3683,7 @@ def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
     rc, out = _cli(["close", "42"])
     check("close: a bare number is refused with both readings, closing nothing",
           rc == 1 and "task 42 or request 42" in out, out)
-    _cli(["task", "new", "--owner", "worker", "t"])
+    _cli(["task", "new", "--owner", "worker", "t", "-t", "1h"])
     rc, out = _cli(["close", "T1", "fine"])
     check("close: a real task with evidence says why it refused "
           "(#71: evidence belongs to `ocp task done` now)",

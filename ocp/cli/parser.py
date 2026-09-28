@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from .. import actions
+from ..infra import timefmt
 from ..team import agents
 from ..team import team
 
@@ -20,7 +22,7 @@ from .idle import cmd_auto_accept, cmd_idle_timeout, cmd_ignore_cache_expiry, se
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_reopen, cmd_task_start
+from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
 from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
 from .usage import cmd_collect, cmd_usage
 
@@ -535,6 +537,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--expects", type=_expects_arg, default="report", metavar="K",
                    help="what `task done` must give back: sha, verdict, decision or "
                         "report (default)")
+    p.add_argument("-t", "--timeout", type=_timeout_arg, default=None, metavar="DURATION",
+                   help="required: notify the opener each time this long passes with the task "
+                   f"still open (90m, 2h; at most {timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")
     p.set_defaults(fn=cmd_task_new)
     p = tk.add_parser("begin", help="start a task the founder told you to do, without approval "
                                     "(T297): opens it for you, linked to their message")
@@ -599,6 +604,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="cannot be worked until this task closes")
     p.add_argument("--unblock", type=_task_arg, default=None, metavar="T",
                    help="remove that blocking task")
+    p.add_argument("--timeout", type=_timeout_arg, default=None, metavar="DURATION",
+                   help="extend the timeout, counting from now (90m, 2h; at most "
+                   f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")
     p.set_defaults(fn=cmd_task_edit)
     p = tk.add_parser("merge", help="fold tasks into one: the kept task takes their titles, "
                                     "requests and sub-tasks, the rest close as merged - "
@@ -621,6 +629,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
+    p = tk.add_parser("release", help="T286: take a doing task back to queued/draft - the "
+                                      "opener or the founder, the other answer to a timeout "
+                                      "notice besides `edit --timeout`")
+    p.add_argument("task", type=_task_arg, metavar="T")
+    p.set_defaults(fn=cmd_task_release)
     p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker or the founder; "
                                       "needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")

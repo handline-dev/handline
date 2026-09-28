@@ -61,7 +61,7 @@ def needs_task_command(owner: str, body: str) -> str:
     so a title with its own quote or apostrophe still pastes as one shell
     word, not a syntax error."""
     title = textsafe.oneline(first_line(body))
-    return f"ocp task new --owner {owner} {shlex.quote(title)}"
+    return f"ocp task new --owner {owner} {shlex.quote(title)} -t 2h"
 
 
 def flag_notice(rid: int, command: str) -> str:

@@ -355,12 +355,12 @@ def test_needs_task_command_quotes_a_title_with_its_own_quote(home: Path) -> Non
     command = actions.needs_task_command("worker", "check the worker's flaky test")
     check("needs_task_command: the apostrophe is escaped, not left to break the quoting",
           command == "ocp task new --owner worker "
-                     "'check the worker'\"'\"'s flaky test'", command)
+                     "'check the worker'\"'\"'s flaky test' -t 2h", command)
     import shlex
     check("needs_task_command: shlex agrees it is one well-formed command line, "
           "the title one word despite its own quote",
           shlex.split(command) == ["ocp", "task", "new", "--owner", "worker",
-                                   "check the worker's flaky test"],
+                                   "check the worker's flaky test", "-t", "2h"],
           shlex.split(command))
 
 

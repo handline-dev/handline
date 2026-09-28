@@ -2541,8 +2541,9 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         "task edit --blocked-by": ["task", "edit", f"T{other}", "--blocked-by", n],
         "task edit --unblock": ["task", "edit", f"T{other}", "--unblock", n],
         "task link": ["task", "link", n, "1"],
-        "task new --parent": ["task", "new", "--owner", "worker", "y", "--parent", n],
-        "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "--blocked-by", n],
+        "task new --parent": ["task", "new", "--owner", "worker", "y", "--parent", n, "-t", "1h"],
+        "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "--blocked-by", n,
+                                  "-t", "1h"],
         "resolve --task": ["resolve", "1", "ok", "--task", n],
         "dismiss --task": ["dismiss", "1", "--task", n],
         "resolve --hold --on": ["resolve", "1", "ok", "--hold", "h", "--on", n],
@@ -3971,6 +3972,33 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
     old.execute(
         "INSERT INTO tasks(title, owner, opened_by, created_at) VALUES (?,?,?,?)",
         ("still open", "worker", "manager", now - 50))
+    old.execute(
+        "INSERT INTO tasks(title, owner, opened_by, created_at) VALUES (?,?,?,?)",
+        ("already doing", "worker", "manager", now - 30))
+    # T286 (4): a minimal old-shape requests/task_requests, so one open task
+    # can be linked to an open request - the pre-migration snapshot of
+    # `requests` test_migration_adds_the_timebox_columns_... already builds;
+    # fyi and the rest _add_missing_columns' own requests-block ALTERs in,
+    # ahead of the tasks-timeout backfill that reads it.
+    old.execute("""
+        CREATE TABLE requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
+          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
+          files TEXT, relation TEXT, response TEXT, kind TEXT,
+          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
+          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
+          announced_at INTEGER, resolved_at INTEGER, delivered_at INTEGER
+        )
+    """)
+    old.execute("""
+        CREATE TABLE task_requests (
+          task_id INTEGER NOT NULL, request_id INTEGER NOT NULL,
+          PRIMARY KEY (task_id, request_id)
+        )
+    """)
+    old.execute("INSERT INTO requests(ts, requester, target, body, state) VALUES (?,?,?,?,?)",
+                (now - 40, "human", "worker", "please", "queued"))
+    old.execute("INSERT INTO task_requests(task_id, request_id) VALUES (3, 1)")
     old.commit()
     old.close()
 
@@ -3999,6 +4027,19 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
               str(dict(open_row)))
         check("migration: it reads as a draft", actions.task_state(con, open_row) == "draft",
               actions.task_state(con, open_row))
+        check("migration: T286 (4), founder #1627's revision - a draft (not doing) gets no "
+              "timeout from the migration, only a doing task does",
+              open_row["timeout_s"] is None and open_row["timeout_at"] is None, str(dict(open_row)))
+        check("migration: T286 - the closed task got no timeout either, it was never open here",
+              closed["timeout_s"] is None and closed["timeout_at"] is None, str(dict(closed)))
+
+        doing_row = rows["already doing"]
+        check("migration: it reads as doing - the request linked to it is still queued",
+              actions.task_state(con, doing_row) == "doing", actions.task_state(con, doing_row))
+        check("migration: T286 (4) - a task already doing gets a 4h timeout counted from the "
+              "migration, not from its own created_at",
+              doing_row["timeout_s"] == 14400
+              and abs(doing_row["timeout_at"] - (now + 14400)) < 30, str(dict(doing_row)))
 
         # A second connect (every ocp command, and the daemon) re-runs the
         # migration guard - it must be a no-op the second time, not a second
@@ -4015,15 +4056,15 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
 
 def test_task_new_list_and_link(home: Path) -> None:
     _board_world(home)
-    rc, out = _cli(["task", "new", "--owner", "worker", "build the board"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "build the board", "-t", "1h"])
     check("task new: opens a task", rc == 0 and "task T1" in out, out)
-    rc, out = _cli(["task", "new", "--owner", "nobody", "x"])
+    rc, out = _cli(["task", "new", "--owner", "nobody", "x", "-t", "1h"])
     check("task new: an owner that is not an agent is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "x"], as_agent=askmod.HUMAN)
+    rc, out = _cli(["task", "new", "--owner", "worker", "x", "-t", "1h"], as_agent=askmod.HUMAN)
     check("task new: never in the founder's name", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "part", "--parent", "T9"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "part", "--parent", "T9", "-t", "1h"])
     check("task new: a parent that does not exist is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "--parent", "T1"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "--parent", "T1", "-t", "1h"])
     check("task new: a child task", rc == 0, out)
     rid = _human_request()
     rc, out = _cli(["task", "link", "T1", str(rid)])
@@ -4042,11 +4083,11 @@ def test_task_new_parent_auto_blocks(home: Path) -> None:
     A re-check reopens the same child rather than opening a new one, and the
     parent stays blocked the whole time it is done but not yet closed."""
     _board_world(home)
-    rc, out = _cli(["task", "new", "--owner", "worker", "parent work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work"])
     check("task new: opens the parent", rc == 0, out)
     t_parent = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "--owner", "manager", "review it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it",
                     "--parent", f"T{t_parent}", "--expects", "verdict"], as_agent="worker")
     check("task new --parent: opens the child", rc == 0, out)
     t_child = int(out.split("task T", 1)[1].split()[0])
@@ -4102,13 +4143,13 @@ def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
     visible must not make merge see a reason to refuse where none was there
     before. An unrelated, explicit `--blocked-by` still refuses as always."""
     _board_world(home)
-    rc, out = _cli(["task", "new", "--owner", "worker", "parent work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work"])
     t_parent = int(out.split("task T", 1)[1].split()[0])
-    rc, out = _cli(["task", "new", "--owner", "manager", "review it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it",
                     "--parent", f"T{t_parent}"], as_agent="worker")
     check("task new --parent: opens the open child", rc == 0, out)
     t_child = int(out.split("task T", 1)[1].split()[0])
-    rc, out = _cli(["task", "new", "--owner", "worker", "other work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "other work"])
     t_other = int(out.split("task T", 1)[1].split()[0])
 
     rc, out = _cli(["task", "merge", f"T{t_other}", f"T{t_parent}"])
@@ -4163,7 +4204,7 @@ limits:
         before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "--owner", "outsider", "not my line"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "outsider", "not my line"])
     check("task new: refused by the routing table, the same as `ocp ask` (C2)",
           rc == 1 and "denied" in out, out)
     con = db.connect()
@@ -4173,7 +4214,7 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "--owner", "worker", "do the thing", "the body of it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "do the thing", "the body of it",
                     "--expects", "sha"])
     check("task new: opens and delivers in one call, naming the kind and the sha it expects",
           rc == 0 and "task T1" in out and "expects sha" in out, out)
@@ -4194,7 +4235,7 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "--owner", "worker", "second one"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "second one"])
     check("task new: a second task for an owner who already holds one still opens and "
           "delivers", rc == 0, out)
     tid2 = int(out.split("task T", 1)[1].split()[0])
@@ -4257,7 +4298,7 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "--owner", askmod.HUMAN, "founder decision needed"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", askmod.HUMAN, "founder decision needed"])
     check("task new: the founder is a valid owner - a decision task (C3)",
           rc == 0 and "task T" in out, out)
     tid_human = int(out.split("task T", 1)[1].split()[0])
@@ -4283,7 +4324,7 @@ limits:
     # review finding): its live request was retired some other way (the
     # founder's own `cancel`), which clears nothing on the task side, so
     # discard is reachable while current_task still points at it.
-    rc, out = _cli(["task", "new", "--owner", "worker", "will be discarded", "--expects", "report"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "will be discarded", "--expects", "report"])
     check("setup: a third task for worker", rc == 0, out)
     tid3 = int(out.split("task T", 1)[1].split()[0])
     _cli(["task", "start", f"T{tid3}"], as_agent="worker")
@@ -4312,7 +4353,7 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
     _board_world(home)
 
     def _new(title: str, priority: str | None = None, blocked_by: int | None = None) -> int:
-        argv = ["task", "new", "--owner", "worker", title]
+        argv = ["task", "new", "-t", "90m", "--owner", "worker", title]
         if priority is not None:
             argv += ["--priority", priority]
         if blocked_by is not None:
@@ -4477,6 +4518,252 @@ def test_promote_to_front_never_jumps_a_delivered_head(home: Path) -> None:
               db.head_of_queue(con, "worker")["id"] == plain,
               dict(db.head_of_queue(con, "worker")))
     finally:
+        con.close()
+
+
+def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
+    """T286: `ocp task new` requires -t/--timeout (at most 4h; missing or over
+    is refused). Its clock only counts while the task is doing (founder
+    #1627's revision) - a new task is never doing, so timeout_at stays NULL
+    until a request is linked; `ocp task edit --timeout` sets a new length
+    always, but only starts (or resumes) the deadline itself while doing."""
+    _board_world(home)
+    # An over-long duration is refused by the argparse `type` itself
+    # (`_timeout_arg`, same as a bad --priority) before the command ever
+    # runs, so it is exercised at the parser one level down - the CLI's own
+    # unit, same as priority: refusal 5532 tests actions.parse_priority
+    # directly rather than through _cli.
+    refused = False
+    try:
+        actions.parse_task_timeout("5h")
+    except ValueError as e:
+        refused, why = True, str(e)
+    check("timeout parsing: over 4h is refused", refused and "4h" in why, why if refused else "")
+    check("timeout parsing: 90m and 4h themselves are fine",
+          actions.parse_task_timeout("90m") == 5400
+          and actions.parse_task_timeout("4h") == actions.MAX_TASK_TIMEOUT_S)
+    rc, out = _cli(["task", "new", "--owner", "worker", "no timeout given"])
+    check("task new: -t/--timeout is required", rc != 0 and "timeout" in out.lower(), out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "timed", "-t", "90m"])
+    check("task new: a valid timeout opens the task", rc == 0 and "task T1" in out, out)
+    con = db.connect()
+    try:
+        row = db.get_task(con, 1)
+        check("task new: timeout_s is set, but timeout_at is not - the daemon sweep starts the clock",
+              row["timeout_s"] == 5400 and row["timeout_at"] is None, str(dict(row)))
+        # `task new` delivers at once, so T1 is doing; the not-doing cases below
+        # use a task opened directly, with nothing linked to it.
+        db.new_task(con, "not doing", "worker", "manager", timeout_s=5400)
+
+        # Not doing: --timeout changes the configured length, but the clock
+        # itself does not start - there is nothing to count down yet.
+        rc, out = _cli(["task", "edit", "T2", "--timeout", "2h"])
+        check("task edit --timeout: sets the length even while not doing",
+              rc == 0 and "timeout" in out and "doing" in out, out)
+        row = db.get_task(con, 2)
+        check("task edit --timeout: not doing, timeout_at stays unset",
+              row["timeout_s"] == 7200 and row["timeout_at"] is None, str(dict(row)))
+
+        # Now make it doing (a request out against it, T250's own pattern),
+        # and edit again - this time the deadline actually starts.
+        db.link_request(con, 2, _human_request())
+        check("doing: the task now reads doing", actions.task_state(con, row) == "doing")
+        rc, out = _cli(["task", "edit", "T2", "--timeout", "90m"])
+        check("task edit --timeout: doing, extends it, said plainly",
+              rc == 0 and "timeout" in out and "from now" in out, out)
+        row = db.get_task(con, 2)
+        check("task edit --timeout: doing, timeout_s and timeout_at both move, counting from now",
+              row["timeout_s"] == 5400
+              and abs(row["timeout_at"] - (int(time.time()) + 5400)) < 5, str(dict(row)))
+
+        # Extending by the *same* length still resets the deadline (it is
+        # "from now", not "if different") - the one field edit_task never
+        # no-ops on.
+        before = row["timeout_at"]
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = 2", (before - 3000,))
+        rc, out = _cli(["task", "edit", "T2", "--timeout", "90m"])
+        check("task edit --timeout: extends even at the same length", rc == 0, out)
+        row = db.get_task(con, 2)
+        check("task edit --timeout: the deadline moved forward, not left alone",
+              abs(row["timeout_at"] - (int(time.time()) + 5400)) < 5, str(dict(row)))
+
+        # actions.edit_task guards the max too, not just the CLI's argparse
+        # type - a caller that reaches it directly (a test, or any future
+        # caller that is not this parser) cannot write a longer timeout.
+        ok, msg = actions.edit_task(con, 2, "manager", timeout_s=actions.MAX_TASK_TIMEOUT_S + 1)
+        check("edit_task: refuses a too-long timeout itself, not just the CLI parser",
+              not ok and "4h" in msg, msg)
+        check("edit_task: and left the deadline untouched", db.get_task(con, 2)["timeout_at"] == row["timeout_at"])
+        ok, msg = actions.edit_task(con, 2, "manager", timeout_s=0)
+        check("edit_task: refuses a zero timeout too", not ok, msg)
+        ok, msg = actions.edit_task(con, 2, "manager", timeout_s=-60)
+        check("edit_task: and a negative one", not ok, msg)
+    finally:
+        con.close()
+
+
+def test_reopening_a_timed_task_resumes_its_clock_only_if_still_doing(home: Path) -> None:
+    """T286: whether a reopened task's clock resumes depends on whether it
+    still has a request out (`reads_doing`, not the row's own done_evidence,
+    which task_state would still misread as "done" here) - resumed from now,
+    never from an old, possibly long-passed deadline; paused, same as any
+    other not-doing task, if it does not."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        doing = db.new_task(con, "ship it", "worker", "manager", timeout_s=3600)
+        # A non-human requester, so task_asker still reads "manager" (the
+        # opener) - a founder-linked request would make it HUMAN instead,
+        # and only the founder could then reopen it.
+        rid = db.add_request(con, "worker", "manager", "go", None, "supervisor",
+                             "fire_and_forget", None, 0, None)
+        db.link_request(con, doing, rid)
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?",
+                    (int(time.time()) - 500000, doing))
+        db.mark_task_done(con, doing, "shipped", via="reason")
+        ok, msg = actions.reopen_task(con, doing, "manager", "not quite done")
+        check("reopen: succeeds", ok, msg)
+        row = db.get_task(con, doing)
+        check("reopen: still doing - timeout_at resumes from now, not its old, passed deadline",
+              abs(row["timeout_at"] - (int(time.time()) + 3600)) < 5, str(dict(row)))
+
+        not_doing = db.new_task(con, "no request out", "worker", "manager", timeout_s=3600)
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?",
+                    (int(time.time()) + 3600, not_doing))
+        db.mark_task_done(con, not_doing, "shipped", via="reason")
+        actions.reopen_task(con, not_doing, "manager", "reopen")
+        check("reopen: not doing (nothing linked) - the clock is paused, not resumed",
+              db.get_task(con, not_doing)["timeout_at"] is None)
+
+        untimed = db.new_task(con, "no timeout on this one", "worker", "manager")
+        db.mark_task_done(con, untimed, "shipped", via="reason")
+        actions.reopen_task(con, untimed, "manager", "reopen")
+        check("reopen: a task with no timeout stays with none",
+              db.get_task(con, untimed)["timeout_at"] is None)
+    finally:
+        con.close()
+
+
+def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
+    """T286, founder #1627's revision, auditor FAIL #1670 point 2 fixed:
+    `ocp task release` is the other answer to a timeout notice besides
+    continuing. It ends the task's own open request(s) through the retire
+    path `ocp cancel`/`withdraw` use - closed, its target told, the next in
+    that target's queue freed to go - and pauses the clock; task_state's
+    "doing" reads a request's own state, so a retired one reads not-doing
+    under every task it is linked to, and the link itself stays (the task's
+    history still shows what it asked for). Refused for a task that is not
+    doing, or that is doing only through an open child."""
+    _board_world(home)
+    con = db.connect()
+    sent: list[tuple[str, str]] = []
+    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_w"}
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        sessions_are("worker")
+        db.set_terminal(con, "worker", "term_w", "wt")
+        db.set_agent_state(con, "worker", dmn_states.IDLE)
+
+        tid = db.new_task(con, "release me", "worker", "manager", timeout_s=3600)
+        rc, out = _cli(["task", "release", f"T{tid}"])
+        check("release: refused - not doing yet", rc != 0 and "not doing" in out, out)
+
+        rid = _human_request("worker")
+        behind = _human_request("worker")
+        db.link_request(con, tid, rid)
+        db.mark_delivered(con, rid)
+        db.set_cursor(con, "notify:worker", rid)
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 10, tid))
+        # The permission guard applies while the task is still doing - a
+        # refusal here has to be the guard itself, not "already not doing"
+        # reading the same way once the release has already gone through.
+        check("release: worker (not the opener or founder) may not release",
+              not actions.release_task(con, tid, "worker")[0])
+        rc, out = _cli(["task", "release", f"T{tid}"])
+        check("release: succeeds, names the request and the timeout",
+              rc == 0 and f"#{rid}" in out and "paused" in out, out)
+        row = db.get_task(con, tid)
+        check("release: back to draft, timeout paused",
+              actions.task_state(con, row) == "draft" and row["timeout_at"] is None,
+              str(dict(row)))
+        check("release: the request is no longer open, but still on the record",
+              db.get_request(con, rid)["state"] == "rejected", str(dict(db.get_request(con, rid))))
+        check("release: the task still lists it",
+              any(r["id"] == rid for r in db.task_requests(con, tid)))
+        check("release: the founder is not sent a rejection of his own request, the same as "
+              "`cancel` (T302)", rid not in [a["id"] for a in db.unannounced_answers(con, askmod.HUMAN)],
+              str([dict(a) for a in db.unannounced_answers(con, askmod.HUMAN)]))
+        check("release: worker was told to stop",
+              any(h == "term_w" and f"#{rid}" in t and "cancelled" in t for h, t in sent), sent)
+        check("release: the one behind it in worker's queue moves up and is delivered",
+              db.head_of_queue(con, "worker")["id"] == behind
+              and any(h == "term_w" and f"#{behind}" in t for h, t in sent), sent)
+
+        parent = db.new_task(con, "parent", "worker", "manager", timeout_s=3600)
+        child = db.new_task(con, "child", "worker", "manager")
+        con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (parent, child))
+        crid = _human_request()
+        db.link_request(con, child, crid)
+        ok, msg = actions.release_task(con, parent, "manager")
+        check("release: refused on the parent when doing comes from a child only, names it",
+              not ok and f"T{child}" in msg, msg)
+
+        # `open_hold_task`'s own shape: a hold links the same request both to
+        # the task it holds and to the child it opens for the hold - so
+        # retiring it here also ends what was keeping the child doing.
+        # Nothing here still makes the parent doing through crid's own,
+        # separate request, so this must say so and leave the clock running.
+        prid = _human_request()
+        db.link_request(con, parent, prid)
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 10, parent))
+        ok, msg = actions.release_task(con, parent, "manager")
+        check("release: doing through both its own link and a child's - retires the direct "
+              "one, says so, but does not claim the clock paused",
+              ok and f"T{child}" in msg and "paused" not in msg, msg)
+        row = db.get_task(con, parent)
+        check("release: the request is retired, the timeout was left running, not paused",
+              db.get_request(con, prid)["state"] == "rejected"
+              and row["timeout_at"] is not None and actions.task_state(con, row) == "doing",
+              str(dict(row)))
+
+        # Best-effort, not all-or-nothing: two direct requests, one of which
+        # loses its own race the instant release runs (some other close
+        # landing in between the retire calls - the same race retire_open
+        # itself guards against) must not stop the other from being
+        # retired, nor leave the task's clock running because one of the
+        # two could not be.
+        two = db.new_task(con, "two requests", "worker", "manager", timeout_s=3600)
+        first = _human_request("worker")
+        second = _human_request("worker")
+        db.link_request(con, two, first)
+        db.link_request(con, two, second)
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 10, two))
+        real_retire = askmod.retire_open
+
+        def losing_retire(con, rid, verdict, notify=True):
+            if rid == first:
+                db.close_if_queued(con, rid, "done", "someone else got there first")
+            return real_retire(con, rid, verdict, notify)
+
+        askmod.retire_open = losing_retire
+        try:
+            ok, msg = actions.release_task(con, two, "manager")
+        finally:
+            askmod.retire_open = real_retire
+        check("release: one request losing its own race does not stop the other "
+              "from being retired, and both are named",
+              ok and f"#{second}" in msg and "not retired" in msg and f"#{first}" in msg, msg)
+        row = db.get_task(con, two)
+        check("release: still paused, back to draft, despite the one that could not be retired",
+              actions.task_state(con, row) == "draft" and row["timeout_at"] is None
+              and db.get_request(con, second)["state"] == "rejected"
+              and db.get_request(con, first)["state"] == "done", str(dict(row)))
+    finally:
+        orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now = real
         con.close()
 
 
@@ -4654,12 +4941,12 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "--owner", "worker", "dependent",
-                    "--blocked-by", f"T{t_blocker}"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "dependent",
+                    "--blocked-by", f"T{t_blocker}", "-t", "1h"])
     check("task new --blocked-by: opens the task blocked", rc == 0, out)
     t_dep = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "--owner", "worker", "x", "--blocked-by", "T999"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "x", "--blocked-by", "T999", "-t", "1h"])
     check("task new --blocked-by: a blocker that does not exist is refused",
           rc == 1 and "no task" in out, out)
 
@@ -4700,7 +4987,8 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         before_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "--owner", "worker", "late", "--blocked-by", f"T{t_third}"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "late", "--blocked-by", f"T{t_third}",
+                    "-t", "1h"])
     check("task new --blocked-by: refused for an already-closed blocker too",
           rc == 1 and "closed" in out, out)
     con = db.connect()
@@ -4936,8 +5224,8 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     """The guard (#1259): every human-requester resolve, including a reply in a
     running thread, needs --task or --no-task; nothing else is guarded."""
     _board_world(home)
-    _cli(["task", "new", "--owner", "worker", "deliverable one"])
-    _cli(["task", "new", "--owner", "worker", "deliverable two"])
+    _cli(["task", "new", "--owner", "worker", "deliverable one", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "deliverable two", "-t", "1h"])
     r1 = _human_request()
     rc, out = _cli(["resolve", str(r1), "ok"])
     check("guard: a bare resolve of the founder's request is refused", rc == 1 and "--task" in out, out)
@@ -6010,7 +6298,7 @@ def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None
     """#1341: dismiss is the second way an agent closes a request the founder
     made, so it takes the same guard; the founder's own hands do not."""
     _board_world(home)
-    _cli(["task", "new", "--owner", "worker", "the work"])
+    _cli(["task", "new", "--owner", "worker", "the work", "-t", "1h"])
     r = _human_request()
     rc, out = _cli(["dismiss", str(r)])
     check("dismiss: a founder request is refused without --task or --no-task",
@@ -6107,9 +6395,9 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
     git("add", ".")
     git("commit", "-q", "-m", "on main")
     full = git("rev-parse", "HEAD")
-    _cli(["task", "new", "--owner", "worker", "one"])
-    _cli(["task", "new", "--owner", "worker", "two"])
-    _cli(["task", "new", "--owner", "worker", "three"])
+    _cli(["task", "new", "--owner", "worker", "one", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "two", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "three", "-t", "1h"])
     rc, out = _cli(["task", "done", "T1", "abc123", "--repo", str(repo)], as_agent="worker")
     check("sha: hex that names no commit is refused, not recorded as a reason",
           rc == 1 and "not an ancestor of main" in out, out)
@@ -6601,10 +6889,10 @@ def test_task_priority_sorts_and_numbers_compare_as_numbers(home: Path) -> None:
         ids = [db.new_task(con, f"filler {i}", "worker", "manager") for i in range(11)]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "urgent", "--owner", "worker", "--priority", "P1"],
+    rc, out = _cli(["task", "new", "urgent", "--owner", "worker", "--priority", "P1", "-t", "1h"],
                    as_agent="manager")
     check("priority: new takes --priority", rc == 0 and "P1" in out, out)
-    rc, out = _cli(["task", "new", "later", "--owner", "worker", "--priority", "p3"],
+    rc, out = _cli(["task", "new", "later", "--owner", "worker", "--priority", "p3", "-t", "1h"],
                    as_agent="manager")
     try:
         actions.parse_priority("P4")
@@ -7324,6 +7612,33 @@ limits:
         con.close()
 
 
+def test_a_begun_task_reads_doing_the_same_way_everywhere(home: Path) -> None:
+    """T286 review: `task_state` and `reads_doing` (the timeout clock's read) must
+    agree that a task begun on a founder message is doing, and releasing one says
+    so instead of failing."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        chat = _human_request("worker")
+        ok, msg, tid = actions.task_begin(con, "worker", "begun work", chat, "the founder asked")
+        row = db.get_task(con, tid)
+        check("begun: task_state says doing", ok and actions.task_state(con, row) == "doing", msg)
+        check("begun: and reads_doing agrees", actions.reads_doing(con, tid))
+        db.set_task_queued(con, tid, "worker")
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (chat,))
+        check("begun: still doing after its chat request is answered, in both",
+              actions.task_state(con, db.get_task(con, tid)) == "doing" and actions.reads_doing(con, tid))
+        ok, msg = actions.release_task(con, tid, askmod.HUMAN)
+        check("begun: releasing it says it stays doing, without crashing",
+              not ok and "begun on a founder message" in msg, msg)
+        plain = db.new_task(con, "plain draft", "worker", "manager")
+        check("begun: a task that was not begun and has no request is not doing in either",
+              actions.task_state(con, db.get_task(con, plain)) == "draft"
+              and not actions.reads_doing(con, plain))
+    finally:
+        con.close()
+
+
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
@@ -7778,6 +8093,10 @@ def main() -> int:
             Path(td) / 'nexttask'))
         run(lambda: test_advance_current_task_never_touches_the_founder(Path(td) / 'nexttaskhuman'))
         run(lambda: test_promote_to_front_never_jumps_a_delivered_head(Path(td) / 'nexttaskhead'))
+        run(lambda: test_task_timeout_new_requires_it_and_edit_extends_it(Path(td) / 'tasktimeout'))
+        run(lambda: test_reopening_a_timed_task_resumes_its_clock_only_if_still_doing(
+            Path(td) / 'taskreopentimeout'))
+        run(lambda: test_release_takes_a_doing_task_back_to_queued(Path(td) / 'taskrelease'))
         run(lambda: test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(
             Path(td) / 'taskedit'))
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
@@ -7789,6 +8108,7 @@ def main() -> int:
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
         run(lambda: test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(Path(td) / 'fe1'))
+        run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))

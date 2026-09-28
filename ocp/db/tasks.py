@@ -16,18 +16,25 @@ TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
                "discarded_by", "discard_reason", "priority", "merged_into",
-               "queued_by", "queued_at", "expects")
+               "queued_by", "queued_at", "expects", "timeout_s", "timeout_at")
 
 DEFAULT_PRIORITY = 2
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
              parent_task: int | None = None, priority: int = DEFAULT_PRIORITY,
-             expects: str | None = None) -> int:
+             expects: str | None = None, timeout_s: int | None = None) -> int:
+    """`timeout_s` is optional here (many tests build a task without one) -
+    `ocp task new` is what actually requires it, at the CLI (T286).
+
+    timeout_at starts NULL even when `timeout_s` is given: the clock only
+    runs while the task is doing (T286's revision, founder #1627), and a
+    task is never doing the moment it is opened - nothing is linked to it
+    yet. The daemon sweep starts it once a request is."""
     cur = con.execute(
-        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority, expects) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (title, owner, parent_task, opened_by, int(time.time()), priority, expects))
+        "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority, expects, "
+        "timeout_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, owner, parent_task, opened_by, int(time.time()), priority, expects, timeout_s))
     return int(cur.lastrowid)
 
 
@@ -96,15 +103,22 @@ def set_task_queued(con, tid: int, by: str | None) -> bool:
     return cur.rowcount > 0
 
 
-def reopen_task(con, tid: int) -> bool:
-    """Send a done task back to doing, atomically - the opposite of marking
-    it done. True only if this call was the one that cleared it. Refuses (by
-    matching no row) a task that is not currently done, or one already
-    closed - closing is final."""
-    cur = con.execute(
-        "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL "
-        "WHERE id = ? AND done_evidence IS NOT NULL AND closed_by IS NULL",
-        (tid,))
+def reopen_task(con, tid: int, is_doing: bool) -> bool:
+    """Send a done task back to open, atomically; True only if this call cleared it
+    (a task not done, or already closed, matches no row). `is_doing` is the caller's
+    read of `reads_doing`: a doing task's clock restarts from now rather than firing
+    on a deadline that passed while it sat done."""
+    now = int(time.time())
+    if is_doing:
+        cur = con.execute(
+            "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, "
+            "timeout_at = CASE WHEN timeout_s IS NOT NULL THEN ? + timeout_s ELSE NULL END "
+            "WHERE id = ? AND done_evidence IS NOT NULL AND closed_by IS NULL", (now, tid))
+    else:
+        cur = con.execute(
+            "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, "
+            "timeout_at = NULL WHERE id = ? AND done_evidence IS NOT NULL AND closed_by IS NULL",
+            (tid,))
     return cur.rowcount > 0
 
 
@@ -115,14 +129,53 @@ def tasks_needing_close(con) -> list:
         "ORDER BY priority, id").fetchall()
 
 
+def tasks_to_clock(con) -> list:
+    """Open tasks (not done, not closed) - T286's daemon sweep reads every one
+    each tick to start, pause or fire its clock, since whether it is currently
+    doing (the only state the clock runs in) is not a column this can filter
+    on in SQL. Every task, not only those opened with a timeout: one opened
+    inside ocp (a finding, a hold, `task begin`) never passed `task new -t`
+    and takes the default once it is doing (T301)."""
+    return con.execute(
+        "SELECT * FROM tasks WHERE closed_by IS NULL AND done_evidence IS NULL ORDER BY id").fetchall()
+
+
+def advance_task_timeout(con, tid: int, now: int, default_s: int) -> None:
+    """Start (timeout_at was NULL) or re-arm (it just fired) a task's clock:
+    its next deadline is timeout_s from `now`, `default_s` for a task that was
+    never given one - which is then written, so the notice and `task edit`
+    both see the length in force. The notice repeats every timeout_s a doing
+    task is still open, until it is done or its timeout is extended
+    (`edit_task`, which resets timeout_at the same way)."""
+    con.execute(
+        "UPDATE tasks SET timeout_s = COALESCE(timeout_s, ?), "
+        "timeout_at = ? + COALESCE(timeout_s, ?) WHERE id = ?", (default_s, now, default_s, tid))
+
+
+def pause_task_timeout(con, tid: int) -> None:
+    """Stop a task's clock: no deadline runs while it is not doing. Idempotent
+    - a task with no clock running matches no row."""
+    con.execute("UPDATE tasks SET timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL",
+                (tid,))
+
+
 def edit_task(con, tid: int, by: str, owner: str | None = None,
-              title: str | None = None, priority: int | None = None) -> None:
+              title: str | None = None, priority: int | None = None,
+              timeout_s: int | None = None, is_doing: bool = False) -> None:
     """Write a changed owner and/or title, stamped with who and when - the
     same evidence close_task leaves on closed_by/closed_at. Caller has
     already checked permission and that something actually changed; this
-    only writes."""
+    only writes.
+
+    `timeout_s`, given, always writes - unlike the others it is not "changed
+    if different": T286's --timeout extends the task's timeout counting from
+    this edit even when the length given is the same as before. Its clock
+    (timeout_at) only runs while doing (`is_doing`, the caller's read of that
+    at the time of this edit) - resumed from now if so, left paused (NULL)
+    otherwise, the same rule the daemon sweep applies every tick."""
+    now = int(time.time())
     sets = ["edited_by = ?", "edited_at = ?"]
-    params: list = [by, int(time.time())]
+    params: list = [by, now]
     if owner is not None:
         sets.append("owner = ?")
         params.append(owner)
@@ -132,6 +185,9 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     if priority is not None:
         sets.append("priority = ?")
         params.append(priority)
+    if timeout_s is not None:
+        sets += ["timeout_s = ?", "timeout_at = ?"]
+        params += [timeout_s, now + timeout_s if is_doing else None]
     params.append(tid)
     con.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
 

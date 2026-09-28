@@ -159,7 +159,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- queued - approved, and the manager pulls it to its owner. `doing` is not
   -- stored: it is read live from a request out against the task.
   queued_by    TEXT,
-  queued_at    INTEGER
+  queued_at    INTEGER,
+  -- T286: timeout_s is the length a doing task may run before its opener is told;
+  -- timeout_at the next deadline (NULL while it is not doing). See daemon/timebox.py.
+  timeout_s    INTEGER,
+  timeout_at   INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -654,6 +658,22 @@ def _add_missing_columns(con) -> None:
         con.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
     if "merged_into" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN merged_into INTEGER REFERENCES tasks(id)")
+    if "timeout_s" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN timeout_s INTEGER")
+        con.execute("ALTER TABLE tasks ADD COLUMN timeout_at INTEGER")
+        # Tasks already doing get 4h from now, the rest none (MAX_TASK_TIMEOUT_S
+        # as a literal: schema.py imports nothing from actions).
+        now = int(time.time())
+        con.execute(
+            "UPDATE tasks SET timeout_s = 14400, timeout_at = ? "
+            "WHERE closed_by IS NULL AND done_evidence IS NULL AND ("
+            "  EXISTS (SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id"
+            "          WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)"
+            "  OR EXISTS (SELECT 1 FROM tasks c JOIN task_requests l ON l.task_id = c.id"
+            "             JOIN requests r ON r.id = l.request_id"
+            "             WHERE c.parent_task = tasks.id AND c.closed_by IS NULL"
+            "             AND r.state = 'queued' AND r.fyi = 0)"
+            ")", (now + 14400,))
     state_cols = _cols(con, "agent_state")
     for col in ("failed_attempts", "continuations", "throttle_count", "wake_failures"):
         if col not in state_cols:

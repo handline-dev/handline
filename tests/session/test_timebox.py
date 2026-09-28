@@ -144,6 +144,149 @@ def test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(home: Path)
         con.close()
 
 
+def _doing(con, tid: int, target: str) -> int:
+    """Link a queued, non-fyi request to `tid` so it reads doing - T286's
+    clock only runs in that state, the same live read `task_state` makes."""
+    rid = db.add_request(con, askmod.HUMAN, target, "look at it", None, "supervisor",
+                         "fire_and_forget", None, 0, None)
+    db.link_request(con, tid, rid)
+    return rid
+
+
+def test_a_doing_tasks_timeout_starts_silently_then_repeats(home: Path) -> None:
+    """T286, founder #1627's revision: a task's timeout only counts while it
+    is doing. The clock starts silently the first sweep after it becomes
+    doing (becoming doing is not itself running long), then tells its
+    opener each time it runs past, again every further stretch - unlike a
+    request's once-only timebox - until it is done or extended."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        tid = db.new_task(con, "ship it", "marina", "manager", timeout_s=3600)
+        timebox.sweep(con, lambda _m: None, now)
+        check("task timeout: a draft with no request out gets no clock at all",
+              db.get_task(con, tid)["timeout_at"] is None and not sent,
+              str(dict(db.get_task(con, tid))))
+
+        _doing(con, tid, "marina")
+        timebox.sweep(con, lambda _m: None, now)
+        check("task timeout: doing starts the clock silently, timeout_s from now",
+              db.get_task(con, tid)["timeout_at"] == now + 3600 and not sent,
+              str(dict(db.get_task(con, tid))))
+
+        timebox.sweep(con, lambda _m: None, now + 3600)
+        check("task timeout: the opener is told once it is past",
+              len(sent) == 1 and sent[0][0] == "term_manager", str(sent))
+        text = sent[0][1]
+        check("task timeout: the notice names the task, its timeout, and both answers",
+              f"T{tid}" in text and "ship it" in text and "60m" in text
+              and "edit" in text and "release" in text, text)
+        payload = con.execute("SELECT payload FROM events WHERE kind = 'task_timeout_exceeded' "
+                              "AND agent = 'manager'").fetchone()[0]
+        check("task timeout: recorded as an event that is not agent activity, "
+              "carrying the notice text itself (auditor #1670 point 4)",
+              payload is not None and text in payload
+              and "task_timeout_exceeded" not in db.AGENT_ACTIVITY_KINDS, payload)
+        row = db.get_task(con, tid)
+        check("task timeout: the deadline is pushed out by timeout_s from now, not left alone",
+              row["timeout_at"] == now + 7200, str(dict(row)))
+
+        timebox.sweep(con, lambda _m: None, now + 3605)
+        check("task timeout: not told again before the next stretch is up", len(sent) == 1, str(sent))
+        timebox.sweep(con, lambda _m: None, now + 7200)
+        check("task timeout: told again once the next stretch passes - unlike a request's "
+              "once-only timebox", len(sent) == 2, str(sent))
+
+        actions.edit_task(con, tid, "manager", timeout_s=7200)
+        timebox.sweep(con, lambda _m: None, now + 7210)
+        check("task timeout: extending it (edit --timeout) resets the clock - no third notice yet",
+              len(sent) == 2, str(sent))
+
+        actions.mark_task_done(con, tid, "marina", reason="shipped")
+        timebox.sweep(con, lambda _m: None, now + 1000000)
+        check("task timeout: done, the clock stops for good", len(sent) == 2, str(sent))
+    finally:
+        con.close()
+
+
+def test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(home: Path) -> None:
+    """T301: findings, holds and `task begin` never pass `task new -t`, so their
+    tasks carry no timeout_s. The clock is set where the task becomes doing -
+    the sweep - so "every task has a timeout" holds for them too."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        tid = db.new_task(con, "opened inside ocp", "marina", "manager")
+        check("default timeout: nothing is set while it is not doing",
+              db.get_task(con, tid)["timeout_s"] is None)
+        _doing(con, tid, "marina")
+        timebox.sweep(con, lambda _m: None, now)
+        row = db.get_task(con, tid)
+        check("default timeout: doing, it takes the default and the clock starts silently",
+              row["timeout_s"] == actions.DEFAULT_TASK_TIMEOUT_S
+              and row["timeout_at"] == now + actions.DEFAULT_TASK_TIMEOUT_S and not sent,
+              str(dict(row)))
+        check("default timeout: and it is within the 4h maximum",
+              actions.DEFAULT_TASK_TIMEOUT_S <= actions.MAX_TASK_TIMEOUT_S)
+        timebox.sweep(con, lambda _m: None, now + actions.DEFAULT_TASK_TIMEOUT_S)
+        check("default timeout: past it, the opener is told like any other task",
+              len(sent) == 1 and sent[0][0] == "term_manager", str(sent))
+        other = db.new_task(con, "asked for 30m", "marina", "manager", timeout_s=1800)
+        _doing(con, other, "marina")
+        timebox.sweep(con, lambda _m: None, now + actions.DEFAULT_TASK_TIMEOUT_S + 1)
+        check("default timeout: a task that was given one keeps it",
+              db.get_task(con, other)["timeout_s"] == 1800)
+    finally:
+        con.close()
+
+
+def test_a_doing_tasks_timeout_pauses_while_it_is_not_doing(home: Path) -> None:
+    """The clock only runs while a task reads doing - its request answered
+    (or `ocp task release`), it pauses with no notice, and does not fire on
+    however long it sat not-doing; doing again, the clock restarts fresh."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        tid = db.new_task(con, "x", "marina", "manager", timeout_s=60)
+        rid = _doing(con, tid, "marina")
+        timebox.sweep(con, lambda _m: None, now)
+        check("task timeout: doing, the clock started", db.get_task(con, tid)["timeout_at"] is not None)
+
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (rid,))
+        timebox.sweep(con, lambda _m: None, now + 10000)
+        check("task timeout: no longer doing (its request answered) - paused, no notice",
+              db.get_task(con, tid)["timeout_at"] is None and not sent,
+              str((dict(db.get_task(con, tid)), sent)))
+
+        _doing(con, tid, "marina")
+        timebox.sweep(con, lambda _m: None, now + 10000)
+        check("task timeout: doing again - the clock restarts fresh, timeout_s from now",
+              db.get_task(con, tid)["timeout_at"] == now + 10060, str(dict(db.get_task(con, tid))))
+    finally:
+        con.close()
+
+
+def test_a_task_timeout_notice_goes_to_whoever_opened_it_not_the_owner(home: Path) -> None:
+    """A task's owner and its opener can be two different agents (task #1914);
+    the timeout notice is the opener's to act on, the same as every other
+    task-edit notice - it is never typed at the owner instead."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        tid = db.new_task(con, "x", "dohyun", "marina", timeout_s=60)
+        _doing(con, tid, "dohyun")
+        timebox.sweep(con, lambda _m: None, now)               # starts the clock
+        timebox.sweep(con, lambda _m: None, now + 60)          # past it
+        check("task timeout: the notice goes to the opener's terminal, not the owner's",
+              len(sent) == 1 and sent[0][0] == "term_marina", str(sent))
+    finally:
+        con.close()
+
+
 def test_a_resolved_or_cancelled_request_stops_the_clock(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -605,6 +748,11 @@ def main() -> int:
             run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
             run(lambda: test_a_folded_ask_keeps_its_timebox(Path(td) / 'tb1b'))
             run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))
+            run(lambda: test_a_doing_tasks_timeout_starts_silently_then_repeats(Path(td) / 'tb2b'))
+            run(lambda: test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(Path(td) / 'tb2c'))
+            run(lambda: test_a_doing_tasks_timeout_pauses_while_it_is_not_doing(Path(td) / 'tb2b2'))
+            run(lambda: test_a_task_timeout_notice_goes_to_whoever_opened_it_not_the_owner(
+                Path(td) / 'tb2c'))
             run(lambda: test_a_resolved_or_cancelled_request_stops_the_clock(Path(td) / 'tb3'))
             run(lambda: test_a_notice_that_cannot_be_typed_is_tried_again(Path(td) / 'tb4'))
             run(lambda: test_a_human_asker_is_recorded_not_typed_at(Path(td) / 'tb5'))
