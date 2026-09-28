@@ -68,7 +68,7 @@ def cmd_agent_show(args) -> int:
     con = db.connect()
     try:
         row = db.get_agent_state(con, args.name)
-        queued = len(db.queued_for(con, args.name))
+        queued = db.unreached_count(con, args.name)
         st = status.read_for_agent(args.name, agents.current_account(args.name, con))
     finally:
         con.close()

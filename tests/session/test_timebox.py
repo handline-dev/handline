@@ -4,6 +4,8 @@ Run on its own: python3 tests/session/test_timebox.py   (all areas: python3 test
 """
 from __future__ import annotations
 
+import types
+
 import sys
 from pathlib import Path
 
@@ -100,7 +102,11 @@ def test_a_folded_ask_keeps_its_timebox(home: Path) -> None:
     """T95: `--mergeable` folds an ask into one already queued; its `--timebox`
     used to vanish with it."""
     _world(home)
-    orcamod.typeable_now = lambda h: False      # nothing is delivered, so the first stays foldable
+    # Only a task waits for a free agent (a message is typed at once), so a task edge is
+    # what leaves the first ask undelivered and foldable.
+    hand_edit_team(TEAM.replace('- { from: "manager", to: "dev.*", relation: supervisor, response: async }',
+                                '- { from: "manager", to: "dev.*", relation: supervisor, response: async, kind: task }'))
+    orcamod.typeable_now = lambda h: False
     ok, _, first = askmod.ask("marina", "review the branch", requester="manager", mergeable=True)
     ok2, msg, merged = askmod.ask("marina", "and its new commit", requester="manager",
                                   mergeable=True, timebox_s=900)

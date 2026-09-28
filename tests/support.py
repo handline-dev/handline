@@ -729,14 +729,14 @@ def _screen_of(tail, draft=None, source="screen"):
 
 
 def _blocked_world(home: Path):
-    """backend has a terminal and a session, and something waiting it has not been told."""
+    """backend has a terminal and a session, and a task waiting it has not been told."""
     _daemon_home(home, 20)
     orcamod.available = lambda: True
     orcamod.alive = lambda h: True
     sessions_are("backend")
     con = db.connect()
     db.set_agent_state(con, "backend", dmn_states.IDLE)
-    db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+    db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", "task", 0, None)
     return con
 
 

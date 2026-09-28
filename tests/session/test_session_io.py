@@ -1585,7 +1585,7 @@ def test_a_delivery_belongs_to_the_session_it_was_typed_into(home: Path) -> None
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.add_request(con, "reviewer", "backend", "look at this", None,
-                       "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
 
         _session_file(home, "sess-A")
         check("session: the head is told to session A",
@@ -1629,8 +1629,8 @@ def test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(home: 
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.add_request(con, "reviewer", "backend", "first", None, "peer", "async", None, 0, None)
-        db.add_request(con, "reviewer", "backend", "second", None, "peer", "async", None, 0, None)
+        db.add_request(con, "reviewer", "backend", "first", None, "peer", "async", "task", 0, None)
+        db.add_request(con, "reviewer", "backend", "second", None, "peer", "async", "task", 0, None)
         _session_file(home, "sess-A")
         check("back: the head is told to session A",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and "first" in sent[-1], str(sent))
@@ -1648,20 +1648,19 @@ def test_a_session_that_comes_back_is_told_a_head_an_earlier_one_was_told(home: 
         check("back: and only once",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
 
-        # A reply in the head's thread goes ahead of the queue, but a session
-        # that has read nothing hears the head before it (T111).
+        # A session that has read nothing hears the head first (T111).
         head = db.head_of_queue(con, "backend")["id"]
         db.add_request(con, "reviewer", "backend", "a follow-up", None, "peer", "async",
-                       None, 0, head)
+                       "task", 0, head)
         db.set_closed(con, "backend", "sess-A")
         support.something_waiting(con, "backend")
         db.clear_closed(con, "backend")
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("back: the restarted session is told the head before its follow-up",
               len(sent) == 1 and "first" in sent[0] and "follow-up to" not in sent[0], str(sent))
-        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("back: and the follow-up on the next pass, naming the open head",
-              len(sent) == 2 and "a follow-up" in sent[1] and f"#{head}" in sent[1], str(sent))
+        sent.clear()
+        check("back: a task follow-up is not typed past the open head - only a message is",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
     finally:
         con.close()
 
@@ -1680,8 +1679,8 @@ def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) ->
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.add_request(con, "reviewer", "backend", "step one\n- a\n- b\n\nstep two", None,
-                       "peer", "async", None, 0, None)
-        db.add_request(con, "reviewer", "backend", "later", None, "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
+        db.add_request(con, "reviewer", "backend", "later", None, "peer", "async", "task", 0, None)
         _session_file(home, "sess-A")
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("lines: a multi-line body with more waiting behind it is typed in three lines",
@@ -1692,7 +1691,7 @@ def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) ->
 
         for i in range(5):
             rid = db.add_request(con, "backend", "reviewer", f"q{i} " + "x" * 50, None,
-                                 "peer", "async", None, 0, None)
+                                 "peer", "async", "task", 0, None)
             con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
                         (f"answer {i}\nmore", rid))
         dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
@@ -1708,36 +1707,39 @@ def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) ->
 
 
 def test_a_reply_in_the_open_heads_thread_is_told_now_not_behind_it(home: Path) -> None:
-    """A request told and open, its follow-up queued behind it, the agent idle:
-    the follow-up used to wait for a resolve that could depend on it."""
+    """A task told and open, a follow-up message about it, the agent idle: the
+    follow-up is a message, typed at once - it never waits behind a task."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
     try:
         orca_seen()
         orcamod.idle_now = lambda h: True
+        orcamod.screen_blocker = lambda h: None
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are("backend")
         _session_file(home, "sess-A")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
-        head = db.add_request(con, "marina", "backend", "step six", None, "peer", "async", None, 0, None)
-        other = db.add_request(con, "marina", "backend", "unrelated", None, "peer", "async", None, 0, None)
+        head = db.add_request(con, "marina", "backend", "step six", None, "peer", "async", "task", 0, None)
+        other = db.add_request(con, "marina", "backend", "unrelated", None, "peer", "async", "task", 0, None)
         reply = db.add_request(con, "marina", "backend", "on step six: leave it", None,
                                "peer", "async", None, 0, head)
-        check("thread: the reply to a head not yet told does not jump it",
+        check("thread: the task head is told by the tick, without the reply",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
               and "step six" in sent[-1] and "leave it" not in sent[-1], str(sent))
         sent.clear()
-        check("thread: the reply is told now, though its head is still open",
-              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-              and "leave it" in sent[-1] and f"follow-up to #{head}" in sent[-1], str(sent))
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("thread: the reply, a message, is typed at once though its head is still open",
+              len(sent) == 1 and "leave it" in sent[-1], str(sent))
         sent.clear()
-        check("thread: and once - the unrelated request stays behind the head",
+        check("thread: and once - the unrelated task stays behind the head",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("thread: the reply is not typed a second time", not sent, str(sent))
         con.execute("UPDATE requests SET state = 'done', verdict = 'ok' WHERE id = ?", (head,))
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("thread: with the head closed, the reply is not told a second time",
+        check("thread: with the head closed, the unrelated task is told and the reply is not",
               not any("leave it" in t for t in sent) and any("unrelated" in t for t in sent),
               str(sent))
     finally:
@@ -1758,7 +1760,7 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.add_request(con, "reviewer", "backend", "look at this", None,
-                       "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
         orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "dialog")
         check("modal: a waiting request is not typed at an open modal",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
@@ -2269,7 +2271,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         st = status.read_for_agent("backend", "alpha")
 
         db.add_request(con, "reviewer", "backend", "look at this", None,
-                       "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
         check("shell: a waiting request is not announced to a shell",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
         check("shell: and it stays queued, for the wake to deliver",
@@ -2305,7 +2307,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         # but it is not permission to send, which is the only question here.
         obsmod.live_sessions = lambda: None
         db.add_request(con, "reviewer", "backend", "and this", None,
-                       "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
         check("shell: an unreadable process table is a no, not a maybe",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
 
@@ -2388,7 +2390,7 @@ def test_a_delivery_and_a_handoff_in_the_same_tick_the_handoff_must_not_type(
         orcamod.clear_context = lambda h, **kw: (typed.append("/clear"), (True, "context cleared"))[1]
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
-        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", "task", 0, None)
 
         ok = dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("race: the delivery itself goes through", ok and len(typed) == 1, typed)
@@ -2663,7 +2665,7 @@ def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> 
     try:
         st, now = _cold_backend(home, con, sent)
         rid = db.add_request(con, "marina", "backend", "carry on", None,
-                             "peer", "async", None, 0, None)
+                             "peer", "async", "task", 0, None)
         db.mark_delivered(con, rid)
         db.set_cursor(con, "notify:backend", rid)
         db.set_notified_session(con, "backend", "sess-cold")
@@ -2695,7 +2697,7 @@ def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> 
         # Something new arrives - the wake it deserves, and it retells the
         # old request too, once its fresh session is on screen.
         db.add_request(con, "marina", "backend", "and one more thing", None,
-                       "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
         dmn_delivery._session_changed = lambda *a: True   # the wake's fresh session, once up
         dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 7205, {}, [])
         check("cold queue close: the new request wakes it",
@@ -3243,7 +3245,7 @@ def test_a_resume_that_fails_falls_back_to_fresh_and_the_head_is_told_after(home
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.set_closed(con, "backend", "sess-1")
         head = db.add_request(con, "reviewer", "backend", "look at the picker", None,
-                              "peer", "async", None, 0, None)
+                              "peer", "async", "task", 0, None)
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("fallback: the resume was tried, then a fresh start", ok
               and len(launched) == 2 and "--resume sess-1" in launched[0]

@@ -128,7 +128,7 @@ def _doing(con, agent: str) -> str:
         return "never started"
     word, extra = tui.screen_state(con, row)
     state = word + (f" {extra}" if extra else "")
-    waiting = len(db.queued_for(con, agent))
+    waiting = db.unreached_count(con, agent)
     if waiting:
         state += f" · {waiting} waiting"
     if dmn_lifecycle.would_wake(con, row):

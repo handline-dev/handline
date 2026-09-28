@@ -100,9 +100,6 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
               not any(r["id"] == rid for r in db.timeboxed_open(con)))
         check("say: stuck() lists nothing for an answered say",
               not any(f"#{rid}" in r["what"] for r in actions.stuck(con)), actions.stuck(con))
-        row = db.get_request(con, rid)
-        check("say: --needs-task refuses one already closed by a --parent reply "
-              "(auditor #1760)", actions.needs_task_refusal(row, "worker") is not None)
     finally:
         orcamod.available = real_available
         con.close()
@@ -163,8 +160,8 @@ def test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(home: Path) -> No
     finally:
         con.close()
     check("tell_text: a say is not told to `ocp resolve`", "ocp resolve" not in text, text)
-    check("tell_text: it carries the say's own delivery line instead",
-          actions.delivery_line(rid) in text, text)
+    check("tell_text: it says it needs no answer instead", "needs no answer" in text
+          and "ocp say" not in text and "--needs-task" not in text, text)
 
 
 def test_inbox_unread_only_falls_back_to_a_marked_say_with_no_head(home: Path) -> None:
@@ -207,59 +204,30 @@ def test_inbox_unread_only_reads_the_blocked_head_through_effective_head(home: P
         con.close()
 
 
-def test_say_delivery_line_and_needs_task(home: Path) -> None:
-    """#1657: every say prints its own way out, and `say --needs-task`
-    replies to the sender with a ready `task new` command instead of
-    answering - only the receiver may send it, and only on a live say."""
+def test_a_say_prints_no_way_out_and_needs_task_is_gone(home: Path) -> None:
+    """T398 (founder: messages need no answer, work is a task): a say shows its
+    sender no reply hint, `ocp read` shows its receiver none, and `--needs-task` no
+    longer exists."""
     _say_world(home)
-    rc, out = _cli(["say", "--needs-task", "1", "worker", "also this"], as_agent="manager")
-    check("say --needs-task: refused with a target/body of its own, not silently "
-          "dropped (code review finding)", rc == 1 and "no target or body" in out, out)
-
     rc, out = _cli(["say", "worker", "can you take a look at the flaky test?"],
                    as_agent="manager")
     check("say: opens", rc == 0, out)
     rid = int(out.split("queued as #", 1)[1].split()[0])
-    check("say: prints its own delivery line, the receiver's way out",
-          actions.delivery_line(rid) in out, out)
+    check("say: prints nothing about replying or flagging as a task to its sender",
+          "reply with" not in out and "needs-task" not in out and "investigation" not in out, out)
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET state = 'queued', verdict = NULL WHERE id = ?", (rid,))
+    finally:
+        con.close()
     rc, out = _cli(["read", str(rid)], as_agent="worker")
-    check("say: `ocp read` prints the same delivery line for an unanswered say",
-          rc == 0 and actions.delivery_line(rid) in out, out)
-
-    rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="manager")
-    check("say --needs-task: refused for anyone but the say's own receiver",
-          rc == 1 and "not sent to you" in out, out)
-    rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="worker")
-    check("say --needs-task: the receiver may flag it, delivered back to the sender",
-          rc == 0, out)
-    flag_rid = int(out.split("queued as #", 1)[1].split()[0])
-    con = db.connect()
+    check("say: `ocp read` shows its receiver no way out either",
+          rc == 0 and "reply with" not in out and "needs-task" not in out, out)
     try:
-        flag = db.get_request(con, flag_rid)
-        check("say --needs-task: the reply goes to the original sender",
-              flag["target"] == "manager", flag["target"])
-        check("say --needs-task: it carries a ready `task new` command",
-              "task new --owner worker" in flag["body"], flag["body"])
-        check("say --needs-task: it closes the say it flags too (auditor #1760)",
-              db.get_request(con, rid)["state"] == "done")
-    finally:
-        con.close()
-    rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="worker")
-    check("say --needs-task: refused a second time - already answered",
-          rc == 1 and "already answered" in out, out)
-
-    ok, msg, real_task_rid = askmod.ask("worker", "not a say", requester="manager")
-    con = db.connect()
-    try:
-        row = db.get_request(con, real_task_rid)
-    finally:
-        con.close()
-    why = actions.needs_task_refusal(row, "worker")
-    check("say --needs-task: refused on a request that is not a say at all",
-          why is not None and "not a say" in why, why)
-    why = actions.needs_task_refusal(None, "worker")
-    check("say --needs-task: refused on an id that names no request", why is not None, why)
-
+        rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="worker")
+    except SystemExit as e:
+        rc, out = e.code, "argparse"
+    check("say --needs-task: gone", rc == 2, out)
 
 def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
     """A say-only queue (no ordinary head) still reaches deliver_queued, waiting_prompt and waiting_for."""
@@ -291,11 +259,14 @@ def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
               db.get_request(con, rid)["delivered_at"] is None)
 
         sessions_are("backend")
-        check("say: deliver_queued tells it anyway, with no head to hang off",
-              dmn_delivery.deliver_queued(con, "backend", lambda _m: None))
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("say: the tick tells it once a session is up, with no head to hang off",
+              any(f"#{rid}" in t for h, t in sent), str(sent))
         check("say: it was actually typed at backend's terminal",
               any(f"#{rid}" in t for h, t in sent), str(sent))
-        check("say: marked delivered", db.get_request(con, rid)["delivered_at"] is not None)
+        check("say: marked delivered, and finished - a typed say owes nothing",
+              db.get_request(con, rid)["delivered_at"] is not None
+              and db.get_request(con, rid)["state"] == "done", str(dict(db.get_request(con, rid))))
     finally:
         orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now = real
         con.close()
@@ -331,10 +302,11 @@ limits:
 def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path) -> None:
     """`stuck()` never calls a send_now row "waiting behind" the head."""
     con = _blocked_world(home)
-    real_typeable = orcamod.typeable_now
+    real_typeable, real_available = orcamod.typeable_now, orcamod.available
     try:
         orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.typeable_now = lambda h: False  # already mid-send to the head; say only queues
+        orcamod.typeable_now = lambda h: False
+        orcamod.available = lambda: False       # nothing can be typed: the say stays queued, held
         agents.register("product")   # DESIGN_TEAM: product -> eng.* (backend) is peer/async
         head = db.head_of_queue(con, "backend")
         con.execute("INSERT OR REPLACE INTO cursors(name, row_id, updated) VALUES(?,?,?)",
@@ -347,21 +319,7 @@ def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path)
         check("stuck: a send_now row is never read as waiting behind the head",
               rows and all("waiting behind" not in r["why"] for r in rows), str(rows))
     finally:
-        orcamod.typeable_now = real_typeable
-
-
-def test_needs_task_command_quotes_a_title_with_its_own_quote(home: Path) -> None:
-    """A title with its own apostrophe still quotes as one well-formed shell word."""
-    command = actions.needs_task_command("worker", "check the worker's flaky test")
-    check("needs_task_command: the apostrophe is escaped, not left to break the quoting",
-          command == "ocp task new --owner worker "
-                     "'check the worker'\"'\"'s flaky test' -t 2h", command)
-    import shlex
-    check("needs_task_command: shlex agrees it is one well-formed command line, "
-          "the title one word despite its own quote",
-          shlex.split(command) == ["ocp", "task", "new", "--owner", "worker",
-                                   "check the worker's flaky test", "-t", "2h"],
-          shlex.split(command))
+        orcamod.typeable_now, orcamod.available = real_typeable, real_available
 
 
 def test_is_lookup_bash_matches_the_allowlist_by_prefix(home: Path) -> None:
@@ -402,13 +360,12 @@ def main() -> int:
             Path(td) / 'sayinbox'))
         run(lambda: test_inbox_unread_only_reads_the_blocked_head_through_effective_head(
             Path(td) / 'sayinboxblocked'))
-        run(lambda: test_say_delivery_line_and_needs_task(Path(td) / 'sayneedstask'))
+        run(lambda: test_a_say_prints_no_way_out_and_needs_task_is_gone(Path(td) / 'sayneedstask'))
         run(lambda: test_a_say_with_no_ordinary_head_still_gets_typed(Path(td) / 'saynohead'))
         run(lambda: test_say_to_the_founder_is_not_refused_for_a_timebox_it_never_asked_for(
             Path(td) / 'sayhuman'))
         run(lambda: test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(
             Path(td) / 'saystuck'))
-        run(lambda: test_needs_task_command_quotes_a_title_with_its_own_quote(Path(td) / 'sayquote'))
         run(lambda: test_is_lookup_bash_matches_the_allowlist_by_prefix(Path(td) / 'saylookup'))
         run(lambda: test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(
             Path(td) / 'sayshellop'))
