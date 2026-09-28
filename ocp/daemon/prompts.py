@@ -6,8 +6,8 @@ pass reads every agent's screen once (`orca.prompt_on_screen`) and reconciles th
 result with the agent's open row, level-triggered: the same prompt refreshes
 `last_seen`, a different one closes the old row and opens a new one, none closes it.
 A screen that cannot be read changes nothing - a row is never closed or refreshed
-on a guess - and a row nobody has refreshed for `STALE_S` reads as no prompt to the
-reader (`fresh`), so a stopped watch fails closed.
+on a guess - and a row nobody has refreshed for `prompt_blocks.STALE_S` is not shown
+by `open_blocks`, so a stopped watch fails closed.
 
 Nothing here decides anything about the agent, and there is no model call. It does
 not press keys: answering is `actions.prompt_blocks.answer`, under the terminal lock."""
@@ -21,14 +21,6 @@ from ..actions import prompt_blocks
 from ..session import orca, waiting
 
 WATCH_S = 2.0
-# How old a row's last_seen may be before it no longer counts as a prompt on screen.
-STALE_S = 10
-
-
-def fresh(row, now: float | None = None) -> bool:
-    return row["gone_at"] is None and (now or time.time()) - row["last_seen"] <= STALE_S
-
-
 def _watched(con, agent_row) -> str | None:
     """The terminal to read for this agent, or None: none, closed, or ocp's own /exit dialog
     (`delivery_blocks` origin 'close') which the tick already handles."""

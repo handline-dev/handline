@@ -103,7 +103,10 @@ def test_the_row_follows_the_screen_and_fails_closed(home: Path) -> None:
         orcamod._screen = lambda h, limit=40: None
         _pass(con)
         check("an unreadable screen changes nothing", _open(con) is not None and _open(con)["last_seen"] == again["last_seen"])
-        check("and a row nobody refreshed reads as no prompt", not prompts.fresh(_open(con), time.time() + 60))
+        check("a row the watch just refreshed is shown to the bridge", len(actions.open_blocks(con)) == 1)
+        con.execute("UPDATE prompt_blocks SET last_seen = last_seen - 60")
+        check("and a row nobody refreshed for STALE_S is not shown", actions.open_blocks(con) == [],
+              str(actions.open_blocks(con)))
         _Term(CLEARED_SCREEN)
         _pass(con)
         check("a screen with no prompt closes the row", _open(con) is None)

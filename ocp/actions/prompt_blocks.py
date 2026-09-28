@@ -19,6 +19,9 @@ from ..session import orca, waiting
 from . import ask_question, confirmations, dialogs
 
 PERMISSION, QUESTION, DIALOG = orca.PROMPT_PERMISSION, orca.PROMPT_QUESTION, orca.PROMPT_DIALOG
+# How old a row's last_seen may be before it no longer counts as a prompt on screen: a
+# watch that stopped, or a screen it cannot read, must not leave a prompt showing for good.
+STALE_S = 10
 
 
 def fingerprint(kind: str, panel: list[str]) -> str:
@@ -50,9 +53,11 @@ def _row_dict(row) -> dict:
     return out
 
 
-def open_blocks(con) -> list[dict]:
-    """Every prompt on an agent's screen now, oldest first, for the bridge to show."""
-    return [_row_dict(r) for r in db.open_prompts(con)]
+def open_blocks(con, now: float | None = None) -> list[dict]:
+    """Every prompt on an agent's screen now, oldest first, for the bridge to show: an open
+    row the watch has refreshed within `STALE_S`."""
+    now = time.time() if now is None else now
+    return [_row_dict(r) for r in db.open_prompts(con) if now - r["last_seen"] <= STALE_S]
 
 
 def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
@@ -85,7 +90,7 @@ def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
         if row["kind"] == PERMISSION:
             ok, said = _permission(agent, handle, row, now, bool(choice.get("yes")))
         elif row["kind"] == QUESTION:
-            ok, said = ask_question_answer(agent, handle, now, tuple(choice.get("choices") or ()), choice.get("text"))
+            ok, said = _question(agent, handle, now, tuple(choice.get("choices") or ()), choice.get("text"))
         else:
             ok, said = dialogs.press_choice(con, agent, now["title"], int(choice["number"]),
                                             bool(choice.get("always", False)))
@@ -101,7 +106,7 @@ def _permission(agent: str, handle: str, row, now: dict, yes: bool) -> tuple[boo
     return False, f"{agent}: not answered - {why or outcome}"
 
 
-def ask_question_answer(agent: str, handle: str, now: dict, choices: tuple[int, ...], text) -> tuple[bool, str]:
+def _question(agent: str, handle: str, now: dict, choices: tuple[int, ...], text) -> tuple[bool, str]:
     outcome, _, why = orca.answer_question(handle, tuple(now["panel"]), choices, text)
     if outcome == orca.CLEARED:
         return True, f"{agent}: answered" + (f" ({why})" if why else "")
