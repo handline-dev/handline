@@ -25,7 +25,7 @@ from .. import vendors
 
 from . import delivery, handoff
 from .states import (DEGRADED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
-                     MAX_FAILED_ATTEMPTS, PARKED, PROMPT_CACHE_S, RESUME_WARM_S, RUNNING, STALLED,
+                     MAX_FAILED_ATTEMPTS, PARKED, RESUME_WARM_S, RUNNING, STALLED,
                      THROTTLED)
 
 
@@ -383,14 +383,9 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         # The handoff is in the system prompt, and carries the transcript's
         # path: nothing more is appended for it below.
         record = db.get_handoff(con, agent)
-        parts.append(f"Your session was closed while you were idle for over "
-                     f"{RESUME_WARM_S // 60} minutes - within {PROMPT_CACHE_S // 60} "
-                     f"minutes of its prompt cache's life, the margin a resume needs to "
-                     f"reach its first request before that cache is gone - so this is a "
-                     f"fresh conversation: resuming risks re-reading the whole transcript "
-                     f"at full price. Your handoff is in your system prompt above - the "
-                     f"request you had in hand, your previous transcript's path and your "
-                     f"worktree. Pick the task back up from it.")
+        parts.append("Your session was closed while idle and this is a fresh one (cheaper than "
+                     "resuming). Your handoff is in your system prompt above; pick the task "
+                     "back up from it.")
     elif was_closed:
         # Taking the parked branch here would tell an agent that was never
         # parked that its context was cleared. What the close recorded is in
@@ -405,8 +400,9 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         if not record and (note := handoffmod.memory_line(agent)):
             parts.append(note)
     else:
-        parts.append("You were parked and have been resumed. Your context was cleared; "
-                     "below is your own handoff record. Carry on from here.")
+        parts.append("You were parked; this is a fresh session and your context is empty. Your "
+                     "handoff record follows. If it names a request or task, carry on with it; "
+                     "if it says none, wait - the next item is typed to you when it comes.")
         record = db.get_handoff(con, agent) if con else None
         if record:
             parts.append(record)
@@ -776,8 +772,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         agent, wake_prompt(agent, False, was_closed=False, moved_to=moved_to, con=con),
         suffix="handoff.txt")
     ok, why = orca.resume_with(
-        handle, f"You were parked and your context was cleared. Your handoff is in "
-                f"{record} - read all of it, then carry on from there.")
+        handle, f"You were parked; this is a fresh session and your context is empty. Your "
+                f"handoff is in {record} - read all of it. If it names a request or task, carry "
+                f"on with it; if it says none, wait - the next item is typed to you when it comes.")
     if ok:
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")

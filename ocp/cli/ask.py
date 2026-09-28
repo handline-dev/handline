@@ -257,10 +257,19 @@ def cmd_inbox(args) -> int:
     print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")
     print()
     print(textsafe.text(head["body"] or "(empty)"))
-    if more:
-        print(f"\n{more} more waiting - the next comes when you resolve or dismiss this one.")
-    closes = ("`ocp dismiss <id>` closes it, it asks nothing" if head["kind"] == "report"
-              else "`ocp resolve <id> \"<verdict>\"` answers it")
+    from ..daemon import delivery
+    waiting = delivery.more_waiting(head["kind"], more)
+    if waiting:
+        print(f"\n{waiting}")
+    if head["kind"] == "task":
+        con = db.connect()
+        try:
+            closes = delivery._answer_verb(con, head)
+        finally:
+            con.close()
+    else:
+        closes = ("`ocp dismiss <id>` closes it, it asks nothing" if head["kind"] == "report"
+                  else "`ocp resolve <id> \"<verdict>\"` answers it")
     print(f"\n{closes}. `ocp inbox --all` shows the whole queue and its history.")
     return 0
 

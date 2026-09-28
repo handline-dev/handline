@@ -1316,8 +1316,8 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
         ok, _ = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: a cleared agent gets its handoff", ok and "routing fix" in support.pointed_record(sent[-1]),
               sent[-1][:120] if sent else "")
-        check("wake: and is told its context was cleared",
-              "context was cleared" in sent[-1])
+        check("wake: and is told this is a fresh session",
+              "fresh session" in sent[-1])
         check("wake: no launch command is typed at an agent that is still running",
               not any("launch" in t for t in sent), str(sent))
         check("wake: a handoff that has been handed over is not handed over again",

@@ -2017,7 +2017,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
         check("cache: an agent idle past the cache's life is not resumed",
               cold_sent and not any("--resume" in t for t in cold_sent), str(cold_sent))
         check("cache: it is told why, and where its handoff is",
-              any("fresh conversation" in t and "system prompt" in t for t in cold_sent), str(cold_sent))
+              any("fresh one" in t and "system prompt" in t for t in cold_sent), str(cold_sent))
         check("cache: the new session's system prompt carries the request in hand and the transcript",
               cold_ctx and f"request: #{rid}" in cold_ctx[0] and "/tmp/sess-7.jsonl" in cold_ctx[0],
               str(cold_ctx))
@@ -3858,7 +3858,7 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
         for _ in range(3):
             dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()) + 1, {}, [])
         check("context handoff: its own record is typed into the session",
-              any("Carry on from here" in support.pointed_record(t) for t in typed), str(typed))
+              any("fresh session" in support.pointed_record(t) for t in typed), str(typed))
         row = db.get_agent_state(con, "backend")
         check("context handoff: settles into QUEUED or IDLE once delivered, not PARKED",
               row["state"] in (dmn_states.IDLE, dmn_states.QUEUED) and not row["wake_at"],
@@ -3923,9 +3923,9 @@ def test_wake_injects_handoff(home: Path) -> None:
         check("wake: and the file holds the whole record, structure kept",
               record is not None and record.exists()
               and "- finish the thing\n- and the other\n\n## Done\n- a\n- b" in record.read_text()
-              and "Carry on from here" in record.read_text(), record and record.read_text())
-        check("wake: the agent is told its context was cleared",
-              "context was cleared" in sent[-1], sent[-1][:80])
+              and "fresh session" in record.read_text(), record and record.read_text())
+        check("wake: the agent is told this is a fresh session with an empty context",
+              "fresh session" in sent[-1] and "context is empty" in sent[-1], sent[-1][:80])
         check("wake: and gets its own record back",
               "finish the thing" in (record.read_text() if record else ""), sent[-1][:120])
     finally:

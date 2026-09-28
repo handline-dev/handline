@@ -34,6 +34,7 @@ from .states import IDLE, RUNNING
 
 TIMEBOX_S = 7200
 UNASKED_RUNNING_S = 900
+TITLE_SHOWN = 60
 STOP_WAIT_BACKSTOP_S = 900
 # A notice that could not be typed (mid-turn, a modal, no session) is not tried
 # again for this long, per agent.
@@ -75,7 +76,11 @@ def sweep_timeboxes(con, log, now: int) -> None:
         text = (f"#{rid} to {row['target']} is still open {timefmt.ago(elapsed)} after it was "
                 f"delivered, past its {timefmt.ago(box)} timebox. {row['target']} is "
                 f"{_state_of(con, row['target'])}. Last progress note: "
-                f"{note[:300] or 'none'}. `ocp read {rid}` shows it.")
+                f"{note[:300] or 'none'}. `ocp read {rid}` shows it."
+                + ("" if row["kind"] == "say" else
+                   f" It is still {row['target']}'s - nothing to do unless you want it back: "
+                   f"a message to {row['target']} (`ocp say {row['target']} \"...\"`) is how; "
+                   f"a request already delivered cannot be withdrawn."))
         if _tell(con, row["requester"], text, now):
             db.mark_timebox_noticed(con, rid)
             db.add_event(con, row["requester"], "timebox_exceeded",
@@ -101,9 +106,14 @@ def sweep_task_timeouts(con, log, now: int) -> None:
         if row["timeout_at"] > now:
             continue
         box = int(row["timeout_s"])
-        text = (f"T{tid} '{row['title']}' is doing, past its {timefmt.ago(box)} timeout. "
-                f"`ocp task edit T{tid} --timeout <duration>` to keep going, or "
-                f"`ocp task release T{tid}` to send it back to queued.")
+        title = " ".join((row["title"] or "").split())
+        title = title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN].rstrip() + "…"
+        # A task begun on a founder's message has no queue to go back to: release refuses it.
+        stop = "" if actions._begun(con, tid) else \
+            f" Stop it: `ocp task release T{tid}` sends it back to queued."
+        text = (f"T{tid} ({title}), held by {row['owner']}, has been doing past its "
+                f"{timefmt.ago(box)} timeout. Keep it going: `ocp task edit T{tid} --timeout <duration>`."
+                f"{stop}")
         if _tell(con, row["opened_by"], text, now):
             db.advance_task_timeout(con, tid, now, actions.DEFAULT_TASK_TIMEOUT_S)
             db.add_event(con, row["opened_by"], "task_timeout_exceeded",
@@ -137,7 +147,7 @@ def sweep_unasked_running(con, log, now: int) -> None:
         boss = actions.supervisor_of(team, agent) or HUMAN
         text = (f"{agent} has shown RUNNING ({_state_of(con, agent)}) for "
                 f"{timefmt.ago(now - since)} with no request open. Ask it what it is doing: "
-                f"`ocp ask {agent} \"...\"`.")
+                f"`ocp say {agent} \"...\"`.")
         if _tell(con, boss, text, now):
             db.set_cursor(con, told_key, 1)
             db.add_event(con, agent, "unasked_running", {"told": boss, "for_s": now - since})
@@ -221,10 +231,17 @@ def sweep_forgotten_resolve_capped(con, log, now: int) -> None:
             continue
         boss = actions.supervisor_of(team, agent) or HUMAN
         behind = found["behind"]
-        text = (f"{agent} has been idle {timefmt.ago(found['idle_s'])} on #{head_id}, nudged "
-                f"{len(delivery.NUDGE_SCHEDULE_S)} times, still open"
-                + (f" with {behind} more waiting behind it" if behind else "")
-                + f". `ocp ask {agent} \"...\"`, or resolve #{head_id} another way.")
+        task = delivery._task_of(con, found["head"]) if found["head"]["kind"] == "task" else None
+        on = f"T{task['id']} (#{head_id})" if task is not None else f"#{head_id}"
+        after = f"after {len(delivery.NUDGE_SCHEDULE_S)} reminders"
+        more = f" with {behind} more waiting behind it" if behind else ""
+        if task is not None:
+            look = (f"Look at it: `ocp read {head_id}`; take it back with `ocp task release T{task['id']}`"
+                    f"{'' if not actions._begun(con, task['id']) else ' (not for a task begun on a founder message)'}"
+                    f", or ask {agent} by message (`ocp say {agent} \"...\"`).")
+        else:
+            look = f"Look at it: `ocp read {head_id}`, or message {agent} (`ocp say {agent} \"...\"`)."
+        text = f"{agent} has been idle {timefmt.ago(found['idle_s'])} on {on} {after}{more}. {look}"
         if _tell(con, boss, text, now):
             db.set_cursor(con, told_key, head_id)
             db.add_event(con, agent, "forgotten_resolve_capped",

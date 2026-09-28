@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from pathlib import Path
 
@@ -666,16 +667,23 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
         return False
     db.set_cursor(con, f"nudge_try:{agent}", now)
     behind = found["behind"]
-    what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
-            if head["kind"] == "report" else
-            f"If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
-            f"not, say what you are waiting on.")
-    ok = type_notice(
-        con, agent,
-        f"#{head['id']} was delivered to you and is still open, and you have been "
-        f"idle {timefmt.ago(found['idle_s'])}"
-        + (f" with {behind} more waiting behind it" if behind else "")
-        + f". {what}")
+    idle = timefmt.ago(found["idle_s"])
+    after = f" with {behind} more waiting behind it" if behind else ""
+    task = _task_of(con, head) if head["kind"] == "task" else None
+    if task is not None:
+        tid = task["id"]
+        text = (f"T{tid} (#{head['id']}) is still yours and you have been idle {idle}{after}. "
+                f"Done: hand it on (`ocp task handoff T{tid} ...`) or `ocp task done T{tid}`. "
+                f"Waiting on something: record it - `ocp task edit T{tid} --blocked-by T<m>`, "
+                f"or a child or decision task.")
+    else:
+        what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
+                if head["kind"] == "report" else
+                f"If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
+                f"not, say what you are waiting on.")
+        text = (f"#{head['id']} was delivered to you and is still open, and you have been "
+                f"idle {idle}{after}. {what}")
+    ok = type_notice(con, agent, text)
     if ok:
         db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
         db.set_cursor(con, f"nudge_count:{agent}", count + 1)
@@ -709,25 +717,71 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
         why = _type_gate(con, agent, handle)
         if why:
             return False, why
+        held = ""
+        task = _task_of(con, row) if row["kind"] == "task" else None
+        if task is not None:
+            from .. import actions
+            held = (f", and T{task['id']} is {actions.task_state(con, task)} - "
+                    f"`ocp task list` shows what you hold")
         ok, _ = _send(
             handle,
             f"#{row['id']} from {row['requester']} was cancelled: {verdict}. Stop work "
-            f"on it; it is closed and needs no resolve. `ocp read {row['id']}` shows it.")
+            f"on it; it is closed and needs no resolve{held}. `ocp read {row['id']}` shows it.")
         if ok:
             _mark_typed(con, agent)
     return ok, "" if ok else "the send failed"
 
 
-def _answer_verb(head) -> str:
-    """How the agent closes what it was just told: a report is dismissed,
-    a say (T293) answered with `say` itself - #1657's own way out - and
-    everything else resolved."""
+# The body `actions.tasks.task_handoff` sends: "T<n> handed to you by X: <title>\n\n<note>".
+_HANDOFF_BODY = re.compile(r"\AT(\d+) handed to you by (\S+?): (.*?)\n\n(.*)\Z", re.S)
+TITLE_SHOWN = 60
+NOTE_SHOWN = 400
+
+
+def handoff_parts(body: str | None) -> tuple[int, str, str, str] | None:
+    """(task id, who handed it, title, note) of a task handoff's body, or None for any other."""
+    m = _HANDOFF_BODY.match(body or "")
+    return (int(m[1]), m[2], m[3].strip(), m[4].strip()) if m else None
+
+
+def _task_of(con, req):
+    """The task a kind-task request is about: the one it is linked to, else the one its body names."""
+    linked = db.tasks_for_request(con, int(req["id"]))
+    if linked:
+        return linked[-1]
+    parts = handoff_parts(req["body"])
+    return db.get_task(con, parts[0]) if parts else None
+
+
+def _answer_verb(con, head) -> str:
+    """How the agent closes what it was just told: a report is dismissed, a say (T293)
+    answered with `say` itself - #1657's own way out - a task handed on or finished
+    (resolving it would leave the task owned by whoever resolved it), and everything
+    else resolved."""
     if head["kind"] == "report":
         return f"it asks nothing - `ocp dismiss {head['id']}` when read"
     if head["kind"] == "say":
         from ..actions import say as say_actions
         return say_actions.delivery_line(head["id"])
+    if head["kind"] == "task":
+        task = _task_of(con, head)
+        if task is not None:
+            from ..actions import tasks as taskmod
+            return (f"you own T{task['id']} now: hand it on with "
+                    f"{taskmod.handoff_command(con, task, head['target'])}, or "
+                    f"`ocp task done T{task['id']}` if you are its last step")
     return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
+
+
+def more_waiting(kind: str, more: int) -> str | None:
+    """What an agent is told about the queue behind the request it reads, or None. A message
+    needs no answer, so it gates nothing and says nothing; a task's queue moves on when the
+    task is handed on or finished."""
+    if not more or kind == "say":
+        return None
+    if kind == "task":
+        return f"{more} more waiting - the next comes when you hand this on or finish it."
+    return f"{more} more waiting - the next comes when you resolve or dismiss this one."
 
 
 def tell_text(con, head, depth: int, ahead_of=None) -> str:
@@ -735,19 +789,29 @@ def tell_text(con, head, depth: int, ahead_of=None) -> str:
 
     `ahead_of` is the head a "send now" request is jumping."""
     more = depth - 1
-    # One line, capped at 400; `ocp read` has the rest. The message is three
-    # lines at most (`MAX_TYPED_LINES`), so what follows the body rides on its line.
-    body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
-    shown = body if len(body) <= 400 else body[:400] + "…"
-    tail = (f" [{more} more waiting - the next comes when you resolve or dismiss this one.]"
-            if more else "")
+    # One line; `ocp read` has the rest. The message is three lines at most
+    # (`MAX_TYPED_LINES`), so what follows the body rides on its line. A task handoff
+    # shows its note first and cuts only the title: every handoff of a long-titled
+    # task starts with the same title, so a cap over both hid the note (#2377).
+    parts = handoff_parts(head["body"]) if head["kind"] == "task" else None
+    if parts:
+        tid, _, title, note = parts
+        note = textsafe.oneline(note) or "(no note)"
+        title = textsafe.oneline(title)
+        shown = (f"T{tid} handed to you. Note: {note if len(note) <= NOTE_SHOWN else note[:NOTE_SHOWN] + '…'} "
+                 f"Title: {title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN].rstrip() + '…'}")
+    else:
+        body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
+        shown = body if len(body) <= 400 else body[:400] + "…"
+    waiting = more_waiting(head["kind"], more)
+    tail = f" [{waiting}]" if waiting else ""
     if ahead_of is not None:
         tail = (f" [A follow-up to #{ahead_of['id']}, which is still open.]"
                 if head["parent_id"] == ahead_of["id"] else
                 f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]")
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
-            f"`ocp read {head['id']}` shows it whole; {_answer_verb(head)}, "
+            f"`ocp read {head['id']}` shows it whole; {_answer_verb(con, head)}, "
             f"or `ocp inbox` any time.")
 
 
@@ -849,7 +913,11 @@ def answer_line(r) -> tuple[str, bool]:
     asked = textsafe.oneline(r["body"] or "").strip()
     if len(asked) > ASKED_SHOWN:
         asked = asked[:ASKED_SHOWN].rstrip() + "…"
-    head = f"#{r['id']} (you asked: {asked})" if asked else f"#{r['id']}"
+    parts = handoff_parts(r["body"]) if r["kind"] == "task" else None
+    if parts:
+        head = f"#{r['id']} (your handoff of T{parts[0]} to {r['target']})"
+    else:
+        head = f"#{r['id']} (you asked: {asked})" if asked else f"#{r['id']}"
     return f"{head} {r['target']}: {said[:160]}", len(said) > 160 or "\n" in text
 
 

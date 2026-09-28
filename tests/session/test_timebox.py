@@ -51,9 +51,9 @@ def _world(home: Path) -> list[str]:
     return sent
 
 
-def _delivered(con, requester: str, target: str, ago_s: int, **kw) -> int:
+def _delivered(con, requester: str, target: str, ago_s: int, kind: str | None = None, **kw) -> int:
     rid = db.add_request(con, requester, target, "do the thing", None, "peer", "async",
-                         None, 0, None, **kw)
+                         kind, 0, None, **kw)
     db.mark_delivered(con, rid)
     con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (int(time.time()) - ago_s, rid))
     return rid
@@ -537,7 +537,7 @@ def test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(home: Path) -
         timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now)
         check("cap notice: the supervisor is told, naming the head and the count",
               len(sent) == 1 and sent[0][0] == "term_manager" and f"#{rid}" in sent[0][1]
-              and f"{len(dmn_delivery.NUDGE_SCHEDULE_S)} times" in sent[0][1], str(sent))
+              and f"{len(dmn_delivery.NUDGE_SCHEDULE_S)} reminders" in sent[0][1], str(sent))
         check("cap notice: marked and recorded",
               db.get_cursor(con, "forgotten_capped_told:marina") == rid
               and con.execute("SELECT COUNT(*) FROM events WHERE kind = "
@@ -741,10 +741,118 @@ def test_migration_adds_the_timebox_columns_to_an_older_requests_table(home: Pat
         con.close()
 
 
+def test_the_notices_name_the_next_step_and_use_task_verbs(home: Path) -> None:
+    """T399: the timebox notice says the request is still the target's; the task-timeout
+    notice caps the title, names the holder and offers no release for a begun task; the
+    nudges of a task use task verbs; the supervisor is pointed at a message, not `ocp ask`."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        rid = _delivered(con, "manager", "marina", 3000, timebox_s=3600)
+        sid = _delivered(con, "manager", "dohyun", 3000, timebox_s=3600, kind="say")
+        timebox.sweep(con, lambda _m: None, now + 700)
+        texts = {h: t for h, t in sent}
+        check("timebox: an ask is told it is still the target's and how to reach it",
+              "still marina's" in texts.get("term_manager", "") or any(f"#{rid}" in t and "still marina's" in t for _, t in sent),
+              str(sent))
+        check("timebox: a say gets no next-step text", not any(f"#{sid}" in t and "nothing to do unless" in t for _, t in sent),
+              str(sent))
+        db.mark_timebox_noticed(con, rid)
+        db.mark_timebox_noticed(con, sid)
+        sent.clear()
+        long_title = "Task timeout: every task gets a default " * 20
+        tid = db.new_task(con, long_title, "marina", "manager", timeout_s=3600)
+        _doing(con, tid, "marina")
+        timebox.sweep(con, lambda _m: None, now)
+        timebox.sweep(con, lambda _m: None, now + 3600)
+        text = sent[0][1]
+        check("task timeout: the title is cut and the holder named", len(text) < 400 and "held by marina" in text
+              and long_title[:60].rstrip() in text and long_title[:120] not in text, text)
+        check("task timeout: a task that was not begun can be released", f"ocp task release T{tid}" in text, text)
+        sent.clear()
+        db.add_event(con, "manager", "task_begin", {"task_id": tid})
+        timebox.sweep(con, lambda _m: None, now + 3600 + 3600)
+        check("task timeout: a begun task is not offered a release that would be refused",
+              sent and "release" not in sent[-1][1] and "--timeout" in sent[-1][1], str(sent))
+    finally:
+        con.close()
+
+
+def test_an_unasked_running_notice_points_at_a_message(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="active")
+        timebox.sweep_unasked_running(con, lambda _m: None, now)
+        timebox.sweep_unasked_running(con, lambda _m: None, now + timebox.UNASKED_RUNNING_S + 1)
+        check("unasked running: the supervisor is pointed at a message, not ocp ask",
+              sent and "ocp say marina" in sent[0][1] and "ocp ask" not in sent[0][1], str(sent))
+    finally:
+        con.close()
+
+
+def test_a_forgotten_tasks_nudges_use_task_verbs(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        tid = db.new_task(con, "ship it", "marina", "manager", timeout_s=3600)
+        rid = _delivered(con, "manager", "marina", dmn_delivery.NUDGE_SCHEDULE_S[-1] + 60, kind="task")
+        db.link_request(con, tid, rid)
+        db.set_cursor(con, "notify:marina", rid)
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = int(time.time())
+        row = db.get_agent_state(con, "marina")
+        told: list[str] = []
+        real = dmn_delivery.type_notice
+        dmn_delivery.type_notice = lambda c, a, t: (told.append(t), True)[1]
+        try:
+            check("nudge: a forgotten task is nudged", dmn_delivery.nudge_forgotten_resolve(
+                con, "marina", row, now, lambda _m: None), str(told))
+        finally:
+            dmn_delivery.type_notice = real
+        check("nudge: it says the task is still theirs, names the task verbs and the recorded wait, not resolve",
+              told and f"T{tid} (#{rid}) is still yours" in told[0] and f"ocp task done T{tid}" in told[0]
+              and "--blocked-by" in told[0] and "ocp resolve" not in told[0], str(told))
+        db.set_cursor(con, "nudge_count:marina", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        db.set_cursor(con, "nudge:marina", rid)
+        sent.clear()
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now)
+        check("cap notice: a task head is pointed at release or a message, with no 'resolve another way'",
+              sent and f"T{tid} (#{rid})" in sent[0][1] and f"ocp task release T{tid}" in sent[0][1]
+              and "another way" not in sent[0][1] and "ocp ask" not in sent[0][1], str(sent))
+    finally:
+        con.close()
+
+
+def test_a_cancelled_task_handoff_names_the_task_state(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        tid = db.new_task(con, "ship it", "marina", "manager", timeout_s=3600)
+        rid = _delivered(con, "manager", "marina", 60, kind="task")
+        db.link_request(con, tid, rid)
+        row = db.get_request(con, rid)
+        ok, why = dmn_delivery.notify_cancelled(con, row, "no longer needed")
+        check("cancel: the notice says what state the task is left in", ok and sent
+              and f"T{tid} is" in sent[-1][1] and "ocp task list" in sent[-1][1], str((ok, why, sent)))
+        plain = _delivered(con, "manager", "marina", 60)
+        sent.clear()
+        dmn_delivery.notify_cancelled(con, db.get_request(con, plain), "no longer needed")
+        check("cancel: an ordinary request's notice is unchanged", sent and "ocp task list" not in sent[-1][1], str(sent))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         try:
             run(lambda: test_a_duration_needs_its_unit(Path(td) / 'tb0'))
+            run(lambda: test_the_notices_name_the_next_step_and_use_task_verbs(Path(td) / 'tb17'))
+            run(lambda: test_an_unasked_running_notice_points_at_a_message(Path(td) / 'tb18a'))
+            run(lambda: test_a_forgotten_tasks_nudges_use_task_verbs(Path(td) / 'tb18'))
+            run(lambda: test_a_cancelled_task_handoff_names_the_task_state(Path(td) / 'tb19'))
             run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
             run(lambda: test_a_folded_ask_keeps_its_timebox(Path(td) / 'tb1b'))
             run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))

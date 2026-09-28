@@ -1044,6 +1044,29 @@ def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None)
     return None
 
 
+def handoff_command(con, row, me: str) -> str:
+    """What `me` types to hand T<n> on, from the same chain `_handoff_refusal` enforces:
+    an auditor returns it to the opener on a PASS or to the one who handed it over on a
+    FAIL; a merger to the one who handed it over; the opener of an audited-PASS task to a
+    merger or back to the maker; anyone else to an auditor."""
+    tid = row["id"]
+    prev = previous_owner(con, tid, me)
+
+    def cmd(to: str | None, flag: str = "") -> str:
+        return f'`ocp task handoff T{tid} {to or "<who>"} "<note>"{flag}`'
+
+    def named(role: str) -> str:
+        return " or ".join(a for a in paths.list_agents() if _role(a) == role) or f"<{role}>"
+    role = _role(me)
+    if role == "auditor":
+        return f"{cmd(row['opened_by'], ' --pass')} on a PASS, or {cmd(prev, ' --fail')} on a FAIL"
+    if role == "merger":
+        return cmd(prev)
+    if me == row["opened_by"] and last_audit(con, tid)[0] == "PASS":
+        return f"{cmd(named('merger'))} to merge it, or {cmd(last_audit(con, tid)[1])} to send it back"
+    return cmd(named("auditor"))
+
+
 def task_handoff(con, me: str, tid: int, to: str, note: str,
                  verdict: str | None = None) -> tuple[bool, str]:
     """One verb for passing a task along: its owner changes to `to`, the note goes
