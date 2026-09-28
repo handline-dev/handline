@@ -15,7 +15,7 @@ from ..infra import paths
 from ..infra import textsafe
 from ..session import waiting
 
-from ..daemon import delivery as dmn_delivery
+from ..daemon import client as dmn_client, delivery as dmn_delivery
 from .bridge import _bridge_textual_module
 
 
@@ -106,51 +106,27 @@ def cmd_ask(args) -> int:
     if args.task is not None and args.no_task:
         print("--task and --no-task contradict each other: use one")
         return 1
-    named = actions.task_ids_named(body)
-    if args.task is None and not args.no_task and named:
-        print(f"this text names {', '.join(f'T{n}' for n in named)}: add --task T<n> so the "
-              "request is linked and the task shows it is being worked, or "
-              "--no-task 'reason' if it does not belong to one")
+    return _send("ask", target=args.target, body=body, files=args.files, parent=args.parent,
+                 mergeable=args.mergeable, first=args.first, replaces=args.replaces,
+                 fyi=args.fyi, reason=args.reason, timebox=args.timebox, task=args.task,
+                 no_task=args.no_task)
+
+
+def _send(verb: str, **payload) -> int:
+    """T351: the daemon writes the row and tells the target; this only says who
+    is asking, sends, and prints what came back. Nothing is written here, and
+    with the daemon down nothing is sent - there is no other path."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal(f"{verb}"))
         return 1
-    if args.task is not None:
-        con = db.connect()
-        try:
-            row = db.get_task(con, args.task)
-            state = actions.task_state(con, row) if row else ""
-        finally:
-            con.close()
-        if row is None:
-            print(f"no task T{args.task}")
-            return 1
-        if state in ("done", "closed", "discarded", "merged") and not args.fyi:
-            again = (f"`ocp task reopen T{args.task} <why>` first" if state == "done"
-                     else "it cannot be worked on again; open a new task")
-            print(f"task T{args.task} is {state}: a request linked to it would not reopen it - "
-                  f"{again}. A report (--fyi) may still be linked.")
-            return 1
-    ok, msg, rid = askmod.ask(args.target, body, files=args.files,
-                              parent_id=args.parent,
-                              mergeable=args.mergeable, first=args.first,
-                              replaces=args.replaces, fyi=args.fyi, reason=args.reason,
-                              timebox_s=args.timebox)
-    # ask() already phrases its own refusals; do not prefix them again.
-    print(msg)
-    if ok and args.task is not None and rid is not None:
-        con = db.connect()
-        try:
-            db.link_request(con, args.task, rid)
-        finally:
-            con.close()
-        print(f"linked to T{args.task}, which now reads {_task_now(args.task)}")
-    return 0 if ok else 1
-
-
-def _task_now(tid: int) -> str:
-    con = db.connect()
-    try:
-        return actions.task_state(con, db.get_task(con, tid))
-    finally:
-        con.close()
+    reply = dmn_client.send({"verb": verb, "requester": me, "speaker": askmod.current_agent(),
+                             **payload})
+    if reply is None:
+        print("daemon not running, nothing sent")
+        return 1
+    print(reply.get("said", ""))
+    return 0 if reply.get("ok") else 1
 
 
 def cmd_withdraw(args) -> int:

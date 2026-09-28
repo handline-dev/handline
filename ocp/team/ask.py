@@ -240,13 +240,20 @@ SAY_KIND = "say"
 OVERRIDE_KINDS = {"task", "task_note", SAY_KIND}
 
 
+# `speaker=` left out means "whoever's environment this runs in" (OCP_AGENT);
+# the daemon serving a socket request has no such environment and passes the
+# caller's own, None included.
+_ENV = object()
+
+
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, mergeable: bool = False, first: bool = False,
         replaces: int | None = None, fyi: bool = False,
         reason: str | None = None,
         timebox_s: int | None = None, kind: str | None = None,
         park: bool = True, send_now: bool = False,
-        on_behalf_of: bool = False, edge_exempt: bool = False) -> tuple[bool, str, int | None]:
+        on_behalf_of: bool = False, edge_exempt: bool = False, speaker=_ENV,
+        notify: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -271,6 +278,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `edge_exempt` lets the request through when only a missing edge would
     refuse it (`task handoff --fail` to the previous holder, T392); an
     explicit deny, the loop guards and the rate limit still apply.
+
+    `speaker` is who is really typing the command (see `_ENV`). `notify` False
+    leaves telling the target to the caller - the daemon, which types the
+    notice itself once this has returned the row (T351).
     """
     requester = requester or asking_agent()
     if timebox_s is not None and (fyi or target == HUMAN):
@@ -283,7 +294,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     # reach a human and one is typing. An agent that could claim the name would
     # hold both: one spoofed hop turns a refused A->B->A into a legal loop.
     # `ocp launch` sets OCP_AGENT, so a caller that has one is not the human.
-    speaker = current_agent()
+    speaker = current_agent() if speaker is _ENV else speaker
     if requester == HUMAN and speaker not in (None, HUMAN) and not on_behalf_of:
         return False, (f"{speaker} may not ask as {HUMAN}: that name is the human's, "
                        f"and it is exempt from the loop guards."), None
@@ -474,7 +485,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             note = f"replaces #{replaces}; {note}"
         if decision.creates_gate and not fyi:
             note += " [escalation: needs a human gate]"
-        else:
+        elif notify:
             note += "\n" + push(con, target)
         return True, note, rid
     finally:
@@ -485,7 +496,8 @@ SAY_TIMEBOX_S = 30 * 60
 
 
 def say(target: str, body: str, requester: str | None = None,
-        parent_id: int | None = None) -> tuple[bool, str, int | None]:
+        parent_id: int | None = None, speaker=_ENV,
+        notify: bool = True) -> tuple[bool, str, int | None]:
     """T293 (#1655/#1657): a question answered from a look-up, not new work
     - always ahead of the queue, never a head, no park beyond the fixed
     30-minute reply window (none to the founder). `parent_id` replies to and
@@ -494,7 +506,8 @@ def say(target: str, body: str, requester: str | None = None,
     """
     timebox = None if target == HUMAN else SAY_TIMEBOX_S
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
-                      kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True)
+                      kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True,
+                      speaker=speaker, notify=notify)
     if ok and parent_id is not None and rid is not None:
         _close_replied_say(parent_id, rid, body)
     return ok, msg, rid
