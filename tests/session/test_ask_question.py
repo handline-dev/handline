@@ -220,6 +220,35 @@ def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: 
         con.close()
 
 
+def test_a_permission_prompt_the_screen_shows_wins_over_a_question_reading(home: Path) -> None:
+    """T336, founder #1977: a live screen where both detectors agreed on a
+    plain Bash permission prompt showed both modals for it. `pending` now
+    defers to `confirmations.pending` whenever the same terminal is also a
+    recognized permission prompt, whatever the AskUserQuestion reading says."""
+    from ocp.vendors.base import Confirmation
+    _daemon_home(home, 20)
+    orcamod.available = lambda: True
+    orcamod.alive = lambda h: True
+    con = db.connect()
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        _Term(SINGLE_DEFAULT)
+        waiting.note("backend", "AskUserQuestion", {"questions": [{"header": "Library"}]}, 7)
+        check("pending: a real AskUserQuestion screen is listed on its own",
+              ask_question.pending(con, "backend") is not None)
+
+        real_confirmation_on_screen = orcamod.confirmation_on_screen
+        orcamod.confirmation_on_screen = lambda h: Confirmation("Bash command", (), 1, 2)
+        try:
+            check("pending: the same screen is dropped once a permission prompt also reads it",
+                  ask_question.pending(con, "backend") is None)
+        finally:
+            orcamod.confirmation_on_screen = real_confirmation_on_screen
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_claude_adapter_recognizes_the_askuserquestion_prompt(Path(td) / 'q0'))
@@ -227,6 +256,7 @@ def main() -> int:
         run(lambda: test_answer_question_sends_the_keys_and_confirms_it_cleared(Path(td) / 'q2'))
         run(lambda: test_a_pending_question_is_listed_and_answered_through_actions(Path(td) / 'q3'))
         run(lambda: test_question_data_is_preferred_only_when_it_still_matches_the_screen(Path(td) / 'q4'))
+        run(lambda: test_a_permission_prompt_the_screen_shows_wins_over_a_question_reading(Path(td) / 'q5'))
     return run_area(tests)
 
 

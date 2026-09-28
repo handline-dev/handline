@@ -52,13 +52,22 @@ def _as_dict(agent: str, q, held: dict | None = None) -> dict:
 
 def pending(con, agent: str, row=None, held=None) -> dict | None:
     """What this agent's terminal asks now, or None: no terminal, a screen
-    that cannot be read, or one that is not an AskUserQuestion prompt the
-    vendor recognizes. `row` and `held` are for a caller that has them
-    already."""
+    that cannot be read, one that is not an AskUserQuestion prompt the
+    vendor recognizes, or one `confirmations.pending` already claims -
+    the founder's own permission prompt (T336, founder #1977: the two
+    detectors read the same tail and, on a live screen, agreed with each
+    other about a plain Bash "Do you want to proceed?" prompt, showing
+    both modals for it). A permission prompt is the narrower, better-tested
+    shape of the two, so it wins; a real question is never mistaken for one
+    since `confirmation_on_screen` requires the exact "Do you want to
+    proceed?" wording no AskUserQuestion screen carries. `row` and `held`
+    are for a caller that has them already."""
     if row is None:
         row = db.get_agent_state(con, agent)
     handle = row["terminal"] if row and row["terminal"] and not row["closed_at"] else None
     if handle is None:
+        return None
+    if orca.confirmation_on_screen(handle) is not None:
         return None
     q = orca.question_on_screen(handle)
     if q is None:
