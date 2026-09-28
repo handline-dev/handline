@@ -196,11 +196,11 @@ def queue_depth(con, target: str) -> int:
     return len(queued_for(con, target))
 
 
-def open_asks_of(con, requester: str) -> int:
+def open_ask_ids_of(con, requester: str) -> list[int]:
     """What this agent asked that nobody has answered yet: what it may be
     waiting on, which is not the same as having forgotten something."""
-    return con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? "
-                       "AND state = 'queued'", (requester,)).fetchone()[0]
+    return [r[0] for r in con.execute("SELECT id FROM requests WHERE requester = ? "
+                                      "AND state = 'queued' ORDER BY id", (requester,))]
 
 
 def open_escalations_of(con, agent: str) -> int:

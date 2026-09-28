@@ -871,6 +871,84 @@ def test_a_cancelled_task_handoff_names_the_task_state(home: Path) -> None:
         con.close()
 
 
+def test_a_stand_in_behind_an_ask_blocked_head_is_nudged_and_capped(home: Path) -> None:
+    """T343/T346: the agent's own ask, linked to its head's task, is why that head is
+    skipped - so it does not also excuse the request standing in for it. An unrelated
+    open ask still does."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        span = dmn_delivery.NUDGE_SCHEDULE_S[0] + 60
+        t_head = db.new_task(con, "needs a mockup", "marina", "manager", timeout_s=3600)
+        r_head = _delivered(con, "manager", "marina", span + 60, kind="task")
+        db.link_request(con, t_head, r_head)
+        t_next = db.new_task(con, "other work", "marina", "manager", timeout_s=3600)
+        r_next = _delivered(con, "manager", "marina", span, kind="task")
+        db.link_request(con, t_next, r_next)
+        ask = db.add_request(con, "marina", "dohyun", "does this mockup work?", None, "peer", "async",
+                             None, 0, None)
+        db.link_request(con, t_head, ask)
+        db.set_cursor(con, "notify:marina", r_next)
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = int(time.time())
+        row = db.get_agent_state(con, "marina")
+        found = dmn_delivery.forgotten_resolve(con, "marina", row, now)
+        check("stand-in: told and open behind the ask-blocked head, it is what is forgotten",
+              found and found["head"]["id"] == r_next, str(found))
+        told: list[str] = []
+        real = dmn_delivery.type_notice
+        dmn_delivery.type_notice = lambda c, a, t: (told.append(t), True)[1]
+        try:
+            check("stand-in: nudged", dmn_delivery.nudge_forgotten_resolve(
+                con, "marina", row, now, lambda _m: None) and f"T{t_next}" in told[0], str(told))
+        finally:
+            dmn_delivery.type_notice = real
+
+        db.set_cursor(con, "nudge:marina", r_next)
+        db.set_cursor(con, "nudge_count:marina", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        sent.clear()
+        timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now)
+        check("stand-in: capped, its supervisor is told", sent and f"T{t_next} (#{r_next})" in sent[0][1],
+              str(sent))
+
+        other = db.add_request(con, "marina", "dohyun", "unrelated question", None, "peer", "async",
+                               None, 0, None)
+        check("stand-in: an ask that is not why the head is blocked still means it is waiting",
+              other and dmn_delivery.forgotten_resolve(con, "marina", row, now) is None)
+    finally:
+        con.close()
+
+
+def test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(home: Path) -> None:
+    """T344/T347: once the ask is answered the true head is re-told, and it - not the
+    stand-in left open behind it - is what a later silence nudges."""
+    _world(home)
+    con = db.connect()
+    try:
+        span = dmn_delivery.NUDGE_SCHEDULE_S[0] + 60
+        t_head = db.new_task(con, "needs a mockup", "marina", "manager", timeout_s=3600)
+        r_head = _delivered(con, "manager", "marina", span + 60, kind="task")
+        db.link_request(con, t_head, r_head)
+        t_next = db.new_task(con, "other work", "marina", "manager", timeout_s=3600)
+        r_next = _delivered(con, "manager", "marina", span, kind="task")
+        db.link_request(con, t_next, r_next)
+        ask = db.add_request(con, "marina", "dohyun", "does this mockup work?", None, "peer", "async",
+                             None, 0, None)
+        db.link_request(con, t_head, ask)
+        db.set_cursor(con, "notify:marina", r_next)
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        con.execute("UPDATE requests SET state = 'done', verdict = 'yes', announced_at = ? WHERE id = ?",
+                    (int(time.time()), ask))
+        check("cleared: the true head is the one to work again",
+              dmn_delivery.effective_task_head(con, "marina")["id"] == r_head)
+        db.set_cursor(con, "notify:marina", r_head)     # what `deliver_queued` does when it re-tells it
+        now = int(time.time())
+        found = dmn_delivery.forgotten_resolve(con, "marina", db.get_agent_state(con, "marina"), now)
+        check("cleared: the re-told head is what is nudged, the stand-in is behind it",
+              found and found["head"]["id"] == r_head and found["behind"] == 1, str(found))
+    finally:
+        con.close()
+
 def main() -> int:
     def tests(td):
         try:
@@ -880,6 +958,8 @@ def main() -> int:
             run(lambda: test_a_forgotten_tasks_nudges_use_task_verbs(Path(td) / 'tb18'))
             run(lambda: test_the_capped_notice_offers_no_release_for_a_begun_task(Path(td) / 'tb18b'))
             run(lambda: test_a_cancelled_task_handoff_names_the_task_state(Path(td) / 'tb19'))
+            run(lambda: test_a_stand_in_behind_an_ask_blocked_head_is_nudged_and_capped(Path(td) / 'tb20'))
+            run(lambda: test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(Path(td) / 'tb21'))
             run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
             run(lambda: test_a_folded_ask_keeps_its_timebox(Path(td) / 'tb1b'))
             run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))
