@@ -18,6 +18,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -52,6 +53,63 @@ IDLE_PROBE_MS = 3_000
 
 def available() -> bool:
     return shutil.which("orca") is not None
+
+
+def _repo_paths(out: str) -> set[str] | None:
+    """Every real path `orca repo list --json` names, or None if it is not the
+    JSON of a successful reply. Read for any `path` string wherever it sits, so
+    a change in how Orca nests the list does not lose a repo."""
+    try:
+        reply = json.loads(out)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(reply, dict) or not reply.get("ok"):
+        return None
+    found: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "path" and isinstance(v, str):
+                    found.add(os.path.realpath(v))
+                else:
+                    walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(reply.get("result"))
+    return found
+
+
+def ensure_repo(path: str) -> tuple[str, str]:
+    """Make sure Orca has `path` as a repo: (state, what to tell the founder).
+
+    state is 'known' (already there, left alone), 'added', 'not_git' (Orca is
+    not asked: a folder that is not a git repository needs the founder's
+    `git init` first), 'no_orca' or 'failed'. The list is read first, so a
+    repo Orca already has is never added twice."""
+    path = os.path.realpath(os.path.expanduser(path))
+    add = "orca repo add --path " + shlex.quote(path)
+    if not available():
+        return "no_orca", f"Orca is not on PATH, so {path} is not registered there: `{add}`"
+    ok, out = _run(["repo", "list", "--json"])
+    known = _repo_paths(out) if ok else None
+    if known is None:
+        return "failed", f"Orca would not list its repos ({out.strip()[:160]}); `{add}` once it does"
+    if path in known:
+        return "known", f"Orca already has {path}"
+    if not os.path.exists(os.path.join(path, ".git")):
+        return "not_git", (f"{path} is not a git repository, so Orca cannot have it: "
+                           f"run `git init` there, then `{add}`")
+    ok, out = _run(["repo", "add", "--path", path, "--json"])
+    try:
+        ok = ok and bool(json.loads(out).get("ok"))
+    except (json.JSONDecodeError, AttributeError):
+        ok = False
+    if not ok:
+        return "failed", f"Orca would not add {path} ({out.strip()[:160]}): `{add}`"
+    return "added", f"Orca now has {path}"
 
 
 def terminal_handle() -> str | None:

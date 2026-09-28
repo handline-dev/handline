@@ -435,6 +435,102 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
           [r["id"] for r in hr.listing(skipped)] == ["good"] and skipped == [])
 
 
+def test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(home: Path) -> None:
+    """Founder: after the repo is git-init'd, Orca should know it. The agent is
+    added either way; Orca refusing or being absent says what to run."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
+agents:
+  marina:  {}
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    real_run, real_avail = orcamod._run, orcamod.available
+    fake = FakeOrca({})
+    orcamod._run, orcamod.available = fake.run, lambda: True
+    try:
+        repo = str(home / "proj")
+        for d in (repo, repo + "2"):
+            (Path(d) / ".git").mkdir(parents=True)
+        ok, said = hr.enact("add", "scout", repo=repo, why="needs a home")
+        check("repo: the add went through", ok and "scout" in paths.list_agents(), said)
+        real = os.path.realpath(repo)
+        check("repo: Orca was asked what it has, then given exactly that path, once",
+              fake.calls == [["repo", "list", "--json"], ["repo", "add", "--path", real, "--json"]]
+              and f"Orca now has {real}" in said, str(fake.calls) + said)
+
+        ok, said = hr.enact("add", "bare", why="no repo")
+        check("repo: an agent with no repo makes no Orca call",
+              ok and len(fake.calls) == 2 and "Orca" not in said, said)
+
+        n = len(fake.calls)
+        ok, said = hr.enact("add", "again", repo=repo, why="the repo is already there")
+        check("repo: a repo Orca already has is only listed, never added again",
+              ok and fake.calls[n:] == [["repo", "list", "--json"]] and "already has" in said, said)
+
+        loose = home / "loose"
+        loose.mkdir()
+        n = len(fake.calls)
+        ok, said = hr.enact("add", "nogit", repo=str(loose), why="a folder with no git")
+        check("repo: a folder that is not a git repo is not sent to Orca, and git init is named",
+              ok and fake.calls[n:] == [["repo", "list", "--json"]] and "git init" in said, said)
+
+        fake.adds = False
+        ok, said = hr.enact("add", "refused", repo=repo + "2", why="orca says no")
+        check("repo: Orca refusing does not undo the agent, and the command to run is given",
+              ok and "refused" in paths.list_agents() and "would not add" in said
+              and f"orca repo add --path {real}2" in said, said)
+
+        orcamod.available = lambda: False
+        n = len(fake.calls)
+        ok, said = hr.enact("add", "noorca", repo=repo, why="orca is not there")
+        check("repo: with no Orca on PATH it says what to run, and calls nothing",
+              ok and "not on PATH" in said and len(fake.calls) == n, said)
+    finally:
+        orcamod._run, orcamod.available = real_run, real_avail
+
+
+def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
+    """The lead and one member share a repo, another member has its own, a third
+    has none: Orca is asked for each distinct repo once, and the message says both."""
+    _daemon_home(home, 20)
+    hand_edit_team("teams:\n  orca: [orca]\nagents:\n  orca: {}\nedges:\n"
+                   "  - { from: \"orca\", to: \"orca.*\", relation: supervisor, response: async }\n")
+    shared, own = home / "shared-proj", home / "own-proj"
+    for d in (shared, own):
+        (d / ".git").mkdir(parents=True)
+    real_run, real_avail = orcamod._run, orcamod.available
+    fake = FakeOrca({})
+    orcamod._run, orcamod.available = fake.run, lambda: True
+    try:
+        prop = {"agent": "crew", "members": "a,b,c", "repo": str(shared), "repo.a": str(shared),
+                "repo.b": str(own), "why": "w", "requested_by": "human", "created": int(time.time())}
+        ok, said = hr._team(prop, None)
+        adds = [c[3] for c in fake.calls if c[:2] == ["repo", "add"]]
+        check("team repos: the team is made", ok and "crew" in said, said)
+        check("team repos: each distinct repo is added once, and none twice",
+              sorted(adds) == sorted([str(shared.resolve()), str(own.resolve())]), str(fake.calls))
+        check("team repos: the message names both, and a member with no repo adds nothing",
+              said.count("Orca now has") == 2 and str(own.resolve()) in said
+              and str(shared.resolve()) in said and len(adds) == 2, said)
+        (own.parent / "tilde").mkdir()
+        (own.parent / "tilde" / ".git").mkdir()
+        old_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(own.parent)
+        try:
+            state, msg = orcamod.ensure_repo("~/tilde")
+        finally:
+            if old_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = old_home
+        check("ensure_repo: a ~ path is expanded before the git check and the add",
+              state == "added" and fake.repos[-1] == str((own.parent / "tilde").resolve()), msg)
+    finally:
+        orcamod._run, orcamod.available = real_run, real_avail
+
+
 def test_a_rename_names_the_agents_orca_worktree(home: Path) -> None:
     """What the founder reads in Orca's sidebar is the worktree's display name,
     so a rename that left it alone looks like a rename that failed. The label is
@@ -797,9 +893,14 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
                   pyyaml.safe_load(agents.agent_file(f"agent{i}").read_text()) == cfg)
     # What the replay does: apply builds the agent from the saved proposal's fields.
     hand_edit_team(team.STARTER)
-    ok, said = hr._add({"agent": "replayed", "model": "4.5",
-                        "effort": "high", "repo": "1_000", "why": "w",
-                        "requested_by": "human", "created": int(time.time())}, None)
+    real_avail = orcamod.available
+    orcamod.available = lambda: False   # this test is about the file, not Orca
+    try:
+        ok, said = hr._add({"agent": "replayed", "model": "4.5",
+                            "effort": "high", "repo": "1_000", "why": "w",
+                            "requested_by": "human", "created": int(time.time())}, None)
+    finally:
+        orcamod.available = real_avail
     cfg = agents.read("replayed")
     check("agent.yaml: an applied proposal carrying such values leaves a file that loads",
           ok and cfg["model"] == "4.5" and cfg["repo"] == "1_000" and cfg["effort"] == "high",
@@ -3578,6 +3679,8 @@ def main() -> int:
             Path(td) / 'readguard'))
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
+        run(lambda: test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(Path(td) / 'repoadd'))
+        run(lambda: test_a_team_registers_each_distinct_repo_once(Path(td) / 'teamrepo'))
         run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
         run(lambda: test_a_rename_refuses_when_liveness_cannot_be_confirmed(Path(td) / 'renameunknown'))
         run(lambda: test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(Path(td) / 'rehome'))

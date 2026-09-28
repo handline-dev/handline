@@ -586,6 +586,15 @@ def is_open_proposal(rid: int) -> bool:
     return open_proposal_of(rid) is not None
 
 
+def register_repo(repo: str | None) -> str:
+    """Put an agent's repo in Orca so its worktree can be made there: what to
+    tell the founder, "" when there is no repo. The agent is added whatever Orca
+    says; a refusal, no Orca, or a folder without `git init` says what to run."""
+    from ..session import orca
+
+    return f" {orca.ensure_repo(repo)[1]}." if repo else ""
+
+
 def _add(prop: dict, con) -> tuple[bool, str]:
     name = prop["agent"]
     # The table first: it is the write that can be refused, and a refusal after
@@ -600,7 +609,7 @@ def _add(prop: dict, con) -> tuple[bool, str]:
                          f"{prop['requested_by']}'s request: {prop['why']}")
     return True, (f"{name} is an agent"
                   + (f", team {prop['team']}" if prop.get("team") else "")
-                  + f". {said}")
+                  + f". {said}" + register_repo(prop.get("repo")))
 
 
 def _team(prop: dict, con) -> tuple[bool, str]:
@@ -628,7 +637,10 @@ def _team(prop: dict, con) -> tuple[bool, str]:
         agents.register(n, model=prop.get("model"), effort=prop.get("effort"),
                         repo=prop.get("repo") if n == name else prop.get(f"repo.{n}"),
                         vendor=prop.get("vendor"), role=role)
-    return True, f"team {name}: {', '.join(everyone)} are agents. {said}"
+    repos = sorted({r for n in everyone
+                    if (r := prop.get("repo") if n == name else prop.get(f"repo.{n}"))})
+    return True, (f"team {name}: {', '.join(everyone)} are agents. {said}"
+                  + "".join(register_repo(r) for r in repos))
 
 
 def _still_allowed_by(t, frm: str, to: str) -> str:
