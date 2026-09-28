@@ -35,8 +35,12 @@ def pending(con, agent: str, row=None, held=None) -> dict | None:
     found = orca.confirmation_on_screen(handle) if handle else None
     if found is None:
         return None
-    if held is None:
-        held = waiting.read(agent) or {}
+    return describe(agent, found, held)
+
+
+def describe(agent: str, found, held: dict | None) -> dict:
+    """The plain dict for a permission prompt `found` (a vendor `Confirmation`) with the hook's record `held`."""
+    held = held if held is not None else (waiting.read(agent) or {})
     command = held.get("command") or ""
     reason = held.get("reason") or ""
     return {"agent": agent, "vendor": _vendor(agent), "tool": held.get("tool") or "",

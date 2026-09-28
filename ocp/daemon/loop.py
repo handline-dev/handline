@@ -10,7 +10,7 @@ from ..infra import service
 from ..infra import textsafe
 from ..session import triggers
 
-from . import devmode, evaluate, locks, messaging, reconciler, socket_server
+from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server
 
 
 # ---------------------------------------------------------------- loop
@@ -78,6 +78,8 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             # that runs with no one able to reach it over the socket.
             log(f"daemon socket: could not start ({e}) - continuing without it")
         try:
+            if not once and not max_ticks:      # a bounded run (a test, --once) has no screens to watch
+                prompts.start(stopping, log)
             log("daemon starting - reconciling")
             reconciler.reconcile(con, log)
             # #2117: whatever a message could not be typed at before the last

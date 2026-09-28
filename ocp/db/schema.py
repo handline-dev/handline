@@ -279,6 +279,39 @@ CREATE TABLE IF NOT EXISTS dialog_presses (
 );
 CREATE INDEX IF NOT EXISTS dialog_presses_agent ON dialog_presses(agent, at);
 
+-- The one prompt an agent's screen shows now (T395): the daemon's screen watch
+-- writes it, the bridge reads it and asks the daemon to answer it. At most one
+-- row per agent is open (gone_at NULL); a prompt that goes, or turns into a
+-- different one, is closed and the new one opens beside it.
+CREATE TABLE IF NOT EXISTS prompt_blocks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent       TEXT NOT NULL,
+  -- 'permission' | 'question' | 'dialog'
+  kind        TEXT NOT NULL,
+  -- Hash of the panel text: the identity `answer` re-checks against a fresh read.
+  fingerprint TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  -- JSON: the panel's own lines, and what each kind shows on top of them
+  -- (options; the hook's tool/command/reason; a question's header and boxes).
+  panel       TEXT NOT NULL,
+  detail      TEXT NOT NULL,
+  -- The permission hook's wait id, the identity of a permission prompt; NULL
+  -- for the other kinds, and for a permission prompt the hook never recorded.
+  wait_id     INTEGER,
+  -- 0 for a prompt only the terminal can answer (a permission prompt with no
+  -- hook record to pin its identity to).
+  answerable  INTEGER NOT NULL DEFAULT 1,
+  first_seen  INTEGER NOT NULL,
+  last_seen   INTEGER NOT NULL,
+  gone_at     INTEGER,
+  -- What `answer_block` did: NULL until tried, then 1/0 and its words.
+  answered_at INTEGER,
+  answer_ok   INTEGER,
+  answer_said TEXT
+);
+CREATE INDEX IF NOT EXISTS prompt_blocks_agent ON prompt_blocks(agent, gone_at);
+CREATE UNIQUE INDEX IF NOT EXISTS prompt_blocks_open ON prompt_blocks(agent) WHERE gone_at IS NULL;
+
 -- One row per account per tick that observe_burn already reads a status for -
 -- no read this table exists for is ever driven on its own account (#1113).
 -- Every usage column is nullable and none is ever coerced to 0: a figure

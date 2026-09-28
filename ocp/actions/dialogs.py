@@ -84,28 +84,33 @@ def answer_dialog(con, agent: str, title: str, number: int, always: bool = False
     with lock.terminal(agent) as mine:
         if not mine:
             return False, f"{agent}: something else is using its terminal; try again"
-        now = dialog_of(con, agent)
-        if now is None or now["title"] != title:
-            return False, f"{agent}: the dialog is gone or changed - nothing pressed"
-        label = next((lab for n, lab in now["options"] if n == number), None)
-        if label is None:
-            return False, f"{agent}: the dialog has no option {number}"
-        handle = _handle(con, agent)
-        if now["kind"] == TRUST:
-            ok, said = orca.confirm_trust(handle)
-            if not ok:
-                return False, f"{agent}: {said}"
-        else:
-            outcome, _, why = orca.press_option(handle, number)
-            if outcome != orca.CLEARED:
-                return False, f"{agent}: {why or outcome}"
-        if always:
-            ok, remember_said = _remember(now, label)
-            if not ok:
-                return True, f"{agent}: chose {number}. {label} - but not remembered: {remember_said}"
-        if now["kind"] == TRUST:
-            return True, f"{agent}: {said}"
-        return True, f"{agent}: chose {number}. {label}" + (" - and will again" if always else "")
+        return press_choice(con, agent, title, number, always)
+
+
+def press_choice(con, agent: str, title: str, number: int, always: bool = False) -> tuple[bool, str]:
+    """`answer_dialog` without taking the terminal lock: for a caller that already holds it (`prompt_blocks.answer`)."""
+    now = dialog_of(con, agent)
+    if now is None or now["title"] != title:
+        return False, f"{agent}: the dialog is gone or changed - nothing pressed"
+    label = next((lab for n, lab in now["options"] if n == number), None)
+    if label is None:
+        return False, f"{agent}: the dialog has no option {number}"
+    handle = _handle(con, agent)
+    if now["kind"] == TRUST:
+        ok, said = orca.confirm_trust(handle)
+        if not ok:
+            return False, f"{agent}: {said}"
+    else:
+        outcome, _, why = orca.press_option(handle, number)
+        if outcome != orca.CLEARED:
+            return False, f"{agent}: {why or outcome}"
+    if always:
+        ok, remember_said = _remember(now, label)
+        if not ok:
+            return True, f"{agent}: chose {number}. {label} - but not remembered: {remember_said}"
+    if now["kind"] == TRUST:
+        return True, f"{agent}: {said}"
+    return True, f"{agent}: chose {number}. {label}" + (" - and will again" if always else "")
 
 
 def _remember(dialog: dict, label: str) -> tuple[bool, str]:

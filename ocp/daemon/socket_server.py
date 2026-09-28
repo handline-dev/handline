@@ -25,7 +25,7 @@ import threading
 import time
 
 from .. import db
-from ..actions import confirmations, control, details, dialogs
+from ..actions import confirmations, control, details, dialogs, prompt_blocks
 from ..infra import paths
 
 from . import messaging
@@ -76,6 +76,10 @@ def _confirm(con, log, **kw) -> tuple[bool, str]:
     return confirmations.answer(con, kw["agent"], bool(kw["yes"]), kw["seen"])
 
 
+def _answer_block(con, log, **kw) -> tuple[bool, str]:
+    return prompt_blocks.answer(con, int(kw["block"]), dict(kw.get("choice") or {}))
+
+
 def _trust(con, log, **kw) -> tuple[bool, str]:
     worktrees = [(a, w) for a, w in kw["worktrees"]]
     said = details.trust_worktrees(kw["account"], worktrees)
@@ -92,6 +96,7 @@ VERBS = {
     "start": _start,
     "answer_dialog": _answer_dialog,
     "confirm": _confirm,
+    "answer_block": _answer_block,
     "trust": _trust,
 }
 
