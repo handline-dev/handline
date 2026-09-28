@@ -7205,6 +7205,18 @@ limits:
                   ("dev.auditor", "manager"), ("manager", "dev.merger"), ("dev.merger", "manager")]
               and hist[0]["note"] == "branch@abc123: fixed the retry" and hist[3]["note"] == "PASS: 5900 passed",
               str(hist))
+        own = db.new_task(con, "self-opened", "worker", "worker")
+        G = lambda me, to: actions.task_handoff(con, me, own, to, "note")
+        ok, msg = G("worker", "dev.merger")
+        check("handoff: a self-opened task cannot skip the audit", not ok and "auditor" in msg, msg)
+        back = db.new_task(con, "send back", "worker", "manager")
+        B = lambda me, to: actions.task_handoff(con, me, back, to, "note")
+        B("worker", "dev.auditor")
+        B("dev.auditor", "manager")
+        ok, msg = B("manager", "dev.auditor")
+        check("handoff: the opener may not send it back to the auditor that passed it", not ok, msg)
+        ok, msg = B("manager", "worker")
+        check("handoff: the opener sends it back to the maker", ok and db.get_task(con, back)["owner"] == "worker", msg)
         ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "the founder may")
         check("handoff: the founder may hand it to anyone", ok and db.get_task(con, t)["owner"] == "worker", msg)
         actions.mark_task_done(con, t, "worker", reason="done")

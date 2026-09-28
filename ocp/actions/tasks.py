@@ -924,8 +924,9 @@ def previous_owner(con, tid: int, owner: str) -> str | None:
 def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     """Why `me` may not hand this task to `to`, or None. The chain is fixed: the
     owner hands it to an auditor; the auditor returns it to the task's opener
-    (a PASS) or the one who handed it over (a FAIL); the opener passes it on to
-    a merger or takes it back to whoever had it. The founder may do anything."""
+    (a PASS) or the one who handed it over (a FAIL); once it has come back from
+    an auditor, the opener passes it to a merger or sends it back to the maker.
+    Without an audit nobody reaches a merger. The founder may do anything."""
     tid = row["id"]
     if row["closed_by"] or row["done_evidence"]:
         return f"task T{tid} is already finished - nothing to hand over"
@@ -947,9 +948,10 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     elif role == "merger":
         allowed = to == prev
         hint = f"{prev or 'nobody'}, who handed it over - a merger closes it done once merged"
-    elif me == row["opened_by"]:
-        allowed = target in ("auditor", "merger") or to == prev
-        hint = f"an auditor or a merger, or {prev or 'nobody'} (who handed it over)"
+    elif me == row["opened_by"] and prev and _role(prev) == "auditor":
+        maker = previous_owner(con, tid, prev)
+        allowed = target == "merger" or to == maker
+        hint = f"a merger, or {maker or 'nobody'} (the maker, to send it back)"
     else:
         allowed = target == "auditor"
         hint = "an auditor"
