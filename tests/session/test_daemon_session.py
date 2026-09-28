@@ -1052,6 +1052,44 @@ def test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(home: Pa
     check("config: the screen's cap setter says why instead of failing", not ok and why, why)
 
 
+def test_background_work_is_tracked_while_running_too(home: Path) -> None:
+    """Founder #1975/#2125: track_background_work used to skip RUNNING
+    entirely, so a cursor set once stayed frozen for as long as a turn ran -
+    the screen's 'background Nm' detail (shown for RUNNING too, T195/T300)
+    grew from a stale timestamp no matter what the session's own background
+    work actually did. It must read every tick regardless of state."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    names = ("available", "alive", "background_work", "live_terminals")
+    real = {n: getattr(orcamod, n) for n in names}
+    bg = ["1 shell"]
+    try:
+        orca_seen()
+        orcamod.background_work = lambda h: bg[0]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="thinking")
+        row = db.get_agent_state(con, "backend")
+        dmn_delivery.track_background_work(con, "backend", row)
+        check("background: RUNNING still picks up work the screen reports",
+              dmn_delivery.has_background_work(con, "backend"))
+        since1 = dmn_delivery.bg_since(con, "backend")
+
+        bg[0] = ""
+        dmn_delivery.track_background_work(con, "backend", row)
+        check("background: RUNNING still notices it end",
+              not dmn_delivery.has_background_work(con, "backend"))
+
+        bg[0] = "1 shell"
+        dmn_delivery.track_background_work(con, "backend", row)
+        since2 = dmn_delivery.bg_since(con, "backend")
+        check("background: a fresh start while RUNNING is a fresh 'since', not the frozen one",
+              since2 is not None and since2 >= since1, (since1, since2))
+    finally:
+        for n, f in real.items():
+            setattr(orcamod, n, f)
+        con.close()
+
+
 def test_t52_idle_timeout_and_cache_expiry_overrides(home: Path) -> None:
     """T52: config.yaml's global park timeout and cache-expiry-ignore switch,
     and agent.yaml's own override of either - the agent's own setting always
@@ -4332,6 +4370,7 @@ def main() -> int:
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
         run(lambda: test_an_agent_with_background_work_is_not_idle_until_it_ends(Path(td) / 'bgw0'))
+        run(lambda: test_background_work_is_tracked_while_running_too(Path(td) / 'bgw1'))
         run(lambda: test_t52_idle_timeout_and_cache_expiry_overrides(Path(td) / 'idletimeout'))
         run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))
