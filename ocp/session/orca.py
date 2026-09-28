@@ -89,6 +89,7 @@ def ensure_repo(path: str) -> tuple[str, str]:
     not asked: a folder that is not a git repository needs the founder's
     `git init` first), 'no_orca' or 'failed'. The list is read first, so a
     repo Orca already has is never added twice."""
+    path = os.path.realpath(os.path.expanduser(path))
     add = "orca repo add --path " + shlex.quote(path)
     if not available():
         return "no_orca", f"Orca is not on PATH, so {path} is not registered there: `{add}`"
@@ -96,7 +97,7 @@ def ensure_repo(path: str) -> tuple[str, str]:
     known = _repo_paths(out) if ok else None
     if known is None:
         return "failed", f"Orca would not list its repos ({out.strip()[:160]}); `{add}` once it does"
-    if os.path.realpath(path) in known:
+    if path in known:
         return "known", f"Orca already has {path}"
     if not os.path.exists(os.path.join(path, ".git")):
         return "not_git", (f"{path} is not a git repository, so Orca cannot have it: "
