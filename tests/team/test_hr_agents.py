@@ -838,9 +838,14 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
                   pyyaml.safe_load(agents.agent_file(f"agent{i}").read_text()) == cfg)
     # What the replay does: apply builds the agent from the saved proposal's fields.
     hand_edit_team(team.STARTER)
-    ok, said = hr._add({"agent": "replayed", "model": "4.5",
-                        "effort": "high", "repo": "1_000", "why": "w",
-                        "requested_by": "human", "created": int(time.time())}, None)
+    real_avail = orcamod.available
+    orcamod.available = lambda: False   # this test is about the file, not Orca
+    try:
+        ok, said = hr._add({"agent": "replayed", "model": "4.5",
+                            "effort": "high", "repo": "1_000", "why": "w",
+                            "requested_by": "human", "created": int(time.time())}, None)
+    finally:
+        orcamod.available = real_avail
     cfg = agents.read("replayed")
     check("agent.yaml: an applied proposal carrying such values leaves a file that loads",
           ok and cfg["model"] == "4.5" and cfg["repo"] == "1_000" and cfg["effort"] == "high",
