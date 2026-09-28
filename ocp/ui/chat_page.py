@@ -1140,7 +1140,7 @@ class ChatPage(JobsAware, Screen):
             return
         lines = tuple(found["lines"])
         if lines == self._question_closed \
-                or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal)):
+                or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal, TextPrompt)):
             return
         self.app.push_screen(QuestionModal(found), lambda picked: self.question_answered(found, picked))
 
@@ -1170,14 +1170,22 @@ class ChatPage(JobsAware, Screen):
             state = agent_state_of(con, self.agent)
         finally:
             con.close()
-        if state != self.agent_state:
-            self.agent_state = state
+        if state == self.agent_state:
+            return
+        # The word (RUNNING/IDLE/...) flips rarely - that is what a queued
+        # message's wait reason and the working flag follow. The detail text
+        # ticks every second while background work is under 2 minutes old
+        # (timefmt.ago), so comparing the whole tuple here would rebuild the
+        # transcript (`_sig = None`) on almost every 2s poll for no reason.
+        word_changed = state[0] != self.agent_state[0]
+        self.agent_state = state
+        if word_changed:
             for line in self.query(QueueLine):
                 line.working = state[0] == "RUNNING"
             for msg in self.query(ChatMessage):
                 msg.set_working(state[0] == "RUNNING")
             self._sig = None                # the reason a message waits follows the agent's state
-            self.query_one("#status", Static).update(self._status())
+        self.query_one("#status", Static).update(self._status())
 
     def refresh_pools(self) -> None:
         con = db.connect()

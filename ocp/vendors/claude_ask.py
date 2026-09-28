@@ -18,9 +18,11 @@ footer, blank, "N. Chat about this", blank, a rule, the numbered options
 (each optionally an indented description line below it), the question, the
 header, a rule.
 
-Scope (v1): a lone question, single-select or multiSelect, and no "Other" on
-a multiSelect one (untested combination; the founder's approved mockup never
-showed the two together). A call with more than one question adds a tab per
+Scope (v1): a lone question, single-select or multiSelect, "Other" on either.
+A multiSelect question's own "Other" sends the single-select key pattern
+followed by Right/Submit - untested against a real screen as of 2026-09-28,
+so a founder capture of it going through (or not) is still owed. A call with
+more than one question adds a tab per
 question before "Submit", and reading that bar past the two tabs a lone
 question shows is not measured here - `recognize` returns None rather than
 guess at it, the same as it does for a multiSelect question's own
@@ -61,9 +63,8 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     None when this combination is not sent here.
 
     `choices` are 0-based indexes into `q.options`; `text` is free text for
-    `q.other_number`. Never both, and never `text` on a multiSelect question -
-    an untested combination (the founder's approved mockup never showed the
-    two together) this refuses rather than guesses at.
+    `q.other_number`, on either kind of question - never both, and refused
+    when the question has no "Other" at all.
 
     A single-select question submits on its one number - conch's own words,
     "a lone single-choice question ... a number submits outright". A
@@ -78,9 +79,14 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     gone instead.
     """
     if text is not None:
-        if q.multi_select or choices:
+        if choices or q.other_number is None:
             return None
-        return [str(q.other_number), text, ENTER]
+        if not q.multi_select:
+            return [str(q.other_number), text, ENTER]
+        # multiSelect + Other: untested against a real screen (2026-09-28) -
+        # the same pattern as single-select's Other, then Right/Submit like
+        # any other multiSelect answer.
+        return [str(q.other_number), text, ENTER, RIGHT, "1"]
     if not choices or any(c < 0 or c >= len(q.options) for c in choices):
         return None
     if not q.multi_select:

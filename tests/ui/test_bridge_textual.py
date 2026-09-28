@@ -2651,6 +2651,83 @@ async def test_an_askuserquestion_prompt_is_answered_from_its_chat_page() -> Non
             check("question: answered, and the terminal has not redrawn", app.screen is page)
 
 
+async def test_an_askuserquestion_multiselect_offers_other_too() -> None:
+    from unittest import mock
+    from ocp.session import orca as orcamod
+    from ocp.vendors.base import Question, QuestionOption
+    from ocp.ui.components.question_modal import QuestionModal
+    from ocp.ui.components.text_prompt import TextPrompt
+    _home("questionmodal_multi")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    q = Question("Features", "Which features should we enable?",
+                (QuestionOption("logging", ""), QuestionOption("metrics", "")),
+                True, 3, None, ("Features", "logging", "metrics", "Type something"))
+    screen = {"found": q}
+    answered = []
+
+    def answer(handle, seen, choices=(), text=None):
+        answered.append((handle, choices, text))
+        screen["found"] = None
+        return orcamod.CLEARED, "Features", ""
+
+    with mock.patch.object(orcamod, "question_on_screen", lambda h: screen["found"]), \
+            mock.patch.object(orcamod, "answer_question", answer):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            page = ChatPage("backend")
+            await app.push_screen(page)
+            await pilot.pause(1.0)
+            modal = app.screen
+            check("question: multiSelect still offers an Other button",
+                  isinstance(modal, QuestionModal) and modal.query("#other"), type(modal).__name__)
+            await pilot.click("#other")
+            await pilot.pause(0.2)
+            check("question: Other opens the free-text prompt", isinstance(app.screen, TextPrompt))
+            # The founder found this live (2026-09-28): the 2s question poll kept firing
+            # while "Type something"'s own TextPrompt sat on top, pushing a fresh
+            # QuestionModal over it and burying what was being typed.
+            page._question_at = 0.0
+            page.poll_question()
+            await pilot.pause(0.5)
+            check("question: the 2s poll does not bury Other's text prompt under a fresh modal",
+                  isinstance(app.screen, TextPrompt), type(app.screen).__name__)
+            for k in list("newone") + ["enter"]:
+                await pilot.press(k)
+            await pilot.pause(1.2)
+            check("question: multiSelect's Other answers with the typed text, no choices",
+                  answered == [("term_q", (), "newone")], str(answered))
+
+
+async def test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll() -> None:
+    from unittest import mock
+    from ocp.ui import chat_page as cp
+    _home("tickingbackground")
+    agents.register("backend")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause(0.3)
+        page.agent_state = ("RUNNING", "background 40s")
+        page._sig = "marker"
+        with mock.patch.object(cp, "agent_state_of", lambda con, agent: ("RUNNING", "background 41s")):
+            page.refresh_agent_state()
+        check("agent state: the word staying RUNNING does not reset the transcript signature "
+              "just because the ticking detail text changed",
+              page._sig == "marker", page._sig)
+        check("agent state: the status line still shows the new detail",
+              "41s" in page._status().plain, page._status().plain)
+
+        with mock.patch.object(cp, "agent_state_of", lambda con, agent: ("IDLE", "")):
+            page.refresh_agent_state()
+        check("agent state: the word itself changing does reset the signature",
+              page._sig is None, page._sig)
+
+
 async def test_home_settings_lists_the_standing_answers_and_removes_one() -> None:
     import sys
     from unittest import mock
@@ -3111,6 +3188,8 @@ async def _run_all() -> None:
     await test_a_dialog_on_an_agent_terminal_is_answered_from_its_page()
     await test_a_claude_permission_prompt_is_answered_from_its_chat_page()
     await test_an_askuserquestion_prompt_is_answered_from_its_chat_page()
+    await test_an_askuserquestion_multiselect_offers_other_too()
+    await test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll()
     await test_the_bridge_follows_the_os_light_dark_setting_while_open()
     await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
     await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()

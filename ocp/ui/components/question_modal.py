@@ -55,12 +55,12 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
                     yield Checkbox(label, id=f"opt_{i}", value=i in self._checked, compact=True)
                 else:
                     yield Button(Text(label), id=f"opt_{i}", compact=True)
-            if d["multi_select"]:
-                yield Button("Submit picked", id="submit", variant="warning", compact=True)
-            else:
+            if d["other_number"] is not None:
                 other = f"{d['other_number']}. " + (f"Other: {textsafe.oneline(d['other_text'])}"
                                                     if d["other_text"] else "Other (type your own)")
                 yield Button(Text(other), id="other", compact=True)
+            if d["multi_select"]:
+                yield Button("Submit picked", id="submit", variant="warning", compact=True)
             yield Static("click an option or press its number · esc closes (the terminal is left as it is)",
                         id="hint")
 
@@ -91,10 +91,10 @@ class QuestionModal(ModalScreen["tuple[tuple[int, ...], str | None] | None"]):
                     self.query_one(f"#opt_{n - 1}", Checkbox).toggle()
                 else:
                     self.dismiss(((n - 1,), None))
-            elif n == d["other_number"] and not d["multi_select"]:
+            elif n == d["other_number"]:
                 event.stop()
                 self.run_worker(self._other())
-        elif ch.lower() == "o" and not d["multi_select"]:
+        elif ch.lower() == "o" and d["other_number"] is not None:
             event.stop()
             self.run_worker(self._other())
 
