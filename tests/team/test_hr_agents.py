@@ -435,6 +435,47 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
           [r["id"] for r in hr.listing(skipped)] == ["good"] and skipped == [])
 
 
+def test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(home: Path) -> None:
+    """Founder: after the repo is git-init'd, Orca should know it. The agent is
+    added either way; Orca refusing or being absent says what to run."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
+agents:
+  marina:  {}
+edges:
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    real_run, real_avail = orcamod._run, orcamod.available
+    fake = FakeOrca({})
+    orcamod._run, orcamod.available = fake.run, lambda: True
+    try:
+        repo = str(home / "proj")
+        ok, said = hr.enact("add", "scout", repo=repo, why="needs a home")
+        check("repo: the add went through", ok and "scout" in paths.list_agents(), said)
+        check("repo: Orca was given exactly that path, once, and the message says so",
+              fake.calls == [["repo", "add", "--path", repo, "--json"]] and f"Orca now has {repo}" in said,
+              str(fake.calls) + said)
+
+        ok, said = hr.enact("add", "bare", why="no repo")
+        check("repo: an agent with no repo makes no Orca call",
+              ok and len(fake.calls) == 1 and "Orca" not in said, said)
+
+        fake.adds = False
+        ok, said = hr.enact("add", "refused", repo=repo, why="orca says no")
+        check("repo: Orca refusing does not undo the agent, and the command to run is given",
+              ok and "refused" in paths.list_agents() and "would not add" in said
+              and f"orca repo add --path {repo}" in said, said)
+
+        orcamod.available = lambda: False
+        n = len(fake.calls)
+        ok, said = hr.enact("add", "noorca", repo=repo, why="orca is not there")
+        check("repo: with no Orca on PATH it says what to run, and calls nothing",
+              ok and "not on PATH" in said and len(fake.calls) == n, said)
+    finally:
+        orcamod._run, orcamod.available = real_run, real_avail
+
+
 def test_a_rename_names_the_agents_orca_worktree(home: Path) -> None:
     """What the founder reads in Orca's sidebar is the worktree's display name,
     so a rename that left it alone looks like a rename that failed. The label is
@@ -3578,6 +3619,7 @@ def main() -> int:
             Path(td) / 'readguard'))
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
+        run(lambda: test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(Path(td) / 'repoadd'))
         run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
         run(lambda: test_a_rename_refuses_when_liveness_cannot_be_confirmed(Path(td) / 'renameunknown'))
         run(lambda: test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(Path(td) / 'rehome'))
