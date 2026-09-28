@@ -226,6 +226,12 @@ class TasksView(Vertical):
         now = time.time()
         table = self.table
         row = keep
+        # founder #1975/T309: clear() drops the table's scroll along with its
+        # rows, so a manual scroll down was undone on every 2s tick even
+        # when nothing changed. move_cursor no longer re-scrolls to the
+        # cursor on its own; the saved offset is put back once the table has
+        # its rows again, clamped the same way Textual would clamp it.
+        was_scroll_y = table.scroll_y
         table.clear()
         for r in self.rows:
             stale = actions.task_stale(r, now)
@@ -235,7 +241,8 @@ class TasksView(Vertical):
                      " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
             table.add_row(*(Text(c, style="yellow" if stale else "") for c in cells), key=str(r["id"]))
         if self.rows:
-            table.move_cursor(row=min(row, len(self.rows) - 1))
+            table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
+        table.scroll_y = was_scroll_y
         self._show_pane()
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
