@@ -150,6 +150,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
         restored = bool(row and row["closed_at"])
+        if restored:
+            # See lifecycle._wake_agent's own closed-agent gate (T146 pt.1):
+            # nothing else ever enforces a closed agent's edges.
+            delivery.enforce_edges(con, agent, log)
         if restored and not lifecycle.waiting_for(con, agent):
             # The deadline is spent and nothing came for it: a closed session
             # is not resumed to be told nothing. It stays closed, and what

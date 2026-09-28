@@ -75,24 +75,14 @@ def fold(con, agent: str) -> str:
     return msg if ok else f"{agent}: fold rejected - {msg}"
 
 
-# Re-exported: WAITS below and callers outside this module named it here
-# before the wait it bounds moved into `spawn`/`start_in` themselves.
-STARTED_TIMEOUT_S = spawnmod.STARTED_TIMEOUT_S
-
-
 def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     """Give an agent a worktree and start it there.
 
     The one thing the daemon cannot do for an agent with no terminal: there is
     nothing to type into, so work queued for it waits forever. Everything else
     on this screen assumes a terminal already exists; this is where one comes
-    from.
-
-    A terminal is not a session - `ocp launch` execs claude, and claude can
-    exit on its own, a bad flag, a config it will not accept, an account
-    mid-login, leaving the shell prompt the command was typed at - but
-    `start_in`/`spawn` confirm that themselves now (#1976, T146 pt.2), so a
-    failed one is already why, not a terminal to be believed at face value.
+    from. `start_in`/`spawn` confirm a session actually started (T146 pt.2),
+    so their own `msg` is already why when one did not.
     """
     row = db.get_agent_state(con, agent)
     if row and row["terminal"]:
@@ -258,7 +248,7 @@ WAITS: dict[str, tuple[str, int]] = {
     "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
     "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),
     "terminal": ("a terminal to be made and its session to start",
-                 120 + STARTED_TIMEOUT_S + _IDLE_WAIT_S),
+                 120 + spawnmod.STARTED_TIMEOUT_S + _IDLE_WAIT_S),
     "message": ("its terminal to be idle, then the message to be typed", _DELIVERY_S),
     "chat_reply": ("its terminal to be idle, then the message to be typed", _DELIVERY_S),
     "answer": ("the terminal it is delivered to to be idle", _DELIVERY_S),

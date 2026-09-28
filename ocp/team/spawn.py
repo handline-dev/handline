@@ -37,17 +37,11 @@ STARTED_TIMEOUT_S = 20
 
 def _confirm_session(agent: str) -> str | None:
     """None once a session is actually running for `agent`; otherwise the
-    warning both `start_in` and `spawn` return instead of "started" (#1976,
-    T146 pt.2: the two callers that skipped this - `ocp spawn` and the
-    daemon's own auto-start of an agent with work waiting - believed a
-    terminal handle back from Orca meant an agent was there, which is only
-    true once something inside that terminal has actually run: oh-my-zsh's
-    own update prompt once ate the launch command whole and left a bare
-    shell, "started" regardless).
-
-    One check, here, is what `ocp spawn`, the daemon's auto-start and
-    `actions.control.start` shared three copies of instead - the third
-    copy (control.py) the only one that had it.
+    warning `start_in` and `spawn` return instead of "started" (#1976, T146
+    pt.2: a terminal handle back from Orca is not a session - oh-my-zsh's own
+    update prompt once ate a launch command whole and left a bare shell,
+    "started" regardless). The one check `ocp spawn`, the daemon's auto-start
+    and `actions.control.start` each need, instead of their own copy.
     """
     from ..daemon import delivery  # late: delivery's package pulls lifecycle, which imports this module
     if delivery.wait_for_session(agent, STARTED_TIMEOUT_S):
