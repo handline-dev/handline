@@ -543,19 +543,30 @@ def type_notice(con, agent: str, text: str) -> bool:
 
 
 def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
-    """Type one reminder at an agent that has left its head request open.
+    """Type a reminder at an agent that has left its head request open, and
+    keep typing it again every `NUDGE_AFTER_S` for as long as that stays true.
 
-    Never resolves for it: the verdict is the agent's to write. Once per
-    request, gated like a delivery (not at the wall, nothing typed at a modal or
-    a working agent), and nothing here touches an attempt counter, so it cannot
-    stall an agent.
+    A single reminder used to be the last thing the daemon ever did about it:
+    past that, only `actions.stuck` (the founder's own screen) would notice,
+    and nothing typed at the agent again - so a forgotten head, and whatever
+    piled up queued behind it, stayed silent until a human read the screen and
+    acted (#2004). The same silence that earns the first nudge earns every one
+    after it, spaced the same way `NUDGE_AFTER_S` spaces the first from having
+    nothing typed at all.
+
+    Never resolves for it: the verdict is the agent's to write. Gated like a
+    delivery (not at the wall, nothing typed at a modal or a working agent),
+    and nothing here touches an attempt counter, so it cannot stall an agent.
     """
     found = forgotten_resolve(con, agent, row, now)
     if not found or found["idle_s"] < NUDGE_AFTER_S:
         return False
     head = found["head"]
-    if db.get_cursor(con, f"nudge:{agent}") == int(head["id"]) \
-            or now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
+    already = db.get_cursor(con, f"nudge:{agent}") == int(head["id"])
+    last_nudge_at = db.cursor_updated(con, f"nudge:{agent}") if already else None
+    if already and last_nudge_at is not None and now - last_nudge_at < NUDGE_AFTER_S:
+        return False
+    if now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
         return False
     db.set_cursor(con, f"nudge_try:{agent}", now)
     behind = found["behind"]

@@ -1122,8 +1122,16 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
               and db.get_agent_state(con, "backend")["failed_attempts"] == 0
               and db.get_agent_state(con, "backend")["wake_failures"] == 0)
-        check("nudge: not repeated for the same request",
-              not nudge(now + 10 * dmn_delivery.NUDGE_AFTER_S) and len(sent) == 1, str(sent))
+        check("nudge: not repeated before the interval has passed again",
+              not nudge(now + dmn_delivery.NUDGE_AFTER_S - 60) and len(sent) == 1, str(sent))
+        # #2004: an agent left silent stayed silent forever past the first
+        # nudge, with whatever piled up behind its head unmentioned until a
+        # human happened to read the stuck screen. It is nudged again instead,
+        # on the same head, spaced the same way the first one was.
+        check("nudge: repeated once the interval has passed again",
+              nudge(now + dmn_delivery.NUDGE_AFTER_S + 60) and len(sent) == 2, str(sent))
+        check("nudge: the repeat still names the request and how many are behind it",
+              f"#{head}" in sent[1] and "2 more waiting" in sent[1], sent[1])
 
         # The tick reaches it, gated the same way.
         sent.clear()
