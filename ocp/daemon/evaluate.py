@@ -24,7 +24,7 @@ from ..session import triggers
 
 from . import delivery, handoff, lifecycle, messaging, reconciler, timebox, usage_poll
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
-                     PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
+                     PARKED, QUEUED, RUNNING, STALLED, THROTTLED, awaiting_reply)
 
 
 # ---------------------------------------------------------------- reconcile
@@ -319,7 +319,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # recorded nor a fresh reported account to act on, and a guess is not
     # evidence enough to wake this agent into.
     if not woke_now and row and row["terminal"] and not row["closed_at"] \
-            and state == PARKED and reading and reading.source != "assumed" \
+            and state == PARKED and not awaiting_reply(row) \
+            and reading and reading.source != "assumed" \
             and orca.available() and orca.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
         verdict = triggers.evaluate(st.short_trusted, st.trusted_ctx_used,
