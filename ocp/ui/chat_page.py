@@ -937,6 +937,7 @@ class ChatPage(JobsAware, Screen):
         self._confirm_closed: int | None = None      # the wait id of a permission prompt the founder closed
         self._question_busy, self._question_at = False, 0.0
         self._question_closed: tuple[str, ...] | None = None      # the lines of a question the founder closed
+        self._question_pressing = False    # a press is in flight: its own toggles are not a new question
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
@@ -1137,9 +1138,11 @@ class ChatPage(JobsAware, Screen):
         self._question_busy = False
         if found is None:
             self._question_closed = None          # gone: the same question coming back is asked again
+            if isinstance(self.app.screen, QuestionModal):
+                self.app.pop_screen()      # the real screen moved on without this modal's own Submit
             return
         lines = tuple(found["lines"])
-        if lines == self._question_closed \
+        if lines == self._question_closed or self._question_pressing \
                 or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal, TextPrompt)):
             return
         self.app.push_screen(QuestionModal(found), lambda picked: self.question_answered(found, picked))
@@ -1151,6 +1154,7 @@ class ChatPage(JobsAware, Screen):
             return
         self._question_closed = lines     # answered: not offered again before the screen catches up
         choices, text = picked
+        self._question_pressing = True     # its own toggles, still on screen mid-press, are not a new question
 
         def press() -> None:
             con = db.connect()
@@ -1159,9 +1163,12 @@ class ChatPage(JobsAware, Screen):
             finally:
                 con.close()
             log_action(f"question {self.agent}: {'ok' if ok else 'refused'} - {said}")
-            self.app.call_from_thread(self.notify, safe(said), title=f"question {self.agent}",
-                                      severity="information" if ok else "error",
-                                      timeout=10, markup=False)
+
+            def done() -> None:
+                self._question_pressing = False
+                self.notify(safe(said), title=f"question {self.agent}",
+                           severity="information" if ok else "error", timeout=10, markup=False)
+            self.app.call_from_thread(done)
         self.run_worker(press, thread=True, group="question_press")
 
     def refresh_agent_state(self) -> None:

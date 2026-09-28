@@ -2708,6 +2708,66 @@ async def test_an_askuserquestion_multiselect_offers_other_too() -> None:
                   answered == [("term_q", (0,), "newone")], str(answered))
 
 
+async def test_askuserquestion_modal_closes_itself_once_the_terminal_moves_on() -> None:
+    """T336 follow-up, founder live capture 2026-09-28: the modal stayed up on the
+    bridge after its own terminal question was gone - answered elsewhere, or the
+    turn moved on without it. `question_seen` now closes it the same way an
+    unrelated screen elsewhere is left alone: only ever its own QuestionModal."""
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("questionmodal_autoclose")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    found = {"agent": "backend", "vendor": "claude", "header": "Features",
+            "question": "Which features should we enable?",
+            "options": [{"label": "logging", "description": "", "checked": False}],
+            "multi_select": True, "other_number": 2, "other_text": None,
+            "lines": ["Features", "logging", "Type something"]}
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause(0.2)
+        app.push_screen(QuestionModal(found))
+        await pilot.pause(0.2)
+        check("question: the modal is up", isinstance(app.screen, QuestionModal), type(app.screen).__name__)
+        page.question_seen(None)
+        await pilot.pause(0.2)
+        check("question: gone from the real screen closes the bridge's own modal too",
+              app.screen is page, type(app.screen).__name__)
+
+
+async def test_askuserquestions_own_press_in_flight_is_not_mistaken_for_a_new_one() -> None:
+    """T336 follow-up: a multiSelect answer sends several keys in a row, toggling
+    boxes on the real screen one at a time - a 2s poll landing mid-sequence used
+    to read that as a fresh question and push a second modal over the first,
+    live on the bridge (founder capture 2026-09-28). `_question_pressing` marks
+    this agent's own press as not a new question until it settles."""
+    _home("questionmodal_pressing")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    mid_press = {"agent": "backend", "vendor": "claude", "header": "Features",
+                "question": "Which features should we enable?",
+                "options": [{"label": "logging", "description": "", "checked": True}],
+                "multi_select": True, "other_number": 2, "other_text": None,
+                "lines": ["Features", "logging (checked mid-press)", "Type something"]}
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause(0.2)
+        page._question_pressing = True
+        page.question_seen(mid_press)
+        await pilot.pause(0.2)
+        check("question: a reading mid-press is not offered as a fresh question",
+              app.screen is page, type(app.screen).__name__)
+
+
 async def test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll() -> None:
     from unittest import mock
     from ocp.ui import chat_page as cp
@@ -3195,6 +3255,8 @@ async def _run_all() -> None:
     await test_a_claude_permission_prompt_is_answered_from_its_chat_page()
     await test_an_askuserquestion_prompt_is_answered_from_its_chat_page()
     await test_an_askuserquestion_multiselect_offers_other_too()
+    await test_askuserquestion_modal_closes_itself_once_the_terminal_moves_on()
+    await test_askuserquestions_own_press_in_flight_is_not_mistaken_for_a_new_one()
     await test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll()
     await test_the_bridge_follows_the_os_light_dark_setting_while_open()
     await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
