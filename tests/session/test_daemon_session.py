@@ -3654,9 +3654,18 @@ def test_who_is_asking_is_not_guessed(home: Path) -> None:
               askmod.asking_agent() is None, str(askmod.asking_agent()))
         ok, msg, rid = askmod.ask("backend", "do this")
         check("identity: and is refused rather than promoted", not ok and rid is None, msg)
-        check("identity: and told how to say who it is", "--of" in msg, msg)
+        check("identity: and told agents start via ocp launch", "ocp launch" in msg, msg)
         ok, _msg, rid = askmod.ask("backend", "do this", requester="reviewer")
         check("identity: saying so explicitly still works", ok and rid is not None, _msg)
+        out = _capture(lambda: climod.main(["withdraw", str(rid)]))
+        check("identity: withdraw from nobody is refused, not 'not yours'",
+              "ocp launch" in out, out)
+        try:
+            climod.main(["ask", "backend", "x", "--of", "1685"])
+            gone = False
+        except SystemExit:
+            gone = True
+        check("identity: there is no --of to name a sender with", gone)
     finally:
         sys.stdin = real_stdin
         if real_env is not None:

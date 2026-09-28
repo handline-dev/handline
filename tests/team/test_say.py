@@ -229,10 +229,6 @@ def test_say_delivery_line_and_needs_task(home: Path) -> None:
     rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="manager")
     check("say --needs-task: refused for anyone but the say's own receiver",
           rc == 1 and "not sent to you" in out, out)
-    rc, out = _cli(["say", "--needs-task", str(rid), "--of", "manager"], as_agent="worker")
-    check("say --needs-task: --of is honored, not just $OCP_AGENT - the same "
-          "receiver-only check refuses it for a different --of too",
-          rc == 1 and "not sent to you" in out, out)
     rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="worker")
     check("say --needs-task: the receiver may flag it, delivered back to the sender",
           rc == 0, out)

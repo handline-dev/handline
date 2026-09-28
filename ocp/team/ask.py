@@ -286,8 +286,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     if not requester:
         return False, ("cannot tell who is asking: OCP_AGENT is unset and this is "
                        "not an interactive shell. Agents are started with "
-                       "`ocp launch <agent>`, which sets it; otherwise say who "
-                       "is asking with --of."), None
+                       "`ocp launch <agent>`, which sets it."), None
 
     t = team.Team.load()
     con = db.connect()
