@@ -3316,6 +3316,31 @@ async def test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor() -> None:
         check("table sync: a changed row set rebuilds", sync_rows(table, rows(1)[:50]))
 
 
+async def test_the_chat_page_reopens_on_the_chat_tab_last_picked() -> None:
+    from textual.widgets import Tabs
+    _home("chatscope")
+    agents.register("reviewer")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 20)) as pilot:
+        await pilot.pause()
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        check("chatscope: a first visit opens on My chat", app.screen.query_one("#scope", Tabs).active == "mine")
+        app.screen.query_one("#scope", Tabs).active = "all"
+        await pilot.pause(0.3)
+        await app.pop_screen()
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        check("chatscope: reopened on All chat", app.screen.query_one("#scope", Tabs).active == "all"
+              and app.screen.everyone)
+        app.screen.query_one("#scope", Tabs).active = "mine"
+        await pilot.pause(0.3)
+        await app.pop_screen()
+        await app.push_screen(ChatPage("reviewer"))
+        await pilot.pause(0.3)
+        check("chatscope: and back to My chat", app.screen.query_one("#scope", Tabs).active == "mine")
+
+
 def test_account_settings_alias_and_default_cap() -> None:
     from ocp.usage import load as loadmod
     from ocp.session import triggers
@@ -3451,6 +3476,7 @@ async def _run_all() -> None:
     await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
     await test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor()
+    await test_the_chat_page_reopens_on_the_chat_tab_last_picked()
 
 
 def main() -> int:
