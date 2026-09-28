@@ -272,6 +272,26 @@ def cmd_task_new(args) -> int:
     return 0
 
 
+def cmd_task_begin(args) -> int:
+    """T297: open a task for yourself, and start it, on a founder message."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("begin a task"))
+        return 1
+    title = textsafe.oneline(args.title).strip()
+    if not title:
+        print("a task needs a title")
+        return 1
+    con = db.connect()
+    try:
+        ok, msg, _ = actions.task_begin(con, me, title, args.chat, args.why,
+                                        priority=args.priority, expects=args.expects)
+        print(msg)
+    finally:
+        con.close()
+    return 0 if ok else 1
+
+
 def cmd_task_start(args) -> int:
     """T292 bullet 3: pick up T<n> as your current task explicitly, for a
     task delivered while you already held one."""

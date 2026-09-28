@@ -7041,6 +7041,62 @@ def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path)
         con.close()
 
 
+def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None:
+    """T297 (founder #1648 (a)): no approval, but the trigger and the chat are recorded."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        chat = db.add_request(con, "human", "worker", "please fix the retry", None, None,
+                              "async", "ask", 0, None)
+        other = db.add_request(con, "manager", "worker", "please fix the retry", None, None,
+                               "async", "ask", 0, None)
+        elsewhere = db.add_request(con, "human", "manager", "hi", None, None, "async", "ask", 0, None)
+        ok, msg, _ = actions.task_begin(con, "worker", "fix retry", other, "manager said so")
+        check("begin: only the founder's message counts", not ok and "founder" in msg, msg)
+        ok, msg, _ = actions.task_begin(con, "worker", "fix retry", elsewhere, "why")
+        check("begin: nor one the founder sent someone else", not ok and "founder" in msg, msg)
+        ok, msg, _ = actions.task_begin(con, "worker", "fix retry", 9999, "why")
+        check("begin: nor a request that is not there", not ok and "no request" in msg, msg)
+        ok, msg, _ = actions.task_begin(con, "worker", "fix retry", chat, "  ")
+        check("begin: a reason is required", not ok and "--why" in msg, msg)
+        ok, msg, tid = actions.task_begin(con, "worker", "fix retry", chat, "founder asked in chat")
+        check("begin: the founder's message opens it", ok and tid, msg)
+        row = db.get_task(con, tid)
+        check("begin: it is worker's own, and worker's current task",
+              row["owner"] == "worker" and row["opened_by"] == "worker"
+              and db.current_task(con, "worker") == tid)
+        check("begin: the chat is linked to it",
+              [r["id"] for r in db.task_requests(con, tid)] == [chat])
+        ev = [dict(r) for r in con.execute("SELECT * FROM events WHERE kind = 'task_begin'")]
+        check("begin: the reason and the chat are on the event",
+              len(ev) == 1 and "founder asked in chat" in ev[0]["payload"] and f'"chat_request": {chat}' in ev[0]["payload"],
+              str(ev))
+        check("begin: it reads doing, not a draft nobody queued",
+              actions.task_state(con, db.get_task(con, tid)) == "doing")
+        askmod.resolve(chat, "on it")
+        actions.advance_current_task(con, "worker")
+        check("begin: answering the founder's message does not drop it as current",
+              db.current_task(con, "worker") == tid, str(db.current_task(con, "worker")))
+        check("begin: nor does it go back to draft",
+              actions.task_state(con, db.get_task(con, tid)) == "doing")
+        ok, msg, _ = actions.task_begin(con, "worker", "again", chat, "same message")
+        check("begin: one message opens one task", not ok and "already" in msg, msg)
+        ok, msg, _ = actions.task_begin(con, "human", "x", chat, "y")
+        check("begin: never in the founder's name", not ok, msg)
+        chat2 = db.add_request(con, "human", "worker", "and this too", None, None, "async", "ask", 0, None)
+        rc, out = _cli(["task", "begin", "cli one", "--chat", str(chat2), "--why", "via the cli"],
+                       as_agent="worker")
+        check("begin: the cli opens it too", rc == 0 and "begun from founder message" in out, out)
+        rc, out = _cli(["task", "begin", "cli two", "--chat", str(other), "--why", "x"], as_agent="worker")
+        check("begin: the cli refuses another agent's message", rc == 1 and "founder" in out, out)
+        chat2 = db.add_request(con, "human", "worker", "one more", None, None, "async", "ask", 0, None)
+        ok, msg, t2 = actions.task_begin(con, "worker", "second", chat2, "another instruction")
+        check("begin: a second task leaves the first current and says how to switch",
+              ok and db.current_task(con, "worker") == tid and f"task start T{t2}" in msg, msg)
+    finally:
+        con.close()
+
+
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
@@ -7502,6 +7558,7 @@ def main() -> int:
         run(lambda: test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(Path(td) / 'taskstates'))
         run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
+        run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))

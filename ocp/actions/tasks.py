@@ -182,6 +182,15 @@ def _asks(r) -> bool:
     return r["state"] == "queued" and not r["fyi"]
 
 
+def _begun(con, tid: int) -> bool:
+    """Was this task begun on a founder's message (`task_begin`)? Its work is
+    under way from then until it is done or closed, whatever became of the
+    chat request that is its only link."""
+    return con.execute(
+        "SELECT 1 FROM events WHERE kind = 'task_begin' AND json_extract(payload, '$.task_id') = ? "
+        "LIMIT 1", (tid,)).fetchone() is not None
+
+
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved
@@ -203,6 +212,8 @@ def task_state(con, row) -> str:
     if any(_asks(r)
            for c in db.open_child_tasks(con, row["id"])
            for r in db.task_requests(con, c["id"])):
+        return "doing"
+    if _begun(con, row["id"]):
         return "doing"
     return "queued" if row["queued_by"] else "draft"
 
@@ -636,14 +647,15 @@ def parse_expects(text) -> str:
 
 def _current_task_still_asking(con, agent: str) -> bool:
     """Does `agent`'s current task still have its own (not a child's) request
-    queued and not a mere fyi report - the one thing left to deliver?"""
+    queued and not a mere fyi report - the one thing left to deliver? A begun
+    task (`_begun`) always does, until it is done."""
     tid = db.current_task(con, agent)
     if tid is None:
         return False
     row = db.get_task(con, tid)
     if row is None or row["closed_by"] or row["done_evidence"]:
         return False
-    return any(_asks(r) for r in db.task_requests(con, tid))
+    return _begun(con, tid) or any(_asks(r) for r in db.task_requests(con, tid))
 
 
 # Events after which a task's earlier answers no longer mean it was handled: it
@@ -786,6 +798,41 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         con.close()
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
                   f"expects {expects}): {msg}"), tid
+
+
+def task_begin(con, me: str, title: str, chat: int, why: str, priority: int | None = None,
+               expects: str = "report") -> tuple[bool, str, int | None]:
+    """T297 (T291, founder #1648 (a)): the founder's own message to `me` is
+    approval enough - `me` opens a task for itself and starts it, with no
+    manager to queue it. What stands in for the approval is the record: `why`
+    (what led to it) on the event, and request #`chat` linked to the task, so
+    the board shows the founder's words behind it. Each message opens one task:
+    a message already linked to a task cannot open another."""
+    if me == HUMAN:
+        return False, "a task is begun by an agent, never in the founder's name", None
+    said = textsafe.oneline(why).strip()
+    if not said:
+        return False, "say what led to this (--why): the record is the approval", None
+    row = db.get_request(con, chat)
+    if row is None:
+        return False, f"no request #{chat}", None
+    if row["requester"] != HUMAN or row["target"] != me:
+        return False, (f"request #{chat} is not a message from the founder to {me}: "
+                       "only that lets you start a task without approval"), None
+    used = db.tasks_for_request(con, chat)
+    if used:
+        return False, f"request #{chat} already opened T{used[0]['id']}", None
+    if priority is None:
+        priority = db.DEFAULT_PRIORITY
+    tid = db.new_task(con, title, me, me, None, priority, expects=expects)
+    db.link_request(con, tid, chat)
+    held = db.current_task(con, me)
+    if held is None:
+        db.set_current_task(con, me, tid)
+    db.add_event(con, me, "task_begin", {"task_id": tid, "chat_request": chat, "why": said})
+    return True, (f"task T{tid} begun from founder message #{chat}" +
+                  (f" and is now your current task" if held is None else
+                   f"; T{held} is still current - `ocp task start T{tid}` when you switch")), tid
 
 
 def task_start(con, me: str, tid: int) -> tuple[bool, str]:

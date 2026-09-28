@@ -20,7 +20,7 @@ from .idle import cmd_auto_accept, cmd_idle_timeout, cmd_ignore_cache_expiry, se
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_reopen, cmd_task_start
+from .task import _expects_arg, _priority_arg, _task_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_reopen, cmd_task_start
 from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
 from .usage import cmd_collect, cmd_usage
 
@@ -536,6 +536,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="what `task done` must give back: sha, verdict, decision or "
                         "report (default)")
     p.set_defaults(fn=cmd_task_new)
+    p = tk.add_parser("begin", help="start a task the founder told you to do, without approval "
+                                    "(T297): opens it for you, linked to their message")
+    p.add_argument("title")
+    p.add_argument("--chat", type=int, required=True, metavar="ID",
+                   help="the founder's message to you (a request id): what you were told")
+    p.add_argument("--why", required=True, help="what led to this, in a line")
+    p.add_argument("--priority", type=_priority_arg, default=None, metavar="P",
+                   help="P1 (high), P2 (default) or P3 (low)")
+    p.add_argument("--expects", type=_expects_arg, default="report", metavar="K",
+                   help="what `task done` must give back: sha, verdict, decision or report (default)")
+    p.set_defaults(fn=cmd_task_begin)
     p = tk.add_parser("start", help="pick up T<n> as your current task (T292) - for one "
                                     "delivered while you already held another")
     p.add_argument("task", type=_task_arg, metavar="T")
