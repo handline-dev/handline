@@ -3309,6 +3309,10 @@ async def test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor() -> None:
         check("table sync: scroll and cursor untouched", table.scroll_y == at and table.cursor_row == 30,
               (table.scroll_y, table.cursor_row))
         check("table sync: the new text is shown", table.get_row_at(5)[1].plain == "t1")
+        sync_rows(table, [("0", (Text("a", style="bold"), Text("x")))])
+        sync_rows(table, [("0", (Text("a", style="dim"), Text("x")))])
+        check("table sync: a style-only change is shown", str(table.get_row_at(0)[0].style) == "dim",
+              str(table.get_row_at(0)[0].style))
         check("table sync: a changed row set rebuilds", sync_rows(table, rows(1)[:50]))
 
 
