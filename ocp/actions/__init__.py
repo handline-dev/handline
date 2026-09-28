@@ -22,7 +22,7 @@ from .routing import (HUMAN, _TEAM, routing, supervisor_of, listing_refusal, lis
 from .dialogs import dialog_of, answer_dialog, standing_answers, remove_answer  # noqa: F401
 from .confirmations import pending as pending_confirmation, pending_all as pending_confirmations, answer as answer_confirmation  # noqa: F401
 from .ask_question import pending as pending_question, pending_all as pending_questions, answer as answer_question  # noqa: F401
-from .prompt_blocks import open_blocks, answer as answer_block  # noqa: F401
+from .prompt_blocks import open_blocks, open_block_of, headline as block_headline, request_answer as request_block_answer, answer as answer_block  # noqa: F401
 from .control import (wake, close, unstall, park, fold, start, terminal, login_argv, move, can, ASYNC_VERBS, _IDLE_WAIT_S, _DELIVERY_S, WAITS, perform)  # noqa: F401
 from .requests import (message, message_ok, answer, answer_ok, check_open_proposal, record_human_resolve, dismiss, waiting_ids, cancel_plan, cancel, send_now, check_human_resolve, _is_answer_to_human, mailbox_rows, fold_key, messages, founder_waits, opened_by_human, message_detail, QUOTE_LINES, _clip, EXCHANGE_ROWS, EXCHANGE_WIDTH, _exchange, _gist, _at, first_line)  # noqa: F401
 from .task_tree import task_tree  # noqa: F401

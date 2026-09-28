@@ -2597,7 +2597,7 @@ class _FakeRules:
         return True, "removed"
 
 
-async def test_a_dialog_on_an_agent_terminal_is_answered_from_its_page() -> None:
+async def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     import sys
     from unittest import mock
     from ocp.session import orca as orcamod
@@ -2657,33 +2657,6 @@ async def test_a_dialog_on_an_agent_terminal_is_answered_from_its_page() -> None
             check("dialog: and it can be removed", ok and rules.rules == [])
         finally:
             con.close()
-
-        screen["dialog"] = dialog
-        pressed.clear()
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            page = ChatPage("reviewer")
-            await app.push_screen(page)
-            await pilot.pause(1.0)
-            check("dialog: the agent's page shows the modal", isinstance(app.screen, DialogModal), type(app.screen).__name__)
-            await pilot.press("escape")
-            await pilot.pause(0.3)
-            page._dialog_at = 0.0
-            page.poll_dialog()
-            await pilot.pause(0.8)
-            check("dialog: closed by hand, it is not offered again while it stays", app.screen is page)
-            screen["dialog"] = None
-            page._dialog_at = 0.0
-            page.poll_dialog()
-            await pilot.pause(0.5)
-            screen["dialog"] = dialog
-            page._dialog_at = 0.0
-            page.poll_dialog()
-            await pilot.pause(0.8)
-            check("dialog: gone and back, it is offered again", isinstance(app.screen, DialogModal))
-            await pilot.click("#opt_1")
-            await pilot.pause(0.8)
-            check("dialog: a click on an option presses it", pressed == [("term_d", 1)], str(pressed))
     del teampkg.dialog_rules
 
 
@@ -2716,254 +2689,116 @@ async def test_the_dialog_modal_offers_always_except_for_a_truncated_title() -> 
         check("dialog modal: unticked picks (n, False)", has_box and got == [(1, False)], str((has_box, got)))
 
 
-async def test_a_claude_permission_prompt_is_answered_from_its_chat_page() -> None:
+def _block(con, agent: str, kind: str, detail: dict, title: str = "t", wait_id=None, answerable=True) -> int:
+    """A prompt_blocks row as the daemon's screen watch writes it."""
+    return db.prompt_open(con, agent, kind, f"fp{time.time()}", title, [], detail, wait_id, answerable, int(time.time()))
+
+
+async def test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer() -> None:
+    """T336/T396: the page reads the daemon's block rows - no terminal - and clicking sends
+    one answer request naming the block; a block is offered once and never without a hook id."""
     from unittest import mock
-    from ocp.session import orca as orcamod, waiting
-    from ocp.vendors.base import Confirmation
+    from textual.screen import ModalScreen
+    from ocp.ui.components.dialog_modal import DialogModal
     from ocp.ui.components.permission_modal import PermissionModal
-    _home("permissionmodal")
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("blockmodal")
     agents.register("backend")
-    con = db.connect()
-    db.set_terminal(con, "backend", "term_p", "wt")
-    con.commit()
-    con.close()
-    waiting.note("backend", "Bash", {"command": "rm -rf build/", "description": "cleaning old build output"},
-                 after_event_id=1)
-    lines = ("Bash(rm -rf build/)", "cleaning old build output", "1. Yes", "2. No")
-    screen = {"found": Confirmation("Bash(rm -rf build/)", lines, 1, 2), "clear_after_answer": True}
-    answered = []
+    sent = []
+    question = {"agent": "backend", "header": "Library", "question": "Which library?",
+                "options": [{"label": "date-fns", "description": "", "checked": False}],
+                "multi_select": False, "other_number": 2, "other_text": None}
+    perm = {"agent": "backend", "tool": "Bash", "command": "rm -rf build/", "reason": "", "wait": 5}
+    with mock.patch.object(actions, "request_block_answer",
+                           lambda bid, choice: (sent.append((bid, choice)) or (True, "answered"))):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            page = ChatPage("backend")
+            await app.push_screen(page)
+            con = db.connect()
+            try:
+                loose = _block(con, "backend", "permission", perm, wait_id=None, answerable=False)
+                con.commit()
+                page.refresh_block()
+                await pilot.pause(0.3)
+                check("blocks: a permission prompt with no hook record gets no modal", app.screen is page)
+                db.prompt_close(con, loose, int(time.time()))
+                pid = _block(con, "backend", "permission", perm, wait_id=5)
+                con.commit()
+                page.refresh_block()
+                await pilot.pause(0.3)
+                check("blocks: a permission block shows the permission modal, alone",
+                      isinstance(app.screen, PermissionModal)
+                      and sum(isinstance(x, ModalScreen) for x in app.screen_stack) == 1, type(app.screen).__name__)
+                db.prompt_close(con, pid, int(time.time()))
+                con.commit()
+                page.refresh_block()
+                await pilot.pause(0.3)
+                check("blocks: the block going away closes its modal", app.screen is page, type(app.screen).__name__)
+                qid = _block(con, "backend", "question", question)
+                con.commit()
+                page.refresh_block()
+                await pilot.pause(0.3)
+                check("blocks: a question block shows the question modal", isinstance(app.screen, QuestionModal))
+                await pilot.click("#opt_0")
+                await pilot.pause(1.0)
+                check("blocks: a click sends one request naming the block and the choice",
+                      sent == [(qid, {"choices": [0], "text": None})], str(sent))
+                page.refresh_block()
+                await pilot.pause(0.3)
+                check("blocks: an answered block, still open, is not offered again", app.screen is page)
+                db.prompt_close(con, qid, int(time.time()))
+                did = _block(con, "backend", "dialog", {"agent": "backend", "options": [[1, "Yes"], [2, "No"]],
+                                                        "body": [], "truncated": False}, title="Proceed?")
+                con.commit()
+                page.refresh_block()
+                await pilot.pause(0.3)
+                check("blocks: a dialog block shows the dialog modal", isinstance(app.screen, DialogModal))
+                await pilot.click("#opt_2")
+                await pilot.pause(0.5)
+                check("blocks: the dialog pick is sent with its always flag",
+                      sent[-1] == (did, {"number": 2, "always": False}), str(sent))
+            finally:
+                con.close()
 
-    def answer(handle, yes, seen, same_wait=lambda: True):
-        answered.append((handle, yes))
-        if screen["clear_after_answer"]:
-            screen["found"] = None
-        return orcamod.CLEARED, "Bash(rm -rf build/)", ""
 
-    with mock.patch.object(orcamod, "confirmation_on_screen", lambda h: screen["found"]), \
-            mock.patch.object(orcamod, "answer_confirmation", answer):
+async def test_a_question_modal_keeps_its_own_press_and_other_prompt() -> None:
+    """The block going away mid-press (the answer is what clears it) and the refresh while
+    Other's text prompt is up must not pop or bury the modal (founder capture 2026-09-28)."""
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("blockmodal_multi")
+    agents.register("backend")
+    q = {"agent": "backend", "header": "Features", "question": "Which features?",
+         "options": [{"label": "logging", "description": "", "checked": False}],
+         "multi_select": True, "other_number": 2, "other_text": None}
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("backend")
+        await app.push_screen(page)
         con = db.connect()
         try:
-            found = actions.pending_confirmation(con, "backend")
-            check("confirm: a permission prompt on the terminal carries the hook's command and reason",
-                  found and found["command"] == "rm -rf build/" and found["reason"] == "cleaning old build output",
-                  str(found))
-        finally:
-            con.close()
-
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            page = ChatPage("backend")
-            await app.push_screen(page)
-            await pilot.pause(1.0)
-            check("confirm: the agent's page shows the permission modal", isinstance(app.screen, PermissionModal),
-                  type(app.screen).__name__)
-            await pilot.press("escape")
-            await pilot.pause(0.5)
-            page._confirm_at = 0.0
-            page.poll_confirmation()
-            await pilot.pause(1.2)
-            check("confirm: closed by hand, it is not offered again while it stays", app.screen is page)
-            screen["found"] = None
-            page._confirm_at = 0.0
-            page.poll_confirmation()
-            await pilot.pause(0.8)
-            screen["found"] = Confirmation("Bash(rm -rf build/)", lines, 1, 2)
-            page._confirm_at = 0.0
-            page.poll_confirmation()
-            await pilot.pause(1.2)
-            check("confirm: gone and back, it is offered again", isinstance(app.screen, PermissionModal))
-            await pilot.click("#yes")
-            await pilot.pause(1.2)
-            check("confirm: a click on Yes answers yes", answered == [("term_p", True)], str(answered))
-
-            # The terminal has not redrawn yet: the very prompt just answered is still on
-            # screen, and a poll right after must not offer it again.
-            answered.clear()
-            waiting.note("backend", "Bash", {"command": "rm -rf build/", "description": "cleaning old build output"},
-                         after_event_id=2)
-            screen["clear_after_answer"] = False
-            screen["found"] = Confirmation("Bash(rm -rf build/)", lines, 1, 2)
-            page._confirm_at = 0.0
-            page.poll_confirmation()
-            await pilot.pause(1.2)
-            check("confirm: a fresh prompt is offered", isinstance(app.screen, PermissionModal))
-            await pilot.click("#yes")
-            await pilot.pause(1.2)
-            check("confirm: answered, and the terminal has not redrawn", answered == [("term_p", True)]
-                  and app.screen is page, str(answered))
-            page._confirm_at = 0.0
-            page.poll_confirmation()
-            await pilot.pause(1.2)
-            check("confirm: the same prompt, still on screen, is not offered again",
-                  app.screen is page and answered == [("term_p", True)], str(answered))
-            screen["clear_after_answer"] = True
-
-            # A prompt with no wait record to pin it to (T223's `wait: None`) is left for
-            # the agent's own terminal: answer_confirmation refuses one on principle, so
-            # Yes/No buttons for it would always fail.
-            waiting.clear("backend")
-            screen["found"] = Confirmation("Bash(rm -rf build/)", lines, 1, 2)
-            page._confirm_at = 0.0
-            page.poll_confirmation()
-            await pilot.pause(1.2)
-            check("confirm: an unidentified prompt (no wait id) is not offered a modal",
-                  app.screen is page and not answered[1:], str(answered))
-
-
-async def test_an_askuserquestion_prompt_is_answered_from_its_chat_page() -> None:
-    from unittest import mock
-    from ocp.session import orca as orcamod
-    from ocp.vendors.base import Question, QuestionOption
-    from ocp.ui.components.question_modal import QuestionModal
-    _home("questionmodal")
-    agents.register("backend")
-    con = db.connect()
-    db.set_terminal(con, "backend", "term_q", "wt")
-    con.commit()
-    con.close()
-    q = Question("Library", "Which library should we use for dates?",
-                (QuestionOption("date-fns", "small, tree-shakeable"),
-                 QuestionOption("dayjs", "momentjs-compatible API")),
-                False, 3, None, ("Library", "date-fns", "dayjs"))
-    screen = {"found": q}
-    answered = []
-
-    def answer(handle, seen, choices=(), text=None):
-        answered.append((handle, choices, text))
-        screen["found"] = None
-        return orcamod.CLEARED, "Library", ""
-
-    with mock.patch.object(orcamod, "question_on_screen", lambda h: screen["found"]), \
-            mock.patch.object(orcamod, "answer_question", answer):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            page = ChatPage("backend")
-            await app.push_screen(page)
-            await pilot.pause(1.0)
-            check("question: the agent's page shows the question modal", isinstance(app.screen, QuestionModal),
-                  type(app.screen).__name__)
-            await pilot.click("#opt_0")
-            await pilot.pause(1.2)
-            check("question: a click on an option answers it with that choice",
-                  answered == [("term_q", (0,), None)], str(answered))
-            check("question: answered, and the terminal has not redrawn", app.screen is page)
-
-
-async def test_an_askuserquestion_multiselect_offers_other_too() -> None:
-    from unittest import mock
-    from ocp.session import orca as orcamod
-    from ocp.vendors.base import Question, QuestionOption
-    from ocp.ui.components.question_modal import QuestionModal
-    from ocp.ui.components.text_prompt import TextPrompt
-    _home("questionmodal_multi")
-    agents.register("backend")
-    con = db.connect()
-    db.set_terminal(con, "backend", "term_q", "wt")
-    con.commit()
-    con.close()
-    q = Question("Features", "Which features should we enable?",
-                (QuestionOption("logging", ""), QuestionOption("metrics", "")),
-                True, 3, None, ("Features", "logging", "metrics", "Type something"))
-    screen = {"found": q}
-    answered = []
-
-    def answer(handle, seen, choices=(), text=None):
-        answered.append((handle, choices, text))
-        screen["found"] = None
-        return orcamod.CLEARED, "Features", ""
-
-    with mock.patch.object(orcamod, "question_on_screen", lambda h: screen["found"]), \
-            mock.patch.object(orcamod, "answer_question", answer):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            page = ChatPage("backend")
-            await app.push_screen(page)
-            await pilot.pause(1.0)
+            bid = _block(con, "backend", "question", q)
+            con.commit()
+            page.refresh_block()
+            await pilot.pause(0.3)
             modal = app.screen
-            check("question: multiSelect still offers an Other button",
-                  isinstance(modal, QuestionModal) and modal.query("#other"), type(modal).__name__)
+            check("question: multiSelect offers Other", isinstance(modal, QuestionModal) and modal.query("#other"))
             await pilot.click("#other")
             await pilot.pause(0.2)
-            check("question: Other opens the free-text prompt", isinstance(app.screen, TextPrompt))
-            # The founder found this live (2026-09-28): the 2s question poll kept firing
-            # while "Type something"'s own TextPrompt sat on top, pushing a fresh
-            # QuestionModal over it and burying what was being typed.
-            page._question_at = 0.0
-            page.poll_question()
-            await pilot.pause(0.5)
-            check("question: the 2s poll does not bury Other's text prompt under a fresh modal",
-                  isinstance(app.screen, TextPrompt), type(app.screen).__name__)
-            for k in list("newone") + ["enter"]:
-                await pilot.press(k)
+            page.refresh_block()
+            await pilot.pause(0.3)
+            check("question: a refresh does not bury Other's text prompt", isinstance(app.screen, TextPrompt),
+                  type(app.screen).__name__)
+            await pilot.press("escape")
             await pilot.pause(0.2)
-            check("question: Other's text returns to the checklist rather than submitting alone "
-                  "- a checked box must survive answering Other too (founder capture 2026-09-28)",
-                  app.screen is modal and not answered, str(answered))
-            await pilot.click("#opt_0")
-            await pilot.click("#submit")
-            await pilot.pause(1.2)
-            check("question: submit carries both the checked box and Other's text together",
-                  answered == [("term_q", (0,), "newone")], str(answered))
-
-
-async def test_askuserquestion_modal_closes_itself_once_the_terminal_moves_on() -> None:
-    """T336 follow-up, founder live capture 2026-09-28: the modal stayed up on the
-    bridge after its own terminal question was gone - answered elsewhere, or the
-    turn moved on without it. `question_seen` now closes it the same way an
-    unrelated screen elsewhere is left alone: only ever its own QuestionModal."""
-    from ocp.ui.components.question_modal import QuestionModal
-    _home("questionmodal_autoclose")
-    agents.register("backend")
-    con = db.connect()
-    db.set_terminal(con, "backend", "term_q", "wt")
-    con.commit()
-    con.close()
-    found = {"agent": "backend", "vendor": "claude", "header": "Features",
-            "question": "Which features should we enable?",
-            "options": [{"label": "logging", "description": "", "checked": False}],
-            "multi_select": True, "other_number": 2, "other_text": None,
-            "lines": ["Features", "logging", "Type something"]}
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        page = ChatPage("backend")
-        await app.push_screen(page)
-        await pilot.pause(0.2)
-        app.push_screen(QuestionModal(found, press=lambda choices, text: (True, "unused")))
-        await pilot.pause(0.2)
-        check("question: the modal is up", isinstance(app.screen, QuestionModal), type(app.screen).__name__)
-        page.question_seen(None)
-        await pilot.pause(0.2)
-        check("question: gone from the real screen closes the bridge's own modal too",
-              app.screen is page, type(app.screen).__name__)
-
-
-async def test_askuserquestions_own_press_in_flight_is_not_mistaken_for_a_new_one() -> None:
-    """T336 follow-up: a multiSelect answer sends several keys in a row, toggling
-    boxes on the real screen one at a time - a 2s poll landing mid-sequence used
-    to read that as a fresh question and push a second modal over the first,
-    live on the bridge (founder capture 2026-09-28). `_question_pressing` marks
-    this agent's own press as not a new question until it settles."""
-    _home("questionmodal_pressing")
-    agents.register("backend")
-    con = db.connect()
-    db.set_terminal(con, "backend", "term_q", "wt")
-    con.commit()
-    con.close()
-    mid_press = {"agent": "backend", "vendor": "claude", "header": "Features",
-                "question": "Which features should we enable?",
-                "options": [{"label": "logging", "description": "", "checked": True}],
-                "multi_select": True, "other_number": 2, "other_text": None,
-                "lines": ["Features", "logging (checked mid-press)", "Type something"]}
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        page = ChatPage("backend")
-        await app.push_screen(page)
-        await pilot.pause(0.2)
-        page._question_pressing = True
-        page.question_seen(mid_press)
-        await pilot.pause(0.2)
-        check("question: a reading mid-press is not offered as a fresh question",
-              app.screen is page, type(app.screen).__name__)
+            page._block_pressing = True
+            db.prompt_close(con, bid, int(time.time()))
+            con.commit()
+            page.refresh_block()
+            await pilot.pause(0.2)
+            check("question: the block clearing mid-press leaves the modal to finish", app.screen is modal)
+        finally:
+            con.close()
 
 
 async def test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll() -> None:
@@ -3509,13 +3344,10 @@ async def _run_all() -> None:
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
     await test_home_settings_lists_the_standing_answers_and_removes_one()
-    await test_a_dialog_on_an_agent_terminal_is_answered_from_its_page()
+    await test_a_dialog_on_an_agent_terminal_is_read_and_pressed()
     await test_the_dialog_modal_offers_always_except_for_a_truncated_title()
-    await test_a_claude_permission_prompt_is_answered_from_its_chat_page()
-    await test_an_askuserquestion_prompt_is_answered_from_its_chat_page()
-    await test_an_askuserquestion_multiselect_offers_other_too()
-    await test_askuserquestion_modal_closes_itself_once_the_terminal_moves_on()
-    await test_askuserquestions_own_press_in_flight_is_not_mistaken_for_a_new_one()
+    await test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer()
+    await test_a_question_modal_keeps_its_own_press_and_other_prompt()
     await test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll()
     await test_the_bridge_follows_the_os_light_dark_setting_while_open()
     await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()

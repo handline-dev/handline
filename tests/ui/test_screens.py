@@ -3098,14 +3098,13 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
         try:
             db.set_terminal(con, "backend", "term_x", "wt")
             db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
-            # waiting.of() confirms a permission wait against the terminal's
-            # own live screen (auditor #1721) - a stub stands in for it here.
-            orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "permission")
-            waiting.note("backend", "Bash", {"command": "rm -rf /x"})
+            # The daemon's screen watch keeps the prompt as a prompt_blocks row (T395).
+            bid = db.prompt_open(con, "backend", "permission", "fp", "Bash", [],
+                                 {"tool": "Bash", "command": "rm -rf /x"}, 5, True, int(time.time()))
             word, extra = tui.screen_state(con, db.get_agent_state(con, "backend"))
-            check("map: a permission prompt (waiting.py) is DIALOG, over RUNNING",
+            check("map: a prompt block is DIALOG, over RUNNING",
                   word == "DIALOG" and "rm -rf /x" in extra, (word, extra))
-            waiting.clear("backend")
+            db.prompt_close(con, bid, int(time.time()))
         finally:
             orcamod.screen_blocker = real_screen_blocker
             os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)

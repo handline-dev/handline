@@ -116,7 +116,11 @@ class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
     async def _other(self) -> None:
         if self._sending:
             return
-        text = await self.app.push_screen_wait(TextPrompt(f"{self.found['question']} - your own answer:"))
+        # A callback, not push_screen_wait: that needs a worker, which this handler only has
+        # when the modal happened to be pushed from one.
+        self.app.push_screen(TextPrompt(f"{self.found['question']} - your own answer:"), self._typed)
+
+    async def _typed(self, text: str | None) -> None:
         if text is None:
             return
         if not self.found["multi_select"]:

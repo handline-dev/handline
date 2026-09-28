@@ -14,6 +14,7 @@ import json
 import time
 
 from .. import db
+from ..daemon import client
 from ..infra import lock
 from ..session import orca, waiting
 from . import ask_question, confirmations, dialogs
@@ -58,6 +59,30 @@ def open_blocks(con, now: float | None = None) -> list[dict]:
     row the watch has refreshed within `STALE_S`."""
     now = time.time() if now is None else now
     return [_row_dict(r) for r in db.open_prompts(con) if now - r["last_seen"] <= STALE_S]
+
+
+def open_block_of(con, agent: str, now: float | None = None) -> dict | None:
+    """`agent`'s open block, when the watch has refreshed it within `STALE_S`."""
+    row = db.open_prompt(con, agent)
+    if row is None or (time.time() if now is None else now) - row["last_seen"] > STALE_S:
+        return None
+    return _row_dict(row)
+
+
+def headline(block: dict) -> str:
+    """What a block is, in one line, for the places that count what waits on the founder."""
+    if block["kind"] == PERMISSION:
+        d = block["detail"]
+        return " ".join(x for x in (f"{d.get('tool') or 'tool'}:", d.get("command")) if x)
+    return block["title"] or block["kind"]
+
+
+def request_answer(block_id: int, choice: dict) -> tuple[bool, str]:
+    """Ask the daemon to answer block `block_id` (`answer` says how); the bridge sends nothing itself."""
+    reply = client.send({"verb": "answer_block", "block": block_id, "choice": choice})
+    if reply is None:
+        return False, "the daemon is not running - nothing sent"
+    return bool(reply.get("ok")), str(reply.get("said", ""))
 
 
 def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:

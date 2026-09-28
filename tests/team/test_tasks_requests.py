@@ -2701,22 +2701,30 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
         cmd = "git push origin main " + "x" * 200
 
         def waits():
-            return [w for w in actions.founder_waits(con) if w["kind"] == "permission"]
+            """The hook's own record, which is what clears on an answer."""
+            held = waiting.of(con, db.get_agent_state(con, "backend"))
+            return [held] if held else []
 
         check("prompt: nothing is waiting before one is raised", not waits())
         _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": cmd})
         w = waits()
         check("prompt: the agent is waiting, with its tool and its command",
-              len(w) == 1 and w[0]["who"] == "backend" and w[0]["red"]
-              and w[0]["what"].startswith("Bash: git push origin main"), str(w))
-        check("prompt: the command is cut to 120 characters",
-              len(w[0]["what"]) == len("Bash: ") + 120, str(len(w[0]["what"])))
+              len(w) == 1 and w[0]["tool"] == "Bash" and w[0]["command"].startswith("git push origin main"), str(w))
+        check("prompt: the command is cut to 120 characters", len(w[0]["command"]) == 120, str(len(w[0]["command"])))
         ev = [json.loads(e["payload"]) for e in db.events_after(con, 0, agent="backend")
               if e["kind"] == "PermissionRequest"]
         check("prompt: the event carries the command too", ev and ev[-1].get("command") == cmd[:120],
               str(ev))
         check("prompt: its state underneath is still RUNNING",
               db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING)
+
+        # What the daemon's screen watch writes for that prompt (T395); the bridge and ps read only this.
+        block = db.prompt_open(con, "backend", "permission", "fp", "Bash", [], {"tool": "Bash", "command": w[0]["command"]},
+                               5, True, int(time.time()))
+        found = [x for x in actions.founder_waits(con) if x["kind"] == "permission"]
+        check("prompt: the block row is what waits on the founder, red, with tool and command",
+              len(found) == 1 and found[0]["who"] == "backend" and found[0]["red"]
+              and found[0]["what"].startswith("Bash: git push origin main"), str(found))
 
         frame = _snap(120, 40)
         plain = [tui._ANSI.sub("", ln) for ln in frame.split("\n")]
@@ -2742,6 +2750,8 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
               and said.count("WAITING ON YOU") == 1 and "DIALOG" in said
               and "Bash: git push" in said, said[:400])
 
+        db.prompt_close(con, block, int(time.time()))
+        check("prompt: a closed block waits on nobody", not actions.founder_waits(con))
         rows_before = len(db.events_after(con, 0, agent="backend"))
         _fire_hook("PostToolUse", tool_name="Read", tool_input={"file_path": "/x"})
         check("prompt: another tool finishing is not the answer", len(waits()) == 1)

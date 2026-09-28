@@ -29,7 +29,6 @@ from ..usage import load as loadmod, status
 from ..infra import paths
 from ..infra import timefmt
 from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, locks as dmn_locks, states as dmn_states
-from ..session import waiting as promptwait
 from ..infra.textsafe import cwidth, drawable, oneline, wrap
 
 R = "\033[0m"
@@ -970,10 +969,9 @@ def screen_state(con, row) -> tuple[str, str]:
     """
     if not row:
         return "IDLE", ""
-    held = promptwait.of(con, row)
-    if held:
-        what = " ".join(x for x in (f"{held.get('tool') or 'tool'}:", held.get("command")) if x)
-        return "DIALOG", oneline(what)[:DETAIL_CAP]
+    prompt = actions.open_block_of(con, row["agent"])
+    if prompt:
+        return "DIALOG", oneline(actions.block_headline(prompt))[:DETAIL_CAP]
     block = db.block_get(con, row["agent"])
     if block and block["kind"] in (orca.MODAL, orca.BACKGROUNDED):
         return "DIALOG", oneline(blockedmod.headline(block["kind"], block["detail"]))[:DETAIL_CAP]
