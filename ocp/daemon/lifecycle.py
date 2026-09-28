@@ -601,6 +601,21 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # it line by line.
         resumed = False
         foreign = False
+
+        def _running_elsewhere() -> tuple[bool, str] | None:
+            """(foreign, why), or None when the table confirms nothing is
+            running there. Unreadable is not "none" (T146 round 2, auditor
+            #1992): typing over a session that might be there reaches it as
+            a prompt, so it is refused the same way (`foreign` True) and for
+            the same reason it is not blamed on the agent's own streak - the
+            caller only takes `why` from here when `foreign` is True, same
+            as it always has for the confirmed case below."""
+            sessions = obs.live_sessions()
+            if sessions is None:
+                return True, "the process table could not be confirmed just now"
+            if sessions.get(agent):
+                return not taken, "a session it did not start is running"
+            return None
         # Past the cache's life a resume costs the whole transcript and a
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
@@ -637,10 +652,11 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # come up late, not foreign, if that attempt's launch took the
             # prompt file - same rule the post-send check below uses. `why`
             # is left as that attempt's own failure reason in that case.
-            if (obs.live_sessions() or {}).get(agent):
-                foreign = not taken
+            found = _running_elsewhere()
+            if found:
+                foreign, found_why = found
                 if foreign:
-                    why = "a session it did not start is running"
+                    why = found_why
                 break
             # Only a resume reads it: a fresh start has read nothing of what the
             # queue held, and is told the ordinary way once it is up.
@@ -664,10 +680,11 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # A session owns the terminal now, and the next attempt's command
             # would be typed into it as a prompt. It is this launch's own, come
             # up late, only if the launch took the prompt.
-            if (obs.live_sessions() or {}).get(agent):
-                foreign = not taken
+            found = _running_elsewhere()
+            if found:
+                foreign, found_why = found
                 if foreign:
-                    why = "a session it did not start is running"
+                    why = found_why
                 break
         if not ok:
             if took:

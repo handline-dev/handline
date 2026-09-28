@@ -1217,6 +1217,31 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         con.close()
 
 
+def test_wait_session_gone_treats_an_unmappable_pid_as_unreadable() -> None:
+    """T146: a poll where `observe.live_sessions` cannot map a live pid back
+    to its agent reads as the whole table being unreadable (its own fix), not
+    as the session having left - so a poll or two of that here must not be
+    believed as "gone" either; a genuinely gone session is, as soon as a
+    decisive reading says so."""
+    real_wait, real_poll, real_live = (dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S,
+                                       obsmod.live_sessions)
+    dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.02
+    try:
+        # Unreadable throughout: never read as gone, so the wait runs out.
+        obsmod.live_sessions = lambda: None
+        check("wait_session_gone: an unreadable table the whole time is not gone",
+              dmn_delivery._wait_session_gone("backend") is False)
+
+        # Unreadable for a couple of polls, then a decisive "gone".
+        seq = iter([None, None, {}])
+        obsmod.live_sessions = lambda: next(seq, {})
+        check("wait_session_gone: unreadable polls are outlasted by a decisive one",
+              dmn_delivery._wait_session_gone("backend") is True)
+    finally:
+        dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S, obsmod.live_sessions = (
+            real_wait, real_poll, real_live)
+
+
 def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) -> None:
     """The idle schedule asks `should_close` every tick. A session that does
     not die after /exit must not be typed at again, and must not hold the
@@ -3515,6 +3540,7 @@ def main() -> int:
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
+        run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
