@@ -7240,6 +7240,19 @@ limits:
 
         rc, out = _cli(["task", "handoff", f"T{t}", "dev.auditor", "x"], as_agent="worker")
         check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
+        cli_t = db.new_task(con, "via cli", "worker", "manager")
+        _cli(["task", "handoff", f"T{cli_t}", "dev.auditor", "x"], as_agent="worker")
+        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x"], as_agent="dev.auditor")
+        check("handoff: the cli refuses an auditor's handoff without a verdict", rc == 1 and "--pass" in out, out)
+        try:
+            rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass", "--fail"], as_agent="dev.auditor")
+        except SystemExit as e:
+            rc, out = e.code, "argparse"
+        check("handoff: the cli refuses both verdict flags", rc == 2 and db.get_task(con, cli_t)["owner"] == "dev.auditor", out)
+        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass"], as_agent="dev.auditor")
+        check("handoff: --pass drives the handoff through the cli",
+              rc == 0 and db.get_task(con, cli_t)["owner"] == "manager"
+              and db.task_handoffs(con, cli_t)[-1]["verdict"] == "PASS", out)
     finally:
         con.close()
 
