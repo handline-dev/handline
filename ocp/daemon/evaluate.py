@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, lifecycle, reconciler, timebox, usage_poll
+from . import delivery, handoff, lifecycle, messaging, reconciler, timebox, usage_poll
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -110,6 +110,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # An agent mid-handoff is excluded from trigger evaluation (8.9).
     if db.in_flight_for(con, agent):
         return
+
+    # T351: whatever a `message` could not type at once - a screen_blocker,
+    # or a wake still settling - gets one more try every tick, RUNNING
+    # included: unlike the rest of this function, a pending message is not
+    # gated on being idle.
+    messaging.deliver_pending(con, agent, log)
 
     # A turn still running when the park began can hit the usage wall on its
     # own afterward, well before wake_at comes due - the dialog that puts on

@@ -61,10 +61,11 @@ from ocp.usage import windows  # noqa: E402
 from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from ocp.infra import doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from ocp.ui import jobs as jobsmod, tui  # noqa: E402
-from ocp.daemon import (delivery as dmn_delivery, devmode as dmn_devmode, evaluate as dmn_evaluate,  # noqa: E402
-                        handoff as dmn_handoff, lifecycle as dmn_lifecycle, locks as dmn_locks,
-                        loop as dmn_loop, reconciler as dmn_reconciler, states as dmn_states,
-                        usage_poll as dmn_usage_poll)
+from ocp.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
+                        evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
+                        locks as dmn_locks, loop as dmn_loop, messaging as dmn_messaging,
+                        reconciler as dmn_reconciler, socket_server as dmn_socket_server,
+                        states as dmn_states, usage_poll as dmn_usage_poll)
 from ocp.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
@@ -1924,15 +1925,18 @@ __all__ = [
     'clisetup',
     'clitask',
     'collect',
+    'dmn_client',
     'dmn_delivery',
     'dmn_devmode',
     'dmn_evaluate',
     'dmn_handoff',
     'dmn_lifecycle',
     'dmn_locks',
+    'dmn_messaging',
     'dmn_states',
     'dmn_reconciler',
     'dmn_loop',
+    'dmn_socket_server',
     'dmn_usage_poll',
     'db',
     'hr',

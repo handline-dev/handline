@@ -8,6 +8,7 @@ from ..team import accounts
 from ..team import agents
 from ..daemon import delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
+from ..infra import lock
 from ..session import fold as foldmod
 from ..session import orca
 from ..team import spawn as spawnmod
@@ -83,17 +84,24 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     on this screen assumes a terminal already exists; this is where one comes
     from. `start_in`/`spawn` confirm a session actually started (T146 pt.2),
     so their own `msg` is already why when one did not.
+
+    Locked (T351) the same as wake/close/park/move, unlike them not by a
+    layer underneath - nothing an agent with no terminal yet has to spawn
+    into would otherwise stop two starts landing at once and making it two.
     """
-    row = db.get_agent_state(con, agent)
-    if row and row["terminal"]:
-        return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
-    wt = spawnmod.worktree_path(row["worktree"] if row else None)
-    if wt:
-        # It has somewhere to run already; it lost the window it ran in.
-        _, msg = spawnmod.start_in(agent, wt)
-    else:
-        _, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
-    return msg
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return f"{agent}: someone else is starting or waking it; try again"
+        row = db.get_agent_state(con, agent)
+        if row and row["terminal"]:
+            return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
+        wt = spawnmod.worktree_path(row["worktree"] if row else None)
+        if wt:
+            # It has somewhere to run already; it lost the window it ran in.
+            _, msg = spawnmod.start_in(agent, wt)
+        else:
+            _, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
+        return msg
 
 
 def terminal(con, agent: str, repo: str | None = None) -> str:

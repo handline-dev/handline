@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from ..infra import textsafe
+from ..infra import lock, textsafe
 from ..session import orca
 from ..team import agents, trust
 from .. import db
@@ -74,25 +74,31 @@ def answer_dialog(con, agent: str, title: str, number: int, always: bool = False
     """Press option `number` of the dialog titled `title`, after reading the screen again: what
     is pressed is what is on screen now, not what the modal showed. `always` saves the choice
     first-class: the folder becomes a trusted root, any other dialog becomes a rule on its exact
-    title and the chosen label."""
-    now = dialog_of(con, agent)
-    if now is None or now["title"] != title:
-        return False, f"{agent}: the dialog is gone or changed - nothing pressed"
-    label = next((lab for n, lab in now["options"] if n == number), None)
-    if label is None:
-        return False, f"{agent}: the dialog has no option {number}"
-    handle = _handle(con, agent)
-    if always:
-        ok, said = _remember(now, label)
-        if not ok:
-            return False, f"{agent}: not pressed - {said}"
-    if now["kind"] == TRUST:
-        ok, said = orca.confirm_trust(handle)
-        return ok, f"{agent}: {said}"
-    outcome, _, why = orca.press_option(handle, number)
-    if outcome == orca.CLEARED:
-        return True, f"{agent}: chose {number}. {label}" + (" - and will again" if always else "")
-    return False, f"{agent}: {why or outcome}"
+    title and the chosen label.
+
+    Locked (T351) the same terminal the tick types into - a key pressed here
+    and a line the tick sends can otherwise land in the same input box."""
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return False, f"{agent}: something else is using its terminal; try again"
+        now = dialog_of(con, agent)
+        if now is None or now["title"] != title:
+            return False, f"{agent}: the dialog is gone or changed - nothing pressed"
+        label = next((lab for n, lab in now["options"] if n == number), None)
+        if label is None:
+            return False, f"{agent}: the dialog has no option {number}"
+        handle = _handle(con, agent)
+        if always:
+            ok, said = _remember(now, label)
+            if not ok:
+                return False, f"{agent}: not pressed - {said}"
+        if now["kind"] == TRUST:
+            ok, said = orca.confirm_trust(handle)
+            return ok, f"{agent}: {said}"
+        outcome, _, why = orca.press_option(handle, number)
+        if outcome == orca.CLEARED:
+            return True, f"{agent}: chose {number}. {label}" + (" - and will again" if always else "")
+        return False, f"{agent}: {why or outcome}"
 
 
 def _remember(dialog: dict, label: str) -> tuple[bool, str]:
