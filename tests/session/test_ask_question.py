@@ -14,7 +14,7 @@ from support import *  # noqa: E402,F401,F403
 from ocp import actions  # noqa: E402
 from ocp.actions import ask_question  # noqa: E402
 from ocp.vendors.claude import Claude  # noqa: E402
-from ocp.vendors.claude_ask import ENTER, RIGHT, question_keys  # noqa: E402
+from ocp.vendors.claude_ask import DOWN, ENTER, RIGHT, question_keys  # noqa: E402
 from ocp.vendors.opencode import Opencode  # noqa: E402
 
 RULE = "─" * 60
@@ -52,6 +52,21 @@ MULTI_SELECT = [
     "Enter to select · ↑/↓ to navigate · ctrl+g to edit in VS Code · Esc to cancel",
 ]
 
+# The founder's own real capture (2026-09-28): cursor fresh on row 1, four
+# real options, Other at row 5 - the shape that showed a number toggles
+# Other's checkbox but does not open its text field, only Down does.
+MULTI_SELECT_CURSOR_AT_TOP = [
+    RULE, "←  ☐ Needed  ✔ Submit  →", "",
+    "Which features should we enable?", "",
+    "❯ 1. [ ] logging", "         request/response logs",
+    "  2. [ ] metrics", "         latency, error rate",
+    "  3. [ ] alerts", "         notify on anomaly",
+    "  4. [ ] user admin", "         roles/accounts screen",
+    "  5. [ ] Type something", "     Submit",
+    RULE, "  6. Chat about this", "",
+    "Enter to select · ↑/↓ to navigate · ctrl+g to edit in VS Code · Esc to cancel",
+]
+
 PERMISSION_PROMPT = ["earlier output", RULE, "   Bash command", "     rm -rf build",
                      "   Do you want to proceed?", "   ❯ 1. Yes", "     2. No",
                      "   Esc to cancel · Tab to amend"]
@@ -74,6 +89,8 @@ def test_the_claude_adapter_recognizes_the_askuserquestion_prompt(home: Path) ->
     check("recognize: a multiSelect question's checkboxes and header",
           q3 and q3.multi_select and q3.header == "Features"
           and [o.checked for o in q3.options] == [True, False, True], str(q3))
+    check("recognize: the cursor row the screen's own ❯ marks",
+          q3.cursor == q3.other_number == 4, str(q3))
 
     check("recognize: not a plain permission prompt (parse_dialog's own shape)",
           drv.ask_question(PERMISSION_PROMPT) is None)
@@ -96,14 +113,25 @@ def test_question_keys_match_the_measured_key_sequence(home: Path) -> None:
           question_keys(m, choices=(0, 2)) == [RIGHT, "1"])
     check("keys: only the options that must change are toggled",
           question_keys(m, choices=(1,)) == ["1", "2", "3", RIGHT, "1"])
-    check("keys: Other on a multiSelect question is refused, not guessed - two live tries both went "
-          "wrong in different ways (2026-09-28), and there is no verified sequence yet",
-          question_keys(m, choices=(0, 2), text="anything") is None
-          and question_keys(m, text="anything") is None)
     check("keys: wanting nothing checked on a multiSelect question still submits, unchecking what was",
           question_keys(m, choices=()) == ["1", "3", RIGHT, "1"])
     check("keys: wanting nothing at all on a single-select question is refused, not a submit",
           question_keys(q, choices=()) is None)
+
+    # MULTI_SELECT's own cursor already sits on Other's row (founder capture) -
+    # a number toggles Other's checkbox same as any other, it does not open
+    # its text field, so this is Down's to reach it, not `other_number`'s own key.
+    check("keys: Other on a multiSelect question, cursor already there, types and submits",
+          question_keys(m, text="anything") == ["anything", DOWN, ENTER, "1"])
+    check("keys: Other alongside checked-box changes is refused - toggling moves the "
+          "cursor too, in a way this has not measured against a real screen",
+          question_keys(m, choices=(1,), text="anything") is None)
+
+    top = Claude().ask_question(MULTI_SELECT_CURSOR_AT_TOP)
+    check("recognize: cursor fresh on row 1, Other four rows down",
+          top and top.cursor == 1 and top.other_number == 5, str(top))
+    check("keys: Other reached by Down from wherever the cursor is, then one more onto Submit",
+          question_keys(top, text="a new one") == [DOWN, DOWN, DOWN, DOWN, "a new one", DOWN, ENTER, "1"])
 
 
 class _Term:

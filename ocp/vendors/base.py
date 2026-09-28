@@ -46,7 +46,13 @@ class Question:
     the next question of several) from several (numbers toggle `checked`,
     Enter submits the ones checked). `lines` is the panel's own text, quoted
     the same way `Dialog.body` is - a caller checking this is still the same
-    prompt looks at it, never at fields this parse already turned into data."""
+    prompt looks at it, never at fields this parse already turned into data.
+    `cursor` is the row the "❯" marker is on now (1 for the first option, up
+    through `other_number` and one further for a multiSelect question's own
+    "Submit"): a number toggles Other's own checkbox same as any other, it
+    does not open its text field the way typing a single-select question's
+    Other does - reaching that field takes moving the cursor there with Down
+    presses instead (founder capture, T322 follow-up, 2026-09-28)."""
     header: str
     question: str
     options: tuple[QuestionOption, ...]
@@ -54,6 +60,7 @@ class Question:
     other_number: int
     other_text: str | None
     lines: tuple[str, ...]
+    cursor: int = 1
 
 
 @dataclass(frozen=True)

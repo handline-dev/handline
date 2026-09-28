@@ -47,7 +47,7 @@ _CHAT_ABOUT_THIS = re.compile(r"^(\d+)\.\s+chat about this$", re.IGNORECASE)
 _SINGLE_HEADER = re.compile(r"^☐\s+(.+)$")
 _TAB_HEADER = re.compile(r"^←\s+(.+)→$")
 _TAB_ICON = re.compile(r"^[☐☒✅✔]\s*")
-_OPTION = re.compile(r"^(?:❯\s*)?(\d+)\.\s+(?:\[(.)\]\s*)?(\S.*)$")
+_OPTION = re.compile(r"^(❯)?\s*(\d+)\.\s+(?:\[(.)\]\s*)?(\S.*)$")
 _CHECKED = ("✔", "x", "X")
 TYPE_SOMETHING = "type something"
 # Right arrow: a multiSelect question's own way off it, onto its "Submit"
@@ -55,6 +55,7 @@ TYPE_SOMETHING = "type something"
 # Code 2.1.280 - a real session driven in a pseudo-terminal, not this
 # codebase's own capture, which never answered one this way).
 RIGHT = "\x1b[C"
+DOWN = "\x1b[B"
 ENTER = "enter"
 
 
@@ -63,16 +64,18 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     None when this combination is not sent here.
 
     `choices` are 0-based indexes into `q.options`; `text` is free text for
-    `q.other_number`. On a multiSelect question this refuses `text` outright
-    (T322 follow-up, 2026-09-28): two live attempts at toggling boxes and
-    answering Other together both came back wrong in different ways (a
-    silently unanswered tool call, then a checkbox flipped back that was
-    never asked to change) and left the real screen in a state this codebase
-    does not have a verified way to name, let alone recover from by guessing
-    a third key sequence blind. The modal itself still keeps whatever was
-    checked when Other is opened (so at least nothing is lost on the bridge
-    side) - it is `answer_question` that now refuses to press anything until
-    a real capture of this combination exists to measure against.
+    `q.other_number`. A multiSelect question's Other does not open its text
+    field on its own number the way single-select's does - that number only
+    toggles its checkbox, same as any other row - so typing into it takes
+    moving the cursor there first: Down from `q.cursor` to `q.other_number`,
+    then the text, then one more Down onto "Submit" and Enter (founder
+    capture, T322 follow-up, 2026-09-28, after two earlier guesses at this -
+    a trailing Right/Submit, and toggling boxes in the same breath as
+    answering Other - both went wrong on the real screen in different ways).
+    `choices` alongside multiSelect's Other is still refused: toggling a box
+    moves the cursor too, in some way this has not been measured against a
+    real screen, so where it lands before the Downs above matters and is not
+    guessed at here.
 
     A single-select question submits on its one number - conch's own words,
     "a lone single-choice question ... a number submits outright". A
@@ -89,9 +92,17 @@ def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None =
     if choices and any(c < 0 or c >= len(q.options) for c in choices):
         return None
     if text is not None:
-        if q.other_number is None or q.multi_select:
+        if q.other_number is None or choices:
             return None
-        return [str(q.other_number), text, ENTER] if not choices else None
+        if not q.multi_select:
+            return [str(q.other_number), text, ENTER]
+        downs = q.other_number - q.cursor
+        if downs < 0:
+            return None
+        # Enter on "Submit" opens the same Review-your-answers screen the
+        # checked-boxes-only path reaches through Right - its "1. Submit
+        # answers" is what actually finishes it (founder capture).
+        return [DOWN] * downs + [text, DOWN, ENTER, "1"]
     if not q.multi_select:
         return [str(choices[0] + 1)] if len(choices) == 1 else None
     # Empty choices is a real answer on a multiSelect question - nothing
@@ -130,11 +141,11 @@ def recognize(tail: list[str]) -> Question | None:
     if header is None:
         return None
     question = body[1].strip()
-    options, other_number, other_text = _options(body[2:], multi_select)
+    options, other_number, other_text, cursor = _options(body[2:], multi_select)
     if other_number is None or other_number + 1 != chat_number:
         return None
     return Question(header, question, tuple(options), multi_select, other_number,
-                    other_text, tuple(body))
+                    other_text, tuple(body), cursor)
 
 
 def _footer_row(tail: list[str]) -> int | None:
@@ -166,15 +177,17 @@ def _header(line: str) -> tuple[str | None, bool]:
     return parts[0], True
 
 
-def _options(lines: list[str], multi_select: bool) -> tuple[list[QuestionOption], int | None, str | None]:
+def _options(lines: list[str], multi_select: bool) -> tuple[list[QuestionOption], int | None, str | None, int]:
     options: list[QuestionOption] = []
-    other_number, other_text = None, None
+    other_number, other_text, cursor = None, None, 1
     i, n = 0, 1
     while i < len(lines):
         m = _OPTION.match(lines[i].strip())
-        if not m or int(m[1]) != n:
-            return [], None, None
-        box, label = m[2], m[3].strip()
+        if not m or int(m[2]) != n:
+            return [], None, None, 1
+        if m[1]:
+            cursor = n
+        box, label = m[3], m[4].strip()
         i += 1
         desc: list[str] = []
         while i < len(lines) and not _OPTION.match(lines[i].strip()):
@@ -193,4 +206,4 @@ def _options(lines: list[str], multi_select: bool) -> tuple[list[QuestionOption]
         else:
             options.append(QuestionOption(label, " ".join(desc), box in _CHECKED))
         n += 1
-    return options, other_number, other_text
+    return options, other_number, other_text, cursor
