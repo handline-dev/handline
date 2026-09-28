@@ -39,15 +39,6 @@ def open_tasks(con) -> list:
         "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY priority, id").fetchall()
 
 
-def open_task_count(con, agent: str) -> int:
-    """How many tasks `agent` owns and has not finished: waiting ones plus its
-    current one (T317) - closed_by and done_evidence both unset, same as
-    `open_tasks` filtered to an owner and its done rows dropped too."""
-    return con.execute(
-        "SELECT COUNT(*) FROM tasks WHERE owner = ? AND closed_by IS NULL AND done_evidence IS NULL",
-        (agent,)).fetchone()[0]
-
-
 def all_tasks(con) -> list:
     return con.execute("SELECT * FROM tasks ORDER BY priority, id").fetchall()
 

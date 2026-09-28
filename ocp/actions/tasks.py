@@ -191,6 +191,15 @@ def _begun(con, tid: int) -> bool:
         "LIMIT 1", (tid,)).fetchone() is not None
 
 
+def open_task_count(con, agent: str) -> int:
+    """How many tasks `agent` has to do: queued plus doing. A draft is not
+    approved yet and a done task is finished, so neither counts. The state comes
+    from `task_state`, so this cannot disagree with the board about which is which."""
+    return sum(1 for r in db.open_tasks(con)
+               if r["owner"] == agent and not r["done_evidence"]
+               and task_state(con, r) != "draft")
+
+
 def task_state(con, row) -> str:
     """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
     done, closed and discarded are written, once each, and so is queued (T82: approved

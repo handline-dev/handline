@@ -440,7 +440,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
         cur = db.current_task(con, name)
-        task_n = db.open_task_count(con, name)
+        task_n = actions.open_task_count(con, name)
         ready = (cur is not None and s == "IDLE"
                  and actions.task_state(con, db.get_task(con, cur)) == "queued"
                  and not db.task_blockers(con, cur))
