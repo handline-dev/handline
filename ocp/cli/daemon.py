@@ -16,7 +16,6 @@ from ..infra import service
 from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
 from ..ui import tui
-from ..session import waiting
 
 from .health import _name_col
 
@@ -99,10 +98,10 @@ def cmd_daemon_status(args) -> int:
                 word, extra = words[r["agent"]]
                 shown = word + (f" {extra}" if extra else "") + ("·drift" if drifted else "")
                 detail = textsafe.oneline(r["detail"] or "")
-                held = waiting.of(con, r)
+                prompt = actions.open_block_of(con, r["agent"])
                 block = db.block_get(con, r["agent"])
-                if held:
-                    detail = textsafe.oneline(f"{held['tool']}: {held['command']}")
+                if prompt:
+                    detail = textsafe.oneline(actions.block_headline(prompt))
                 elif block and block["kind"] in (orca.MODAL, orca.BACKGROUNDED):
                     detail = textsafe.oneline(blockedmod.headline(block["kind"], block["detail"]))
                 walled = (dmn_lifecycle.would_wake(con, r) and

@@ -24,6 +24,7 @@ from textual.widgets import Button, DataTable, Header, Input, OptionList, Select
 from textual.widgets.option_list import Option
 
 from .. import actions, db
+from ..actions.prompt_blocks import PERMISSION, QUESTION
 from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
 from ..usage import status
@@ -953,13 +954,10 @@ class ChatPage(JobsAware, Screen):
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
         self._transcript_key: tuple | None = None   # what the transcript widgets were last built from
-        self._dialog_busy, self._dialog_at = False, 0.0
-        self._dialog_closed: str | None = None      # the title of a dialog the founder closed
-        self._confirm_busy, self._confirm_at = False, 0.0
-        self._confirm_closed: int | None = None      # the wait id of a permission prompt the founder closed
-        self._question_busy, self._question_at = False, 0.0
-        self._question_closed: tuple[str, ...] | None = None      # the lines of a question the founder closed
-        self._question_pressing = False    # a press is in flight: its own toggles are not a new question
+        self._block_id: int | None = None      # the block the modal on screen shows
+        self._block_modal = None
+        self._block_pressing = False      # an answer is in flight: the block going away is its own doing
+        self._blocks_done: set[int] = set()      # blocks closed by hand or answered: not offered again
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
@@ -1039,159 +1037,68 @@ class ChatPage(JobsAware, Screen):
         event.stop()
         self.app.push_screen(TaskDetail(int(event.row_key.value)))
 
-    DIALOG_POLL_S = 4.0
-
-    def poll_dialog(self) -> None:
-        """Ask the agent's terminal, off the event loop, whether it is showing a dialog."""
-        if self._dialog_busy or time.time() - self._dialog_at < self.DIALOG_POLL_S:
-            return
-        self._dialog_busy, self._dialog_at = True, time.time()
-
-        def read() -> None:
-            con = db.connect()
-            try:
-                found = actions.dialog_of(con, self.agent)
-            except Exception:  # noqa: BLE001 - an unreadable screen shows no modal
-                found = None
-            finally:
-                con.close()
-            self.app.call_from_thread(self.dialog_seen, found)
-        self.run_worker(read, thread=True, exclusive=True, group="dialog")
-
-    def dialog_seen(self, found: dict | None) -> None:
-        self._dialog_busy = False
-        if found is None:
-            self._dialog_closed = None          # gone: the same dialog coming back is asked again
-            return
-        if found["title"] == self._dialog_closed or isinstance(self.app.screen, (DialogModal, QuestionModal)):
-            return
-        self.app.push_screen(DialogModal(found), lambda picked: self.dialog_answered(found, picked))
-
-    def dialog_answered(self, found: dict, picked: "tuple[int, bool] | None") -> None:
-        if picked is None:
-            self._dialog_closed = found["title"]      # closed by hand: not offered again while it stays
-            return
-        number, always = picked
-
-        def press() -> None:
-            con = db.connect()
-            try:
-                ok, said = actions.answer_dialog(con, self.agent, found["title"], number, always)
-            finally:
-                con.close()
-            log_action(f"dialog {self.agent}: {number} always={always}: {'ok' if ok else 'refused'} - {said}")
-            self.app.call_from_thread(self.notify, safe(said), title=f"dialog {self.agent}",
-                                      severity="information" if ok else "error",
-                                      timeout=10, markup=False)
-        self.run_worker(press, thread=True, group="dialog_press")
-
-    CONFIRM_POLL_S = 2.0
-
-    def poll_confirmation(self) -> None:
-        """Ask the agent's terminal, off the event loop, whether it is showing a
-        Claude permission prompt (T224)."""
-        if self._confirm_busy or time.time() - self._confirm_at < self.CONFIRM_POLL_S:
-            return
-        self._confirm_busy, self._confirm_at = True, time.time()
-
-        def read() -> None:
-            con = db.connect()
-            try:
-                found = actions.pending_confirmation(con, self.agent)
-            except Exception:  # noqa: BLE001 - an unreadable screen shows no modal
-                found = None
-            finally:
-                con.close()
-            self.app.call_from_thread(self.confirmation_seen, found)
-        self.run_worker(read, thread=True, exclusive=True, group="confirm")
-
-    def confirmation_seen(self, found: dict | None) -> None:
-        """`found["wait"]` None is a prompt with no hook record to pin an identity to:
-        `answer_confirmation` refuses one on principle (T223), so a Yes/No for it would
-        be two buttons that always fail. It is left for the agent's own terminal
-        instead."""
-        self._confirm_busy = False
-        if found is None:
-            self._confirm_closed = None          # gone: the same prompt coming back is asked again
-            return
-        if found["wait"] is None or found["wait"] == self._confirm_closed \
-                or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal)):
-            return
-        self.app.push_screen(PermissionModal(found), lambda picked: self.confirmation_answered(found, picked))
-
-    def confirmation_answered(self, found: dict, picked: "bool | None") -> None:
-        if picked is None:
-            self._confirm_closed = found["wait"]     # closed by hand: not offered again while it stays
-            return
-        self._confirm_closed = found["wait"]      # answered: not offered again before the screen catches up
-        yes = picked
-
-        def press() -> None:
-            con = db.connect()
-            try:
-                ok, said = actions.answer_confirmation(con, self.agent, yes, found)
-            finally:
-                con.close()
-            log_action(f"confirm {self.agent}: {'yes' if yes else 'no'}: {'ok' if ok else 'refused'} - {said}")
-            self.app.call_from_thread(self.notify, safe(said), title=f"confirm {self.agent}",
-                                      severity="information" if ok else "error",
-                                      timeout=10, markup=False)
-        self.run_worker(press, thread=True, group="confirm_press")
-
-    QUESTION_POLL_S = 2.0
-
-    def poll_question(self) -> None:
-        """Ask the agent's terminal, off the event loop, whether it is showing a
-        pending AskUserQuestion (T304)."""
-        if self._question_busy or time.time() - self._question_at < self.QUESTION_POLL_S:
-            return
-        self._question_busy, self._question_at = True, time.time()
-
-        def read() -> None:
-            con = db.connect()
-            try:
-                found = actions.pending_question(con, self.agent)
-            except Exception:  # noqa: BLE001 - an unreadable screen shows no modal
-                found = None
-            finally:
-                con.close()
-            self.app.call_from_thread(self.question_seen, found)
-        self.run_worker(read, thread=True, exclusive=True, group="question")
-
-    def question_seen(self, found: dict | None) -> None:
-        self._question_busy = False
-        if found is None:
-            self._question_closed = None          # gone: the same question coming back is asked again
-            if isinstance(self.app.screen, QuestionModal) and not self._question_pressing:
-                self.app.pop_screen()      # the real screen moved on without this modal's own Submit
-            return
-        lines = tuple(found["lines"])
-        if lines == self._question_closed or self._question_pressing \
+    def refresh_block(self) -> None:
+        """Show this agent's block - the one prompt the daemon's watch found on its screen - as
+        exactly one modal, by its kind. A block is offered once: closed by hand or answered, it
+        is not offered again. Nothing here reads a terminal."""
+        con = db.connect()
+        try:
+            block = actions.open_block_of(con, self.agent)
+        finally:
+            con.close()
+        shown = self._block_modal
+        if shown is not None:
+            if shown is self.app.screen and not self._block_pressing \
+                    and (block is None or block["id"] != self._block_id):
+                self.app.pop_screen()      # the prompt moved on without this modal's own answer
+            if shown is self.app.screen or shown in self.app.screen_stack:
+                return
+            self._block_modal = None
+        if block is None or not block["answerable"] or block["id"] in self._blocks_done \
                 or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal, TextPrompt)):
             return
+        self._block_id, self._block_pressing = block["id"], False
+        detail = {**block["detail"], "title": block["title"]}
+        bid = block["id"]
+        if block["kind"] == PERMISSION:
+            modal = PermissionModal(detail)
+            self.app.push_screen(modal, lambda yes: self.block_picked(bid, "permission", yes,
+                                                                     None if yes is None else {"yes": yes}))
+        elif block["kind"] == QUESTION:
+            def press(choices: "tuple[int, ...]", text: "str | None") -> "tuple[bool, str]":
+                return actions.request_block_answer(bid, {"choices": list(choices), "text": text})
 
-        def press(choices: "tuple[int, ...]", text: "str | None") -> "tuple[bool, str]":
-            con = db.connect()
-            try:
-                return actions.answer_question(con, self.agent, found, choices, text)
-            finally:
-                con.close()
+            def start() -> None:
+                self._block_pressing = True     # sending, on the modal's own thread
+            modal = QuestionModal(detail, press, start)
+            self.app.push_screen(modal, lambda result: self.block_asked(bid, result))
+        else:
+            modal = DialogModal(detail)
+            self.app.push_screen(modal, lambda picked: self.block_picked(
+                bid, "dialog", picked, None if picked is None else {"number": picked[0], "always": picked[1]}))
+        self._block_modal = modal
 
-        def start() -> None:
-            self._question_pressing = True     # sending, on the modal's own thread: not a new question
+    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
+        """A permission or dialog modal closed: send its pick to the daemon and say what came back."""
+        self._blocks_done.add(block_id)      # closed or answered: not offered again
+        if choice is None:
+            return
 
-        self.app.push_screen(QuestionModal(found, press, start),
-                             lambda result: self.question_answered(found, result))
+        def press() -> None:
+            ok, said = actions.request_block_answer(block_id, choice)
+            self.app.call_from_thread(self.block_result, kind, ok, said)
+        self.run_worker(press, thread=True, group="block_press")
 
-    def question_answered(self, found: dict, result: "tuple[bool, str] | None") -> None:
-        self._question_pressing = False
-        self._question_closed = tuple(found["lines"])     # not offered again before the screen catches up
-        if result is None:
-            return      # closed by hand before anything was sent
-        ok, said = result
-        log_action(f"question {self.agent}: {'ok' if ok else 'refused'} - {said}")
-        self.notify(safe(said), title=f"question {self.agent}",
-                   severity="information" if ok else "error", timeout=10, markup=False)
+    def block_asked(self, block_id: int, result: "tuple[bool, str] | None") -> None:
+        self._blocks_done.add(block_id)
+        self._block_pressing = False
+        if result is not None:      # None: closed by hand before anything was sent
+            self.block_result("question", *result)
+
+    def block_result(self, kind: str, ok: bool, said: str) -> None:
+        log_action(f"{kind} {self.agent}: {'ok' if ok else 'refused'} - {said}")
+        self.notify(safe(said), title=f"{kind} {self.agent}",
+                    severity="information" if ok else "error", timeout=10, markup=False)
 
     def refresh_agent_state(self) -> None:
         con = db.connect()
@@ -1226,9 +1133,7 @@ class ChatPage(JobsAware, Screen):
 
     def refresh_view(self) -> None:
         self.refresh_agent_state()
-        self.poll_dialog()
-        self.poll_confirmation()
-        self.poll_question()
+        self.refresh_block()
         self.refresh_pools()
         if self.showing_settings:
             return

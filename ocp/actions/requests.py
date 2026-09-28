@@ -8,7 +8,7 @@ from ..infra import timefmt
 from ..session import blocked
 from .. import db
 from ..team import hr
-from ..session import waiting
+from . import prompt_blocks
 
 from .routing import HUMAN
 
@@ -341,20 +341,15 @@ def messages(con) -> list[dict]:
 def founder_waits(con) -> list[dict]:
     """Everything that stops until the founder does something, oldest first.
 
-    Each is {kind, who, what, since, red}. A permission prompt and an
-    unanswered escalation are the founder's move (red). A roster proposal is
+    Each is {kind, who, what, since, red}. A prompt on an agent's screen (the daemon's
+    `prompt_blocks` rows) and an unanswered escalation are the founder's move (red). A roster proposal is
     shown from the moment it is raised until it is applied or refused: once
     approved it is waiting on whoever applies it, so it stays but not in red.
     """
     out: list[dict] = []
-    for row in db.all_agent_states(con):
-        w = waiting.of(con, row)
-        if w:
-            out.append({"kind": "permission", "who": row["agent"], "red": True,
-                        "what": " ".join(x for x in (f"{w.get('tool') or 'tool'}:",
-                                                      w.get("command")) if x),
-                        "since": int(w["since"])})
-
+    for b in prompt_blocks.open_blocks(con):
+        out.append({"kind": b["kind"], "who": b["agent"], "red": True,
+                    "what": prompt_blocks.headline(b), "since": int(b["first_seen"])})
     out += blocked.founder_rows(con, int(time.time()))
     # Its request is the same fact a second time, said where the founder is not
     # looking; the row above already is.
