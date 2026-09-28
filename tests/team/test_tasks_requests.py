@@ -6954,6 +6954,93 @@ def test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(home: 
         con.close()
 
 
+def test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(home: Path) -> None:
+    """T352: T205 went out three times, each answered "already fixed" - the
+    answered request left the task with no request of its own queued, which
+    the picker read as a queued task never delivered."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "t", "worker", "manager")
+        ok, msg = actions.set_queued(con, t, "manager", True)
+        (first,) = db.task_requests(con, t)
+        check("setup: queuing an idle owner's task delivered it", ok and first["state"] == "queued", msg)
+        ok, msg = askmod.resolve(first["id"], "already fixed")
+        check("setup: the owner answers without closing the task", ok, msg)
+        check("resend: the task has still only the one request",
+              [r["id"] for r in db.task_requests(con, t)] == [first["id"]],
+              str([dict(r) for r in db.task_requests(con, t)]))
+        check("resend: nothing is queued for the owner", db.queued_for(con, "worker") == [])
+        actions.advance_current_task(con, "worker")
+        check("resend: nor does another advance send it",
+              len(db.task_requests(con, t)) == 1)
+        check("resend: the task is still open, not done", db.get_task(con, t)["done_evidence"] is None)
+    finally:
+        con.close()
+
+
+def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
+    """T352 (auditor #2136): the answered request must not stay a reason to keep
+    a task from its owner for good - reopening it, or clearing a blocker, is."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        def to_worker(tid):
+            return [r for r in db.task_requests(con, tid)
+                    if r["target"] == "worker" and r["state"] == "queued"]
+
+        t = db.new_task(con, "reopen me", "worker", "manager")
+        actions.set_queued(con, t, "manager", True)
+        (first,) = db.task_requests(con, t)
+        askmod.resolve(first["id"], "done")
+        ok, msg = actions.mark_task_done(con, t, "worker", reason="done")
+        ok3, msg3 = actions.reopen_task(con, t, "manager", "not really")
+        check("reopen: setup", ok and ok3, f"{msg} {msg3}")
+        actions.advance_current_task(con, "worker")
+        check("reopen: it is delivered once more", len(to_worker(t)) == 1, str(len(to_worker(t))))
+        actions.advance_current_task(con, "worker")
+        check("reopen: and only once", len(to_worker(t)) == 1)
+
+        for r in to_worker(t):
+            askmod.resolve(r["id"], "done again")
+        actions.mark_task_done(con, t, "worker", reason="done again")
+        u = db.new_task(con, "wait on it", "worker", "manager")
+        b = db.new_task(con, "the blocker", "manager", "manager")
+        actions.set_queued(con, u, "manager", True)
+        (ufirst,) = db.task_requests(con, u)
+        ok, msg = actions.add_block(con, u, b, "manager")
+        check("unblock: setup", ok, msg)
+        askmod.resolve(ufirst["id"], "blocked on it")
+        actions.advance_current_task(con, "worker")
+        check("unblock: still blocked, nothing goes out", not to_worker(u))
+        ok, msg = actions.unblock(con, u, b, "manager")
+        actions.advance_current_task(con, "worker")
+        check("unblock: once the blocker clears it goes out again", ok and len(to_worker(u)) == 1, msg)
+        actions.advance_current_task(con, "worker")
+        check("unblock: and only once", len(to_worker(u)) == 1)
+
+        # The dependent's owner closes its blocker (it asked for it): no notice is written, but the task
+        # still comes due again.
+        for r in to_worker(u):
+            askmod.resolve(r["id"], "done")
+        actions.mark_task_done(con, u, "worker", reason="done")
+        actions.close_task(con, u, "manager")
+        v = db.new_task(con, "closed by its own owner", "worker", "manager")
+        c = db.new_task(con, "asked by worker", "manager", "worker")
+        actions.set_queued(con, v, "manager", True)
+        (vfirst,) = db.task_requests(con, v)
+        ok, msg = actions.add_block(con, v, c, "manager")
+        check("own blocker: setup", ok, msg)
+        askmod.resolve(vfirst["id"], "blocked")
+        ok, msg = actions.mark_task_done(con, c, "manager", reason="done")
+        ok2, msg2 = actions.close_task(con, c, "worker")
+        actions.advance_current_task(con, "worker")
+        check("own blocker: the owner closing it sends the task out again, once",
+              ok and ok2 and len(to_worker(v)) == 1, f"{msg} {msg2} {len(to_worker(v))}")
+    finally:
+        con.close()
+
+
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
@@ -7413,6 +7500,8 @@ def main() -> int:
         run(lambda: test_task_priority_sorts_and_numbers_compare_as_numbers(Path(td) / 'taskprio'))
         run(lambda: test_task_rows_carry_who_closes_what_blocks_and_last_activity(Path(td) / 'taskrows'))
         run(lambda: test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(Path(td) / 'taskstates'))
+        run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
+        run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
