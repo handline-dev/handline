@@ -74,6 +74,16 @@ PASS, FAIL = [], []
 # process table would otherwise wait out the real minute before failing.
 dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
 
+# `ocp ask`/`say` send to the daemon's socket (T351). Under the suite there is no
+# daemon: the CLI's client is a stand-in that hands the request to the very
+# handler the socket serves, on this process, and the notice is typed inline.
+import types as _types  # noqa: E402
+from ocp.cli import ask as _cli_ask  # noqa: E402
+from ocp.daemon import sends as _dmn_sends  # noqa: E402
+_dmn_sends.RUN_INLINE = True
+_cli_ask.dmn_client = _types.SimpleNamespace(
+    send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
+
 # No test reaches the machine's Keychain or the usage endpoint: asked for a
 # reading, it gets "could not look". A test that drives usage_api sets its own.
 REAL_ACCESS_TOKEN = claudemeter._access_token_detailed

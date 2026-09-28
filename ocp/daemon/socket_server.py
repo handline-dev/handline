@@ -28,7 +28,7 @@ from .. import db
 from ..actions import confirmations, control, details, dialogs
 from ..infra import paths
 
-from . import messaging
+from . import messaging, sends
 
 # A request this old with nothing read yet is not going to finish reading;
 # closed rather than left to hold a thread forever on a client that connected
@@ -84,6 +84,8 @@ def _trust(con, log, **kw) -> tuple[bool, str]:
 
 VERBS = {
     "message": _message,
+    "ask": sends.ask_verb,
+    "say": sends.say_verb,
     "wake": _wake,
     "close": _close,
     "park": _park,

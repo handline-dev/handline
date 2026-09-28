@@ -16,7 +16,7 @@ from __future__ import annotations
 import time
 
 from .. import db
-from ..infra import lock
+from ..infra import lock, paths
 from ..session import orca
 
 from . import delivery, lifecycle
@@ -99,6 +99,51 @@ def send_message(con, agent: str, text: str, log) -> tuple[bool, str]:
             return True, f"{agent}: queued - woken, will type once free ({why})"
         return True, f"{agent}: queued - not woken ({wake_why})"
     return True, f"{agent}: queued - {why}"
+
+
+def tell_now(con, rid: int, log) -> str:
+    """Tell an agent about request `rid` at once, the way the socket's `message`
+    verb types a line: the notice goes out even mid-turn, and only a screen
+    blocker, the wall or a closed session holds it (T351, founder #2104).
+
+    Told out of turn, so the tick's head rule does not say it a second time.
+    A session that is not up yet is woken and reads it as its first prompt
+    (`delivery.waiting_prompt` marks it delivered first); this then finds it
+    delivered and types nothing. Tasks do not come here - they keep the
+    one-at-a-time head rule (`ask.push`). Returns what happened, for the log."""
+    row = db.get_request(con, rid)
+    if row is None or row["state"] != "queued":
+        return "no longer queued"
+    agent = row["target"]
+    if agent == db.HUMAN or agent not in paths.list_agents():
+        return "not an agent"
+    if not delivery.enforce_edges(con, agent, log):
+        return "held: team.yaml is not trusted"
+    row = db.get_request(con, rid)
+    if row["state"] != "queued":
+        return "refused at delivery"
+    state = db.get_agent_state(con, agent)
+    if not (state and state["terminal"]):
+        lifecycle._start_for_work(con, agent, log)
+        state = db.get_agent_state(con, agent)
+    if state and state["closed_at"]:
+        lifecycle.wake_agent(con, agent, log)
+        row = db.get_request(con, rid)
+    if row["state"] != "queued":
+        return "answered meanwhile"
+    if row["delivered_at"]:
+        return "already told"
+    if not delivery.session_present(agent):
+        return "queued - no running session; told when it is up"
+    if not db.mark_delivered(con, rid):
+        return "withdrawn first"
+    text = delivery.tell_text(con, row, 1)
+    pending = db.add_pending(con, agent, text, int(time.time()))
+    db.mark_told_out_of_turn(con, rid)
+    db.add_event(con, agent, "notified", {"request_id": rid, "more_waiting": 0})
+    ok, why = _deliver_row(con, agent, pending, text)
+    log(f"  {agent}: told about #{rid} at once" if ok else f"  {agent}: #{rid} waits - {why}")
+    return "typed" if ok else f"queued - {why}"
 
 
 def deliver_pending(con, agent: str, log) -> bool:
