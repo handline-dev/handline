@@ -7132,6 +7132,131 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         con.close()
 
 
+def test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(home: Path) -> None:
+    """T377: owner -> auditor; the auditor returns it to the opener (PASS) or to
+    whoever handed it over (FAIL); the opener passes it to a merger. A note is
+    required, only the owner may hand it on, and every handoff stays in order."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+  dev.auditor: {}
+  dev.merger: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: fire_and_forget }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker", "dev.auditor", "dev.merger"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, _, t = actions.task_new("manager", "worker", "the change")
+        check("handoff: setup - worker holds T", ok and db.current_task(con, "worker") == t)
+        H = lambda me, to, note="note", v=None: actions.task_handoff(con, me, t, to, note, v)
+        ok, msg = H("worker", "dev.auditor", "  ")
+        check("handoff: a note is required, and blank is not one", not ok and "note" in msg, msg)
+        ok, msg = H("worker", "manager", "straight to the manager")
+        check("handoff: the maker may only hand it to an auditor", not ok and "auditor" in msg, msg)
+        ok, msg = H("manager", "dev.auditor", "not the owner")
+        check("handoff: only the owner hands it on", not ok and "only its owner" in msg, msg)
+        ok, msg = H("worker", "nobody.auditor", "no such agent")
+        check("handoff: the receiver must exist", not ok and "no agent" in msg, msg)
+
+        ok, msg = H("worker", "dev.auditor", "verdict from a maker", "PASS")
+        check("handoff: only an auditor gives a verdict", not ok and "only an auditor" in msg, msg)
+        ok, msg = H("worker", "dev.auditor", "branch@abc123: fixed the retry")
+        row = db.get_task(con, t)
+        check("handoff: the maker hands it to the auditor", ok and row["owner"] == "dev.auditor", msg)
+        sent = [r for r in db.task_requests(con, t) if r["target"] == "dev.auditor"]
+        check("handoff: the note travels with it, as the delivery itself",
+              len(sent) == 1 and "branch@abc123: fixed the retry" in sent[0]["body"]
+              and sent[0]["requester"] == "worker", str([dict(r) for r in sent]))
+        check("handoff: the old owner is not left holding it",
+              db.current_task(con, "worker") is None
+              and not [r for r in db.queued_for(con, "worker") if r["kind"] == "task"])
+        check("handoff: the auditor now holds it", db.current_task(con, "dev.auditor") == t)
+
+        ok, msg = H("dev.auditor", "dev.merger", "skipping the manager", "PASS")
+        check("handoff: an auditor may not hand it to a merger", not ok and "opener" in msg, msg)
+        ok, msg = H("dev.auditor", "manager", "no verdict given")
+        check("handoff: an auditor's handoff must carry a verdict", not ok and "--pass" in msg, msg)
+        ok, msg = H("dev.auditor", "manager", "wrong way", "FAIL")
+        check("handoff: a FAIL may not go to the opener", not ok and "worker" in msg, msg)
+        ok, msg = H("dev.auditor", "worker", "FAIL: retry loops; repro: run x", "FAIL")
+        check("handoff: a FAIL goes back to whoever handed it over",
+              ok and db.get_task(con, t)["owner"] == "worker", msg)
+        ok, msg = H("worker", "dev.auditor", "fixed the loop")
+        ok2, msg2 = H("dev.auditor", "manager", "PASS: 5900 passed", "PASS")
+        check("handoff: a PASS goes to the opener", ok and ok2 and db.get_task(con, t)["owner"] == "manager", msg + msg2)
+        check("handoff: who handed it over is read from the record",
+              actions.previous_owner(con, t, "manager") == "dev.auditor"
+              and actions.previous_owner(con, t, "dev.auditor") == "worker"
+              and actions.previous_owner(con, t, "dev.merger") is None)
+
+        ok, msg = H("manager", "dev.merger", "ready to land")
+        check("handoff: the opener passes it to a merger", ok and db.get_task(con, t)["owner"] == "dev.merger", msg)
+        ok, msg = H("dev.merger", "worker", "conflict")
+        check("handoff: a merger may only send it back to who handed it over", not ok and "manager" in msg, msg)
+        ok, msg = H("dev.merger", "manager", "conflicts with main in x.py")
+        check("handoff: and it can", ok and db.get_task(con, t)["owner"] == "manager", msg)
+
+        hist = db.task_handoffs(con, t)
+        check("handoff: the record lists every handoff in the order they happened, with its note",
+              [(h["from"], h["to"]) for h in hist] == [
+                  ("worker", "dev.auditor"), ("dev.auditor", "worker"), ("worker", "dev.auditor"),
+                  ("dev.auditor", "manager"), ("manager", "dev.merger"), ("dev.merger", "manager")]
+              and hist[0]["note"] == "branch@abc123: fixed the retry" and hist[3]["note"] == "PASS: 5900 passed",
+              str(hist))
+        check("handoff: the verdict is recorded with the handoff",
+              [h["verdict"] for h in hist] == [None, "FAIL", None, "PASS", None, None], str(hist))
+        own = db.new_task(con, "self-opened", "worker", "worker")
+        G = lambda me, to, v=None: actions.task_handoff(con, me, own, to, "note", v)
+        ok, msg = G("worker", "dev.merger")
+        check("handoff: a self-opened task cannot skip the audit", not ok and "auditor" in msg, msg)
+        G("worker", "dev.auditor")
+        G("dev.auditor", "worker", "FAIL")
+        ok, msg = G("worker", "dev.merger")
+        check("handoff: after a FAIL a self-opened task still cannot reach a merger", not ok, msg)
+        back = db.new_task(con, "send back", "worker", "manager")
+        B = lambda me, to, v=None: actions.task_handoff(con, me, back, to, "note", v)
+        B("worker", "dev.auditor")
+        B("dev.auditor", "manager", "PASS")
+        ok, msg = B("manager", "dev.auditor")
+        check("handoff: the opener may not send it back to the auditor that passed it", not ok, msg)
+        B("manager", "dev.merger")
+        B("dev.merger", "manager")
+        ok, msg = B("manager", "worker")
+        check("handoff: the opener sends it back to the maker, also after a merger sent it back for a conflict the opener still reaches the maker",
+              ok and db.get_task(con, back)["owner"] == "worker", msg)
+        ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "the founder may")
+        check("handoff: the founder may hand it to anyone", ok and db.get_task(con, t)["owner"] == "worker", msg)
+        actions.mark_task_done(con, t, "worker", reason="done")
+        ok, msg = H("worker", "dev.auditor", "too late")
+        check("handoff: a finished task is not handed over", not ok and "finished" in msg, msg)
+
+        rc, out = _cli(["task", "handoff", f"T{t}", "dev.auditor", "x"], as_agent="worker")
+        check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
+        cli_t = db.new_task(con, "via cli", "worker", "manager")
+        _cli(["task", "handoff", f"T{cli_t}", "dev.auditor", "x"], as_agent="worker")
+        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x"], as_agent="dev.auditor")
+        check("handoff: the cli refuses an auditor's handoff without a verdict", rc == 1 and "--pass" in out, out)
+        try:
+            rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass", "--fail"], as_agent="dev.auditor")
+        except SystemExit as e:
+            rc, out = e.code, "argparse"
+        check("handoff: the cli refuses both verdict flags", rc == 2 and db.get_task(con, cli_t)["owner"] == "dev.auditor", out)
+        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass"], as_agent="dev.auditor")
+        check("handoff: --pass drives the handoff through the cli",
+              rc == 0 and db.get_task(con, cli_t)["owner"] == "manager"
+              and db.task_handoffs(con, cli_t)[-1]["verdict"] == "PASS", out)
+    finally:
+        con.close()
+
+
 def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
     """T250: `ask --task N` links the request, so a draft task reads doing; text
     that names a T<n> is refused without --task or --no-task; `task list` and
@@ -7595,6 +7720,7 @@ def main() -> int:
         run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
+        run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
