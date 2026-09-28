@@ -178,6 +178,35 @@ def test_inbox_unread_only_falls_back_to_a_marked_say_with_no_head(home: Path) -
           len(unread) == 1 and unread[0]["id"] == rid, unread)
 
 
+def test_inbox_unread_only_reads_the_blocked_head_through_effective_head(home: Path) -> None:
+    """T337 round 4, auditor #2028's sweep: inbox(unread_only=True) read
+    db.head_of_queue_or_marked directly - a true head blocked on record is
+    not what is actually waiting for the agent; the request behind it is."""
+    _say_world(home)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("manager", "worker", "the blocked head")
+        check("setup: worker holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        check("unblocked: inbox finds the plain head",
+              [r["id"] for r in askmod.inbox("worker")] == [head])
+
+        ok, msg, t_blocker = actions.task_new("worker", "manager", "unrelated")
+        check("setup: a task to block on, owned elsewhere so its own delivery "
+              "does not land in worker's queue too", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "manager")
+        check("setup: the task is now blocked", ok, msg)
+        check("blocked, nothing behind: inbox is empty, not the blocked head",
+              askmod.inbox("worker") == [])
+
+        ok, msg, nxt = askmod.ask("worker", "fix it instead", requester="manager")
+        check("setup: another ask goes out", ok, msg)
+        check("blocked, something behind: inbox finds it, not the blocked head",
+              [r["id"] for r in askmod.inbox("worker")] == [nxt])
+    finally:
+        con.close()
+
+
 def test_say_delivery_line_and_needs_task(home: Path) -> None:
     """#1657: every say prints its own way out, and `say --needs-task`
     replies to the sender with a ready `task new` command instead of
@@ -199,10 +228,6 @@ def test_say_delivery_line_and_needs_task(home: Path) -> None:
 
     rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="manager")
     check("say --needs-task: refused for anyone but the say's own receiver",
-          rc == 1 and "not sent to you" in out, out)
-    rc, out = _cli(["say", "--needs-task", str(rid), "--of", "manager"], as_agent="worker")
-    check("say --needs-task: --of is honored, not just $OCP_AGENT - the same "
-          "receiver-only check refuses it for a different --of too",
           rc == 1 and "not sent to you" in out, out)
     rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="worker")
     check("say --needs-task: the receiver may flag it, delivered back to the sender",
@@ -375,6 +400,8 @@ def main() -> int:
             Path(td) / 'saytelltext'))
         run(lambda: test_inbox_unread_only_falls_back_to_a_marked_say_with_no_head(
             Path(td) / 'sayinbox'))
+        run(lambda: test_inbox_unread_only_reads_the_blocked_head_through_effective_head(
+            Path(td) / 'sayinboxblocked'))
         run(lambda: test_say_delivery_line_and_needs_task(Path(td) / 'sayneedstask'))
         run(lambda: test_a_say_with_no_ordinary_head_still_gets_typed(Path(td) / 'saynohead'))
         run(lambda: test_say_to_the_founder_is_not_refused_for_a_timebox_it_never_asked_for(

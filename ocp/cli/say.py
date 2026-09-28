@@ -23,7 +23,7 @@ def cmd_say(args) -> int:
     if err:
         print(err)
         return 1
-    ok, msg, rid = askmod.say(args.target, body, requester=args.of, parent_id=args.parent)
+    ok, msg, rid = askmod.say(args.target, body, parent_id=args.parent)
     print(msg)
     if ok and rid is not None:
         print(actions.delivery_line(rid))
@@ -33,7 +33,7 @@ def cmd_say(args) -> int:
 def _cmd_say_needs_task(args) -> int:
     """#1657: only the receiver of a say may decide it was really work - the
     reply carries a ready `task new` command back to whoever sent it."""
-    me = args.of or askmod.asking_agent()
+    me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("flag this say"))
         return 1

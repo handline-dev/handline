@@ -17,6 +17,7 @@ from ..usage import measure
 from ..session import observe as obs
 from ..session import orca
 from ..infra import paths
+from ..team.ask import HUMAN
 from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
@@ -434,6 +435,14 @@ def tick(con, log, samples: dict | None = None) -> Tick:
                 actions.append(msg)
                 log(f"  rollover: {msg}")
     usage_poll._last_rollover_day["day"] = day
+
+    # The human is no agent, so no per-agent delivery checks the edges of what
+    # agents wrote to them; without this an agent session's ask to the human
+    # keeps edge_ok NULL for good.
+    try:
+        delivery.enforce_edges(con, HUMAN, log)
+    except Exception as e:  # noqa: BLE001 - a bad table here is not the tick's failure
+        log(f"  {HUMAN}: edge check failed: {type(e).__name__}: {e}")
 
     for agent in paths.list_agents():
         try:

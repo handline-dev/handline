@@ -311,16 +311,68 @@ def enforce_edges(con, agent: str, log) -> bool:
     return True
 
 
+def head_task_blocked(con, agent: str, head) -> bool:
+    """Is `head`'s own task on record as waited on (T337): blocked by another
+    still-open task (`ocp task edit T<n> --blocked-by T<m>`), or held up on an
+    ask `agent` itself sent that is linked to the same task. Built on what
+    already exists, not a new kind of wait nothing else reads - a head with
+    no task at all is never this, since there is nothing to check it
+    against."""
+    for t in db.tasks_for_request(con, int(head["id"])):
+        tid = int(t["id"])
+        if db.task_blockers(con, tid):
+            return True
+        if any(r["requester"] == agent and int(r["id"]) != int(head["id"])
+               and r["state"] == "queued" for r in db.task_requests(con, tid)):
+            return True
+    return False
+
+
+def effective_head(con, agent: str):
+    """`db.head_of_queue`, unless it is blocked on record (T337) - then the
+    next request behind it instead, so the one-at-a-time rule falls on
+    whatever the agent can actually act on, not on what it is stuck waiting
+    on.
+
+    Read this, not `db.head_of_queue` directly, by anything asking what the
+    agent is working on or was told - delivery, `forgotten_resolve`,
+    `blocked.work_waiting`, a cold session's own close, a closed agent's wake,
+    the resume prompt, the handoff and the progress note, and `ocp inbox`'s
+    unread view and the stuck screen's own reason for a specific request
+    (T337 round 4, auditor #2028's sweep). `db.head_of_queue` itself is for a
+    different question - what is structurally first, whatever is or is not
+    reachable right now - and every one of its own readers (`ocp inbox`
+    reading its own queue, the board, a plain queue-not-empty check) keeps
+    asking it directly: the true head is never touched by any of this, so it
+    is exactly what they keep finding, the moment the block clears.
+
+    Only one level: a request that jumps a blocked head and is itself
+    blocked is not chased further. T337 was written for one open head with
+    ordinary work queued behind it, not a chain of them."""
+    head = db.head_of_queue(con, agent)
+    if head and head_task_blocked(con, agent, head):
+        return db.head_of_queue(con, agent, skip=int(head["id"]))
+    return head
+
+
+def effective_head_or_marked(con, agent: str):
+    """`effective_head`, or - with none - the oldest `send_now_pending` row
+    (`db.head_of_queue_or_marked`'s own fallback, T293): a say is never a
+    head, but with nothing else queued it is still the one thing waiting -
+    what a resumed session opens on, and `ocp inbox`'s own unread view."""
+    return effective_head(con, agent) or next(iter(db.send_now_pending(con, agent)), None)
+
+
 def deliver_queued(con, agent: str, log) -> bool:
-    """Tell an agent about the head of its own queue (`db.head_of_queue`),
-    plus anything marked `send_now` ahead of it - a say (T293) among them,
-    which is always marked and never a head, so with nothing else queued
-    this is also where one gets told. Told once per head: the cursor holds
-    the id last announced.
+    """Tell an agent about its own effective head (`effective_head` -
+    ordinarily `db.head_of_queue`), plus anything marked `send_now` ahead of
+    it - a say (T293) among them, which is always marked and never a head, so
+    with nothing else queued this is also where one gets told. Told once per
+    head: the cursor holds the id last announced.
     """
     if not enforce_edges(con, agent, log):
         return False
-    head = db.head_of_queue(con, agent)
+    head = effective_head(con, agent)
     # Ahead of an open head: what the human marked "send now", a say (T293,
     # always marked the same way), and a reply in the head's own thread - the
     # follow-up to what the agent is working on. With no head at all, a
@@ -390,6 +442,15 @@ FORGOTTEN_STUCK_S = STUCK_RUNNING_S
 # A nudge that could not be typed (mid-turn, a modal) is not asked again for
 # this long, because the idle probe that says no costs its whole timeout.
 NUDGE_RETRY_S = 60
+# How many times a forgotten head is nudged, and how long it must have sat
+# idle for each: ten minutes, thirty, then two hours - not evenly spaced,
+# because being asked once already and still not answering is worth waiting
+# longer on before asking again. Past the last one nothing more is typed at
+# the agent (T337 founder #2002/#2003: repeating this forever at an agent
+# that turns out to be genuinely stuck, not forgetful, has a real cost of its
+# own); `timebox.sweep_forgotten_resolve_capped` tells its supervisor once
+# instead.
+NUDGE_SCHEDULE_S = (NUDGE_AFTER_S, FORGOTTEN_STUCK_S, 2 * 3600)
 
 
 def track_background_work(con, agent: str, row) -> None:
@@ -473,7 +534,8 @@ def bg_holds(con, agent: str, now: int) -> bool:
 
 
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
-    """The head of this agent's queue, if it looks like a resolve nobody wrote.
+    """The agent's effective head (`effective_head`), if it looks like a
+    resolve nobody wrote.
 
     IDLE or QUEUED with a live terminal, the head delivered and told and
     still open, and nothing the agent asked that is still unanswered - which
@@ -485,12 +547,17 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     fresh prompt clears it, so a QUEUED agent whose head was told in its
     current session is the same forgotten resolve. `blocked.work_waiting`
     reads this function, so it also decides whether that agent is reported.
+
+    A true head blocked on record (T337) is never this on its own account:
+    `effective_head` already looked past it, to whatever it is actually
+    telling the agent to work on - which is what nudged, capped and reported
+    from here on.
     """
     if not row or row["state"] not in (IDLE, QUEUED) or row["closed_at"] or not row["terminal"]:
         return None
     if has_background_work(con, agent) and not bg_stale(con, agent, now):
         return None           # not idle: work it started is still running
-    head = db.head_of_queue(con, agent)
+    head = effective_head(con, agent)
     if not head or not head["delivered_at"] \
             or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
         return None
@@ -542,20 +609,55 @@ def type_notice(con, agent: str, text: str) -> bool:
     return ok
 
 
-def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
-    """Type one reminder at an agent that has left its head request open.
+def nudge_count(con, agent: str, head_id: int) -> int:
+    """How many times the current head has already been nudged - 0 for a
+    head that is not the one the `nudge:{agent}` cursor names, since that
+    count belongs to whatever head earned it, not this one."""
+    return db.get_cursor(con, f"nudge_count:{agent}") \
+        if db.get_cursor(con, f"nudge:{agent}") == int(head_id) else 0
 
-    Never resolves for it: the verdict is the agent's to write. Once per
-    request, gated like a delivery (not at the wall, nothing typed at a modal or
-    a working agent), and nothing here touches an attempt counter, so it cannot
-    stall an agent.
+
+def nudge_exhausted(con, agent: str, head_id: int) -> bool:
+    """True once `NUDGE_SCHEDULE_S` is used up for this head - nothing more
+    will be typed at the agent about it; `timebox.sweep_forgotten_resolve_capped`
+    is what tells its supervisor from here."""
+    return nudge_count(con, agent, head_id) >= len(NUDGE_SCHEDULE_S)
+
+
+def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
+    """Type a reminder at an agent that has left its head request open, again
+    at each rung of `NUDGE_SCHEDULE_S` for as long as that stays true, up to
+    its last one.
+
+    A single reminder used to be the last thing the daemon ever did about it:
+    past that, only `actions.stuck` (the founder's own screen) would notice,
+    and nothing typed at the agent again - so a forgotten head, and whatever
+    piled up queued behind it, stayed silent until a human read the screen and
+    acted (T337, founder #2002/#2003). The same silence that earns the first
+    nudge earns the next rung too, up to the cap `NUDGE_SCHEDULE_S` sets.
+
+    `forgotten_resolve` already reads the queue through `effective_head`, so
+    `found["head"]` is never the true head while it is blocked on record -
+    only a request behind it that is not is ever this. The `head_task_blocked`
+    check below is for that one behind it turning out to be blocked too
+    (`effective_head` looks past one level, not a chain): nothing is typed
+    about it either, the same as the true head - not forgotten, just not
+    reachable from here.
+
+    Never resolves for it: the verdict is the agent's to write. Gated like a
+    delivery (not at the wall, nothing typed at a modal or a working agent),
+    and nothing here touches an attempt counter, so it cannot stall an agent.
     """
     found = forgotten_resolve(con, agent, row, now)
-    if not found or found["idle_s"] < NUDGE_AFTER_S:
+    if not found:
         return False
     head = found["head"]
-    if db.get_cursor(con, f"nudge:{agent}") == int(head["id"]) \
-            or now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
+    if head_task_blocked(con, agent, head):
+        return False
+    count = nudge_count(con, agent, int(head["id"]))
+    if count >= len(NUDGE_SCHEDULE_S) or found["idle_s"] < NUDGE_SCHEDULE_S[count]:
+        return False
+    if now - db.get_cursor(con, f"nudge_try:{agent}") < NUDGE_RETRY_S:
         return False
     db.set_cursor(con, f"nudge_try:{agent}", now)
     behind = found["behind"]
@@ -571,6 +673,7 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
         + f". {what}")
     if ok:
         db.set_cursor(con, f"nudge:{agent}", int(head["id"]))
+        db.set_cursor(con, f"nudge_count:{agent}", count + 1)
         db.add_event(con, agent, "nudged", {"request_id": head["id"],
                                             "idle_s": found["idle_s"], "behind": behind})
         log(f"  {agent}: idle {timefmt.ago(found['idle_s'])} with #{head['id']} open and "
@@ -688,9 +791,7 @@ def waiting_prompt(con, agent: str, log):
     Marked delivered here, before the launch, for the reason `_tell` is."""
     if not enforce_edges(con, agent, log):
         return None
-    # T293: a say is never a head, but with nothing else queued it is still
-    # what a resumed session should open on (`db.head_of_queue_or_marked`).
-    head = db.head_of_queue_or_marked(con, agent)
+    head = effective_head_or_marked(con, agent)
     if head:
         if not db.mark_delivered(con, int(head["id"])):
             return None

@@ -1217,6 +1217,31 @@ def test_a_close_is_recorded_only_once_the_process_has_ended(home: Path) -> None
         con.close()
 
 
+def test_wait_session_gone_treats_an_unmappable_pid_as_unreadable() -> None:
+    """T146: a poll where `observe.live_sessions` cannot map a live pid back
+    to its agent reads as the whole table being unreadable (its own fix), not
+    as the session having left - so a poll or two of that here must not be
+    believed as "gone" either; a genuinely gone session is, as soon as a
+    decisive reading says so."""
+    real_wait, real_poll, real_live = (dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S,
+                                       obsmod.live_sessions)
+    dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.02
+    try:
+        # Unreadable throughout: never read as gone, so the wait runs out.
+        obsmod.live_sessions = lambda: None
+        check("wait_session_gone: an unreadable table the whole time is not gone",
+              dmn_delivery._wait_session_gone("backend") is False)
+
+        # Unreadable for a couple of polls, then a decisive "gone".
+        seq = iter([None, None, {}])
+        obsmod.live_sessions = lambda: next(seq, {})
+        check("wait_session_gone: unreadable polls are outlasted by a decisive one",
+              dmn_delivery._wait_session_gone("backend") is True)
+    finally:
+        dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S, obsmod.live_sessions = (
+            real_wait, real_poll, real_live)
+
+
 def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) -> None:
     """The idle schedule asks `should_close` every tick. A session that does
     not die after /exit must not be typed at again, and must not hold the
@@ -2031,16 +2056,9 @@ def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -
 
 
 def test_a_due_closed_park_enforces_edges_before_the_wake_at_gate(home: Path) -> None:
-    """T146 pt.1, auditor #1994 round-3 gap 1: an allowed edge cannot tell this
-    call apart from `wake_agent`'s own gate (T146 pt.1 lower down) doing the
-    same check - either way the request is confirmed and the session resumed.
-    A denied one can: `wake_agent`'s gate would deny it too, but only after a
-    session-shaped wake was already attempted and failed, which leaves the
-    park QUEUED - one tick short of resolved, waiting on a request that is
-    already dead. Enforcing here, before `waiting_for` is even asked, catches
-    the denial in the same tick `queued_or_idle` runs in, straight to IDLE.
-    Verified empirically: with this call's effect removed and `wake_agent`'s
-    own gate left standing, the same scenario ends QUEUED, not IDLE."""
+    """T146 pt.1 (auditor #1994 gap 1): a denied edge on a due closed park
+    settles to IDLE in the same tick, not left QUEUED on a request that is
+    already dead."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -2582,6 +2600,48 @@ def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) ->
         con.close()
 
 
+def test_a_cold_session_reads_its_blocked_head_through_effective_head(home: Path) -> None:
+    """T337 round 4, auditor #2028 finding 1: _cold_before_typing compared the
+    notify cursor against db.head_of_queue directly. With a true head blocked
+    on record, the cursor holds effective_head's id (the request behind it)
+    instead, so that comparison read 'untold' and closed a session that had
+    nothing actually untold, for no reason. Reads effective_head now, same
+    as deliver_queued and forgotten_resolve - real blocking (add_block), not
+    a stub, end to end."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send)
+    try:
+        st, now = _cold_backend(home, con, sent)
+        log = lambda _m: None
+
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        check("setup: backend holds the task", ok, msg)
+        head = db.task_requests(con, tid)[0]["id"]
+        db.mark_delivered(con, head)
+        nxt = db.add_request(con, "reviewer", "backend", "the one behind it", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, nxt)
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        check("setup: a task to block on", ok, msg)
+        ok, msg = actions.add_block(con, tid, t_blocker, "product")
+        check("setup: the task is now blocked", ok, msg)
+        check("setup: effective_head agrees it is the one behind the blocked head",
+              dmn_delivery.effective_head(con, "backend")["id"] == nxt)
+
+        db.set_cursor(con, "notify:backend", nxt)             # the effective head, told
+        db.set_cursor(con, "nudge:backend", nxt)               # nudge cap used up, T337
+        db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
+        row = db.get_agent_state(con, "backend")
+        check("cold+blocked: nothing untold - the effective head is told, the true head "
+              "is unreachable, not untold",
+              dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is None)
+    finally:
+        orcamod.alive, orcamod.wait_idle, orcamod.available, orcamod.send = real
+        con.close()
+
+
 def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> None:
     """T154 (founder #789), auditor #821: should_close's queued-work guard
     used to hold a session open for as long as anything about it was
@@ -2607,7 +2667,8 @@ def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> 
         db.mark_delivered(con, rid)
         db.set_cursor(con, "notify:backend", rid)
         db.set_notified_session(con, "backend", "sess-cold")
-        db.set_cursor(con, "nudge:backend", rid)   # already reminded once; nothing left to nudge for
+        db.set_cursor(con, "nudge:backend", rid)   # already reminded, cap reached, T337
+        db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
                     (now - dmn_states.RESUME_WARM_S - 60, rid))
         row = db.get_agent_state(con, "backend")
@@ -3660,6 +3721,7 @@ def main() -> int:
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
+        run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
         run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
@@ -3694,6 +3756,8 @@ def main() -> int:
             Path(td) / 'coldfail'))
         run(lambda: test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(
             Path(td) / 'coldonce'))
+        run(lambda: test_a_cold_session_reads_its_blocked_head_through_effective_head(
+            Path(td) / 'coldblocked'))
         run(lambda: test_a_request_already_told_still_closes_a_cold_idle_session(
             Path(td) / 'coldqueue'))
         run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))

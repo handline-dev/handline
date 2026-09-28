@@ -2837,7 +2837,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
                     "SessionEnd", "timebox_exceeded", "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
-                    "dialog_accept_failed", "stop_wait_stuck"}
+                    "dialog_accept_failed", "stop_wait_stuck", "forgotten_resolve_capped"}
     # close_task, mark_task_done and reopen_task (#71) are here, not in
     # AGENT_ACTIVITY_KINDS, because none of the three is necessarily the
     # agent whose clock a careless future caller might attribute it to: a
@@ -4097,9 +4097,11 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
-    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session)
+    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+           obsmod.live_sessions)
     launched: list[str] = []
     try:
+        obsmod.live_sessions = lambda: {}
         db.set_terminal(con, "keeper", "term_x", "wt")
         db.set_closed(con, "keeper", "sess-old")
         # What the close took while the session was live; a snapshot read at
@@ -4134,7 +4136,8 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
         check("pinning: the move is a finished handoff, not a degraded one",
               [r["state"] for r in pinned] == ["done"], str([dict(r) for r in pinned]))
     finally:
-        orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session = real
+        (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+        obsmod.live_sessions) = real
         con.close()
 
 

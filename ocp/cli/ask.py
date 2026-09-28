@@ -127,7 +127,7 @@ def cmd_ask(args) -> int:
                   f"{again}. A report (--fyi) may still be linked.")
             return 1
     ok, msg, rid = askmod.ask(args.target, body, files=args.files,
-                              requester=args.of, parent_id=args.parent,
+                              parent_id=args.parent,
                               mergeable=args.mergeable, first=args.first,
                               replaces=args.replaces, fyi=args.fyi, reason=args.reason,
                               timebox_s=args.timebox)
@@ -155,7 +155,10 @@ def cmd_withdraw(args) -> int:
     if args.reason == "":
         print(_EMPTY_REASON)
         return 1
-    ok, msg = askmod.withdraw(args.id, requester=args.of, reason=args.reason)
+    if askmod.asking_agent() is None:
+        print(_who_refusal("withdraw"))
+        return 1
+    ok, msg = askmod.withdraw(args.id, reason=args.reason)
     print(msg)
     return 0 if ok else 1
 
