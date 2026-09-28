@@ -23,6 +23,43 @@ class Confirmation:
 
 
 @dataclass(frozen=True)
+class QuestionOption:
+    """One choice `Question` offers, in the vendor's own words. `checked` is
+    only ever true on a multiSelect question, and only once ocp knows what a
+    person has toggled - a question just opened has none."""
+    label: str
+    description: str = ""
+    checked: bool = False
+
+
+@dataclass(frozen=True)
+class Question:
+    """One AskUserQuestion question read off a vendor's screen (T304), in the
+    one shape the rest of ocp sees. `options` are the choices Claude itself
+    proposed, verbatim - never "Type something" or "Chat about this", which
+    are the picker's own controls. `other_number` is that "Type something"
+    control's number (`len(options) + 1`); `other_text` carries the words
+    typed into it, None while it still reads "Type something". `multi_select`
+    distinguishes a single pick (a number submits outright) from several
+    (numbers toggle `checked`, Enter submits the ones checked). `lines` is
+    the panel's own text, quoted the same way `Dialog.body` is - a caller
+    checking this is still the same prompt looks at it. `cursor` is the row
+    the "❯" marker is on now (1 for the first option, up through
+    `other_number` and one further for a multiSelect question's own
+    "Submit") - a number toggles Other's own checkbox same as any other row,
+    so reaching its text field takes moving the cursor there with Down
+    presses instead."""
+    header: str
+    question: str
+    options: tuple[QuestionOption, ...]
+    multi_select: bool
+    other_number: int
+    other_text: str | None
+    lines: tuple[str, ...]
+    cursor: int = 1
+
+
+@dataclass(frozen=True)
 class Window:
     """One usage window the vendor reports, named by its length and nothing else:
     ocp finds the shortest and the longest and never asks what they are called.
@@ -285,6 +322,37 @@ class Driver(Protocol):
         """This vendor's one-time permission prompt, when `dialog` is exactly
         that: a `Confirmation`. None for anything else, and for a vendor with no
         such prompt. Only ever answered by a person (`orca.answer_confirmation`)."""
+
+    def ask_question(self, tail: list[str]) -> Question | None:
+        """The AskUserQuestion prompt this vendor's screen shows now, as a
+        `Question`, or None when there is none, it cannot be read, or (a
+        multi-question call's own tab bar, or its "Review your answers"
+        screen) this vendor recognizes but does not yet parse. Read from the
+        raw screen `tail`, not a `Dialog`: measured against a live screen
+        (T304, founder capture 2026-09-27), this prompt's own "Chat about
+        this" section below a second rule defeats `parse_dialog`'s one-rule
+        assumption, so a vendor that has this prompt reads `tail` itself,
+        the same way `trust_screen` does. A vendor with no such prompt
+        returns None always."""
+
+    def answer_question_keys(self, question: Question, choices: tuple[int, ...] = (),
+                             text: str | None = None) -> list[str] | None:
+        """The keys, in order, that answer `question` with `choices` (0-based
+        indexes into its options) or `text` (for its "Type something"
+        control) - never both. None when this vendor has no such prompt, or
+        this combination is not sent this way (a multiSelect question's boxes
+        and Other together go through the two methods below instead). Only
+        ever pressed by a person, through `orca.answer_question`."""
+
+    def question_toggle_keys(self, question: Question, choices: tuple[int, ...]) -> list[str] | None:
+        """Stage one of a multiSelect question's boxes-and-Other combo: the
+        toggle keys to `choices`, re-read before stage two reaches for Other.
+        None when this vendor has no such combo."""
+
+    def question_other_after_toggle_keys(self, question: Question, text: str) -> list[str] | None:
+        """Stage two, given `question` freshly re-read after stage one's
+        toggles landed - its own current cursor, not the first-shown one.
+        None when this vendor has no such combo."""
 
     def credential_present(self, config_dir: Path) -> bool | None:
         """Whether a credential exists. Never reads or returns it. None when

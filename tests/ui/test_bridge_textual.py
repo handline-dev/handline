@@ -2655,6 +2655,188 @@ async def test_a_claude_permission_prompt_is_answered_from_its_chat_page() -> No
                   app.screen is page and not answered[1:], str(answered))
 
 
+async def test_an_askuserquestion_prompt_is_answered_from_its_chat_page() -> None:
+    from unittest import mock
+    from ocp.session import orca as orcamod
+    from ocp.vendors.base import Question, QuestionOption
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("questionmodal")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    q = Question("Library", "Which library should we use for dates?",
+                (QuestionOption("date-fns", "small, tree-shakeable"),
+                 QuestionOption("dayjs", "momentjs-compatible API")),
+                False, 3, None, ("Library", "date-fns", "dayjs"))
+    screen = {"found": q}
+    answered = []
+
+    def answer(handle, seen, choices=(), text=None):
+        answered.append((handle, choices, text))
+        screen["found"] = None
+        return orcamod.CLEARED, "Library", ""
+
+    with mock.patch.object(orcamod, "question_on_screen", lambda h: screen["found"]), \
+            mock.patch.object(orcamod, "answer_question", answer):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            page = ChatPage("backend")
+            await app.push_screen(page)
+            await pilot.pause(1.0)
+            check("question: the agent's page shows the question modal", isinstance(app.screen, QuestionModal),
+                  type(app.screen).__name__)
+            await pilot.click("#opt_0")
+            await pilot.pause(1.2)
+            check("question: a click on an option answers it with that choice",
+                  answered == [("term_q", (0,), None)], str(answered))
+            check("question: answered, and the terminal has not redrawn", app.screen is page)
+
+
+async def test_an_askuserquestion_multiselect_offers_other_too() -> None:
+    from unittest import mock
+    from ocp.session import orca as orcamod
+    from ocp.vendors.base import Question, QuestionOption
+    from ocp.ui.components.question_modal import QuestionModal
+    from ocp.ui.components.text_prompt import TextPrompt
+    _home("questionmodal_multi")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    q = Question("Features", "Which features should we enable?",
+                (QuestionOption("logging", ""), QuestionOption("metrics", "")),
+                True, 3, None, ("Features", "logging", "metrics", "Type something"))
+    screen = {"found": q}
+    answered = []
+
+    def answer(handle, seen, choices=(), text=None):
+        answered.append((handle, choices, text))
+        screen["found"] = None
+        return orcamod.CLEARED, "Features", ""
+
+    with mock.patch.object(orcamod, "question_on_screen", lambda h: screen["found"]), \
+            mock.patch.object(orcamod, "answer_question", answer):
+        app = bt.BridgeApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            page = ChatPage("backend")
+            await app.push_screen(page)
+            await pilot.pause(1.0)
+            modal = app.screen
+            check("question: multiSelect still offers an Other button",
+                  isinstance(modal, QuestionModal) and modal.query("#other"), type(modal).__name__)
+            await pilot.click("#other")
+            await pilot.pause(0.2)
+            check("question: Other opens the free-text prompt", isinstance(app.screen, TextPrompt))
+            # The founder found this live (2026-09-28): the 2s question poll kept firing
+            # while "Type something"'s own TextPrompt sat on top, pushing a fresh
+            # QuestionModal over it and burying what was being typed.
+            page._question_at = 0.0
+            page.poll_question()
+            await pilot.pause(0.5)
+            check("question: the 2s poll does not bury Other's text prompt under a fresh modal",
+                  isinstance(app.screen, TextPrompt), type(app.screen).__name__)
+            for k in list("newone") + ["enter"]:
+                await pilot.press(k)
+            await pilot.pause(0.2)
+            check("question: Other's text returns to the checklist rather than submitting alone "
+                  "- a checked box must survive answering Other too (founder capture 2026-09-28)",
+                  app.screen is modal and not answered, str(answered))
+            await pilot.click("#opt_0")
+            await pilot.click("#submit")
+            await pilot.pause(1.2)
+            check("question: submit carries both the checked box and Other's text together",
+                  answered == [("term_q", (0,), "newone")], str(answered))
+
+
+async def test_askuserquestion_modal_closes_itself_once_the_terminal_moves_on() -> None:
+    """T336 follow-up, founder live capture 2026-09-28: the modal stayed up on the
+    bridge after its own terminal question was gone - answered elsewhere, or the
+    turn moved on without it. `question_seen` now closes it the same way an
+    unrelated screen elsewhere is left alone: only ever its own QuestionModal."""
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("questionmodal_autoclose")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    found = {"agent": "backend", "vendor": "claude", "header": "Features",
+            "question": "Which features should we enable?",
+            "options": [{"label": "logging", "description": "", "checked": False}],
+            "multi_select": True, "other_number": 2, "other_text": None,
+            "lines": ["Features", "logging", "Type something"]}
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause(0.2)
+        app.push_screen(QuestionModal(found, press=lambda choices, text: (True, "unused")))
+        await pilot.pause(0.2)
+        check("question: the modal is up", isinstance(app.screen, QuestionModal), type(app.screen).__name__)
+        page.question_seen(None)
+        await pilot.pause(0.2)
+        check("question: gone from the real screen closes the bridge's own modal too",
+              app.screen is page, type(app.screen).__name__)
+
+
+async def test_askuserquestions_own_press_in_flight_is_not_mistaken_for_a_new_one() -> None:
+    """T336 follow-up: a multiSelect answer sends several keys in a row, toggling
+    boxes on the real screen one at a time - a 2s poll landing mid-sequence used
+    to read that as a fresh question and push a second modal over the first,
+    live on the bridge (founder capture 2026-09-28). `_question_pressing` marks
+    this agent's own press as not a new question until it settles."""
+    _home("questionmodal_pressing")
+    agents.register("backend")
+    con = db.connect()
+    db.set_terminal(con, "backend", "term_q", "wt")
+    con.commit()
+    con.close()
+    mid_press = {"agent": "backend", "vendor": "claude", "header": "Features",
+                "question": "Which features should we enable?",
+                "options": [{"label": "logging", "description": "", "checked": True}],
+                "multi_select": True, "other_number": 2, "other_text": None,
+                "lines": ["Features", "logging (checked mid-press)", "Type something"]}
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause(0.2)
+        page._question_pressing = True
+        page.question_seen(mid_press)
+        await pilot.pause(0.2)
+        check("question: a reading mid-press is not offered as a fresh question",
+              app.screen is page, type(app.screen).__name__)
+
+
+async def test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll() -> None:
+    from unittest import mock
+    from ocp.ui import chat_page as cp
+    _home("tickingbackground")
+    agents.register("backend")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause(0.3)
+        page.agent_state = ("RUNNING", "background 40s")
+        page._sig = "marker"
+        with mock.patch.object(cp, "agent_state_of", lambda con, agent: ("RUNNING", "background 41s")):
+            page.refresh_agent_state()
+        check("agent state: the word staying RUNNING does not reset the transcript signature "
+              "just because the ticking detail text changed",
+              page._sig == "marker", page._sig)
+        check("agent state: the status line still shows the new detail",
+              "41s" in page._status().plain, page._status().plain)
+
+        with mock.patch.object(cp, "agent_state_of", lambda con, agent: ("IDLE", "")):
+            page.refresh_agent_state()
+        check("agent state: the word itself changing does reset the signature",
+              page._sig is None, page._sig)
+
+
 async def test_home_settings_lists_the_standing_answers_and_removes_one() -> None:
     import sys
     from unittest import mock
@@ -3114,6 +3296,11 @@ async def _run_all() -> None:
     await test_home_settings_lists_the_standing_answers_and_removes_one()
     await test_a_dialog_on_an_agent_terminal_is_answered_from_its_page()
     await test_a_claude_permission_prompt_is_answered_from_its_chat_page()
+    await test_an_askuserquestion_prompt_is_answered_from_its_chat_page()
+    await test_an_askuserquestion_multiselect_offers_other_too()
+    await test_askuserquestion_modal_closes_itself_once_the_terminal_moves_on()
+    await test_askuserquestions_own_press_in_flight_is_not_mistaken_for_a_new_one()
+    await test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll()
     await test_the_bridge_follows_the_os_light_dark_setting_while_open()
     await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
     await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()

@@ -896,6 +896,124 @@ def answer_confirmation(handle: str, yes: bool, seen: tuple[str, ...],
     return outcome, title, (refused[0] if refused and outcome == NOT_PRESSED else why)
 
 
+def question_on_screen(handle: str):
+    """The AskUserQuestion prompt this terminal shows now, as a `Question`
+    (T304), or None when there is none or it cannot be read. Read from the raw
+    screen, not `dialog_on_screen`: this prompt's shape defeats `parse_dialog`
+    (see `vendors.claude_ask`'s own docstring), so each vendor reads its `tail`
+    itself, the way `trust_screen` does."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return None
+    return _driver_for(handle).ask_question(tail)
+
+
+QUESTION_KEY_GAP_S = 0.1
+
+
+def _send_question_keys(handle: str, keys: list[str]) -> tuple[bool, str]:
+    for key in keys:
+        ok, out = send(handle, "") if key == ENTER else send(handle, key, enter=False)
+        if not ok:
+            return False, f"a key could not be sent: {out[:120]}"
+        time.sleep(QUESTION_KEY_GAP_S)
+    return True, ""
+
+
+def _question_cleared(handle: str, driver) -> bool:
+    for _ in range(PRESS_SETTLE_READS):
+        time.sleep(PRESS_SETTLE_S)
+        after_term = _screen(handle)
+        after_tail = after_term.get("tail") if after_term else None
+        if not isinstance(after_tail, list) or after_term.get("source") != "screen":
+            continue
+        if driver.ask_question(after_tail) is None:
+            return True
+    return False
+
+
+def _answer_question_toggle_and_other(handle: str, driver, found, choices: tuple[int, ...],
+                                      text: str) -> tuple[str, str, str]:
+    """A multiSelect question's boxes checked *and* Other typed together
+    (T322/T336 follow-up, founder capture 2026-09-28): toggling a box moves
+    the cursor too, so this sends only the toggles first, re-reads the real
+    screen for where the cursor actually landed, and only then reaches for
+    Other from there - never the whole guess in one blind sequence."""
+    toggle_keys = driver.question_toggle_keys(found, choices)
+    if toggle_keys is None:
+        return NOT_PRESSED, found.header, "this answer is not one ocp sends"
+    ok, why = _send_question_keys(handle, toggle_keys)
+    if not ok:
+        return NOT_PRESSED, found.header, why
+    time.sleep(PRESS_SETTLE_S)
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return STILL_OPEN, found.header, f"the screen could not be re-read after toggling {toggle_keys}"
+    after_toggle = driver.ask_question(tail)
+    if after_toggle is None:
+        return STILL_OPEN, found.header, f"the question closed on its own after toggling {toggle_keys}"
+    read_back = sorted(i for i, o in enumerate(after_toggle.options) if o.checked)
+    # T336 diagnostics (temporary, founder #2013 - kept until this combo has a
+    # few real captures behind it): the re-read that decides where Other is
+    # reached from, spelled out so a log line shows it, not just the outcome.
+    trail = (f"toggled {toggle_keys} -> checked {read_back}, cursor now {after_toggle.cursor}"
+            f" (wanted {sorted(choices)})")
+    if set(read_back) != set(choices):
+        return STILL_OPEN, found.header, f"{trail} - not what was toggled, not sent further"
+    other_keys = driver.question_other_after_toggle_keys(after_toggle, text)
+    if other_keys is None:
+        return NOT_PRESSED, found.header, f"{trail} - this answer is not one ocp sends"
+    trail = f"{trail}, then Other's own keys {other_keys}"
+    ok, why = _send_question_keys(handle, other_keys)
+    if not ok:
+        return NOT_PRESSED, found.header, f"{trail} - {why}"
+    if _question_cleared(handle, driver):
+        return CLEARED, found.header, trail
+    return STILL_OPEN, found.header, f"{trail} - the question is still on screen after its answer"
+
+
+def answer_question(handle: str, seen: tuple[str, ...], choices: tuple[int, ...] = (),
+                    text: str | None = None) -> tuple[str, str, str]:
+    """Send a person's answer to the AskUserQuestion prompt on this terminal;
+    (outcome, title, why) as `decline_dialog`.
+
+    Pressed only when the screen just read is a recognized prompt whose lines
+    are exactly `seen`, the lines the person answered. Unlike a permission
+    prompt's one key, an answer is several keys in a row (`answer_question_keys`),
+    so the match is made once here, before the first - a key already sent
+    cannot be un-sent on a later mismatch. Whether it landed is read off the
+    question card itself going, never off the "Review your answers" screen a
+    multiSelect answer passes through (vendors.claude_ask's own docstring).
+
+    A multiSelect question's boxes checked and Other typed together goes
+    through `_answer_question_toggle_and_other` instead, in two stages with a
+    re-read between - `answer_question_keys` itself refuses that combination,
+    since one blind sequence cannot know where toggling left the cursor."""
+    driver = _driver_for(handle)
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return NOT_PRESSED, "", "its screen could not be read"
+    found = driver.ask_question(tail)
+    if found is None:
+        return NOT_PRESSED, "", NO_DIALOG
+    if found.lines != tuple(seen):
+        return NOT_PRESSED, found.header, "the question is not the one that was answered"
+    if choices and text is not None and found.multi_select:
+        return _answer_question_toggle_and_other(handle, driver, found, choices, text)
+    keys = driver.answer_question_keys(found, choices, text)
+    if keys is None:
+        return NOT_PRESSED, found.header, "this answer is not one ocp sends"
+    ok, why = _send_question_keys(handle, keys)
+    if not ok:
+        return NOT_PRESSED, found.header, why
+    if _question_cleared(handle, driver):
+        return CLEARED, found.header, ""
+    return STILL_OPEN, found.header, "the question is still on screen after its answer"
+
+
 # Claude Code's hint row under the composer counts what still runs in the
 # background as "<n> <noun>" segments between its mode and its key hints, e.g.
 # "⏵⏵ auto mode on · 2 monitors · ← for agents · ↓ to manage" (measured live

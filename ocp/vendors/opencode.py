@@ -337,6 +337,18 @@ class Opencode:
     def confirmation(self, dialog):
         return None
 
+    def ask_question(self, tail: list[str]):
+        return None      # no AskUserQuestion prompt of its own to detect
+
+    def answer_question_keys(self, question, choices=(), text=None):
+        return None
+
+    def question_toggle_keys(self, question, choices):
+        return None
+
+    def question_other_after_toggle_keys(self, question, text):
+        return None
+
     def memory_settings(self, memory_dir: Path) -> dict:
         return {}      # no auto-memory to point
 
