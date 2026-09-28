@@ -140,6 +140,7 @@ class TasksView(Vertical):
         self.rows: list[dict] = []
         self._mark_head = ""
         self._agent_owners: list[str] | None = None
+        self._cells: dict[str, tuple] = {}     # what the table rows were last built from
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks_filters"):
@@ -176,6 +177,7 @@ class TasksView(Vertical):
         """The heads, with an arrow on the sort column; a rebuild is how a head changes."""
         table = self.table
         table.clear(columns=True)
+        self._cells = {}
         self._mark_head = self._mark_label()
         for label, key in self.HEADS:
             label = self._mark_head if key == "mark" else label
@@ -226,23 +228,32 @@ class TasksView(Vertical):
         now = time.time()
         table = self.table
         row = keep
-        # founder #1975/T309: clear() drops the table's scroll along with its
-        # rows, so a manual scroll down was undone on every 2s tick even
-        # when nothing changed. move_cursor no longer re-scrolls to the
-        # cursor on its own; the saved offset is put back once the table has
-        # its rows again, clamped the same way Textual would clamp it.
-        was_scroll_y = table.scroll_y
-        table.clear()
+        cells = {}
         for r in self.rows:
             stale = actions.task_stale(r, now)
-            cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
-                     r["state"], textsafe.oneline(r["title"]), r["owner"],
-                     idle_text(r, now) + (" !" if stale else ""), r["closer"],
-                     " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
-            table.add_row(*(Text(c, style="yellow" if stale else "") for c in cells), key=str(r["id"]))
-        if self.rows:
-            table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
-        table.scroll_y = was_scroll_y
+            cells[str(r["id"])] = (
+                "[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
+                r["state"], textsafe.oneline(r["title"]), r["owner"],
+                idle_text(r, now) + (" !" if stale else ""), r["closer"],
+                " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-", stale)
+        old = self._cells
+        self._cells = cells
+        if list(old) == list(cells):
+            # founder #1975/T309: same rows in the same order - patch only the cells that
+            # changed, so the table is never cleared and its scroll and cursor stay put.
+            for key, new in cells.items():
+                if new != old[key]:
+                    for col, text in enumerate(new[:-1]):
+                        table.update_cell(key, self.HEADS[col][1], Text(text, style="yellow" if new[-1] else ""))
+        else:
+            was_scroll_y = table.scroll_y
+            table.clear()
+            for key, new in cells.items():
+                table.add_row(*(Text(c, style="yellow" if new[-1] else "") for c in new[:-1]), key=key)
+            if self.rows:
+                table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
+            # the virtual size is only recomputed after layout; restore the offset then
+            table.call_after_refresh(lambda: table.scroll_to(y=was_scroll_y, animate=False))
         self._show_pane()
         self._sync_filters()
         self.query_one("#tasks_foot", KeyGuide).set_keys(self._keys())
