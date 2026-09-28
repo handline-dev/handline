@@ -75,19 +75,14 @@ def fold(con, agent: str) -> str:
     return msg if ok else f"{agent}: fold rejected - {msg}"
 
 
-# How long to wait for a launched agent to show up in the process table before
-# saying it did not. `ocp launch` execs claude, which takes a few seconds to be
-# visible; the daemon's own wake waits about this long for the same reason.
-STARTED_TIMEOUT_S = 20
-
-
 def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     """Give an agent a worktree and start it there.
 
     The one thing the daemon cannot do for an agent with no terminal: there is
     nothing to type into, so work queued for it waits forever. Everything else
     on this screen assumes a terminal already exists; this is where one comes
-    from.
+    from. `start_in`/`spawn` confirm a session actually started (T146 pt.2),
+    so their own `msg` is already why when one did not.
     """
     row = db.get_agent_state(con, agent)
     if row and row["terminal"]:
@@ -95,20 +90,9 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     wt = spawnmod.worktree_path(row["worktree"] if row else None)
     if wt:
         # It has somewhere to run already; it lost the window it ran in.
-        ok, msg = spawnmod.start_in(agent, wt)
+        _, msg = spawnmod.start_in(agent, wt)
     else:
-        ok, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
-    if not ok:
-        return msg
-    # A terminal is not a session. `ocp launch` execs claude, and claude can
-    # exit on its own - a bad flag, a config it will not accept, an account
-    # mid-login - leaving the shell prompt the command was typed at. That looks
-    # exactly like a terminal where nothing ran, and saying "started" over it
-    # sends the reader looking for an agent that is not there.
-    if not dmn_delivery.wait_for_session(agent, STARTED_TIMEOUT_S):
-        return (f"{msg}\n  but no session is running in it after {STARTED_TIMEOUT_S}s - "
-                f"the terminal is there and claude is not. Go and look (t): "
-                f"whatever it printed is on that shell.")
+        _, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
     return msg
 
 
@@ -264,7 +248,7 @@ WAITS: dict[str, tuple[str, int]] = {
     "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
     "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),
     "terminal": ("a terminal to be made and its session to start",
-                 120 + STARTED_TIMEOUT_S + _IDLE_WAIT_S),
+                 120 + spawnmod.STARTED_TIMEOUT_S + _IDLE_WAIT_S),
     "message": ("its terminal to be idle, then the message to be typed", _DELIVERY_S),
     "chat_reply": ("its terminal to be idle, then the message to be typed", _DELIVERY_S),
     "answer": ("the terminal it is delivered to to be idle", _DELIVERY_S),

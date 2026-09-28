@@ -449,12 +449,17 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
         row = db.get_agent_state(con, "spawny")
         return ((row["terminal"], row["worktree"]) if row else (None, None))
 
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create)
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+           dmn_delivery.wait_for_session)
     con = db.connect()
     try:
         spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
+        # spawn()/start_in() confirm a session came up before saying "started"
+        # (#1976, T146 pt.2) - not this test's own concern, so it is not made
+        # to wait for a real process table it has nothing in.
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
         check("the escaped byte comes back real from the parse (the case is live)",
               "\x9b" in json.loads(fake_run(["orca", "worktree", "create"])[1])
@@ -540,7 +545,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
         os.environ.pop("ORCA_TERMINAL_HANDLE", None)
         os.environ.pop("ORCA_WORKTREE_ID", None)
         (spawnmod._run, spawnmod.shutil.which,
-         orcamod.run_current, orcamod.run_create) = real
+         orcamod.run_current, orcamod.run_create, dmn_delivery.wait_for_session) = real
         con.close()
 
 

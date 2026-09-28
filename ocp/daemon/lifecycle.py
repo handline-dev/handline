@@ -344,7 +344,11 @@ def waiting_for(con, agent: str) -> bool:
     session is not spent waking one for a request it was already told), an
     answer to something it asked, or a say (T293) - never a head, but still
     owed a delivery with nothing else queued. A closed agent is woken for
-    that and for nothing else."""
+    that and for nothing else.
+
+    A caller gating a closed agent's wake on this enforces its edges first;
+    see the comment at `_wake_agent`'s own gate (T146 pt.1).
+    """
     return bool(delivery.effective_head(con, agent) or db.unannounced_answers(con, agent)
                 or db.send_now_pending(con, agent))
 
@@ -452,10 +456,13 @@ def _start_for_work(con, agent: str, log) -> str:
     # or to what is uncommitted in it, and a second worktree would strand the
     # first.
     wt = spawnmod.worktree_path(row["worktree"] if row else None)
+    # `ok` is `start_in`/`spawn`'s own answer, not re-derived from the row
+    # (T146 pt.2): they confirm a session actually started now, so a
+    # terminal left standing with nothing in it counts as the failed wake
+    # it is, not "started".
     ok, said = (spawnmod.start_in(agent, wt) if wt
                 else spawnmod.spawn(agent, Path(repo).expanduser().resolve()))
-    fresh = db.get_agent_state(con, agent)
-    if fresh and fresh["terminal"]:
+    if ok:
         db.reset_counter(con, agent, "wake_failures")
         db.add_event(con, agent, "started_for_work", {"repo": repo})
         log(f"  {agent}: started in {repo} - work was waiting for it")
@@ -528,6 +535,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # Before anything is typed: an agent.yaml that will not read is this
         # agent's ConfigError, which the callers stall by name.
         agents.read(agent)
+        # Nothing ever delivers to a closed agent, so nothing has enforced its
+        # edges either (T146 pt.1) - do it before `waiting_for` below, which
+        # would otherwise not count a request still edge-unconfirmed.
+        delivery.enforce_edges(con, agent, log)
         # A closed agent is brought back for a message. With none, there is
         # nothing to tell it and no reason to spend a session on it; the
         # message that arrives is what wakes it. A move is the exception: the

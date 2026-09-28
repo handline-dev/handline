@@ -1044,7 +1044,8 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which)
+    real = (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which,
+           dmn_delivery.wait_for_session)
     try:
         spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
         spawnmod._run = fake_run
@@ -1052,6 +1053,9 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.run_current = lambda: None       # register_worker looks for a Run to join;
         orcamod.run_create = lambda objective: None    # there is none, so the worker is not registered
+        # spawn() confirms a session came up before it says "started" (#1976,
+        # T146 pt.2) - not this test's own concern, so it is not made to wait.
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
         check("spawn: the command's main path runs to the end", ok, msg)
@@ -1067,7 +1071,63 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
         check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
     finally:
-        spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which = real
+        (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which,
+        dmn_delivery.wait_for_session) = real
+
+
+def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) -> None:
+    """T146 pt.2 (founder #1976): a terminal Orca made is not a session
+    running in it - `spawn`/`start_in` must say so (`ok=False`, the "no
+    session is running" text), not warn while still claiming success. The
+    daemon's own auto-start (`_start_for_work`) decides on that same `ok` now,
+    not on the terminal the row still holds (the terminal is real; only the
+    session inside it is missing), so it must not reset the wake-failure
+    streak or log "started" over one either."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    credentialed(home, "alpha")
+    agents.register("spawny", repo=str(home / "checkout"))
+    con = db.connect()
+
+    def fake_run(args, cwd=None):
+        if args[:3] == ["orca", "worktree", "create"]:
+            return 0, json.dumps({"result": {"worktree": {"path": str(home / "wt")}}}), ""
+        if args[:3] == ["orca", "terminal", "create"]:
+            return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
+        return 0, "", ""
+
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+           dmn_delivery.wait_for_session)
+    try:
+        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        spawnmod._run = fake_run
+        orcamod.run_current = lambda: None
+        orcamod.run_create = lambda objective: None
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
+
+        ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
+        check("spawn: no session confirmed is not started",
+              not ok and "no session is running" in msg, msg)
+
+        wt = home / "keep-wt"
+        wt.mkdir()
+        ok, msg = spawnmod.start_in("spawny", str(wt))
+        check("start_in: no session confirmed is not started either",
+              not ok and "no session is running" in msg, msg)
+
+        # The daemon's own auto-start of an agent with work waiting.
+        db.add_request(con, "manager", "spawny", "do it", None,
+                       "peer", "async", None, 0, None)
+        said = dmn_lifecycle._start_for_work(con, "spawny", lambda _m: None)
+        row = db.get_agent_state(con, "spawny")
+        check("dispatch: a spawn with no session confirmed is not 'started'",
+              "could not be started" in said, said)
+        check("dispatch: and it counts as a failed wake, not a fresh streak",
+              row["wake_failures"] == 1, str(dict(row)))
+    finally:
+        (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+        dmn_delivery.wait_for_session) = real
+        con.close()
 
 
 def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
@@ -1091,13 +1151,17 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_k"}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create)
+    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+           dmn_delivery.wait_for_session)
     con = db.connect()
     try:
         spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
         spawnmod._run = fake_run
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
+        # spawn() confirms a session came up before it says "started" (#1976,
+        # T146 pt.2) - not this test's own concern, so it is not made to wait.
+        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
         # The selector `ocp launch` records, not a plain path.
         db.set_terminal(con, "keeper", None, f"abc123::{wt}")
 
@@ -1121,7 +1185,8 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
               any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
     finally:
         con.close()
-        spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create = real
+        (spawnmod._run, spawnmod.shutil.which, orcamod.run_current,
+        orcamod.run_create, dmn_delivery.wait_for_session) = real
 
 
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
@@ -2060,6 +2125,7 @@ def main() -> int:
         run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
             Path(td) / 'docactive'))
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
+        run(lambda: test_spawn_and_start_in_refuse_to_say_started_with_no_session(Path(td) / 'spawnnosess'))
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))
