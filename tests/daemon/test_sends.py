@@ -216,6 +216,8 @@ def test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(home: Path) -> No
         check("typed say: typed at once", reply["ok"] and len(sent) == 1, str((reply, sent)))
         check("typed say: and finished - done, not left queued for a resolve",
               row["state"] == "done", str(dict(row)))
+        check("typed say: closed with no verdict, so no reply is made of it (T441)",
+              row["verdict"] is None and db.answer_row_of(con, row["id"]) is None, str(dict(row)))
         check("typed say: in = 0", db.unreached_count(con, "backend") == 0)
         check("typed say: the agent reads IDLE",
               dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
@@ -310,12 +312,77 @@ def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> No
               and db.get_request(con, unshown)["typed_at"] is None)
         check("migration (T431): a row for the human is drawn, never typed - left alone",
               db.get_request(con, to_human)["typed_at"] is None)
-        check("migration: the old say is settled", db.get_request(con, say)["state"] == "done")
+        check("migration: the old say is settled, with no verdict to be drawn as a reply",
+              db.get_request(con, say)["state"] == "done" and db.get_request(con, say)["verdict"] is None
+              and db.answer_row_of(con, say) is None)
         check("migration: an old ask that was shown stays open, still owing its answer",
               db.get_request(con, shown)["state"] == "queued")
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("migration: an old ask never shown is typed once by the tick",
               len(sent) == 1 and "never shown" in sent[0][1] and db.unreached_count(con, "backend") == 0, str(sent))
+    finally:
+        con.close()
+
+
+def _drawn_replies(con, target: str) -> list[str]:
+    """What the founder's chat with `target` shows as a reply (part 1 of an exchange)."""
+    rows, _ = actions.conversation_and_drawn(con, target, hint=False)
+    return [r.text for r in rows if getattr(r, "kind", "") == "msg" and r.part == 1]
+
+
+def test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(home: Path) -> None:
+    """T441 (founder #5467): the chat drew "typed" as backend's reply to a say. It is drawn from
+    the verdict of the request row, so the say is closed with none."""
+    _world(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, actions.HUMAN, "backend", "hello there", None, "peer", "async", "say", 0, None)
+        dmn_messaging.finish_say(db.get_request(con, rid))
+        row = db.get_request(con, rid)
+        check("chat: the say is done and has no verdict", row["state"] == "done" and row["verdict"] is None)
+        check("chat: no reply is drawn for it", _drawn_replies(con, "backend") == [], str(_drawn_replies(con, "backend")))
+        real = db.add_request(con, actions.HUMAN, "backend", "and a question", None, "peer", "async", None, 0, None)
+        askmod.resolve(real, "an answer that somebody wrote")
+        check("chat: a real answer is still drawn", _drawn_replies(con, "backend") == ["an answer that somebody wrote"],
+              str(_drawn_replies(con, "backend")))
+    finally:
+        con.close()
+
+
+def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) -> None:
+    """T441: says closed before this carry "typed" (or the old-say note) as a verdict and an answer
+    message of its own. Both go, whichever shape the answer has; a real answer to a former ask stays."""
+    _world(home)
+    con = db.connect()
+    try:
+        told = [db.add_request(con, actions.HUMAN, "backend", f"say {i}", None, "peer", "async", "say", 0, None,
+                               state="done", verdict=note)
+                for i, note in enumerate(("typed", "closed: told before says were typed at once"))]
+        fakes = [db.add_answer(con, t, db.get_request(con, t)["verdict"]) for t in told]
+        ask = db.add_request(con, actions.HUMAN, "backend", "a former ask", None, "peer", "async", "say", 0, None,
+                             state="done", verdict="PASS, nothing to change")
+        real = db.add_answer(con, ask, "PASS, nothing to change")
+        old_ask = db.add_request(con, actions.HUMAN, "backend", "before answers were says", None, "peer", "async",
+                                 None, 0, None, state="done", verdict="typed")
+        old_fake = db.add_answer(con, old_ask, "typed")
+        con.execute("UPDATE requests SET kind = 'answer', settles = NULL WHERE id = ?", (fakes[0],))   # the old shape
+        db.set_cursor(con, "migrated:close_notes", 0)
+        con.close()
+        con = db.connect()
+        gone = [con.execute("SELECT 1 FROM requests WHERE id = ?", (f,)).fetchone() is None for f in fakes]
+        check("close notes: the messages made of them are gone, as an answer row or as a say", all(gone), str(gone))
+        check("close notes: and the verdicts, so nothing is drawn from the say either",
+              all(db.get_request(con, t)["verdict"] is None for t in told))
+        check("close notes: a real answer to a former ask stays, drawn once",
+              con.execute("SELECT 1 FROM requests WHERE id = ?", (real,)).fetchone() is not None
+              and _drawn_replies(con, "backend").count("PASS, nothing to change") == 1,
+              str(_drawn_replies(con, "backend")))
+        check("close notes: an ask that was not a say when it was answered is left alone",
+              db.get_request(con, old_ask)["verdict"] == "typed"
+              and con.execute("SELECT 1 FROM requests WHERE id = ?", (old_fake,)).fetchone() is not None)
+        check("close notes: the old-say note is drawn as nobody's reply",
+              "closed: told before says were typed at once" not in _drawn_replies(con, "backend"),
+              str(_drawn_replies(con, "backend")))
     finally:
         con.close()
 
@@ -491,6 +558,8 @@ def main() -> int:
         run(lambda: test_only_what_has_not_reached_the_agent_counts(Path(td) / "s10"))
         run(lambda: test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(Path(td) / "s11"))
         run(lambda: test_the_daemon_start_settles_old_says_and_leaves_old_asks(Path(td) / "s12"))
+        run(lambda: test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(Path(td) / 'saychat'))
+        run(lambda: test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(Path(td) / 'closenotes'))
         run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))

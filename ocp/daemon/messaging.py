@@ -43,9 +43,10 @@ def can_type_now(con, agent: str, handle: str) -> tuple[bool, str]:
 def finish_say(row) -> None:
     """A say is finished once it is typed: nothing is owed on it, so it is settled
     quietly instead of staying queued (and counting as pending) until someone
-    resolves it. Anything else typed for a request stays open until it is answered."""
+    resolves it. It is closed with no verdict: a verdict is drawn as the target's reply, and
+    nobody replied (T441). Anything else typed for a request stays open until it is answered."""
     if row["kind"] == "say":
-        askmod.resolve(int(row["id"]), "typed", notify=False)
+        askmod.resolve(int(row["id"]), None, notify=False)
 
 
 def _deliver_row(con, agent: str, row_id: int, text: str) -> tuple[bool, str]:
@@ -209,7 +210,7 @@ def migrate_old_messages(con, log) -> None:
     shown is undelivered, so the tick types it like a new one."""
     for row in con.execute("SELECT id FROM requests WHERE state = 'queued' AND kind = 'say' "
                            "AND target != ?", (db.HUMAN,)).fetchall():
-        askmod.resolve(int(row["id"]), "closed: told before says were typed at once", notify=False)
+        askmod.resolve(int(row["id"]), None, notify=False)
         log(f"  #{row['id']}: an old say, settled")
     # T431: a request the daemon before T418 told has `delivered_at` and never a `typed_at`, so
     # the landing sweep (which reads typed rows) never saw it and it stayed "queued" for good.
