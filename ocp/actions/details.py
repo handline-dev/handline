@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shlex
+import threading
 import time
 
 from ..team import accounts
@@ -290,10 +291,44 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> tuple[bool, str
         orca.close_terminal(handle)
 
 
+_SAMPLES: dict = {"db": None, "floor": None, "stamp": None, "rows": [], "ts": []}
+_SAMPLES_BUCKET_S = 300
+_SAMPLES_LOCK = threading.Lock()        # the outlook loads on worker threads, and two can overlap
+
+
+def _usage_samples(con, since: int) -> list:
+    """The usage samples from `since` on, oldest first, read once for everything the
+    stats tab asks of them in a refresh - the outlook, what each agent used, the curve
+    under it, each with a slightly different `since` - and again only when a sample has
+    been written since, or a later window needs older ones than were read. Unchanged
+    samples are not read out of the database three times over."""
+    with _SAMPLES_LOCK:
+        return _usage_samples_locked(con, since)
+
+
+def _usage_samples_locked(con, since: int) -> list:
+    from bisect import bisect_left
+    from ..usage import outlook
+    from ..infra import paths
+    have = _SAMPLES
+    where = str(paths.db_file())
+    if have["db"] == where and have["floor"] is not None and have["floor"] <= since:
+        stamp = con.execute("SELECT COUNT(*), COALESCE(MAX(ts), 0) FROM usage_samples WHERE ts >= ?",
+                            (have["floor"],)).fetchone()
+        if tuple(stamp) == have["stamp"]:
+            return have["rows"][bisect_left(have["ts"], since):]
+    floor = since - since % _SAMPLES_BUCKET_S
+    rows = db.usage_samples(con, since=floor)
+    outlook.forget_before(floor)
+    have.update(db=where, floor=floor, rows=rows, ts=[r["ts"] for r in rows],
+                stamp=(len(rows), rows[-1]["ts"] if rows else 0))
+    return rows[bisect_left(have["ts"], since):]
+
+
 def weekly_outlook(con, now: int, hours: int = 24):
     """The weekly headroom of all accounts together, the last `hours` and a guess at the next."""
     from ..usage import outlook
-    return outlook.weekly_outlook(db.usage_samples(con, since=now - hours * 3600 - 7200), now, hours)
+    return outlook.weekly_outlook(_usage_samples(con, now - hours * 3600 - 7200), now, hours)
 
 
 def agent_use(con, now: int, hours: int) -> list:
@@ -301,7 +336,7 @@ def agent_use(con, now: int, hours: int) -> list:
     last `hours`, largest first."""
     from ..usage import outlook, prices, stats
     lo = now - hours * 3600
-    used = outlook.week_consumed(db.usage_samples(con, since=lo), lo, now)
+    used = outlook.week_consumed(_usage_samples(con, lo), lo, now)
     return stats.agent_use(con, lo, now, prices.table_from_config(loadmod._config()), used)
 
 
@@ -309,6 +344,6 @@ def agent_overlay(con, use, now: int, hours: int, times: list[int]) -> list[floa
     """Points of the combined week `use` (an `agent_use` row) had eaten by each of `times`: its
     cost share of each account times what that account used so far, averaged over the accounts."""
     from ..usage import outlook
-    curves = outlook.consumed_curve(db.usage_samples(con, since=now - hours * 3600 - 7200), times)
+    curves = outlook.consumed_curve(_usage_samples(con, now - hours * 3600 - 7200), times)
     n = len(curves) or 1
     return [sum(use.fracs.get(a, 0.0) * c[k] for a, c in curves.items()) / n for k in range(len(times))]

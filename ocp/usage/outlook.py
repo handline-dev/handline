@@ -6,6 +6,7 @@ used comes back, so it starts again from nothing used at that pace. What is meas
 is guessed are kept apart (`past`, `future`); this is pure, given the sample rows."""
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
 
 from . import windows
@@ -22,14 +23,41 @@ class Outlook:
     accounts: int = 0
 
 
+# A sample never changes once it is written, and the stats tab reads the same
+# thousands of them three ways on every refresh (the outlook, what each agent
+# used, and the curve under it) - so what a sample says about its longest window is
+# read once. Keyed by its time and then the whole row, so a sample that did change reads
+# afresh; `forget_before` drops what a window that has moved on will not ask for again.
+_WEEK_CACHE: dict[tuple, tuple[int, float, int | None] | None] = {}
+_WEEK_CACHE_MAX = 400_000
+
+
+def forget_before(ts: int) -> None:
+    """Drop what is cached for samples older than `ts`: nothing reads them again."""
+    # `list(dict)` is taken in one step and `pop` is tolerant: `_week` inserts and clears
+    # from other threads without this module's lock.
+    for key in list(_WEEK_CACHE):
+        if key[0] < ts:
+            _WEEK_CACHE.pop(key, None)
+
+
 def _week(row) -> tuple[int, float, int | None] | None:
     """(ts, used percent, reset) of the longest window one sample holds."""
+    key = (row["ts"], *tuple(row)) if isinstance(row, sqlite3.Row) else None
+    if key is not None and key in _WEEK_CACHE:
+        return _WEEK_CACHE[key]
     got = [e for e in windows.entries(dict(row)) if e.get("used_percent") is not None
            and e.get("readable", True) and not e.get("lost") and e["minutes"] > 300]
     if not got:
-        return None
-    e = got[-1]
-    return row["ts"], float(e["used_percent"]), e.get("resets_at")
+        out = None
+    else:
+        e = got[-1]
+        out = (row["ts"], float(e["used_percent"]), e.get("resets_at"))
+    if key is not None:
+        if len(_WEEK_CACHE) >= _WEEK_CACHE_MAX:
+            _WEEK_CACHE.clear()
+        _WEEK_CACHE[key] = out
+    return out
 
 
 def _at(series: list[tuple[int, float, int | None]], t: int):
