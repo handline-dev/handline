@@ -755,7 +755,7 @@ def _blocked_world(home: Path):
 
 def _escalations(con) -> list:
     return con.execute("SELECT id, state, verdict FROM requests WHERE target = 'human' "
-                       "AND kind = 'escalate' ORDER BY id").fetchall()
+                       "AND kind = 'task' ORDER BY id").fetchall()
 
 
 # Shapes reconstructed from Claude Code's wording, NOT measured on a live screen:

@@ -255,6 +255,7 @@ def mailbox_rows(con) -> list[dict]:
     had already answered.
     """
     out = []
+    gates = set(db.open_decision_card_ids(con))
     for r in con.execute(
         "SELECT id, ts, requester, target, kind, response, body, parent_id, fyi "
         "FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
@@ -278,7 +279,7 @@ def mailbox_rows(con) -> list[dict]:
         out.append({
             "id": r["id"], "ts": r["ts"], "from": r["requester"],
             "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
-            "gate": r["kind"] == "escalate",
+            "gate": int(r["id"]) in gates,
             "waiting": r["response"] == "async" and not r["fyi"] and r["kind"] != "say",
             "answer": False,
         })
@@ -392,8 +393,8 @@ def founder_waits(con) -> list[dict]:
                     "since": int(req["ts"])})
 
     for r in con.execute(
-        "SELECT id, ts, requester, body FROM requests WHERE target = ? "
-        "AND kind = 'escalate' AND state = 'queued' ORDER BY id", (HUMAN,)).fetchall():
+        "SELECT id, ts, requester, body FROM requests WHERE target = ? AND state = 'queued' "
+        f"AND id IN {db.OPEN_DECISION_CARDS_SQL} ORDER BY id", (HUMAN, HUMAN)).fetchall():
         if int(r["id"]) in proposed:
             continue
         out.append({"kind": "escalation", "who": r["requester"], "red": True,

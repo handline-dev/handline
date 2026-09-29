@@ -4003,7 +4003,7 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
     log: list[str] = []
 
     def escalations() -> list:
-        return con.execute("SELECT body FROM requests WHERE kind = 'escalate' AND body LIKE '[wait-for]%'"
+        return con.execute("SELECT body FROM requests WHERE kind = 'task' AND target = 'human' AND body LIKE '[wait-for]%'"
                            ).fetchall()
 
     try:
@@ -4028,7 +4028,13 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
             "SELECT 1 FROM cursors WHERE name LIKE 'waitfor:%'").fetchone())
         db.add_block(con, c, a)
         waitfor.sweep(con, log.append, 0)
-        check("wait-for: and told again if it comes back", len(escalations()) == 2)
+        check("wait-for: back while the first is still undecided, it is that decision, not a second",
+              len(escalations()) == 1)
+        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
+        con.execute("UPDATE tasks SET closed_by = 'human', done_evidence = 'seen' WHERE owner = 'human'")
+        db.clear_cursor(con, next(r["name"] for r in con.execute("SELECT name FROM cursors WHERE name LIKE 'waitfor:%'")))
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: and told again once that was decided", len(escalations()) == 2)
         db.remove_block(con, c, a)
 
         d = db.new_task(con, "waits on a task that goes away", "backend", "manager")
@@ -4074,7 +4080,7 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         db.add_block(con, n_, m_)
         before = len(escalations())
         waitfor.sweep(con, log.append, 0)
-        row = con.execute("SELECT requester FROM requests WHERE kind = 'escalate' ORDER BY id DESC LIMIT 1").fetchone()
+        row = con.execute("SELECT requester FROM requests WHERE kind = 'task' AND target = 'human' ORDER BY id DESC LIMIT 1").fetchone()
         check("wait-for: a loop only the founder owns is filed under him, not under an agent that may not exist",
               len(escalations()) == before + 1 and row["requester"] == db.HUMAN, str(dict(row)))
         for w, b_ in ((m_, n_), (n_, m_)):

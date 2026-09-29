@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import atomic, paths
+from ..infra import atomic, paths, textsafe
 from ..infra.yamlcompat import ConfigError
 from . import team
 from ..infra import timefmt
@@ -125,21 +125,30 @@ def _escalate(con, requester: str, target: str, body: str, files: str | None,
 def escalate(con, agent: str, text: str, reason: str, files: str | None = None, *,
              chain_id: str | None = None, depth: int = 0, parent_id: int | None = None,
              event_extra: dict | None = None) -> int:
-    """Put something only a human can act on in front of them.
+    """Put something only a human can act on in front of them: a decision task of
+    the founder's, opened by `agent`, with the request that shows it as its card.
 
     `agent` is who it is about: the requester of a runaway, or an agent the
     daemon found for itself that it cannot give its work. `reason` is the short
     form kept on the event for `ocp events`. Fire and forget, so nothing is
-    typed back at `agent` when the human reads it.
+    typed back at `agent` when the human reads it. Once per shape: the same
+    text still waiting from the same agent is that decision, not a second one.
     """
+    title = textsafe.oneline(text.strip().split("\n", 1)[0])[:80] or "a decision"
+    same = db.open_decision_card_ids(con, agent, text.split("\n", 1)[0])
+    if same:
+        return same[0]
     rid = db.add_request(con, agent, ESCALATION_TARGET, text, files,
-                         None, "fire_and_forget", "escalate", depth, parent_id,
+                         None, "fire_and_forget", "task", depth, parent_id,
                          chain_id=chain_id)
+    tid = db.new_task(con, title, ESCALATION_TARGET, agent, expects="decision")
+    db.set_task_queued(con, tid, ESCALATION_TARGET)
+    db.link_request(con, tid, rid)
     deliver(rid, agent, ESCALATION_TARGET, text, files,
-            team.Decision(True, reason, kind="escalate", response="fire_and_forget",
+            team.Decision(True, reason, kind="task", response="fire_and_forget",
                           creates_gate=True, chain_depth=depth))
     db.add_event(con, agent, "escalate",
-                 {"request_id": rid, "reason": reason, **(event_extra or {})})
+                 {"request_id": rid, "task_id": tid, "reason": reason, **(event_extra or {})})
     return rid
 
 
@@ -253,7 +262,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         timebox_s: int | None = None, kind: str | None = None,
         park: bool = True, send_now: bool = False,
         on_behalf_of: bool = False, edge_exempt: bool = False, speaker=_ENV,
-        notify: bool = True) -> tuple[bool, str, int | None]:
+        notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -444,6 +453,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                          else None))
         if send_now:
             db.mark_send_now(con, rid)
+        if card and target == HUMAN and not fyi and (kind or decision.kind) == "escalate":
+            # What is asked of the founder is a decision task, and this row its card;
+            # `task new` opens its own task and says `card=False`.
+            tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
+                              HUMAN, requester, expects="decision")
+            db.set_task_queued(con, tid, HUMAN)
+            db.link_request(con, tid, rid)
         deliver(rid, requester, target, body, files, decision)
         if fyi:
             # One live report per sender: the newer one says what the older did.

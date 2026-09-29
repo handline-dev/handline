@@ -1020,7 +1020,7 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
     try:
         blockedmod.sweep(con, lines.append, now)
         esc = con.execute("SELECT id FROM requests WHERE target = 'human' "
-                          "AND kind = 'escalate'").fetchall()
+                          "AND kind = 'task'").fetchall()
         check("press history: a fresh, unrelated block is not escalated on sight",
               not esc, str(esc))
         rec = db.block_get(con, "backend")
@@ -3382,7 +3382,7 @@ def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
               not ok and str(wt) in why, why)
         check("closed wake: it is escalated to the founder, naming the folder",
               con.execute("SELECT COUNT(*) c FROM requests WHERE target = ? AND kind = "
-                          "'escalate' AND body LIKE ?", (askmod.HUMAN, f"%{wt}%")
+                          "'task' AND body LIKE ?", (askmod.HUMAN, f"%{wt}%")
                           ).fetchone()["c"] == 1)
         check("closed wake: and stalled", row["state"] == dmn_states.STALLED, dict(row))
         check("closed wake: it stays closed", row["closed_at"] is not None, dict(row))

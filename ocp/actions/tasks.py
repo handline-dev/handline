@@ -976,7 +976,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         finally:
             con.close()
     kind = None if owner == HUMAN else "task"
-    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind)
+    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False)
     if not ok:
         return False, msg, None
     con = db.connect()

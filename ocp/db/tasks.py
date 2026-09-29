@@ -324,6 +324,38 @@ DECISION_CARD_SQL = ("SELECT t.id FROM tasks t WHERE t.owner = ? "
                      "(SELECT MIN(request_id) FROM task_requests WHERE task_id = t.id) = ?")
 
 
+# The requests that are the card of an open task of the founder's (`?` is HUMAN): what
+# the founder is being asked to decide, whatever kind the card row is.
+OPEN_DECISION_CARDS_SQL = ("(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id "
+                           "WHERE t.owner = ? AND t.closed_by IS NULL AND t.done_evidence IS NULL "
+                           "GROUP BY t.id)")
+
+
+def open_decision_card_ids(con, agent: str | None = None, prefix: str | None = None) -> list[int]:
+    """The queued cards of the founder's open decision tasks, oldest first - about
+    `agent` (its requester) when given, and whose body starts with `prefix` when given."""
+    sql = ("SELECT id FROM requests WHERE target = ? AND state = 'queued' "
+           f"AND id IN {OPEN_DECISION_CARDS_SQL}")
+    args: list = [HUMAN, HUMAN]
+    if agent is not None:
+        sql += " AND requester = ?"
+        args.append(agent)
+    if prefix is not None:
+        sql += " AND substr(body, 1, ?) = ?"
+        args += [len(prefix), prefix]
+    return [r[0] for r in con.execute(sql + " ORDER BY id", args)]
+
+
+def open_escalations_of(con, agent: str) -> int:
+    """Decisions raised about this agent that are still waiting on the founder."""
+    return len(open_decision_card_ids(con, agent))
+
+
+def open_escalation_ids(con, agent: str, prefix: str) -> list[int]:
+    """The still-waiting decision cards about this agent whose body starts with `prefix`."""
+    return open_decision_card_ids(con, agent, prefix)
+
+
 def decision_task_of_card(con, rid: int) -> int | None:
     """The open task of the founder's whose card is request `rid`: the request
     `task_new` opened for it - the first linked, never one linked later (a side
