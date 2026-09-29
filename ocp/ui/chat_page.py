@@ -70,7 +70,8 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at, parent_id "
+           "dismissed_by, dismissed_reason, delivered_at, parent_id, kind, "
+           "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
@@ -125,6 +126,8 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "queued": queued,
                          "held": held,
                          "to": to,
+                         "kind": r["kind"],
+                         "tasks": sorted(int(t) for t in (r["tasks"] or "").split(",") if t),
                          "delivered": bool(r["delivered_at"]),
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
