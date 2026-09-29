@@ -906,6 +906,7 @@ def _record_told(con, agent: str, head, depth: int, log, session: str | None,
                  ahead_of=None) -> None:
     """What a delivered tell leaves behind, once it is known to have landed."""
     more = depth - 1
+    db.mark_typed(con, int(head["id"]), session or _live_session(con, agent))
     if ahead_of is None:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         db.set_notified_session(con, agent, session)

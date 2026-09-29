@@ -54,6 +54,15 @@ CREATE TABLE IF NOT EXISTS requests (
   -- (request #189). NULL is what makes a request still withdrawable/
   -- replaceable by its own requester.
   delivered_at INTEGER,
+  -- T418: `delivered_at` is the daemon's own mark that it went to type this, set
+  -- before the send. What the receiving session actually got is these: when the
+  -- send succeeded and into which session, when its transcript first showed the
+  -- line (only then is it delivered), and how many times it has been typed again
+  -- because the transcript never showed it.
+  typed_at INTEGER,
+  typed_session TEXT,
+  landed_at INTEGER,
+  landing_tries INTEGER,
   -- When the human pressed "send now" on this (still undelivered) request: it
   -- is told to its target at once, ahead of a head that is already open.
   send_now INTEGER,
@@ -640,6 +649,12 @@ def _add_missing_columns(con) -> None:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
     if "told_out_of_turn" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN told_out_of_turn INTEGER")
+    if "landed_at" not in request_cols:
+        for col, kind in (("typed_at", "INTEGER"), ("typed_session", "TEXT"),
+                          ("landed_at", "INTEGER"), ("landing_tries", "INTEGER")):
+            con.execute(f"ALTER TABLE requests ADD COLUMN {col} {kind}")
+        # Told before landings were checked: nothing can prove or disprove them now.
+        con.execute("UPDATE requests SET landed_at = delivered_at WHERE delivered_at IS NOT NULL")
     # Carry over what the old sendnow_told:<id> cursors already knew - a
     # request left NULL here that was in fact already told out of turn would be
     # told a second time once it becomes the head. Every connect, not only the

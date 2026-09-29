@@ -168,6 +168,7 @@ def tell_now(con, rid: int, log) -> str:
             return f"queued - {err or 'the send failed'}"
         delivery._mark_typed(con, agent)
         db.mark_told_out_of_turn(con, rid)
+        db.mark_typed(con, rid, delivery._live_session(con, agent))
         db.add_event(con, agent, "notified", {"request_id": rid, "more_waiting": 0})
     log(f"  {agent}: told about #{rid} at once")
     finish_say(row)

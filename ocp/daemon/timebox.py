@@ -69,7 +69,7 @@ def _state_of(con, agent: str) -> str:
 def sweep_timeboxes(con, log, now: int) -> None:
     for row in db.timeboxed_open(con):
         rid, box = int(row["id"]), timebox_s(row)
-        elapsed = now - int(row["delivered_at"])
+        elapsed = now - int(row["landed_at"])
         if elapsed < box:
             continue
         note = " ".join((progressmod.progress_of(con, rid) or "").split())
