@@ -23,8 +23,6 @@ ChatPage { overflow: hidden; }
 
     .msg.replying { border-left: thick $warning; }
     .msg.flash { background: $warning 25%; }
-    .msg .replybtn { width: auto; min-width: 0; background: transparent; color: $text-muted; }
-    .msg .replybtn:hover { color: $foreground; text-style: bold; }
     .msg.nested { margin-left: 4; border-left: tall $primary-darken-1; padding-left: 1; }
     .msg.nested.replying { border-left: thick $warning; }
     .msg .parentout { color: $text-muted; }

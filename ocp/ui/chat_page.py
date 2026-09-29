@@ -352,15 +352,12 @@ def link_refs(text: Text) -> Text:
     return text
 
 
-def message_parts(m: dict) -> tuple[Text | None, Text, Text | None]:
-    """What one message draws: its head line (not for the human's own), its
-    body, and the note under it (cancelled), all as safe `Text`."""
-    mine = m["side"] == "you"
+def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
+    """What one message draws: its head line (who and when), its body, and
+    the note under it (cancelled), all as safe `Text`."""
     body = link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else ""))
-    head = None
-    if not mine:
-        stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
-        head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
+    stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
+    head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
     note = None
     if m.get("cancelled"):
         note = Text("cancelled" + (" - the agent was told to stop" if m.get("delivered") else ""))
@@ -458,21 +455,16 @@ class ChatMessage(Vertical):
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
         head, body_text, note = message_parts(m)
         parts = [Static(body_text, classes="text")]
-        self._who = Static(head, classes="who") if head is not None else None
+        self._who = Static(head, classes="who")
         self._head = head
-        self._ident = Static(Text(f"you  #{m['rid']}", style="dim"), classes="who ident") if head is None else None
-        if self._who is not None:
-            parts.insert(0, self._who)
-        else:
-            self._ident.display = False
-            parts.insert(0, self._ident)
+        # the human's own message tells who and when always when nested, else only once picked
+        self._always = m["side"] != "you" or bool(m.get("nested"))
+        self._who.display = self._always
+        parts.insert(0, self._who)
         if m.get("parent_out"):
             parts.insert(0, Static(Text(f"↪ #{m['parent_out']}", style="dim"), classes="parentout"))
         if note is not None:
             parts.append(Static(note, classes="qstate"))
-        self._reply = Button(f"↩ reply to #{m['rid']}", classes="replybtn", compact=True)
-        self._reply.display = False
-        parts.append(self._reply)
         self._send_now: Button | None = None
         if m.get("queued"):
             buttons = []
@@ -488,15 +480,12 @@ class ChatMessage(Vertical):
         self.set_working(working)
 
     def show_id(self, on: bool) -> None:
-        """A focused message tells its #id and offers a reply button that writes it into the box."""
-        self._reply.display = on
-        if self._ident is not None:
-            self._ident.display = on
-        elif self._who is not None:
-            head = self._head.copy()
-            if on:
-                head.append(f"  #{self.m['rid']}", style="bold")
-            self._who.update(head)
+        """A picked message tells its #id, and the human's own tells who and when too."""
+        self._who.display = on or self._always
+        head = self._head.copy()
+        if on:
+            head.append(f"  #{self.m['rid']}", style="bold")
+        self._who.update(head)
 
     def set_working(self, working: bool) -> None:
         if self._send_now is not None:
@@ -504,9 +493,7 @@ class ChatMessage(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        if event.button.has_class("replybtn"):
-            self.screen.quote_reply(self.m["rid"])
-        elif event.button.has_class("sendnow"):
+        if event.button.has_class("sendnow"):
             self.screen.send_now(self.m["rid"])
         else:
             self.screen.cancel_message(self.m["rid"], self.m["text"])
@@ -1090,7 +1077,7 @@ class ChatPage(JobsAware, Screen):
             agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the queue line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
-            (f"   {safe(reply.m['who'])}: {safe(reply.m['text'])[:40]}" if reply else "", "dim"),
+            (f"   reply to #{reply.m['rid']}" if reply else "", "bold"),
             ("  · esc to cancel" if reply else "", "dim"))
 
     def on_mount(self) -> None:
@@ -1590,16 +1577,6 @@ class ChatPage(JobsAware, Screen):
                                      yes="Save", no="Cancel",
                                      danger=any(k == "skip_permissions" and new == "on" for k, _, new in changes)),
                              answered)
-
-    def quote_reply(self, rid: int) -> None:
-        """Put `#<id> ` in front of what is typed: the message goes as plain text and the agent
-        reads the number (founder #2652)."""
-        box = self.query_one("#compose", ChatBox)
-        prefix = f"#{rid} "
-        if not box.text.startswith(prefix):
-            box.text = prefix + box.text
-        box.focus()
-        box.move_cursor(box.document.end)
 
     def action_show_message(self, rid: int) -> None:
         """Scroll to message `rid` and light it for a moment."""

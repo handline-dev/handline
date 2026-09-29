@@ -1612,12 +1612,15 @@ async def test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested()
         b.show_id(True)
         await pilot.pause(0.1)
         check("focus: an agent's head line gains its #id", "#1" in str(a._who.render()), str(a._who.render()))
-        check("focus: the founder's own message shows 'you #2'", b._ident.display and "#2" in str(b._ident.render()))
+        check("focus: the founder's own message shows 'you' and its #id", b._who.display and "#2" in str(b._who.render())
+              and "you" in str(b._who.render()))
         a.show_id(False)
         b.show_id(False)
         await pilot.pause(0.1)
         check("focus: unfocused, the id is gone again",
-              "#1" not in str(a._who.render()) and not b._ident.display)
+              "#1" not in str(a._who.render()) and "#2" not in str(b._who.render()))
+        check("head: a nested message of the founder's always shows 'you'; a plain one only when picked",
+              b._who.display and not cp.ChatMessage(m(4, "you"))._who.display)
         check("thread: the nested class and the dim '↪ #9' are drawn",
               b.has_class("nested") and not a.has_class("nested") and "↪ #9" in str(c.query_one(".parentout").render()))
 
@@ -1642,8 +1645,8 @@ async def test_a_chat_opened_from_a_for_you_row_has_that_message_picked() -> Non
 
 
 async def test_reply_puts_the_id_before_the_text_and_a_number_in_a_message_is_a_link() -> None:
-    """T410 (founder #2652): the reply button writes '#<id> ' in front of the composer text; a
-    #<id> in a message is a link that scrolls to that message and lights it."""
+    """T410 (founder #2727): a picked message is the reply target, shown as 'reply to #<id>' in the
+    status line, never in the text; a #<id> in a message is a link that scrolls to it and lights it."""
     from rich.text import Text
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -1659,12 +1662,6 @@ async def test_reply_puts_the_id_before_the_text_and_a_number_in_a_message_is_a_
         page = ChatPage("reviewer")
         await app.push_screen(page)
         await pilot.pause(0.5)
-        box = page.query_one("#compose", cp.ChatBox)
-        box.text = "hello"
-        page.quote_reply(first)
-        check("reply: '#<id> ' goes in front of what was typed", box.text == f"#{first} hello", box.text)
-        page.quote_reply(first)
-        check("reply: pressing it again does not stack the prefix", box.text == f"#{first} hello", box.text)
         page.action_show_message(first)
         await pilot.pause(0.2)
         lit = [w.m["rid"] for w in page.query(cp.ChatMessage) if w.has_class("flash")]
@@ -1684,8 +1681,9 @@ async def test_reply_puts_the_id_before_the_text_and_a_number_in_a_message_is_a_
         await pilot.pause(0.2)
         check("link: a click outside the link does pick it (so the link click above was not a dead message)",
               page.replying is second_w, str(page.replying and page.replying.m["rid"]))
-        check("focus: the reply button shows on the picked message only",
-              second_w._reply.display and not first_w._reply.display)
+        check("focus: the picked message is the reply target, named in the status line",
+              f"reply to #{second}" in page._status().plain and "reply to" not in str(second_w._who.render()),
+              page._status().plain)
         check("chat: no message says it is answered or waiting for you",
               "answered" not in str(second_w.query(".who").first().render())
               and "waiting for you" not in str(second_w.query(".who").first().render()))
