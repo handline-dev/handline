@@ -2005,12 +2005,12 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         finally:
             con.close()
 
-        out = _capture(lambda: climod.main(["ask", "reviewer"]))
-        check("ask: neither inline nor --file is a clear refusal, not a crash",
-              "required" in out or "--file" in out, out)
         real_in = sys.stdin
-        sys.stdin = io.StringIO("")
+        sys.stdin = io.StringIO("")     # never the real stdin: an open pipe would be waited on
         try:
+            out = _capture(lambda: climod.main(["ask", "reviewer"]))
+            check("ask: neither inline nor --file is a clear refusal, not a crash",
+                  "required" in out or "--file" in out, out)
             out = _capture(lambda: climod.main(["ask", "reviewer"]))
             check("ask: an empty stdin is the same refusal", "required" in out, out)
             sys.stdin = io.StringIO(hostile)
