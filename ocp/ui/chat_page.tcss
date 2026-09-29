@@ -25,6 +25,9 @@ ChatPage { overflow: hidden; }
     .msg.flash { background: $warning 25%; }
     .msg.nested { margin-left: 4; border-left: tall $primary-darken-1; padding-left: 1; }
     .msg.nested.replying { border-left: thick $warning; }
+    .msg.card { border: round $primary; padding: 0 1; }
+    .msg .cardtop { color: $text-muted; }
+    .msg .cardtitle { text-style: bold; }
     .msg .parentout { color: $text-muted; }
 
     #detail_pane { padding: 1 3; }

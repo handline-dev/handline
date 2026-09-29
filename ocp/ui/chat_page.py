@@ -71,16 +71,30 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     where, params = _scope(agent, everyone)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
            "dismissed_by, dismissed_reason, delivered_at, parent_id, kind, "
-           "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks "
+           "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
+           "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
+           "WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, "
+           "(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
-        return rows, False
+        return _with_task_state(con, rows), False
     if before is not None:
         sql += " AND id < ?"
         params = (*params, before)
     rows = con.execute(sql + " ORDER BY id DESC LIMIT ?", (*params, limit + 1)).fetchall()
-    return rows[:limit][::-1], len(rows) > limit
+    return _with_task_state(con, rows[:limit][::-1]), len(rows) > limit
+
+
+def _with_task_state(con, rows) -> list[dict]:
+    """The rows as dicts, each with the state of its first linked task (read live, not stored)."""
+    out = []
+    for r in rows:
+        d = dict(r)
+        t = con.execute("SELECT * FROM tasks WHERE id = ?", (d["task_id"],)).fetchone() if d["task_id"] else None
+        d["task_state"] = actions.task_state(con, t) if t else None
+        out.append(d)
+    return out
 
 
 def signature(con, agent: str, everyone: bool) -> tuple:
@@ -128,6 +142,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "to": to,
                          "kind": r["kind"],
                          "tasks": sorted(int(t) for t in (r["tasks"] or "").split(",") if t),
+                         "task_title": r["task_title"], "task_state": r["task_state"],
                          "delivered": bool(r["delivered_at"]),
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
@@ -138,14 +153,11 @@ def messages_of(rows, agent: str) -> list[dict]:
 
 
 def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
-    """Replies as a tree (founder #2514, #2659, #2746). Requests link by `parent_id`; a thread's
-    first message is not indented and every reply is `nested` from `level` 1 on. At each message
-    the longest chain (the newest on a tie) goes on at the same level, so a long talk does not
-    creep rightwards; every other reply is one level deeper and comes right after the message it
-    branches from, before the longest chain goes on. A reply always follows its parent, never the messages that happened
-    to come between. One whose parent is not on screen keeps its place and carries `parent_out`
-    (that id). A message still waiting to be delivered is never moved up: it stays below the
-    queue line."""
+    """Replies indented by depth (founder #2514, #2659, #2746, then #2827: no tree rules). Requests
+    link by `parent_id`; a thread's first message is not indented and every reply is `nested`, one
+    `level` deeper than the message it answers and right after it (its replies oldest first).
+    One whose parent is not on screen keeps its place and carries `parent_out` (that id). A
+    message still waiting to be delivered is never moved up: it stays below the queue line."""
     kids: dict[int, list[int]] = {}
     for rid, parent in parents.items():
         if parent in parents:
@@ -157,14 +169,6 @@ def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
         of.setdefault(m["rid"], []).append(m)
         parent = parents.get(m["rid"])
         m["parent_out"] = parent if parent is not None and parent not in parents else None
-    best: dict[int, tuple[int, int]] = {}      # rid -> (chain length, newest id) of its best chain down
-
-    def down(rid: int) -> tuple[int, int]:
-        if rid not in best:
-            best[rid] = max(((n + 1, max(new, rid)) for n, new in map(down, kids.get(rid, ()))),
-                            default=(1, rid))
-        return best[rid]
-
     placed: set[int] = set()
 
     def group(rid: int, level: int) -> list[dict]:
@@ -172,16 +176,9 @@ def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
         return [dict(m, nested=level > 0, level=level) if level else m for m in of[rid]] + below(rid, level)
 
     def below(rid: int, level: int) -> list[dict]:
-        """The messages of everything that answers `rid`: its side branches first, one level
-        deeper, then its longest chain, which goes on at the first indent."""
-        live = sorted(k for k in kids.get(rid, ()) if k not in held)
-        main = max(live, key=down, default=None)
-        line = max(level, 1)
-        out = []
-        for kid in live:
-            if kid != main:
-                out += group(kid, line + 1)
-        return out + (group(main, line) if main is not None else [])
+        """The messages of everything that answers `rid`, each one level deeper."""
+        return [m for kid in sorted(k for k in kids.get(rid, ()) if k not in held)
+                for m in group(kid, level + 1)]
     flat = [m for m in msgs if parents.get(m["rid"]) not in parents or m["rid"] in held]
     out = []
     for i, m in enumerate(flat):
@@ -358,14 +355,31 @@ def link_refs(text: Text) -> Text:
     return text
 
 
+def is_card(m: dict) -> bool:
+    """A task delivery is drawn as the task page's card; every other message is a row."""
+    return m.get("part") == 0 and m.get("kind") == "task" and bool(m.get("tasks"))
+
+
+def card_top(m: dict) -> tuple[Text, Text]:
+    """The card's top line (TASK T<n> and its state) and its bold title; both open the task."""
+    tid = m["tasks"][0]
+    go = Style(meta={"@click": f"screen.open_task({tid})"})
+    st = m.get("task_state") or ""
+    top = Text("TASK ", style="dim")
+    top.append(actions.task_ref(tid), style=Style(bold=True, underline=True, meta=go.meta))
+    if st:
+        top.append(f"  {safe(st)} ", style=STATE_STYLE.get(st, ""))
+    return top, Text(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go.meta))
+
+
 def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     """What one message draws: its head line (who, when, its kind and linked tasks), its body, and
     the note under it (cancelled), all as safe `Text`."""
     body = link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else ""))
     stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
     head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
-    if m.get("part") == 0 and m.get("kind"):
-        head.append("  " + safe(m["kind"]), style="dim")
+    if m.get("part") == 0 and m.get("kind") and not is_card(m):
+        head.append("  " + safe(m["kind"]).replace("_", " "), style="dim")
         for t in m.get("tasks", ()):
             head.append(f"  {actions.task_ref(t)}", style="bold cyan")
     note = None
@@ -474,6 +488,9 @@ class ChatMessage(Vertical):
         self._always = m["side"] != "you" or bool(m.get("nested"))
         self._who.display = self._always
         parts.insert(0, self._who)
+        if is_card(m):
+            top, title = card_top(m)
+            parts[:0] = [Static(top, classes="cardtop"), Static(title, classes="cardtitle")]
         if m.get("parent_out"):
             parts.insert(0, Static(Text(f"↪ #{m['parent_out']}", style="dim"), classes="parentout"))
         if note is not None:
@@ -488,7 +505,8 @@ class ChatMessage(Vertical):
                 Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
                        classes="qstate"),
                 *buttons, classes="qrow"))
-        super().__init__(*parts, classes=f"msg {side}" + (" nested" if m.get("nested") else ""))
+        super().__init__(*parts, classes=f"msg {side}" + (" nested" if m.get("nested") else "")
+                         + (" card" if is_card(m) else ""))
         self.m = m
         if m.get("nested"):
             self.styles.margin = (1, 0, 0, 4 * min(m.get("level", 1), MAX_LEVEL))
@@ -1602,6 +1620,9 @@ class ChatPage(JobsAware, Screen):
         target.scroll_visible(animate=False)
         target.add_class("flash")
         self.set_timer(1.5, lambda: target.remove_class("flash"))
+
+    def action_open_task(self, tid: int) -> None:
+        self.app.push_screen(TaskDetail(tid))
 
     def reply_to(self, msg: ChatMessage | None) -> None:
         for old in self.query(".replying"):

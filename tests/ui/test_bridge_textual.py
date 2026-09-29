@@ -1564,24 +1564,23 @@ def _page_rows(con, rid: int) -> list:
 
 
 def test_replies_thread_under_the_message_they_answer() -> None:
-    """T410 (founder #2514, #2659, #2746): a thread's first message is outermost, the longest chain
-    (the newest on a tie) goes on at the first indent, every other reply is one level deeper right
-    after the message it branches from, and a reply follows its parent, not the messages between."""
+    """T410 (founder #2827): a thread's first message is outermost, every reply is one level
+    deeper than its parent and follows it (oldest reply first), not the messages between."""
     from ocp.ui import chat_page as cp
 
     def msg(rid):
         return {"rid": rid, "part": 0, "queued": False, "delivered": True, "held": False}
     parents = {10: None, 11: 10, 12: 11, 13: 12, 14: 10, 15: 14, 20: 5, 30: None}
     out = cp.thread_order([msg(r) for r in (10, 11, 12, 13, 14, 15, 20, 30)], parents)
-    check("thread: the side chain 14 15 follows 10, then the main line 11 12 13 goes on",
-          [m["rid"] for m in out] == [10, 14, 15, 11, 12, 13, 20, 30], str([m["rid"] for m in out]))
-    check("thread: the root is plain, the main line is level 1 and the side chain level 2",
+    check("thread: each reply follows its parent, the oldest first",
+          [m["rid"] for m in out] == [10, 11, 12, 13, 14, 15, 20, 30], str([m["rid"] for m in out]))
+    check("thread: every reply is one level deeper than its parent",
           {m["rid"]: m.get("level", 0) for m in out if m["rid"] < 20} ==
-          {10: 0, 11: 1, 12: 1, 13: 1, 14: 2, 15: 2}, str(out))
+          {10: 0, 11: 1, 12: 2, 13: 3, 14: 1, 15: 2}, str(out))
     check("thread: a reply to an unloaded parent stays put and names it",
           [m["parent_out"] for m in out if m["rid"] == 20] == [5])
     tie = cp.thread_order([msg(r) for r in (1, 2, 3, 4)], {1: None, 2: 1, 3: None, 4: 1})
-    check("thread: on equal length the newest chain is the main line, and a reply sits under its parent",
+    check("thread: replies sit under their parent, the oldest first",
           [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (4, True), (3, False)],
           str([(m["rid"], m.get("nested")) for m in tie]))
     held = [msg(r) for r in (1, 2, 3, 4)]
@@ -2185,7 +2184,7 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
                 "dismissed_reason": None, "delivered_at": delivered, "replied": 0, "parent_id": None,
-                "kind": None, "tasks": None}
+                "kind": None, "tasks": None, "task_title": None, "task_state": None}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
@@ -2397,7 +2396,15 @@ def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
 def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
     from ocp.ui import chat_page as cp
     m = {"who": "a → b", "when": 1, "part": 0, "text": "x", "kind": "task", "tasks": [418]}
-    check("head: a task shows its kind and T number", cp.message_parts(m)[0].plain.endswith("task  T418"))
+    check("head: a row shows its kind and T number",
+          cp.message_parts({**m, "kind": "ask"})[0].plain.endswith("ask  T418"))
+    card = cp.message_parts({**m, "task_title": "T", "task_state": "queued"})[0].plain
+    check("card: a task delivery keeps its kind and T number for the card, not the head", "T418" not in card)
+    top, title = cp.card_top({**m, "task_title": "Fix it", "task_state": "queued"})
+    check("card: top line has T number and state, title is the task's",
+          top.plain == "TASK T418  queued " and title.plain == "Fix it", top.plain)
+    check("card: a task note stays a row labelled task note T406",
+          cp.message_parts({**m, "kind": "task_note", "tasks": [406]})[0].plain.endswith("task note  T406"))
     check("head: a reply part shows neither", "task" not in cp.message_parts({**m, "part": 1})[0].plain)
 
 
