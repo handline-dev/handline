@@ -41,7 +41,7 @@ class JobsAware(Toasts):
     def _tick(self) -> None:
         said = self.jobs.reap()
         if said:
-            for ok, text in self.jobs.results:
+            for ok, text in said:
                 self.toast(text, ok)
             self._retime()
         self._redraw()

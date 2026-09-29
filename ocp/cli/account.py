@@ -95,8 +95,7 @@ def _offer_to_trust_worktrees(acct: str, ask) -> None:
                 f"{', '.join(a for a, _ in skipped)})" if skipped else "")
     if ask(f"\nTrust these worktrees on '{acct}'?\n{listed}{skip_note}\n[y/N] "
           ).strip().lower() in ("y", "yes"):
-        for line in actions.trust_worktrees(acct, declared):
-            print(f"  {line}")
+        print(f"  {actions.trust_worktrees(acct, declared)[1]}")
 
 
 def cmd_account_remove(args) -> int:
