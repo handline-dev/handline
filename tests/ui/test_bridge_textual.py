@@ -1585,9 +1585,9 @@ def test_replies_thread_under_the_message_they_answer() -> None:
           str([(m["rid"], m.get("nested")) for m in tie]))
     held = [msg(r) for r in (1, 2, 3, 4)]
     held[3]["queued"], held[3]["delivered"] = True, False
-    out = cp.thread_order(held, {1: None, 2: 1, 3: 2, 4: 1})
-    check("thread: a message not yet delivered is neither moved nor nested",
-          [m["rid"] for m in out] == [1, 2, 3, 4] and not out[3].get("nested"), str(out))
+    out = cp.thread_order(held, {1: None, 2: 1, 3: 1, 4: 2})
+    check("thread: a message not yet delivered already sits under its parent",
+          [m["rid"] for m in out] == [1, 2, 4, 3] and out[2].get("level") == 2, str(out))
 
 
 async def test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested() -> None:

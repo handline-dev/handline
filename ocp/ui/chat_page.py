@@ -157,13 +157,11 @@ def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
     link by `parent_id`; a thread's first message is not indented and every reply is `nested`, one
     `level` deeper than the message it answers and right after it (its replies oldest first).
     One whose parent is not on screen keeps its place and carries `parent_out` (that id). A
-    message still waiting to be delivered is never moved up: it stays below the queue line."""
+    message still waiting to be delivered already sits under its parent; one with none stays last."""
     kids: dict[int, list[int]] = {}
     for rid, parent in parents.items():
         if parent in parents:
             kids.setdefault(parent, []).append(rid)
-    fixed = lambda m: m["queued"] and not m["delivered"] or m["held"]
-    held = {m["rid"] for m in msgs if fixed(m)}
     of: dict[int, list[dict]] = {}
     for m in msgs:
         of.setdefault(m["rid"], []).append(m)
@@ -177,9 +175,9 @@ def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
 
     def below(rid: int, level: int) -> list[dict]:
         """The messages of everything that answers `rid`, each one level deeper."""
-        return [m for kid in sorted(k for k in kids.get(rid, ()) if k not in held)
+        return [m for kid in sorted(k for k in kids.get(rid, ()))
                 for m in group(kid, level + 1)]
-    flat = [m for m in msgs if parents.get(m["rid"]) not in parents or m["rid"] in held]
+    flat = [m for m in msgs if parents.get(m["rid"]) not in parents]
     out = []
     for i, m in enumerate(flat):
         out.append(m)
