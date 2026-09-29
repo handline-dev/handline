@@ -31,7 +31,7 @@ def can_type_now(con, agent: str, handle: str) -> tuple[bool, str]:
     usage wall fails at once and clears the very mark that says so."""
     if not orca.available():
         return False, "orca is not on PATH"
-    reason = delivery.wall_reason(con, agent)
+    reason = delivery.typing_hold(con, agent)
     if reason:
         return False, reason
     blocker = orca.screen_blocker(handle)

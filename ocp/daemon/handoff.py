@@ -516,6 +516,14 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     # next tick and the agent hands off forever. /clear keeps the terminal,
     # worktree and account and empties only the conversation.
     cleared, why = delivery._reclaim_context(con, agent, log)
+    if not cleared and delivery.clear_owed(con, agent):
+        # T415: background work holds the clear off, and the agent has been told. That is a
+        # wait, not a failure: the record landed, nothing is bumped, and `settle_owed_clear`
+        # types the clear when the work ends or its time is up.
+        db.advance_handoff(con, hid, "released", state="done" if ok else "degraded", detail=why)
+        db.set_agent_state(con, agent, IDLE, detail=f"clear owed: {why}")
+        log(f"  {agent}: handoff recorded; {why}")
+        return ok, True
     db.advance_handoff(con, hid, "extracted", detail=why)
 
     if ok and cleared:
@@ -527,6 +535,43 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         # (#1975).
         db.reset_counter(con, agent, "throttle_count")
 
+    return _park(con, agent, trigger, hid, ok, cleared, retry_soon, log)
+
+
+def settle_owed_clear(con, agent: str, log) -> bool:
+    """True while this agent's clear is owed (T415): types it once the agent's background work
+    has ended or its time is up, then parks it as the handoff would have. False when nothing is
+    owed, or the session it was owed for is gone."""
+    if not delivery.clear_owed(con, agent):
+        return False
+    row = db.get_agent_state(con, agent)
+    if not row or row["closed_at"] or not row["terminal"] or not delivery.session_present(agent):
+        db.clear_cursor(con, f"clear_owed:{agent}")
+        return False
+    with lock.terminal(agent) as mine:
+        if not mine:
+            return True
+        why = delivery._type_gate(con, agent, row["terminal"], require_idle=False, require_settled=True)
+        if why:
+            return True
+        cleared, _ = delivery._reclaim_context(con, agent, log)
+        if not cleared:
+            return True
+        delivery._mark_typed(con, agent)
+        last = db.last_handoff(con, agent)
+        ok = bool(last and last["state"] == "done")
+        if ok:
+            db.reset_counter(con, agent, "throttle_count")
+        _park(con, agent, triggers.Trigger(True, last["trigger_kind"] if last else "context", "clear owed"),
+              None, ok, True, False, log)
+        return True
+
+
+def _park(con, agent: str, trigger: triggers.Trigger, hid: str | None, ok: bool, cleared: bool,
+          retry_soon: bool, log) -> tuple[bool, bool]:
+    """Where a handoff that reached its clear ends: parked until it may be woken.
+    `hid` is None for a clear that was owed and came later (`settle_owed_clear`),
+    whose handoff row was released when the record landed."""
     # Park until the usage window rolls over - or longer, if this agent keeps
     # degrading, so a broken one is not retried at full cadence forever. Never
     # against an assumed account's rollover: that ceiling belongs to a guess,
@@ -577,7 +622,8 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         if int(time.time()) + backoff > wake:
             wake = int(time.time()) + backoff
             log(f"  {agent}: backing off {backoff}s after {streak} degraded handoff(s)")
-    db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
+    if hid:
+        db.advance_handoff(con, hid, "released", state="done" if ok else "degraded")
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{label}; wakes at {timefmt.stamp(wake, timefmt.CLOCK)}")
     # `close` and `wake` both leave a record of when and why; a park never did,
