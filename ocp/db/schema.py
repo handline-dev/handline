@@ -422,6 +422,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _give_answers_their_own_rows(con)
     _asks_reports_and_escalations_to_says(con)
     _answers_are_says(con)
+    _drop_daemon_close_notes(con)
     _escalations_are_tasks(con)
     return con
 
@@ -716,6 +717,28 @@ def _answers_are_says(con) -> None:
     con.execute("UPDATE requests SET kind = 'say', settles = parent_id "
                 "WHERE kind = 'answer' AND parent_id IS NOT NULL")
     set_cursor(con, "migrated:answers_are_says", 1)
+
+
+# What the daemon wrote as the verdict of a say it closed: when it typed it, or when it settled an
+# old one. Both were drawn in the chat as a reply from the target (T441).
+_DAEMON_CLOSE_NOTES = ("typed", "closed: told before says were typed at once")
+
+
+def _drop_daemon_close_notes(con) -> None:
+    """A say the daemon closed had its own note as the verdict, and (T421) as an answer message:
+    drawn as a reply nobody wrote (T441). The message goes, and so does the verdict. Once,
+    ledgered. The message is found as an answer row, or, once answers are says, by the `settles`
+    that marks it; its body is the parent's verdict, and the parent is a say."""
+    if get_cursor(con, "migrated:close_notes"):
+        return
+    marks = ",".join("?" * len(_DAEMON_CLOSE_NOTES))
+    answer = "a.kind = 'answer'" + (" OR a.settles IS NOT NULL" if "settles" in _cols(con, "requests") else "")
+    con.execute("DELETE FROM requests WHERE id IN (SELECT a.id FROM requests a JOIN requests p "
+                f"ON p.id = a.parent_id WHERE ({answer}) AND a.body = p.verdict AND p.kind = 'say' "
+                f"AND p.verdict IN ({marks}))", _DAEMON_CLOSE_NOTES)
+    con.execute(f"UPDATE requests SET verdict = NULL WHERE kind = 'say' AND state = 'done' "
+                f"AND verdict IN ({marks})", _DAEMON_CLOSE_NOTES)
+    set_cursor(con, "migrated:close_notes", 1)
 
 
 # What the founder used to be called. "orchestrator" read as a component of
