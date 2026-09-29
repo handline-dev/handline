@@ -22,6 +22,9 @@ ChatPage { overflow: hidden; }
     .msg.other { color: $text-muted; }
 
     .msg.replying { border-left: thick $warning; }
+    .msg.nested { margin-left: 4; border-left: tall $primary-darken-1; padding-left: 1; }
+    .msg.nested.replying { border-left: thick $warning; }
+    .msg .parentout { color: $text-muted; }
 
     #detail_pane { padding: 1 3; }
     #t_title { text-style: bold; padding-bottom: 1; }

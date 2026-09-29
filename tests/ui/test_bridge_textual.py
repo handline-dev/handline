@@ -1563,6 +1563,26 @@ def _page_rows(con, rid: int) -> list:
     return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
 
 
+def test_replies_thread_under_the_message_they_answer() -> None:
+    """T410 (founder #2514): the longest chain is the main line, a side chain nests in one rail
+    right after its branch point, a reply to an unloaded parent stays put and says so."""
+    from ocp.ui import chat_page as cp
+
+    def msg(rid):
+        return {"rid": rid, "part": 0, "queued": False, "delivered": True, "held": False}
+    msgs = [msg(r) for r in (10, 11, 12, 13, 14, 15, 20)]
+    parents = {10: None, 11: 10, 12: 11, 13: 12, 14: 10, 15: 14, 20: 5}
+    out = cp.thread_order(msgs, parents)
+    check("thread: side chain #14 #15 sits right after #10, the main line 10 11 12 13 runs on",
+          [m["rid"] for m in out] == [10, 14, 15, 11, 12, 13, 20], str([m["rid"] for m in out]))
+    check("thread: only the side chain is nested", {m["rid"] for m in out if m.get("nested")} == {14, 15})
+    check("thread: a reply to an unloaded parent stays in the main line and names it",
+          out[-1]["parent_out"] == 5 and not out[-1].get("nested"))
+    tie = cp.thread_order([msg(r) for r in (1, 2, 3)], {1: None, 2: 1, 3: 1})
+    check("thread: on equal length the chain with the newest message is the main line",
+          [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (3, False)], str(tie))
+
+
 def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -2071,7 +2091,7 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": delivered, "replied": 0}
+                "dismissed_reason": None, "delivered_at": delivered, "replied": 0, "parent_id": None}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
@@ -3282,6 +3302,7 @@ async def _run_all() -> None:
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
+    test_replies_thread_under_the_message_they_answer()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()

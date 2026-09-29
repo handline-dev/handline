@@ -71,7 +71,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     where, params = _scope(agent, everyone)
     params = (actions.HUMAN, *params)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at, "
+           "dismissed_by, dismissed_reason, delivered_at, parent_id, "
            "EXISTS (SELECT 1 FROM requests c WHERE c.parent_id = requests.id AND c.requester = ? "
            f"AND c.state NOT IN {_GONE}) AS replied "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
@@ -136,7 +136,58 @@ def messages_of(rows, agent: str) -> list[dict]:
     msgs.sort(key=lambda m: m["_key"])
     for m in msgs:
         del m["_key"]
-    return msgs
+    return thread_order(msgs, {r["id"]: r["parent_id"] for r in rows})
+
+
+def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
+    """Replies as a comment thread (founder #2514). Requests link by `parent_id`; in each thread
+    the longest chain (the newest one on a tie) is the main line and stays where time puts it.
+    Every other message is a side reply (`nested`): it sits right after the message it branches
+    from, in one rail however long the side chain is. A reply whose parent is not on screen
+    stays in the main line and carries `parent_out` (that id). A message still waiting to be
+    delivered is never moved up: it stays below the queue line."""
+    kids: dict[int, list[int]] = {}
+    for rid, parent in parents.items():
+        if parent in parents:
+            kids.setdefault(parent, []).append(rid)
+    best: dict[int, tuple[int, int]] = {}      # rid -> (chain length, newest id) of its best chain down
+
+    def down(rid: int) -> tuple[int, int]:
+        if rid not in best:
+            best[rid] = max(((n + 1, max(new, rid)) for n, new in map(down, kids.get(rid, ()))),
+                            default=(1, rid))
+        return best[rid]
+    main: set[int] = set()
+    for root in [r for r, p in parents.items() if p not in parents]:
+        rid = root
+        while True:
+            main.add(rid)
+            nxt = [c for c in kids.get(rid, ()) if down(c) == max(map(down, kids[rid]))] if kids.get(rid) else []
+            if not nxt:
+                break
+            rid = nxt[0]
+
+    def anchor(rid: int) -> int:
+        while rid not in main:
+            rid = parents[rid]
+        return rid
+    fixed = lambda m: m["queued"] and not m["delivered"] or m["held"]
+    side: dict[int, list[dict]] = {}
+    flat = []
+    for m in msgs:
+        rid = m["rid"]
+        m["parent_out"] = parents.get(rid) if parents.get(rid) is not None and parents[rid] not in parents else None
+        if rid in main or fixed(m):
+            flat.append(m)
+        else:
+            m["nested"] = True
+            side.setdefault(anchor(rid), []).append(m)
+    out = []
+    for i, m in enumerate(flat):
+        out.append(m)
+        if m["rid"] in side and not any(n["rid"] == m["rid"] for n in flat[i + 1:]):
+            out.extend(side.pop(m["rid"]))
+    return out + [m for group in side.values() for m in group]
 
 
 def tasks_of(con, agent: str) -> list[tuple]:
@@ -403,8 +454,16 @@ class ChatMessage(Vertical):
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
         head, body_text, note = message_parts(m)
         parts = [Static(body_text, classes="text")]
-        if head is not None:
-            parts.insert(0, Static(head, classes="who"))
+        self._who = Static(head, classes="who") if head is not None else None
+        self._head = head
+        self._ident = Static(Text(f"you  #{m['rid']}", style="dim"), classes="who ident") if head is None else None
+        if self._who is not None:
+            parts.insert(0, self._who)
+        else:
+            self._ident.display = False
+            parts.insert(0, self._ident)
+        if m.get("parent_out"):
+            parts.insert(0, Static(Text(f"↪ #{m['parent_out']}", style="dim"), classes="parentout"))
         if note is not None:
             parts.append(Static(note, classes="qstate"))
         self._send_now: Button | None = None
@@ -417,9 +476,19 @@ class ChatMessage(Vertical):
                 Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
                        classes="qstate"),
                 *buttons, classes="qrow"))
-        super().__init__(*parts, classes=f"msg {side}")
+        super().__init__(*parts, classes=f"msg {side}" + (" nested" if m.get("nested") else ""))
         self.m = m
         self.set_working(working)
+
+    def show_id(self, on: bool) -> None:
+        """A focused message tells its #id, the number a reply to it is answering."""
+        if self._ident is not None:
+            self._ident.display = on
+        elif self._who is not None:
+            head = self._head.copy()
+            if on:
+                head.append(f"  #{self.m['rid']}", style="bold")
+            self._who.update(head)
 
     def set_working(self, working: bool) -> None:
         if self._send_now is not None:
@@ -1505,9 +1574,11 @@ class ChatPage(JobsAware, Screen):
     def reply_to(self, msg: ChatMessage | None) -> None:
         for old in self.query(".replying"):
             old.remove_class("replying")
+            old.show_id(False)
         self.replying = msg
         if msg is not None:
             msg.add_class("replying")
+            msg.show_id(True)
             self.query_one("#compose", ChatBox).focus()
         self.query_one("#status", Static).update(self._status())
 
