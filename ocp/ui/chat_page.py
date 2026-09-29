@@ -1330,7 +1330,9 @@ class ChatPage(JobsAware, Screen):
         widgets = transcript_widgets(msgs, state == "RUNNING", why, wait)
         pane.mount(*widgets)
         if at_bottom:
+            # after the new messages are laid out: the end of a page not yet laid out is not the end
             pane.scroll_end(animate=False)
+            self.call_after_refresh(pane.scroll_end, animate=False)
         self.replying = None
         for w in widgets:
             if keep and isinstance(w, ChatMessage) and (w.m["rid"], w.m["part"]) == keep:
