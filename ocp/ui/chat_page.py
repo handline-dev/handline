@@ -164,7 +164,7 @@ def messages_of(rows, agent: str) -> list[dict]:
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
                          "mid": r["id"] if part == 0 else _answer_id(r),
                          "text": (text or "").strip("\n") or "(empty)",
-                         "replyable": human in (r["requester"], r["target"]),
+                         "replyable": True,      # any message, also one between two other agents in All chat
                          "queued": queued,
                          "held": held,
                          "unread": waiting_to_go,

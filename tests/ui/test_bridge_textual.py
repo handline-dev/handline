@@ -513,6 +513,26 @@ def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
         con.close()
 
 
+def test_a_message_between_two_other_agents_can_be_picked_in_all_chat() -> None:
+    """Founder #5337: any message in All chat (also one from another agent) can be replied to, and a reply goes to its speaker."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("allpick")
+    agents.register("reviewer")
+    _, _, rid = askmod.ask("reviewer", "from another agent", requester="backend")
+    con = db.connect()
+    try:
+        con.commit()
+        msgs = cp.messages_of(cp.requests_page(con, "reviewer", True)[0], "reviewer")
+        check("all chat: a message from another agent is replyable", msgs and all(m["replyable"] for m in msgs), str(msgs))
+        cp.send_reply(con, "reviewer", rid, "a word from the founder")
+        kid = db.get_request(con, rid + 1)
+        check("all chat: a reply to it goes to its speaker, under it",
+              kid["target"] == "backend" and kid["parent_id"] == rid, str(dict(kid)))
+    finally:
+        con.close()
+
+
 def test_a_number_in_a_message_becomes_a_link_to_it() -> None:
     from ocp.ui import chat_page as cp
     from rich.text import Text
@@ -522,6 +542,18 @@ def test_a_number_in_a_message_becomes_a_link_to_it() -> None:
     check("refs: each #id is a link to show_message",
           targets("see #12 and #7") == ["screen.show_message(12)", "screen.show_message(7)"], str(targets("see #12 and #7")))
     check("refs: a#3 and ##4 are not links", targets("a#3") == [] and targets("##4") == [], str((targets("a#3"), targets("##4"))))
+
+
+def test_the_task_title_is_cut_to_the_room_beside_the_other_columns() -> None:
+    """Founder #5337: the title column takes what is left of the table, so every row shows."""
+    from ocp.ui.components import tasks_view as tv
+    check("clip: a short title is left alone", tv.clip("short", 10) == "short")
+    check("clip: a long one ends in … within the room", tv.clip("a very long task title", 10) == "a very lo…"
+          and len(tv.clip("a very long task title", 10)) == 10, tv.clip("a very long task title", 10))
+    check("clip: wide (Korean) characters are counted by their cells", tv.clip("가나다라마바사", 8) == "가나다…")
+    check("room: the table minus the other columns and their padding",
+          tv.title_room(100, [3, 5, 8]) == 100 - (5 + 7 + 10) - 4, str(tv.title_room(100, [3, 5, 8])))
+    check("room: never below the minimum", tv.title_room(20, [10, 10]) == tv.MIN_TITLE)
 
 
 def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
@@ -1473,7 +1505,9 @@ async def _run_all() -> None:
     test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_queue_reason_comes_from_the_message_below_the_line()
+    test_a_message_between_two_other_agents_can_be_picked_in_all_chat()
     test_a_number_in_a_message_becomes_a_link_to_it()
+    test_the_task_title_is_cut_to_the_room_beside_the_other_columns()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()

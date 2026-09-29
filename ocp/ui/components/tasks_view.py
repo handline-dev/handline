@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 
+from rich.cells import cell_len
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -76,6 +77,24 @@ def waits_text(row: dict) -> str:
 def idle_text(row: dict, now: float) -> str:
     s = actions.task_idle_s(row, now)
     return f"{s // 86400}d" if s >= 86400 else f"{s // 3600}h" if s >= 3600 else "<1h"
+
+
+MIN_TITLE = 12
+
+
+def clip(text: str, room: int) -> str:
+    """`text` cut with a closing … to at most `room` cells; short enough is left alone."""
+    if cell_len(text) <= room:
+        return text
+    while text and cell_len(text) > room - 1:
+        text = text[:-1]
+    return text + "…"
+
+
+def title_room(width: int, others: list[int]) -> int:
+    """How many cells the title column may take of a table `width` wide beside columns of
+    these widths (each with its two cells of padding), so no row runs off the right edge."""
+    return max(width - sum(w + 2 for w in others) - 4, MIN_TITLE)
 
 
 class _StateList(SelectionList):
@@ -193,6 +212,7 @@ class TasksView(Vertical):
 
     def on_resize(self) -> None:
         self._show_pane()
+        self.refresh_rows()         # the title column is cut to the width there is
 
     def _show_pane(self) -> None:
         pane = self.query_one(TaskPane)
@@ -273,7 +293,7 @@ class TasksView(Vertical):
         now = time.time()
         table = self.table
         row = keep
-        out = []
+        raw = []
         seen: dict[int, int] = {}
         for r in self.rows:
             stale = actions.task_stale(r, now)
@@ -285,13 +305,21 @@ class TasksView(Vertical):
                 title = f"{line['prefix']}{r['ref']} " + ("(see above)" if line["again"] else textsafe.oneline(r["title"]))
                 cells = ("[x]" if r["id"] in self.checked else "[ ]", title, "" if line["again"] else r["owner"],
                          "" if line["again"] else r["state"], "" if line["again"] else waits_text(r))
-                out.append((str(r["id"]) if n == 1 else f"{r['id']}~{n}", tuple(Text(c, style=style) for c in cells)))
+                raw.append((str(r["id"]) if n == 1 else f"{r['id']}~{n}", cells, style))
                 continue
             cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
                      r["state"], textsafe.oneline(r["title"]), r["owner"],
                      idle_text(r, now) + (" !" if stale else ""), r["closer"],
                      " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
-            out.append((str(r["id"]), tuple(Text(c, style=style) for c in cells)))
+            raw.append((str(r["id"]), cells, style))
+        heads = self.TREE_HEADS if self.as_tree else self.HEADS
+        at = next(i for i, (_, key) in enumerate(heads) if key == "title")
+        beside = TaskPane.WIDTH if self.size.width >= TaskPane.WIDE else 0     # the pane takes its side
+        room = title_room((self.size.width - beside) or 80, [
+            max([cell_len(heads[i][0]) + 2] + [cell_len(c[i]) for _, c, _ in raw])
+            for i in range(len(heads)) if i != at])
+        out = [(key, tuple(Text(clip(c, room) if i == at else c, style=style, no_wrap=True)
+                           for i, c in enumerate(cells))) for key, cells, style in raw]
         if sync_rows(table, out) and self.rows:
             table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
         self._show_pane()
