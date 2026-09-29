@@ -171,53 +171,23 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "task_title": _col(r, "task_title"), "task_state": _col(r, "task_state"),
                          "delivered": landing == "delivered",
                          "landing": landing,
+                         "reply_to": _col(r, "parent_id") if part == 0 else None,
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
     msgs.sort(key=lambda m: m["_key"])
     for m in msgs:
         del m["_key"]
-    of_answer = {r["answer_id"]: r["id"] for r in rows if _answer_id(r)}
-    return thread_order(msgs, {r["id"]: of_answer.get(_col(r, "parent_id"), _col(r, "parent_id")) for r in rows})
+    return msgs
+
+
+def reply_link(parent: int) -> Text:
+    """The line over a reply: a reply icon and the number of what it answers; a click goes there."""
+    return Text(f"↩ #{parent}", style=Style(dim=True, underline=True, meta={"@click": f"screen.show_message({parent})"}))
 
 
 def mid_of(m: dict) -> int:
     """The number a message goes by: its own row's (an answer has one), else its request's."""
     return m.get("mid") or m["rid"]
-
-
-def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
-    """Replies indented by depth (founder #2514, #2659, #2746, then #2827: no tree rules). Requests
-    link by `parent_id`; a thread's first message is not indented and every reply is `nested`, one
-    `level` deeper than the message it answers and right after it (its replies oldest first).
-    One whose parent is not on screen keeps its place and carries `parent_out` (that id). A
-    message still waiting to be delivered already sits under its parent; one with none stays last."""
-    kids: dict[int, list[int]] = {}
-    for rid, parent in parents.items():
-        if parent in parents:
-            kids.setdefault(parent, []).append(rid)
-    of: dict[int, list[dict]] = {}
-    for m in msgs:
-        of.setdefault(m["rid"], []).append(m)
-        parent = parents.get(m["rid"])
-        m["parent_out"] = parent if parent is not None and parent not in parents else None
-    placed: set[int] = set()
-
-    def group(rid: int, level: int) -> list[dict]:
-        placed.add(rid)
-        return [dict(m, nested=level > 0, level=level) if level else m for m in of[rid]] + below(rid, level)
-
-    def below(rid: int, level: int) -> list[dict]:
-        """The messages of everything that answers `rid`, each one level deeper."""
-        return [m for kid in sorted(k for k in kids.get(rid, ()))
-                for m in group(kid, level + 1)]
-    flat = [m for m in msgs if parents.get(m["rid"]) not in parents]
-    out = []
-    for i, m in enumerate(flat):
-        out.append(m)
-        if not any(n["rid"] == m["rid"] for n in flat[i + 1:]):
-            out += below(m["rid"], 0)
-    return out + [dict(m, nested=True) for m in msgs
-                  if m["rid"] not in placed and m["rid"] not in {f["rid"] for f in flat}]
 
 
 def tasks_of(con, agent: str) -> list[tuple]:
@@ -501,7 +471,6 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     return out
 
 
-MAX_LEVEL = 4       # deeper branches keep drawing at this indent
 
 
 class ChatMessage(Vertical):
@@ -515,15 +484,15 @@ class ChatMessage(Vertical):
         parts = [Static(body_text, classes="text")]
         self._who = Static(head, classes="who")
         self._head = head
-        # the human's own message tells who and when always when nested, else only once picked
-        self._always = m["side"] != "you" or bool(m.get("nested"))
+        # the human's own message tells who and when always when it is a reply, else only once picked
+        self._always = m["side"] != "you" or bool(m.get("reply_to"))
         self._who.display = self._always
         parts.insert(0, self._who)
         if is_card(m):
             top, title = card_top(m)
             parts[:0] = [Static(top, classes="cardtop"), Static(title, classes="cardtitle")]
-        if m.get("parent_out"):
-            parts.insert(0, Static(Text(f"↪ #{m['parent_out']}", style="dim"), classes="parentout"))
+        if m.get("reply_to"):
+            parts.insert(0, Static(reply_link(m["reply_to"]), classes="replyto"))
         if note is not None:
             parts.append(Static(note, classes="qstate"))
         self._send_now: Button | None = None
@@ -536,11 +505,9 @@ class ChatMessage(Vertical):
             parts.append(Horizontal(
                 Static(LANDING_LABELS[landing], classes="qstate"),
                 *buttons, classes="qrow"))
-        super().__init__(*parts, classes=f"msg {side}" + (" nested" if m.get("nested") else "")
+        super().__init__(*parts, classes=f"msg {side}"
                          + (" card" if is_card(m) else ""))
         self.m = m
-        if m.get("nested"):
-            self.styles.margin = (1, 0, 0, 4 * min(m.get("level", 1), MAX_LEVEL))
         self.set_working(working)
 
     def show_id(self, on: bool) -> None:

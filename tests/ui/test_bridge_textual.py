@@ -327,8 +327,8 @@ def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
               and rows[0]["answer_id"] != q, str(msgs))
         askmod.ask("reviewer", "thanks", requester=actions.HUMAN, parent_id=rows[0]["answer_id"])
         after = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
-        check("chat: a reply to the answer sits one level under its ask and answer",
-              [(m["part"], m.get("level", 0)) for m in after] == [(0, 0), (1, 0), (0, 1)]
+        check("chat: a reply to the answer names the answer's number, in time order",
+              [(m["part"], m["reply_to"]) for m in after] == [(0, None), (1, None), (0, rows[0]["answer_id"])]
               and cp.mid_of(after[1]) == rows[0]["answer_id"], str(after))
     finally:
         con.close()
@@ -376,31 +376,17 @@ def _page_rows(con, rid: int) -> list:
     return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
 
 
-def test_replies_thread_under_the_message_they_answer() -> None:
-    """T410 (founder #2827): a thread's first message is outermost, every reply is one level
-    deeper than its parent and follows it (oldest reply first), not the messages between."""
+def test_a_reply_shows_a_link_to_what_it_answers() -> None:
+    """T410 (founder #5295): messages stay in time order, unindented; a reply carries the
+    number of its parent and draws a reply icon and that number, a click going to it."""
     from ocp.ui import chat_page as cp
-
-    def msg(rid):
-        return {"rid": rid, "part": 0, "queued": False, "delivered": True, "held": False}
-    parents = {10: None, 11: 10, 12: 11, 13: 12, 14: 10, 15: 14, 20: 5, 30: None}
-    out = cp.thread_order([msg(r) for r in (10, 11, 12, 13, 14, 15, 20, 30)], parents)
-    check("thread: each reply follows its parent, the oldest first",
-          [m["rid"] for m in out] == [10, 11, 12, 13, 14, 15, 20, 30], str([m["rid"] for m in out]))
-    check("thread: every reply is one level deeper than its parent",
-          {m["rid"]: m.get("level", 0) for m in out if m["rid"] < 20} ==
-          {10: 0, 11: 1, 12: 2, 13: 3, 14: 1, 15: 2}, str(out))
-    check("thread: a reply to an unloaded parent stays put and names it",
-          [m["parent_out"] for m in out if m["rid"] == 20] == [5])
-    tie = cp.thread_order([msg(r) for r in (1, 2, 3, 4)], {1: None, 2: 1, 3: None, 4: 1})
-    check("thread: replies sit under their parent, the oldest first",
-          [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (4, True), (3, False)],
-          str([(m["rid"], m.get("nested")) for m in tie]))
-    held = [msg(r) for r in (1, 2, 3, 4)]
-    held[3]["queued"], held[3]["delivered"] = True, False
-    out = cp.thread_order(held, {1: None, 2: 1, 3: 1, 4: 2})
-    check("thread: a message not yet delivered already sits under its parent",
-          [m["rid"] for m in out] == [1, 2, 4, 3] and out[2].get("level") == 2, str(out))
+    from ocp.infra import textsafe
+    link = cp.reply_link(12)
+    check("reply: the line is the icon and the parent's number, a click shows that message",
+          link.plain == "↩ #12" and link.style.meta.get("@click") == "screen.show_message(12)", str(link.style.meta))
+    check("reply: the line is inert text", not textsafe.has_unsafe(link.plain))
+    check("reply: the answer row's number is the number a reply to an answer names",
+          cp.mid_of({"rid": 5, "mid": 9}) == 9 and cp.mid_of({"rid": 5}) == 5)
 
 
 def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
@@ -1427,7 +1413,7 @@ async def _run_all() -> None:
     test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery()
     test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
-    test_replies_thread_under_the_message_they_answer()
+    test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
