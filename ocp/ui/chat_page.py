@@ -389,6 +389,37 @@ def card_top(m: dict) -> tuple[Text, Text]:
     return top, Text(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go.meta))
 
 
+def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dict | None = None) -> Text:
+    """Everything a message draws but its send row, as one text (a widget each was most of
+    the cost of drawing a chat): the reply link, the task card's top and title, the head line
+    when it is shown (with the #id when picked), the body and the note."""
+    head, body, note = message_parts(m)
+    out = Text()
+    if m.get("reply_to"):
+        out.append_text(reply_link(m["reply_to"]))
+        out.append("\n")
+    if is_card(m):
+        top, title = card_top(m)
+        out.append_text(top)
+        out.append("\n")
+        out.append_text(title)
+        out.append("\n")
+    if head_shown:
+        head = head.copy()
+        colour = (colors or {}).get({"them": "success", "other": "text-muted"}.get(side, ""), "")
+        if colour:
+            head.stylize(colour)
+        if picked:
+            head.append(f"  #{mid_of(m)}", style="bold")
+        out.append_text(head)
+        out.append("\n")
+    out.append_text(body)
+    if note is not None:
+        out.append("\n")
+        out.append_text(Text(note.plain, style="dim"))
+    return out
+
+
 def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     """What one message draws: its head line (who, when, its kind and linked tasks), its body, and
     the note under it (cancelled), all as safe `Text`."""
@@ -494,21 +525,13 @@ class ChatMessage(Vertical):
 
     def __init__(self, m: dict, working: bool = True) -> None:
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
-        head, body_text, note = message_parts(m)
-        parts = [Static(body_text, classes="text")]
-        self._who = Static(head, classes="who")
-        self._head = head
+        self._side = side
         # the human's own message tells who and when always when it is a reply, else only once picked
         self._always = m["side"] != "you" or bool(m.get("reply_to"))
-        self._who.display = self._always
-        parts.insert(0, self._who)
-        if is_card(m):
-            top, title = card_top(m)
-            parts[:0] = [Static(top, classes="cardtop"), Static(title, classes="cardtitle")]
-        if m.get("reply_to"):
-            parts.insert(0, Static(reply_link(m["reply_to"]), classes="replyto"))
-        if note is not None:
-            parts.append(Static(note, classes="qstate"))
+        self._picked = False
+        self._colors: dict[str, str] = {}
+        self._text = Static(message_text(m, self._always, False, side), classes="body")
+        parts = [self._text]
         self._send_now: Button | None = None
         landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
         if m.get("queued"):
@@ -524,13 +547,19 @@ class ChatMessage(Vertical):
         self.m = m
         self.set_working(working)
 
+    def on_mount(self) -> None:
+        """The head line takes the theme's colours, which a widget can only read once mounted."""
+        variables = self.app.theme_variables
+        self._colors = {"success": variables.get("success", ""), "text-muted": "dim"}   # the muted one is 'auto 60%' in CSS
+        self._redraw()
+
+    def _redraw(self) -> None:
+        self._text.update(message_text(self.m, self._always or self._picked, self._picked, self._side, self._colors))
+
     def show_id(self, on: bool) -> None:
         """A picked message tells its #id, and the human's own tells who and when too."""
-        self._who.display = on or self._always
-        head = self._head.copy()
-        if on:
-            head.append(f"  #{mid_of(self.m)}", style="bold")
-        self._who.update(head)
+        self._picked = on
+        self._redraw()
 
     def set_working(self, working: bool) -> None:
         if self._send_now is not None:
