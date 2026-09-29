@@ -1902,6 +1902,9 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
         asked = db.add_request(con, "reviewer", "backend", "look at this", None, "peer", "async", None, 0, None)
         need = dmn_lifecycle.start_or_wake_needed(con, "backend", db.get_agent_state(con, "backend"))
         check("pane: work waiting makes it a wake", need and need[0] == "wake", str(need))
+        state = actions._delivery_state(con, "backend", dict(table), set(live))
+        check("pane: and the stuck list gives the closed reason, not 'no terminal'",
+              state[0] == "closed, waking" and state[2], str(state))
         dmn_evaluate.tick(con, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("pane: the wake opens a terminal running the resume with the wake prompt",
@@ -1963,6 +1966,48 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
               and db.get_terminal(con, "backend") == "term_x", f"{ok} {closed}")
     finally:
         spawnmod.start_in, orcamod.send = real
+        con.close()
+
+
+def test_a_parked_closed_agent_without_a_pane_is_woken_at_its_deadline(home: Path) -> None:
+    """T407: the deadline wake of a closed park needed a terminal, and a closed
+    agent has none now; a worktree to open one in is enough."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    created: list[str] = []
+    real = spawnmod.start_in
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        table = sessions_are()
+
+        def start_in(agent, worktree, cmd=None):
+            created.append(cmd)
+            db.set_terminal(con, agent, "term_x", worktree)
+            table[agent] = 4242
+            take_launched_prompt(cmd)
+            return True, "started"
+        spawnmod.start_in = start_in
+        wt = home / "wt"
+        wt.mkdir()
+        rid = db.add_request(con, "reviewer", "backend", "long job", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        db.set_terminal(con, "backend", None, str(wt))
+        db.set_closed(con, "backend", "sess-4")
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 5,
+                           detail="waiting for the window")
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-4", "pct_5h": 20}))
+        row = db.get_agent_state(con, "backend")
+        check("deadline: a closed park with only a told request has no wake cause but is waited for",
+              dmn_lifecycle.closed_wake_cause(con, "backend", row) is None
+              and dmn_lifecycle.waiting_for(con, "backend"))
+        dmn_evaluate.tick(con, lambda _m: None)
+        check("deadline: it is woken into a new terminal at its deadline",
+              len(created) == 1 and "--resume sess-4" in created[0], str(created))
+    finally:
+        spawnmod.start_in = real
         con.close()
 
 
@@ -4878,6 +4923,7 @@ def main() -> int:
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_resume_woken_for_a_message_is_handed_that_message(Path(td) / 'woketick'))
         run(lambda: test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that_resumes(Path(td) / 'panewake'))
+        run(lambda: test_a_parked_closed_agent_without_a_pane_is_woken_at_its_deadline(Path(td) / 'panedue'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))

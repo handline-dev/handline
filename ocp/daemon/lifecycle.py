@@ -872,6 +872,8 @@ def _launch_in_pane(con, agent: str, handle: str | None, wt: str | None, cmd: st
     if handle:
         return orca.relaunch(handle, cmd, started=started)
     ok, why = spawnmod.start_in(agent, wt, cmd)
+    if ok and not started():
+        return False, "the launch command was run but no session took its prompt"
     new = db.get_terminal(con, agent) if ok else None
     if new:
         orca.wait_idle(new)
