@@ -996,8 +996,8 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
             row = db.get_agent_state(con, "backend")
             word = tui.screen_state(con, row)[0]
             if state == dmn_states.IDLE:
-                check(f"background {state}: the row is shown working",
-                      word == "RUNNING", word)
+                check(f"background {state}: the row is not shown working",
+                      word == "IDLE", word)
             check(f"background {state}: no resolve nudge is typed at it",
                   not dmn_delivery.nudge_forgotten_resolve(con, "backend", row, now, lambda _m: None)
                   and not sent, str(sent))
@@ -1142,8 +1142,9 @@ def test_a_closed_session_shows_no_background_work(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         dmn_delivery.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
-        check("closed: setup - an open session with background work reads RUNNING",
-              tui.screen_state(con, db.get_agent_state(con, "backend"))[0] == "RUNNING")
+        seen = tui.screen_state(con, db.get_agent_state(con, "backend"))
+        check("closed: setup - an open session with background work reads idle, with the background note",
+              seen[0] == "IDLE" and seen[1].startswith("background"), str(seen))
 
         db.set_closed(con, "backend", "sess-1")
         row = db.get_agent_state(con, "backend")

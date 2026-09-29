@@ -994,7 +994,7 @@ def screen_state(con, row) -> tuple[str, str]:
         if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
         if dmn_delivery.has_background_work(con, row["agent"]):
-            return "RUNNING", _background_detail(con, row["agent"])
+            return "IDLE", _background_detail(con, row["agent"])      # nothing is being said: not working
         return "PENDING", ""
     if state in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED):
         if detail.startswith(askmod.AWAIT_REPLY_MARK):
@@ -1024,10 +1024,10 @@ def screen_state(con, row) -> tuple[str, str]:
             and _state_from_screen(row["account"] or "") \
             and _opencode_working(row["terminal"]) is True:
         return "RUNNING", ""
-    # A row the daemon marked with work still running behind the prompt is not
-    # idle, whatever the hooks last said.
+    # A row the daemon marked with work still running behind the prompt says so beside
+    # its word; it is not working (founder #5308).
     if state == dmn_states.IDLE and dmn_delivery.has_background_work(con, row["agent"]):
-        return "RUNNING", _background_detail(con, row["agent"])
+        return "IDLE", _background_detail(con, row["agent"])
     # IDLE, and anything not written above (section 8.4's own DONE, never
     # actually written - see daemon.WAKER): shown as IDLE rather than a raw
     # internal name a person was never meant to read.

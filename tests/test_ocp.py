@@ -22,6 +22,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -45,16 +46,21 @@ FILE_TIMEOUT_S = int(os.environ.get("OCP_TEST_FILE_TIMEOUT", "1800"))
 TIMED_OUT = 124
 
 
+TIMES: dict[str, float] = {}     # file name -> seconds its process took
+
+
 def _run_one(path: Path, args: list[str], python: str | None = None,
              timeout: float | None = None) -> tuple[Path, int, str]:
     env = {k: v for k, v in os.environ.items() if k not in ("OCP_AGENT", "OCP_ACCOUNT")}
     limit = FILE_TIMEOUT_S if timeout is None else timeout
     # Its own session, so a timeout ends whatever the test started as well, not
     # only the test's own python.
+    started = time.monotonic()
     proc = subprocess.Popen([python or sys.executable, "-u", str(path), *args], stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, env=env, start_new_session=True)
     try:
         out, _ = proc.communicate(timeout=limit)
+        TIMES[path.name] = time.monotonic() - started
     except subprocess.TimeoutExpired:
         with contextlib.suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGKILL)
@@ -152,6 +158,8 @@ def run_all(argv: list[str]) -> int:
         print(skipped)
     for line in skips:
         print(line)
+    print("\nslowest files: " + ", ".join(f"{n} {t:.0f}s" for n, t in
+                                         sorted(TIMES.items(), key=lambda kv: -kv[1])[:6]))
     print(f"\n{passed} passed, {failed} failed")
     for f in failures:
         print(f"  FAILED: {f}")
