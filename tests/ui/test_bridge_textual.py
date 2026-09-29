@@ -663,8 +663,10 @@ async def test_messages_panel_acts_on_a_folded_row() -> None:
         await pilot.pause(0.2)
         check("messages: acting on a folded row does not crash the app",
               app.is_running, "app exited")
-        deadline = asyncio.get_event_loop().time() + 5
-        while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
+        # The dismiss is a real subprocess job (`ocp` starting up: seconds on a busy machine); the
+        # job's own `longest` bound stops it, so wait for its toast, with a bound only to not hang.
+        deadline = asyncio.get_event_loop().time() + 90
+        while asyncio.get_event_loop().time() < deadline and (screen.jobs.running or not _said(screen)):
             await pilot.pause(0.1)
         check("messages: it dismissed the row's latest, not a literal 'agent:reviewer'",
               "dismiss" in _said(screen).lower() or "#" in _said(screen), _said(screen))
