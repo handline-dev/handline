@@ -1218,8 +1218,13 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
                      reset_5h=now + 1800)
         db.set_cursor(con, "notify:backend", head)
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("nudge: supervise makes the same call", len(sent) == 1 and "ocp resolve" in sent[0],
-              str(sent))
+        check("nudge: supervise tells the next task past the idle head instead, and nudges nothing that tick",
+              len(sent) == 1 and "#2 from" in sent[0] and "sat idle" in sent[0], str(sent))
+        # Back to the queue the stuck checks below were written against.
+        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL, told_out_of_turn = NULL WHERE id = 2")
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
+        nudge(int(time.time()))
+        sent.clear()
 
         # The bridge: nothing until the second interval, then one row.
         check("stuck: nothing on the screen for it before the second interval",

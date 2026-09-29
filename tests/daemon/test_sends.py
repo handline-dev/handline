@@ -417,6 +417,52 @@ def test_a_hold_on_a_task_is_always_said_once_with_its_reason(home: Path) -> Non
         con.close()
 
 
+def test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(home: Path) -> None:
+    """T459 (founder, from #5744/#5787/#5806): three auditor PASS handbacks sat for hours behind an
+    open head orcapipe was told about and left open. A told head keeps what is behind it back while the
+    agent is busy, says why once, and lets the next one through once the agent has been idle on it."""
+    sent = _world(home)
+    orcamod.typeable_now = lambda h: True
+    con = db.connect()
+    lines: list[str] = []
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        first = db.add_request(con, "product", "backend", "the work it is on", None, "peer", "async", "task", 0, None)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        second = db.add_request(con, "orcapipe.auditor", "backend", "PASS handback", None, "peer", "async", "task", 0, None)
+        db.add_event(con, "backend", "task_note", {})
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: a busy agent is not told the next task, and the hold is said once with its reason",
+              len(sent) == 1 and len([m for m in lines if f"#{second} is held" in m and f"#{first}" in m]) == 1,
+              str((sent, lines)))
+
+        old = int(time.time()) - dmn_delivery.NUDGE_AFTER_S - 5
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (old, first))
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
+        row = db.get_request(con, second)
+        check("open head: an agent idle on it is told the next task, marked as told ahead of it",
+              told and len(sent) == 2 and f"#{second}" in sent[1][1] and f"#{first}" in sent[1][1]
+              and row["told_out_of_turn"] and db.get_cursor(con, "notify:backend") == first
+              and not dmn_delivery._HELD.get("backend"), str((told, sent)))
+
+        third = db.add_request(con, "product", "backend", "one more", None, "peer", "async", "task", 0, None)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: telling one restarts the wait, so the next is not typed on the following tick",
+              len(sent) == 2 and not db.get_request(con, third)["delivered_at"], str(sent))
+        con.execute("UPDATE requests SET delivered_at = delivered_at - ? WHERE delivered_at IS NOT NULL",
+                    (dmn_delivery.NUDGE_AFTER_S + 5,))
+        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: once idle again for the whole wait, the one after it goes out",
+              told and len(sent) == 3 and f"#{third}" in sent[2][1]
+              and any(f"told about #{third} (ahead of #{first}, idle)" in m for m in lines), str((sent, lines)))
+    finally:
+        con.close()
+
+
 def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
     """T398 (auditor #2427 3a): a send that fails leaves the row undelivered - owed,
     withdrawable - and the tick types it once the send works."""
@@ -591,6 +637,7 @@ def main() -> int:
         run(lambda: test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(Path(td) / 'saychat'))
         run(lambda: test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(Path(td) / 'closenotes'))
         run(lambda: test_a_hold_on_a_task_is_always_said_once_with_its_reason(Path(td) / 'bgtask'))
+        run(lambda: test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(Path(td) / 'openhead'))
         run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))

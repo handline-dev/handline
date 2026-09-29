@@ -462,6 +462,25 @@ def _held(agent: str, head, why: str, log) -> bool:
     return False
 
 
+def _next_behind(con, agent: str, head):
+    """The first task behind `head` that nobody has told the agent about and that is not itself
+    blocked on record (T337)."""
+    return next((r for r in db.queued_for(con, agent)
+                 if r["kind"] == "task" and r["edge_ok"] and int(r["id"]) != int(head["id"])
+                 and not r["delivered_at"] and not head_task_blocked(con, agent, r)), None)
+
+
+def _idle_on(con, agent: str, head) -> bool:
+    """The agent has sat idle on `head`, told and still open, this long: nothing it started is
+    running (background work that is not stale) and it has done nothing since, nor been told
+    anything since: a task typed past `head` restarts this, so they go out one per stretch (T459)."""
+    now = int(time.time())
+    if has_background_work(con, agent) and not bg_stale(con, agent, now):
+        return False
+    last_told = max((int(r["delivered_at"] or 0) for r in db.queued_for(con, agent)), default=0)
+    return now - max(last_told, idle_since(con, agent) or 0) >= NUDGE_AFTER_S
+
+
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about its next task - only tasks, one at a time and only when
     it is free: a message is typed at once (`messaging.tell_now`) and never comes
@@ -480,9 +499,17 @@ def deliver_queued(con, agent: str, log) -> bool:
         # Told already, out of turn; becoming the head is not news.
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         head_due = False
+    ahead_of = None
     if not head_due:
-        _HELD.pop(agent, None)
-        return False
+        # The head was told and is still open: what is behind it waits, but not for as long
+        # as the agent sits idle on it (T459).
+        ahead_of, head = head, _next_behind(con, agent, head)
+        if not head:
+            _HELD.pop(agent, None)
+            return False
+        if not _idle_on(con, agent, ahead_of):
+            return _held(agent, head, f"#{ahead_of['id']}, told and still open, is ahead of it "
+                         f"until the agent has been idle on it {NUDGE_AFTER_S // 60} min", log)
     why = typing_hold(con, agent)
     if why:
         return _held(agent, head, why, log)          # stays queued; told when it wakes or moves
@@ -507,7 +534,7 @@ def deliver_queued(con, agent: str, log) -> bool:
             return _held(agent, head, "its screen changed before the send", log)
         # One task per pass: it starts the agent's turn, so a second would be typed
         # mid-turn. The rest go out on later ticks, each behind its own typeable check.
-        told = _tell(con, agent, head, depth, handle, log)
+        told = _tell(con, agent, head, depth, handle, log, ahead_of, parked=ahead_of is not None)
         if told:
             _HELD.pop(agent, None)
         return told
@@ -909,10 +936,11 @@ def more_waiting(kind: str, more: int) -> str | None:
     return f"{more} more waiting - the next comes when you resolve or dismiss this one."
 
 
-def tell_text(con, head, depth: int, ahead_of=None) -> str:
+def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str:
     """The message that tells an agent about `head`, as it is typed.
 
-    `ahead_of` is the head a "send now" request is jumping."""
+    `ahead_of` is the head a "send now" request is jumping, or, with `parked`, the head the
+    agent has sat idle on."""
     more = depth - 1
     # One line; `ocp read` has the rest. The message is three lines at most
     # (`MAX_TYPED_LINES`), so what follows the body rides on its line. A task handoff
@@ -930,7 +958,9 @@ def tell_text(con, head, depth: int, ahead_of=None) -> str:
         shown = body if len(body) <= 400 else body[:400] + "…"
     waiting = more_waiting(head["kind"], more)
     tail = f" [{waiting}]" if waiting else ""
-    if ahead_of is not None:
+    if parked:
+        tail = f" [Ahead of #{ahead_of['id']}, which is still open and has sat idle.]"
+    elif ahead_of is not None:
         tail = (f" [A follow-up to #{ahead_of['id']}, which is still open.]"
                 if head["parent_id"] == ahead_of["id"] else
                 f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]")
@@ -941,7 +971,7 @@ def tell_text(con, head, depth: int, ahead_of=None) -> str:
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,
-                 ahead_of=None) -> None:
+                 ahead_of=None, parked: bool = False) -> None:
     """What a delivered tell leaves behind, once it is known to have landed."""
     more = depth - 1
     db.mark_typed(con, int(head["id"]), session or _live_session(con, agent))
@@ -952,13 +982,15 @@ def _record_told(con, agent: str, head, depth: int, log, session: str | None,
         db.mark_told_out_of_turn(con, int(head["id"]))
     db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
     log(f"  {agent}: told about #{head['id']}"
-        + (" (send now)" if ahead_of is not None else "")
+        + (f" (ahead of #{ahead_of['id']}, idle)" if parked else " (send now)" if ahead_of is not None else "")
         + (f" ({more} more waiting)" if more else ""))
 
 
-def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) -> bool:
+def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None,
+          parked: bool = False) -> bool:
     """`ahead_of` is the head a "send now" request is jumping: it is told
-    without touching the head's own cursor, so that head is not told twice."""
+    without touching the head's own cursor, so that head is not told twice.
+    `parked` says it is a task the agent's idle head let through (T459)."""
     # Before the send, not after: this is what closes withdraw/replace's race
     # against delivery (request #189). A send that then fails leaves the row
     # marked anyway - its requester can no longer withdraw it, but the cursor
@@ -968,11 +1000,11 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None) ->
         # here. Typing a dead request into the target's terminal would be
         # worse than skipping it; the next tick picks up whatever is now head.
         return False
-    ok, _ = _send(handle, tell_text(con, head, depth, ahead_of))
+    ok, _ = _send(handle, tell_text(con, head, depth, ahead_of, parked))
     if ok:
         _mark_typed(con, agent)
         _record_told(con, agent, head, depth, log,
-                     _live_session(con, agent) if ahead_of is None else None, ahead_of)
+                     _live_session(con, agent) if ahead_of is None else None, ahead_of, parked)
     return ok
 
 

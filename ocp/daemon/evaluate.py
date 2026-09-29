@@ -294,8 +294,9 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             row = db.get_agent_state(con, agent)
         if closed is None:
             delivery.deliver_answers(con, agent, log)
-            delivery.deliver_queued(con, agent, log)
-            delivery.nudge_forgotten_resolve(con, agent, row, now, log)
+            # A task told past an idle head starts a turn: the nudge about that head waits.
+            if not delivery.deliver_queued(con, agent, log):
+                delivery.nudge_forgotten_resolve(con, agent, row, now, log)
 
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,
