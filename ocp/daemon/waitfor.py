@@ -126,7 +126,7 @@ def sweep(con, log, now: int) -> None:
         if _PREFIX + fp in told:
             continue
         task = db.get_task(con, tid)
-        who = next((o for o in (task["owner"], task["opened_by"]) if o != db.HUMAN), "orcapipe.daemon")
+        who = next((o for o in (task["owner"], task["opened_by"]) if o != db.HUMAN), db.HUMAN)
         askmod.escalate(con, who, f"[wait-for] {text}", "wait-for graph")
         db.set_cursor(con, _PREFIX + fp, 1)
         log(f"  wait-for: {fp} escalated to the founder")

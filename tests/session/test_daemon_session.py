@@ -3846,6 +3846,18 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         for w, b_ in ((p_, r_), (r_, q_), (q_, p_)):
             db.remove_block(con, w, b_)
 
+        # A loop the founder owns and opened is filed under him: no agent's name is invented.
+        m_, n_ = (db.new_task(con, t, db.HUMAN, db.HUMAN) for t in ("m", "n"))
+        db.add_block(con, m_, n_)
+        db.add_block(con, n_, m_)
+        before = len(escalations())
+        waitfor.sweep(con, log.append, 0)
+        row = con.execute("SELECT requester FROM requests WHERE kind = 'escalate' ORDER BY id DESC LIMIT 1").fetchone()
+        check("wait-for: a loop only the founder owns is filed under him, not under an agent that may not exist",
+              len(escalations()) == before + 1 and row["requester"] == db.HUMAN, str(dict(row)))
+        for w, b_ in ((m_, n_), (n_, m_)):
+            db.remove_block(con, w, b_)
+
         # The other half: `--blocked-by` itself refuses to close a loop.
         _, _, x = actions.task_new("product", "backend", "x")
         _, _, y = actions.task_new("product", "backend", "y")
