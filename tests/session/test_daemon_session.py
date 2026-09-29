@@ -801,6 +801,64 @@ def test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(home: Path) -> None:
         con.close()
 
 
+def test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(home: Path) -> None:
+    """T456 (founder #5770): a resolve un-parks its asker only when nothing else it asked is
+    outstanding, so an agent with a second ask open stayed "waiting for" an answer that had come,
+    with what was told to it queued behind. The tick reads the park against its request."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: False
+        db.set_terminal(con, "backend", "term_x", "wt")
+        first = db.add_request(con, "backend", "marina", "the first ask", None, "peer", "async", None, 0, None)
+        second = db.add_request(con, "backend", "marina", "the second ask", None, "peer", "async", None, 0, None)
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
+                           detail=askmod.await_reply_detail(first, "marina"))
+        lines: list[str] = []
+        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: while its reply is still awaited it stays parked",
+              row["state"] == dmn_states.PARKED and not lines, str((dict(row), lines)))
+        askmod.resolve(first, "answered")             # the second ask is still open, so nothing un-parks it
+        row = db.get_agent_state(con, "backend")
+        check("park: setup - the resolve left it parked on the answered ask", row["state"] == dmn_states.PARKED,
+              str(dict(row)))
+        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: the next tick drops it, and says so",
+              row["state"] != dmn_states.PARKED and any(f"#{first}" in m and "settled" in m for m in lines),
+              str((dict(row), lines)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_an_owed_clear_that_holds_everything_says_why_once(home: Path) -> None:
+    """T456: settle_owed_clear returns True while a clear is owed and the tick then does nothing else
+    for the agent - it must not do so silently."""
+    from ocp.daemon import handoff as dmn_handoff
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (dmn_delivery.session_present, dmn_delivery._type_gate)
+    lines: list[str] = []
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_cursor(con, "clear_owed:backend", int(time.time()))
+        dmn_delivery.session_present = lambda a: True
+        dmn_delivery._type_gate = lambda *a, **k: "backend was typed at moments ago; letting the screen catch up"
+        held = [dmn_handoff.settle_owed_clear(con, "backend", lines.append) for _ in range(3)]
+        check("owed clear: it holds the agent's tick", held == [True, True, True])
+        check("owed clear: and says why, once", len([m for m in lines if "moments ago" in m and "owed" in m]) == 1,
+              str(lines))
+        db.clear_cursor(con, "clear_owed:backend")
+        dmn_handoff.settle_owed_clear(con, "backend", lines.append)
+        check("owed clear: the reason is forgotten once nothing is owed", not dmn_handoff._OWED_SAID.get("backend"))
+    finally:
+        dmn_delivery.session_present, dmn_delivery._type_gate = real
+        con.close()
+
+
 def test_daemon_tick_expires_handoff(home: Path) -> None:
     """The deadline must be enforced every tick, not only at startup."""
     _daemon_home(home, 50)
@@ -4955,6 +5013,8 @@ def main() -> int:
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
         run(lambda: test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(Path(td) / 'awaitwall'))
+        run(lambda: test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(Path(td) / 'settledpark'))
+        run(lambda: test_an_owed_clear_that_holds_everything_says_why_once(Path(td) / 'owedsaid'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
