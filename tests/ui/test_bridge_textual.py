@@ -473,6 +473,7 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
         con.execute("UPDATE requests SET delivered_at = ts WHERE id = ?", (first,))
         _, _, held = askmod.ask("reviewer", "second, not read yet", requester="backend")
         _, _, later = askmod.ask("backend", "asked after", requester="reviewer")
+        con.execute("UPDATE requests SET ts = ts + 10 WHERE id = ?", (later,))
         con.commit()
         rows = cp.requests_page(con, "reviewer", True)[0]
     finally:
@@ -480,9 +481,9 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
     msgs = cp.messages_of(rows, "reviewer")
     widgets = cp.transcript_widgets(msgs, False)
     texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in widgets]
-    check("chat: an agent's undelivered message sits below the queue line, after the delivered ones",
+    check("chat: an undelivered message to the agent sits below the queue line; one the agent sent stays at its time (founder)",
           texts.index("--") == texts.index("second, not read yet") - 1
-          and texts.index("hello") < texts.index("--") and texts.index("asked after") > texts.index("--"),
+          and texts.index("hello") < texts.index("--") and texts.index("asked after") < texts.index("--"),
           str(texts))
     check("chat: it has no Cancel / Send now buttons", not any(
         m["queued"] for m in msgs if m["text"] == "second, not read yet"))

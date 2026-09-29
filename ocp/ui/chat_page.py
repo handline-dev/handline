@@ -154,7 +154,9 @@ def messages_of(rows, agent: str) -> list[dict]:
             held = (part == 0 and speaker != human and r["target"] != human
                     and r["state"] == "queued" and not r["delivered_at"])
             landing = landingmod.state(r)
-            waiting_to_go = held or queued and landing != "delivered"
+            # below the queue line only what this page's agent has yet to read; what it sent
+            # (or two others') sits at its own time
+            waiting_to_go = held and r["target"] == agent or queued and landing != "delivered"
             if part == 0 and r["landed_at"]:
                 at = r["landed_at"]      # a message sits where its agent read it, not where it queued
             who = ("you" if speaker == human else speaker) + (
@@ -165,6 +167,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "replyable": human in (r["requester"], r["target"]),
                          "queued": queued,
                          "held": held,
+                         "unread": waiting_to_go,
                          "to": to,
                          "kind": _col(r, "kind"),
                          "tasks": sorted(int(t) for t in (_col(r, "tasks") or "").split(",") if t),
@@ -462,7 +465,7 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     out: list = []
     line = False
     for m in msgs:
-        if (m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
+        if m.get("unread", m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
             out.append(QueueLine(working, why=why, wait=wait))
             line = True
         out.append(ChatMessage(m, working))
