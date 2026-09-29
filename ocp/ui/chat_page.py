@@ -85,9 +85,9 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
            "WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, "
            "(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, "
-           "(SELECT a.id FROM requests a WHERE a.parent_id = requests.id AND a.kind = 'answer' "
+           "(SELECT a.id FROM requests a WHERE a.settles = requests.id "
            "ORDER BY a.id LIMIT 1) AS answer_id "
-           f"FROM requests WHERE state NOT IN {_GONE} AND kind IS NOT 'answer' AND {where}")
+           f"FROM requests WHERE state NOT IN {_GONE} AND settles IS NULL AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
         return _with_task_state(con, rows), False

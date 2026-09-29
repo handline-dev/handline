@@ -421,6 +421,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _rename_orchestrator(con)
     _give_answers_their_own_rows(con)
     _asks_reports_and_escalations_to_says(con)
+    _answers_are_says(con)
     return con
 
 
@@ -615,8 +616,8 @@ def _give_answers_their_own_rows(con) -> None:
         for r in con.execute(
                 "SELECT id, verdict, COALESCE(resolved_at, ts) AS at FROM requests "
                 "WHERE state = 'done' AND verdict IS NOT NULL AND verdict != '' "
-                "AND dismissed_by IS NULL AND kind IS NOT 'answer' AND id NOT IN "
-                "(SELECT parent_id FROM requests WHERE kind = 'answer' AND parent_id IS NOT NULL) "
+                "AND dismissed_by IS NULL AND settles IS NULL AND id NOT IN "
+                "(SELECT settles FROM requests WHERE settles IS NOT NULL) "
                 "ORDER BY id").fetchall():
             dbreq.add_answer(con, r["id"], r["verdict"], at=r["at"])
         set_cursor(con, "migrated:answer_rows", 1)
@@ -683,6 +684,17 @@ def _asks_reports_and_escalations_to_says(con) -> None:
         raise
 
 
+def _answers_are_says(con) -> None:
+    """T361 step B1: an answer row is a say that references the request it settled
+    (`parent_id`, and `settles` to tell it from an interim reply). Ledgered, so it
+    runs once."""
+    if get_cursor(con, "migrated:answers_are_says"):
+        return
+    con.execute("UPDATE requests SET kind = 'say', settles = parent_id "
+                "WHERE kind = 'answer' AND parent_id IS NOT NULL")
+    set_cursor(con, "migrated:answers_are_says", 1)
+
+
 # What the founder used to be called. "orchestrator" read as a component of
 # this system rather than as the person using it, which is the one distinction
 # the routing table exists to make.
@@ -736,6 +748,12 @@ def _add_missing_columns(con) -> None:
     if "windows" not in _cols(con, "usage_samples"):
         con.execute("ALTER TABLE usage_samples ADD COLUMN windows TEXT")
     request_cols = _cols(con, "requests")
+    if "settles" not in request_cols:
+        # The request a say settled, when it is the answer that closed it (T361).
+        con.execute("ALTER TABLE requests ADD COLUMN settles INTEGER")
+    # After the column exists, on an old db as on a new one (SCHEMA runs before this):
+    # the chat page looks up the answer of every row it draws by this.
+    con.execute("CREATE INDEX IF NOT EXISTS requests_settles ON requests(settles)")
     for col in ("dismissed_by", "dismissed_reason"):
         if col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")

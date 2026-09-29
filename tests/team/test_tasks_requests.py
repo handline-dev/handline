@@ -3393,7 +3393,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         answer = db.answer_row_of(con, rid)
         check("T421: the answer is a message of its own - its own id, under the request, from the one asked",
               answer is not None and answer["id"] != rid and answer["parent_id"] == rid
-              and answer["kind"] == "answer" and answer["body"].startswith("MERGE.")
+              and answer["kind"] == "say" and answer["settles"] == rid and answer["body"].startswith("MERGE.")
               and answer["requester"] == "reviewer" and answer["target"] == actions.HUMAN,
               str(dict(answer) if answer else None))
         said = actions.answer(con, rid, "merged, thank you")
@@ -4757,7 +4757,8 @@ def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> No
         check("answer row: its own id, under the request, from the one asked to the asker",
               ans is not None and ans["id"] != rid and ans["parent_id"] == rid
               and ans["requester"] == "manager" and ans["target"] == "worker"
-              and ans["body"] == "the answer" and ans["kind"] == "answer" and ans["state"] == "done"
+              and ans["body"] == "the answer" and ans["kind"] == "say" and ans["settles"] == rid
+              and ans["state"] == "done"
               and ans["chain_id"] == db.get_request(con, rid)["chain_id"], str(dict(ans) if ans else None))
         check("answer row: it is already read, so nobody is told twice",
               ans["announced_at"] is not None)
@@ -4809,13 +4810,62 @@ edges:
         check("migration: an old verdict becomes an answer row, at the time it was answered",
               made is not None and made["body"] == "old verdict" and made["ts"] == 1000,
               str(dict(made) if made else None))
-        count = con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"]
+        count = con.execute("SELECT COUNT(*) c FROM requests WHERE settles IS NOT NULL").fetchone()["c"]
         con.close()
         con = db.connect()
         check("migration: a second connect adds nothing, and the earlier answers are not doubled",
-              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"] == count
-              and len([1 for r in con.execute("SELECT id FROM requests WHERE parent_id = ? AND kind = 'answer'",
-                                              (rid,))]) == 1)
+              con.execute("SELECT COUNT(*) c FROM requests WHERE settles IS NOT NULL").fetchone()["c"] == count
+              and len([1 for r in con.execute("SELECT id FROM requests WHERE settles = ?", (rid,))]) == 1)
+
+        # A row written before this step, with the kind answer, becomes a say that settles its request.
+        legacy = db.add_request(con, "worker", "manager", "q", None, None, None, None, 0, None,
+                                state="done", verdict="old answer")
+        aid = con.execute("INSERT INTO requests(ts, requester, target, body, kind, state, parent_id, chain_id, "
+                          "edge_ok) VALUES (5, 'manager', 'worker', 'old answer', 'answer', 'done', ?, ?, 1)",
+                          (legacy, str(legacy))).lastrowid
+        db.set_cursor(con, "migrated:answers_are_says", 0)
+        con.close()
+        con = db.connect()
+        got = db.get_request(con, aid)
+        check("migration: an old answer-kind row becomes a say that settles the request it answered",
+              got["kind"] == "say" and got["settles"] == legacy and got["parent_id"] == legacy
+              and db.answer_row_of(con, legacy)["id"] == aid, str(dict(got)))
+        check("migration: an interim reply from the target is a say but not the answer",
+              db.answer_row_of(con, rid)["id"] != db.add_request(
+                  con, "manager", "worker", "still on it", None, None, None, "say", 0, rid, state="done"))
+    finally:
+        con.close()
+
+
+def test_the_answer_lookups_use_the_settles_index_not_a_scan(home: Path) -> None:
+    """T361 B1 (auditor #5476): the chat page finds the answer of every row it
+    draws by `settles`; that is a search on requests_settles, never a scan of the
+    requests table (which made the page 350 times slower)."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for i in range(200):
+            rid = db.add_request(con, "worker", "manager", f"q{i}", None, None, None, None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = 'a' WHERE id = ?", (rid,))
+            if i % 2 == 0:
+                db.add_answer(con, rid, "a")
+        check("settles: the index exists on a database built now",
+              con.execute("SELECT 1 FROM sqlite_master WHERE name = 'requests_settles'").fetchone() is not None)
+        for label, sql in (
+                ("answer_row_of", "SELECT * FROM requests WHERE settles = ? ORDER BY id LIMIT 1"),
+                ("requests_page answer_id", "SELECT (SELECT a.id FROM requests a WHERE a.settles = requests.id "
+                                            "ORDER BY a.id LIMIT 1) AS answer_id FROM requests WHERE id = ?"),
+                ("append_verdict", "UPDATE requests SET body = body || 'x' WHERE settles = ?")):
+            plan = " | ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + sql, (5,)))
+            check(f"settles: {label} is a search on requests_settles", "requests_settles" in plan
+                  and "SCAN requests" not in plan, plan)
+        # An old database, built before the column: the index is made after the column is.
+        con.execute("DROP INDEX requests_settles")
+        con.close()
+        con = db.connect()
+        check("settles: reconnecting an old database creates the index too",
+              con.execute("SELECT 1 FROM sqlite_master WHERE name = 'requests_settles'").fetchone() is not None)
     finally:
         con.close()
 
@@ -8758,6 +8808,7 @@ def main() -> int:
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
         run(lambda: test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
+        run(lambda: test_the_answer_lookups_use_the_settles_index_not_a_scan(Path(td) / 'settlesidx'))
         run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
             Path(td) / 'nexttask'))
