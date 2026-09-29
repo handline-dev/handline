@@ -5,9 +5,10 @@ it. What a row says and what an action does or refuses is `actions`'s (`task_row
 (a reason, a name, a priority)."""
 from __future__ import annotations
 
+import functools
 import time
 
-from rich.cells import cell_len
+from rich.cells import cell_len, set_cell_size
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -82,13 +83,17 @@ def idle_text(row: dict, now: float) -> str:
 MIN_TITLE = 12
 
 
+@functools.lru_cache(maxsize=4096)
+def _one_line(title: str) -> str:
+    """A title as one safe line; the same few hundred titles are drawn every two seconds."""
+    return textsafe.oneline(title)
+
+
 def clip(text: str, room: int) -> str:
     """`text` cut with a closing … to at most `room` cells; short enough is left alone."""
     if cell_len(text) <= room:
         return text
-    while text and cell_len(text) > room - 1:
-        text = text[:-1]
-    return text + "…"
+    return set_cell_size(text, max(room - 1, 0)).rstrip() + "…"
 
 
 def title_room(width: int, others: list[int]) -> int:
@@ -212,7 +217,7 @@ class TasksView(Vertical):
 
     def on_resize(self) -> None:
         self._show_pane()
-        self.refresh_rows()         # the title column is cut to the width there is
+        self._tick()                # the title column is cut to the width there is
 
     def _show_pane(self) -> None:
         pane = self.query_one(TaskPane)
@@ -247,7 +252,7 @@ class TasksView(Vertical):
 
     def on_mount(self) -> None:
         self._set_columns()
-        self.set_interval(2.0, self.refresh_rows)
+        self.set_interval(2.0, self._tick)
         self.refresh_rows()
 
     @property
@@ -258,21 +263,43 @@ class TasksView(Vertical):
     def cur(self) -> int:
         return self.table.cursor_row
 
-    def refresh_rows(self) -> None:
-        if not self.display:
-            return
+    def _load(self) -> tuple[list, list]:
+        """What the database says, read once (on a thread or not): the rows the filters let
+        through, and, for the tree, every open task it hangs them on."""
+        ended = ("closed", "discarded", "merged")
         con = db.connect()
         try:
-            rows = actions.task_rows(con, state=sorted(self.states))
-            every = actions.task_rows(con) if self.as_tree else []
+            pool = actions.task_rows(con, include_closed=bool(self.states & set(ended)))
         finally:
             con.close()
+        rows = [r for r in pool if r["state"] in self.states]
+        every = [r for r in pool if r["state"] not in ended] if self.as_tree else []
         if self.mine:
             rows = [r for r in rows if actions.task_related_to(r, actions.HUMAN)]
         if self.closer:
             rows = [r for r in rows if r["closer"] == self.closer]
         if self.agent:
             rows = [r for r in rows if self.agent in (r["owner"], r["opened_by"])]
+        return rows, every
+
+    def refresh_rows(self) -> None:
+        if not self.display:
+            return
+        self._apply(*self._load())
+
+    def _tick(self) -> None:
+        """The two-second refresh and a resize: the database is read off the UI thread."""
+        if not self.display:
+            return
+
+        def work() -> None:
+            data = self._load()
+            self.app.call_from_thread(self._apply, *data)
+        self.run_worker(work, thread=True, exclusive=True, group="tasks_rows", exit_on_error=False)
+
+    def _apply(self, rows: list, every: list) -> None:
+        if not self.display:
+            return
         self.owners = sorted({r["owner"] for r in rows})
         if self.owner not in self.owners:
             self.owner = None
@@ -302,13 +329,13 @@ class TasksView(Vertical):
             if line:
                 n = seen[r["id"]] = seen.get(r["id"], 0) + 1
                 style = "dim" if line["dim"] else style
-                title = f"{line['prefix']}{r['ref']} " + ("(see above)" if line["again"] else textsafe.oneline(r["title"]))
+                title = f"{line['prefix']}{r['ref']} " + ("(see above)" if line["again"] else _one_line(r["title"]))
                 cells = ("[x]" if r["id"] in self.checked else "[ ]", title, "" if line["again"] else r["owner"],
                          "" if line["again"] else r["state"], "" if line["again"] else waits_text(r))
                 raw.append((str(r["id"]) if n == 1 else f"{r['id']}~{n}", cells, style))
                 continue
             cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
-                     r["state"], textsafe.oneline(r["title"]), r["owner"],
+                     r["state"], _one_line(r["title"]), r["owner"],
                      idle_text(r, now) + (" !" if stale else ""), r["closer"],
                      " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
             raw.append((str(r["id"]), cells, style))

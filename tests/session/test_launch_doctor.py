@@ -1858,7 +1858,9 @@ def test_jobs_stops_a_hung_action_at_its_declared_bound_not_past_it(home: Path) 
     real_command, real_wait, real_grace = jobsmod.ACT_COMMAND, actions.WAITS.get("dismiss"), jobsmod.GRACE_S
     try:
         jobsmod.ACT_COMMAND = [sys.executable, str(stub)]
-        actions.WAITS["dismiss"] = ("", 1)     # `longest` = 1s, so the bound is quick to observe
+        # `longest` = 1s, so the bound is quick to observe; a verb that waits on something is a
+        # process of its own (one that only writes the record runs on a thread, T438)
+        actions.WAITS["dismiss"] = ("a stand-in wait", 1)
         jobs = jobsmod.Jobs()
         said = jobs.start("dismiss", "reviewer", "dismissing reviewer")
         check("jobs: the hung action starts", said == "", said)

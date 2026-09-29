@@ -396,6 +396,22 @@ def _page_rows(con, rid: int) -> list:
     return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
 
 
+def test_a_message_is_one_text_with_its_parts_in_order() -> None:
+    """T438: a message is one Static, not one widget per part; this is what it says."""
+    from ocp.ui import chat_page as cp
+    m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
+         "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3}
+    t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
+    check("text: reply link, card top and title, head, body, in that order",
+          t[0] == "↩ #3" and t[1].startswith("TASK T418") and t[2] == "Fix it" and t[3].startswith("backend")
+          and t[4] == "the body", str(t))
+    check("text: the head is left out until it is shown, and #id joins it when picked",
+          "backend" not in cp.message_text(m, False, False, "them").plain
+          and "#7" in cp.message_text(m, True, True, "them").plain.split("\n")[3])
+    check("text: a note follows the body", cp.message_text({**m, "cancelled": True, "kind": None, "reply_to": None},
+                                                            False, False, "me").plain.split("\n")[-1].startswith("cancelled"))
+
+
 def test_a_reply_shows_a_link_to_what_it_answers() -> None:
     """T410 (founder #5295): messages stay in time order, unindented; a reply carries the
     number of its parent and draws a reply icon and that number, a click going to it."""
@@ -554,6 +570,35 @@ def test_the_task_title_is_cut_to_the_room_beside_the_other_columns() -> None:
     check("room: the table minus the other columns and their padding",
           tv.title_room(100, [3, 5, 8]) == 100 - (5 + 7 + 10) - 4, str(tv.title_room(100, [3, 5, 8])))
     check("room: never below the minimum", tv.title_room(20, [10, 10]) == tv.MIN_TITLE)
+
+
+def test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process() -> None:
+    """Founder #5401: dismissing was slow because every verb started an interpreter. A verb
+    with nothing to wait for (dismiss) runs in this process and is collected the same way."""
+    import time
+    from ocp.team import ask as askmod
+    from ocp.ui import jobs as jobsmod
+    _home("inlinejob")
+    agents.register("reviewer")
+    _, _, rid = askmod.ask("human", "a question?", requester="reviewer")
+    jobs = jobsmod.Jobs()
+    check("jobs: dismiss starts", jobs.start("dismiss", f"#{rid}", "dismissing", (rid,), {"me": actions.HUMAN}) == "")
+    check("jobs: it is not a process", isinstance(jobs.running[0].proc, jobsmod.InlineProc)
+          and jobs.running[0].proc.pid is None)
+    said = []
+    for _ in range(100):
+        said = jobs.reap()
+        if said:
+            break
+        time.sleep(0.02)
+    con = db.connect()
+    try:
+        check("jobs: it is collected, and the row is dismissed",
+              said and said[0][0] and db.get_request(con, rid)["state"] == "done", str(said))
+    finally:
+        con.close()
+    check("jobs: a verb that waits on something is still a process of its own",
+          actions.WAITS["wake"][0] != "" and actions.WAITS["dismiss"][0] == "")
 
 
 def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
@@ -1502,12 +1547,14 @@ async def _run_all() -> None:
     test_background_work_alone_is_not_working()
     test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
+    test_a_message_is_one_text_with_its_parts_in_order()
     test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_queue_reason_comes_from_the_message_below_the_line()
     test_a_message_between_two_other_agents_can_be_picked_in_all_chat()
     test_a_number_in_a_message_becomes_a_link_to_it()
     test_the_task_title_is_cut_to_the_room_beside_the_other_columns()
+    test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()

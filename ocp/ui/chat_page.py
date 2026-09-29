@@ -48,9 +48,10 @@ from .components.switch_row import SwitchRow
 # They are not part of the conversation, so no chat query reads them.
 _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 
-# Requests read per page. The newest page is what opens; older ones are read
-# only when the chat is scrolled to its top.
-PAGE = 30
+# Requests read per page. The newest page is what opens; older ones are read when the
+# chat is scrolled to within a screen of its top. Small, because drawing what is not in
+# view is most of what a page costs (founder #5425).
+PAGE = 10
 # T418: what the row under a message the agent has not answered says. Only a line
 # its transcript shows is delivered; queued and typed both read sending (founder #5299).
 LANDING_LABELS = {
@@ -389,6 +390,37 @@ def card_top(m: dict) -> tuple[Text, Text]:
     return top, Text(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go.meta))
 
 
+def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dict | None = None) -> Text:
+    """Everything a message draws but its send row, as one text (a widget each was most of
+    the cost of drawing a chat): the reply link, the task card's top and title, the head line
+    when it is shown (with the #id when picked), the body and the note."""
+    head, body, note = message_parts(m)
+    out = Text()
+    if m.get("reply_to"):
+        out.append_text(reply_link(m["reply_to"]))
+        out.append("\n")
+    if is_card(m):
+        top, title = card_top(m)
+        out.append_text(top)
+        out.append("\n")
+        out.append_text(title)
+        out.append("\n")
+    if head_shown:
+        head = head.copy()
+        colour = (colors or {}).get({"them": "success", "other": "text-muted"}.get(side, ""), "")
+        if colour:
+            head.stylize(colour)
+        if picked:
+            head.append(f"  #{mid_of(m)}", style="bold")
+        out.append_text(head)
+        out.append("\n")
+    out.append_text(body)
+    if note is not None:
+        out.append("\n")
+        out.append_text(Text(note.plain, style="dim"))
+    return out
+
+
 def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     """What one message draws: its head line (who, when, its kind and linked tasks), its body, and
     the note under it (cancelled), all as safe `Text`."""
@@ -494,21 +526,13 @@ class ChatMessage(Vertical):
 
     def __init__(self, m: dict, working: bool = True) -> None:
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
-        head, body_text, note = message_parts(m)
-        parts = [Static(body_text, classes="text")]
-        self._who = Static(head, classes="who")
-        self._head = head
+        self._side = side
         # the human's own message tells who and when always when it is a reply, else only once picked
         self._always = m["side"] != "you" or bool(m.get("reply_to"))
-        self._who.display = self._always
-        parts.insert(0, self._who)
-        if is_card(m):
-            top, title = card_top(m)
-            parts[:0] = [Static(top, classes="cardtop"), Static(title, classes="cardtitle")]
-        if m.get("reply_to"):
-            parts.insert(0, Static(reply_link(m["reply_to"]), classes="replyto"))
-        if note is not None:
-            parts.append(Static(note, classes="qstate"))
+        self._picked = False
+        self._colors: dict[str, str] = {}
+        self._text = Static(message_text(m, self._always, False, side), classes="body")
+        parts = [self._text]
         self._send_now: Button | None = None
         landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
         if m.get("queued"):
@@ -524,13 +548,19 @@ class ChatMessage(Vertical):
         self.m = m
         self.set_working(working)
 
+    def on_mount(self) -> None:
+        """The head line takes the theme's colours, which a widget can only read once mounted."""
+        variables = self.app.theme_variables
+        self._colors = {"success": variables.get("success", ""), "text-muted": "dim"}   # the muted one is 'auto 60%' in CSS
+        self._redraw()
+
+    def _redraw(self) -> None:
+        self._text.update(message_text(self.m, self._always or self._picked, self._picked, self._side, self._colors))
+
     def show_id(self, on: bool) -> None:
         """A picked message tells its #id, and the human's own tells who and when too."""
-        self._who.display = on or self._always
-        head = self._head.copy()
-        if on:
-            head.append(f"  #{mid_of(self.m)}", style="bold")
-        self._who.update(head)
+        self._picked = on
+        self._redraw()
 
     def set_working(self, working: bool) -> None:
         if self._send_now is not None:
@@ -1300,7 +1330,7 @@ class ChatPage(JobsAware, Screen):
         widgets = transcript_widgets(msgs, state == "RUNNING", why, wait)
         pane.mount(*widgets)
         if at_bottom:
-            pane.scroll_end(animate=False)
+            pane.anchor()       # stays at its end as the new messages are laid out, until the reader scrolls
         self.replying = None
         for w in widgets:
             if keep and isinstance(w, ChatMessage) and (w.m["rid"], w.m["part"]) == keep:
@@ -1338,7 +1368,7 @@ class ChatPage(JobsAware, Screen):
 
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         pane = self.query_one("#transcript", VerticalScroll)
-        if not self.showing_tasks and pane.scroll_y <= 1:
+        if not self.showing_tasks and pane.scroll_y <= max(pane.size.height, 1):
             self.load_older()
 
     def _before_cursor(self) -> tuple[str, str]:
