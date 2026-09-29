@@ -7779,6 +7779,46 @@ def test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(home
         con.close()
 
 
+def test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(home: Path) -> None:
+    """T440 (founder #5442): T296 was queued while its owner was busy and sat 12h - the edges
+    that deliver the next task never fired again. The tick reads the same picker as a level."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    pushed: list[str] = []
+    real_push = askmod.push
+    askmod.push = lambda _con, agent, rid=None: pushed.append(agent) or ""
+    try:
+        first_ok, msg, first = actions.task_new("manager", "worker", "first", "first")
+        t = db.new_task(con, "waits", "worker", "manager")
+        actions.set_queued(con, t, "manager", True)
+        check("setup: the owner is busy, so nothing went out for the queued task",
+              first_ok and db.task_requests(con, t) == [], msg)
+
+        pushed.clear()      # setup's own deliveries
+        now = int(time.time())
+        taskqueue.sweep(con, lambda _m: None, now)
+        check("tick: a busy owner is left alone - its task is still being asked",
+              db.task_requests(con, t) == [] and not pushed)
+
+        # The first task ends in a way that fires no edge: done and let go straight in the db.
+        db.mark_task_done(con, first, "done", "reason")
+        db.set_current_task(con, "worker", None)
+        check("setup: the edge did not deliver it", db.task_requests(con, t) == [])
+
+        taskqueue.sweep(con, lambda _m: None, now + 1)
+        check("tick: the free owner is sent the waiting task, and it is current",
+              len(db.task_requests(con, t)) == 1 and db.current_task(con, "worker") == t)
+        check("tick: and is pushed to now", pushed and set(pushed) == {"worker"}, str(pushed))
+
+        told = len(pushed)
+        taskqueue.sweep(con, lambda _m: None, now + 2)
+        check("tick: it is sent once", len(db.task_requests(con, t)) == 1 and len(pushed) == told)
+    finally:
+        askmod.push = real_push
+        con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -8644,6 +8684,7 @@ def main() -> int:
         run(lambda: test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(Path(td) / 'taskstates'))
         run(lambda: test_the_open_task_count_is_queued_plus_doing(Path(td) / 'taskcount'))
         run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
+        run(lambda: test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(Path(td) / 'taskqtick'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
