@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 
 from .. import actions, db
+from ..infra import paths
 from ..team import ask as askmod
 
 from . import messaging
@@ -110,3 +111,67 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
     if ok:
         _after(rid, kw["target"], log)
     return ok, msg
+
+
+# T303: what a command wrote and then tried to type, from a process that cannot (an agent's sandbox has
+# no process table, no Orca and no `ps`). The command writes its row and asks the daemon to type the
+# notice; the daemon does it the way the tick would, on a thread so the caller never waits for a wake.
+def _background(name: str, fn, log) -> None:
+    def run() -> None:
+        con = db.connect()
+        try:
+            fn(con)
+        except Exception as e:  # noqa: BLE001 - the row is written; the tick is the net
+            log(f"  {name} failed: {e}")
+        finally:
+            con.close()
+
+    if RUN_INLINE:
+        run()
+    else:
+        threading.Thread(target=run, daemon=True, name=f"ocp-{name}").start()
+
+
+_HANDED = "handed to the daemon; it is typed as soon as the agent can take it"
+
+
+def push_verb(con, log, **kw) -> tuple[bool, str]:
+    """Tell `target` about what was queued for it: request `rid` when the caller names one
+    (a message is typed at once, a task keeps the one-at-a-time rule), else its next task."""
+    target = kw["target"]
+    if target == askmod.HUMAN or target not in paths.list_agents():
+        return False, f"{target} is not an agent"
+    rid = kw.get("rid")
+    if rid is not None:
+        _after(int(rid), target, log)
+    else:
+        _background(f"push-{target}", lambda c: askmod.push(c, target), log)
+    return True, _HANDED
+
+
+def push_answer_verb(con, log, **kw) -> tuple[bool, str]:
+    """Put an answer in front of the agent that asked (`ask.push_answer`)."""
+    requester = kw["requester"]
+    if requester == askmod.HUMAN or requester not in paths.list_agents():
+        return False, f"{requester} is not an agent"
+    _background(f"push-answer-{requester}", lambda c: askmod.push_answer(c, requester), log)
+    return True, _HANDED
+
+
+def notify_cancelled_verb(con, log, **kw) -> tuple[bool, str]:
+    """Tell an agent a request it was handed was closed under it (`delivery.notify_cancelled`).
+
+    Only a delivered request already closed as rejected, and only with the verdict
+    on its row: what the daemon types is never the caller's words."""
+    from . import delivery
+    row = db.get_request(con, int(kw["rid"]))
+    if row is None:
+        return False, f"no request #{kw['rid']}"
+    if row["target"] == askmod.HUMAN or row["target"] not in paths.list_agents():
+        return False, f"{row['target']} is not an agent"
+    if row["state"] != "rejected" or not row["delivered_at"]:
+        return False, f"#{row['id']} was not cancelled after it was delivered"
+    _background(f"notify-cancelled-{row['id']}",
+                lambda c: delivery.notify_cancelled(c, row, str(row["verdict"] or "")), log)
+    return True, _HANDED
+
