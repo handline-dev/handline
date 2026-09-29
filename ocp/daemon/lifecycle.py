@@ -24,7 +24,7 @@ from ..team import trust
 from .. import vendors
 
 from . import delivery, handoff
-from .states import (DEGRADED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
+from .states import (DEGRADED, EVALUATED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
                      MAX_FAILED_ATTEMPTS, PARKED, RESUME_WARM_S, RUNNING, STALLED,
                      THROTTLED)
 
@@ -114,6 +114,25 @@ def closed_wake_cause(con, agent: str, row) -> tuple[str, str] | None:
     if pending:
         return "message", f"{len(pending)} pending message(s)"
     return None
+
+
+def start_or_wake_needed(con, agent: str, row) -> tuple[str, str] | None:
+    """("start" | "wake", what) when the daemon owes this agent a session, else None.
+
+    The one decision the tick and the daemon's start both act on (T406/T408): an
+    agent with work waiting and no terminal is started, a closed one with a
+    cause (`closed_wake_cause`) is woken. The states `supervise` leaves alone
+    are left alone here too."""
+    if row and (row["state"] == STALLED or row["state"] not in EVALUATED):
+        return None
+    if db.in_flight_for(con, agent):
+        return None
+    if not (row and row["terminal"]):
+        if db.queued_for(con, agent) or db.unannounced_answers(con, agent) or db.list_pending(con, agent):
+            return "start", "work waiting"
+        return None
+    cause = closed_wake_cause(con, agent, row)
+    return ("wake", cause[1]) if cause else None
 
 
 def would_wake(con, row) -> bool:

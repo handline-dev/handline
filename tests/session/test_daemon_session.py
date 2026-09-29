@@ -3426,11 +3426,11 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         for _ in range(3):
             dmn_evaluate.supervise(con, "reviewer", lambda m: logged.append(m),
                           int(time.time()), {}, [])
-        said = [m for m in logged if "could not be woken" in m]
-        check("dispatch: a wake that cannot happen is said out loud",
-              len(said) == 1 and "answer(s) it asked for" in said[0], str(logged))
+        said = [m for m in logged if "could not be started" in m]
+        check("dispatch: a start that cannot happen is said out loud",
+              len(said) == 1 and "orca refused" in said[0], str(logged))
         check("dispatch: and not once per tick for as long as it lasts",
-              len([m for m in logged if "could not be woken" in m]) == 1, str(logged))
+              len([m for m in logged if "could not be started" in m]) == 1, str(logged))
     finally:
         (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
         dmn_lifecycle.wake_agent = real_wake
@@ -3585,6 +3585,34 @@ def test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(h
         db.set_closed(con, "backend", "sess-1")
         support.something_waiting(con, "backend")
 
+        # What `supervise` leaves alone is left alone at start too - one decision, `start_or_wake_needed`.
+        for a in ("stalled", "handed", "finished", "aboom"):
+            agents.register(a, repo=str(home / "checkout3"))
+            db.set_terminal(con, a, None, None)
+            db.add_request(con, "manager", a, "work", None, "supervisor", "fire_and_forget", None, 0, None)
+        db.set_agent_state(con, "stalled", dmn_states.STALLED, detail="fatal")
+        db.start_handoff(con, "hid-t408", "handed", "sess", "usage", int(time.time()) + 90)
+        con.execute("UPDATE agent_state SET state = 'DONE' WHERE agent = 'finished'")
+        real_spawn = spawnmod.spawn
+
+        def boom_spawn(agent, repo, base="main"):
+            if agent == "aboom":
+                raise RuntimeError("orca fell over")
+            return real_spawn(agent, repo, base)
+
+        spawnmod.spawn = boom_spawn
+        logged: list[str] = []
+        acts = dmn_evaluate.start_waiting(con, logged.append)
+        spawnmod.spawn = real_spawn
+        check("start: a stalled agent, one mid-handoff and one the tick does not evaluate are not started",
+              not {"stalled", "handed", "finished"} & {a for k, a in order}, str(order))
+        check("start: one agent's exception is logged and does not stop the rest",
+              any("aboom" in m and "orca fell over" in m for m in logged) and ("start", "marina") in order,
+              f"{logged} {order}")
+        order.clear()
+        for a in ("stalled", "handed", "finished", "aboom"):
+            con.execute("UPDATE requests SET state = 'done' WHERE target = ?", (a,))
+        db.set_terminal(con, "marina", None, None)
         acts = dmn_evaluate.start_waiting(con, lambda _m: None)
         check("start: an agent with work and no terminal is started, a closed one with work woken",
               ("start", "marina") in order and ("wake", "backend") in order, f"{order} {acts}")
