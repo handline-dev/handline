@@ -4752,9 +4752,21 @@ def test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(home: Pa
               len(tasks) == 1 and tasks[0]["owner"] == "human" and tasks[0]["opened_by"] == "backend"
               and tasks[0]["expects"] == "decision", str([dict(t) for t in tasks]))
         check("escalate: its card is a task row, not an escalate one", db.get_request(con, rid)["kind"] == "task")
-        check("escalate: the same text again is that decision, not a second",
-              askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nother", "wait-for graph") == rid
+        check("escalate: exactly the same text again is that decision, not a second",
+              askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph") == rid
               and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 1)
+        other = askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nother", "wait-for graph")
+        prefix = askmod.escalate(con, "backend", "[wait-for] T1 waits", "wait-for graph")
+        check("escalate: different text is its own card, kept whole - nothing an agent wrote is lost",
+              len({rid, other, prefix}) == 3 and "other" in db.get_request(con, other)["body"]
+              and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 3)
+        one = askmod._escalate(con, "backend", "reviewer", "NOTES ONE", None, "c1", 2, None, "loop")
+        two = askmod._escalate(con, "backend", "reviewer", "NOTES TWO different", None, "c1", 2, None, "loop")
+        check("escalate: two different stopped requests in one chain are two cards, both bodies kept",
+              one != two and "NOTES ONE" in db.get_request(con, one)["body"]
+              and "NOTES TWO different" in db.get_request(con, two)["body"])
+        for extra in (other, prefix, one, two):
+            actions.decide(con, db.tasks_for_request(con, extra)[0]["id"], "seen")
         check("gate: the card is the founder's gate and shows in their waits",
               next(m for m in actions.mailbox_rows(con) if m["id"] == rid)["gate"]
               and any(w["kind"] == "escalation" and w["who"] == "backend" for w in actions.founder_waits(con)))

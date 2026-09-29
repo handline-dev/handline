@@ -131,11 +131,12 @@ def escalate(con, agent: str, text: str, reason: str, files: str | None = None, 
     `agent` is who it is about: the requester of a runaway, or an agent the
     daemon found for itself that it cannot give its work. `reason` is the short
     form kept on the event for `ocp events`. Fire and forget, so nothing is
-    typed back at `agent` when the human reads it. Once per shape: the same
-    text still waiting from the same agent is that decision, not a second one.
+    typed back at `agent` when the human reads it. Once per shape: exactly the same
+    text still waiting from the same agent is that decision, not a second one;
+    anything different is its own card, so nothing an agent wrote is lost.
     """
     title = textsafe.oneline(text.strip().split("\n", 1)[0])[:80] or "a decision"
-    same = db.open_decision_card_ids(con, agent, text.split("\n", 1)[0])
+    same = db.open_decision_card_ids(con, agent, body=text)
     if same:
         return same[0]
     rid = db.add_request(con, agent, ESCALATION_TARGET, text, files,

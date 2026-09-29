@@ -945,8 +945,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     """T292 (auditor #1655 section 4): opens the task and asks its owner in
     one call, through the routing table (`askmod.ask`, C2) - a refused owner
     leaves no task row behind. The request is kind='task' except for a human
-    owner (C3), which keeps the edge's own 'escalate' so the bridge's gate
-    and `founder_waits` still see it.
+    owner (C3), whose card is the founder's gate while the task is open.
 
     No `con`: like `ask`, this manages its own connection(s); the task row
     and its link are one write, only the call into `ask` is separate.

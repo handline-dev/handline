@@ -331,9 +331,11 @@ OPEN_DECISION_CARDS_SQL = ("(SELECT MIN(l.request_id) FROM task_requests l JOIN 
                            "GROUP BY t.id)")
 
 
-def open_decision_card_ids(con, agent: str | None = None, prefix: str | None = None) -> list[int]:
+def open_decision_card_ids(con, agent: str | None = None, prefix: str | None = None,
+                           body: str | None = None) -> list[int]:
     """The queued cards of the founder's open decision tasks, oldest first - about
-    `agent` (its requester) when given, and whose body starts with `prefix` when given."""
+    `agent` (its requester) when given, whose body starts with `prefix` when given, and
+    is exactly `body` when given."""
     sql = ("SELECT id FROM requests WHERE target = ? AND state = 'queued' "
            f"AND id IN {OPEN_DECISION_CARDS_SQL}")
     args: list = [HUMAN, HUMAN]
@@ -343,6 +345,9 @@ def open_decision_card_ids(con, agent: str | None = None, prefix: str | None = N
     if prefix is not None:
         sql += " AND substr(body, 1, ?) = ?"
         args += [len(prefix), prefix]
+    if body is not None:
+        sql += " AND body = ?"
+        args.append(body)
     return [r[0] for r in con.execute(sql + " ORDER BY id", args)]
 
 
