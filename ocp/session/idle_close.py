@@ -76,6 +76,51 @@ def close_timeout_s(agent: str) -> int:
     return default_close_timeout_s()
 
 
+# T424: an agent still running background work when its idle window is over is told to
+# finish or stop it, and is stopped this long after that if it shows nothing more.
+BG_GRACE_S = 300
+
+
+def _seconds_setting(agent: str, key: str, default: int) -> int:
+    """A positive number of seconds: the agent's own `key` in agent.yaml wins, then
+    config.yaml's, then `default` - the shape `close_timeout_s` reads its own in."""
+    for v in (_agent_cfg(agent).get(key), _config().get(key)):
+        if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+            return v
+    return default
+
+
+def bg_notice_s(agent: str) -> int:
+    """How long an agent with background work may show nothing before it is told to finish
+    or stop it: its idle-close window unless `bg_notice_s` says otherwise."""
+    return _seconds_setting(agent, "bg_notice_s", close_timeout_s(agent))
+
+
+def bg_grace_s(agent: str) -> int:
+    """How long after that notice its work is stopped if it still shows nothing."""
+    return _seconds_setting(agent, "bg_grace_s", BG_GRACE_S)
+
+
+def set_bg_seconds(key: str, seconds: int | None, agent: str | None = None) -> None:
+    """One of the two background times, keeping every other setting: the global one, or
+    with `agent` that agent's own (None drops it, back to the global one)."""
+    if key not in ("bg_notice_s", "bg_grace_s") or (seconds is not None and seconds <= 0):
+        raise ValueError("a background time is a positive number of seconds")
+    if agent:
+        cfg = agents.read(agent)
+        if seconds is None:
+            cfg.pop(key, None)
+        else:
+            cfg[key] = seconds
+        agents.write(agent, cfg)
+        return
+    if seconds is None:
+        raise ValueError("--clear only applies with --agent")
+    cfg = load.config_for_write()
+    cfg[key] = seconds
+    paths.config_file().write_text(dump(cfg))
+
+
 def set_close_timeout(seconds: int) -> None:
     """The global park timeout, keeping every other setting."""
     if seconds < 0:

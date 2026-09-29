@@ -1511,6 +1511,24 @@ def test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(home: Pa
           idle_close.ignore_cache_expiry("backend"), out)
 
 
+def test_t424_idle_background_sets_the_notice_and_the_grace_globally_and_per_agent(home: Path) -> None:
+    _daemon_home(home, 20)
+    out = _capture(lambda: climod.main(["idle-background"]))
+    check("idle-background: with nothing set, the notice is the idle close and the grace 5 minutes",
+          "default: told to finish or stop its background work after 10m of nothing shown, "
+          "and it is stopped 5m after that" in out, out)
+    out = _capture(lambda: climod.main(["idle-background", "--notice", "20m", "--grace", "2m"]))
+    check("idle-background: sets the global times", "after 20m" in out and "2m after" in out, out)
+    out = _capture(lambda: climod.main(["idle-background", "--agent", "backend", "--grace", "30s"]))
+    check("idle-background: one agent's own grace wins, the notice stays global",
+          out.startswith("backend:") and "after 20m" in out and "30s after" in out, out)
+    out = _capture(lambda: climod.main(["idle-background", "--agent", "backend", "--clear"]))
+    check("idle-background: --clear drops its own back to the global times", "2m after" in out, out)
+    idle_close.set_agent_close_timeout("backend", idle_close.NEVER)
+    out = _capture(lambda: climod.main(["idle-background", "--agent", "backend"]))
+    check("idle-background: an agent that never closes is never told", "never told" in out, out)
+
+
 def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: Path) -> None:
     """The figure is `load.roster`'s: agents living on the account (where the
     AGENTS panel's acct column puts them) and how many of those are running,
@@ -2603,6 +2621,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                            "(recover.py's own mechanism is driven in test_recover_*)",
         "idle-timeout": "writes the global or a per-agent park timeout; prints it - driven in "
                         "test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line, not this scene",
+        "idle-background": "writes the global or a per-agent background notice and grace time; prints them - "
+                           "driven in test_t424_idle_background_sets_the_notice_and_the_grace_globally_and_per_agent, "
+                           "not this scene",
         "ignore-cache-expiry": "writes the global or a per-agent switch; prints it - driven in "
                                "test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line, not this scene",
         "usage": "calls the usage endpoint and the Keychain against a real login "
@@ -3472,6 +3493,7 @@ def main() -> int:
         run(lambda: test_a_pasted_escape_in_a_message_being_typed_is_never_sent(Path(td) / 'ar4g'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(Path(td) / 'idletimeoutcli'))
+        run(lambda: test_t424_idle_background_sets_the_notice_and_the_grace_globally_and_per_agent(Path(td) / 'idlebgcli'))
         run(lambda: test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(Path(td) / 'panelagents'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))

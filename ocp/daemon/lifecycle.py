@@ -71,7 +71,9 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     last = delivery.idle_since(con, agent)
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
-    return (now - last) >= timeout
+    # An agent told to finish its background work and shown nothing since is closed now,
+    # whatever its window: the time it was given is its grace (`bg_may_stop`).
+    return (now - last) >= timeout or (delivery.bg_owes_nothing(con, agent) and delivery.bg_may_stop(con, agent, now))
 
 
 def triggers_apply(row) -> bool:

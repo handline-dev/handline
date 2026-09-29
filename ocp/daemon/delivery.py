@@ -569,8 +569,23 @@ def has_background_work(con, agent: str) -> bool:
 STALE_BG_S = 3000
 # Once the supervisor has been told, this long passes before the work may be
 # stopped: room to say no, by giving the agent something to do or with
-# `ocp idle-timeout never --agent`.
+# `ocp idle-timeout never --agent`. (An agent that owes nothing is not asked about at
+# all: `bg_owes_nothing`, `idle_close.bg_notice_s`, `idle_close.bg_grace_s`.)
 STALE_BG_VETO_S = 600
+
+
+def bg_owes_nothing(con, agent: str) -> bool:
+    """No request queued for it, none it asked and still waits on, no task it is doing."""
+    from .. import actions            # imports this module
+    if db.queued_for(con, agent) or db.open_ask_ids_of(con, agent):
+        return False
+    tid = db.current_task(con, agent)
+    return not (tid is not None and actions.reads_doing(con, tid))
+
+
+def bg_prompted_at(con, agent: str) -> int:
+    """When the agent was told to finish or stop its background work, in this stretch."""
+    return db.get_cursor(con, f"bg_prompt:{agent}")
 
 
 def bg_since(con, agent: str) -> int | None:
@@ -595,10 +610,15 @@ def bg_stale(con, agent: str, now: int) -> bool:
 
 
 def bg_may_stop(con, agent: str, now: int) -> bool:
-    """Stale, and told to its supervisor at least STALE_BG_VETO_S ago - and
-    not an agent whose close timeout is NEVER, the veto the notice promises."""
+    """An agent that owes nothing: told to finish or stop the work, and shown nothing
+    for its grace window since. Any other: stale, and told to its supervisor at least
+    STALE_BG_VETO_S ago. Never an agent whose close timeout is NEVER, the veto."""
     if idle_close.close_timeout_s(agent) == idle_close.NEVER:
         return False
+    if bg_owes_nothing(con, agent):
+        prompted = bg_prompted_at(con, agent)
+        return bool(prompted) and has_background_work(con, agent) and now - max(
+            prompted, db.last_activity(con, agent) or 0) >= idle_close.bg_grace_s(agent)
     told = db.get_cursor(con, f"stale_bg_told:{agent}")
     return bool(told) and now - told >= STALE_BG_VETO_S and bg_stale(con, agent, now)
 

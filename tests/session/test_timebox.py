@@ -391,7 +391,7 @@ def test_an_open_request_or_a_short_run_is_not_unasked(home: Path) -> None:
         con.close()
 
 
-def test_background_work_counts_as_running_and_the_limit_is_configurable(home: Path) -> None:
+def test_background_work_is_not_asked_about(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
     try:
@@ -401,8 +401,8 @@ def test_background_work_counts_as_running_and_the_limit_is_configurable(home: P
         db.set_cursor(con, "bgwork:dohyun", 1)
         timebox.sweep(con, lambda _m: None, now)
         timebox.sweep(con, lambda _m: None, now + 121)
-        check("unasked: an idle agent with background work shows RUNNING and is told, by config limit",
-              len(sent) == 1 and "background work" in sent[0][1], str(sent))
+        check("unasked: an idle agent with background work is not asked about - nobody is told "
+              "(sweep_forgotten_background settles it)", not sent, str(sent))
     finally:
         con.close()
 
@@ -438,10 +438,16 @@ def _stale_bg(con, agent: str, silent_s: int, told_ago: int | None = None) -> in
     return now
 
 
+def _owe(con, agent: str) -> None:
+    """`agent` has asked something and waits on the answer: it owes nothing, and is owed nothing."""
+    db.add_request(con, agent, "manager", "is this right?", None, "peer", "async", None, 0, None)
+
+
 def test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(home: Path) -> None:
     _world(home)
     con = db.connect()
     try:
+        _owe(con, "marina")
         S, V = dmn_delivery.STALE_BG_S, dmn_delivery.STALE_BG_VETO_S
         st = types.SimpleNamespace(session_id="s")
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
@@ -472,6 +478,138 @@ def test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(home:
         con.close()
 
 
+def _forgotten(con, agent: str, silent_s: int) -> int:
+    """`agent` has background work, nothing owed, and has shown nothing for `silent_s`."""
+    return _stale_bg(con, agent, silent_s)
+
+
+def test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        S, V = idle_close.close_timeout_s("marina"), idle_close.bg_grace_s("marina")
+        check("forgotten: the defaults are the 10-minute idle close and 5 minutes of grace", (S, V) == (600, 300))
+        st = types.SimpleNamespace(session_id="s")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = _forgotten(con, "marina", S - 1)
+        timebox.sweep(con, lambda _m: None, now)
+        check("forgotten: before its idle window is over nothing is typed", not sent, str(sent))
+        now = _forgotten(con, "marina", S)
+        timebox.sweep(con, lambda _m: None, now)
+        check("forgotten: when the window is over the agent itself is told, once, to finish or stop it",
+              len(sent) == 1 and sent[0][0] == "term_marina" and "Finish it or stop it" in sent[0][1]
+              and "no request open" in sent[0][1], str(sent))
+        check("forgotten: nobody else is asked - no supervisor ping, and none for the unasked clock",
+              all(h == "term_marina" for h, _ in sent))
+        check("forgotten: it is marked and recorded",
+              db.get_cursor(con, "bg_prompt:marina") == now
+              and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_prompted'").fetchone()[0] == 1)
+        timebox.sweep(con, lambda _m: None, now + 5)
+        check("forgotten: told once while the stretch goes on", len(sent) == 1, str(sent))
+        row = db.get_agent_state(con, "marina")
+        check("forgotten: until the second window is over the work is held and the session not closed",
+              not dmn_delivery.bg_may_stop(con, "marina", now + V - 1)
+              and not dmn_lifecycle.should_close(con, "marina", "IDLE", row, now + V - 1, st))
+        timebox.sweep(con, lambda _m: None, now + V)
+        check("forgotten: the grace over with nothing shown and the work may be stopped, and the close is free",
+              dmn_delivery.bg_may_stop(con, "marina", now + V)
+              and dmn_lifecycle.should_close(con, "marina", "IDLE", row, now + V, st))
+        timebox.sweep(con, lambda _m: None, now + V + 5)
+        rows = con.execute("SELECT payload FROM events WHERE kind = 'background_abandoned'").fetchall()
+        check("forgotten: why it is stopped is recorded, once", len(rows) == 1 and "told to finish or stop it" in rows[0][0], str(rows))
+        db.add_event(con, "marina", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'marina' AND id = (SELECT MAX(id) FROM events)",
+                    (now + V + 5,))
+        check("forgotten: a reply that shows something restarts the grace",
+              not dmn_delivery.bg_may_stop(con, "marina", now + V + 10)
+              and dmn_delivery.bg_may_stop(con, "marina", now + V + 5 + V))
+    finally:
+        con.close()
+
+
+def test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        S = idle_close.close_timeout_s("marina")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        _owe(con, "marina")
+        now = _forgotten(con, "marina", S)
+        timebox.sweep(con, lambda _m: None, now)
+        check("forgotten: an agent waiting on an answer it asked is not told to stop",
+              not [s for s in sent if s[0] == "term_marina"], str(sent))
+        con.execute("UPDATE requests SET state = 'done'")
+        db.add_request(con, "manager", "marina", "do it", None, "peer", "async", None, 0, None)
+        timebox.sweep(con, lambda _m: None, now)
+        check("forgotten: nor one with a request open", not [s for s in sent if s[0] == "term_marina"], str(sent))
+        con.execute("UPDATE requests SET state = 'done'")
+        idle_close.set_agent_close_timeout("marina", idle_close.NEVER)
+        timebox.sweep(con, lambda _m: None, now)
+        check("forgotten: nor one set to never close", not [s for s in sent if s[0] == "term_marina"], str(sent))
+        idle_close.set_agent_close_timeout("marina", None)
+        orcamod.typeable_now = lambda h: False
+        now = _forgotten(con, "marina", S)
+        timebox.sweep(con, lambda _m: None, now)
+        check("forgotten: a prompt that could not be typed is not marked, so it is tried again",
+              not db.get_cursor(con, "bg_prompt:marina") and not [s for s in sent if s[0] == "term_marina"])
+        orcamod.typeable_now = lambda h: True
+        timebox.sweep(con, lambda _m: None, now + timebox.NOTICE_RETRY_S + 1)
+        check("forgotten: and it goes out once the terminal takes it", db.get_cursor(con, "bg_prompt:marina"))
+        con.execute("DELETE FROM cursors WHERE name = 'bgwork:marina'")
+        timebox.sweep(con, lambda _m: None, now + timebox.NOTICE_RETRY_S + 2)
+        check("forgotten: the work ending clears the marks",
+              not db.get_cursor(con, "bg_prompt:marina") and not db.get_cursor(con, "bg_stop_noted:marina"))
+    finally:
+        con.close()
+
+
+def test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(home: Path) -> None:
+    _world(home)
+    check("times: with nothing set, the notice is the idle close and the grace is 5 minutes",
+          (idle_close.bg_notice_s("marina"), idle_close.bg_grace_s("marina")) == (600, 300))
+    idle_close.set_close_timeout(1200)
+    check("times: the notice follows the idle close", idle_close.bg_notice_s("marina") == 1200)
+    idle_close.set_bg_seconds("bg_notice_s", 400)
+    idle_close.set_bg_seconds("bg_grace_s", 120)
+    check("times: the global settings win over the defaults",
+          (idle_close.bg_notice_s("dohyun"), idle_close.bg_grace_s("dohyun")) == (400, 120))
+    idle_close.set_bg_seconds("bg_grace_s", 60, "marina")
+    check("times: an agent's own wins over the global one, and only for it",
+          idle_close.bg_grace_s("marina") == 60 and idle_close.bg_grace_s("dohyun") == 120
+          and idle_close.bg_notice_s("marina") == 400)
+    idle_close.set_bg_seconds("bg_grace_s", None, "marina")
+    check("times: clearing it goes back to the global one", idle_close.bg_grace_s("marina") == 120)
+    bad = []
+    for args in (("bg_grace_s", 0), ("bg_grace_s", -5), ("other", 5), ("bg_notice_s", None)):
+        try:
+            idle_close.set_bg_seconds(*args)
+            bad.append(args)
+        except ValueError:
+            pass
+    check("times: zero, negative, another key and a global clear are refused", not bad, str(bad))
+
+
+def test_a_forgotten_agent_is_stopped_past_its_window_when_its_own_times_are_shorter(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        idle_close.set_bg_seconds("bg_notice_s", 60, "marina")
+        idle_close.set_bg_seconds("bg_grace_s", 30, "marina")
+        st = types.SimpleNamespace(session_id="s")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = _forgotten(con, "marina", 60)
+        timebox.sweep(con, lambda _m: None, now)
+        check("own times: told at its own 60s, well inside the 10-minute idle close",
+              len(sent) == 1 and "30s" in sent[0][1], str(sent))
+        row = db.get_agent_state(con, "marina")
+        check("own times: not closed before the grace is over",
+              not dmn_lifecycle.should_close(con, "marina", "IDLE", row, now + 29, st))
+        check("own times: closed once it is, though the idle window has not come",
+              dmn_lifecycle.should_close(con, "marina", "IDLE", row, now + 30, st))
+    finally:
+        con.close()
+
+
 def test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(home: Path) -> None:
     _world(home)
     con = db.connect()
@@ -494,6 +632,7 @@ def test_the_supervisor_is_told_once_per_stale_stretch(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
     try:
+        _owe(con, "marina")
         S = dmn_delivery.STALE_BG_S
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
         now = _stale_bg(con, "marina", S - 1)
@@ -974,9 +1113,13 @@ def main() -> int:
             run(lambda: test_a_human_asker_is_recorded_not_typed_at(Path(td) / 'tb5'))
             run(lambda: test_a_supervisor_is_told_once_of_an_agent_running_with_nothing_asked(Path(td) / 'tb6'))
             run(lambda: test_an_open_request_or_a_short_run_is_not_unasked(Path(td) / 'tb7'))
-            run(lambda: test_background_work_counts_as_running_and_the_limit_is_configurable(Path(td) / 'tb8'))
+            run(lambda: test_background_work_is_not_asked_about(Path(td) / 'tb8'))
             run(lambda: test_the_human_is_the_supervisor_of_an_agent_with_none(Path(td) / 'tb9'))
             run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
+            run(lambda: test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(Path(td) / 'tb10a'))
+            run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
+            run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))
+            run(lambda: test_a_forgotten_agent_is_stopped_past_its_window_when_its_own_times_are_shorter(Path(td) / 'tb10e'))
             run(lambda: test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(Path(td) / 'tb11'))
             run(lambda: test_the_supervisor_is_told_once_per_stale_stretch(Path(td) / 'tb12'))
             run(lambda: test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(Path(td) / 'tb12a'))
