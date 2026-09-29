@@ -5,9 +5,10 @@ it. What a row says and what an action does or refuses is `actions`'s (`task_row
 (a reason, a name, a priority)."""
 from __future__ import annotations
 
+import functools
 import time
 
-from rich.cells import cell_len
+from rich.cells import cell_len, set_cell_size
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -82,13 +83,17 @@ def idle_text(row: dict, now: float) -> str:
 MIN_TITLE = 12
 
 
+@functools.lru_cache(maxsize=4096)
+def _one_line(title: str) -> str:
+    """A title as one safe line; the same few hundred titles are drawn every two seconds."""
+    return textsafe.oneline(title)
+
+
 def clip(text: str, room: int) -> str:
     """`text` cut with a closing … to at most `room` cells; short enough is left alone."""
     if cell_len(text) <= room:
         return text
-    while text and cell_len(text) > room - 1:
-        text = text[:-1]
-    return text + "…"
+    return set_cell_size(text, max(room - 1, 0)).rstrip() + "…"
 
 
 def title_room(width: int, others: list[int]) -> int:
@@ -302,13 +307,13 @@ class TasksView(Vertical):
             if line:
                 n = seen[r["id"]] = seen.get(r["id"], 0) + 1
                 style = "dim" if line["dim"] else style
-                title = f"{line['prefix']}{r['ref']} " + ("(see above)" if line["again"] else textsafe.oneline(r["title"]))
+                title = f"{line['prefix']}{r['ref']} " + ("(see above)" if line["again"] else _one_line(r["title"]))
                 cells = ("[x]" if r["id"] in self.checked else "[ ]", title, "" if line["again"] else r["owner"],
                          "" if line["again"] else r["state"], "" if line["again"] else waits_text(r))
                 raw.append((str(r["id"]) if n == 1 else f"{r['id']}~{n}", cells, style))
                 continue
             cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
-                     r["state"], textsafe.oneline(r["title"]), r["owner"],
+                     r["state"], _one_line(r["title"]), r["owner"],
                      idle_text(r, now) + (" !" if stale else ""), r["closer"],
                      " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
             raw.append((str(r["id"]), cells, style))
