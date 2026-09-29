@@ -448,9 +448,17 @@ def test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(h
               and row["told_out_of_turn"] and db.get_cursor(con, "notify:backend") == first
               and not dmn_delivery._HELD.get("backend"), str((told, sent)))
 
-        db.add_event(con, "backend", "task_note", {})
+        third = db.add_request(con, "product", "backend", "one more", None, "peer", "async", "task", 0, None)
         dmn_delivery.deliver_queued(con, "backend", lines.append)
-        check("open head: the head is not told again, and nothing more goes out", len(sent) == 2, str(sent))
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: telling one restarts the wait, so the next is not typed on the following tick",
+              len(sent) == 2 and not db.get_request(con, third)["delivered_at"], str(sent))
+        con.execute("UPDATE requests SET delivered_at = delivered_at - ? WHERE delivered_at IS NOT NULL",
+                    (dmn_delivery.NUDGE_AFTER_S + 5,))
+        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: once idle again for the whole wait, the one after it goes out",
+              told and len(sent) == 3 and f"#{third}" in sent[2][1]
+              and any(f"told about #{third} (ahead of #{first}, idle)" in m for m in lines), str((sent, lines)))
     finally:
         con.close()
 

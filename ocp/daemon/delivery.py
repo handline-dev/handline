@@ -473,11 +473,13 @@ def _next_behind(con, agent: str, head):
 
 def _idle_on(con, agent: str, head) -> bool:
     """The agent has sat idle on `head`, told and still open, this long: nothing it started is
-    running (background work that is not stale) and it has done nothing since (T459)."""
+    running (background work that is not stale) and it has done nothing since, nor been told
+    anything since: a task typed past `head` restarts this, so they go out one per stretch (T459)."""
     now = int(time.time())
     if has_background_work(con, agent) and not bg_stale(con, agent, now):
         return False
-    return now - max(int(head["delivered_at"] or 0), idle_since(con, agent) or 0) >= NUDGE_AFTER_S
+    last_told = max((int(r["delivered_at"] or 0) for r in db.queued_for(con, agent)), default=0)
+    return now - max(last_told, idle_since(con, agent) or 0) >= NUDGE_AFTER_S
 
 
 def deliver_queued(con, agent: str, log) -> bool:
@@ -971,7 +973,7 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,
-                 ahead_of=None) -> None:
+                 ahead_of=None, parked: bool = False) -> None:
     """What a delivered tell leaves behind, once it is known to have landed."""
     more = depth - 1
     db.mark_typed(con, int(head["id"]), session or _live_session(con, agent))
@@ -982,7 +984,7 @@ def _record_told(con, agent: str, head, depth: int, log, session: str | None,
         db.mark_told_out_of_turn(con, int(head["id"]))
     db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
     log(f"  {agent}: told about #{head['id']}"
-        + (" (send now)" if ahead_of is not None else "")
+        + (f" (ahead of #{ahead_of['id']}, idle)" if parked else " (send now)" if ahead_of is not None else "")
         + (f" ({more} more waiting)" if more else ""))
 
 
@@ -1004,7 +1006,7 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None,
     if ok:
         _mark_typed(con, agent)
         _record_told(con, agent, head, depth, log,
-                     _live_session(con, agent) if ahead_of is None else None, ahead_of)
+                     _live_session(con, agent) if ahead_of is None else None, ahead_of, parked)
     return ok
 
 
