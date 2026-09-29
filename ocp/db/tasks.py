@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import time
 
+from .events import add_event
 from .requests import HUMAN
 from .schema import EVENT_TASK
 
@@ -316,3 +317,45 @@ def task_last_activity(con, tid: int) -> int:
         "JOIN task_requests l ON l.request_id = q.id WHERE l.task_id = t.id), 0)) "
         "FROM tasks t WHERE t.id = ?", (tid,)).fetchone()
     return int(r[0] or 0)
+
+
+DECISION_CARD_SQL = ("SELECT t.id FROM tasks t WHERE t.owner = ? "
+                     "AND t.closed_by IS NULL AND t.done_evidence IS NULL AND "
+                     "(SELECT MIN(request_id) FROM task_requests WHERE task_id = t.id) = ?")
+
+
+def decision_task_of_card(con, rid: int) -> int | None:
+    """The open task of the founder's whose card is request `rid`: the request
+    `task_new` opened for it - the first linked, never one linked later (a side
+    question about the task is not the task). What the task expects does not
+    matter: the founder's reply in its card is their answer to it."""
+    row = con.execute(DECISION_CARD_SQL, (HUMAN, rid)).fetchone()
+    return int(row["id"]) if row else None
+
+
+def decision_card_of(con, tid: int):
+    """The request that is task `tid`'s card, whatever its state, or None."""
+    return con.execute(
+        "SELECT r.* FROM requests r WHERE r.id = (SELECT MIN(request_id) FROM task_requests "
+        "WHERE task_id = ?)", (tid,)).fetchone()
+
+
+def settle_decision_tasks(con, rid: int, state: str, verdict: str | None,
+                          dismissed_by: str | None = None) -> None:
+    """A request that is the card of a decision task has left 'queued': the task
+    goes with it, however the request was closed. An answer is the decision -
+    the task is done with it as evidence and closed; anything else (withdrawn,
+    replaced, refused, dismissed) leaves nothing to decide, so it is discarded.
+    Called from every write that moves a request out of the queue, so no path
+    leaves a decision on the founder's board that nothing can answer. Only the
+    task's own card settles it: a question linked to a task later is left alone."""
+    tid = decision_task_of_card(con, rid)
+    if tid is None:
+        return
+    if state == "done" and verdict and dismissed_by is None:
+        mark_task_done(con, tid, verdict, "reason")
+        close_task(con, tid, HUMAN)
+    else:
+        discard_task(con, tid, HUMAN, f"its request was {'dismissed' if dismissed_by else state}"
+                     + (f": {verdict}" if verdict and not dismissed_by else ""))
+    add_event(con, HUMAN, "settle_decision_task", {"task_id": tid, "request_id": rid, "state": state})

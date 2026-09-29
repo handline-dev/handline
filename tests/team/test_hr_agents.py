@@ -2422,6 +2422,134 @@ deny:
           all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
 
 
+def test_a_proposal_reaches_the_founder_as_a_decision_task(home: Path) -> None:
+    """T361 step 3: raising a proposal opens a task of the founder's - a decision
+    card - not a bare request; the decision on it is `actions.decide`, an unclear
+    answer decides nothing, and approve is applied by it."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
+teams:
+  orca: [orca]
+agents:
+  orca: {}
+edges:
+  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    agents.register("orca")
+    con = db.connect()
+    try:
+        ok, said = hr.propose("add", "newbie", requester="orca", why="more hands")
+        check("proposal: raised", ok, said)
+        prop = hr.load_proposal(said.split()[1])
+        card = db.get_request(con, prop["request"])
+        row = con.execute("SELECT t.* FROM tasks t JOIN task_requests l ON l.task_id = t.id "
+                          "WHERE l.request_id = ?", (card["id"],)).fetchone()
+        check("proposal: the card is a task owned by the founder, opened by the proposer",
+              row is not None and row["owner"] == actions.HUMAN and row["opened_by"] == "orca"
+              and row["expects"] == "decision", str(dict(row) if row else None))
+        ok, said = actions.decide(con, row["id"], "hmm, not sure")
+        check("proposal: an unclear answer decides nothing - the task and the card stay open",
+              not ok and "approve" in said and not db.get_task(con, row["id"])["done_evidence"]
+              and db.get_request(con, card["id"])["state"] == "queued", said)
+        ok, said = actions.decide(con, row["id"], "approve")
+        check("proposal: approve decides, closes the task and applies the proposal",
+              ok and db.get_task(con, row["id"])["closed_by"] == actions.HUMAN
+              and hr.load_proposal(prop["id"])["state"] == "applied"
+              and "newbie" in paths.list_agents(), said)
+    finally:
+        con.close()
+
+
+def test_closing_a_proposals_card_any_way_settles_the_founders_task(home: Path) -> None:
+    """Auditor #5275: the card's request leaving the queue - by the founder's
+    `ocp resolve`, a withdraw, or a dismissal - leaves no decision task open."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
+teams:
+  orca: [orca]
+agents:
+  orca: {}
+edges:
+  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    agents.register("orca")
+    con = db.connect()
+    try:
+        def raised(name: str):
+            ok, said = hr.propose("add", name, requester="orca", why="w")
+            prop = hr.load_proposal(said.split()[1])
+            tid = con.execute("SELECT task_id FROM task_requests WHERE request_id = ?",
+                              (prop["request"],)).fetchone()["task_id"]
+            return prop, tid
+
+        prop, tid = raised("viaresolve")
+        ok, said = askmod.resolve(prop["request"], "approve")
+        row = db.get_task(con, tid)
+        check("resolve: the founder's `ocp resolve` decides the task too - evidence, closed",
+              ok and row["done_evidence"] == "approve" and row["closed_by"] == actions.HUMAN
+              and hr.load_proposal(prop["id"])["state"] == "applied", str(dict(row)))
+
+        prop, tid = raised("viawithdraw")
+        ok, said = hr.withdraw(prop["id"], "orca")
+        row = db.get_task(con, tid)
+        check("withdraw: the task is discarded with it, not left on the founder's board",
+              ok and row["closed_by"] and row["discarded_by"] and not row["done_evidence"], str(dict(row)))
+
+        ok, msg, tid = actions.task_new("orca", actions.HUMAN, "a plain question", "which?", expects="decision")
+        card = con.execute("SELECT request_id FROM task_requests WHERE task_id = ?", (tid,)).fetchone()["request_id"]
+        ok, said = actions.dismiss(con, card, me=actions.HUMAN, no_task="nothing to build")
+        row = db.get_task(con, tid)
+        check("dismiss: nothing was decided, so the task is discarded",
+              row["closed_by"] and row["discarded_by"] and not row["done_evidence"], said + str(dict(row)))
+
+        ok, msg, dflt = actions.task_new("orca", actions.HUMAN, "default kind", "which?")
+        ok, msg, said_so = actions.task_new("orca", actions.HUMAN, "says so", "which?", expects="report")
+        check("task new: a task of the founder's expects a decision unless it says otherwise",
+              db.get_task(con, dflt)["expects"] == "decision" and db.get_task(con, said_so)["expects"] == "report",
+              f"{db.get_task(con, dflt)['expects']} / {db.get_task(con, said_so)['expects']}")
+        # A question linked to a task later is not the task's card.
+        ok, msg, work = actions.task_new("orca", actions.HUMAN, "Founder: review the roadmap",
+                                         "review the roadmap", expects="report")
+        ok, msg, decision = actions.task_new("orca", actions.HUMAN, "which colour", "which colour?",
+                                             expects="decision")
+        side = []
+        for tid_, what in ((work, "side question about the roadmap"), (decision, "side question about the colour")):
+            ok, msg, rid_ = askmod.ask(actions.HUMAN, what, requester="orca")
+            db.link_request(con, tid_, rid_)
+            side.append(rid_)
+        askmod.resolve(side[0], "Q3")
+        askmod.resolve(side[1], "no idea")
+        row_w, row_d = db.get_task(con, work), db.get_task(con, decision)
+        check("side ask: answering a question linked to a founder task does not finish that task",
+              not row_w["done_evidence"] and not row_w["closed_by"], str(dict(row_w)))
+        check("side ask: nor does one linked to a decision task decide it",
+              not row_d["done_evidence"] and not row_d["closed_by"], str(dict(row_d)))
+        ok, msg, more = askmod.ask(actions.HUMAN, "another side question", requester="orca")
+        db.link_request(con, work, more)
+        db.retire_queued(con, more, "replaced", "replaced by a newer one")
+        check("side ask: retiring one leaves the founder's task open too",
+              db.get_request(con, more)["state"] != "queued" and not db.get_task(con, work)["closed_by"],
+              str(dict(db.get_request(con, more))))
+        ok, said = actions.answer_ok(con, side[0], "again")
+        check("side ask: and a reply to a linked question is no decision", not db.get_task(con, work)["done_evidence"],
+              said)
+        own_card = db.decision_card_of(con, work)["id"]
+        ok, said = actions.answer_ok(con, own_card, "roadmap approved")
+        row_w = db.get_task(con, work)
+        check("own card: the reply in the card of a founder task that expects a report closes it too",
+              ok and row_w["done_evidence"] == "roadmap approved" and row_w["closed_by"] == actions.HUMAN,
+              said + str(dict(row_w)))
+        ok, msg, tid2 = actions.task_new("orca", actions.HUMAN, "a plain decision", "which?", expects="decision")
+        ok, said = actions.mark_task_done(con, tid2, actions.HUMAN, reason="own call")
+        row = db.get_task(con, tid2)
+        check("done: the founder marking their own task done keeps its sign-off separate - not auto-closed",
+              ok and row["done_evidence"] == "own call" and not row["closed_by"], str(dict(row)))
+    finally:
+        con.close()
+
+
 def test_an_approve_on_a_team_proposal_is_recorded_and_applied(home: Path) -> None:
     """T273: raise, the founder answers approve, it is recorded and applied. And an
     answer given to a process that did not know the proposal kind (an older daemon
@@ -3692,6 +3820,8 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
+        run(lambda: test_a_proposal_reaches_the_founder_as_a_decision_task(Path(td) / 'propdecide'))
+        run(lambda: test_closing_a_proposals_card_any_way_settles_the_founders_task(Path(td) / 'propsettle'))
         run(lambda: test_an_approve_on_a_team_proposal_is_recorded_and_applied(Path(td) / 'teamanswer'))
         run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))

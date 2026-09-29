@@ -4808,8 +4808,11 @@ limits:
 
         rid_discard = db.task_requests(con, t_discard)[0]["id"]
         askmod.cancel(rid_discard)
+        gone = db.get_task(con, t_discard)
+        check("discard_task: cancelling a decision's card discards the task with it",
+              gone["closed_by"] and gone["discarded_by"] and not gone["done_evidence"], str(dict(gone)))
         ok, msg = actions.discard_task(con, t_discard, askmod.HUMAN, "no longer needed")
-        check("discard_task: succeeds for a decision task", ok, msg)
+        check("discard_task: and it is not discarded twice", not ok and "already discarded" in msg, msg)
         check("finding 1: discard - the founder still holds no current-task row",
               db.current_task(con, askmod.HUMAN) is None, db.current_task(con, askmod.HUMAN))
 

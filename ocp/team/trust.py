@@ -162,7 +162,8 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
         return False, f"{resolved} is already inside a declared root"
     prop = {"id": uuid.uuid4().hex[:8], "root": resolved, "why": why.strip(),
             "requested_by": requester, "created": int(time.time()), "state": "proposed"}
-    ok, said, rid = askmod.ask(askmod.HUMAN, _escalation(prop), requester=requester)
+    from .. import actions      # a decision is a task of the founder's
+    ok, said, rid = actions.open_decision(requester, _escalation(prop))
     if not ok:
         return False, f"could not raise it: {said}"
     prop["request"] = rid

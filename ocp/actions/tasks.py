@@ -296,6 +296,22 @@ def _task_done_targets(con, tid: int) -> set[str]:
     return {r["target"] for r in db.task_requests(con, tid) if r["state"] in ("queued", "done")}
 
 
+def open_decision(me: str, body: str) -> tuple[bool, str, int | None]:
+    """A question only the founder can answer, as a task of theirs - a decision
+    card - rather than a request nobody tracks: (ok, message, the id of the
+    request that carries the card). The title is the body's first line."""
+    title = textsafe.oneline((body or "").strip().split("\n", 1)[0])[:80] or "a decision"
+    ok, msg, tid = task_new(me, HUMAN, title, body, expects="decision")
+    if not ok:
+        return False, msg, None
+    con = db.connect()
+    try:
+        card = next((r["id"] for r in db.task_requests(con, tid) if r["target"] == HUMAN), None)
+    finally:
+        con.close()
+    return True, msg, card
+
+
 def decide(con, tid: int, text: str) -> tuple[bool, str]:
     """The founder's decision on a task they own (a decision card): the text is
     recorded as the task's evidence, the task is closed, and the opener is told
@@ -322,16 +338,27 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
         # would leave it done but open, and nothing could retry it.
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
-    for r in db.task_requests(con, tid):
-        if r["state"] == "queued" and r["target"] == HUMAN:
-            ok, msg = askmod.resolve(r["id"], text)
-            if not ok:
-                return False, msg
-    ok, msg = mark_task_done(con, tid, HUMAN, reason=text)
-    if not ok:
-        return False, msg
-    ok, closed = close_task(con, tid, HUMAN)
-    return ok, f"T{tid} decided" + ("" if ok else f" ({closed})")
+    from .requests import check_open_proposal
+    card = db.decision_card_of(con, tid)
+    cards = [card] if card is not None and card["state"] == "queued" and card["target"] == HUMAN else []
+    for r in cards:
+        refusal = check_open_proposal(r["id"], r, text)     # an unclear answer decides nothing
+        if refusal:
+            return False, refusal
+    for r in cards:
+        ok, msg = askmod.resolve(r["id"], text)
+        if not ok:
+            return False, msg
+    # Settling the card settled the task too (`db.settle_decision_tasks`); only a
+    # card that was already closed some other way leaves it here to be decided.
+    if not db.get_task(con, tid)["closed_by"]:
+        ok, msg = mark_task_done(con, tid, HUMAN, reason=text)
+        if not ok:
+            return False, msg
+        ok, closed = close_task(con, tid, HUMAN)
+        if not ok:
+            return False, f"T{tid} decided ({closed})"
+    return True, f"T{tid} decided"
 
 
 def mark_task_done(con, tid: int, by: str, sha: str | None = None,
@@ -900,7 +927,7 @@ def _retire_task_requests(con, tid: int, verdict: str, state: str = "done") -> N
 
 
 def task_new(me: str, owner: str, title: str, body: str | None = None,
-            parent: int | None = None, expects: str = "report",
+            parent: int | None = None, expects: str | None = None,
             priority: int | None = None,
             timeout_s: int | None = None) -> tuple[bool, str, int | None]:
     """T292 (auditor #1655 section 4): opens the task and asks its owner in
@@ -922,6 +949,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     the board's "waiting on" line, and the notice `_clear_blocks_on` sends
     once the child closes.
     """
+    # A task of the founder's is a decision unless it says otherwise.
+    expects = expects or ("decision" if owner == HUMAN else "report")
     if not (body or "").strip():
         return False, ("a task needs a body: the work itself, what done looks like - "
                        "the title alone is not a brief"), None
