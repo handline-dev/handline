@@ -4553,6 +4553,95 @@ edges:
         con.close()
 
 
+def test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(home: Path) -> None:
+    """T361 step A: no row keeps the kind ask, report or escalate that is over, and
+    none that is still open is lost - it is a task for its target, or a say."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        def row(kind, state, target="worker", requester="manager", fyi=0, body="do the thing\nmore"):
+            cur = con.execute(
+                "INSERT INTO requests(ts, requester, target, body, kind, state, fyi, chain_depth, edge_ok) "
+                "VALUES(?,?,?,?,?,?,?,0,1)", (1000, requester, target, body, kind, state, fyi))
+            con.execute("UPDATE requests SET chain_id = ?, queue_order = ? WHERE id = ?",
+                        (str(cur.lastrowid), cur.lastrowid, cur.lastrowid))
+            return cur.lastrowid
+
+        h_ask, h_rep, h_esc = row(None, "done"), row("report", "done"), row("escalate", "done", target="human")
+        h_rej = row(None, "rejected")
+        q_delivered = row(None, "queued", target="reviewer")     # already shown to its target, mid-answer
+        con.execute("UPDATE requests SET delivered_at = 1001 WHERE id = ?", (q_delivered,))
+        q_ask, q_human = row(None, "queued"), row(None, "queued", target="human", requester="worker",
+                                                  body="which name?")
+        q_fyi = row(None, "queued", target="human", requester="worker", fyi=1)      # only shown to the founder
+        q_rep = row("report", "queued")             # an unblock notice: waits for an agent to read it
+        q_null_card = row(None, "queued", target="human", requester="worker", body="linked, no kind")
+        linked_task = db.new_task(con, "already a task", "worker", "manager")
+        q_linked = row(None, "queued")
+        db.link_request(con, linked_task, q_linked)
+        card_task = db.new_task(con, "already a card", "human", "worker")
+        null_task = db.new_task(con, "a card with no kind", "human", "worker")
+        db.link_request(con, null_task, q_null_card)
+        q_card = row("escalate", "queued", target="human", requester="worker")
+        db.link_request(con, card_task, q_card)
+        answer, plain_say, task_row = row("answer", "done"), row("say", "done"), row("task", "done")
+        tasks_before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+        db.set_cursor(con, "migrated:kinds_to_say", 0)
+        con.close()
+        con = db.connect()
+
+        def kind(rid):
+            return db.get_request(con, rid)["kind"]
+
+        check("kinds: a finished ask, report, escalation and refusal are says",
+              [kind(r) for r in (h_ask, h_rep, h_esc, h_rej)] == ["say"] * 4,
+              str([kind(r) for r in (h_ask, h_rep, h_esc, h_rej)]))
+        check("kinds: a queued fyi to the founder is a say and opens no task",
+              kind(q_fyi) == "say" and not db.tasks_for_request(con, q_fyi))
+        check("kinds: a queued report to an agent is left as it is - an unblock notice must still be delivered",
+              kind(q_rep) == "report" and db.get_request(con, q_rep)["state"] == "queued"
+              and not db.tasks_for_request(con, q_rep) and db.head_of_queue(con, "worker") is not None)
+        check("kinds: a linked queued row to the founder with no kind is a card",
+              kind(q_null_card) == "escalate")
+        check("kinds: a queued ask already linked to a task is that task's delivery",
+              kind(q_linked) == "task" and db.tasks_for_request(con, q_linked)[0]["id"] == linked_task)
+        check("kinds: a queued escalation already a card stays one",
+              kind(q_card) == "escalate" and db.tasks_for_request(con, q_card)[0]["id"] == card_task)
+        t_ask = db.tasks_for_request(con, q_ask)
+        check("kinds: a queued ask that was already delivered is left as it is - it is being answered as an ask",
+              kind(q_delivered) is None and not db.tasks_for_request(con, q_delivered)
+              and db.get_request(con, q_delivered)["state"] == "queued")
+        askmod.resolve(q_delivered, "looks good")
+        check("kinds: answered, it leaves no open task behind",
+              not db.tasks_for_request(con, q_delivered)
+              and db.get_request(con, q_delivered)["state"] == "done")
+        check("kinds: a queued ask becomes a task for its target, the row its delivery",
+              len(t_ask) == 1 and t_ask[0]["owner"] == "worker" and t_ask[0]["opened_by"] == "manager"
+              and t_ask[0]["title"] == "do the thing" and kind(q_ask) == "task"
+              and db.get_request(con, q_ask)["state"] == "queued", str([dict(t) for t in t_ask]))
+        t_human = db.tasks_for_request(con, q_human)
+        check("kinds: a queued ask to the founder becomes a decision task with the row as its card",
+              len(t_human) == 1 and t_human[0]["owner"] == "human" and t_human[0]["expects"] == "decision"
+              and kind(q_human) == "escalate" and t_human[0]["title"] == "which name?",
+              str([dict(t) for t in t_human]))
+        check("kinds: answers, says and tasks are left as they were",
+              (kind(answer), kind(plain_say), kind(task_row)) == ("answer", "say", "task"))
+        check("kinds: exactly two tasks were opened (the two unlinked queued asks; the card was linked already)",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == tasks_before + 2)
+        check("kinds: no finished ask, report or escalation is left over, and no undelivered queued ask without a task",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE state != 'queued' AND id != ? AND "
+                          "(kind IS NULL OR kind IN ('report', 'escalate'))", (q_delivered,)).fetchone()["c"] == 0
+              and con.execute("SELECT COUNT(*) c FROM requests WHERE state = 'queued' AND kind IS NULL "
+                              "AND fyi = 0 AND delivered_at IS NULL").fetchone()["c"] == 0)
+        con.close()
+        con = db.connect()
+        check("kinds: a second connect changes nothing",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == tasks_before + 2)
+    finally:
+        con.close()
+
+
 def test_the_per_task_event_lookups_use_the_index_not_a_scan(home: Path) -> None:
     """The task pages look events up by task once per task; each of those queries,
     as the code really runs it, is answered from `events_kind_task` - a scan of
@@ -8627,6 +8716,7 @@ def main() -> int:
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
+        run(lambda: test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
         run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
