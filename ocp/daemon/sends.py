@@ -159,13 +159,19 @@ def push_answer_verb(con, log, **kw) -> tuple[bool, str]:
 
 
 def notify_cancelled_verb(con, log, **kw) -> tuple[bool, str]:
-    """Tell an agent a request it was handed was closed under it (`delivery.notify_cancelled`)."""
+    """Tell an agent a request it was handed was closed under it (`delivery.notify_cancelled`).
+
+    Only a delivered request already closed as rejected, and only with the verdict
+    on its row: what the daemon types is never the caller's words."""
     from . import delivery
     row = db.get_request(con, int(kw["rid"]))
     if row is None:
         return False, f"no request #{kw['rid']}"
-    verdict = str(kw.get("verdict") or "")
+    if row["target"] == askmod.HUMAN or row["target"] not in paths.list_agents():
+        return False, f"{row['target']} is not an agent"
+    if row["state"] != "rejected" or not row["delivered_at"]:
+        return False, f"#{row['id']} was not cancelled after it was delivered"
     _background(f"notify-cancelled-{row['id']}",
-                lambda c: delivery.notify_cancelled(c, db.get_request(c, int(row["id"])), verdict), log)
+                lambda c: delivery.notify_cancelled(c, row, str(row["verdict"] or "")), log)
     return True, _HANDED
 
