@@ -154,10 +154,13 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             # See lifecycle._wake_agent's own closed-agent gate (T146 pt.1):
             # nothing else ever enforces a closed agent's edges.
             delivery.enforce_edges(con, agent, log)
-        if restored and not lifecycle.waiting_for(con, agent):
+        if restored and not (row["terminal"] and lifecycle.waiting_for(con, agent)):
             # The deadline is spent and nothing came for it: a closed session
             # is not resumed to be told nothing. It stays closed, and what
-            # arrives next is what wakes it (the block below).
+            # arrives next is what wakes it (the block below). Nor is one with
+            # no terminal (a reboot leaves that): a wake needs a terminal to
+            # type into, and still-due would hold it here for good, ahead of
+            # the start for work below that is what gives it one (T406).
             woke, restored = False, False
         else:
             woke, why = lifecycle.wake_agent(con, agent, log)
@@ -199,12 +202,20 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # An answer counts as work here, not only a request: a wake puts a session
     # back into a terminal the agent still has, so an agent that lost its
     # terminal while waiting on an answer has no way back at all.
+    need = lifecycle.start_or_wake_needed(con, agent, row)
     started_now = False
-    if not (row and row["terminal"]) and (db.queued_for(con, agent)
-                                          or db.unannounced_answers(con, agent)):
-        actions.append(lifecycle._start_for_work(con, agent, log))
+    if need and need[0] == "start":
+        said = lifecycle._start_for_work(con, agent, log)
+        actions.append(said)
         row = db.get_agent_state(con, agent)
         started_now = bool(row and row["terminal"])
+        if started_now:
+            _SAID.pop(agent, None)
+        elif _SAID.get(agent) != said:
+            # Once per reason, like a wake that cannot happen below: the tick
+            # comes round every few seconds and a refusal can last for hours.
+            _SAID[agent] = said
+            log(f"  {agent}: {need[1]} and could not be started - {said}")
 
     # A closed session cannot read its own inbox, so the arrival of work is
     # what has to bring it back. Without this an `ocp ask` queues into a
@@ -214,41 +225,28 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # the closed mark on it is stale until the sweep sees the session, and a
     # wake typed into a TUI that is still coming up loses its opening
     # characters and leaves the rest in the input box, unsent.
-    if row and row["closed_at"] and not started_now:
-        # Not `db.queued_for`: a request already delivered before the close
-        # (T154) is only sitting on the agent unresolved, and waking for that
-        # alone would close it right back up on the very next idle window,
-        # forever - it is redelivered once something below actually wakes it.
-        waiting = db.undelivered_for(con, agent)
-        # An agent that asked something, parked on the answer and was then
-        # closed is waiting on a reply, not on work - and resolving its request
-        # writes QUEUED over the park and clears the wake_at that would have
-        # brought it back. Without this, nothing in the system ever wakes it.
-        answers = db.unannounced_answers(con, agent)
-        # T351: a message that could not be typed before the close (or that
-        # arrived while it was closed) is the same kind of arrival - nothing
-        # else ever wakes a closed agent for one.
-        pending = db.list_pending(con, agent)
-        if waiting or answers or pending:
-            ok, why = lifecycle.wake_agent(con, agent, log)
-            what = (f"{len(waiting)} waiting request(s)" if waiting
-                    else f"{len(answers)} answer(s) it asked for" if answers
-                    else f"{len(pending)} pending message(s)")
-            actions.append(f"{agent}: woken for {what}"
-                           if ok else f"{agent}: could not wake - {why}")
-            if not ok and _SAID.get(agent) != why:
-                # Said out loud, because this is the tick doing nothing about
-                # something that is waiting - and said once, because the tick
-                # comes round every few seconds and two of these reasons last
-                # for hours. `_wake_agent` logs some of them itself; this is
-                # the one place that reports the ones it returns silently.
-                _SAID[agent] = why
-                log(f"  {agent}: {what} and could not be woken - {why}")
-            if ok:
-                _SAID.pop(agent, None)
-            if ok:
-                row = db.get_agent_state(con, agent)
-                woke_now = True
+    if need and need[0] == "wake":
+        # `start_or_wake_needed` is the whole list, so the screens that say
+        # "the next tick wakes it" and the daemon's start ask the same question
+        # (T406). A request delivered before the close (T154) is not on it:
+        # woken for alone it closes again on the next idle window, forever.
+        what = need[1]
+        ok, why = lifecycle.wake_agent(con, agent, log)
+        actions.append(f"{agent}: woken for {what}"
+                       if ok else f"{agent}: could not wake - {why}")
+        if not ok and _SAID.get(agent) != why:
+            # Said out loud, because this is the tick doing nothing about
+            # something that is waiting - and said once, because the tick
+            # comes round every few seconds and two of these reasons last
+            # for hours. `_wake_agent` logs some of them itself; this is
+            # the one place that reports the ones it returns silently.
+            _SAID[agent] = why
+            log(f"  {agent}: {what} and could not be woken - {why}")
+        if ok:
+            _SAID.pop(agent, None)
+        if ok:
+            row = db.get_agent_state(con, agent)
+            woke_now = True
 
     # Work that has arrived is delivered before anything else is decided:
     # an agent that is about to be told it has work is not idle. An agent woken
@@ -398,6 +396,28 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             db.set_agent_state(con, agent, STALLED,
                                detail=f"{fresh['failed_attempts']} failed attempts")
             actions.append(f"{agent}: STALLED after {fresh['failed_attempts']} failed attempts")
+
+
+def start_waiting(con, log) -> list[str]:
+    """T408: at daemon start, bring up at once every agent that has work waiting
+    and no session - the tick would, but only after its usage polls and each
+    agent in turn, and a reboot leaves every agent in that state. Runs the sweep
+    first, so a terminal the reboot killed is dropped and the agent started in
+    its worktree rather than woken into a handle that is gone."""
+    actions: list[str] = []
+    reconciler.sweep(con, log, actions)
+    for agent in paths.list_agents():
+        try:
+            row = db.get_agent_state(con, agent)
+            need = lifecycle.start_or_wake_needed(con, agent, row)
+            if need and need[0] == "start":
+                actions.append(lifecycle._start_for_work(con, agent, log))
+            elif need:
+                ok, why = lifecycle.wake_agent(con, agent, log)
+                actions.append(f"{agent}: woken at start" if ok else f"{agent}: could not wake - {why}")
+        except Exception as e:  # noqa: BLE001 - one agent's failure is not the start's
+            log(f"  {agent}: start for waiting work failed: {type(e).__name__}: {e}")
+    return actions
 
 
 def tick(con, log, samples: dict | None = None) -> Tick:

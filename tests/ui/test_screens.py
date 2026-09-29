@@ -1972,6 +1972,8 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
             db.set_agent_state(con, "backend", state)
             db.set_closed(con, "backend", "s1") if closed else db.clear_closed(con, "backend")
             db.set_cursor(con, "notify:backend", rid if told else 0)
+            if not told:      # not told is not shown either: a delivered request is not a cause to wake a closed agent
+                con.execute("UPDATE requests SET delivered_at = NULL")
             con.execute("UPDATE requests SET ts = ?",
                         (int(time.time()) - (actions.STUCK_AFTER_S + 60 if age is None
                                              else age),))

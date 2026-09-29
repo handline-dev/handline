@@ -3426,16 +3426,211 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         for _ in range(3):
             dmn_evaluate.supervise(con, "reviewer", lambda m: logged.append(m),
                           int(time.time()), {}, [])
-        said = [m for m in logged if "could not be woken" in m]
-        check("dispatch: a wake that cannot happen is said out loud",
-              len(said) == 1 and "answer(s) it asked for" in said[0], str(logged))
+        said = [m for m in logged if "could not be started" in m]
+        check("dispatch: a start that cannot happen is said out loud",
+              len(said) == 1 and "orca refused" in said[0], str(logged))
         check("dispatch: and not once per tick for as long as it lasts",
-              len([m for m in logged if "could not be woken" in m]) == 1, str(logged))
+              len([m for m in logged if "could not be started" in m]) == 1, str(logged))
     finally:
         (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
         dmn_lifecycle.wake_agent = real_wake
         dmn_evaluate._SAID.clear()
         con.close()
+
+
+def test_a_due_park_with_no_terminal_is_started_not_held(home: Path) -> None:
+    """T406: a reboot leaves a parked, closed agent with its deadline due and no
+    terminal. The wake needs a terminal, failed, and kept the park "still due"
+    before the start for work that gives it one - so the row read "wakes at
+    HH:MM", PENDING due, on every tick for good."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    started: list = []
+    real = (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
+
+        def fake_spawn(agent, repo, base="main"):
+            started.append(agent)
+            db.set_terminal(db.connect(), agent, "term_new", str(repo))
+            return True, f"{agent}: worktree {repo}"
+
+        spawnmod.spawn = fake_spawn
+        agents.register("marina", repo=str(home / "checkout"))
+        db.set_terminal(con, "marina", None, None)
+        db.set_closed(con, "marina", "sess_old")
+        support.something_waiting(con, "marina")
+        db.set_agent_state(con, "marina", dmn_states.PARKED,
+                           wake_at=int(time.time()) - 10, detail="usage; wakes at 01:59")
+
+        dmn_reconciler.reconcile(con, lambda _m: None)
+        row = db.get_agent_state(con, "marina")
+        check("reconcile: a due park with no terminal is spent, not left due",
+              row["wake_at"] is None and row["state"] != dmn_states.PARKED, str(dict(row)))
+
+        db.set_agent_state(con, "marina", dmn_states.PARKED,
+                           wake_at=int(time.time()) - 10, detail="usage; wakes at 01:59")
+        dmn_evaluate.supervise(con, "marina", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "marina")
+        check("tick: the same park is spent, and the agent is given a terminal for its work",
+              started == ["marina"] and row["wake_at"] is None and row["terminal"] == "term_new",
+              f"{started} {dict(row)}")
+
+        # The other way in: only a pending message (the socket's `message` verb) is waiting.
+        started.clear()
+        db.set_terminal(con, "marina", None, None)
+        db.set_closed(con, "marina", "sess_old")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        con.execute("UPDATE requests SET state = 'done'")
+        db.add_pending(con, "marina", "hello", int(time.time()))
+        dmn_evaluate.supervise(con, "marina", lambda _m: None, int(time.time()), {}, [])
+        check("tick: a closed agent with no terminal and only a pending message is started for it",
+              started == ["marina"], str(started))
+    finally:
+        (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
+        con.close()
+
+
+def test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(home: Path) -> None:
+    """T406: "the next tick wakes it" has to be true wherever it is said. The tick
+    wakes a closed agent for what `closed_wake_cause` names, and the stuck screen
+    reads the same list: an undelivered request its task is blocked on record for
+    was said to wake it and never did, and one told before the close (T154) is
+    held, which the screen now says instead."""
+    import importlib
+    stuck_screen = importlib.import_module("ocp.actions.stuck")
+    _daemon_home(home, 20)
+    con = db.connect()
+    woken: list = []
+    real_wake = dmn_lifecycle.wake_agent
+    try:
+        dmn_lifecycle.wake_agent = lambda con_, a, log_, **kw: (woken.append(a), (True, "woke"))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        db.set_closed(con, "backend", "sess-1")
+        now = int(time.time())
+
+        def shown() -> tuple:
+            return stuck_screen._delivery_state(con, "backend", None, None, True)
+
+        row = db.get_agent_state(con, "backend")
+        check("closed: with nothing waiting the tick has no cause, and the screen does not promise one",
+              dmn_lifecycle.closed_wake_cause(con, "backend", row) is None
+              and shown()[0] != "closed, waking", str(shown()))
+
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked thing")
+        check("setup: a task for it", ok, msg)
+        ok, msg, blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg = actions.add_block(con, tid, blocker, "product")
+        check("setup: its task is blocked on record", ok, msg)
+        con.execute("UPDATE requests SET delivered_at = NULL WHERE target = 'backend'")
+        woken.clear()          # `task_new` wakes a closed agent itself, as any message does
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("closed: an undelivered request its task is blocked for is no cause, and no wake is tried",
+              dmn_lifecycle.closed_wake_cause(con, "backend", row) is None and not woken
+              and shown()[0] != "closed, waking", f"{woken} {shown()}")
+
+        rid = db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+        cause = dmn_lifecycle.closed_wake_cause(con, "backend", row)
+        check("closed: a request it has not been shown is a cause, and the screen says so",
+              cause and cause[0] == "work" and shown()[0] == "closed, waking", f"{cause} {shown()}")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("closed: and the tick wakes it", woken == ["backend"], str(woken))
+
+        db.mark_delivered(con, rid)
+        con.execute("UPDATE requests SET delivered_at = ? WHERE target = 'backend'", (now - 3600,))
+        woken.clear()
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("closed: a request told before the close wakes nothing, and the screen says it is held",
+              not woken and dmn_lifecycle.closed_wake_cause(con, "backend", row) is None
+              and shown()[0] == "closed, holding" and not shown()[2], f"{woken} {shown()}")
+    finally:
+        dmn_lifecycle.wake_agent = real_wake
+        dmn_evaluate._SAID.clear()
+        con.close()
+
+
+def test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(home: Path) -> None:
+    """T408: after a reboot every agent with work waiting has no session, and the
+    tick brings them up behind its usage polls, one after another. At start the
+    daemon brings them up first: no terminal -> started in its worktree, closed
+    with something to be told -> woken, nothing waiting -> left alone."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    order: list = []
+    real = (orcamod.available, orcamod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
+            dmn_lifecycle.wake_agent, dmn_evaluate.tick)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
+
+        def fake_spawn(agent, repo, base="main"):
+            order.append(("start", agent))
+            db.set_terminal(db.connect(), agent, f"term_{agent}", str(repo))
+            return True, f"{agent}: worktree {repo}"
+
+        spawnmod.spawn = fake_spawn
+        dmn_lifecycle.wake_agent = lambda con_, a, log_, **kw: (order.append(("wake", a)), (True, "woke"))[1]
+        agents.register("marina", repo=str(home / "checkout"))
+        agents.register("idler", repo=str(home / "checkout2"))
+        for a in ("marina", "idler"):
+            db.set_terminal(con, a, None, None)
+        db.add_request(con, "manager", "marina", "implement the sea", None,
+                       "supervisor", "fire_and_forget", None, 0, None)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
+
+        # What `supervise` leaves alone is left alone at start too - one decision, `start_or_wake_needed`.
+        for a in ("stalled", "handed", "finished", "aboom"):
+            agents.register(a, repo=str(home / "checkout3"))
+            db.set_terminal(con, a, None, None)
+            db.add_request(con, "manager", a, "work", None, "supervisor", "fire_and_forget", None, 0, None)
+        db.set_agent_state(con, "stalled", dmn_states.STALLED, detail="fatal")
+        db.start_handoff(con, "hid-t408", "handed", "sess", "usage", int(time.time()) + 90)
+        con.execute("UPDATE agent_state SET state = 'DONE' WHERE agent = 'finished'")
+        real_spawn = spawnmod.spawn
+
+        def boom_spawn(agent, repo, base="main"):
+            if agent == "aboom":
+                raise RuntimeError("orca fell over")
+            return real_spawn(agent, repo, base)
+
+        spawnmod.spawn = boom_spawn
+        logged: list[str] = []
+        acts = dmn_evaluate.start_waiting(con, logged.append)
+        spawnmod.spawn = real_spawn
+        check("start: a stalled agent, one mid-handoff and one the tick does not evaluate are not started",
+              not {"stalled", "handed", "finished"} & {a for k, a in order}, str(order))
+        check("start: one agent's exception is logged and does not stop the rest",
+              any("aboom" in m and "orca fell over" in m for m in logged) and ("start", "marina") in order,
+              f"{logged} {order}")
+        order.clear()
+        for a in ("stalled", "handed", "finished", "aboom"):
+            con.execute("UPDATE requests SET state = 'done' WHERE target = ?", (a,))
+        db.set_terminal(con, "marina", None, None)
+        acts = dmn_evaluate.start_waiting(con, lambda _m: None)
+        check("start: an agent with work and no terminal is started, a closed one with work woken",
+              ("start", "marina") in order and ("wake", "backend") in order, f"{order} {acts}")
+        check("start: an agent with nothing waiting is left alone",
+              ("start", "idler") not in order and ("wake", "idler") not in order, str(order))
+
+        order.clear()
+        dmn_evaluate.tick = lambda con_, log_, samples=None: (order.append("tick"), dmn_evaluate.Tick(0, []))[1]
+        con.close()
+        db.set_terminal(db.connect(), "marina", None, None)
+        dmn_loop.run(once=True, verbose=False)
+        check("start: and the loop does it before the first tick",
+              ("start", "marina") in order and order.index(("start", "marina")) < order.index("tick"),
+              str(order))
+    finally:
+        (orcamod.available, orcamod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
+         dmn_lifecycle.wake_agent, dmn_evaluate.tick) = real
+        dmn_evaluate._SAID.clear()
 
 
 def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
@@ -4334,6 +4529,9 @@ def main() -> int:
         run(lambda: test_a_resumed_hand_park_stays_forceable_too(Path(td) / 'parklevel6b'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
+        run(lambda: test_a_due_park_with_no_terminal_is_started_not_held(Path(td) / 'dueterm'))
+        run(lambda: test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(Path(td) / 'startall'))
+        run(lambda: test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(Path(td) / 'toldwake'))
         run(lambda: test_a_passed_window_is_asked_about_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(

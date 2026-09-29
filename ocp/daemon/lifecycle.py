@@ -24,7 +24,7 @@ from ..team import trust
 from .. import vendors
 
 from . import delivery, handoff
-from .states import (DEGRADED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
+from .states import (DEGRADED, EVALUATED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
                      MAX_FAILED_ATTEMPTS, PARKED, RESUME_WARM_S, RUNNING, STALLED,
                      THROTTLED)
 
@@ -94,30 +94,63 @@ def triggers_apply(row) -> bool:
                 and row["state"] not in (PARKED, THROTTLED, DEGRADED))
 
 
+def closed_wake_cause(con, agent: str, row) -> tuple[str, str] | None:
+    """(kind, what) the tick wakes this closed agent for, or None.
+
+    The one list the tick wakes by and the screens read "the next tick wakes it"
+    from (T406). An undelivered request whose task is blocked on record is no
+    cause: the wake is refused for it (`waiting_for`), every tick, silently. A
+    request told before the close is none either (T154) - woken for alone it
+    closes again on the next idle window."""
+    if not row or not row["closed_at"]:
+        return None
+    waiting = [r for r in db.undelivered_for(con, agent) if not delivery.head_task_blocked(con, agent, r)]
+    if waiting:
+        return "work", f"{len(waiting)} waiting request(s)"
+    answers = db.unannounced_answers(con, agent)
+    if answers:
+        return "answer", f"{len(answers)} answer(s) it asked for"
+    pending = db.list_pending(con, agent)
+    if pending:
+        return "message", f"{len(pending)} pending message(s)"
+    return None
+
+
+def start_or_wake_needed(con, agent: str, row) -> tuple[str, str] | None:
+    """("start" | "wake", what) when the daemon owes this agent a session, else None.
+
+    The one decision the tick and the daemon's start both act on (T406/T408): an
+    agent with work waiting and no terminal is started, a closed one with a
+    cause (`closed_wake_cause`) is woken. The states `supervise` leaves alone
+    are left alone here too."""
+    if row and (row["state"] == STALLED or row["state"] not in EVALUATED):
+        return None
+    if db.in_flight_for(con, agent):
+        return None
+    if not (row and row["terminal"]):
+        if db.queued_for(con, agent) or db.unannounced_answers(con, agent) or db.list_pending(con, agent):
+            return "start", "work waiting"
+        return None
+    cause = closed_wake_cause(con, agent, row)
+    return ("wake", cause[1]) if cause else None
+
+
 def would_wake(con, row) -> bool:
     """Is anything actually trying to wake this closed agent?
 
-    Undelivered work, an answer it asked for, or a deadline already due
-    while parked, throttled or degraded - the same three reasons the main
-    pass wakes a closed row with no deadline pending (the two checks right
-    before `deliver_queued`). Not a request already delivered before the
-    close (T154): that one is only sitting unresolved, and waking for it
-    alone would close the agent right back up on the very next idle window,
-    forever - reconciliation's own due-deadline wake (section 8.4's step 2)
-    still reads any unresolved request as reason enough, since a deadline
-    already means something else decided this agent is worth resuming.
-    `launch.wake_wait` answers a narrower question - is the account full -
-    and answers it for every closed agent on a walled account, including
-    ones idle by choice with nothing asked of them. A screen gates on this
-    first, so "waiting" only shows next to a wait that is actually happening.
+    A deadline already due while parked, throttled or degraded, or a cause the
+    main pass wakes a closed row for (`closed_wake_cause`). `launch.wake_wait`
+    answers a narrower question - is the account full - and answers it for
+    every closed agent on a walled account, including ones idle by choice with
+    nothing asked of them. A screen gates on this first, so "waiting" only
+    shows next to a wait that is actually happening.
     """
     if not row or not row["closed_at"]:
         return False
-    agent = row["agent"]
-    due = bool(row["wake_at"]) and row["wake_at"] <= int(time.time()) \
+    now = int(time.time())
+    due = bool(row["wake_at"]) and row["wake_at"] <= now \
         and row["state"] in (PARKED, THROTTLED, DEGRADED)
-    return bool(due or db.undelivered_for(con, agent) or
-                db.unannounced_answers(con, agent))
+    return bool(due or closed_wake_cause(con, row["agent"], row))
 
 
 def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
