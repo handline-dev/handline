@@ -32,11 +32,11 @@ class PermissionModal(ModalScreen["bool | None"]):
     BINDINGS = [Binding("escape", "dismiss(None)", "close")]
     DEFAULT_CSS = """
     PermissionModal { align: center middle; background: $background 60%; }
-    PermissionModal #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2;
+    PermissionModal #dialog { width: 72; max-width: 90%; height: auto; max-height: 95%; padding: 1 2;
                               border: thick $warning; background: $panel; }
     PermissionModal #title { margin-bottom: 1; text-style: bold; }
     PermissionModal #tool { color: $text-muted; }
-    PermissionModal #command { margin-top: 1; max-height: 20; border: round $primary-darken-1; padding: 0 1; }
+    PermissionModal #command { margin-top: 1; height: auto; max-height: 20; border: round $primary-darken-1; padding: 0 1; }
     PermissionModal #command Static { width: auto; }
     PermissionModal #reason { margin-top: 1; color: $text-muted; }
     PermissionModal #buttons { height: 1; margin-top: 1; align-horizontal: right; }
