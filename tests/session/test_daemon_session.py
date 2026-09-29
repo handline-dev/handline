@@ -3831,6 +3831,21 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         check("wait-for: a blocker that finished and was closed is no stuck wait",
               len(escalations()) == before)
 
+        # Ids that do not run in wait order: T-p waits on T-r, T-r on T-q, T-q on T-p. The founder is
+        # told the real order, or the `--unblock` he is pointed at names a wait that is not there.
+        p_, q_, r_ = (db.new_task(con, t, "backend", "manager") for t in ("p", "q", "r"))
+        db.add_block(con, p_, r_)
+        db.add_block(con, r_, q_)
+        db.add_block(con, q_, p_)
+        before = len(escalations())
+        waitfor.sweep(con, log.append, 0)
+        sent = escalations()[before:]
+        check("wait-for: a loop is named in the order its waits go, not in id order",
+              len(sent) == 1 and f"T{p_} (backend) -> T{r_} (backend) -> T{q_} (backend) -> T{p_}" in sent[0]["body"],
+              str([r["body"] for r in sent]))
+        for w, b_ in ((p_, r_), (r_, q_), (q_, p_)):
+            db.remove_block(con, w, b_)
+
         # The other half: `--blocked-by` itself refuses to close a loop.
         _, _, x = actions.task_new("product", "backend", "x")
         _, _, y = actions.task_new("product", "backend", "y")

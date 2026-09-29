@@ -66,6 +66,25 @@ def _cycles(edges: dict[int, list[int]]) -> list[tuple[int, ...]]:
     return out
 
 
+def _ring(edges: dict[int, list[int]], group: tuple[int, ...]) -> list[int]:
+    """One loop through the group's smallest task, in the order the waits go: the shortest way
+    from it back to it along waits inside the group."""
+    start, inside = group[0], set(group)
+    queue, came = [start], {start: None}
+    while queue:
+        node = queue.pop(0)
+        for nxt in edges.get(node, ()):
+            if nxt == start:
+                ring = [node]
+                while came[ring[-1]] is not None:
+                    ring.append(came[ring[-1]])
+                return ring[::-1]
+            if nxt in inside and nxt not in came:
+                came[nxt] = node
+                queue.append(nxt)
+    return list(group)
+
+
 def stuck_waits(con) -> dict[str, tuple[int, str]]:
     """{fingerprint: (task id to name the escalation after, text)} for every stuck wait now."""
     tasks = {t["id"]: t for t in db.all_tasks(con)}
@@ -87,10 +106,14 @@ def stuck_waits(con) -> dict[str, tuple[int, str]]:
         elif _open(blocker):
             edges.setdefault(waiter["id"], []).append(blocker["id"])
     for group in _cycles(edges):
-        names = " -> ".join(f"T{t} ({tasks[t]['owner']})" for t in group)
+        ring = _ring(edges, group)
+        names = " -> ".join(f"T{t} ({tasks[t]['owner']})" for t in [*ring, ring[0]])
+        more = [t for t in group if t not in ring]
         found["cycle:" + "-".join(map(str, group))] = (group[0], (
-            f"These tasks wait on each other and none can finish: {names}. "
-            f"Drop one wait (`ocp task edit T<n> --unblock T<m>`) or close one of them."))
+            f"These tasks wait on each other and none can finish: {names}"
+            + (f", and T{', T'.join(map(str, more))} in the same tangle" if more else "")
+            + ". Drop one wait (`ocp task edit T<n> --unblock T<m>`, T<n> being the one that waits) "
+              "or close one of them."))
     return found
 
 
@@ -103,7 +126,7 @@ def sweep(con, log, now: int) -> None:
         if _PREFIX + fp in told:
             continue
         task = db.get_task(con, tid)
-        who = task["owner"] if task["owner"] != db.HUMAN else task["opened_by"]
+        who = next((o for o in (task["owner"], task["opened_by"]) if o != db.HUMAN), "orcapipe.daemon")
         askmod.escalate(con, who, f"[wait-for] {text}", "wait-for graph")
         db.set_cursor(con, _PREFIX + fp, 1)
         log(f"  wait-for: {fp} escalated to the founder")
