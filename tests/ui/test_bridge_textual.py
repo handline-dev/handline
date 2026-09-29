@@ -1564,24 +1564,25 @@ def _page_rows(con, rid: int) -> list:
 
 
 def test_replies_thread_under_the_message_they_answer() -> None:
-    """T410 (founder #2514, #2621): a reply is nested right after the message it answers, in one
-    rail; only a message answering nothing on screen keeps its place, and says so if it names a
-    parent that is not loaded."""
+    """T410 (founder #2514, #2659): the longest chain (the newest on a tie) is the outermost line,
+    every other reply is nested right after the message it branches from, and a reply follows
+    its parent, not the messages that came between."""
     from ocp.ui import chat_page as cp
 
     def msg(rid):
         return {"rid": rid, "part": 0, "queued": False, "delivered": True, "held": False}
     parents = {10: None, 11: 10, 12: 11, 13: 12, 14: 10, 15: 14, 20: 5, 30: None}
     out = cp.thread_order([msg(r) for r in (10, 11, 12, 13, 14, 15, 20, 30)], parents)
-    check("thread: every reply follows its parent, the rest keep their place",
-          [m["rid"] for m in out] == [10, 11, 12, 13, 14, 15, 20, 30], str([m["rid"] for m in out]))
-    check("thread: replies are nested, the message answering nothing on screen is not",
-          {m["rid"] for m in out if m.get("nested")} == {11, 12, 13, 14, 15}, str(out))
+    check("thread: the side chain 14 15 follows 10, then the main line 11 12 13 goes on",
+          [m["rid"] for m in out] == [10, 14, 15, 11, 12, 13, 20, 30], str([m["rid"] for m in out]))
+    check("thread: only the side chain is nested",
+          {m["rid"] for m in out if m.get("nested")} == {14, 15}, str(out))
     check("thread: a reply to an unloaded parent stays put and names it",
           [m["parent_out"] for m in out if m["rid"] == 20] == [5])
-    sibling = cp.thread_order([msg(r) for r in (1, 2, 3, 4)], {1: None, 2: 1, 3: None, 4: 1})
-    check("thread: a reply to an older message sits under it, not after what came between",
-          [m["rid"] for m in sibling] == [1, 2, 4, 3], str([m["rid"] for m in sibling]))
+    tie = cp.thread_order([msg(r) for r in (1, 2, 3, 4)], {1: None, 2: 1, 3: None, 4: 1})
+    check("thread: on equal length the newest chain is the main line, and a reply sits under its parent",
+          [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (4, False), (3, False)],
+          str([(m["rid"], m.get("nested")) for m in tie]))
     held = [msg(r) for r in (1, 2, 3, 4)]
     held[3]["queued"], held[3]["delivered"] = True, False
     out = cp.thread_order(held, {1: None, 2: 1, 3: 2, 4: 1})
@@ -1640,6 +1641,56 @@ async def test_a_chat_opened_from_a_for_you_row_has_that_message_picked() -> Non
               str(page.replying and page.replying.m["rid"]))
 
 
+async def test_reply_puts_the_id_before_the_text_and_a_number_in_a_message_is_a_link() -> None:
+    """T410 (founder #2652): the reply button writes '#<id> ' in front of the composer text; a
+    #<id> in a message is a link that scrolls to that message and lights it."""
+    from rich.text import Text
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("replylinks")
+    agents.register("reviewer")
+    _, _, first = askmod.ask("reviewer", "which branch?", requester="human")
+    _, _, second = askmod.ask("reviewer", f"about #{first} and T5 and a#7", requester="human")
+    links = [(s.start, s.end, dict(s.style.meta)) for s in cp.link_refs(Text(f"see #{first} not a#7 or T5")).spans]
+    check("links: only a bare #<id> is a link, with its click action",
+          links == [(4, 4 + len(f"#{first}"), {"@click": f"screen.show_message({first})"})], str(links))
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause(0.5)
+        box = page.query_one("#compose", cp.ChatBox)
+        box.text = "hello"
+        page.quote_reply(first)
+        check("reply: '#<id> ' goes in front of what was typed", box.text == f"#{first} hello", box.text)
+        page.quote_reply(first)
+        check("reply: pressing it again does not stack the prefix", box.text == f"#{first} hello", box.text)
+        page.action_show_message(first)
+        await pilot.pause(0.2)
+        lit = [w.m["rid"] for w in page.query(cp.ChatMessage) if w.has_class("flash")]
+        check("link: following it lights that message", lit == [first],
+              str((lit, first, [w.m["rid"] for w in page.query(cp.ChatMessage)], _said(page))))
+        page.query(cp.ChatMessage).first().remove_class("flash")
+        second_w = next(w for w in page.query(cp.ChatMessage) if w.m["rid"] == second)
+        text = second_w.query_one(".text")
+        first_w = next(w for w in page.query(cp.ChatMessage) if w.m["rid"] == first)
+        first_w.remove_class("flash")
+        await pilot.click(text, offset=(len("about "), 0))
+        await pilot.pause(0.2)
+        check("link: clicking the #id lights that message and does not pick this one to reply to",
+              first_w.has_class("flash") and page.replying is None,
+              str((first_w.has_class("flash"), page.replying and page.replying.m["rid"])))
+        await pilot.click(text, offset=(0, 0))
+        await pilot.pause(0.2)
+        check("link: a click outside the link does pick it (so the link click above was not a dead message)",
+              page.replying is second_w, str(page.replying and page.replying.m["rid"]))
+        check("focus: the reply button shows on the picked message only",
+              second_w._reply.display and not first_w._reply.display)
+        check("chat: no message says it is answered or waiting for you",
+              "answered" not in str(second_w.query(".who").first().render())
+              and "waiting for you" not in str(second_w.query(".who").first().render()))
+
+
 def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -1665,13 +1716,11 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     con = db.connect()
     try:
         ok, _, rid = askmod.ask("human", "merge it?", requester="reviewer")
-        check("reply: the agent's question is waiting for the human",
-              ok and cp.messages_of(_page_rows(con, rid), "reviewer")[0]["waiting"])
+        check("reply: the agent's question is asked", ok)
         ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
         after = db.get_request(con, rid)
         check("reply: a reply to a waiting question is its verdict",
               ok1 and after["state"] == "done" and after["verdict"] == "yes", str(dict(after)))
-        check("reply: the question then reads as answered", cp.messages_of(_page_rows(con, rid), "reviewer")[0]["answered"])
         ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
         child = db.get_request(con, rid + 1)
         check("reply: a second reply is a new request to the agent under it",
@@ -1688,18 +1737,6 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         kid5 = db.get_request(con, theirs + 1)
         check("reply: a reply from another agent's page (All chat) goes to the agent on that message, under it",
               ok5 and kid5["target"] == "reviewer" and kid5["parent_id"] == theirs, str(dict(kid5)))
-        got = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
-        check("reply: the message replied to reads answered",
-              next(m for m in got if m["rid"] == mine and m["part"] == 1)["answered"], str(got))
-        for _ in range(cp.PAGE):
-            con.execute("INSERT INTO requests (ts, requester, target, state, body, parent_id) "
-                        "SELECT ts, requester, target, 'done', 'filler', NULL FROM requests WHERE id = ?", (rid,))
-        con.commit()
-        page, _more = cp.requests_page(con, "reviewer", False)
-        older, _ = cp.requests_page(con, "reviewer", False, before=page[0]["id"])
-        parent_older = [m for m in cp.messages_of(older, "reviewer") if m["rid"] == mine and m["part"] == 1]
-        check("reply: it still reads answered when scrolled up to, its reply on the newer page",
-              mine < page[0]["id"] and parent_older and parent_older[0]["answered"], str([r["id"] for r in older]))
         check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
         check("reply: a reply to a request that is gone is refused",
               cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
@@ -3362,6 +3399,7 @@ async def _run_all() -> None:
     test_replies_thread_under_the_message_they_answer()
     await test_a_chat_opened_from_a_for_you_row_has_that_message_picked()
     await test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested()
+    await test_reply_puts_the_id_before_the_text_and_a_number_in_a_message_is_a_link()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()

@@ -69,11 +69,8 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
-    params = (actions.HUMAN, *params)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at, parent_id, "
-           "EXISTS (SELECT 1 FROM requests c WHERE c.parent_id = requests.id AND c.requester = ? "
-           f"AND c.state NOT IN {_GONE}) AS replied "
+           "dismissed_by, dismissed_reason, delivered_at, parent_id "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
@@ -100,8 +97,8 @@ def signature(con, agent: str, everyone: bool) -> tuple:
 def messages_of(rows, agent: str) -> list[dict]:
     """One dict per message of these requests, in time order: who, when, text,
     the request it belongs to, whether it is the ask (part 0) or the verdict
-    (part 1), which side said it, whether it is waiting on the human or has been
-    answered, and whether the human can reply to it."""
+    (part 1), which side said it, and whether the human can reply to it. Nothing here tracks
+    whether a message was answered (founder #2659)."""
     human = actions.HUMAN
     msgs = []
     for r in rows:
@@ -124,9 +121,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                 "" if human in (speaker, to) else f" → {to}")
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
                          "text": (text or "").strip("\n") or "(empty)",
-                         "waiting": part == 0 and r["state"] == "queued" and r["target"] == human,
                          "replyable": human in (r["requester"], r["target"]),
-                         "answered": side == "agent" and (part == 0 and bool(shown) or bool(r["replied"])),
                          "queued": queued,
                          "held": held,
                          "to": to,
@@ -140,11 +135,13 @@ def messages_of(rows, agent: str) -> list[dict]:
 
 
 def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
-    """Replies as a comment thread (founder #2514): a message that replies to another is
-    `nested` and sits right after the message it answers, in one rail however deep the chain
-    goes; only a message that answers nothing on screen keeps its place in time. One whose
-    parent is not on screen is such a message and carries `parent_out` (that id). A message
-    still waiting to be delivered is never moved up: it stays below the queue line."""
+    """Replies as a tree (founder #2514, #2659). Requests link by `parent_id`; in each thread the
+    longest chain (the newest on a tie) is the outermost line and is not indented. Every other
+    reply is `nested`, in one rail, and comes right after the message it branches from, before
+    the main line goes on. A reply always follows its parent, never the messages that happened
+    to come between. One whose parent is not on screen keeps its place and carries `parent_out`
+    (that id). A message still waiting to be delivered is never moved up: it stays below the
+    queue line."""
     kids: dict[int, list[int]] = {}
     for rid, parent in parents.items():
         if parent in parents:
@@ -156,22 +153,37 @@ def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
         of.setdefault(m["rid"], []).append(m)
         parent = parents.get(m["rid"])
         m["parent_out"] = parent if parent is not None and parent not in parents else None
+    best: dict[int, tuple[int, int]] = {}      # rid -> (chain length, newest id) of its best chain down
+
+    def down(rid: int) -> tuple[int, int]:
+        if rid not in best:
+            best[rid] = max(((n + 1, max(new, rid)) for n, new in map(down, kids.get(rid, ()))),
+                            default=(1, rid))
+        return best[rid]
+
     placed: set[int] = set()
 
-    def under(rid: int) -> list[dict]:
+    def group(rid: int, nested: bool) -> list[dict]:
+        placed.add(rid)
+        return [dict(m, nested=True) if nested else m for m in of[rid]] + below(rid, nested)
+
+    def below(rid: int, nested: bool) -> list[dict]:
+        """The messages of everything that answers `rid`, side branches first."""
+        live = sorted(k for k in kids.get(rid, ()) if k not in held)
+        main = None if nested else max(live, key=down, default=None)
         out = []
-        for kid in sorted(kids.get(rid, ())):
-            if kid not in held:
-                placed.add(kid)
-                out += [dict(m, nested=True) for m in of[kid]] + under(kid)
-        return out
+        for kid in live:
+            if kid != main:
+                out += group(kid, True)
+        return out + (group(main, False) if main is not None else [])
     flat = [m for m in msgs if parents.get(m["rid"]) not in parents or m["rid"] in held]
     out = []
     for i, m in enumerate(flat):
         out.append(m)
         if not any(n["rid"] == m["rid"] for n in flat[i + 1:]):
-            out += under(m["rid"])
-    return out + [dict(m, nested=True) for rid, ms in of.items() if rid not in placed and rid not in {f["rid"] for f in flat} for m in ms]
+            out += below(m["rid"], False)
+    return out + [dict(m, nested=True) for m in msgs
+                  if m["rid"] not in placed and m["rid"] not in {f["rid"] for f in flat}]
 
 
 def tasks_of(con, agent: str) -> list[tuple]:
@@ -328,19 +340,27 @@ def safe_block(value) -> str:
     return "\n".join(textsafe.drawable(str(value)))
 
 
+_REF = re.compile(r"(?<![\w#])#(\d+)\b")
+
+
+def link_refs(text: Text) -> Text:
+    """Every `#<id>` in `text` becomes a link to that message on the page (a click runs
+    `show_message`), so a reply that names a number can be followed to it."""
+    for hit in _REF.finditer(text.plain):
+        text.stylize(Style(underline=True, bold=True, meta={"@click": f"screen.show_message({hit[1]})"}),
+                     hit.start(), hit.end())
+    return text
+
+
 def message_parts(m: dict) -> tuple[Text | None, Text, Text | None]:
     """What one message draws: its head line (not for the human's own), its
     body, and the note under it (cancelled), all as safe `Text`."""
     mine = m["side"] == "you"
-    body = Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else "")
+    body = link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else ""))
     head = None
     if not mine:
         stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
         head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
-        if m["answered"]:
-            head.append("  answered", style="italic dim")
-        elif m["waiting"]:
-            head.append("  waiting for you", style="italic yellow")
     note = None
     if m.get("cancelled"):
         note = Text("cancelled" + (" - the agent was told to stop" if m.get("delivered") else ""))
@@ -450,6 +470,9 @@ class ChatMessage(Vertical):
             parts.insert(0, Static(Text(f"↪ #{m['parent_out']}", style="dim"), classes="parentout"))
         if note is not None:
             parts.append(Static(note, classes="qstate"))
+        self._reply = Button(f"↩ reply to #{m['rid']}", classes="replybtn", compact=True)
+        self._reply.display = False
+        parts.append(self._reply)
         self._send_now: Button | None = None
         if m.get("queued"):
             buttons = []
@@ -465,7 +488,8 @@ class ChatMessage(Vertical):
         self.set_working(working)
 
     def show_id(self, on: bool) -> None:
-        """A focused message tells its #id, the number a reply to it is answering."""
+        """A focused message tells its #id and offers a reply button that writes it into the box."""
+        self._reply.display = on
         if self._ident is not None:
             self._ident.display = on
         elif self._who is not None:
@@ -480,7 +504,9 @@ class ChatMessage(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        if event.button.has_class("sendnow"):
+        if event.button.has_class("replybtn"):
+            self.screen.quote_reply(self.m["rid"])
+        elif event.button.has_class("sendnow"):
             self.screen.send_now(self.m["rid"])
         else:
             self.screen.cancel_message(self.m["rid"], self.m["text"])
@@ -1564,6 +1590,26 @@ class ChatPage(JobsAware, Screen):
                                      yes="Save", no="Cancel",
                                      danger=any(k == "skip_permissions" and new == "on" for k, _, new in changes)),
                              answered)
+
+    def quote_reply(self, rid: int) -> None:
+        """Put `#<id> ` in front of what is typed: the message goes as plain text and the agent
+        reads the number (founder #2652)."""
+        box = self.query_one("#compose", ChatBox)
+        prefix = f"#{rid} "
+        if not box.text.startswith(prefix):
+            box.text = prefix + box.text
+        box.focus()
+        box.move_cursor(box.document.end)
+
+    def action_show_message(self, rid: int) -> None:
+        """Scroll to message `rid` and light it for a moment."""
+        target = next((w for w in self.query(ChatMessage) if w.m["rid"] == rid), None)
+        if target is None:
+            self.notify(f"#{rid} is not on this page - scroll up for older messages", timeout=6)
+            return
+        target.scroll_visible(animate=False)
+        target.add_class("flash")
+        self.set_timer(1.5, lambda: target.remove_class("flash"))
 
     def reply_to(self, msg: ChatMessage | None) -> None:
         for old in self.query(".replying"):
