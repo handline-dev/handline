@@ -538,11 +538,23 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     return _park(con, agent, trigger, hid, ok, cleared, retry_soon, log)
 
 
+_OWED_SAID: dict[str, str] = {}
+
+
+def _owed(agent: str, why: str, log) -> bool:
+    """A clear that is still owed holds everything else for the agent (T415): say why, once per reason (T456)."""
+    if _OWED_SAID.get(agent) != why:
+        _OWED_SAID[agent] = why
+        log(f"  {agent}: its clear is owed and holds all it is told - {why}")
+    return True
+
+
 def settle_owed_clear(con, agent: str, log) -> bool:
     """True while this agent's clear is owed (T415): types it once the agent's background work
     has ended or its time is up, then parks it as the handoff would have. False when nothing is
     owed, or the session it was owed for is gone."""
     if not delivery.clear_owed(con, agent):
+        _OWED_SAID.pop(agent, None)
         return False
     row = db.get_agent_state(con, agent)
     if not row or row["closed_at"] or not row["terminal"] or not delivery.session_present(agent):
@@ -553,10 +565,10 @@ def settle_owed_clear(con, agent: str, log) -> bool:
             return True
         why = delivery._type_gate(con, agent, row["terminal"], require_idle=False, require_settled=True)
         if why:
-            return True
-        cleared, _ = delivery._reclaim_context(con, agent, log)
+            return _owed(agent, why, log)
+        cleared, why = delivery._reclaim_context(con, agent, log)
         if not cleared:
-            return True
+            return _owed(agent, why or "the clear did not go", log)
         delivery._mark_typed(con, agent)
         last = db.last_handoff(con, agent)
         ok = bool(last and last["state"] == "done")

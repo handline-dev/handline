@@ -83,6 +83,16 @@ def queued_or_idle(con, agent: str, when: str) -> str:
     return IDLE
 
 
+def _reply_settled(con, row) -> bool:
+    """Is the request an `AWAIT_REPLY_MARK` park names no longer waiting for an answer? A detail
+    that does not parse, or names no request, is not judged."""
+    parts = (row["detail"] or "").split()
+    if len(parts) < 2 or not parts[1].startswith("#") or not parts[1][1:].isdigit():
+        return False
+    req = db.get_request(con, int(parts[1][1:]))
+    return req is not None and req["state"] != "queued"
+
+
 def supervise(con, agent: str, log, now: int, samples: dict,
               actions: list[str]) -> None:
     """One agent's turn in a tick.
@@ -96,6 +106,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 
     if state == STALLED:
         return  # 8.6: only a human clears this
+    if state == PARKED and awaiting_reply(row) and _reply_settled(con, row):
+        # T456: a park is on one reply. A resolve un-parks its asker only when nothing else it asked
+        # is outstanding, so with another ask open the park kept naming an answer that had come.
+        state = queued_or_idle(con, agent, f"the reply it waited for ({row['detail'].split()[1]}) is settled")
+        log(f"  {agent}: no longer waiting for {row['detail'].split()[1]} - it is settled ({state})")
+        row = db.get_agent_state(con, agent)
     if state not in EVALUATED:
         return
 

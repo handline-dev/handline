@@ -387,6 +387,36 @@ def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) 
         con.close()
 
 
+def test_a_hold_on_a_task_is_always_said_once_with_its_reason(home: Path) -> None:
+    """T456 (founder #5770): core sat IDLE for 43 min with a task queued and nothing in the log. Whatever
+    holds a task back is said, once per reason, with the request id."""
+    sent = _world(home)
+    con = db.connect()
+    lines: list[str] = []
+    try:
+        rid = db.add_request(con, "product", "backend", "a piece of work", None, "peer", "async", "task", 0, None)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("hold: a screen that is not idle holds it, and says why once",
+              not sent and len([m for m in lines if f"#{rid} is held" in m and "not idle" in m]) == 1, str(lines))
+
+        db.set_cursor(con, "clear_owed:backend", int(time.time()))
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("hold: a different reason is said when it changes",
+              any(f"#{rid} is held" in m and "cleared" in m for m in lines), str(lines))
+        db.clear_cursor(con, "clear_owed:backend")
+
+        orcamod.typeable_now = lambda h: True
+        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("typed: once nothing holds it, it is told, and it is no longer said to be held",
+              told and len(sent) == 1 and not dmn_delivery._HELD.get("backend"), str((told, sent)))
+    finally:
+        con.close()
+
+
 def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
     """T398 (auditor #2427 3a): a send that fails leaves the row undelivered - owed,
     withdrawable - and the tick types it once the send works."""
@@ -560,6 +590,7 @@ def main() -> int:
         run(lambda: test_the_daemon_start_settles_old_says_and_leaves_old_asks(Path(td) / "s12"))
         run(lambda: test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(Path(td) / 'saychat'))
         run(lambda: test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(Path(td) / 'closenotes'))
+        run(lambda: test_a_hold_on_a_task_is_always_said_once_with_its_reason(Path(td) / 'bgtask'))
         run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))

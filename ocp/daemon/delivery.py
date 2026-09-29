@@ -450,15 +450,30 @@ def effective_task_head(con, agent: str):
     return head
 
 
+# What each agent's next task was last said to be held for, so the reason is logged when it
+# changes and not on every tick (T456): a stall must never be silent.
+_HELD: dict[str, str] = {}
+
+
+def _held(agent: str, head, why: str, log) -> bool:
+    """Say once per reason why `head` is not typed at `agent` yet; always False, the delivery's answer."""
+    if _HELD.get(agent) != why:
+        _HELD[agent] = why
+        log(f"  {agent}: #{head['id']} is held - {why}")
+    return False
+
+
 def deliver_queued(con, agent: str, log) -> bool:
     """Tell an agent about its next task - only tasks, one at a time and only when
     it is free: a message is typed at once (`messaging.tell_now`) and never comes
-    here (T398). Told once per task: the cursor holds the id last announced.
+    here (T398). Told once per task: the cursor holds the id last announced. Whatever
+    holds a task back is logged, once per reason (T456).
     """
     if not enforce_edges(con, agent, log):
         return False
     head = effective_task_head(con, agent)
     if not head:
+        _HELD.pop(agent, None)
         return False
     head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
         or _session_changed(con, agent)
@@ -467,31 +482,36 @@ def deliver_queued(con, agent: str, log) -> bool:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         head_due = False
     if not head_due:
+        _HELD.pop(agent, None)
         return False
-    if typing_hold(con, agent):
-        return False              # stays queued; told when it wakes or moves
+    why = typing_hold(con, agent)
+    if why:
+        return _held(agent, head, why, log)          # stays queued; told when it wakes or moves
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
-        return False
+        return _held(agent, head, "it has no live terminal", log)
     if not session_present(agent):
         # Nothing here is read by an agent that is not running; at a shell
         # prompt this line is four commands in backticks and a redirection.
         # Leaving it queued loses nothing: the sweep records the agent closed
         # within a tick, and work arriving at a closed agent wakes it.
-        return False
+        return _held(agent, head, "no session is running in its terminal", log)
     # Typing at an agent mid-turn leaves the text sitting in its input box
     # unsent, which is how three agents once came up having been told nothing.
     if not orca.typeable_now(handle):
-        return False
+        return _held(agent, head, "its screen is not idle (mid-turn, or a dialog is open)", log)
     depth = sum(1 for r in db.queued_for(con, agent) if r["kind"] == "task")
     with lock.terminal(agent) as mine:
         if not mine:
-            return False          # something else is mid-send; next tick
+            return _held(agent, head, "its terminal is locked by another send", log)
         if _type_gate(con, agent, handle):
-            return False          # stale reading above; next tick
+            return _held(agent, head, "its screen changed before the send", log)
         # One task per pass: it starts the agent's turn, so a second would be typed
-        # mid-turn. The rest go out on later ticks, each behind its own typeable_now.
-        return _tell(con, agent, head, depth, handle, log)
+        # mid-turn. The rest go out on later ticks, each behind its own typeable check.
+        told = _tell(con, agent, head, depth, handle, log)
+        if told:
+            _HELD.pop(agent, None)
+        return told
 
 
 # An agent is asked to resolve the request at the head of its queue once it has
