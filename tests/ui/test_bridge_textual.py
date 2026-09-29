@@ -489,6 +489,41 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
         m["queued"] for m in msgs if m["text"] == "second, not read yet"))
 
 
+def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
+    """Auditor #5331: a held message the page's agent sent sits above the line and gives it no
+    reason; the reason is the one of the message below the line."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("whyline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        askmod.ask("backend", "reviewer's own, not delivered", requester="reviewer")
+        _, _, below = askmod.ask("reviewer", "to reviewer, not read", requester="backend")
+        con.commit()
+        msgs = cp.messages_of(cp.requests_page(con, "reviewer", True)[0], "reviewer")
+        texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in cp.transcript_widgets(msgs, False)]
+        check("why: the sent one is above the line, the one to the agent below",
+              texts.index("reviewer's own, not delivered") < texts.index("--") < texts.index("to reviewer, not read"),
+              str(texts))
+        check("why: the reason is for the message below the line, not the one sent",
+              cp.wait_reason(con, "reviewer", msgs, False) == "reviewer: " + actions.queue_reason(con, "reviewer", below),
+              cp.wait_reason(con, "reviewer", msgs, False))
+    finally:
+        con.close()
+
+
+def test_a_number_in_a_message_becomes_a_link_to_it() -> None:
+    from ocp.ui import chat_page as cp
+    from rich.text import Text
+    def targets(s):
+        t = cp.link_refs(Text(s))
+        return [sp.style.meta.get("@click") for sp in t.spans]
+    check("refs: each #id is a link to show_message",
+          targets("see #12 and #7") == ["screen.show_message(12)", "screen.show_message(7)"], str(targets("see #12 and #7")))
+    check("refs: a#3 and ##4 are not links", targets("a#3") == [] and targets("##4") == [], str((targets("a#3"), targets("##4"))))
+
+
 def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
     from ocp.ui import chat_page as cp
     _home("tasks")
@@ -609,7 +644,7 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
                 "dismissed_reason": None, "delivered_at": delivered, "typed_at": delivered,
-                "landed_at": delivered, "landing_tries": None, "replied": 0, "parent_id": None,
+                "landed_at": delivered, "landing_tries": None, "parent_id": None,
                 "kind": None, "tasks": None, "task_title": None, "task_state": None}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
@@ -640,7 +675,7 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
         return {"id": 1, "ts": 100, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
                 "state": "queued", "body": "m", "verdict": None, "dismissed_by": None,
                 "dismissed_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
-                "landing_tries": tries, "replied": 0}
+                "landing_tries": tries}
     def label_and_buttons(r):
         m = cp.messages_of([r], "reviewer")[0]
         kids = cp.ChatMessage(m)._pending_children
@@ -1437,6 +1472,8 @@ async def _run_all() -> None:
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
+    test_the_queue_reason_comes_from_the_message_below_the_line()
+    test_a_number_in_a_message_becomes_a_link_to_it()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()

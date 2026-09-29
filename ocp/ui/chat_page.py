@@ -350,6 +350,19 @@ def safe_block(value) -> str:
 _REF = re.compile(r"(?<![\w#])#(\d+)\b")
 
 
+def wait_reason(con, agent: str, msgs: list[dict], running: bool) -> str:
+    """Why the message under the queue line waits: the human's own that is not typed yet
+    (unless the spinner already says it), else one to `agent` from another agent, which waits
+    on its recipient. Only messages below the line count; what the agent sent sits above it."""
+    waiting = [m for m in msgs if m["queued"] and m["landing"] == "queued"]
+    held = [m for m in msgs if m["held"] and m["unread"]]
+    if waiting and not running:
+        return actions.queue_reason(con, agent, waiting[0]["rid"])
+    if not waiting and held:
+        return f"{held[0]['to']}: {actions.queue_reason(con, held[0]['to'], held[0]['rid'])}"
+    return ""
+
+
 def link_refs(text: Text) -> Text:
     """Every `#<id>` in `text` becomes a link to that message on the page (a click runs
     `show_message`), so a reply that names a number can be followed to it."""
@@ -465,15 +478,13 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     out: list = []
     line = False
     for m in msgs:
-        if m.get("unread", m.get("held") or m.get("queued") and not m.get("delivered")) and not line:
+        if m["unread"] and not line:
             out.append(QueueLine(working, why=why, wait=wait))
             line = True
         out.append(ChatMessage(m, working))
     if not line:
         out.append(QueueLine(working, rule=False, wait=wait))
     return out
-
-
 
 
 class ChatMessage(Vertical):
@@ -1269,21 +1280,11 @@ class ChatPage(JobsAware, Screen):
             con.close()
         self.oldest = rows[0]["id"] if rows else None
         msgs = messages_of(rows, self.agent)
-        waiting = [m for m in msgs if m["queued"] and m["landing"] == "queued"]
-        held = [m for m in msgs if m["held"]]
-        why = ""
-        if waiting and self.agent_state[0] != "RUNNING":     # the spinner already says it
-            con = db.connect()
-            try:
-                why = actions.queue_reason(con, self.agent, waiting[0]["rid"])
-            finally:
-                con.close()
-        elif not waiting and held:      # an agent's message waits on its recipient, not on this page's agent
-            con = db.connect()
-            try:
-                why = f"{held[0]['to']}: {actions.queue_reason(con, held[0]['to'], held[0]['rid'])}"
-            finally:
-                con.close()
+        con = db.connect()
+        try:
+            why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
+        finally:
+            con.close()
         state, detail = self.agent_state
         wait = detail if detail.startswith("waiting for") else ""
         key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
