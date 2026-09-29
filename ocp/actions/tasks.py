@@ -224,8 +224,31 @@ def reads_doing(con, tid: int) -> bool:
               for r in db.task_requests(con, c["id"]))
 
 
-def _state_of(row, doing: bool) -> str:
-    """The ladder of `task_state`, given whether the task reads as being worked."""
+def holds_current(con, row) -> bool:
+    """Is this task the one its owner holds? An agent holds one task at a time (T444), so
+    only that one can read as doing (an agent holding none, or only a finished one, is
+    working whatever has work out); the founder holds none and every task of theirs
+    that is being asked reads doing."""
+    if row["owner"] == HUMAN:
+        return True
+    held = db.current_task(con, row["owner"])
+    if held is None or held == row["id"]:
+        return True
+    cur = db.get_task(con, held)
+    return cur is None or bool(cur["closed_by"] or cur["done_evidence"])
+
+
+def is_doing(con, tid: int) -> bool:
+    """`reads_doing` and the one its owner holds: what makes a task doing. Anything else
+    with work out is queued behind the current one until `task start` or a finish."""
+    row = db.get_task(con, tid)
+    return row is not None and reads_doing(con, tid) and holds_current(con, row)
+
+
+def _state_of(row, doing: bool, asked: bool = False) -> str:
+    """The ladder of `task_state`, given whether the task reads as being worked and
+    whether work is out on it at all: one asked but held back behind its owner's
+    current task is queued, not a draft."""
     if row["merged_into"]:
         return "merged"
     if row["discarded_by"]:
@@ -236,7 +259,7 @@ def _state_of(row, doing: bool) -> str:
         return "done"
     if doing:
         return "doing"
-    return "queued" if row["queued_by"] else "draft"
+    return "queued" if row["queued_by"] or asked else "draft"
 
 
 def task_state(con, row) -> str:
@@ -249,7 +272,8 @@ def task_state(con, row) -> str:
     sync."""
     if row["merged_into"] or row["discarded_by"] or row["closed_by"] or row["done_evidence"]:
         return _state_of(row, False)        # written states: nothing to read
-    return _state_of(row, reads_doing(con, row["id"]))
+    asked = reads_doing(con, row["id"])
+    return _state_of(row, asked and holds_current(con, row), asked)
 
 
 def stop_wait_reason(con, agent: str) -> str | None:
@@ -603,7 +627,7 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     # T286: whether it still has a request out decides whether its timeout
     # clock resumes (reads_doing, not task_state - done_evidence is still set
     # on `row` here, and task_state would misread that as "done", never doing).
-    if not db.reopen_task(con, tid, reads_doing(con, tid)):
+    if not db.reopen_task(con, tid, is_doing(con, tid)):
         return False, f"task T{tid} was closed or reopened by someone else just now"
     db.add_event(con, by, "reopen_task",
                  {"task_id": tid, "reason": said, "after_request": _newest_request(con)})
@@ -649,7 +673,7 @@ def release_task(con, tid: int, by: str) -> tuple[bool, str]:
                 {"task_id": tid, "retired": retired, **({"failed": failed} if failed else {})})
     detail = "; ".join(said)
     tail = f" - not retired: {'; '.join(failed)}" if failed else ""
-    if reads_doing(con, tid):
+    if is_doing(con, tid):
         # Every direct request just closed: what is left is a child's, or a founder-begun task.
         child = next((c for c in db.open_child_tasks(con, tid)
                       if any(_asks(r) for r in db.task_requests(con, c["id"]))), None)
@@ -1104,9 +1128,18 @@ def task_start(con, me: str, tid: int) -> tuple[bool, str]:
         return False, f"task T{tid} is closed - nothing to start"
     if row["done_evidence"]:
         return False, f"task T{tid} is already done - nothing to start"
+    held = db.current_task(con, me)
     db.set_current_task(con, me, tid)
-    db.add_event(con, me, "task_start", {"task_id": tid})
-    return True, f"T{tid} is now {me}'s current task"
+    for r in db.task_requests(con, tid):
+        if _asks(r) and r["target"] == me and not r["delivered_at"]:
+            db.promote_to_front(con, r["id"])
+    db.add_event(con, me, "task_start", {"task_id": tid, "was_current": held})
+    back = ""
+    if held is not None and held != tid:
+        prev = db.get_task(con, held)
+        if prev is not None and not prev["closed_by"] and not prev["done_evidence"]:
+            back = f"; T{held} goes back to queued (your `ocp progress` note is kept)"
+    return True, f"T{tid} is now {me}'s current task{back}"
 
 
 def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
@@ -1365,16 +1398,16 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
         if timeout_s > MAX_TASK_TIMEOUT_S:
             return False, (f"a task timeout is at most {timefmt.span(MAX_TASK_TIMEOUT_S)} - "
                            f"{timefmt.span(timeout_s)} is longer")
-        is_doing = reads_doing(con, tid)
+        doing_now = is_doing(con, tid)
         changes["timeout"] = {"old": timefmt.span(row["timeout_s"]) if row["timeout_s"] else "none",
-                              "new": f"{timefmt.span(timeout_s)}, from now" if is_doing
+                              "new": f"{timefmt.span(timeout_s)}, from now" if doing_now
                               else f"{timefmt.span(timeout_s)}, once it is doing"}
     else:
-        is_doing = False
+        doing_now = False
     if not changes:
         return False, f"task T{tid} already reads that way - nothing to edit"
     db.edit_task(con, tid, by, owner=new_owner, title=new_title, priority=new_priority,
-                 timeout_s=timeout_s, is_doing=is_doing)
+                 timeout_s=timeout_s, is_doing=doing_now)
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
     said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
     return True, f"task T{tid} edited by {by}: {said}"
@@ -1540,6 +1573,11 @@ class _board_facts:
                 "FROM task_requests l JOIN requests r ON r.id = l.request_id "
                 "ORDER BY l.task_id, r.id"):
             self.links.setdefault(r["tid"], []).append(r)
+        self.tasks = {r["id"]: r for r in con.execute(
+            "SELECT id, closed_by, done_evidence FROM tasks WHERE id IN "
+            "(SELECT current_task FROM agent_state WHERE current_task IS NOT NULL)")}
+        self.current = {r["agent"]: r["current_task"] for r in con.execute(
+            "SELECT agent, current_task FROM agent_state WHERE current_task IS NOT NULL")}
         self.begun = {r[0] for r in con.execute(
             f"SELECT DISTINCT {db.EVENT_TASK} FROM events WHERE kind = 'task_begin'") if r[0] is not None}
         self.children: dict[int, list[int]] = {}
@@ -1553,13 +1591,22 @@ class _board_facts:
                 "WHERE t.closed_by IS NULL AND t.done_evidence IS NULL ORDER BY b.task_id, t.id"):
             self.blockers.setdefault(r["tid"], []).append(r["blocker"])
 
-    def _doing(self, tid: int) -> bool:
-        return (tid in self.begun
-                or any(_asks(r) for r in self.links.get(tid, []))
-                or any(_asks(r) for c in self.children.get(tid, []) for r in self.links.get(c, [])))
+    def _holds(self, row) -> bool:
+        """`holds_current` on the loaded facts."""
+        held = self.current.get(row["owner"])
+        if row["owner"] == HUMAN or held is None or held == row["id"]:
+            return True
+        cur = self.tasks.get(held)
+        return cur is None or bool(cur["closed_by"] or cur["done_evidence"])
+
+    def _doing(self, row) -> bool:
+        tid = row["id"]
+        return (self._holds(row) and (tid in self.begun
+                     or any(_asks(r) for r in self.links.get(tid, []))
+                     or any(_asks(r) for c in self.children.get(tid, []) for r in self.links.get(c, []))))
 
     def state(self, row) -> str:
-        return _state_of(row, self._doing(row["id"]))
+        return _state_of(row, self._doing(row))
 
     def asker(self, row) -> str:
         return _asker_of(row, (r["requester"] for r in self.links.get(row["id"], [])))

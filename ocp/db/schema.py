@@ -436,6 +436,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _answers_are_says(con)
     _drop_daemon_close_notes(con)
     _escalations_are_tasks(con)
+    _one_doing_task_each(con)
     return con
 
 
@@ -718,6 +719,36 @@ def _escalations_are_tasks(con) -> None:
         dbtasks.link_request(con, tid, r["id"])
     con.execute("UPDATE requests SET kind = 'task' WHERE kind = 'escalate'")
     set_cursor(con, "migrated:escalations_are_tasks", 1)
+
+
+def _one_doing_task_each(con) -> None:
+    """T444: an agent holds one doing task. Where several are being asked of one agent
+    and it holds none of them, the newest becomes its current task and the rest read as
+    queued - reported once, as an event per agent. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:one_doing_each"):
+        return
+    from .events import add_event
+    from .requests import HUMAN
+    rows = con.execute(
+        "SELECT t.id, t.owner FROM tasks t WHERE t.closed_by IS NULL AND t.done_evidence IS NULL "
+        "AND t.owner != ? AND (t.id IN (SELECT l.task_id FROM task_requests l JOIN requests r "
+        "ON r.id = l.request_id WHERE r.state = 'queued' AND r.fyi = 0) "
+        f"OR t.id IN (SELECT {EVENT_TASK} FROM events WHERE kind = 'task_begin')) ORDER BY t.id",
+        (HUMAN,)).fetchall()
+    by: dict[str, list[int]] = {}
+    for r in rows:
+        by.setdefault(r["owner"], []).append(r["id"])
+    for agent, tids in by.items():
+        cur = con.execute("SELECT current_task FROM agent_state WHERE agent = ?", (agent,)).fetchone()
+        held = cur["current_task"] if cur else None
+        if len(tids) < 2 or held in tids:
+            continue
+        keep = tids[-1]
+        con.execute("INSERT INTO agent_state(agent, state, updated, current_task) VALUES(?,?,?,?) "
+                    "ON CONFLICT(agent) DO UPDATE SET current_task = excluded.current_task",
+                    (agent, "IDLE", int(time.time()), keep))
+        add_event(con, agent, "demoted_doing", {"kept": keep, "queued": [t for t in tids if t != keep]})
+    set_cursor(con, "migrated:one_doing_each", 1)
 
 
 def _answers_are_says(con) -> None:

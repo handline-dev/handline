@@ -5304,6 +5304,33 @@ def test_task_memo_verbs(home: Path) -> None:
     check("memo verb: the founder deletes", rc == 0 and "deleted" in out, out)
 
 
+def test_one_doing_task_per_agent(home: Path) -> None:
+    """T444: an agent holds one doing task. A second task with work out reads queued
+    until `task start` makes it current, which sends the first back to queued."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        a = db.new_task(con, "first", "worker", "manager", timeout_s=5400)
+        b = db.new_task(con, "second", "worker", "manager", timeout_s=5400)
+        for t in (a, b):
+            db.link_request(con, t, db.add_request(con, "manager", "worker", "go", None, "supervisor",
+                                                   "fire_and_forget", None, 0, None))
+        db.set_current_task(con, "worker", a)
+        check("one doing: the current task reads doing", actions.task_state(con, db.get_task(con, a)) == "doing")
+        check("one doing: another with work out reads queued, not draft",
+              actions.task_state(con, db.get_task(con, b)) == "queued")
+        ok, msg = actions.task_start(con, "worker", b)
+        check("one doing: task start makes the second current", ok and db.current_task(con, "worker") == b, msg)
+        check("one doing: and says the first goes back to queued", f"T{a} goes back to queued" in msg, msg)
+        check("one doing: the second now reads doing", actions.task_state(con, db.get_task(con, b)) == "doing")
+        check("one doing: the first reads queued", actions.task_state(con, db.get_task(con, a)) == "queued")
+        db.mark_task_done(con, b, "ok")
+        check("one doing: once the current one is done, the other reads doing again",
+              actions.task_state(con, db.get_task(con, a)) == "doing")
+    finally:
+        con.close()
+
+
 def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
     """T286: `ocp task new` requires -t/--timeout (at most 4h; missing or over
     is refused). Its clock only counts while the task is doing (founder
@@ -5350,6 +5377,9 @@ def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
         # Now make it doing (a request out against it, T250's own pattern),
         # and edit again - this time the deadline actually starts.
         db.link_request(con, 2, _human_request())
+        check("doing: with T1 still worker's current task, T2 with a request out reads queued",
+              actions.task_state(con, row) == "queued")
+        db.set_current_task(con, "worker", 2)
         check("doing: the task now reads doing", actions.task_state(con, row) == "doing")
         rc, out = _cli(["task", "edit", "T2", "--timeout", "90m"])
         check("task edit --timeout: doing, extends it, said plainly",
@@ -8847,7 +8877,10 @@ limits:
         real = db.add_request(con, "manager", "worker", "go", None, "supervisor",
                               "fire_and_forget", None, 0, None)
         db.link_request(con, merged, real)
-        check("fyi: a real request linked to it still makes it doing", state(merged) == "doing")
+        check("fyi: a real request linked to it stays queued behind worker's current task",
+              state(merged) == "queued", state(merged))
+        db.set_current_task(con, "worker", merged)
+        check("fyi: and reads doing once it is worker's current task", state(merged) == "doing")
     finally:
         con.close()
 
@@ -9072,6 +9105,7 @@ def main() -> int:
         run(lambda: test_task_memos_anyone_adds_author_or_founder_changes(Path(td) / 'memos'))
         run(lambda: test_a_memo_change_is_told_to_the_holder_only_while_doing(Path(td) / 'memotold'))
         run(lambda: test_task_memo_verbs(Path(td) / 'memoverbs'))
+        run(lambda: test_one_doing_task_per_agent(Path(td) / 'onedoing'))
         run(lambda: test_task_timeout_new_requires_it_and_edit_extends_it(Path(td) / 'tasktimeout'))
         run(lambda: test_reopening_a_timed_task_resumes_its_clock_only_if_still_doing(
             Path(td) / 'taskreopentimeout'))
