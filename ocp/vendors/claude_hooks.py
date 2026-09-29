@@ -141,9 +141,16 @@ def allow_home_writes() -> tuple[bool, list[str]]:
 # The one list of commands run without asking (`permissions.allow`): read-only
 # tools in full, and ocp per subcommand. Never a blanket `ocp:*` - merge,
 # `hr apply` and the like must still ask.
+#
+# A `Bash(x:*)` rule allows every flag after the prefix, so a tool is listed
+# only if no flag makes it run or write anything. No git prefix is allowed:
+# `git grep -O<cmd>` runs a program and `git log/show/diff --output=<file>`
+# writes a file. Only the exact forms below, which take no flags, are. The ocp
+# reporting verbs take `--file <path>`, which reads a file the agent could
+# already read.
 SAFE_COMMANDS = (
-    *(f"Bash({c}:*)" for c in ("tail", "head", "grep", "wc", "cat", "ls",
-                              "git log", "git status", "git show", "git grep", "git diff")),
+    *(f"Bash({c}:*)" for c in ("tail", "head", "grep", "wc", "cat", "ls")),
+    "Bash(git status)", "Bash(git log)", "Bash(git diff)",
     # read-only
     *(f"Bash(ocp {c}:*)" for c in ("inbox", "read", "status", "task list", "team check")),
     "Bash(ocp team)",

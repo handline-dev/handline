@@ -1410,6 +1410,10 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
     check("init: ocp's socket is allowed once, over two runs",
           data["sandbox"]["network"]["allowUnixSockets"] == [str(home / "daemon.sock")]
           and "daemon.sock" in outs[0] and "daemon.sock" not in outs[1], str(data["sandbox"]) + str(outs))
+    allow = data["permissions"]["allow"]
+    check("init: the safe commands are allowed, once, over two runs, and said once",
+          allow == list(hooks.SAFE_COMMANDS) and "permissions:" in outs[0] and "permissions:" not in outs[1],
+          str(allow) + str(outs))
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "install"], capture_output=True,
                        text=True, env=env, stdin=subprocess.DEVNULL, timeout=20)
     check("hook install: points to install-hooks instead of reading stdin",
@@ -1524,6 +1528,7 @@ def test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(
           str(allow))
     check("safe: tail and the read-only ocp verbs are allowed, merge and hr apply are not",
           "Bash(tail:*)" in allow and "Bash(ocp inbox:*)" in allow and "Bash(ocp task new:*)" in allow
+          and not any(a.startswith("Bash(git ") and a.endswith(":*)") for a in allow)
           and not any(a in allow for a in ("Bash(ocp:*)", "Bash(ocp merge:*)", "Bash(ocp hr apply:*)",
                                             "Bash(ocp task done:*)")), str(allow))
     before = target.read_text()
