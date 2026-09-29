@@ -13,12 +13,13 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   or you hand it on with `ocp task handoff T<n> <agent> "<note>"` - that is how
   the result reaches whoever asked, never a second task repeating it. The next
   task arrives only then.
-- Review and merge are child tasks you wait on, not handoffs: you keep your
-  task, in doing. When code is ready, `ocp task new --owner orcapipe.auditor
+- Review and merge (orcapipe's project guideline; `ocp team` names your own
+  project's auditor and merger) are child tasks you wait on, not handoffs: you
+  keep your task, in doing. When code is ready, `ocp task new --owner orcapipe.auditor
   --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
   check>"`; the child blocks T<n>, and the auditor closes it with `ocp task done
-  T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - its result reaches you
-  in the unblock notice. On a PASS open the same for `orcapipe.merger`
+  T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
+  is done, with its result. On a PASS open the same for `orcapipe.merger`
   (`"merge T<n> @<sha>"`, body naming the PASS task); it closes with the merged
   commit (`--sha`) or `"not merged: <reason>"`. Then close T<n> with that sha if
   you may close it, else `ocp task handoff T<n> <its opener> "merged <sha>"`.

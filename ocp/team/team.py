@@ -44,9 +44,6 @@ VALID_RESPONSE = {"async", "fire_and_forget"}
 ASK_WINDOW_S = 3600
 
 
-# The relation a task handed back on a FAIL carries when no edge declares its
-# route (T392); the daemon's delivery re-check reads it to re-route the same way.
-
 
 @dataclass
 class Decision:
