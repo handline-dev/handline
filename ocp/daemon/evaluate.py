@@ -204,7 +204,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # terminal while waiting on an answer has no way back at all.
     started_now = False
     if not (row and row["terminal"]) and (db.queued_for(con, agent)
-                                          or db.unannounced_answers(con, agent)):
+                                          or db.unannounced_answers(con, agent)
+                                          or db.list_pending(con, agent)):
         actions.append(lifecycle._start_for_work(con, agent, log))
         row = db.get_agent_state(con, agent)
         started_now = bool(row and row["terminal"])
@@ -390,6 +391,31 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             db.set_agent_state(con, agent, STALLED,
                                detail=f"{fresh['failed_attempts']} failed attempts")
             actions.append(f"{agent}: STALLED after {fresh['failed_attempts']} failed attempts")
+
+
+def start_waiting(con, log) -> list[str]:
+    """T408: at daemon start, bring up at once every agent that has work waiting
+    and no session - the tick would, but only after its usage polls and each
+    agent in turn, and a reboot leaves every agent in that state. Runs the sweep
+    first, so a terminal the reboot killed is dropped and the agent started in
+    its worktree rather than woken into a handle that is gone."""
+    actions: list[str] = []
+    reconciler.sweep(con, log, actions)
+    for agent in paths.list_agents():
+        try:
+            row = db.get_agent_state(con, agent)
+            if (row and row["state"] == STALLED) or db.in_flight_for(con, agent):
+                continue
+            if not (row and row["terminal"]):
+                if db.queued_for(con, agent) or db.unannounced_answers(con, agent) \
+                        or db.list_pending(con, agent):
+                    actions.append(lifecycle._start_for_work(con, agent, log))
+            elif row["closed_at"] and lifecycle.closed_wake_cause(con, agent, row):
+                ok, why = lifecycle.wake_agent(con, agent, log)
+                actions.append(f"{agent}: woken at start" if ok else f"{agent}: could not wake - {why}")
+        except Exception as e:  # noqa: BLE001 - one agent's failure is not the start's
+            log(f"  {agent}: start for waiting work failed: {type(e).__name__}: {e}")
+    return actions
 
 
 def tick(con, log, samples: dict | None = None) -> Tick:

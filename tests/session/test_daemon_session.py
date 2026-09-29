@@ -3477,6 +3477,17 @@ def test_a_due_park_with_no_terminal_is_started_not_held(home: Path) -> None:
         check("tick: the same park is spent, and the agent is given a terminal for its work",
               started == ["marina"] and row["wake_at"] is None and row["terminal"] == "term_new",
               f"{started} {dict(row)}")
+
+        # The other way in: only a pending message (the socket's `message` verb) is waiting.
+        started.clear()
+        db.set_terminal(con, "marina", None, None)
+        db.set_closed(con, "marina", "sess_old")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        con.execute("UPDATE requests SET state = 'done'")
+        db.add_pending(con, "marina", "hello", int(time.time()))
+        dmn_evaluate.supervise(con, "marina", lambda _m: None, int(time.time()), {}, [])
+        check("tick: a closed agent with no terminal and only a pending message is started for it",
+              started == ["marina"], str(started))
     finally:
         (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
         con.close()
@@ -3539,6 +3550,59 @@ def test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(hom
         dmn_lifecycle.wake_agent = real_wake
         dmn_evaluate._SAID.clear()
         con.close()
+
+
+def test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(home: Path) -> None:
+    """T408: after a reboot every agent with work waiting has no session, and the
+    tick brings them up behind its usage polls, one after another. At start the
+    daemon brings them up first: no terminal -> started in its worktree, closed
+    with something to be told -> woken, nothing waiting -> left alone."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    order: list = []
+    real = (orcamod.available, orcamod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
+            dmn_lifecycle.wake_agent, dmn_evaluate.tick)
+    try:
+        orcamod.available = lambda: True
+        orcamod.live_terminals = lambda: {"term_x"}
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
+
+        def fake_spawn(agent, repo, base="main"):
+            order.append(("start", agent))
+            db.set_terminal(db.connect(), agent, f"term_{agent}", str(repo))
+            return True, f"{agent}: worktree {repo}"
+
+        spawnmod.spawn = fake_spawn
+        dmn_lifecycle.wake_agent = lambda con_, a, log_, **kw: (order.append(("wake", a)), (True, "woke"))[1]
+        agents.register("marina", repo=str(home / "checkout"))
+        agents.register("idler", repo=str(home / "checkout2"))
+        for a in ("marina", "idler"):
+            db.set_terminal(con, a, None, None)
+        db.add_request(con, "manager", "marina", "implement the sea", None,
+                       "supervisor", "fire_and_forget", None, 0, None)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_closed(con, "backend", "sess-1")
+        support.something_waiting(con, "backend")
+
+        acts = dmn_evaluate.start_waiting(con, lambda _m: None)
+        check("start: an agent with work and no terminal is started, a closed one with work woken",
+              ("start", "marina") in order and ("wake", "backend") in order, f"{order} {acts}")
+        check("start: an agent with nothing waiting is left alone",
+              ("start", "idler") not in order and ("wake", "idler") not in order, str(order))
+
+        order.clear()
+        dmn_evaluate.tick = lambda con_, log_, samples=None: (order.append("tick"), dmn_evaluate.Tick(0, []))[1]
+        con.close()
+        db.set_terminal(db.connect(), "marina", None, None)
+        dmn_loop.run(once=True, verbose=False)
+        check("start: and the loop does it before the first tick",
+              ("start", "marina") in order and order.index(("start", "marina")) < order.index("tick"),
+              str(order))
+    finally:
+        (orcamod.available, orcamod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
+         dmn_lifecycle.wake_agent, dmn_evaluate.tick) = real
+        dmn_evaluate._SAID.clear()
 
 
 def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
@@ -4438,6 +4502,7 @@ def main() -> int:
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_a_due_park_with_no_terminal_is_started_not_held(Path(td) / 'dueterm'))
+        run(lambda: test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(Path(td) / 'startall'))
         run(lambda: test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(Path(td) / 'toldwake'))
         run(lambda: test_a_passed_window_is_asked_about_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))

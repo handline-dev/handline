@@ -86,6 +86,8 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             # restart is still owed - try it now, for any agent already free
             # to hear it, rather than waiting out its next tick.
             messaging.migrate_old_messages(con, log)
+            # T408: work waiting for an agent with no session starts one now, not after the first tick's polls.
+            evaluate.start_waiting(con, log)
             messaging.reload_pending(con, log)
 
             ticks = 0
