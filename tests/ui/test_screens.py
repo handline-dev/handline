@@ -1658,7 +1658,7 @@ edges:
         # that named its colleagues by hand kept naming them after they left.
         mgr, dev = launch.context_for("manager"), launch.context_for("marina")
         check("team: a supervisor is told who its reports are, and that it hands them work",
-              "`marina`" in mgr and "`keeper`" in mgr and "ocp ask <name>" in mgr, mgr)
+              "`marina`" in mgr and "`keeper`" in mgr and "ocp task new --owner <name>" in mgr, mgr)
         check("team: a supervisor is given the manager rules, a report is not",
               all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
               and "--blocked-by" not in dev, mgr)
@@ -1670,22 +1670,34 @@ edges:
               all("Never schedule your own wakeup" in c
                   for c in (mgr, dev, launch.context_for("scout"))))
         # What to do on finishing a task is one instruction, and it is the
-        # report-to line: `ocp ask` when you finish is what an agent once
-        # followed instead of resolving, leaving three requests behind it.
+        # report-to line: a new task when you finish is what an agent once
+        # followed instead of reporting, leaving three requests behind it.
         for who, ctx in (("manager", mgr), ("marina", dev), ("scout", launch.context_for("scout"))):
             line = next((ln for ln in ctx.splitlines() if ln.startswith("You report to")), "")
-            check(f"team: {who}'s report-to line says a handed task ends with resolve, "
-                  "and that resolve is the report", "`ocp resolve <id>" in line
+            check(f"team: {who}'s report-to line says a handed task ends with task done, "
+                  "and that it is the report", "`ocp task done T<n>" in line
                   and "that is your report" in line, line)
             boss_is_human = "You report to `human`" in line
             check(f"team: and {who} is told to ask its boss for blocks and decisions, not "
                   "to finish - and the founder is not asked to clear a status report",
                   "when you finish" not in ctx
-                  and ("is for being blocked" in line) != boss_is_human
-                  and (not boss_is_human or "ocp ask human" not in line)
-                  and "A decision or a block only the founder can clear: `ocp ask human`" in ctx, line)
-            check(f"team: and resolve is said once, in that line, not again after it",
-                  ctx.count("ocp resolve <id>") == 1, ctx)
+                  and ("is a message that needs no answer" in line) != boss_is_human
+                  and (not boss_is_human or "ocp task new --owner human" not in line)
+                  and "a task of theirs: `ocp task new --owner human" in ctx, line)
+            check(f"team: and task done is said once, in that line, not again after it",
+                  ctx.count("ocp task done T<n>") == 1, ctx)
+
+        # The texts an agent reads name the message model - a task for what needs an
+        # answer or a result, a say for the rest - and neither of the old verbs.
+        from ocp.team import guide as guidemod
+        root = Path(launch.__file__).resolve().parent.parent.parent
+        for label, text in (("the manager's prompt", mgr), ("a report's prompt", dev),
+                            ("the guide's work topic", guidemod.TOPICS["work"]),
+                            ("AGENTS.md", (root / "AGENTS.md").read_text()),
+                            ("SKILL.md", (root / "skill" / "SKILL.md").read_text())):
+            check(f"guidance: {label} names task and say, not `ocp ask` or `ocp resolve`",
+                  "ocp ask" not in text and "ocp resolve" not in text and "ocp withdraw" not in text
+                  and "ocp task" in text, text[:200])
 
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The

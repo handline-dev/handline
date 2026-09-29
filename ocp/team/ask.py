@@ -483,7 +483,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
         if old is not None:
             note = f"replaces #{replaces}; {note}"
-        if decision.creates_gate and not fyi:
+        if decision.creates_gate and not fyi and kind != SAY_KIND:
             note += " [escalation: needs a human gate]"
         elif notify:
             note += "\n" + push(con, target, rid)

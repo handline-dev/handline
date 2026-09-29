@@ -362,7 +362,7 @@ def register_worker(con, agent: str, handle: str) -> str | None:
     if boss:
         boss_row = db.get_agent_state(con, boss)
         parent_task = boss_row["task"] if boss_row else None
-    spec = (f"{agent}: an orcapipe agent. Work reaches it through `ocp ask {agent}`; "
+    spec = (f"{agent}: an orcapipe agent. Work reaches it as a task (`ocp task new --owner {agent}`); "
             f"this task is the card it appears in.")
     task = orca.task_create(spec, title=agent, display_name=agent, run=run,
                             parent=parent_task)

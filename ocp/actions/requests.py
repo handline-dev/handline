@@ -272,7 +272,8 @@ def mailbox_rows(con) -> list[dict]:
         # `waiting` says the sender asked for a reply and parked on it - which
         # is what it did at the time; whether it is still parked now is the
         # agent's own state, and the screen says what the row records rather
-        # than reading one as the other. A report is `fyi` by definition
+        # than reading one as the other. A say asks for no reply either - it is the
+        # message that needs none - so it never waits. A report is `fyi` by definition
         # asking for no reply, whatever response the routing happened to pick
         # for that sender's other traffic - `response == "async"` alone would
         # let one hand-edited routing line pin every report from an agent and
@@ -281,7 +282,7 @@ def mailbox_rows(con) -> list[dict]:
             "id": r["id"], "ts": r["ts"], "from": r["requester"],
             "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
             "gate": r["kind"] == "escalate",
-            "waiting": r["response"] == "async" and not r["fyi"],
+            "waiting": r["response"] == "async" and not r["fyi"] and r["kind"] != "say",
             "answer": False,
         })
 
