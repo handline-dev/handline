@@ -78,17 +78,12 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
-    params = (actions.HUMAN, *params)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
            "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, landing_tries, parent_id, kind, "
            "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
            "WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, "
            "(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, "
-           "EXISTS (SELECT 1 FROM requests c WHERE c.requester = ? AND c.state NOT IN "
-           f"{_GONE} AND (c.parent_id = requests.id OR c.parent_id = "
-           "(SELECT a.id FROM requests a WHERE a.parent_id = requests.id AND a.kind = 'answer' "
-           "LIMIT 1))) AS replied, "
            "(SELECT a.id FROM requests a WHERE a.parent_id = requests.id AND a.kind = 'answer' "
            "ORDER BY a.id LIMIT 1) AS answer_id "
            f"FROM requests WHERE state NOT IN {_GONE} AND kind IS NOT 'answer' AND {where}")
@@ -103,11 +98,12 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
 
 
 def _with_task_state(con, rows) -> list[dict]:
-    """The rows as dicts, each with the state of its first linked task (read live, not stored)."""
+    """The rows as dicts; a task delivery (the only row drawn as a card) also gets the state of
+    its task, read live, not stored."""
     out = []
     for r in rows:
         d = dict(r)
-        t = con.execute("SELECT * FROM tasks WHERE id = ?", (d["task_id"],)).fetchone() if d["task_id"] else None
+        t = con.execute("SELECT * FROM tasks WHERE id = ?", (d["task_id"],)).fetchone() if d["task_id"] and d["kind"] == "task" else None
         d["task_state"] = actions.task_state(con, t) if t else None
         out.append(d)
     return out

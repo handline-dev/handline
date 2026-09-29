@@ -302,10 +302,7 @@ def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
         check("chat: the ask and the answer carry two different numbers",
               [(m["part"], m["mid"]) for m in msgs] == [(0, q), (1, rows[0]["answer_id"])]
               and rows[0]["answer_id"] != q, str(msgs))
-        check("chat: nothing replied yet", not rows[0]["replied"])
         askmod.ask("reviewer", "thanks", requester=actions.HUMAN, parent_id=rows[0]["answer_id"])
-        check("chat: a reply under the answer's number is a reply to the ask",
-              cp.requests_page(con, "reviewer", False)[0][0]["replied"])
         after = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
         check("chat: a reply to the answer sits one level under its ask and answer",
               [(m["part"], m.get("level", 0)) for m in after] == [(0, 0), (1, 0), (0, 1)]
