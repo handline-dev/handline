@@ -1272,45 +1272,39 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         actions.chat_seen(con, "reviewer")
         check("chat: seen clears the count", tab()[0] == "CONVERSATION", tab()[0])
 
-        # A reply goes under the thread it continues.
-        before = actions.chat_parent(con, "reviewer")
+        # Typed outside a card, a message is a plain message: nothing is guessed.
         actions.chat_reply(con, "reviewer", "thanks - now the docs")
-        first = before
-        second = db.get_request(con, actions.chat_parent(con, "reviewer"))
-        check("chat: a reply keeps the chain", second["chain_id"] == row["chain_id"]
-              and second["parent_id"] == first, str(dict(second)))
-        check("chat: one chain header, not two",
-              sum(r.startswith("── chain") for r in tab()[1]) == 1, str(tab()[1]))
+        plain = db.get_request(con, actions.chat_parent(con, "reviewer"))
+        check("chat: a message typed in the tab is a new message to the agent",
+              plain["body"] == "thanks - now the docs" and plain["requester"] == actions.HUMAN
+              and plain["target"] == "reviewer" and plain["parent_id"] is None, str(dict(plain)))
 
-        # Two open questions with a report older than both: the oldest question.
+        # An open question is not answered by typing in the tab; only inside its card.
         old_fyi = askmod.ask(actions.HUMAN, "status: started", requester="reviewer", fyi=True)[2]
         q1 = askmod.ask(actions.HUMAN, "first question?", requester="reviewer")[2]
         q2 = askmod.ask(actions.HUMAN, "second question?", requester="reviewer")[2]
-        check("chat: the oldest open question, never a report",
-              actions.chat_target(con, "reviewer") == ("answers", q1),
-              str(actions.chat_target(con, "reviewer")))
         actions.chat_reply(con, "reviewer", "one")
-        check("chat: and then the next", actions.chat_target(con, "reviewer") == ("answers", q2))
-        actions.chat_reply(con, "reviewer", "two")
+        check("chat: typing in the tab closes no question",
+              db.get_request(con, q1)["state"] == "queued" and db.get_request(con, q2)["state"] == "queued")
+        check("chat: and the footer promises nothing about answering",
+              not any("answers #" in r for r in tab()[1]), str(tab()[1][-2:]))
+        actions.answer_ok(con, q1, "one")
+        check("chat: a legacy question is closed by a reply inside its card",
+              db.get_request(con, q1)["verdict"] == "one" and db.get_request(con, q2)["state"] == "queued")
+        askmod.resolve(q2, "two")
         askmod.resolve(old_fyi, "read")
 
-        # A question followed by a report: the reply is to the question.
-        q = askmod.ask(actions.HUMAN, "which colour?", requester="reviewer")[2]
-        f = askmod.ask(actions.HUMAN, "status: halfway", requester="reviewer", fyi=True)[2]
-        check("chat: the footer names the question, not the newer report",
-              any(f"answers #{q}" in r for r in tab()[1]), str(tab()[1][-2:]))
-        actions.chat_reply(con, "reviewer", "blue")
-        check("chat: the reply closes the question and leaves the report",
-              db.get_request(con, q)["verdict"] == "blue"
-              and db.get_request(con, f)["verdict"] is None)
-        askmod.resolve(f, "read")
-
-        # An agent's question to the human is answered, not asked under.
-        rid, = [askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]]
-        actions.chat_reply(con, "reviewer", "call it x")
-        check("chat: a question to the human is closed by the reply",
-              db.get_request(con, rid)["state"] == "done"
-              and db.get_request(con, rid)["verdict"] == "call it x")
+        # A decision card: the reply inside it is the decision, recorded and closed.
+        ok, msg, tid = actions.task_new("reviewer", actions.HUMAN, "which name?", "which name?")
+        card = next(r for r in db.task_requests(con, tid) if r["target"] == actions.HUMAN)["id"]
+        ok, said = actions.answer_ok(con, card, "call it x")
+        row = db.get_task(con, tid)
+        check("chat: the reply in a decision card decides and closes its task",
+              ok and row["done_evidence"] == "call it x" and row["closed_by"] == actions.HUMAN, said)
+        check("chat: and settles the request that carried the card",
+              db.get_request(con, card)["state"] == "done" and db.get_request(con, card)["verdict"] == "call it x")
+        ok, said = actions.answer_ok(con, card, "again")
+        check("chat: a second reply decides nothing", db.get_task(con, tid)["done_evidence"] == "call it x", said)
     finally:
         con.close()
 

@@ -271,13 +271,13 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
 
 
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
-    """Send `body` as a reply to request `rid`, or where the conversation says
-    it goes when `rid` is None. A question the agent is waiting on is closed
-    with `body` as its verdict, and an answer to the human's own request gets a
-    new request and is marked read (both `actions.answer_ok`); anything else -
-    a question already closed - is a new request under it to the agent on
-    that row - its target if the human asked it, else its requester - which in All chat
-    is not always the agent whose page this is."""
+    """Send `body` as a reply to request `rid`, or as a plain message when `rid`
+    is None. Inside a decision card the reply is the decision, and inside a
+    legacy question to the human it is that request's verdict (both
+    `actions.answer_ok`); an answer to the human's own request gets a new request
+    and is marked read; anything else is a new request under the row, to the agent
+    on it - its target if the human asked it, else its requester - which in All
+    chat is not always the agent whose page this is."""
     if rid is None:
         return actions.chat_reply_ok(con, agent, body)
     row = db.get_request(con, rid)

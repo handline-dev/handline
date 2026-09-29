@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import time
 
-from ..team import ask as askmod
 from ..infra import timefmt
 from .. import db
 from ..daemon import landing
 from ..session import waiting
 
-from .requests import _is_answer_to_human, answer, answer_ok, message_ok
+from .requests import _is_answer_to_human, message_ok
 from .routing import HUMAN
 
 
@@ -165,10 +164,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
     if not out:
         out.append(f"nothing yet between you and {agent}")
     if hint:
-        how, rid = chat_target(con, agent)
-        goes = {"answers": f" · answers #{rid}", "under": f" · goes under #{rid}",
-                "new": " · starts a new thread"}[how]
-        out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
+        out += ["", f"↵ write to {agent} · e in $EDITOR"]
     return out, drawn
 
 
@@ -198,27 +194,10 @@ def chat_parent(con, agent: str) -> int | None:
     return int(row["m"]) if row and row["m"] else None
 
 
-def chat_target(con, agent: str) -> tuple[str, int | None]:
-    """The row a message from the human in this tab goes to, and what it does there.
-
-    ('answers', id): the oldest question the agent has open for the human. It is
-    parked on that row, so a reply is its verdict - an ask under it would leave
-    it queued and the agent waiting. A report (fyi) is not a question, and
-    neither is the human's own row, so neither can be what a reply answers.
-    ('under', id): otherwise a new ask in the thread of the latest row between
-    them. ('new', None): nothing between them yet.
-    """
-    q = con.execute(
-        "SELECT MIN(id) AS m FROM requests WHERE requester = ? AND target = ? "
-        "AND state = 'queued' AND fyi = 0", (agent, HUMAN)).fetchone()
-    if q and q["m"]:
-        return "answers", int(q["m"])
-    rid = chat_parent(con, agent)
-    return ("under", rid) if rid else ("new", None)
-
-
 def chat_reply(con, agent: str, body: str) -> str:
-    """Send the human's message where `chat_target` says it goes."""
+    """Send the human's message typed in the tab, outside any card: a plain
+    message. Nothing is guessed to be an answer - a reply that is a decision is
+    typed inside its card (`answer_ok` with that card's request)."""
     return chat_reply_ok(con, agent, body)[1]
 
 
@@ -226,14 +205,7 @@ def chat_reply_ok(con, agent: str, body: str) -> tuple[bool, str]:
     """`chat_reply`, and whether it went."""
     if not body.strip():
         return False, "nothing sent: no message typed"
-    how, rid = chat_target(con, agent)
-    if how == "new":
-        return message_ok(con, agent, body)
-    row = db.get_request(con, rid)
-    if how == "answers" or _is_answer_to_human(row):
-        return answer_ok(con, rid, body)
-    ok, msg, _ = askmod.ask(agent, body, requester=HUMAN, parent_id=rid)
-    return ok, msg
+    return message_ok(con, agent, body)
 
 
 def _seen_key(agent: str) -> str:

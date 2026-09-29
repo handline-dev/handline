@@ -4512,6 +4512,69 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
         con.close()
 
 
+def test_decide_records_the_founders_decision_and_closes_the_task(home: Path) -> None:
+    """T361 step 2: `actions.decide` is the one way a founder-owned task is
+    decided; every refusal comes before anything is written."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    ok, msg, tid = actions.task_new("worker", askmod.HUMAN, "which name?", "which name should it have?")
+    check("setup: a decision task", ok, msg)
+    ok, msg, plain = actions.task_new("manager", "worker", "build it", "build it")
+    check("setup: a task that is not the founder's", ok, msg)
+    con = db.connect()
+    try:
+        card = next(r for r in db.task_requests(con, tid) if r["target"] == askmod.HUMAN)["id"]
+        for text in ("", "   \n"):
+            ok, said = actions.decide(con, tid, text)
+            check(f"decide {text!r}: refused as no decision typed", not ok and "no decision" in said, said)
+        ok, said = actions.decide(con, 99999, "x")
+        check("decide: a missing task is refused", not ok and "no task T99999" in said, said)
+        ok, said = actions.decide(con, plain, "x")
+        check("decide: a task that is not the founder's is refused", not ok and "not the founder's" in said, said)
+        check("decide: the refusals wrote nothing",
+              db.get_request(con, card)["state"] == "queued" and not db.get_task(con, tid)["done_evidence"]
+              and not db.get_task(con, plain)["done_evidence"])
+
+        ok, msg, kid = actions.task_new("worker", "manager", "sub-question", "a part of it", parent=tid)
+        check("setup: an open child task", ok, msg)
+        ok, said = actions.decide(con, tid, "call it x")
+        check("decide: an open child refuses before anything is written",
+              not ok and f"T{kid}" in said and "open child" in said, said)
+        check("decide: so the card is still open and the task undecided",
+              db.get_request(con, card)["state"] == "queued" and not db.get_task(con, tid)["done_evidence"]
+              and not db.get_task(con, tid)["closed_by"])
+        db.close_task(con, kid, "manager")
+
+        ok, said = actions.decide(con, tid, "  call it x  ")
+        row = db.get_task(con, tid)
+        check("decide: the retry decides", ok, said)
+        check("decide: the text is the evidence and the founder closed it",
+              row["done_evidence"] == "call it x" and row["closed_by"] == askmod.HUMAN,
+              str(dict(row)))
+        req = db.get_request(con, card)
+        check("decide: the card's request is settled with the same text",
+              req["state"] == "done" and req["verdict"] == "call it x")
+        ok, said = actions.decide(con, tid, "again")
+        check("decide: a task already decided is refused and keeps the first decision",
+              not ok and "already decided" in said and db.get_task(con, tid)["done_evidence"] == "call it x", said)
+    finally:
+        con.close()
+
+
 def test_advance_current_task_never_touches_the_founder(home: Path) -> None:
     """Auditor #1873 finding 1: a decision task (owner human) ending must
     never set a current-task row or reorder a queue for the founder - it
@@ -8339,6 +8402,7 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
             Path(td) / 'nexttask'))
         run(lambda: test_advance_current_task_never_touches_the_founder(Path(td) / 'nexttaskhuman'))
