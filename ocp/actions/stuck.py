@@ -6,7 +6,7 @@ import time
 from ..team import agents
 from ..infra import timefmt
 from ..session import blocked
-from ..daemon import delivery as dmn_delivery, locks as dmn_locks, states as dmn_states
+from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, locks as dmn_locks, states as dmn_states
 from .. import db
 from ..usage import load as loadmod
 from ..session import observe as obs
@@ -59,7 +59,14 @@ def _delivery_state(con, agent: str, sessions: dict | None,
                     f"launched into", False)
         if not alive:
             return "closed, no daemon", f"{agent} is closed and no daemon is running to wake it", False
-        return "closed, waking", f"{agent} is closed; the next tick wakes it", True
+        cause = dmn_lifecycle.closed_wake_cause(con, agent, row)
+        if cause:
+            return "closed, waking", f"{agent} is closed; the next tick wakes it for {cause[1]}", True
+        head = dmn_delivery.effective_head(con, agent)
+        if head and head["delivered_at"]:
+            return ("closed, holding", f"{agent} is closed with #{head['id']} told and still open; nothing "
+                    f"wakes it for a request it already has (w wakes it, or resolve it)", False)
+        return "closed, nothing to wake it", f"{agent} is closed and nothing is waiting to wake it for", False
     if sessions is not None and not sessions.get(agent):
         return "no session", f"no session is running in {agent}'s terminal", False
     if row["state"] == dmn_states.RUNNING:

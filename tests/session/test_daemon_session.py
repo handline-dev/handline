@@ -3482,6 +3482,65 @@ def test_a_due_park_with_no_terminal_is_started_not_held(home: Path) -> None:
         con.close()
 
 
+def test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(home: Path) -> None:
+    """T406: "the next tick wakes it" has to be true wherever it is said. The tick
+    wakes a closed agent for what `closed_wake_cause` names, and the stuck screen
+    reads the same list: an undelivered request its task is blocked on record for
+    was said to wake it and never did, and one told before the close (T154) is
+    held, which the screen now says instead."""
+    import importlib
+    stuck_screen = importlib.import_module("ocp.actions.stuck")
+    _daemon_home(home, 20)
+    con = db.connect()
+    woken: list = []
+    real_wake = dmn_lifecycle.wake_agent
+    try:
+        dmn_lifecycle.wake_agent = lambda con_, a, log_, **kw: (woken.append(a), (True, "woke"))[1]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        db.set_closed(con, "backend", "sess-1")
+        now = int(time.time())
+
+        def shown() -> tuple:
+            return stuck_screen._delivery_state(con, "backend", None, None, True)
+
+        row = db.get_agent_state(con, "backend")
+        check("closed: with nothing waiting the tick has no cause, and the screen does not promise one",
+              dmn_lifecycle.closed_wake_cause(con, "backend", row) is None
+              and shown()[0] != "closed, waking", str(shown()))
+
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked thing")
+        check("setup: a task for it", ok, msg)
+        ok, msg, blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg = actions.add_block(con, tid, blocker, "product")
+        check("setup: its task is blocked on record", ok, msg)
+        con.execute("UPDATE requests SET delivered_at = NULL WHERE target = 'backend'")
+        woken.clear()          # `task_new` wakes a closed agent itself, as any message does
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("closed: an undelivered request its task is blocked for is no cause, and no wake is tried",
+              dmn_lifecycle.closed_wake_cause(con, "backend", row) is None and not woken
+              and shown()[0] != "closed, waking", f"{woken} {shown()}")
+
+        rid = db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
+        cause = dmn_lifecycle.closed_wake_cause(con, "backend", row)
+        check("closed: a request it has not been shown is a cause, and the screen says so",
+              cause and cause[0] == "work" and shown()[0] == "closed, waking", f"{cause} {shown()}")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("closed: and the tick wakes it", woken == ["backend"], str(woken))
+
+        db.mark_delivered(con, rid)
+        con.execute("UPDATE requests SET delivered_at = ? WHERE target = 'backend'", (now - 3600,))
+        woken.clear()
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("closed: a request told before the close wakes nothing, and the screen says it is held",
+              not woken and dmn_lifecycle.closed_wake_cause(con, "backend", row) is None
+              and shown()[0] == "closed, holding" and not shown()[2], f"{woken} {shown()}")
+    finally:
+        dmn_lifecycle.wake_agent = real_wake
+        dmn_evaluate._SAID.clear()
+        con.close()
+
+
 def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
     """After its window ends, an idle account's last figure describes a window
     that no longer exists, so the only way to learn the truth is to ask.
@@ -4379,6 +4438,7 @@ def main() -> int:
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_a_due_park_with_no_terminal_is_started_not_held(Path(td) / 'dueterm'))
+        run(lambda: test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(Path(td) / 'toldwake'))
         run(lambda: test_a_passed_window_is_asked_about_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(

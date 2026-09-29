@@ -218,25 +218,14 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # wake typed into a TUI that is still coming up loses its opening
     # characters and leaves the rest in the input box, unsent.
     if row and row["closed_at"] and not started_now:
-        # Not `db.queued_for`: a request already delivered before the close
-        # (T154) is only sitting on the agent unresolved, and waking for that
-        # alone would close it right back up on the very next idle window,
-        # forever - it is redelivered once something below actually wakes it.
-        waiting = db.undelivered_for(con, agent)
-        # An agent that asked something, parked on the answer and was then
-        # closed is waiting on a reply, not on work - and resolving its request
-        # writes QUEUED over the park and clears the wake_at that would have
-        # brought it back. Without this, nothing in the system ever wakes it.
-        answers = db.unannounced_answers(con, agent)
-        # T351: a message that could not be typed before the close (or that
-        # arrived while it was closed) is the same kind of arrival - nothing
-        # else ever wakes a closed agent for one.
-        pending = db.list_pending(con, agent)
-        if waiting or answers or pending:
+        # What `closed_wake_cause` names is the whole list, so the screens that
+        # say "the next tick wakes it" ask the same question (T406). A request
+        # already delivered before the close (T154) is not on it: woken for
+        # alone it closes again on the next idle window, forever.
+        cause = lifecycle.closed_wake_cause(con, agent, row)
+        if cause:
+            what = cause[1]
             ok, why = lifecycle.wake_agent(con, agent, log)
-            what = (f"{len(waiting)} waiting request(s)" if waiting
-                    else f"{len(answers)} answer(s) it asked for" if answers
-                    else f"{len(pending)} pending message(s)")
             actions.append(f"{agent}: woken for {what}"
                            if ok else f"{agent}: could not wake - {why}")
             if not ok and _SAID.get(agent) != why:
