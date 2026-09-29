@@ -8224,8 +8224,7 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
 
 def test_a_task_is_handed_over_with_a_note(home: Path) -> None:
     """T377: its owner (or the founder) hands a task to another agent with a note; the
-    note travels as the delivery and the record lists every handoff in order. An
-    auditor or a merger is not handed a task: they are asked through a child (T442)."""
+    note travels as the delivery and the record lists every handoff in order."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
@@ -8254,11 +8253,6 @@ limits:
         check("handoff: only the owner hands it on", not ok and "only its owner" in msg, msg)
         ok, msg = H("worker", "nobody", "no such agent")
         check("handoff: the receiver must exist", not ok and "no agent" in msg, msg)
-        ok, msg = H("worker", "dev.auditor", "review it")
-        check("handoff: an auditor is asked through `task review`, not handed the task",
-              not ok and "task review" in msg and db.get_task(con, t)["owner"] == "worker", msg)
-        ok, msg = H("worker", "dev.merger", "merge it")
-        check("handoff: a merger through `task land`", not ok and "task land" in msg, msg)
         ok, msg = H("worker", "helper", "branch@abc123: fixed the retry")
         check("handoff: the owner hands it on", ok and db.get_task(con, t)["owner"] == "helper", msg)
         sent = [r for r in db.task_requests(con, t) if r["target"] == "helper"]
@@ -8301,12 +8295,10 @@ limits:
         con.close()
 
 
-def test_review_and_land_are_children_the_owner_waits_on(home: Path) -> None:
-    """T442: `task review T<n> <sha>` opens a small child for the project's auditor and
-    T<n> waits on it, staying its owner's. The auditor closes it with PASS or FAIL, the
-    owner is told the result; `task land` does the same with the merger, closed with the
-    merged commit or `not merged: <reason>`. No edge is needed to ask; an explicit deny
-    still stops it."""
+def test_a_review_is_an_ordinary_child_the_owner_waits_on(home: Path) -> None:
+    """T442: no review or merge command - the owner opens a child task for the auditor
+    (`task new --parent`), which blocks its task while it stays the owner's and doing;
+    the child closes with its result, and the owner is told it in the unblock notice."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
@@ -8314,123 +8306,32 @@ agents:
   manager: {}
   dev.worker: {}
   dev.auditor: {}
-  dev.merger: {}
-  other.auditor: {}
 edges:
-  - { from: manager, to: "*", relation: supervisor, response: async }
-  - { from: dev.worker, to: manager, relation: subordinate, response: async }
+  - { from: "*", to: "*", relation: peer, response: async }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
 """)
-    for n in ("manager", "dev.worker", "dev.auditor", "dev.merger", "other.auditor"):
+    for n in ("manager", "dev.worker", "dev.auditor"):
         agents.register(n)
-    repo = home / "repo"
-    repo.mkdir()
-    def git(*a):
-        return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout.strip()
-    git("init", "-q", "-b", "main")
-    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "one")
-    merged = git("rev-parse", "HEAD")
     con = db.connect()
     try:
         ok, _, t = actions.task_new("manager", "dev.worker", "the change", "the change")
-        R = lambda me, sha="abc1234", note="branch b": actions.task_review(con, me, t, sha, note)
-        ok, msg = R("manager")
-        check("review: only the owner asks", not ok and "only its owner" in msg, msg)
-        ok, msg = R("dev.worker", "not-a-sha")
-        check("review: a commit id is required", not ok and "commit id" in msg, msg)
-        ok, msg = R("dev.worker", note="  ")
-        check("review: a note is required", not ok and "note" in msg, msg)
-        ok, msg = actions.task_review(con, "zz.worker", t, "abc1234", "x")
-        check("review: an agent of no project with an auditor is refused", not ok, msg)
-        ok, msg = R("dev.worker")
-        kids = db.open_child_tasks(con, t)
-        check("review: opens one child for the project's auditor, with no edge declared",
-              ok and len(kids) == 1 and kids[0]["owner"] == "dev.auditor"
-              and kids[0]["title"] == "review T%d @abc1234" % t and kids[0]["opened_by"] == "dev.worker"
-              and kids[0]["expects"] == "verdict", msg)
-        check("review: T stays with its owner, blocked by the child",
+        ok, msg, kid = actions.task_new("dev.worker", "dev.auditor", "review T%d @abc1234" % t,
+                                        "branch b: fixed it", parent=t, expects="verdict")
+        check("review: the child opens for the auditor", ok, msg)
+        check("review: T stays its owner's and is blocked by the child",
               db.get_task(con, t)["owner"] == "dev.worker"
-              and [b["id"] for b in db.task_blockers(con, t)] == [kids[0]["id"]])
-        check("review: the auditor holds it and was sent the note",
-              db.current_task(con, "dev.auditor") == kids[0]["id"]
-              and any("branch b" in r["body"] for r in db.task_requests(con, kids[0]["id"])))
-        ok, msg = R("dev.worker")
-        check("review: a second one while it is out is refused", not ok and "already waits" in msg, msg)
-        kid = kids[0]["id"]
-        ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="looks fine")
-        check("review: closed with anything but PASS or FAIL is refused", not ok and "PASS or FAIL" in msg, msg)
+              and [b["id"] for b in db.task_blockers(con, t)] == [kid])
         ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="FAIL: retry loops; repro x")
-        row = db.get_task(con, kid)
-        check("review: FAIL closes the child and lifts the block",
-              ok and row["closed_by"] and not db.task_blockers(con, t)
-              and db.get_task(con, t)["owner"] == "dev.worker", msg)
-        told = [r for r in db.task_requests(con, t) if r["requester"] != "dev.worker" and r["target"] == "dev.worker"
-                and "unblocked" in r["body"]]
-        check("review: the owner is told the verdict, with what to do next",
-              len(told) == 1 and "FAIL: retry loops; repro x" in told[0]["body"]
-              and "fix it" in told[0]["body"], str([dict(r) for r in told]))
-        ok, msg = R("dev.worker", "def5678")
-        check("review: after a FAIL it can be asked again", ok, msg)
-        kid = db.open_child_tasks(con, t)[0]["id"]
-        actions.mark_task_done(con, kid, "dev.auditor", reason="PASS: 5900 passed")
-        told = [r for r in db.task_requests(con, t) if "PASS: 5900 passed" in r["body"]]
-        check("review: a PASS tells the owner to land it", len(told) == 1 and "task land" in told[0]["body"],
-              str([dict(r) for r in told]))
-
-        ok, msg = actions.task_land(con, "dev.worker", t, "def5678", "merge b")
-        kids = db.open_child_tasks(con, t)
-        check("land: opens one child for the merger", ok and len(kids) == 1 and kids[0]["owner"] == "dev.merger"
-              and kids[0]["title"] == "merge T%d @def5678" % t and kids[0]["expects"] == "sha", msg)
-        kid = kids[0]["id"]
-        ok, msg = actions.mark_task_done(con, kid, "dev.merger", reason="merged, trust me")
-        check("land: a merge closes with a commit or `not merged:`", not ok and "not merged" in msg, msg)
-        ok, msg = actions.mark_task_done(con, kid, "dev.merger", reason="not merged: conflicts in x.py")
-        told = [r for r in db.task_requests(con, t) if "conflicts in x.py" in r["body"]]
-        check("land: a conflict closes it as not merged, with the reason, and tells the owner",
-              ok and db.get_task(con, kid)["closed_by"] and len(told) == 1
-              and not db.task_blockers(con, t), msg)
-        ok, msg = actions.task_land(con, "dev.worker", t, "def5678", "again")
-        kid = db.open_child_tasks(con, t)[0]["id"]
-        ok, msg = actions.mark_task_done(con, kid, "dev.merger", sha=merged, repo=repo)
-        told = [r for r in db.task_requests(con, t) if merged in r["body"]]
-        check("land: closed with the merged commit, the owner is told and how to close or send up",
-              ok and db.get_task(con, kid)["done_evidence"] == merged and len(told) == 1
-              and "--sha" in told[0]["body"] and "handoff" in told[0]["body"], msg)
-        ok, msg = actions.mark_task_done(con, t, "dev.worker", sha=merged, repo=repo)
-        check("land: the owner then finishes T with that commit", ok, msg)
-        ok, msg = actions.close_task(con, t, "manager")
-        check("land: and its opener closes it", ok, msg)
-        rc, out = _cli(["task", "review", f"T{t}", "abc1234", "x"], as_agent="dev.worker")
-        check("cli: review of a finished task is refused and exits 1", rc == 1 and "finished" in out, out)
-        t2 = db.new_task(con, "cli", "dev.worker", "manager")
-        db.set_current_task(con, "dev.worker", t2)
-        rc, out = _cli(["task", "review", f"T{t2}", "abc1234", "branch b"], as_agent="dev.worker")
-        check("cli: review opens the child and says T stays", rc == 0 and f"you keep T{t2}" in out, out)
-        rc, out = _cli(["task", "land", f"T{t2}", "abc1234", "merge"], as_agent="dev.worker")
-        check("cli: land while a review is still out is refused", rc == 1 and "already waits" in out, out)
-    finally:
-        con.close()
-    hand_edit_team("""
-agents:
-  manager: {}
-  dev.worker: {}
-  dev.auditor: {}
-edges:
-  - { from: manager, to: "*", relation: supervisor, response: async }
-deny:
-  - { from: dev.worker, to: dev.auditor, reason: "no reviews" }
-limits:
-  max_chain_depth: 4
-  ask_rate_per_hour: 500
-""")
-    con = db.connect()
-    try:
-        t3 = db.new_task(con, "denied", "dev.worker", "manager")
-        ok, msg = actions.task_review(con, "dev.worker", t3, "abc1234", "x")
-        check("review: an explicit deny still stops it, and leaves no child", not ok and "no reviews" in msg
-              and not db.open_child_tasks(con, t3), msg)
+        check("review: the child closes with the result", ok, msg)
+        ok, msg = actions.close_task(con, kid, "dev.worker")
+        told = [r for r in db.task_requests(con, t) if "unblocked" in r["body"]]
+        check("review: the block lifts and the owner is told the result in the notice",
+              ok and not db.task_blockers(con, t) and len(told) == 1
+              and "FAIL: retry loops; repro x" in told[0]["body"], str([dict(r) for r in told]))
+        check("review: T is still the worker's",
+              db.get_task(con, t)["owner"] == "dev.worker" and not db.get_task(con, t)["closed_by"])
     finally:
         con.close()
 
@@ -8938,7 +8839,7 @@ def main() -> int:
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
-        run(lambda: test_review_and_land_are_children_the_owner_waits_on(Path(td) / 'reviewland'))
+        run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))

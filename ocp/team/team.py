@@ -46,7 +46,6 @@ ASK_WINDOW_S = 3600
 
 # The relation a task handed back on a FAIL carries when no edge declares its
 # route (T392); the daemon's delivery re-check reads it to re-route the same way.
-HANDBACK = "handback"
 
 
 @dataclass
@@ -197,8 +196,7 @@ class Team:
         return None
 
     # ------------------------------------------------------------ routing
-    def route(self, requester: str, target: str, chain_depth: int = 0,
-              edge_exempt: bool = False) -> Decision:
+    def route(self, requester: str, target: str, chain_depth: int = 0) -> Decision:
         if requester == target:
             return Decision(False, "an agent cannot ask itself")
         if not self.known(target) and not (target == HUMAN and self.default_link(requester, target)):
@@ -240,10 +238,6 @@ class Team:
             default.chain_depth = chain_depth
             return default
 
-        if edge_exempt:
-            return Decision(True, f"{requester} -> {target}: a review or merge task needs no edge",
-                            relation=HANDBACK, response="fire_and_forget", kind="task",
-                            chain_depth=chain_depth)
         return Decision(
             False,
             f"denied: no edge declares {requester} -> {target} "

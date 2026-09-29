@@ -64,9 +64,6 @@ def test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(home: Path) -> Non
         check("verb: a task handoff is not told to resolve", "ocp resolve" not in text, text)
         check("verb: it says the task is now the receiver's",
               f"you own T{tid} now" in text and f"`ocp task done T{tid}`" in text, text)
-        check("verb: it names the ways to end or pass it on, never a verdict flag",
-              f'`ocp task review T{tid} <sha> "<note>"`' in text and f'`ocp task handoff T{tid} <agent> "<note>"`' in text
-              and "--pass" not in text, text)
         waiting = dmn_delivery.tell_text(con, head, 3)
         check("queue: a task's queue moves on when it is handed on or finished",
               "[2 more waiting - the next comes when you hand this on or finish it.]" in waiting, waiting)
@@ -95,66 +92,10 @@ def test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(home: Path) -> N
         con.close()
 
 
-TEAM2 = """
-agents:
-  p.manager: {}
-  p.worker: {}
-  p.auditor: {}
-  p.x.auditor: {}
-  p.merger: {}
-  q.auditor: {}
-  q.merger: {}
-edges:
-  - { from: "*", to: "*", relation: peer, response: async }
-"""
-
-
-def test_a_review_and_a_merge_are_told_what_to_close_them_with(home: Path) -> None:
-    """The auditor and the merger are told the exact close for the small task they hold;
-    the owner is told the next step for the kind of task it holds. Only the sender's own
-    project's auditor or merger is ever the receiver."""
-    _daemon_home(home, 20)
-    hand_edit_team(TEAM2)
-    for a in ("p.manager", "p.worker", "p.auditor", "p.x.auditor", "p.merger", "q.auditor", "q.merger"):
-        agents.register(a)
-    con = db.connect()
-    try:
-        ok, msg, tid = actions.task_new("p.manager", "p.worker", "ship it", "ship it")
-        check("setup: the task opens", ok, msg)
-        text = actions.finish_command(con, db.get_task(con, tid), "p.worker")
-        check("owner: told it can ask for a review and keeps the task",
-              f'`ocp task review T{tid} <sha> "<note>"`' in text and "you keep" in text, text)
-        ok, msg = actions.task_review(con, "p.worker", tid, "abc1234", "branch b: fixed it")
-        check("setup: the review opens", ok, msg)
-        kid = next(k for k in db.open_child_tasks(con, tid))
-        check("the review goes to the sender's own project's auditor, first by name",
-              kid["owner"] == "p.auditor" and kid["title"] == f"review T{tid} @abc1234", dict(kid))
-        text = actions.finish_command(con, kid, "p.auditor")
-        check("auditor: PASS or FAIL with notes, and nothing about resolving",
-              '"PASS: <notes>"' in text and '"FAIL: <what fails>"' in text and "resolve" not in text, text)
-        rc, out = support._cli(["inbox"], as_agent="p.auditor")
-        check("auditor inbox: says what closes the review", f"you own T{kid['id']} now" in out and "PASS" in out, out)
-        ok, msg = actions.mark_task_done(con, kid["id"], "p.auditor", reason="PASS: green")
-        check("setup: the auditor passes it", ok, msg)
-        ok, msg = actions.task_land(con, "p.worker", tid, "abc1234", "merge b")
-        check("setup: the merge opens", ok, msg)
-        kid = next(k for k in db.open_child_tasks(con, tid))
-        text = actions.finish_command(con, kid, "p.merger")
-        check("merger: the merged commit id, or not merged with the reason",
-              f"`ocp task done T{kid['id']} --sha <merged commit>`" in text and "not merged: <reason>" in text, text)
-        ok, msg = actions.task_review(con, "zz.worker", actions.task_new("p.manager", "p.worker", "y", "y")[2],
-                                      "abc1234", "x")
-        check("no auditor in the sender's project: refused, another project's is not used",
-              not ok, msg)
-    finally:
-        con.close()
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(Path(td) / 'm0'))
         run(lambda: test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(Path(td) / 'm1'))
-        run(lambda: test_a_review_and_a_merge_are_told_what_to_close_them_with(Path(td) / 'm3'))
         run(lambda: test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(Path(td) / 'm2'))
     return run_area(tests)
 

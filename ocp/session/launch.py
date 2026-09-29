@@ -530,8 +530,7 @@ def _your_team(agent: str) -> str:
     reports = [n for n in paths.list_agents()
                if n != agent and actions.supervisor_of(t, n) == agent]
     report = (f"You report to `{boss}`. A task you were handed ends with `ocp task done T<n> "
-              f"\"<evidence>\"` or `ocp task handoff T<n> <agent> \"<note>\"` (code first goes through `ocp task "
-              f"review` and `land`, and you keep the task) - that is your "
+              f"\"<evidence>\"` or `ocp task handoff T<n> <agent> \"<note>\"` - that is your "
               f"report, even a deferral: the next task arrives only then, and an answer typed "
               f"in chat reaches no one.")
     if boss != actions.HUMAN:

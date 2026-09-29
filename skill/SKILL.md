@@ -10,8 +10,7 @@ ocp team                       who you may reach, and what they are doing
 ocp task new --owner <target> -t <time> "<title>" "<body>"   work or a question that needs an answer
 ocp say <target> "<message>"   a message that needs no answer
 ocp inbox                      the one item waiting for you, and a count
-ocp task done T<n> "<evidence>"   finish your task (or `ocp task handoff T<n> <agent> "<note>"`;
-                                  code: `ocp task review T<n> <sha> "<note>"`, then `ocp task land ...`)
+ocp task done T<n> "<evidence>"   finish your task (or `ocp task handoff T<n> <agent> "<note>"`)
 ocp handoff $OCP_AGENT         what you were doing before you were resumed
 ```
 

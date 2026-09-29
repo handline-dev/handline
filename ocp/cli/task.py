@@ -343,34 +343,6 @@ def cmd_task_handoff(args) -> int:
     return 0 if ok else 1
 
 
-def _cmd_task_gate(args, act, what: str) -> int:
-    me = askmod.asking_agent()
-    if me is None:
-        print(_who_refusal(what))
-        return 1
-    note, err = _text_arg(args.note, args.file, "note")
-    if err:
-        print(err)
-        return 1
-    con = db.connect()
-    try:
-        ok, msg = act(con, me, args.task, args.sha, note)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
-
-
-def cmd_task_review(args) -> int:
-    """Ask the project's auditor to review T<n> @ sha, and wait on it."""
-    return _cmd_task_gate(args, actions.task_review, "ask for a review")
-
-
-def cmd_task_land(args) -> int:
-    """Ask the project's merger to merge T<n> @ sha, and wait on it."""
-    return _cmd_task_gate(args, actions.task_land, "ask for a merge")
-
-
 def cmd_task_start(args) -> int:
     """T292 bullet 3: pick up T<n> as your current task explicitly, for a
     task delivered while you already held one."""

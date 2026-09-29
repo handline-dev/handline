@@ -424,15 +424,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         mark, via = reason, "reason"
     # T292 (#1655 section 4): a sha task can't close on a reason unless the
     # opener or the founder does it; verdict/decision/report are just labels.
-    kind = gate_kind(con, row)
-    if kind == "review" and not (via == "reason" and mark.startswith(("PASS", "FAIL"))):
-        return False, (f"T{tid} is a review: close it with PASS or FAIL and your notes - "
-                       f"`ocp task done T{tid} \"PASS: <notes>\"`")
-    if kind == "merge" and not (via == "sha" or (via == "reason" and mark.startswith("not merged:"))):
-        return False, (f"T{tid} is a merge: close it with the merged commit id "
-                       f"(`ocp task done T{tid} --sha <sha>`) or `\"not merged: <reason>\"`")
-    if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], HUMAN) \
-            and kind != "merge":
+    if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], HUMAN):
         return False, (f"task T{tid} expects a sha - `ocp task done T{tid} --sha <sha>`, "
                        f"or its opener ({row['opened_by']}) or the founder may close it "
                        "another way")
@@ -443,10 +435,6 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, *_free_blocked_by(con, tid, by))
-    if kind:
-        # Nothing is left to sign off on a review or a merge: the verdict or the
-        # commit is the whole result, and the task it held up reads it.
-        close_task(con, tid, task_asker(con, row))
     return True, f"task T{tid} done ({mark})"
 
 
@@ -666,18 +654,9 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     calling): the owner who just closed the blocker themselves does not need
     telling."""
     text = f"task T{dep_tid} is unblocked - T{closed_tid}, its last open blocker, {how}"
-    closed = db.get_task(con, closed_tid)
-    kind = gate_kind(con, closed)
-    if kind:
-        # The result is what the owner was waiting for; the next step follows from it.
-        text += f": {closed['done_evidence'] or 'no result recorded'}"
-        if kind == "review":
-            text += (f". PASS: `ocp task land T{dep_tid} <sha> \"<note>\"` for the merge. "
-                     f"FAIL: fix it, then `ocp task review T{dep_tid} <sha> \"<note>\"` again.")
-        else:
-            text += (f". Merged: close T{dep_tid} with `ocp task done T{dep_tid} --sha <that commit>` "
-                     f"if you may close it, else `ocp task handoff T{dep_tid} <its opener> \"merged <sha>\"` "
-                     "to send it up. Not merged: fix the reason, then land it again.")
+    result = db.get_task(con, closed_tid)["done_evidence"]
+    if result:
+        text += f": {result}"
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)
@@ -965,8 +944,7 @@ def _retire_task_requests(con, tid: int, verdict: str, state: str = "done") -> N
 def task_new(me: str, owner: str, title: str, body: str | None = None,
             parent: int | None = None, expects: str | None = None,
             priority: int | None = None,
-            timeout_s: int | None = None,
-            edge_exempt: bool = False) -> tuple[bool, str, int | None]:
+            timeout_s: int | None = None) -> tuple[bool, str, int | None]:
     """T292 (auditor #1655 section 4): opens the task and asks its owner in
     one call, through the routing table (`askmod.ask`, C2) - a refused owner
     leaves no task row behind. The request is kind='task' except for a human
@@ -1000,7 +978,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         finally:
             con.close()
     kind = None if owner == HUMAN else "task"
-    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, edge_exempt=edge_exempt)
+    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False)
     if not ok:
         return False, msg, None
     con = db.connect()
@@ -1110,42 +1088,11 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
     return True, f"note sent on T{tid} - " + "; ".join(sent)
 
 
-def _role(agent: str) -> str:
-    """The last dotted segment of an agent's name when it is one of the two roles
-    a handoff knows - `orcapipe.auditor` is an auditor, `harbor.merger` a merger."""
-    last = agent.rsplit(".", 1)[-1]
-    return last if last in ("auditor", "merger") else ""
-
-
-GATE_ROLES = {"auditor": "review", "merger": "merge"}
-_GATE_TITLE = re.compile(r"\A(review|merge) T\d+ @")
-
-
-def gate_kind(con, row) -> str | None:
-    """`review` or `merge` when T<n> is the small task an owner opened to have its
-    work reviewed or merged: a child task owned by an auditor or a merger whose
-    title says which. It is a task like any other; this is only how the rest
-    of the code knows what to ask of it and how to read its close."""
-    if row is None or row["parent_task"] is None:
-        return None
-    kind = GATE_ROLES.get(_role(row["owner"]))
-    m = _GATE_TITLE.match(row["title"] or "")
-    return kind if kind and m and m[1] == kind else None
-
-
-def _agent_of_role(me: str, role: str) -> str | None:
-    """The `role` agent of `me`'s own project (the name's first segment): another
-    project's auditor is not where its work goes."""
-    mine = sorted(a for a in paths.list_agents()
-                  if _role(a) == role and a.split(".")[0] == me.split(".")[0])
-    return mine[0] if mine else None
-
-
 def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     """Why `me` may not hand this task to `to`, or None. A task moves to another
-    owner when its owner (or the founder) says so, with a note. Review and merge
-    are not handoffs: the owner keeps the task and waits on a child (`task review`,
-    `task land`)."""
+    owner when its owner (or the founder) says so, with a note. Who reviews and who
+    merges is the project's guideline, not a rule here: the owner keeps its task
+    and waits on a child task it opens for them."""
     tid = row["id"]
     if row["closed_by"] or row["done_evidence"]:
         return f"task T{tid} is already finished - nothing to hand over"
@@ -1155,73 +1102,9 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
         return f"no agent named {to}"
     if to == row["owner"]:
         return f"T{tid} is already {to}'s"
-    if _role(to) in GATE_ROLES:
-        verb = "review" if _role(to) == "auditor" else "land"
-        return (f"an {_role(to)} is asked through a child task, and you keep T{tid}: "
-                f"`ocp task {verb} T{tid} <sha> \"<note>\"`")
     if me != HUMAN and me != row["owner"]:
         return f"T{tid} is {row['owner']}'s: only its owner hands it on"
     return None
-
-
-def finish_command(con, row, me: str) -> str:
-    """What `me` types to end T<n>, or to have its work checked first."""
-    tid = row["id"]
-    kind = gate_kind(con, row)
-    if kind == "review":
-        return (f"`ocp task done T{tid} \"PASS: <notes>\"` or `ocp task done T{tid} \"FAIL: <what fails>\"` "
-                f"- the owner of T{row['parent_task']} is told in its session")
-    if kind == "merge":
-        return (f"`ocp task done T{tid} --sha <merged commit>`, or, on a conflict, "
-                f"`ocp task done T{tid} \"not merged: <reason>\"`")
-    return (f"`ocp task review T{tid} <sha> \"<note>\"` to have code reviewed (you keep T{tid} and wait), "
-            f"`ocp task handoff T{tid} <agent> \"<note>\"` to give it to someone, "
-            f"or `ocp task done T{tid}`")
-
-
-def _open_gate(con, me: str, tid: int, kind: str, sha: str, note: str) -> tuple[bool, str]:
-    """`task review` / `task land`: open the small child task "review|merge T<n> @sha" for
-    the project's auditor|merger, block T<n> on it and send it. T<n> stays with its owner."""
-    row = db.get_task(con, tid)
-    if row is None:
-        return False, f"no task T{tid}"
-    if row["closed_by"] or row["done_evidence"]:
-        return False, f"task T{tid} is already finished"
-    if me not in (row["owner"], HUMAN):
-        return False, f"T{tid} is {row['owner']}'s: only its owner asks for a {kind}"
-    if not looks_like_sha(sha):
-        return False, f"{sha!r} is not a commit id"
-    said = textsafe.text(note or "").strip()
-    if not said:
-        return False, ("a note is needed: the branch, what changed, and what the "
-                       + ("auditor" if kind == "review" else "merger") + " should know")
-    role = "auditor" if kind == "review" else "merger"
-    who = _agent_of_role(row["owner"] if me == HUMAN else me, role)
-    if who is None:
-        return False, f"no {role} in {(row['owner'] if me == HUMAN else me).split('.')[0]}'s project"
-    for k in db.open_child_tasks(con, tid):
-        if gate_kind(con, k):
-            return False, f"T{tid} already waits on T{k['id']} ({k['title']})"
-    short = sha[:7]
-    body = (f"{said}\n\n{kind.capitalize()} T{tid} @ {sha} ({textsafe.oneline(row['title'])[:80]}). "
-            + ("Close it with PASS or FAIL and your notes: `ocp task done T<this> \"PASS: ...\"`."
-               if kind == "review" else
-               "Close it with the merged commit id (`ocp task done T<this> --sha <sha>`), or, on a "
-               "conflict, `ocp task done T<this> \"not merged: <reason>\"`."))
-    ok, msg, cid = task_new(me if me != HUMAN else row["owner"], who, f"{kind} T{tid} @{short}", body,
-                            parent=tid, expects="verdict" if kind == "review" else "sha",
-                            edge_exempt=True)
-    if not ok:
-        return False, msg
-    return True, f"T{tid} waits on T{cid} ({kind} by {who}); you keep T{tid} - {msg}"
-
-
-def task_review(con, me: str, tid: int, sha: str, note: str) -> tuple[bool, str]:
-    return _open_gate(con, me, tid, "review", sha, note)
-
-
-def task_land(con, me: str, tid: int, sha: str, note: str) -> tuple[bool, str]:
-    return _open_gate(con, me, tid, "merge", sha, note)
 
 
 def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]:

@@ -12,13 +12,17 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 - You hold one task at a time. It ends with `ocp task done T<n> "<evidence>"`,
   or you hand it on with `ocp task handoff T<n> <agent> "<note>"` - that is how
   the result reaches whoever asked, never a second task repeating it. The next
-  task arrives only then. Code is reviewed and merged without leaving your
-  hands: `ocp task review T<n> <sha> "<note>"` opens a small task for the
-  auditor and T<n> waits on it (it stays yours, doing); its PASS or FAIL comes
-  back to you. On a PASS, `ocp task land T<n> <sha> "<note>"` does the same
-  with the merger, which closes it with the merged commit id or "not merged:
-  <reason>". Then close T<n> with that sha if you may, else hand it up to its
-  opener.
+  task arrives only then.
+- Review and merge are child tasks you wait on, not handoffs: you keep your
+  task, in doing. When code is ready, `ocp task new --owner orcapipe.auditor
+  --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
+  check>"`; the child blocks T<n>, and the auditor closes it with `ocp task done
+  T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - its result reaches you
+  in the unblock notice. On a PASS open the same for `orcapipe.merger`
+  (`"merge T<n> @<sha>"`, body naming the PASS task); it closes with the merged
+  commit (`--sha`) or `"not merged: <reason>"`. Then close T<n> with that sha if
+  you may close it, else `ocp task handoff T<n> <its opener> "merged <sha>"`.
+  An auditor or merger never hands a review or merge task back: it closes it.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
   `ocp team` (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown

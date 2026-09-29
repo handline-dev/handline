@@ -28,9 +28,8 @@ def set_enforced(on: bool) -> None:
 
 
 def _reason(tid: int, why: str) -> str:
-    return (f"{why}. Finished your part: `ocp task review T{tid} <sha> ...` (code: you keep "
-            f"it and wait), `ocp task handoff T{tid} <next> ...`, or "
-            f"`ocp task done T{tid}` if you are the last step. Waiting on "
+    return (f"{why}. Finished your part: `ocp task handoff T{tid} <next> ...` (or "
+            f"`ocp task done T{tid}` if you are the last step). Waiting on "
             f"something: `ocp task edit T{tid} --blocked-by T<m>`, or a child or "
             f"decision task.")
 
