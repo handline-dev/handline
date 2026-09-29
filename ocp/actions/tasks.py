@@ -267,6 +267,24 @@ def stop_wait_reason(con, agent: str) -> str | None:
     return f"T{tid} is current with no recorded wait"
 
 
+def child_blocker_of(con, tid: int):
+    """The open child task that blocks `tid`, or None - any child, whoever owns it or whatever it is
+    for (a review, a merge, a piece of the work): the flow that uses one is project guidance (T443)."""
+    return next((b for b in db.task_blockers(con, tid) if b["parent_task"] == tid), None)
+
+
+def child_wait(con, agent: str) -> str | None:
+    """T443: what `agent` is waiting on when its current task is held by a child of its own, as
+    the sentence a screen shows: `waiting for T13 (orcapipe.auditor)`; None when it waits on no
+    such child. It is waiting on the child, not on a reply, and is given no other work meanwhile."""
+    tid = db.current_task(con, agent)
+    row = db.get_task(con, tid) if tid is not None else None
+    if row is None or row["closed_by"] or row["done_evidence"]:
+        return None
+    child = child_blocker_of(con, tid)
+    return f"waiting for T{child['id']} ({child['owner']})" if child else None
+
+
 _TASK_NAMED = re.compile(r"\bT(\d+)\b")
 
 
@@ -666,6 +684,34 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     return rid, owner, text
 
 
+def _child_result_notice(con, dep_row, by: str, tid: int) -> tuple[int, str, str] | None:
+    """T443: when a child `tid` of `dep_row`'s task ends, the task's owner is told how, whether or
+    not other blockers remain - the "unblocked" notice is for the last one going, and says nothing
+    of the result. Once per finish (a reopen voids it), whichever of the done and the close
+    comes first."""
+    child = db.get_task(con, tid)
+    if child is None or child["parent_task"] != dep_row["id"] or dep_row["owner"] == by:
+        return None
+    since = con.execute(f"SELECT MAX(id) FROM events WHERE kind = 'reopen_task' AND {db.EVENT_TASK} = ?",
+                        (tid,)).fetchone()[0] or 0
+    if con.execute(f"SELECT 1 FROM events WHERE kind = 'child_result_told' AND {db.EVENT_TASK} = ? "
+                   "AND json_extract(payload, '$.child') = ? AND id > ? LIMIT 1",
+                   (dep_row["id"], tid, since)).fetchone():
+        return None
+    if child["done_evidence"]:
+        text = f"T{tid} done by {child['owner']}: " + " ".join(child["done_evidence"].split())
+    elif child["discarded_by"]:
+        text = f"T{tid} discarded by {child['discarded_by']}: " + " ".join((child["discard_reason"] or "").split())
+    else:
+        text = f"T{tid} closed by {child['closed_by']}"
+    text = text.rstrip(": ")
+    rid = db.add_request(con, _UNBLOCK_REQUESTER, dep_row["owner"], text, None, None,
+                         "fire_and_forget", "report", 0, None)
+    db.link_request(con, dep_row["id"], rid)
+    db.add_event(con, by, "child_result_told", {"task_id": dep_row["id"], "child": tid, "request_id": rid})
+    return rid, dep_row["owner"], text
+
+
 def _clear_blocks_on(con, tid: int, closer: str,
                      how: str = "closed") -> tuple[list[tuple[int, str, str]], set[str]]:
     """After `tid` closes: drop every block row naming it, and for each task
@@ -687,6 +733,9 @@ def _clear_blocks_on(con, tid: int, closer: str,
         dep_row = db.get_task(con, dep["task_id"])
         if dep_row is None or dep_row["closed_by"]:
             continue
+        told_result = _child_result_notice(con, dep_row, closer, tid)
+        if told_result:
+            notices.append(told_result)
         if db.task_blockers(con, dep["task_id"]):
             continue
         freed_owners.add(dep_row["owner"])
@@ -711,6 +760,9 @@ def _free_blocked_by(con, tid: int, by: str) -> tuple[list[tuple[int, str, str]]
         dep_row = db.get_task(con, dep["task_id"])
         if dep_row is None or dep_row["closed_by"]:
             continue
+        told_result = _child_result_notice(con, dep_row, by, tid)
+        if told_result:
+            notices.append(told_result)
         if db.task_blockers(con, dep["task_id"]):
             continue
         freed_owners.add(dep_row["owner"])
@@ -844,7 +896,9 @@ def _current_task_still_asking(con, agent: str) -> bool:
     row = db.get_task(con, tid)
     if row is None or row["closed_by"] or row["done_evidence"]:
         return False
-    return _begun(con, tid) or any(_asks(r) for r in db.task_requests(con, tid))
+    # T443: an owner waiting on a child of its own is held on it, whatever became of its request.
+    return (_begun(con, tid) or child_blocker_of(con, tid) is not None
+            or any(_asks(r) for r in db.task_requests(con, tid)))
 
 
 # Events after which a task's earlier answers no longer mean it was handled: it

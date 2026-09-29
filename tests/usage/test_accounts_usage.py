@@ -2830,7 +2830,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "release_task", "background_work_ended",
-                    "block_task", "unblock_task", "released_at_done", "task_unblocked", "task_deliver_refused",
+                    "block_task", "unblock_task", "released_at_done", "task_unblocked", "child_result_told", "task_deliver_refused",
                     "queue_task", "draft_task",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "moved_account", "nudged",

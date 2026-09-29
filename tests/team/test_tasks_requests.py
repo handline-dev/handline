@@ -8109,6 +8109,76 @@ def test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(home: Path) ->
         con.close()
 
 
+def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_result(home: Path) -> None:
+    """T443 (founder #5652): a doing task blocked by a child of its own - whoever owns it, whatever
+    it is for - is not "waiting for reply": it says what it waits for, gets no other work and no
+    "ask it what it is doing" alert, and is told the result when the child ends."""
+    from ocp.daemon import taskqueue, timebox
+    from ocp.ui import tui
+    _board_world(home)
+    con = db.connect()
+    real_push = askmod.push
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+        (req,) = db.task_requests(con, t)
+        waiting = db.new_task(con, "next", "worker", "manager")
+        actions.set_queued(con, waiting, "manager", True)
+        check("setup: worker holds the work; the next task waits", db.current_task(con, "worker") == t
+              and actions.child_wait(con, "worker") is None, msg)
+
+        dep = db.new_task(con, "not a child", "manager", "manager")
+        db.add_block(con, t, dep)
+        check("wait: a blocker that is not a child is not this wait", actions.child_wait(con, "worker") is None)
+        child = db.new_task(con, "review the work", "team.auditor", "worker", parent_task=t)
+        db.add_block(con, t, child)
+        check("wait: it names the child and who owns it, nothing about what it is for",
+              actions.child_wait(con, "worker") == f"waiting for T{child} (team.auditor)",
+              str(actions.child_wait(con, "worker")))
+        askmod.resolve(req["id"], "handed to review")        # its own request is answered: still held
+        actions.advance_current_task(con, "worker")
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("hold: no new task is sent while its child is out",
+              db.current_task(con, "worker") == t and db.task_requests(con, waiting) == [])
+
+        db.set_agent_state(con, "worker", "IDLE")
+        check("screen: it is IDLE, waiting for the child, not for a reply",
+              tui.screen_state(con, db.get_agent_state(con, "worker"))
+              == ("IDLE", f"waiting for T{child} (team.auditor)"),
+              str(tui.screen_state(con, db.get_agent_state(con, "worker"))))
+        db.set_agent_state(con, "worker", "RUNNING")
+        con.execute("UPDATE agent_state SET terminal = 'term_w' WHERE agent = 'worker'")
+        check("alert: RUNNING with its child out is not asked about",
+              not timebox._unasked_running(con, "worker", db.get_agent_state(con, "worker")))
+
+        ok, msg = actions.mark_task_done(con, child, "team.auditor", reason="PASS: nothing to change")
+        told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: the child is done, and the owner is told who did it and what came of it",
+              ok and told == ["T%d done by team.auditor: PASS: nothing to change" % child], str(told))
+        actions.mark_task_done(con, dep, "manager", reason="done")
+        told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: the unblocked notice comes when the last blocker goes, without the result",
+              len(told) == 2 and told[1].startswith("task T%d is unblocked" % t) and "PASS" not in told[1],
+              str(told))
+        actions.close_task(con, child, "worker")
+        told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: closing the child after its done tells nothing twice", len(told) == 2, str(told))
+
+        # A child that is discarded says so, and the result reaches the owner with another blocker left.
+        p2 = db.new_task(con, "p2", "worker", "manager")
+        dep2 = db.new_task(con, "a dependency", "manager", "manager")
+        kid = db.new_task(con, "a piece", "other", "worker", parent_task=p2)
+        db.add_block(con, p2, dep2)
+        db.add_block(con, p2, kid)
+        ok, msg = actions.discard_task(con, kid, actions.HUMAN, "not needed")
+        told2 = [r["body"] for r in db.task_requests(con, p2) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: a discarded child is told as discarded, though another blocker remains",
+              ok and told2 == ["T%d discarded by %s: not needed" % (kid, actions.HUMAN)], str(told2))
+    finally:
+        askmod.push = real_push
+        con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -8841,6 +8911,7 @@ def main() -> int:
         run(lambda: test_the_open_task_count_is_queued_plus_doing(Path(td) / 'taskcount'))
         run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
         run(lambda: test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(Path(td) / 'taskqtick'))
+        run(lambda: test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_result(Path(td) / 'reviewwait'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
