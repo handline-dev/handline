@@ -6,7 +6,7 @@ import time
 from ..team import agents
 from ..infra import timefmt
 from ..session import blocked
-from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, locks as dmn_locks, states as dmn_states
+from ..daemon import delivery as dmn_delivery, landing as dmn_landing, lifecycle as dmn_lifecycle, locks as dmn_locks, states as dmn_states
 from .. import db
 from ..usage import load as loadmod
 from ..session import observe as obs
@@ -170,7 +170,7 @@ def stuck(con) -> list[dict]:
             h["agent"])
 
     queued = con.execute(
-        "SELECT id, requester, target, ts, send_now FROM requests WHERE state = 'queued' "
+        "SELECT id, requester, target, ts, send_now, typed_at, landed_at, landing_tries FROM requests WHERE state = 'queued' "
         "AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
@@ -200,6 +200,13 @@ def stuck(con) -> list[dict]:
         if r["target"] in forgotten or r["target"] in blks:
             continue
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
+        landed = dmn_landing.state(r, now)
+        if landed == "lost":
+            # T418: typed and typed again, and its transcript never showed it - whatever the
+            # agent is doing now, it has not read this.
+            add(what, age, f"typed at {r['target']} {dmn_landing.MAX_TRIES} times and its transcript never "
+                           f"showed it, so it has not been read", r["target"])
+            continue
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
         if not why:
             # The daemon can deliver it. Either it is about to, or it has
@@ -209,7 +216,9 @@ def stuck(con) -> list[dict]:
                 continue
             head = db.head_of_queue(con, r["target"])
             told = db.get_cursor(con, f"notify:{r['target']}") >= int(r["id"])
-            if told:
+            if told and landed == "typed":
+                add(what, age, f"typed at {r['target']}, and its transcript has not shown it yet", r["target"])
+            elif told:
                 add(what, age, f"{r['target']} was told and has not answered", r["target"])
             elif not r["send_now"] and head is not None and int(head["id"]) != int(r["id"]):
                 # Only the head of a queue is told; the rest wait their turn -

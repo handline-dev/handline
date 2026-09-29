@@ -1544,7 +1544,8 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
         msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
         check("chat: a queued message can be cancelled, not yet delivered",
               msgs[0]["queued"] and not msgs[0]["delivered"] and msgs[0]["side"] == "you", str(msgs[0]))
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (int(time.time()), first))
+        con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ? WHERE id = ?",
+                    (int(time.time()),) * 3 + (first,))
         con.commit()
         check("chat: once delivered it says so",
               cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")[0]["delivered"])
@@ -2069,7 +2070,8 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": delivered, "replied": 0}
+                "dismissed_reason": None, "delivered_at": delivered, "typed_at": delivered,
+                "landed_at": delivered, "landing_tries": None, "replied": 0}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
@@ -2091,6 +2093,35 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
           and "waiting for x's reply (#1)" in line.render().plain, str(waits))
 
 
+def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
+    """T418: a request typed at an agent is delivered only once its transcript shows it."""
+    from ocp.ui import chat_page as cp
+    now = int(time.time())
+    def row(typed, landed, tries=None):
+        return {"id": 1, "ts": 100, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
+                "state": "queued", "body": "m", "verdict": None, "dismissed_by": None,
+                "dismissed_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
+                "landing_tries": tries, "replied": 0}
+    def label_and_buttons(r):
+        m = cp.messages_of([r], "reviewer")[0]
+        kids = cp.ChatMessage(m)._pending_children
+        strip = [c for c in kids if type(c).__name__ == "Horizontal"][0]
+        texts = [str(c.content) for c in strip._pending_children
+                 if type(c).__name__ == "Static"]
+        return m["landing"], texts, [c for c in strip._pending_children if type(c).__name__ == "Button"]
+    check("chat: not typed yet reads queued, with send now and cancel",
+          label_and_buttons(row(None, None))[0] == "queued" and len(label_and_buttons(row(None, None))[2]) == 2)
+    landing, texts, buttons = label_and_buttons(row(now, None))
+    check("chat: typed but not in the transcript reads typed, and cannot be sent now",
+          landing == "typed" and texts == ["typed, not in its session yet"] and not buttons, str((landing, texts)))
+    landing, texts, _ = label_and_buttons(row(now - 1000, None, 2))
+    check("chat: typed again and again with nothing in the transcript reads not delivered",
+          landing == "lost" and texts[0].startswith("not delivered"), str((landing, texts)))
+    landing, texts, _ = label_and_buttons(row(now, now))
+    check("chat: the transcript shows it: delivered", landing == "delivered"
+          and texts == ["delivered, not answered yet"], str((landing, texts)))
+
+
 def test_a_delivery_changes_the_chat_signature() -> None:
     from ocp.ui import chat_page as cp
     _home("sigdeliver")
@@ -2099,10 +2130,13 @@ def test_a_delivery_changes_the_chat_signature() -> None:
         rid = db.add_request(con, "alpha", "reviewer", "one", None, None, None, None, 0, None)
         con.commit()
         before = cp.signature(con, "reviewer", True)
-        con.execute("UPDATE requests SET delivered_at = 5 WHERE id = ?", (rid,))
+        con.execute("UPDATE requests SET delivered_at = 5, typed_at = 5 WHERE id = ?", (rid,))
         con.commit()
-        check("chat: a delivery moves the signature though the state stays queued",
-              cp.signature(con, "reviewer", True) != before)
+        typed = cp.signature(con, "reviewer", True)
+        check("chat: a typing moves the signature though the state stays queued", typed != before)
+        con.execute("UPDATE requests SET landed_at = 6 WHERE id = ?", (rid,))
+        con.commit()
+        check("chat: and so does the line landing in its transcript", cp.signature(con, "reviewer", True) != typed)
     finally:
         con.close()
 
@@ -3358,6 +3392,7 @@ async def _run_all() -> None:
     await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
     await test_the_home_accounts_row_shows_the_alias()
     test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
+    test_the_chat_says_typed_until_the_transcript_shows_the_line()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()

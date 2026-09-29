@@ -2838,7 +2838,8 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "SessionEnd", "timebox_exceeded", "task_timeout_exceeded",
                     "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
-                    "dialog_accept_failed", "stop_wait_stuck", "forgotten_resolve_capped"}
+                    "dialog_accept_failed", "stop_wait_stuck", "forgotten_resolve_capped",
+                    "landed", "retyped", "landing_lost"}
     # close_task, mark_task_done and reopen_task (#71) are here, not in
     # AGENT_ACTIVITY_KINDS, because none of the three is necessarily the
     # agent whose clock a careless future caller might attribute it to: a

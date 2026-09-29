@@ -57,7 +57,8 @@ def _delivered(con, requester: str, target: str, ago_s: int, kind: str | None = 
     rid = db.add_request(con, requester, target, "do the thing", None, "peer", "async",
                          kind, 0, None, **kw)
     db.mark_delivered(con, rid)
-    con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (int(time.time()) - ago_s, rid))
+    at = int(time.time()) - ago_s
+    con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ? WHERE id = ?", (at, at, at, rid))
     return rid
 
 

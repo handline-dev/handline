@@ -234,12 +234,42 @@ def clear_delivered(con, rid: int) -> None:
     con.execute("UPDATE requests SET delivered_at = NULL WHERE id = ? AND state = 'queued'", (rid,))
 
 
+def mark_typed(con, rid: int, session: str | None) -> None:
+    """The send went through: `rid` was typed into `session`'s terminal. It is not
+    delivered until `mark_landed` (T418) - a line typed can still be dropped, or
+    typed into a session that is then closed."""
+    con.execute("UPDATE requests SET typed_at = ?, typed_session = ? WHERE id = ? AND landed_at IS NULL",
+                (int(time.time()), session, rid))
+
+
+def mark_landed(con, rid: int) -> None:
+    """The receiving session's transcript holds `rid`: only now is it delivered."""
+    con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ?) WHERE id = ?",
+                (int(time.time()), rid))
+
+
+def awaiting_landing(con, target: str):
+    """Requests typed at `target` that its transcript has not shown yet."""
+    return con.execute(
+        "SELECT * FROM requests WHERE target = ? AND state = 'queued' AND typed_at IS NOT NULL "
+        "AND landed_at IS NULL ORDER BY queue_order, id", (target,)).fetchall()
+
+
+def owe_again(con, rid: int) -> None:
+    """A typed line the transcript never showed is owed again, told afresh by the
+    same paths that told it first; how many times is kept."""
+    con.execute(
+        "UPDATE requests SET delivered_at = NULL, typed_at = NULL, typed_session = NULL, "
+        "told_out_of_turn = NULL, landing_tries = COALESCE(landing_tries, 0) + 1 "
+        "WHERE id = ? AND state = 'queued' AND landed_at IS NULL", (rid,))
+
+
 def timeboxed_open(con):
     """Requests an agent has been shown and not closed, whose asker has not yet
     been told they ran long. Reports ask nothing, so no clock runs on them, and
     the human's rows are "delivered" when drawn, not worked on."""
     return con.execute(
-        "SELECT * FROM requests WHERE state = 'queued' AND delivered_at IS NOT NULL "
+        "SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL "
         "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
         "AND target != ?", (HUMAN,)).fetchall()
 

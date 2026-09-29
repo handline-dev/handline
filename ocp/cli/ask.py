@@ -252,6 +252,7 @@ def cmd_inbox(args) -> int:
         # `ocp inbox <name>` must not spend the requester's withdraw/replace.
         if agent == askmod.asking_agent():
             db.mark_delivered(con, int(head["id"]))
+            db.mark_landed(con, int(head["id"]))       # it has read it
     finally:
         con.close()
     print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")

@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, lifecycle, messaging, reconciler, timebox, usage_poll, waitfor
+from . import delivery, handoff, landing, lifecycle, messaging, reconciler, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED, awaiting_reply)
 
@@ -111,6 +111,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # or a wake still settling - gets one more try every tick, RUNNING
     # included: unlike the rest of this function, a pending message is not
     # gated on being idle.
+    landing.sweep(con, agent, log)
     messaging.tell_undelivered(con, agent, log)
     messaging.deliver_pending(con, agent, log)
 

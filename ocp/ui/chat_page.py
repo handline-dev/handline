@@ -25,6 +25,7 @@ from textual.widgets.option_list import Option
 
 from .. import actions, db
 from ..actions.prompt_blocks import PERMISSION, QUESTION
+from ..daemon import landing as landingmod
 from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
 from ..usage import status
@@ -50,6 +51,14 @@ _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 # Requests read per page. The newest page is what opens; older ones are read
 # only when the chat is scrolled to its top.
 PAGE = 30
+# T418: what the row under a message the agent has not answered says. Only a line
+# its transcript shows is delivered.
+LANDING_LABELS = {
+    "queued": "queued, not delivered",
+    "typed": "typed, not in its session yet",
+    "lost": f"not delivered: typed {landingmod.MAX_TRIES} times, never in its transcript",
+    "delivered": "delivered, not answered yet",
+}
 
 
 def _scope(agent: str, everyone: bool) -> tuple[str, tuple]:
@@ -71,7 +80,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     where, params = _scope(agent, everyone)
     params = (actions.HUMAN, *params)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at, "
+           "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, landing_tries, "
            "EXISTS (SELECT 1 FROM requests c WHERE c.parent_id = requests.id AND c.requester = ? "
            f"AND c.state NOT IN {_GONE}) AS replied "
            f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
@@ -91,7 +100,8 @@ def signature(con, agent: str, everyone: bool) -> tuple:
     where, params = _scope(agent, everyone)
     row = con.execute(
         "SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(resolved_at), 0), "
-        "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), "
+        "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), COALESCE(MAX(landed_at), 0), "
+        "COUNT(landed_at), COALESCE(MAX(typed_at), 0), COALESCE(SUM(landing_tries), 0), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
         params).fetchone()
     return tuple(row)
@@ -117,9 +127,10 @@ def messages_of(rows, agent: str) -> list[dict]:
                       and r["state"] == "queued")
             held = (part == 0 and speaker != human and r["target"] != human
                     and r["state"] == "queued" and not r["delivered_at"])
-            waiting_to_go = held or queued and not r["delivered_at"]
-            if part == 0 and r["delivered_at"]:
-                at = r["delivered_at"]      # a message sits where its agent read it, not where it queued
+            landing = landingmod.state(r)
+            waiting_to_go = held or queued and landing != "delivered"
+            if part == 0 and r["landed_at"]:
+                at = r["landed_at"]      # a message sits where its agent read it, not where it queued
             who = ("you" if speaker == human else speaker) + (
                 "" if human in (speaker, to) else f" → {to}")
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
@@ -130,7 +141,8 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "queued": queued,
                          "held": held,
                          "to": to,
-                         "delivered": bool(r["delivered_at"]),
+                         "delivered": landing == "delivered",
+                         "landing": landing,
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
     msgs.sort(key=lambda m: m["_key"])
@@ -408,14 +420,14 @@ class ChatMessage(Vertical):
         if note is not None:
             parts.append(Static(note, classes="qstate"))
         self._send_now: Button | None = None
+        landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
         if m.get("queued"):
             buttons = []
-            if not m.get("delivered"):
+            if landing == "queued":
                 self._send_now = Button("⚡ send now", classes="sendnow", compact=True)
                 buttons = [self._send_now, Button("✕ cancel", classes="cancel", compact=True)]
             parts.append(Horizontal(
-                Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
-                       classes="qstate"),
+                Static(LANDING_LABELS[landing], classes="qstate"),
                 *buttons, classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}")
         self.m = m
@@ -1167,7 +1179,7 @@ class ChatPage(JobsAware, Screen):
             con.close()
         self.oldest = rows[0]["id"] if rows else None
         msgs = messages_of(rows, self.agent)
-        waiting = [m for m in msgs if m["queued"] and not m["delivered"]]
+        waiting = [m for m in msgs if m["queued"] and m["landing"] == "queued"]
         held = [m for m in msgs if m["held"]]
         why = ""
         if waiting and self.agent_state[0] != "RUNNING":     # the spinner already says it
@@ -1184,7 +1196,8 @@ class ChatPage(JobsAware, Screen):
                 con.close()
         state, detail = self.agent_state
         wait = detail if detail.startswith("waiting for") else ""
-        key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["dismissed_by"])
+        key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
+                      r["landing_tries"], r["dismissed_by"])
                      for r in rows), state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:
             return          # nothing a viewer would see changed - the widgets and scroll stay put
