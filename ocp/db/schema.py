@@ -422,6 +422,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _give_answers_their_own_rows(con)
     _asks_reports_and_escalations_to_says(con)
     _answers_are_says(con)
+    _escalations_are_tasks(con)
     return con
 
 
@@ -682,6 +683,28 @@ def _asks_reports_and_escalations_to_says(con) -> None:
     except Exception:
         con.execute("ROLLBACK")
         raise
+
+
+def _escalations_are_tasks(con) -> None:
+    """T361 step B2: the founder's gate is an open decision task, not a kind of row.
+    A queued `escalate` row that no task carries opens one (its card, opened by the
+    agent it is about); every `escalate` row is then a `task` - the delivery of one,
+    or history. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:escalations_are_tasks"):
+        return
+    from . import tasks as dbtasks
+    from .requests import HUMAN
+    from ..infra import textsafe
+    for r in con.execute("SELECT id, ts, requester, body FROM requests WHERE kind = 'escalate' "
+                         "AND state = 'queued' AND target = ? "
+                         "AND id NOT IN (SELECT request_id FROM task_requests)", (HUMAN,)).fetchall():
+        title = textsafe.oneline((r["body"] or "").strip().split("\n", 1)[0])[:80] or "a decision"
+        tid = dbtasks.new_task(con, title, HUMAN, r["requester"], expects="decision")
+        con.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (r["ts"], tid))
+        dbtasks.set_task_queued(con, tid, HUMAN)
+        dbtasks.link_request(con, tid, r["id"])
+    con.execute("UPDATE requests SET kind = 'task' WHERE kind = 'escalate'")
+    set_cursor(con, "migrated:escalations_are_tasks", 1)
 
 
 def _answers_are_says(con) -> None:

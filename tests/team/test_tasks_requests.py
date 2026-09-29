@@ -478,7 +478,7 @@ def test_cycle_and_escalation(home: Path) -> None:
     con = db.connect()
     try:
         esc = con.execute(
-            "SELECT * FROM requests WHERE target='human' AND kind='escalate'"
+            "SELECT * FROM requests WHERE target='human' AND kind='task'"
         ).fetchall()
         check("chain: the escalation is a real queued request", len(esc) == 1, str(len(esc)))
         check("chain: it carries the original body",
@@ -1032,7 +1032,7 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
         # obstacle from whatever the agent's open escalation is about.
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.block_clear(con, "backend")
-        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'escalate'")
+        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
         askmod.escalate(con, "backend", "something else", "unrelated")
         blockedmod._checked.clear()
         blockedmod.sweep(con, lambda _m: None, t0 + 5000)
@@ -3158,8 +3158,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         askmod.resolve(hr.load_proposal(said.split()[1])["request"], "reject", notify=False)
         check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
 
-        db.add_request(con, "marina", actions.HUMAN, "which branch do we cut?", None,
-                       "peer", "async", "escalate", 0, None)
+        askmod.ask(actions.HUMAN, "which branch do we cut?", requester="marina")
         w = waits("escalation")
         check("escalation: an unanswered one is waiting on the founder, in red",
               len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
@@ -4735,6 +4734,56 @@ def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_
         check("task_rows: the number of queries does not grow with the number of tasks",
               many == few and few <= 8 and len(many_rows) > 60, f"{few} queries for the small board, "
               f"{many} for {len(many_rows)} tasks")
+    finally:
+        con.close()
+
+
+def test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(home: Path) -> None:
+    """T361 step B2: what the daemon raises for the founder opens a decision task,
+    once per shape, with its request as the card; the founder's gate is an open
+    decision task, not a kind of row; an old queued escalation opens one on migrate."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        rid = askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph")
+        tasks = db.tasks_for_request(con, rid)
+        check("escalate: opens one decision task of the founder's, opened by the agent it is about",
+              len(tasks) == 1 and tasks[0]["owner"] == "human" and tasks[0]["opened_by"] == "backend"
+              and tasks[0]["expects"] == "decision", str([dict(t) for t in tasks]))
+        check("escalate: its card is a task row, not an escalate one", db.get_request(con, rid)["kind"] == "task")
+        check("escalate: exactly the same text again is that decision, not a second",
+              askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph") == rid
+              and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 1)
+        other = askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nother", "wait-for graph")
+        prefix = askmod.escalate(con, "backend", "[wait-for] T1 waits", "wait-for graph")
+        check("escalate: different text is its own card, kept whole - nothing an agent wrote is lost",
+              len({rid, other, prefix}) == 3 and "other" in db.get_request(con, other)["body"]
+              and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 3)
+        one = askmod._escalate(con, "backend", "reviewer", "NOTES ONE", None, "c1", 2, None, "loop")
+        two = askmod._escalate(con, "backend", "reviewer", "NOTES TWO different", None, "c1", 2, None, "loop")
+        check("escalate: two different stopped requests in one chain are two cards, both bodies kept",
+              one != two and "NOTES ONE" in db.get_request(con, one)["body"]
+              and "NOTES TWO different" in db.get_request(con, two)["body"])
+        for extra in (other, prefix, one, two):
+            actions.decide(con, db.tasks_for_request(con, extra)[0]["id"], "seen")
+        check("gate: the card is the founder's gate and shows in their waits",
+              next(m for m in actions.mailbox_rows(con) if m["id"] == rid)["gate"]
+              and any(w["kind"] == "escalation" and w["who"] == "backend" for w in actions.founder_waits(con)))
+        check("gate: open_escalations_of counts it", db.open_escalations_of(con, "backend") == 1)
+        ok, msg = actions.decide(con, tasks[0]["id"], "fine")
+        check("gate: decided, it is no gate", ok and not db.open_escalations_of(con, "backend"), msg)
+        loose = con.execute(
+            "INSERT INTO requests(ts, requester, target, body, kind, state, fyi, chain_depth, edge_ok) "
+            "VALUES(1000, 'worker', 'human', 'which name?', 'escalate', 'queued', 0, 0, 1)").lastrowid
+        db.set_cursor(con, "migrated:escalations_are_tasks", 0)
+        con.close()
+        con = db.connect()
+        t = db.tasks_for_request(con, loose)
+        check("migrate: a queued escalation no task carries opens one, and the row is a task row",
+              len(t) == 1 and t[0]["owner"] == "human" and t[0]["opened_by"] == "worker"
+              and db.get_request(con, loose)["kind"] == "task", str([dict(x) for x in t]))
+        check("migrate: and it is a gate", loose in db.open_decision_card_ids(con))
     finally:
         con.close()
 
@@ -8905,6 +8954,7 @@ def main() -> int:
         run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
         run(lambda: test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
+        run(lambda: test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(Path(td) / 'escgate'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
         run(lambda: test_the_answer_lookups_use_the_settles_index_not_a_scan(Path(td) / 'settlesidx'))
         run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
