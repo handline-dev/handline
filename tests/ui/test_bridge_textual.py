@@ -2394,6 +2394,13 @@ def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     check("settings: a save writes it as tokens", ok and agents.read("backend")["context_tokens"] == 150_000)
 
 
+def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
+    from ocp.ui import chat_page as cp
+    m = {"who": "a → b", "when": 1, "part": 0, "text": "x", "kind": "task", "tasks": [418]}
+    check("head: a task shows its kind and T number", cp.message_parts(m)[0].plain.endswith("task  T418"))
+    check("head: a reply part shows neither", "task" not in cp.message_parts({**m, "part": 1})[0].plain)
+
+
 def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
     from ocp.ui import chat_page as cp
     from ocp.infra import textsafe
@@ -3409,6 +3416,7 @@ async def _run_all() -> None:
     await test_the_settings_tab_switch_shows_and_saves_skip_prompts()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
+    test_a_message_head_tells_its_kind_and_linked_tasks()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
     await test_a_confirm_on_screen_ignores_an_arrow_and_answers_n()
     await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()

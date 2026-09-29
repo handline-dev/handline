@@ -359,11 +359,15 @@ def link_refs(text: Text) -> Text:
 
 
 def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
-    """What one message draws: its head line (who and when), its body, and
+    """What one message draws: its head line (who, when, its kind and linked tasks), its body, and
     the note under it (cancelled), all as safe `Text`."""
     body = link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else ""))
     stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
     head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
+    if m.get("part") == 0 and m.get("kind"):
+        head.append("  " + safe(m["kind"]), style="dim")
+        for t in m.get("tasks", ()):
+            head.append(f"  {actions.task_ref(t)}", style="bold cyan")
     note = None
     if m.get("cancelled"):
         note = Text("cancelled" + (" - the agent was told to stop" if m.get("delivered") else ""))
