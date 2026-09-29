@@ -305,6 +305,26 @@ def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:
         con.close()
 
 
+def test_background_work_alone_is_not_working() -> None:
+    """Founder #5308: an agent between turns with only background work running reads idle,
+    with the background note beside it - never working."""
+    from ocp.daemon import delivery, states
+    _home("bgidle")
+    agents.register("reviewer")
+    con = db.connect()
+    was = delivery.has_background_work
+    try:
+        delivery.has_background_work = lambda c, a: True
+        for st in (states.QUEUED, states.IDLE):
+            db.set_agent_state(con, "reviewer", st)
+            word, detail = tui.screen_state(con, db.get_agent_state(con, "reviewer"))
+            check(f"background only ({st}): idle, not working, with the background note",
+                  word == "IDLE" and detail.startswith("background"), str((word, detail)))
+    finally:
+        delivery.has_background_work = was
+        con.close()
+
+
 def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
     """T421: an answer is a message of its own, so the chat gives the ask and the
     answer two numbers, draws each once, and a reply under the answer counts as
@@ -1411,6 +1431,7 @@ async def _run_all() -> None:
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery()
+    test_background_work_alone_is_not_working()
     test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_reply_shows_a_link_to_what_it_answers()
