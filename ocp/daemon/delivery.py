@@ -373,8 +373,7 @@ def enforce_edges(con, agent: str, log) -> bool:
         if r["requester"] not in t.agents:
             db.clear_edge(con, int(r["id"]))
             continue
-        d = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0),
-                    edge_exempt=(r["relation"], r["kind"]) == (teammod.HANDBACK, "task"))
+        d = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0))
         kind = r["kind"] if r["fyi"] or r["kind"] in askmod.OVERRIDE_KINDS else d.kind
         if not d.allowed:
             why = d.reason
@@ -893,9 +892,8 @@ def answer_verb(con, head) -> str:
     if head["kind"] == "task":
         task = _task_of(con, head)
         if task is not None:
-            from ..actions import tasks as taskmod
             return (f"you own T{task['id']} now: hand it on with "
-                    f"{taskmod.handoff_command(con, task, head['target'])}, or "
+                    f"`ocp task handoff T{task['id']} <agent> \"<note>\"`, or "
                     f"`ocp task done T{task['id']}` if you are its last step")
     return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
 

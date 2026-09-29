@@ -654,6 +654,9 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     calling): the owner who just closed the blocker themselves does not need
     telling."""
     text = f"task T{dep_tid} is unblocked - T{closed_tid}, its last open blocker, {how}"
+    result = db.get_task(con, closed_tid)["done_evidence"]
+    if result:
+        text += f": {result}"     # until T443's own result line lands and takes this over
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)
@@ -1085,39 +1088,11 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
     return True, f"note sent on T{tid} - " + "; ".join(sent)
 
 
-def _role(agent: str) -> str:
-    """The last dotted segment of an agent's name when it is one of the two roles
-    a handoff knows - `orcapipe.auditor` is an auditor, `harbor.merger` a merger."""
-    last = agent.rsplit(".", 1)[-1]
-    return last if last in ("auditor", "merger") else ""
-
-
-def previous_owner(con, tid: int, owner: str) -> str | None:
-    """Who handed T<tid> to `owner`, read from the handoff record: the latest
-    handoff whose receiver is `owner`. None if nobody did."""
-    for h in reversed(db.task_handoffs(con, tid)):
-        if h["to"] == owner:
-            return h["from"]
-    return None
-
-
-def last_audit(con, tid: int) -> tuple[str | None, str | None]:
-    """(verdict, maker) of the latest handoff that carried a verdict: PASS or
-    FAIL, and who had handed the task to that auditor. (None, None) if unaudited."""
-    hist = db.task_handoffs(con, tid)
-    for i in range(len(hist) - 1, -1, -1):
-        if hist[i]["verdict"]:
-            maker = next((g["from"] for g in reversed(hist[:i]) if g["to"] == hist[i]["from"]), None)
-            return hist[i]["verdict"], maker
-    return None, None
-
-
-def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None) -> str | None:
-    """Why `me` may not hand this task to `to`, or None. The chain is fixed: the
-    owner hands it to an auditor; the auditor returns it to the task's opener
-    (a PASS) or the one who handed it over (a FAIL); while the last audit is a
-    PASS, the opener passes it to a merger or sends it back to the maker.
-    Without a PASS nobody reaches a merger. The founder may do anything."""
+def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
+    """Why `me` may not hand this task to `to`, or None. A task moves to another
+    owner when its owner (or the founder) says so, with a note. Who reviews and who
+    merges is the project's guideline, not a rule here: the owner keeps its task
+    and waits on a child task it opens for them."""
     tid = row["id"]
     if row["closed_by"] or row["done_evidence"]:
         return f"task T{tid} is already finished - nothing to hand over"
@@ -1127,85 +1102,27 @@ def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None)
         return f"no agent named {to}"
     if to == row["owner"]:
         return f"T{tid} is already {to}'s"
-    if me == HUMAN:
-        return None
-    if me != row["owner"]:
+    if me != HUMAN and me != row["owner"]:
         return f"T{tid} is {row['owner']}'s: only its owner hands it on"
-    prev = previous_owner(con, tid, me)
-    role, target = _role(me), _role(to)
-    if verdict and role != "auditor":
-        return "only an auditor gives a verdict (--pass or --fail)"
-    if role == "auditor":
-        if verdict is None:
-            if prev is not None:
-                return "an auditor's handoff must say --pass or --fail"
-            dest = row["opened_by"]
-            allowed = to == dest
-            hint = f"{dest or 'nobody'} (not a review, so no verdict is needed)"
-        else:
-            dest = row["opened_by"] if verdict == "PASS" else prev
-            allowed = to == dest
-            hint = f"{dest or 'nobody'} on a {verdict} ({'the task opener' if verdict == 'PASS' else 'who handed it over'})"
-    elif role == "merger":
-        allowed = to == prev
-        hint = f"{prev or 'nobody'}, who handed it over - a merger closes it done once merged"
-    elif me == row["opened_by"] and last_audit(con, tid)[0] == "PASS":
-        maker = last_audit(con, tid)[1]
-        allowed = target == "merger" or to == maker
-        hint = f"a merger, or {maker or 'nobody'} (the maker, to send it back)"
-    else:
-        allowed = target == "auditor"
-        hint = "an auditor"
-    if not allowed:
-        return f"{me} may hand T{tid} only to {hint}, not {to}"
     return None
 
 
-def handoff_command(con, row, me: str) -> str:
-    """What `me` types to hand T<n> on, from the same chain `_handoff_refusal` enforces:
-    an auditor returns it to the opener on a PASS or to the one who handed it over on a
-    FAIL; a merger to the one who handed it over; the opener of an audited-PASS task to a
-    merger or back to the maker; anyone else to an auditor."""
-    tid = row["id"]
-    prev = previous_owner(con, tid, me)
-
-    def cmd(to: str | None, flag: str = "") -> str:
-        return f'`ocp task handoff T{tid} {to or "<who>"} "<note>"{flag}`'
-
-    def named(role: str) -> str:
-        """One command per `role` agent of `me`'s own project (the name's first segment):
-        another project's auditor is not where its work goes."""
-        mine = [a for a in paths.list_agents() if _role(a) == role and a.split(".")[0] == me.split(".")[0]]
-        return " or ".join(cmd(a) for a in mine) or cmd(f"<{role}>")
-    role = _role(me)
-    if role == "auditor":
-        return f"{cmd(row['opened_by'], ' --pass')} on a PASS, or {cmd(prev, ' --fail')} on a FAIL"
-    if role == "merger":
-        return cmd(prev)
-    if me == row["opened_by"] and last_audit(con, tid)[0] == "PASS":
-        return f"{named('merger')} to merge it, or {cmd(last_audit(con, tid)[1])} to send it back"
-    return named("auditor")
-
-
-def task_handoff(con, me: str, tid: int, to: str, note: str,
-                 verdict: str | None = None) -> tuple[bool, str]:
+def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]:
     """One verb for passing a task along: its owner changes to `to`, the note goes
     to `to` with the task, and both the note and the handoff stay in the task's
     record (`db.task_handoffs`, in the order they happened). A required note
-    replaces the separate ask: nothing else is sent. An auditor's handoff carries
-    its verdict, PASS or FAIL, which also picks where it goes."""
+    replaces the separate ask: nothing else is sent."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
     said = textsafe.text(note or "").strip()
-    why = _handoff_refusal(con, row, me, to, said, verdict)
+    why = _handoff_refusal(con, row, me, to, said)
     if why:
         return False, why
     # The delivery is the only thing that can be refused past this point (the
     # routing table), so it goes first: a refusal leaves the task where it was.
     ok, msg, rid = askmod.ask(to, f"T{tid} handed to you by {me}: {row['title']}\n\n{said}",
-                              requester=me, kind="task",
-                              edge_exempt=verdict == "FAIL" and me != HUMAN)
+                              requester=me, kind="task")
     if not ok:
         return False, msg
     old = row["owner"]
@@ -1215,7 +1132,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str,
     db.edit_task(con, tid, me, owner=to)
     db.link_request(con, tid, rid)
     db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
-                                            "request_id": rid, "verdict": verdict})
+                                            "request_id": rid})
     if db.current_task(con, old) == tid:
         db.set_current_task(con, old, None)
         if advance_current_task(con, old):

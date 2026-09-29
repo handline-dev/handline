@@ -195,8 +195,8 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
 
 
 def task_handoffs(con, tid: int) -> list[dict]:
-    """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}. What
-    the task's page shows, and what `previous_owner` reads."""
+    """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}
+    (a verdict only on a handoff made before verdicts were removed). What the task's page shows."""
     out = []
     for r in con.execute("SELECT ts, payload FROM events WHERE kind = 'task_handoff' "
                          f"AND {EVENT_TASK} = ? ORDER BY id", (tid,)):
