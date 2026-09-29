@@ -49,6 +49,8 @@ from ..infra import textsafe
 # for an answer that was free elsewhere.
 IDLE_TIMEOUT_MS = 120_000
 IDLE_PROBE_MS = 3_000
+# `--tab` waits for Orca to persist the layout; a wedged Orca must not hold the tick.
+CLOSE_TIMEOUT_S = 30
 
 
 def available() -> bool:
@@ -356,7 +358,7 @@ def close_terminal(handle: str, tab: bool = True) -> tuple[bool, str]:
     args = ["terminal", "close", "--terminal", handle]
     if tab:
         args.append("--tab")
-    return _run(args)
+    return _run(args, timeout=CLOSE_TIMEOUT_S)
 
 
 def run_create(objective: str) -> str | None:

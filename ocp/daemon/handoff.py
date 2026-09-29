@@ -368,7 +368,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     # here the session it started with may be gone. No resume id: that session
     # belongs to the account being left.
     st = status.read_for_agent(agent, here)
-    ok, why = lifecycle._end_session(con, agent, log, st, resume=None)
+    ok, why = lifecycle._end_session(con, agent, log, st, resume=None, keep_pane=True)
     if not ok:
         log(f"  {agent}: staying on {here} - {why}")
         return False, True

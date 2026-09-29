@@ -1786,6 +1786,7 @@ def test_a_resume_woken_for_a_message_is_handed_that_message(home: Path) -> None
         orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True      # even so, it must not be told yet
+        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         # A session runs in that terminal until close_agent ends it, and
         # the wake below starts another one.
         table = sessions_are("backend")
@@ -1841,6 +1842,130 @@ def test_a_resume_woken_for_a_message_is_handed_that_message(home: Path) -> None
         con.close()
 
 
+def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that_resumes(home: Path) -> None:
+    """T407: a session that ends takes its pane with it, and the wake starts a
+    new terminal in the agent's worktree running the same launch a same-shell
+    wake types - the resume id and the wake prompt - so no resume is lost.
+    An agent that never closes keeps its pane."""
+    from ocp.actions import control
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    closed: list[str] = []
+    created: list[str] = []
+    real = (spawnmod.start_in, orcamod.send)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        table = sessions_are("backend")
+        orcamod.send = relaunching_send(sent, table)
+        live = {"term_x"}
+        orcamod.live_terminals = lambda: set(live)
+
+        def close_terminal(handle, tab=True):
+            closed.append(handle)
+            live.discard(handle)
+            return True, "closed"
+        orcamod.close_terminal = close_terminal
+
+        def start_in(agent, worktree, cmd=None):
+            created.append(cmd)
+            live.add("term_new")
+            db.set_terminal(con, agent, "term_new", worktree)
+            table[agent] = 4242
+            sent.append(take_launched_prompt(cmd))
+            return True, f"{agent}: started in {worktree}"
+        spawnmod.start_in = start_in
+
+        wt = home / "wt"
+        wt.mkdir()
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-4", "pct_5h": 20}))
+        ok, said = dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                                             status.read_for_agent("backend", "alpha"))
+        row = db.get_agent_state(con, "backend")
+        check("pane: closing a session closes its terminal and drops the handle, keeping the worktree",
+              ok and closed == ["term_x"] and not row["terminal"] and row["worktree"] == str(wt)
+              and row["closed_at"] and row["resume_session"] == "sess-4", f"{ok} {said} {closed} {dict(row)}")
+        check("pane: and records it", any(e["kind"] == "terminal_closed"
+                                          for e in db.events_after(con, 0, agent="backend")))
+        check("pane: a closed agent with no terminal is woken, not started fresh",
+              dmn_lifecycle.start_or_wake_needed(con, "backend", row) is None
+              and "wake brings it back" in dmn_lifecycle._start_for_work(con, "backend", lambda _m: None)
+              and not created)
+
+        asked = db.add_request(con, "reviewer", "backend", "look at this", None, "peer", "async", None, 0, None)
+        need = dmn_lifecycle.start_or_wake_needed(con, "backend", db.get_agent_state(con, "backend"))
+        check("pane: work waiting makes it a wake", need and need[0] == "wake", str(need))
+        dmn_evaluate.tick(con, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("pane: the wake opens a terminal running the resume with the wake prompt",
+              len(created) == 1 and " launch backend" in created[0] and "--resume sess-4" in created[0]
+              and "--prompt-file " in created[0], str(created))
+        check("pane: the resume's first prompt is the message",
+              any(t and "look at this" in t for t in sent), str(sent))
+        check("pane: the new terminal is the agent's and it is no longer closed",
+              row["terminal"] == "term_new" and not row["closed_at"], str(dict(row)))
+
+        # A person opening the terminal of a closed agent with nothing waiting resumes it too.
+        db.close_if_queued(con, asked, "done", "seen", announced=True)
+        dmn_delivery._seen.clear()
+        table.clear()
+        created.clear()
+        sent.clear()
+        db.set_terminal(con, "backend", "term_new", str(wt))
+        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
+                                  status.read_for_agent("backend", "alpha"))
+        db.set_closed(con, "backend", "sess-4")
+        db.set_terminal(con, "backend", None, str(wt))
+        said = control.start(con, "backend")
+        check("pane: the terminal key on a closed agent resumes its session",
+              len(created) == 1 and "--resume sess-4" in created[0]
+              and any(t and "opened your terminal" in t for t in sent), f"{said} {created} {sent}")
+
+        # One that never closes keeps its pane.
+        idle_close.set_agent_close_timeout("backend", idle_close.NEVER)
+        closed.clear()
+        dmn_delivery._seen.clear()
+        table["backend"] = 4200
+        db.clear_closed(con, "backend")
+        db.set_terminal(con, "backend", "term_x", str(wt))
+        live.add("term_x")
+        ok, said = dmn_lifecycle._end_session(con, "backend", lambda _m: None,
+                                              status.read_for_agent("backend", "alpha"), resume="sess-4")
+        check("pane: an agent set to never close keeps its terminal",
+              ok and not closed and db.get_terminal(con, "backend") == "term_x", f"{ok} {said} {closed}")
+
+        # A pane that would not close, and is still there, is kept: the next wake types into it.
+        idle_close.set_agent_close_timeout("backend", None)
+        db.clear_closed(con, "backend")
+        table["backend"] = 4200
+        orcamod.close_terminal = lambda h, tab=True: (False, "orca is busy")
+        ok, said = dmn_lifecycle._end_session(con, "backend", lambda _m: None,
+                                              status.read_for_agent("backend", "alpha"), resume="sess-4")
+        check("pane: a terminal that did not close keeps its handle", ok and db.get_terminal(con, "backend") == "term_x"
+              and "kept" in said, f"{ok} {said}")
+
+        # ...and a move, which starts a session in the same pane at once, does not close it.
+        db.clear_closed(con, "backend")
+        table["backend"] = 4200
+        closed.clear()
+        orcamod.close_terminal = close_terminal
+        ok, _ = dmn_lifecycle._end_session(con, "backend", lambda _m: None,
+                                           status.read_for_agent("backend", "alpha"), resume=None,
+                                           keep_pane=True)
+        check("pane: a caller that relaunches at once keeps the pane", ok and not closed
+              and db.get_terminal(con, "backend") == "term_x", f"{ok} {closed}")
+    finally:
+        spawnmod.start_in, orcamod.send = real
+        con.close()
+
+
 def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home: Path) -> None:
     """A resume after the cache expired re-reads the whole transcript uncached;
     a fresh conversation reads the handoff. The agent that comes back fresh must
@@ -1858,6 +1983,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
         orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.idle_now = lambda h: True
+        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         table = sessions_are("backend")
         relaunch = relaunching_send(sent, table)
 
@@ -4751,6 +4877,7 @@ def main() -> int:
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_resume_woken_for_a_message_is_handed_that_message(Path(td) / 'woketick'))
+        run(lambda: test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that_resumes(Path(td) / 'panewake'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))

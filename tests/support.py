@@ -96,7 +96,7 @@ claudemeter.refresh_credential = lambda acct, timeout=0: False
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
     "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
-    "screen_blocker", "_screen", "decline_dialog", "background_work")}
+    "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -184,6 +184,9 @@ def restore_world() -> None:
     accounts.logged_in = REAL_LOGGED_IN
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
+    # A session that ends closes its pane (T407); the tests that type into the
+    # shell it left behind keep it, and the ones about the closing stand in for it.
+    orcamod.close_terminal = lambda h, tab=True: (False, "the test world keeps every pane")
     # This process itself may be running inside an Orca-launched terminal -
     # left set, `orca.terminal_handle()` reads the real thing, and a test that
     # calls `launch._record_terminal` without setting its own value first
@@ -841,6 +844,7 @@ class _ExitTerm:
         orcamod.send = self.send
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        orcamod.close_terminal = lambda h, tab=True: (True, "closed")
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))

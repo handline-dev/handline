@@ -2833,7 +2833,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "queue_task", "draft_task",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "moved_account", "nudged",
-                    "notified", "park", "session_gone", "started_for_work", "terminal_gone",
+                    "notified", "park", "session_gone", "started_for_work", "terminal_closed", "terminal_gone",
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
                     "SessionEnd", "timebox_exceeded", "task_timeout_exceeded",
                     "unasked_running", "stale_background",
