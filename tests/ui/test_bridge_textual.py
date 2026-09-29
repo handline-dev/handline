@@ -2225,12 +2225,12 @@ def test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind() ->
     _home("qblocked")
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head", "the blocked head")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         ok, msg, nxt = askmod.ask("backend", "fix it instead", requester="reviewer")
         check("setup: another request queues behind it", ok, msg)
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)

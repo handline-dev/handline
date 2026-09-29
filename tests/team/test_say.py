@@ -47,6 +47,62 @@ def test_say_delivers_ahead_of_the_queue_and_never_parks(home: Path) -> None:
         con.close()
 
 
+def test_a_manager_says_to_a_report_only_with_a_task_or_a_reason(home: Path) -> None:
+    """Step 1 of T361: work cannot reach a report by message. The rule is
+    structural - who says it, to whom, and the flags it carries - never the text."""
+    _say_world(home)
+    rc, out = _cli(["say", "worker", "please build the board"], as_agent="manager")
+    check("bare say: refused, naming both ways out",
+          rc == 1 and "make it a task" in out and "--fyi" in out and "--task" in out, out)
+    con = db.connect()
+    try:
+        held = con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'worker'").fetchone()["c"]
+    finally:
+        con.close()
+    check("bare say: nothing was queued", held == 0, str(held))
+    rc, out = _cli(["say", "worker", "no rush", "--fyi", ""], as_agent="manager")
+    check("--fyi with no reason is refused", rc == 1 and "give the reason" in out, out)
+    rc, out = _cli(["say", "worker", "fyi the build is green", "--fyi", "a status, not work"],
+                   as_agent="manager")
+    check("--fyi with a reason is a plain say", rc == 0 and "queued as #" in out, out)
+    rc, out = _cli(["say", "manager", "done, nothing left"], as_agent="worker")
+    check("a bare say from a report to its manager is a plain say", rc == 0 and "queued as #" in out, out)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+  peer:    {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "worker", to: "peer", relation: peer, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    agents.register("peer")
+    rc, out = _cli(["say", "peer", "a bare hello"], as_agent="worker")
+    check("a bare say between agents with no supervisor edge is a plain say",
+          rc == 0 and "queued as #" in out, out)
+    ok, msg, tid = actions.task_new("manager", "worker", "the board", "build the board")
+    check("setup: a task for worker", ok, msg)
+    rc, out = _cli(["say", "worker", "use the v2 layout", "--task", f"T{tid}"], as_agent="manager")
+    check("--task: lands as a note on that task", rc == 0 and "note" in out.lower(), out)
+    rc, out = _cli(["say", "manager", "use the v2 layout", "--task", f"T{tid}"], as_agent="manager")
+    check("--task: the task must be with the one it is said to", rc == 1 and "is with worker" in out, out)
+    rc, out = _cli(["say", "worker", "x", "--task", "T99999"], as_agent="manager")
+    check("--task: an unknown task is refused", rc == 1 and "no task T99999" in out, out)
+    rc, out = _cli(["say", "worker", "x", "--task", f"T{tid}", "--fyi", "y"], as_agent="manager")
+    check("--task and --fyi contradict", rc == 1 and "contradict" in out, out)
+    ok, msg, rid = askmod.say("manager", "a question", requester="worker")
+    rc, out = _cli(["say", "worker", "the answer", "--parent", str(rid)], as_agent="manager")
+    check("a reply to a say is a say, whatever its direction", rc == 0, out)
+    rc, out = _cli(["task", "new", "-t", "1h", "--owner", "worker", "no brief"], as_agent="manager")
+    check("task new without a body is refused", rc == 1 and "needs a body" in out, out)
+
+
 def test_say_survives_enforce_edges_own_kind_recheck(home: Path) -> None:
     """T293, the same regression class T292's kind override hit (auditor
     #1694): the 'say' kind must be exempt from enforce_edges' delivery-time
@@ -54,7 +110,7 @@ def test_say_survives_enforce_edges_own_kind_recheck(home: Path) -> None:
     reaches the target - `push` runs it synchronously inside the CLI call
     itself, so this is provable without a daemon tick."""
     _say_world(home)
-    rc, out = _cli(["say", "worker", "quick question"], as_agent="manager")
+    rc, out = _cli(["say", "worker", "quick question", "--fyi", "a question"], as_agent="manager")
     check("say: delivers via the CLI", rc == 0, out)
     rid = int(out.split("queued as #", 1)[1].split()[0])
     con = db.connect()
@@ -69,7 +125,7 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
     """T293/#1655 (1b): a reply to a say is a say, threaded with --parent -
     the same chain, not a fresh one, and still never a head."""
     _say_world(home)
-    rc, out = _cli(["say", "worker", "where are we on the migration?"], as_agent="manager")
+    rc, out = _cli(["say", "worker", "where are we on the migration?", "--fyi", "a question"], as_agent="manager")
     check("say: opens", rc == 0, out)
     rid = int(out.split("queued as #", 1)[1].split()[0])
     rc, out = _cli(["say", "manager", "close - one file left", "--parent", str(rid)],
@@ -122,7 +178,7 @@ limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50
 """)
-    rc, out = _cli(["say", "worker", "is X true?"], as_agent="manager")
+    rc, out = _cli(["say", "worker", "is X true?", "--fyi", "a question"], as_agent="manager")
     check("setup: a say to worker opens", rc == 0, out)
     rid = int(out.split("queued as #", 1)[1].split()[0])
     # manager - the say's own sender, not its target - tries to close it by
@@ -182,13 +238,13 @@ def test_inbox_unread_only_reads_the_blocked_head_through_effective_head(home: P
     _say_world(home)
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("manager", "worker", "the blocked head")
+        ok, msg, tid = actions.task_new("manager", "worker", "the blocked head", "the blocked head")
         check("setup: worker holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         check("unblocked: inbox finds the plain head",
               [r["id"] for r in askmod.inbox("worker")] == [head])
 
-        ok, msg, t_blocker = actions.task_new("worker", "manager", "unrelated")
+        ok, msg, t_blocker = actions.task_new("worker", "manager", "unrelated", "unrelated")
         check("setup: a task to block on, owned elsewhere so its own delivery "
               "does not land in worker's queue too", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "manager")
@@ -209,7 +265,7 @@ def test_a_say_prints_no_way_out_and_needs_task_is_gone(home: Path) -> None:
     sender no reply hint, `ocp read` shows its receiver none, and `--needs-task` no
     longer exists."""
     _say_world(home)
-    rc, out = _cli(["say", "worker", "can you take a look at the flaky test?"],
+    rc, out = _cli(["say", "worker", "can you take a look at the flaky test?", "--fyi", "a question"],
                    as_agent="manager")
     check("say: opens", rc == 0, out)
     rid = int(out.split("queued as #", 1)[1].split()[0])
@@ -350,6 +406,7 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_say_delivers_ahead_of_the_queue_and_never_parks(Path(td) / 'sayqueue'))
+        run(lambda: test_a_manager_says_to_a_report_only_with_a_task_or_a_reason(Path(td) / 'sayrule'))
         run(lambda: test_say_survives_enforce_edges_own_kind_recheck(Path(td) / 'sayedges'))
         run(lambda: test_a_reply_to_a_say_is_a_say_in_its_own_thread(Path(td) / 'sayreply'))
         run(lambda: test_only_the_says_own_target_can_close_it_by_replying(

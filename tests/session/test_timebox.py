@@ -572,7 +572,7 @@ def test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(h
     sent = _world(home)
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("manager", "marina", "do the thing")
+        ok, msg, tid = actions.task_new("manager", "marina", "do the thing", "do the thing")
         check("setup: marina holds a current task", ok, msg)
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
         now = int(time.time())
@@ -611,7 +611,7 @@ def test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(h
               db.get_cursor(con, "stop_wait_told:marina") == 1)
 
         # Recording a wait ends the stretch.
-        ok, msg, t_blocker = actions.task_new("manager", "marina", "unrelated")
+        ok, msg, t_blocker = actions.task_new("manager", "marina", "unrelated", "unrelated")
         check("setup: a second task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "manager")
         check("setup: t is now blocked", ok, msg)

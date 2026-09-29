@@ -31,7 +31,7 @@ def _world(home: Path, title_len: int = 640):
         agents.register(a)
     con = db.connect()
     title = ("Task timeout: every task gets a default " * 20)[:title_len]
-    ok, msg, tid = actions.task_new("manager", "worker", title)
+    ok, msg, tid = actions.task_new("manager", "worker", title, title)
     check("setup: the task opens", ok, msg)
     ok, msg = actions.task_handoff(con, "worker", tid, "x.auditor", NOTE)
     check("setup: the owner hands it to the auditor", ok, msg)
@@ -119,7 +119,7 @@ def test_the_next_holder_is_named_from_the_tasks_own_project(home: Path) -> None
         agents.register(a)
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("p.manager", "p.worker", "ship it")
+        ok, msg, tid = actions.task_new("p.manager", "p.worker", "ship it", "ship it")
         check("setup: the task opens", ok, msg)
         row = db.get_task(con, tid)
         text = actions.handoff_command(con, row, "p.worker")

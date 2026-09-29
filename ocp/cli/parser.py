@@ -289,6 +289,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read the body from this file instead of the inline argument")
     p.add_argument("--parent", type=int, default=None,
                    help="the say this replies to, for its thread - a reply to a say is a say")
+    p.add_argument("--task", type=_task_arg, default=None, metavar="T",
+                   help="a say to your report about this task: it lands as a note on T<n>")
+    p.add_argument("--fyi", default=None, metavar="WHY",
+                   help="a say to your report that is not work: say why (the reason is a check, not stored)")
     p.set_defaults(fn=cmd_say)
 
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
@@ -523,7 +527,7 @@ def build_parser() -> argparse.ArgumentParser:
                                   "to --owner, checked against the routing table")
     p.add_argument("title")
     p.add_argument("body", nargs="?", default=None,
-                   help="the work itself, sent to --owner; the title is used if omitted")
+                   help="the work itself, sent to --owner; required - the title is not a brief")
     p.add_argument("--owner", required=True, help="an agent, or 'human' for a decision task")
     p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
                    help="the task this is a part of, written T<number>")
