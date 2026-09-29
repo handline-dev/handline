@@ -1512,6 +1512,47 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
               and len(refused) == 2, str((rep.rows, refused)))
 
 
+def test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(home: Path) -> None:
+    """`ocp init` lets read-only tools and ocp's reading and reporting verbs run
+    without asking, and never a blanket `ocp:*`; the founder's entries stay."""
+    use_home(home)
+    target = home / "shared" / ".claude" / "settings.json"
+    hook = vendors.state_hooks()[0]
+    check("safe: with no settings file it creates one", hook.allow_safe_commands())
+    allow = json.loads(target.read_text())["permissions"]["allow"]
+    check("safe: every listed command is there, once", sorted(allow) == sorted(set(hooks.SAFE_COMMANDS)),
+          str(allow))
+    check("safe: tail and the read-only ocp verbs are allowed, merge and hr apply are not",
+          "Bash(tail:*)" in allow and "Bash(ocp inbox:*)" in allow and "Bash(ocp task new:*)" in allow
+          and not any(a in allow for a in ("Bash(ocp:*)", "Bash(ocp merge:*)", "Bash(ocp hr apply:*)",
+                                            "Bash(ocp task done:*)")), str(allow))
+    before = target.read_text()
+    check("safe: a second run changes nothing", not hook.allow_safe_commands() and target.read_text() == before)
+
+    target.write_text(json.dumps({"model": "x", "permissions": {"allow": ["Bash(npm test:*)", "Bash(tail:*)"],
+                                                                "deny": ["Bash(rm:*)"]}}))
+    check("safe: an existing file changes", hook.allow_safe_commands())
+    data = json.loads(target.read_text())
+    allow = data["permissions"]["allow"]
+    check("safe: the founder's entries stay first, ours follow without repeating tail",
+          allow[:2] == ["Bash(npm test:*)", "Bash(tail:*)"] and allow.count("Bash(tail:*)") == 1
+          and "Bash(head:*)" in allow, str(allow))
+    check("safe: the deny list and every other key are untouched",
+          data["permissions"]["deny"] == ["Bash(rm:*)"] and data["model"] == "x", str(data))
+
+    target.write_text(json.dumps({"permissions": {"allow": "oops"}}))
+    check("safe: a malformed allow is replaced by ours, not crashed on", hook.allow_safe_commands()
+          and json.loads(target.read_text())["permissions"]["allow"] == list(hooks.SAFE_COMMANDS))
+    target.write_text('["a", "list"]')
+    try:
+        hook.allow_safe_commands()
+        refused = False
+    except ValueError:
+        refused = True
+    check("safe: a settings file that is not an object is refused and left alone",
+          refused and target.read_text() == '["a", "list"]')
+
+
 def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None:
     """T27: an entry written as `~/...` or through a symlink is the same path
     as the home, so it is folded, removed or named as a blocker like any other."""
@@ -2296,6 +2337,7 @@ def main() -> int:
         run(lambda: test_doctor_catches_a_wanted_event_installed_before_it_existed(Path(td) / 'hookgap'))
         run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
         run(lambda: test_allow_home_socket_adds_one_path_and_keeps_the_rest(Path(td) / 'homes'))
+        run(lambda: test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(Path(td) / 'safecmd'))
         run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))
         run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
