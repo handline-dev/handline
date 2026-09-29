@@ -116,6 +116,13 @@ def closed_wake_cause(con, agent: str, row) -> tuple[str, str] | None:
     return None
 
 
+def resumable_without_terminal(row) -> bool:
+    """A closed agent whose pane closed with its session and whose worktree is
+    still there: it is woken (resuming, T407), not started fresh."""
+    return bool(row and row["closed_at"] and not row["terminal"]
+                and spawnmod.worktree_path(row["worktree"]))
+
+
 def start_or_wake_needed(con, agent: str, row) -> tuple[str, str] | None:
     """("start" | "wake", what) when the daemon owes this agent a session, else None.
 
@@ -127,7 +134,7 @@ def start_or_wake_needed(con, agent: str, row) -> tuple[str, str] | None:
         return None
     if db.in_flight_for(con, agent):
         return None
-    if not (row and row["terminal"]):
+    if not (row and row["terminal"]) and not resumable_without_terminal(row):
         if db.queued_for(con, agent) or db.unannounced_answers(con, agent) or db.list_pending(con, agent):
             return "start", "work waiting"
         return None
@@ -273,8 +280,14 @@ def _answer_exit_dialog(con, agent: str, log, stop: bool = False) -> bool:
     return False
 
 
-def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, str]:
+def _end_session(con, agent: str, log, st, resume: str | None,
+                 keep_pane: bool = False) -> tuple[bool, str]:
     """Type `/exit` at this agent, and record what may bring it back.
+
+    Once the session is gone its pane is closed and the handle dropped (T407):
+    the wake opens a new terminal in the same worktree, so an idle agent holds
+    no window. `keep_pane` is for the callers that start a session in it again
+    at once, and an agent that never closes (`idle_close.NEVER`) keeps its pane.
 
     `resume` is the session id to come back to, or None when nothing may: a
     session id exists only under its own account's config directory, so a close
@@ -345,7 +358,25 @@ def _end_session(con, agent: str, log, st, resume: str | None) -> tuple[bool, st
     db.add_event(con, agent, "close", {"session": st.session_id,
                                        "ctx_pct": st.ctx_pct})
     log(f"  {agent}: session closed (resume {st.session_id or 'unknown'})")
-    return True, f"{agent}: session closed, terminal kept"
+    if keep_pane or idle_close.close_timeout_s(agent) == idle_close.NEVER:
+        return True, f"{agent}: session closed, terminal kept"
+    return True, f"{agent}: session closed, {_close_pane(con, agent, handle, log)}"
+
+
+def _close_pane(con, agent: str, handle: str, log) -> str:
+    """Close the terminal a closed session left behind. The handle is dropped
+    only once Orca has closed the pane, and the worktree stays on the row, where
+    the wake starts it again. A pane that stays is only a shell: the next wake
+    types into it as before, and the sweep drops the handle if it is gone anyway."""
+    ok, why = orca.close_terminal(handle)
+    if not ok:
+        log(f"  {agent}: session closed but its terminal was not: {why}")
+        return f"terminal kept ({why})"
+    row = db.get_agent_state(con, agent)
+    db.set_terminal(con, agent, None, row["worktree"] if row else None)
+    db.add_event(con, agent, "terminal_closed", {"handle": handle})
+    log(f"  {agent}: terminal closed")
+    return "terminal closed"
 
 
 def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
@@ -465,6 +496,11 @@ def _start_for_work(con, agent: str, log) -> str:
     retried every tick forever. After MAX_FAILED_ATTEMPTS it stalls and says
     so, which is a human's problem by definition.
     """
+    row = db.get_agent_state(con, agent)
+    if resumable_without_terminal(row):
+        # The caller wakes it, opening the terminal and resuming the session;
+        # starting it here would lose that.
+        return f"{agent}: closed with a session to resume - a wake brings it back"
     repo = agents.repo_of(agent)
     if not repo:
         asked = len(db.queued_for(con, agent))
@@ -477,7 +513,6 @@ def _start_for_work(con, agent: str, log) -> str:
     # refusal would count against the agent though it is the accounts that are full.
     if not launch.choose_account(agent, con=con):
         return f"{agent}: not started - {launch.no_room(agent)}"
-    row = db.get_agent_state(con, agent)
     if row and int(row["wake_failures"]) >= MAX_FAILED_ATTEMPTS:
         return f"{agent}: not started again - {row['wake_failures']} attempts have failed"
     # Its own worktree if it still has one - a terminal can be closed by a
@@ -509,11 +544,15 @@ def _write_wake_prompt(agent: str, text: str, suffix: str = "txt") -> Path:
     return p
 
 
-def wake_agent(con, agent: str, log) -> tuple[bool, str]:
+def wake_agent(con, agent: str, log, force: bool = False) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
-    This is the other half of the cycle: the agent kept its terminal and its
-    account across the park, and the handoff is what it knows when it wakes.
+    This is the other half of the cycle: the agent kept its account across the
+    park, and the handoff is what it knows when it wakes. A closed agent has no
+    terminal (T407); a new one is opened for it in its worktree.
+
+    `force` is a human asking for the session (the terminal key): a closed agent
+    is brought back with nothing waiting for it.
     """
     with lock.terminal(agent) as mine:
         if not mine:
@@ -522,13 +561,14 @@ def wake_agent(con, agent: str, log) -> tuple[bool, str]:
             return False, "someone else is typing at this agent; not waking twice"
         # Not `_type_gate`: closed means no live process to be mid-turn in,
         # and the sub-paths below that do meet a live one probe it themselves.
-        ok, said = _wake_agent(con, agent, log)
+        ok, said = _wake_agent(con, agent, log, force=force)
         if ok:
             delivery._mark_typed(con, agent)
         return ok, said
 
 
-def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool, str]:
+def _wake_agent(con, agent: str, log, moved_to: str | None = None,
+                force: bool = False) -> tuple[bool, str]:
     """The body of a wake, without the lock. Callers already holding it use this.
 
     `moved_to` names the account this wake is starting the agent on when it is
@@ -536,11 +576,13 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
     told it was closed.
     """
     handle = db.get_terminal(con, agent)
-    if not handle or not orca.available():
-        return False, "no terminal to wake"
-
     row = db.get_agent_state(con, agent)
     closed = bool(row and row["closed_at"])
+    # A closed session's pane was closed with it (`_end_session`); the wake
+    # opens a new terminal in the worktree the agent kept.
+    wt = spawnmod.worktree_path(row["worktree"]) if row else None
+    if not orca.available() or not (handle or (closed and wt)):
+        return False, "no terminal to wake"
     if not closed and row and delivery.session_present(agent):
         # A drifted session is ended and takes the closed agent's wake path
         # below, with its own session id to resume; see `launch.fingerprint`.
@@ -552,7 +594,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             if not st.session_id:
                 log(f"  {agent}: launch recipe changed but there is no session id "
                     f"to resume - waking it in place")
-            elif not _end_session(con, agent, log, st, resume=st.session_id)[0]:
+            elif not _end_session(con, agent, log, st, resume=st.session_id, keep_pane=True)[0]:
                 log(f"  {agent}: launch recipe changed but its session would not "
                     f"end - waking it in place")
             else:
@@ -572,7 +614,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # nothing to tell it and no reason to spend a session on it; the
         # message that arrives is what wakes it. A move is the exception: the
         # agent was mid-work and its handoff is what it is started with.
-        if moved_to is None and not waiting_for(con, agent):
+        if moved_to is None and not force and not waiting_for(con, agent):
             return False, NOTHING_WAITING
         # `ocp launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
@@ -682,6 +724,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         ok = False
         taken = False
         for resume in ([True, False] if session and not cold else [False]):
+            handle = db.get_terminal(con, agent)
             # Checked fresh before every send, not only after one fails: the
             # closed branch has no lock on the world outside ocp, and a
             # session can come up here between the first attempt's check and
@@ -701,16 +744,16 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
             # Only a resume reads it: a fresh start has read nothing of what the
             # queue held, and is told the ordinary way once it is up.
             waiting = delivery.waiting_prompt(con, agent, log) if resume else None
-            if resume and not waiting:
+            if resume and not waiting and not force:
                 return False, "what was waiting for it is gone; nothing to resume it for"
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
                                    moved_to=moved_to, con=con, cold=cold,
-                                   waiting=waiting[0] if waiting else None))
+                                   waiting=waiting[0] if waiting else FORCED_RESUME if resume else None))
             cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
                 f" -- --resume {session}" if resume else "")
-            ok, why = orca.relaunch(
-                handle, cmd,
+            ok, why = _launch_in_pane(
+                con, agent, handle, wt, cmd,
                 started=lambda: delivery.wait_for_session(agent, delivery.WAKE_SESSION_TIMEOUT_S, pf))
             if ok:
                 resumed = resume
@@ -761,7 +804,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
         # A relaunch is where claude shows its folder-trust screen - on a
         # moved agent the new account has never trusted this folder - and the
         # wake prompt waits behind it. Until it is past, the agent is not woken.
-        ok, why = _clear_trust_prompt(con, agent, handle, log)
+        handle = db.get_terminal(con, agent)
+        ok, why = _clear_trust_prompt(con, agent, handle, log) if handle else (True, "")
         if not ok:
             if resumed and waiting:
                 # The session took the message as its first prompt and reads it
@@ -811,6 +855,28 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None) -> tuple[bool
     if ok:
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")
+    return ok, why
+
+
+# The first prompt of a session resumed because a person opened its terminal, with no request behind it.
+FORCED_RESUME = ("Your session was closed while you were idle and has been resumed because someone "
+                 "opened your terminal. Carry on where you were; the next item is typed to you when it comes.")
+
+
+def _launch_in_pane(con, agent: str, handle: str | None, wt: str | None, cmd: str,
+                    started) -> tuple[bool, str]:
+    """Run the launch command `cmd` for `agent`: typed into the shell its last
+    session left, or - a closed session's pane is closed with it - in a new
+    terminal in its worktree (`spawn.start_in`). `started` says whether a typed
+    launch took."""
+    if handle:
+        return orca.relaunch(handle, cmd, started=started)
+    ok, why = spawnmod.start_in(agent, wt, cmd)
+    if ok and not started():
+        return False, "the launch command was run but no session took its prompt"
+    new = db.get_terminal(con, agent) if ok else None
+    if new:
+        orca.wait_idle(new)
     return ok, why
 
 

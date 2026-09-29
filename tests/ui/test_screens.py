@@ -653,6 +653,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
     try:
         orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         table = sessions_are("backend")
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -792,6 +793,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         check("start: and a worktree that is gone is not one",
               spawnmod.worktree_path(f"abc123::{wt}-missing") is None)
         db.set_terminal(con, "backend", None, f"abc123::{wt}")
+        db.clear_closed(con, "backend")     # closed with a session to resume, it is woken instead (T407)
 
         started: list[list[str]] = []
         real_run = spawnmod._run

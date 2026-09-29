@@ -47,9 +47,10 @@ def _delivery_state(con, agent: str, sessions: dict | None,
         # reader to start one, which would not have moved the request.
         return "stalled", f"{agent} is FATAL - the daemon will not touch it (w clears it)", False
     handle = row["terminal"]
-    if not handle:
+    # A closed session's pane closes with it (T407): no terminal is that agent's normal state, and its reason is below.
+    if not handle and not dmn_lifecycle.resumable_without_terminal(row):
         return "no terminal", f"{agent} has no terminal - nothing can be typed to it (t starts one)", False
-    if handles is not None and handle not in handles:
+    if handle and handles is not None and handle not in handles:
         return "terminal gone", f"{agent}'s terminal is gone - Orca no longer has it", False
     acct = agents.current_account(agent, con)
     pct = status.read(acct).short_trusted if acct else None

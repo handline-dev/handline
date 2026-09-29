@@ -95,6 +95,9 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
         row = db.get_agent_state(con, agent)
         if row and row["terminal"]:
             return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
+        if dmn_lifecycle.resumable_without_terminal(row):
+            # Its window closed with its session (T407): resume it, whether or not anything waits.
+            return f"{agent}: {dmn_lifecycle._wake_agent(con, agent, lambda _m: None, force=True)[1]}"
         wt = spawnmod.worktree_path(row["worktree"] if row else None)
         if wt:
             # It has somewhere to run already; it lost the window it ran in.
