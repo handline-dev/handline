@@ -123,7 +123,8 @@ def sweep_task_timeouts(con, log, now: int) -> None:
 def _unasked_running(con, agent: str, row) -> bool:
     if not row or row["closed_at"] or not row["terminal"] or db.queued_for(con, agent):
         return False
-    return row["state"] == RUNNING or delivery.has_background_work(con, agent)
+    # Background work with nothing owed is not asked about: `sweep_forgotten_background` settles it.
+    return row["state"] == RUNNING and not delivery.has_background_work(con, agent)
 
 
 def sweep_unasked_running(con, log, now: int) -> None:
@@ -162,7 +163,7 @@ def sweep_stale_background(con, log, now: int) -> None:
     team = actions.routing()
     for agent in paths.list_agents():
         key = f"stale_bg_told:{agent}"
-        if not delivery.bg_stale(con, agent, now) \
+        if not delivery.bg_stale(con, agent, now) or delivery.bg_owes_nothing(con, agent) \
                 or idle_close.close_timeout_s(agent) == idle_close.NEVER:
             db.clear_cursor(con, key)
             continue
@@ -178,6 +179,34 @@ def sweep_stale_background(con, log, now: int) -> None:
             db.set_cursor(con, key, now)
             db.add_event(con, agent, "stale_background", {"told": boss, "silent_s": silent})
             log(f"  {agent}: background work stale ({timefmt.ago(silent)} silent) - {boss} told")
+
+
+def sweep_forgotten_background(con, log, now: int) -> None:
+    """Background work nobody waits on settles itself, with nobody asked. When the agent's
+    idle window is over (`idle_close.bg_notice_s`, its idle close unless set) it is told
+    once to finish or stop the work; `idle_close.bg_grace_s` later, with nothing shown, the
+    idle close ends the session and its work (`bg_may_stop`; `lifecycle.close_agent` records
+    why). An agent set to never close is left alone. Both marks clear with the stretch: when
+    the work ends, or a request, an ask or a task makes it something owed."""
+    for agent in paths.list_agents():
+        key, noted = f"bg_prompt:{agent}", f"bg_stop_noted:{agent}"
+        if not delivery.has_background_work(con, agent) or not delivery.bg_owes_nothing(con, agent) \
+                or idle_close.close_timeout_s(agent) == idle_close.NEVER:
+            db.clear_cursor(con, key)
+            db.clear_cursor(con, noted)
+            continue
+        silent = delivery.bg_silent_s(con, agent, now)
+        if not delivery.bg_prompted_at(con, agent):
+            if silent is None or silent < idle_close.bg_notice_s(agent):
+                continue
+            text = (f"You have shown nothing for {timefmt.ago(silent)}, with no request open, and background "
+                    f"work is still running. Finish it or stop it now, and say in one line what it was. "
+                    f"If nothing more is shown in {timefmt.ago(idle_close.bg_grace_s(agent))}, it is stopped "
+                    f"and this session closed.")
+            if _tell(con, agent, text, now):
+                db.set_cursor(con, key, now)
+                db.add_event(con, agent, "background_prompted", {"silent_s": silent})
+                log(f"  {agent}: background work with nothing owed, silent {timefmt.ago(silent)} - told to finish or stop it")
 
 
 def sweep_stop_wait_backstop(con, log, now: int) -> None:
@@ -255,5 +284,6 @@ def sweep(con, log, now: int) -> None:
     sweep_task_timeouts(con, log, now)
     sweep_unasked_running(con, log, now)
     sweep_stale_background(con, log, now)
+    sweep_forgotten_background(con, log, now)
     sweep_stop_wait_backstop(con, log, now)
     sweep_forgotten_resolve_capped(con, log, now)
