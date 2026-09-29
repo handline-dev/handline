@@ -103,6 +103,10 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if db.in_flight_for(con, agent):
         return
 
+    # T415: a clear held off by background work is settled before anything else is done for the agent.
+    if handoff.settle_owed_clear(con, agent, log):
+        return
+
     # T351: whatever a `message` could not type at once - a screen_blocker,
     # or a wake still settling - gets one more try every tick, RUNNING
     # included: unlike the rest of this function, a pending message is not

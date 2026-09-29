@@ -1004,6 +1004,8 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
             ok, why = dmn_delivery._reclaim_context(con, "backend", lambda _m: None)
             check(f"background {state}: /clear is not typed at it either",
                   not ok and not cleared and "3 monitors" in why, f"{why} {cleared}")
+            del sent[:]           # T415: the agent was told its clear is coming - not a nudge
+            db.clear_cursor(con, "clear_owed:backend")
             bg[0] = ""
             dmn_delivery.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
             row = db.get_agent_state(con, "backend")
@@ -3633,6 +3635,142 @@ def test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(h
         dmn_evaluate._SAID.clear()
 
 
+def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
+    """T415 (founder #2563): five context handoffs landed their record and skipped the
+    /clear for "background work is running", each counted a degraded handoff, and the
+    auditor went STALLED with its context still climbing. Now the clear is owed: with the
+    cache lapsed it is typed at once; otherwise the agent is told, and it is typed when the
+    work ends or CLEAR_WAIT_S is up. None of it is a failure, and nothing else is typed at
+    the agent meanwhile."""
+    _daemon_home(home, 50)
+    con = db.connect()
+    cleared, sent = [], []
+    bg = ["1 shell"]
+    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.available,
+            orcamod.send, orcamod.background_work, dmn_handoff._record_handoff)
+    t = triggers.Trigger(True, "context", "context 206,000 >= 200,000")
+
+    def fresh() -> None:
+        for k in ("clear_owed:backend", "typed_at:backend"):
+            db.clear_cursor(con, k)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.set_handoff(con, "backend", None)
+        con.execute("UPDATE agent_state SET throttle_count = 0 WHERE agent = 'backend'")
+        con.execute("DELETE FROM handoff WHERE agent = 'backend'")
+        del cleared[:], sent[:]
+        bg[0] = "1 shell"
+
+    try:
+        orca_idle()
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (cleared.append(h), (True, "context cleared"))[1]
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod.background_work = lambda h: bg[0]
+        dmn_handoff._record_handoff = lambda con_, agent, hid, log_: True     # the record itself is not under test
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        now = int(time.time())
+
+        # (a) the cache has lapsed: nothing live to lose, cleared at once.
+        fresh()
+        db.add_event(con, "backend", "ask", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_states.PROMPT_CACHE_S - 60,))
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        check("owed (a): with its cache lapsed the clear is typed over the background work",
+              cleared == ["term_x"] and not sent and row["state"] == dmn_states.PARKED, f"{cleared} {sent} {dict(row)}")
+        check("owed (a): and it is no failure", row["throttle_count"] == 0, str(dict(row)))
+
+        # (b) warm cache, work running: told once, clear owed, nothing else typed.
+        fresh()
+        db.add_event(con, "backend", "ask", {})
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        row = db.get_agent_state(con, "backend")
+        told = dmn_delivery.CLEAR_NOTICE.format(context="? of 200,000", minutes=5)
+        check("owed (b): the agent is told, in the founder's words, and nothing is cleared yet",
+              sent == [told] and not cleared and dmn_delivery.clear_owed(con, "backend"), f"{sent} {cleared}")
+        check("owed (b): the wording is the founder's: what happens and when, no reply needed, the one command",
+              told.startswith("ocp: your context is full (? of 200,000), so this session will be cleared in 5 minutes. "
+                              "No reply is needed. Before then: 1. Stop your background shells. Anything still running "
+                              "at that time is cut off. 2. If you were waiting on a result, write what was running and "
+                              'what is left in: ocp progress "done: ... left: ..." - the next session starts from that '
+                              "note. 3. Do not start new work or new background jobs. When your background work has "
+                              "ended, the clear happens at once.") and "\n" not in told, told)
+        check("owed (b): not parked, not degraded, no bump - a wait, not a failure",
+              row["state"] == dmn_states.IDLE and row["throttle_count"] == 0
+              and db.last_handoff(con, "backend")["state"] == "done", str(dict(row)))
+        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", "task", 0, None)
+        check("owed (b): while the clear is owed no task and no message is typed at it",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+              and not dmn_messaging.can_type_now(con, "backend", "term_x")[0] and len(sent) == 1, str(sent))
+
+        gone = db.get_request(con, db.add_request(con, "marina", "backend", "never mind", None,
+                                                  "peer", "async", None, 0, None))
+        check("owed (b): a cancelled request is refused with the hold's own reason, not the usage limit's",
+              "about to be cleared" in dmn_delivery.notify_cancelled(con, gone, "withdrawn")[1])
+
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 10, {}, [])
+        check("owed (b): a tick with the work still running waits and tells it nothing more",
+              not cleared and len(sent) == 1, f"{cleared} {sent}")
+
+        bg[0] = ""
+        con.execute("UPDATE cursors SET updated = 0 WHERE name = 'typed_at:backend'")
+        db.clear_cursor(con, "typed_at:backend")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 20, {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("owed (b)-ends: once the work has ended the clear is typed and the agent parked",
+              cleared == ["term_x"] and row["state"] == dmn_states.PARKED
+              and not dmn_delivery.clear_owed(con, "backend") and row["throttle_count"] == 0,
+              f"{cleared} {dict(row)}")
+
+        # (b)-forced: the work is still there when the time is up.
+        fresh()
+        db.add_event(con, "backend", "ask", {})
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        db.set_cursor(con, "clear_owed:backend", now - dmn_delivery.CLEAR_WAIT_S - 1)
+        db.clear_cursor(con, "typed_at:backend")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("owed (b)-forced: at the limit the clear is typed over the work, and it is no failure",
+              cleared == ["term_x"] and row["state"] == dmn_states.PARKED and row["throttle_count"] == 0,
+              f"{cleared} {dict(row)}")
+        check("owed (b)-forced: and its record has the note once",
+              (db.get_handoff(con, "backend") or "").count("Cut off by the clear") == 1)
+
+        # A clear that has to wait for the agent's turn (it is writing its progress note) is
+        # tried again, and the record is written once, when it lands.
+        fresh()
+        db.add_event(con, "backend", "ask", {})
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        db.set_cursor(con, "clear_owed:backend", now - dmn_delivery.CLEAR_WAIT_S - 1)
+        tries = []
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
+            tries.append(h), (True, "context cleared") if len(tries) > 2 else (False, "agent is mid-turn; not clearing"))[1]
+        for _ in range(3):
+            db.clear_cursor(con, "typed_at:backend")
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("owed (b)-forced: a clear that fails twice on the agent's turn then lands writes the note once",
+              len(tries) == 3 and (db.get_handoff(con, "backend") or "").count("Cut off by the clear") == 1
+              and db.get_agent_state(con, "backend")["state"] == dmn_states.PARKED,
+              f"{len(tries)} {db.get_handoff(con, 'backend')}")
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (cleared.append(h), (True, "context cleared"))[1]
+
+        check("owed (b)-forced: and the handoff record says what was cut off",
+              "1 shell" in (db.get_handoff(con, "backend") or "") and "gone" in (db.get_handoff(con, "backend") or ""),
+              str(db.get_handoff(con, "backend")))
+
+        # A session that is gone takes the debt with it.
+        fresh()
+        db.set_cursor(con, "clear_owed:backend", now)
+        db.set_closed(con, "backend", "sess")
+        check("owed: and a closed session owes nothing",
+              not dmn_handoff.settle_owed_clear(con, "backend", lambda _m: None)
+              and not dmn_delivery.clear_owed(con, "backend"))
+    finally:
+        (orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.available,
+         orcamod.send, orcamod.background_work, dmn_handoff._record_handoff) = real
+        con.close()
+
+
 def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
     """After its window ends, an idle account's last figure describes a window
     that no longer exists, so the only way to learn the truth is to ask.
@@ -4530,6 +4668,7 @@ def main() -> int:
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_a_due_park_with_no_terminal_is_started_not_held(Path(td) / 'dueterm'))
+        run(lambda: test_a_clear_held_by_background_work_is_owed_not_failed(Path(td) / 'owedclear'))
         run(lambda: test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(Path(td) / 'startall'))
         run(lambda: test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(Path(td) / 'toldwake'))
         run(lambda: test_a_passed_window_is_asked_about_rather_than_guessed(Path(td) / 'probedue'))

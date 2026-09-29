@@ -19,7 +19,8 @@ from ..usage import status
 from ..infra import textsafe
 
 from . import handoff
-from .states import (HANDOFF, IDLE, PARKED, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S, awaiting_reply)
+from .states import (HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S,
+                     awaiting_reply)
 
 
 # ---------------------------------------------------------------- sending
@@ -165,10 +166,85 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
                        f"not typing {orca.clear_command(handle)} at it")
     running = orca.background_work(handle)
     if running:
-        return False, (f"background work is running ({running}); "
-                       f"not typing {orca.clear_command(handle)} at it")
+        return _clear_over_background(con, agent, handle, running, log)
+    return _clear_now(con, agent, handle, log)
+
+
+# T415: a clear that background work holds off is owed, not failed. The agent is told once
+# (CLEAR_NOTICE), and the clear is typed when its work ends or, at the latest, this long
+# after: long enough for a turn or two - stop the shells, write `ocp progress` - and short
+# against a context that was climbing ~2k tokens a minute when the auditor was cleared late.
+CLEAR_WAIT_S = 300
+CLEAR_NOTICE = (
+    "ocp: your context is full ({context}), so this session will be cleared in {minutes} minutes. "
+    "No reply is needed. Before then: 1. Stop your background shells. Anything still running at "
+    "that time is cut off. 2. If you were waiting on a result, write what was running and what is "
+    "left in: ocp progress \"done: ... left: ...\" - the next session starts from that note. "
+    "3. Do not start new work or new background jobs. When your background work has ended, the "
+    "clear happens at once.")
+
+
+def clear_owed(con, agent: str) -> int:
+    """When the agent was told its clear is coming, or 0 when none is owed."""
+    return db.get_cursor(con, f"clear_owed:{agent}")
+
+
+def clear_hold(con, agent: str) -> str | None:
+    """Nothing new is typed at an agent whose clear is owed: it would be lost in it."""
+    if clear_owed(con, agent):
+        return f"{agent} is about to be cleared; nothing is typed at it until then"
+    return None
+
+
+def typing_hold(con, agent: str) -> str | None:
+    """Why nothing may be typed at this agent's session now: the wall, or a clear owed."""
+    return wall_reason(con, agent) or clear_hold(con, agent)
+
+
+def _cache_lapsed(con, agent: str, now: int) -> bool:
+    """Its prompt cache is gone (an hour since it last did anything, and it has a record of
+    that): nothing it holds is warm, so a clear costs it nothing live."""
+    last = db.last_activity(con, agent)
+    return last is not None and now - last >= PROMPT_CACHE_S
+
+
+def _clear_now(con, agent: str, handle: str, log) -> tuple[bool, str]:
     ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
+    if ok:
+        db.clear_cursor(con, f"clear_owed:{agent}")
+    return ok, why
+
+
+def _clear_over_background(con, agent: str, handle: str, running: str, log) -> tuple[bool, str]:
+    """A clear with work still running behind the prompt: at once when the agent's cache has
+    lapsed; otherwise the agent is told, and the clear waits for its work to end or for
+    CLEAR_WAIT_S. Neither is a failure (False here is "not yet")."""
+    now = int(time.time())
+    since = clear_owed(con, agent)
+    if _cache_lapsed(con, agent, now):
+        log(f"  {agent}: background work is running ({running}) but its cache has lapsed - clearing")
+        return _clear_now(con, agent, handle, log)
+    if not since:
+        st = status.read_for_agent(agent, agents.current_account(agent, con))
+        limit = status.effective_context_limit(agents.read(agent), st.model_id)
+        used = "?" if st.trusted_ctx_used is None else f"{st.trusted_ctx_used:,}"
+        ok, err = orca.send(handle, CLEAR_NOTICE.format(context=f"{used} of {limit:,}",
+                                                        minutes=CLEAR_WAIT_S // 60))
+        db.set_cursor(con, f"clear_owed:{agent}", now)      # owed even if the notice did not go
+        log(f"  {agent}: background work is running ({running}); told it will be cleared in "
+            f"{CLEAR_WAIT_S // 60} min{'' if ok else f' (the notice failed: {err[:80]})'}")
+        return False, f"background work is running ({running}); {orca.clear_command(handle)} is owed"
+    if now - since < CLEAR_WAIT_S:
+        return False, f"background work is running ({running}); {orca.clear_command(handle)} is owed"
+    log(f"  {agent}: {CLEAR_WAIT_S // 60} min are up with background work still running ({running}) - clearing")
+    ok, why = _clear_now(con, agent, handle, log)
+    if ok:
+        # Only once it has landed: a clear that waits for the agent's turn to end is tried again next tick.
+        rec = db.get_handoff(con, agent) or ""
+        db.set_handoff(con, agent, f"{rec}\n\n## Cut off by the clear\nThis session was cleared with "
+                       f"background work still running ({running}); it was told {timefmt.ago(now - since)} "
+                       f"earlier and asked to stop it. That work is gone - rerun it if it still matters.\n")
     return ok, why
 
 
@@ -392,7 +468,7 @@ def deliver_queued(con, agent: str, log) -> bool:
         head_due = False
     if not head_due:
         return False
-    if wall_reason(con, agent):
+    if typing_hold(con, agent):
         return False              # stays queued; told when it wakes or moves
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
@@ -614,7 +690,7 @@ def type_notice(con, agent: str, text: str) -> bool:
     here touches an attempt counter, so a notice cannot stall an agent.
     """
     handle = db.get_terminal(con, agent)
-    if wall_reason(con, agent) or not handle or not orca.available() \
+    if typing_hold(con, agent) or not handle or not orca.available() \
             or not orca.alive(handle) or not session_present(agent) \
             or not orca.typeable_now(handle):
         return False
@@ -715,8 +791,9 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
     """
     agent = row["target"]
     handle = db.get_terminal(con, agent)
-    if wall_reason(con, agent):
-        return False, f"{agent} is at its usage limit"
+    held = typing_hold(con, agent)
+    if held:
+        return False, held
     if not handle or not orca.available() or not orca.alive(handle):
         return False, f"{agent} has no terminal"
     if not session_present(agent):
@@ -979,7 +1056,7 @@ def deliver_answers(con, agent: str, log) -> bool:
     answered = db.unannounced_answers(con, agent)
     if not answered:
         return False
-    if wall_reason(con, agent):
+    if typing_hold(con, agent):
         return False              # stays unannounced; told when it wakes or moves
     handle = db.get_terminal(con, agent)
     if not handle or not orca.available() or not orca.alive(handle):
