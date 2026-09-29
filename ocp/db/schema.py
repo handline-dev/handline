@@ -420,6 +420,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _unhide_the_humans_answers(con)
     _rename_orchestrator(con)
     _give_answers_their_own_rows(con)
+    _asks_reports_and_escalations_to_says(con)
     return con
 
 
@@ -619,6 +620,63 @@ def _give_answers_their_own_rows(con) -> None:
                 "ORDER BY id").fetchall():
             dbreq.add_answer(con, r["id"], r["verdict"], at=r["at"])
         set_cursor(con, "migrated:answer_rows", 1)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+
+
+def _asks_reports_and_escalations_to_says(con) -> None:
+    """T361 step A: the founder removed ask, report and escalate as kinds of
+    message - what is left is a say, and work or a decision is a task.
+
+    A row that is over becomes a say: it is history, and says nothing new. A row
+    still queued is not dropped: one that asks for work or an answer opens as a
+    task for its target (a decision, when that is the founder) with the row as
+    its first link - the card, as `task_new` makes it - unless it has been
+    delivered: the agent is answering it as the ask it was shown, and a task
+    opened beside that would never end. Those, and a queued report to an agent
+    (it has not been read: an unblock notice is one), are left as they are until
+    they settle; one to the founder becomes a say. A queued ask already linked to a task is that task's
+    delivery, kind `task`. A queued row to the founder is an `escalate` card
+    until the readers stop keying on that kind. Answer rows are not touched here.
+    Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:kinds_to_say"):
+        return
+    from . import tasks as dbtasks
+    from .requests import HUMAN
+    from ..infra import textsafe
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if get_cursor(con, "migrated:kinds_to_say"):     # another process got here first
+            con.execute("ROLLBACK")
+            return
+        old = "(kind IS NULL OR kind IN ('escalate', 'report'))"
+        con.execute(f"UPDATE requests SET kind = 'say' WHERE state != 'queued' AND {old}")
+        # A report still waiting for an agent is not history: it has not been read, and
+        # the daemon delivers it as a request (an unblock notice is one). It stays
+        # until the step that types those as says. One to the founder is only shown.
+        con.execute(f"UPDATE requests SET kind = 'say' WHERE state = 'queued' AND {old} "
+                    "AND (fyi = 1 OR kind = 'report') AND target = ?", (HUMAN,))
+        # Still asking for something, and linked to a task already: that task's delivery
+        # (or, to the founder, its card).
+        con.execute(f"UPDATE requests SET kind = 'task' WHERE state = 'queued' AND {old} "
+                    "AND fyi = 0 AND COALESCE(kind, '') != 'report' AND target != ? "
+                    "AND id IN (SELECT request_id FROM task_requests)", (HUMAN,))
+        con.execute("UPDATE requests SET kind = 'escalate' WHERE state = 'queued' AND kind IS NULL "
+                    "AND fyi = 0 AND target = ? AND id IN (SELECT request_id FROM task_requests)", (HUMAN,))
+        for r in con.execute(
+                f"SELECT id, requester, target, body FROM requests WHERE state = 'queued' AND {old} "
+                "AND fyi = 0 AND COALESCE(kind, '') != 'report' AND delivered_at IS NULL "
+                "AND id NOT IN (SELECT request_id FROM task_requests) ORDER BY id").fetchall():
+            title = textsafe.oneline((r["body"] or "").strip().split("\n", 1)[0])[:80] or "(no text)"
+            tid = dbtasks.new_task(con, title, r["target"], r["requester"],
+                                   expects="decision" if r["target"] == HUMAN else "report")
+            dbtasks.set_task_queued(con, tid, HUMAN)
+            dbtasks.link_request(con, tid, r["id"])
+            con.execute("UPDATE requests SET kind = ? WHERE id = ?",
+                        ("escalate" if r["target"] == HUMAN else "task", r["id"]))
+        set_cursor(con, "migrated:kinds_to_say", 1)
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
