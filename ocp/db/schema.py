@@ -11,6 +11,9 @@ from ..infra import paths
 from .cursors import get_cursor, set_cursor
 
 
+# The task an event names, as the index and every lookup by it spell it.
+EVENT_TASK = "CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,6 +25,12 @@ CREATE TABLE IF NOT EXISTS events (
   dedup_key  TEXT UNIQUE
 );
 CREATE INDEX IF NOT EXISTS events_agent_id ON events(agent, id);
+-- The task pages ask "which events of this kind belong to task N" once per task
+-- (`_begun`, `task_handoffs`, the reset and release marks); without this each
+-- is a scan of the whole table. The queries spell the expression exactly so
+-- (`db.EVENT_TASK`); the json_valid guard is so that a payload that is not JSON
+-- is a row the index skips, not an insert or a build that fails.
+CREATE INDEX IF NOT EXISTS events_kind_task ON events(kind, CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END);
 
 CREATE TABLE IF NOT EXISTS requests (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
