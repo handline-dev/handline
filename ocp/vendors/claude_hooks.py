@@ -138,6 +138,46 @@ def allow_home_writes() -> tuple[bool, list[str]]:
     return True, blockers
 
 
+# The one list of commands run without asking (`permissions.allow`): read-only
+# tools in full, and ocp per subcommand. Never a blanket `ocp:*` - merge,
+# `hr apply` and the like must still ask.
+#
+# A `Bash(x:*)` rule allows every flag after the prefix, so a tool is listed
+# only if no flag makes it run or write anything. No git prefix is allowed:
+# `git grep -O<cmd>` runs a program and `git log/show/diff --output=<file>`
+# writes a file. Only the exact forms below, which take no flags, are. The ocp
+# reporting verbs take `--file <path>`, which reads a file the agent could
+# already read.
+SAFE_COMMANDS = (
+    *(f"Bash({c}:*)" for c in ("tail", "head", "grep", "wc", "cat", "ls")),
+    "Bash(git status)", "Bash(git log)", "Bash(git diff)",
+    # read-only
+    *(f"Bash(ocp {c}:*)" for c in ("inbox", "read", "status", "task list", "team check")),
+    "Bash(ocp team)",
+    # reporting
+    *(f"Bash(ocp {c}:*)" for c in ("ask", "say", "resolve", "progress", "task link", "task new")),
+)
+
+
+def allow_safe_commands() -> bool:
+    """Add SAFE_COMMANDS to the shared settings' `permissions.allow`: True if it
+    changed. Entries already there, and every other key, are kept; a second run
+    changes nothing."""
+    target = target_settings()
+    data = _read_object(target)
+    perms = _block(data, "permissions")
+    allow = perms.get("allow", [])
+    if not isinstance(allow, list):
+        allow = []
+    missing = [c for c in SAFE_COMMANDS if c not in allow]
+    if not missing:
+        return False
+    perms["allow"] = [*allow, *missing]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_settings(target, data)
+    return True
+
+
 def allow_home_socket() -> bool:
     """Let a sandboxed agent connect to ocp's unix socket: True if it changed.
 
@@ -432,5 +472,6 @@ class ClaudeHooks:
     missing = staticmethod(missing)
     allow_home_writes = staticmethod(allow_home_writes)
     allow_home_socket = staticmethod(allow_home_socket)
+    allow_safe_commands = staticmethod(allow_safe_commands)
     ensure_shared = staticmethod(ensure_shared)
     shared_problems = staticmethod(shared_problems)
