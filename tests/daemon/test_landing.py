@@ -174,7 +174,7 @@ def test_a_line_the_transcript_never_shows_is_typed_again_then_lost(home: Path) 
                                              ).fetchone()[0] == 1)
         why = [s for s in actions.stuck(con) if s["what"].startswith(f"#{rid} ")]
         check("lost: it is on the stuck list, and says it was not read",
-              why and "never showed it" in why[0]["why"], str(why))
+              why and landing.LOST_TEXT in why[0]["why"], str(why))
     finally:
         con.close()
 
@@ -190,8 +190,8 @@ def test_a_line_typed_into_a_session_that_ended_is_owed_again_at_once(home: Path
         con.close()
     _sweep()
     row = _row(rid)
-    check("ended: nothing waits out the timer - it is owed again", not row["delivered_at"]
-          and not row["typed_at"] and row["landing_tries"] == 1, str(dict(row)))
+    check("ended: nothing waits out the timer - it is owed again, and no try is used up",
+          not row["delivered_at"] and not row["typed_at"] and not row["landing_tries"], str(dict(row)))
     con = db.connect()
     try:
         row = db.get_request(con, rid)
@@ -199,6 +199,83 @@ def test_a_line_typed_into_a_session_that_ended_is_owed_again_at_once(home: Path
               rid in [int(r["id"]) for r in db.undelivered_for(con, "backend")])
     finally:
         con.close()
+
+
+def test_sessions_that_ended_do_not_make_a_later_miss_lost(home: Path) -> None:
+    sent = _world(home)
+    _, row = _typed_row(sent)
+    rid = int(row["id"])
+    con = db.connect()
+    try:
+        db.set_closed(con, "backend", SESSION)
+        for _ in range(2):                       # typed, and the session ends, twice
+            landing.sweep(con, "backend", lambda _m: None)
+            con.execute("UPDATE requests SET requester = 'human' WHERE id = ?", (rid,))
+            con.execute("UPDATE requests SET delivered_at = 1, typed_at = ?, typed_session = ? WHERE id = ?",
+                        (int(time.time()), SESSION, rid))
+        landing.sweep(con, "backend", lambda _m: None)
+        db.clear_closed(con, "backend")
+        con.execute("UPDATE requests SET delivered_at = 1, typed_at = ?, typed_session = ? WHERE id = ?",
+                    (int(time.time()) - landing.LANDING_WAIT_S - 5, SESSION, rid))
+    finally:
+        con.close()
+    _transcript({"type": "user", "message": {"role": "user", "content": "something else"}})
+    _sweep()
+    row = _row(rid)
+    check("ended twice, then one miss in a live session: retyped, not lost",
+          not row["typed_at"] and row["landing_tries"] == 1 and landing.state(row) == "queued", str(dict(row)))
+
+
+def test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_again(home: Path) -> None:
+    sent = _world(home)
+    _, row = _typed_row(sent, ago=landing.LANDING_WAIT_S + 5)
+    rid = int(row["id"])
+    filler = {"type": "user", "message": {"role": "user", "content": "x" * 200}}
+    _transcript({"type": "queue-operation", "operation": "enqueue", "content": _header(rid)},
+                *[filler] * 200)
+    real = landing._TAIL_BYTES
+    landing._TAIL_BYTES = 1000
+    try:
+        check("tail: not in the tail alone", not landing.shown_in(vendors.config_dir("alpha") / "projects" / "-wt"
+                                                                   / f"{SESSION}.jsonl", rid))
+        _sweep()
+    finally:
+        landing._TAIL_BYTES = real
+    row = _row(rid)
+    check("tail: the whole transcript is read before a line is called never shown",
+          row["landed_at"] and len(sent) == 1, str(dict(row)))
+
+
+def test_a_lost_request_is_looked_for_only_now_and_then(home: Path) -> None:
+    sent = _world(home)
+    _, row = _typed_row(sent, ago=landing.LANDING_WAIT_S + 5)
+    rid = int(row["id"])
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET requester = 'human', landing_tries = ? WHERE id = ?",
+                    (landing.MAX_TRIES - 1, rid))
+    finally:
+        con.close()
+    f = _transcript({"type": "user", "message": {"role": "user", "content": "something else"}})
+    reads = []
+    real = landing.shown_in
+    landing.shown_in = lambda *a, **k: (reads.append(1), real(*a, **k))[1]
+    try:
+        _sweep()
+        first = len(reads)
+        _sweep()
+        _sweep()
+        check("lost: said, and then not read again on every tick", first >= 1 and len(reads) == first, str(reads))
+        con = db.connect()
+        try:
+            con.execute("UPDATE cursors SET row_id = row_id - ? WHERE name = ?",
+                        (landing.LOST_RECHECK_S + 1, f"landing_recheck:{rid}"))
+        finally:
+            con.close()
+        _sweep()
+        check("lost: but looked at again after a while", len(reads) > first, str(reads))
+    finally:
+        landing.shown_in = real
 
 
 def test_a_task_head_is_told_again_when_it_never_landed(home: Path) -> None:
@@ -283,6 +360,9 @@ def main() -> int:
         run(lambda: test_a_line_the_transcript_never_shows_is_typed_again_then_lost(Path(td) / "l3"))
         run(lambda: test_a_line_typed_into_a_session_that_ended_is_owed_again_at_once(Path(td) / "l4"))
         run(lambda: test_a_task_head_is_told_again_when_it_never_landed(Path(td) / "l5"))
+        run(lambda: test_sessions_that_ended_do_not_make_a_later_miss_lost(Path(td) / "l9"))
+        run(lambda: test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_again(Path(td) / "l10"))
+        run(lambda: test_a_lost_request_is_looked_for_only_now_and_then(Path(td) / "l11"))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
         run(lambda: test_the_conversation_says_where_a_request_is(Path(td) / "l7"))
         run(lambda: test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(Path(td) / "l8"))

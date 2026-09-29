@@ -204,8 +204,7 @@ def stuck(con) -> list[dict]:
         if landed == "lost":
             # T418: typed and typed again, and its transcript never showed it - whatever the
             # agent is doing now, it has not read this.
-            add(what, age, f"typed at {r['target']} {dmn_landing.MAX_TRIES} times and its transcript never "
-                           f"showed it, so it has not been read", r["target"])
+            add(what, age, f"{dmn_landing.LOST_TEXT}, so {r['target']} has not read it", r["target"])
             continue
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
         if not why:

@@ -56,7 +56,7 @@ PAGE = 30
 LANDING_LABELS = {
     "queued": "queued, not delivered",
     "typed": "typed, not in its session yet",
-    "lost": f"not delivered: typed {landingmod.MAX_TRIES} times, never in its transcript",
+    "lost": f"not delivered: {landingmod.LOST_TEXT}",
     "delivered": "delivered, not answered yet",
 }
 

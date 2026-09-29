@@ -32,8 +32,14 @@ from . import delivery, timebox
 
 LANDING_WAIT_S = 90
 MAX_TRIES = 3
+
 # A landing is at the end of a transcript, seconds after the send.
 _TAIL_BYTES = 4 << 20
+# A request given up on is looked for again this seldom: a daemon that was down while
+# the line landed, and then more than the tail was written, finds it here.
+LOST_RECHECK_S = 600
+# What a lost request says of itself, wherever it is shown.
+LOST_TEXT = f"typed {MAX_TRIES} times, never in its transcript"
 
 
 def state(row, now: int | None = None) -> str:
@@ -69,27 +75,30 @@ def _texts(entry: dict):
                     yield block.get("text")
 
 
-def shown_in(transcript: Path, rid: int) -> bool:
-    """Does the transcript hold the line that tells an agent about request `rid`?"""
+def _holds(line: bytes, rid: int, header: re.Pattern) -> bool:
+    if f"#{rid} from ".encode() not in line:
+        return False
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(entry, dict) and any(isinstance(t, str) and header.search(t) for t in _texts(entry))
+
+
+def shown_in(transcript: Path, rid: int, whole: bool = False) -> bool:
+    """Does the transcript hold the line that tells an agent about request `rid`? Its
+    last `_TAIL_BYTES`, where a landing is; `whole` reads it all, for the one look
+    that decides a line was never shown."""
+    header = re.compile(rf"#{rid} from [^\n]*waiting for you:")
     try:
         with open(transcript, "rb") as f:
+            if whole:
+                return any(_holds(line, rid, header) for line in f)
             size = f.seek(0, 2)
             f.seek(max(0, size - _TAIL_BYTES))
-            data = f.read()
+            return any(_holds(line, rid, header) for line in f.read().split(b"\n"))
     except OSError:
         return False
-    header = re.compile(rf"#{rid} from [^\n]*waiting for you:")
-    needle = f"#{rid} from ".encode()
-    for line in data.split(b"\n"):
-        if needle not in line:
-            continue
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(entry, dict) and any(isinstance(t, str) and header.search(t) for t in _texts(entry)):
-            return True
-    return False
 
 
 def _keeps_transcripts(acct: str) -> bool:
@@ -99,8 +108,8 @@ def _keeps_transcripts(acct: str) -> bool:
         return False
 
 
-def _owe_again(con, agent: str, rid: int) -> None:
-    db.owe_again(con, rid)
+def _owe_again(con, agent: str, rid: int, counted: bool) -> None:
+    db.owe_again(con, rid, counted)
     if db.get_cursor(con, f"notify:{agent}") == rid:
         db.forget_told(con, agent)      # a task head is told again only when the cursor is void
 
@@ -109,12 +118,11 @@ def _report_lost(con, row, log, now: int) -> None:
     rid, agent = int(row["id"]), row["target"]
     if db.get_cursor(con, f"landing_lost:{rid}"):
         return
-    text = (f"#{rid} was typed at {agent} {MAX_TRIES} times and its transcript never showed it, so "
-            f"{agent} has not read it. `ocp read {rid}` shows it; a message to {agent} is how to reach it.")
+    text = (f"#{rid} to {agent}: {LOST_TEXT}, so {agent} has not read it. `ocp read {rid}` shows it; a message to {agent} is how to reach it.")
     if timebox._tell(con, row["requester"], text, now):
         db.set_cursor(con, f"landing_lost:{rid}", now)
         db.add_event(con, agent, "landing_lost", {"request_id": rid, "tries": MAX_TRIES})
-        log(f"  #{rid}: typed at {agent} {MAX_TRIES} times, never in its transcript - {row['requester']} told")
+        log(f"  #{rid}: to {agent}, {LOST_TEXT} - {row['requester']} told")
 
 
 def sweep(con, agent: str, log) -> None:
@@ -138,22 +146,29 @@ def sweep(con, agent: str, log) -> None:
         sessions = [s for s in dict.fromkeys((row["typed_session"], live)) if s]
         if not sessions:
             continue        # no session id is known yet: a missing line cannot be told from a missing id
-        if any((path := handoffmod.find_transcript(s, acct)) and shown_in(path, rid) for s in sessions):
+        # Typed into a session that is gone is not worth waiting out: nothing will read it.
+        gone = bool(row["typed_session"]) and (bool(state_row and state_row["closed_at"])
+                                               or bool(live and live != row["typed_session"]))
+        expired = gone or now - int(row["typed_at"]) >= LANDING_WAIT_S
+        given_up = expired and not gone and int(row["landing_tries"] or 0) + 1 >= MAX_TRIES
+        if given_up and db.get_cursor(con, f"landing_lost:{rid}") \
+                and now - db.get_cursor(con, f"landing_recheck:{rid}") < LOST_RECHECK_S:
+            continue        # said already: looked at again only now and then, not every tick
+        paths_ = [p for p in (handoffmod.find_transcript(s, acct) for s in sessions) if p]
+        if any(shown_in(p, rid, whole=expired) for p in paths_):
             db.mark_landed(con, rid)
             db.add_event(con, agent, "landed", {"request_id": rid, "after_s": now - int(row["typed_at"]),
                                                 "tries": int(row["landing_tries"] or 0) + 1})
             log(f"  {agent}: #{rid} is in its transcript")
             continue
-        # Typed into a session that is gone is not worth waiting out: nothing will read it.
-        gone = bool(row["typed_session"]) and (bool(state_row and state_row["closed_at"])
-                                               or bool(live and live != row["typed_session"]))
-        if not gone and now - int(row["typed_at"]) < LANDING_WAIT_S:
+        if not expired:
             continue
-        # A dead session is no evidence against the terminal, so it never uses up the tries.
-        if gone or int(row["landing_tries"] or 0) + 1 < MAX_TRIES:
-            _owe_again(con, agent, rid)
-            db.add_event(con, agent, "retyped", {"request_id": rid, "gone": gone})
-            log(f"  {agent}: #{rid} never reached its transcript"
-                f"{' (its session ended)' if gone else ''} - typed again")
-        else:
+        if given_up:
+            db.set_cursor(con, f"landing_recheck:{rid}", now)
             _report_lost(con, row, log, now)
+            continue
+        # A session that ended is no evidence against the terminal, so it uses up no try.
+        _owe_again(con, agent, rid, counted=not gone)
+        db.add_event(con, agent, "retyped", {"request_id": rid, "gone": gone})
+        log(f"  {agent}: #{rid} never reached its transcript"
+            f"{' (its session ended)' if gone else ''} - typed again")
