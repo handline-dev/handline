@@ -48,9 +48,10 @@ from .components.switch_row import SwitchRow
 # They are not part of the conversation, so no chat query reads them.
 _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 
-# Requests read per page. The newest page is what opens; older ones are read
-# only when the chat is scrolled to its top.
-PAGE = 30
+# Requests read per page. The newest page is what opens; older ones are read when the
+# chat is scrolled to within a screen of its top. Small, because drawing what is not in
+# view is most of what a page costs (founder #5425).
+PAGE = 10
 # T418: what the row under a message the agent has not answered says. Only a line
 # its transcript shows is delivered; queued and typed both read sending (founder #5299).
 LANDING_LABELS = {
@@ -1367,7 +1368,7 @@ class ChatPage(JobsAware, Screen):
 
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         pane = self.query_one("#transcript", VerticalScroll)
-        if not self.showing_tasks and pane.scroll_y <= 1:
+        if not self.showing_tasks and pane.scroll_y <= max(pane.size.height, 1):
             self.load_older()
 
     def _before_cursor(self) -> tuple[str, str]:
