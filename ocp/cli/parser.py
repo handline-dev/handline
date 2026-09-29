@@ -547,9 +547,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="cannot be worked until this task closes")
     p.add_argument("--priority", type=_priority_arg, default=None, metavar="P",
                    help="P1 (high), P2 (default) or P3 (low)")
-    p.add_argument("--expects", type=_expects_arg, default="report", metavar="K",
+    p.add_argument("--expects", type=_expects_arg, default=None, metavar="K",
                    help="what `task done` must give back: sha, verdict, decision or "
-                        "report (default)")
+                        "report (default; decision when the owner is human)")
     p.add_argument("-t", "--timeout", type=_timeout_arg, default=None, metavar="DURATION",
                    help="required: notify the opener each time this long passes with the task "
                    f"still open (90m, 2h; at most {timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")

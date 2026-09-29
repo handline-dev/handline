@@ -374,6 +374,8 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
         "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
         "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?) "
         "WHERE id = ? AND state = 'queued'", (state, verdict, now, now, rid))
+    if cur.rowcount > 0:
+        _settle(con, rid, state, verdict)
     return cur.rowcount > 0
 
 
@@ -427,9 +429,17 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
         "announced_at = COALESCE(announced_at, ?), dismissed_by = ?, dismissed_reason = ? "
         "WHERE id = ? AND state = 'queued'",
         (state, verdict, now, now if announced else None, dismissed_by, dismissed_reason, rid))
-    if cur.rowcount > 0 and state == "done" and verdict and dismissed_by is None:
-        add_answer(con, rid, verdict)
+    if cur.rowcount > 0:
+        if state == "done" and verdict and dismissed_by is None:
+            add_answer(con, rid, verdict)
+        _settle(con, rid, state, verdict, dismissed_by)
     return cur.rowcount > 0
+
+
+def _settle(con, rid: int, state: str, verdict: str | None, dismissed_by: str | None = None) -> None:
+    """A founder's decision task follows its request out of the queue."""
+    from .tasks import settle_decision_tasks
+    settle_decision_tasks(con, rid, state, verdict, dismissed_by)
 
 
 ANSWER_KIND = "answer"
@@ -481,6 +491,8 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         "resolved_at = COALESCE(resolved_at, ?) "
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
         (state, verdict, int(time.time()), rid))
+    if cur.rowcount > 0:
+        _settle(con, rid, state, verdict)
     return cur.rowcount > 0
 
 

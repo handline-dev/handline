@@ -719,9 +719,10 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
             + '  - { from: "human", to: "*", relation: supervisor, '
               'response: fire_and_forget }'))
         said = actions.message(con, "backend", "have a look at the sea shader")
-        waiting = db.queued_for(con, "backend")
-        check("top: and where it is declared, it arrives as a request from the human",
-              waiting and waiting[-1]["requester"] == actions.HUMAN, said)
+        sent = db.get_request(con, int(said.split("queued as #", 1)[1].split()[0]))
+        check("top: and where it is declared, it arrives as a message from the human, typed at once",
+              sent["requester"] == actions.HUMAN and sent["target"] == "backend"
+              and sent["kind"] == "say" and "delivered" in said, said)
         check("top: an empty one is not sent at all",
               "nothing sent" in actions.message(con, "backend", "   "))
 

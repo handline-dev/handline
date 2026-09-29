@@ -330,7 +330,7 @@ def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
     if not body.strip():
         return False, "nothing sent: no message typed"
     other = row["target"] if row["requester"] == actions.HUMAN else row["requester"]
-    ok, msg, _ = askmod.ask(other, body, requester=actions.HUMAN, parent_id=rid)
+    ok, msg, _ = askmod.say(other, body, requester=actions.HUMAN, parent_id=rid)
     return ok, msg
 
 

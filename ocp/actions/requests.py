@@ -14,7 +14,7 @@ from .routing import HUMAN
 
 
 def message(con, agent: str, body: str) -> str:
-    """Send an agent work, as the human."""
+    """Send an agent a message, as the human."""
     return message_ok(con, agent, body)[1]
 
 
@@ -22,7 +22,7 @@ def message_ok(con, agent: str, body: str) -> tuple[bool, str]:
     """`message`, and whether it went: what is typed is kept unless it did."""
     if not body.strip():
         return False, "nothing sent: no message typed"
-    ok, msg, _ = askmod.ask(agent, body, requester=HUMAN)
+    ok, msg, _ = askmod.say(agent, body, requester=HUMAN)
     return ok, msg
 
 
@@ -31,15 +31,12 @@ def answer(con, rid: int, verdict: str) -> str:
 
 
 def decision_task_of(con, row) -> int | None:
-    """The open task owned by the founder that this request delivers, if any:
-    replying to its card is the decision, not a verdict on the request."""
+    """The open decision task that this request is the card of, if any: replying to
+    its card is the decision, not a verdict on the request. A question linked to a
+    task later is not its card."""
     if row["state"] != "queued" or row["target"] != HUMAN:
         return None
-    hit = con.execute(
-        "SELECT t.id FROM tasks t JOIN task_requests l ON l.task_id = t.id "
-        "WHERE l.request_id = ? AND t.owner = ? AND t.closed_by IS NULL "
-        "AND t.done_evidence IS NULL", (row["id"], HUMAN)).fetchone()
-    return int(hit["id"]) if hit else None
+    return db.decision_task_of_card(con, row["id"])
 
 
 def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
@@ -63,7 +60,7 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
         return tasks.decide(con, tid, verdict)
     if _is_answer_to_human(row):
         said = db.answer_row_of(con, rid)
-        ok, msg, _ = askmod.ask(row["target"], verdict, requester=HUMAN,
+        ok, msg, _ = askmod.say(row["target"], verdict, requester=HUMAN,
                                 parent_id=said["id"] if said else rid)
         if ok:
             # Replied to is read: leaving it in the mailbox would ask the human
