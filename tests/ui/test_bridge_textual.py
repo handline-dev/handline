@@ -1564,28 +1564,29 @@ def _page_rows(con, rid: int) -> list:
 
 
 def test_replies_thread_under_the_message_they_answer() -> None:
-    """T410 (founder #2514): the longest chain is the main line, a side chain nests in one rail
-    right after its branch point, a reply to an unloaded parent stays put and says so."""
+    """T410 (founder #2514, #2621): a reply is nested right after the message it answers, in one
+    rail; only a message answering nothing on screen keeps its place, and says so if it names a
+    parent that is not loaded."""
     from ocp.ui import chat_page as cp
 
     def msg(rid):
         return {"rid": rid, "part": 0, "queued": False, "delivered": True, "held": False}
-    msgs = [msg(r) for r in (10, 11, 12, 13, 14, 15, 20)]
-    parents = {10: None, 11: 10, 12: 11, 13: 12, 14: 10, 15: 14, 20: 5}
-    out = cp.thread_order(msgs, parents)
-    check("thread: side chain #14 #15 sits right after #10, the main line 10 11 12 13 runs on",
-          [m["rid"] for m in out] == [10, 14, 15, 11, 12, 13, 20], str([m["rid"] for m in out]))
-    check("thread: only the side chain is nested", {m["rid"] for m in out if m.get("nested")} == {14, 15})
-    check("thread: a reply to an unloaded parent stays in the main line and names it",
-          out[-1]["parent_out"] == 5 and not out[-1].get("nested"))
+    parents = {10: None, 11: 10, 12: 11, 13: 12, 14: 10, 15: 14, 20: 5, 30: None}
+    out = cp.thread_order([msg(r) for r in (10, 11, 12, 13, 14, 15, 20, 30)], parents)
+    check("thread: every reply follows its parent, the rest keep their place",
+          [m["rid"] for m in out] == [10, 11, 12, 13, 14, 15, 20, 30], str([m["rid"] for m in out]))
+    check("thread: replies are nested, the message answering nothing on screen is not",
+          {m["rid"] for m in out if m.get("nested")} == {11, 12, 13, 14, 15}, str(out))
+    check("thread: a reply to an unloaded parent stays put and names it",
+          [m["parent_out"] for m in out if m["rid"] == 20] == [5])
+    sibling = cp.thread_order([msg(r) for r in (1, 2, 3, 4)], {1: None, 2: 1, 3: None, 4: 1})
+    check("thread: a reply to an older message sits under it, not after what came between",
+          [m["rid"] for m in sibling] == [1, 2, 4, 3], str([m["rid"] for m in sibling]))
     held = [msg(r) for r in (1, 2, 3, 4)]
     held[3]["queued"], held[3]["delivered"] = True, False
     out = cp.thread_order(held, {1: None, 2: 1, 3: 2, 4: 1})
     check("thread: a message not yet delivered is neither moved nor nested",
           [m["rid"] for m in out] == [1, 2, 3, 4] and not out[3].get("nested"), str(out))
-    tie = cp.thread_order([msg(r) for r in (1, 2, 3)], {1: None, 2: 1, 3: 1})
-    check("thread: on equal length the chain with the newest message is the main line",
-          [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (3, False)], str(tie))
 
 
 async def test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested() -> None:

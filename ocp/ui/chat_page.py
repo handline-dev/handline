@@ -140,54 +140,38 @@ def messages_of(rows, agent: str) -> list[dict]:
 
 
 def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
-    """Replies as a comment thread (founder #2514). Requests link by `parent_id`; in each thread
-    the longest chain (the newest one on a tie) is the main line and stays where time puts it.
-    Every other message is a side reply (`nested`): it sits right after the message it branches
-    from, in one rail however long the side chain is. A reply whose parent is not on screen
-    stays in the main line and carries `parent_out` (that id). A message still waiting to be
-    delivered is never moved up: it stays below the queue line."""
+    """Replies as a comment thread (founder #2514): a message that replies to another is
+    `nested` and sits right after the message it answers, in one rail however deep the chain
+    goes; only a message that answers nothing on screen keeps its place in time. One whose
+    parent is not on screen is such a message and carries `parent_out` (that id). A message
+    still waiting to be delivered is never moved up: it stays below the queue line."""
     kids: dict[int, list[int]] = {}
     for rid, parent in parents.items():
         if parent in parents:
             kids.setdefault(parent, []).append(rid)
-    best: dict[int, tuple[int, int]] = {}      # rid -> (chain length, newest id) of its best chain down
-
-    def down(rid: int) -> tuple[int, int]:
-        if rid not in best:
-            best[rid] = max(((n + 1, max(new, rid)) for n, new in map(down, kids.get(rid, ()))),
-                            default=(1, rid))
-        return best[rid]
-    main: set[int] = set()
-    for root in [r for r, p in parents.items() if p not in parents]:
-        rid = root
-        while True:
-            main.add(rid)
-            nxt = [c for c in kids.get(rid, ()) if down(c) == max(map(down, kids[rid]))] if kids.get(rid) else []
-            if not nxt:
-                break
-            rid = nxt[0]
-
-    def anchor(rid: int) -> int:
-        while rid not in main:
-            rid = parents[rid]
-        return rid
     fixed = lambda m: m["queued"] and not m["delivered"] or m["held"]
-    side: dict[int, list[dict]] = {}
-    flat = []
+    held = {m["rid"] for m in msgs if fixed(m)}
+    of: dict[int, list[dict]] = {}
     for m in msgs:
-        rid = m["rid"]
-        m["parent_out"] = parents.get(rid) if parents.get(rid) is not None and parents[rid] not in parents else None
-        if rid in main or fixed(m):
-            flat.append(m)
-        else:
-            m["nested"] = True
-            side.setdefault(anchor(rid), []).append(m)
+        of.setdefault(m["rid"], []).append(m)
+        parent = parents.get(m["rid"])
+        m["parent_out"] = parent if parent is not None and parent not in parents else None
+    placed: set[int] = set()
+
+    def under(rid: int) -> list[dict]:
+        out = []
+        for kid in sorted(kids.get(rid, ())):
+            if kid not in held:
+                placed.add(kid)
+                out += [dict(m, nested=True) for m in of[kid]] + under(kid)
+        return out
+    flat = [m for m in msgs if parents.get(m["rid"]) not in parents or m["rid"] in held]
     out = []
     for i, m in enumerate(flat):
         out.append(m)
-        if m["rid"] in side and not any(n["rid"] == m["rid"] for n in flat[i + 1:]):
-            out.extend(side.pop(m["rid"]))
-    return out + [m for group in side.values() for m in group]
+        if not any(n["rid"] == m["rid"] for n in flat[i + 1:]):
+            out += under(m["rid"])
+    return out + [dict(m, nested=True) for rid, ms in of.items() if rid not in placed and rid not in {f["rid"] for f in flat} for m in ms]
 
 
 def tasks_of(con, agent: str) -> list[tuple]:
