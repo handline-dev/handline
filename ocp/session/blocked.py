@@ -70,6 +70,13 @@ MAX_IGNORED = 2
 # legitimate dialogs is not the case this catches.
 MAX_PRESSES_AGENT = 10
 
+# T415: `/exit` over background work raises a dialog that waits for a person, and
+# an agent can sit on it for hours with nothing queued (core did) - so the sweep
+# looks for that one dialog on every agent, not only where work waits. Its block
+# has this origin; it is read this often, and pressed like any other after PRESS_AFTER_S.
+EXIT_ORIGIN = "exit"
+PROBE_S = 30
+
 NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
 
 # What to do about each, in the words of the bridge's own keys. STALLED's is
@@ -90,6 +97,7 @@ LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the back
          NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled"}
 
 _checked: dict[str, int] = {}
+_probed: dict[str, int] = {}
 
 
 def reason(kind: str, detail: str) -> str:
@@ -165,6 +173,21 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
         return NO_SESSION, "", ""
     seen = orca.screen_blocker(handle)
     if seen is None:
+        return None
+    return seen.kind, seen.detail, seen.title
+
+
+def exit_dialog(row) -> tuple[str, str, str] | None:
+    """(kind, detail, title) when this agent's screen shows the exit dialog over
+    background work, else None. The one dialog that is looked for with nothing
+    waiting: it comes from a `/exit` and nothing else, so no working agent is
+    at it and nobody but a person at the terminal is."""
+    handle = row["terminal"]
+    if row["closed_at"] or not handle or not orca.available():
+        return None
+    seen = orca.screen_blocker(handle)
+    if seen is None or seen.kind != orca.MODAL \
+            or seen.title.strip().lower() != orca.EXIT_OVER_WORK_TITLE:
         return None
     return seen.kind, seen.detail, seen.title
 
@@ -315,9 +338,10 @@ def _decline(con, agent: str, rec, now: int, log):
         return rec
     how = f'cleared by ocp: pressed Esc on "{title}"'
     db.add_event(con, agent, "dialog_declined", {"title": title, "key": "Esc", "work": rec["work"]})
+    open_for = ("sat on it with nobody answering" if rec["origin"] == EXIT_ORIGIN else
+                f"could not be given its work ({rec['work'] or 'nothing yet'}) while it was open")
     askmod.report(con, agent,
-                  f"{how}.\n{agent} could not be given its work ({rec['work'] or 'nothing yet'}) "
-                  f"while it was open: {reason(rec['kind'], rec['detail'])}.\nThe dialog's own footer "
+                  f"{how}.\n{agent} {open_for}: {reason(rec['kind'], rec['detail'])}.\nThe dialog's own footer "
                   f"says Esc cancels it, and Esc is a key that only declines it, so that was the "
                   f"only key ocp pressed; nothing was chosen. If it comes back {MAX_PRESSES} times "
                   f"in {timefmt.ago(PRESS_WINDOW_S)} ocp stops pressing and tells you.",
@@ -361,17 +385,30 @@ def _track(con, agent: str, row, now: int, log):
 
     rec = db.block_get(con, agent)
     work = work_waiting(con, agent, row, now)
-    if not work and not (rec and rec["origin"] == "close"):
+    own = rec is not None and rec["origin"] in ("close", EXIT_ORIGIN)
+    if not work and not own:
         if rec:
             _end(con, agent, rec, "nothing is waiting for it now", log)
-        return None
+        if now - _probed.get(agent, 0) < PROBE_S:
+            return None
+        _probed[agent] = now
+        found = exit_dialog(row)
+        if found is None:
+            return None
+        kind, detail, title = found
+        db.block_open(con, agent, kind, detail, "", now, show_at=now + SHOW_AFTER_S,
+                      origin=EXIT_ORIGIN, title=title)
+        log(f"  {agent}: {reason(kind, detail)} - nobody is answering it")
+        return db.block_get(con, agent)
     if rec is not None and now - _checked.get(agent, 0) < RECHECK_S:
         return rec
     _checked[agent] = now
-    found = classify(con, agent, row)
+    exit_only = rec is not None and rec["origin"] == EXIT_ORIGIN and not work
+    found = exit_dialog(row) if exit_only else classify(con, agent, row)
     if found is None:
         if rec:
-            _end(con, agent, rec, "it can be given its work again", log)
+            _end(con, agent, rec, "the exit dialog is gone" if exit_only
+                 else "it can be given its work again", log)
         return None
     kind, detail, title = found
     if rec is None:
@@ -383,8 +420,10 @@ def _track(con, agent: str, row, now: int, log):
         db.block_update(con, agent, kind, detail, work or rec["work"], now, title=title)
     rec = db.block_get(con, agent)
     # An agent that is working may be waiting on a person for that very dialog;
-    # only an idle one's is pressed.
-    if rec["kind"] == orca.MODAL and row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF):
+    # only an idle one's is pressed - except the exit dialog, which no working
+    # agent is at, and whose agent the state may still read as running.
+    if rec["kind"] == orca.MODAL and (row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF)
+                                      or rec["origin"] == EXIT_ORIGIN):
         from ..daemon import lifecycle
         if lifecycle.auto_trust(con, agent, log):
             _end(con, agent, rec, "its folder-trust prompt was accepted", log)
@@ -408,7 +447,10 @@ def _raise(con, recs, now: int, log) -> None:
     for r in recs:
         held = now - r["since"]
         note = press_note(con, r["agent"], r, now)
-        lines.append(f"{r['agent']} cannot be given its work ({timefmt.ago(held)}).\n"
+        lead = (f"{r['agent']} has sat on a dialog nobody is answering ({timefmt.ago(held)})."
+                if r["origin"] == EXIT_ORIGIN and not r["work"] else
+                f"{r['agent']} cannot be given its work ({timefmt.ago(held)}).")
+        lines.append(f"{lead}\n"
                      f"  In the way: {reason(r['kind'], r['detail'])}\n"
                      f"  Waiting: {r['work'] or 'nothing yet'}\n"
                      + (f"  {note[0].upper() + note[1:]}.\n" if note else "")

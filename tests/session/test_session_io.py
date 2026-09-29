@@ -822,6 +822,53 @@ def test_a_dialog_ocp_can_decline_is_cleared_and_reported(home: Path) -> None:
         con.close()
 
 
+def test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(home: Path) -> None:
+    """T415: core sat for hours on `/exit`'s dialog over background shells - nothing
+    queued for it, its state still RUNNING - because only agents with work waiting
+    were looked at."""
+    con, term = _decline_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    db.set_agent_state(con, "backend", dmn_states.RUNNING)
+    lines: list[str] = []
+    t0 = int(time.time()) - 5000
+    try:
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        blockedmod.sweep(con, lines.append, t0)
+        rec = db.block_get(con, "backend")
+        check("exit dialog, nothing waiting: it is seen and held, nothing pressed yet",
+              rec is not None and rec["origin"] == "exit" and term.sent == [], str(term.sent))
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.PRESS_AFTER_S - 1)
+        check("exit dialog, nothing waiting: a person gets the wait first", term.sent == [], str(term.sent))
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.PRESS_AFTER_S)
+        check("exit dialog, nothing waiting: then Esc, once, though the state reads running",
+              term.sent == [("\x1b", False)] and db.block_get(con, "backend") is None, str(term.sent))
+        rep = _reports(con)
+        check("exit dialog, nothing waiting: the founder is told it sat with nobody answering",
+              len(rep) == 1 and "sat on it with nobody answering" in rep[0]["body"]
+              and "could not be given its work" not in rep[0]["body"], str([dict(r) for r in rep]))
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        blockedmod.sweep(con, lines.append, t0 + 300)
+        check("exit dialog, nothing waiting: once it is gone the agent is left alone",
+              term.sent == [("\x1b", False)] and db.block_get(con, "backend") is None)
+
+        # Any other dialog on an agent with nothing waiting is not this one's to press.
+        term.bring_back(PERMISSION_PROMPT)
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        term.sent.clear()
+        blockedmod.sweep(con, lines.append, t0 + 400)
+        blockedmod.sweep(con, lines.append, t0 + 400 + blockedmod.PRESS_AFTER_S)
+        check("other dialog, nothing waiting: neither held nor pressed",
+              db.block_get(con, "backend") is None and term.sent == [], str(term.sent))
+    finally:
+        con.close()
+
+
 def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(home: Path) -> None:
     con, term = _decline_world(home)
     con.execute("UPDATE requests SET state = 'done', announced_at = 1")
@@ -3716,6 +3763,7 @@ def main() -> int:
         run(lambda: test_a_close_never_stops_background_work(Path(td) / 'dcl0x'))
         run(lambda: test_a_dialog_ocp_can_decline_is_cleared_and_reported(Path(td) / 'dcl1'))
         run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(Path(td) / 'dcl2'))
+        run(lambda: test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(Path(td) / 'dcl2b'))
         run(lambda: test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(Path(td) / 'dcl3'))
         run(lambda: test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(Path(td) / 'dcl4'))
         run(lambda: test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(Path(td) / 'dcl5'))
