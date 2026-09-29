@@ -2694,6 +2694,19 @@ def _block(con, agent: str, kind: str, detail: dict, title: str = "t", wait_id=N
     return db.prompt_open(con, agent, kind, f"fp{time.time()}", title, [], detail, wait_id, answerable, int(time.time()))
 
 
+def test_the_permission_modal_shows_the_whole_panel_without_the_tip() -> None:
+    """T411: a multi-line command never matches the hook's one-line summary, so the panel's own
+    lines are what the founder judges by, warning line included, minus the auto-mode tip."""
+    from ocp.ui.components.permission_modal import panel_text
+    d = {"command": "Bash command", "lines": ("Bash command", "git commit -F - <<'EOF'", "msg", "EOF",
+                                              "Tip: auto mode handles these prompts", "Contains simple_expansion")}
+    text = panel_text(d)
+    check("permission modal: every line of the command and the warning is shown, the tip is not",
+          "msg" in text and "EOF" in text and "simple_expansion" in text and "Tip" not in text, text)
+    check("permission modal: no panel lines falls back to the one-line command",
+          panel_text({"command": "rm -rf build/", "lines": ()}) == "rm -rf build/")
+
+
 async def test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer() -> None:
     """T336/T396: the page reads the daemon's block rows - no terminal - and clicking sends
     one answer request naming the block; a block is offered once and never without a hook id."""
@@ -3346,6 +3359,7 @@ async def _run_all() -> None:
     await test_home_settings_lists_the_standing_answers_and_removes_one()
     await test_a_dialog_on_an_agent_terminal_is_read_and_pressed()
     await test_the_dialog_modal_offers_always_except_for_a_truncated_title()
+    test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     await test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer()
     await test_a_question_modal_keeps_its_own_press_and_other_prompt()
     await test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll()
