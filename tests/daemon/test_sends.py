@@ -299,7 +299,17 @@ def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> No
         shown = db.add_request(con, "product", "backend", "an old ask, shown", None, "peer", "async", None, 0, None)
         db.mark_delivered(con, shown)
         unshown = db.add_request(con, "product", "backend", "an old ask, never shown", None, "peer", "async", None, 0, None)
+        human = db.add_request(con, "human", "backend", "told by the daemon before T418", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, human)
+        to_human = db.add_request(con, "backend", db.HUMAN, "drawn, not typed", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, to_human)
         dmn_messaging.migrate_old_messages(con, lambda _m: None)
+        check("migration (T431): a request told before T418 is typed as of then, so the landing sweep sees it",
+              db.get_request(con, shown)["typed_at"] == db.get_request(con, shown)["delivered_at"]
+              and db.get_request(con, human)["typed_at"] is not None
+              and db.get_request(con, unshown)["typed_at"] is None)
+        check("migration (T431): a row for the human is drawn, never typed - left alone",
+              db.get_request(con, to_human)["typed_at"] is None)
         check("migration: the old say is settled", db.get_request(con, say)["state"] == "done")
         check("migration: an old ask that was shown stays open, still owing its answer",
               db.get_request(con, shown)["state"] == "queued")

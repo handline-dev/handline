@@ -151,17 +151,32 @@ def uninstall() -> tuple[bool, str]:
     return True, (f"removed {path}" if existed else f"{LABEL} was not installed")
 
 
+def _plist_installed() -> bool | None:
+    """True or False when the plist is seen to be there or not; None when this
+    process may not look (a sandboxed agent cannot stat ~/Library/LaunchAgents)."""
+    try:
+        plist_path().stat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return None
+    return True
+
+
 def status() -> dict:
-    """installed: the plist exists. loaded: launchd knows the label. pid/last_exit
-    come from `launchctl print`, when it is loaded."""
-    installed = plist_path().exists()
-    result = {"installed": installed, "loaded": False, "pid": None, "last_exit_code": None}
-    if not installed:
+    """installed: the plist exists, or launchd has the label. loaded: launchd knows
+    the label. pid/last_exit come from `launchctl print`, when it is loaded.
+
+    A plist this process may not look at is no evidence of "not installed": launchd
+    is asked, or a daemon it is running would be called "hand-started" (T431)."""
+    seen = _plist_installed()
+    result = {"installed": bool(seen), "loaded": False, "pid": None, "last_exit_code": None}
+    if seen is False:
         return result
     res = run_launchctl(["print", service_target()])
     if res.returncode != 0:
         return result
-    result["loaded"] = True
+    result["installed"] = result["loaded"] = True
     for line in res.stdout.splitlines():
         line = line.strip()
         if line.startswith("pid = "):

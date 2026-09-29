@@ -1539,6 +1539,37 @@ def test_service_status_when_not_installed(home: Path) -> None:
         service.run_launchctl = orig_runner
 
 
+def test_service_status_when_the_plist_cannot_be_looked_at(home: Path) -> None:
+    """T431: a sandboxed agent cannot stat ~/Library/LaunchAgents; launchd is asked,
+    so a daemon it runs is not reported as hand-started."""
+    import os
+    walled = home / "walled"
+    walled.mkdir(parents=True, exist_ok=True)
+    orig, orig_runner = service.plist_path, service.run_launchctl
+    calls: list = []
+
+    class Printed:
+        returncode, stderr = 0, ""
+        stdout = "\tpid = 31338\n\tlast exit code = 0\n"
+
+    def fake_print(args):
+        calls.append(args)
+        return Printed()
+
+    try:
+        service.plist_path = lambda: walled / "job.plist"
+        service.run_launchctl = fake_print
+        os.chmod(walled, 0)
+        st = service.status()
+        check("service: an unlookable plist makes status() ask launchd",
+              st["installed"] and st["loaded"] and st["pid"] == 31338 and calls, str(st))
+        check("service: that pid is supervised by launchd, not hand-started",
+              service.supervisor_of(31338) == f"launchd ({service.LABEL})")
+    finally:
+        os.chmod(walled, 0o700)
+        service.plist_path, service.run_launchctl = orig, orig_runner
+
+
 def test_service_supervisor_of(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     orig = service.status
@@ -1618,6 +1649,25 @@ def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
     check("daemon: refuses while another process holds the lock", rc == 1)
     check("daemon: the refusal is logged, not printed bare",
           "daemon starting - already running" in out, out)
+
+
+def test_the_daemon_logs_the_code_sha_it_started_on(home: Path) -> None:
+    """T431: a daemon left behind by merges is caught by comparing this line to main."""
+    from ocp.infra import gitrun
+    _daemon_home(home, 20)
+    _, head, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+    out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
+    check("daemon: the start line names the checkout's HEAD",
+          head.strip() != "" and f"  code: {head.strip()}\n" in out, out[:300])
+
+    real = dmn_loop.gitrun.run
+    dmn_loop.gitrun.run = lambda *a, **k: (None, "", "git is not there")
+    try:
+        out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
+    finally:
+        dmn_loop.gitrun.run = real
+    check("daemon: when git fails the start line says unknown, not an empty sha",
+          "  code: unknown\n" in out, out[:300])
 
 
 def test_service_log_rotation(tmp: Path) -> None:
@@ -4915,9 +4965,11 @@ def main() -> int:
         run(lambda: test_service_plist(Path(td) / 'svc1'))
         run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
         run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))
+        run(lambda: test_service_status_when_the_plist_cannot_be_looked_at(Path(td) / 'svc3b'))
         run(lambda: test_service_supervisor_of(Path(td) / 'svc4'))
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
+        run(lambda: test_the_daemon_logs_the_code_sha_it_started_on(Path(td) / 'codesha'))
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(Path(td) / 'cfgguard'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
