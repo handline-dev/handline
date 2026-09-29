@@ -1473,6 +1473,28 @@ def _blocked_by_cycle(con, tid: int, blocks_on: int, seen: set[int] | None = Non
               for nxt in db.blocks_on_ids(con, blocks_on))
 
 
+def _cycle_path(con, tid: int, blocks_on: int) -> list[int] | None:
+    """The waits from `blocks_on` back to `tid` that `tid` waiting on `blocks_on` would close into
+    a loop (`[blocks_on, ..., last]`, where `last` waits on `tid`), or None when it would not.
+    The same walk as `_blocked_by_cycle`, keeping the way it went so the refusal can name it."""
+    seen: set[int] = set()
+
+    def walk(node: int) -> list[int] | None:
+        if node in seen:
+            return None
+        seen.add(node)
+        nexts = db.blocks_on_ids(con, node)
+        if tid in nexts:
+            return [node]
+        for nxt in nexts:
+            found = walk(nxt)
+            if found:
+                return [node, *found]
+        return None
+
+    return walk(blocks_on)
+
+
 def _blocker_refusal(con, blocks_on: int) -> str | None:
     """Why `blocks_on` cannot be waited on: missing or already closed."""
     row = db.get_task(con, blocks_on)
@@ -1503,8 +1525,10 @@ def add_block(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
         return False, gone
     if blocks_on == tid:
         return False, f"task T{tid} cannot block itself"
-    if _blocked_by_cycle(con, tid, blocks_on):
-        return False, f"task T{tid} cannot wait on T{blocks_on}: that would be a cycle"
+    loop = _cycle_path(con, tid, blocks_on)
+    if loop:
+        ring = " -> ".join(f"T{t}" for t in [tid, *loop, tid])
+        return False, f"task T{tid} cannot wait on T{blocks_on}: that would be a cycle, {ring}"
     db.add_block(con, tid, blocks_on)
     db.add_event(con, by, "block_task", {"task_id": tid, "blocks_on": blocks_on})
     return True, f"task T{tid} now waits on T{blocks_on}"

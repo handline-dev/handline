@@ -3771,6 +3771,92 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
         con.close()
 
 
+def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -> None:
+    """T296: a cycle in `task_blocks` and a wait on a blocker that was discarded or closed
+    without being done are read from the db every tick and go to the founder once - a
+    cycle `add_block` refused can still come from a merge or a reopen."""
+    from ocp.daemon import waitfor
+    _daemon_home(home, 20)
+    con = db.connect()
+    log: list[str] = []
+
+    def escalations() -> list:
+        return con.execute("SELECT body FROM requests WHERE kind = 'escalate' AND body LIKE '[wait-for]%'"
+                           ).fetchall()
+
+    try:
+        a, b, c = (db.new_task(con, t, "backend", "manager") for t in ("a", "b", "c"))
+        db.add_block(con, a, b)
+        db.add_block(con, b, c)
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: a chain is no cycle and nothing is told", not escalations(), str(log))
+
+        db.add_block(con, c, a)
+        waitfor.sweep(con, log.append, 0)
+        sent = escalations()
+        check("wait-for: a loop of three is told to the founder, naming all three",
+              len(sent) == 1 and all(f"T{t}" in sent[0]["body"] for t in (a, b, c)), str([r["body"] for r in sent]))
+        waitfor.sweep(con, log.append, 0)
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: and once, however many ticks it lasts", len(escalations()) == 1)
+
+        db.remove_block(con, c, a)
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: a loop that is broken is forgotten", not con.execute(
+            "SELECT 1 FROM cursors WHERE name LIKE 'waitfor:%'").fetchone())
+        db.add_block(con, c, a)
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: and told again if it comes back", len(escalations()) == 2)
+        db.remove_block(con, c, a)
+
+        d = db.new_task(con, "waits on a task that goes away", "backend", "manager")
+        e = db.new_task(con, "to be discarded", "backend", "manager")
+        db.add_block(con, d, e)
+        db.discard_task(con, e, "manager", "not needed")
+        before = len(escalations())
+        waitfor.sweep(con, log.append, 0)
+        sent = escalations()[before:]
+        check("wait-for: a wait on a discarded blocker is told once, saying so",
+              len(sent) == 1 and f"T{e}" in sent[0]["body"] and "discarded" in sent[0]["body"],
+              str([r["body"] for r in sent]))
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: and not again", len(escalations()) == before + 1)
+
+        f, g = (db.new_task(con, t, "backend", "manager") for t in ("f", "g"))
+        db.add_block(con, f, g)
+        db.mark_task_done(con, g, "sha abc", "reason")
+        db.close_task(con, g, "manager")
+        before = len(escalations())
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: a blocker that finished and was closed is no stuck wait",
+              len(escalations()) == before)
+
+        # The other half: `--blocked-by` itself refuses to close a loop.
+        _, _, x = actions.task_new("product", "backend", "x")
+        _, _, y = actions.task_new("product", "backend", "y")
+        _, _, z = actions.task_new("product", "backend", "z")
+        ok1, _ = actions.add_block(con, x, y, "product")
+        ok1b, _ = actions.add_block(con, y, z, "product")
+        ok2, why2 = actions.add_block(con, z, x, "product")
+        ok3, why3 = actions.add_block(con, x, x, "product")
+        check("wait-for: --blocked-by refuses a loop of three, naming it, and a task waiting on itself",
+              ok1 and ok1b and not ok2 and f"T{z} -> T{x} -> T{y} -> T{z}" in why2
+              and not ok3 and "itself" in why3, f"{why2} {why3}")
+
+        # A blocker closed without being done releases its waiter: the founder is told.
+        h, i = (db.new_task(con, t, "backend", "manager") for t in ("h", "i"))
+        db.add_block(con, h, i)
+        db.close_task(con, i, "manager")
+        before = len(escalations())
+        waitfor.sweep(con, log.append, 0)
+        sent = escalations()[before:]
+        check("wait-for: a wait on a blocker closed without being done is told once, saying so",
+              len(sent) == 1 and f"T{i}" in sent[0]["body"] and "without being done" in sent[0]["body"],
+              str([r["body"] for r in sent]))
+    finally:
+        con.close()
+
+
 def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
     """After its window ends, an idle account's last figure describes a window
     that no longer exists, so the only way to learn the truth is to ask.
@@ -4668,6 +4754,7 @@ def main() -> int:
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
         run(lambda: test_a_due_park_with_no_terminal_is_started_not_held(Path(td) / 'dueterm'))
+        run(lambda: test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(Path(td) / 'waitfor'))
         run(lambda: test_a_clear_held_by_background_work_is_owed_not_failed(Path(td) / 'owedclear'))
         run(lambda: test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(Path(td) / 'startall'))
         run(lambda: test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(Path(td) / 'toldwake'))
