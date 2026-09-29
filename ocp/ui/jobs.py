@@ -76,7 +76,6 @@ class Jobs:
 
     def __init__(self) -> None:
         self.running: list[Job] = []
-        self.results: list[tuple[bool, str]] = []      # (ok, text) of what the last `reap()` collected
 
     def start(self, verb: str, target: str, what: str, args: tuple = (),
               kwargs: dict | None = None,
@@ -107,12 +106,11 @@ class Jobs:
         self.running.append(Job(verb, target, what, proc, time.time(), on_result))
         return ""
 
-    def reap(self) -> list[str]:
-        """What the finished ones said. Stops (SIGTERM, then SIGKILL after
+    def reap(self) -> list[tuple[bool, str]]:
+        """What the finished ones said, as (ok, text). Stops (SIGTERM, then SIGKILL after
         `GRACE_S`) any job whose age has passed its own declared `longest` -
         that bound is what a screen says, so it is the one that is kept."""
         said, now = [], time.time()
-        self.results = []
         for job in list(self.running):
             code = job.proc.poll()
             if code is None:
@@ -133,8 +131,7 @@ class Jobs:
                 self._signal(job, signal.SIGKILL)
             out, err = job.proc.communicate()
             ok, text = self._said(job, code, out, err, now)
-            said.append(text)
-            self.results.append((ok, text))
+            said.append((ok, text))
             if job.on_result:
                 job.on_result(ok, text)
         return said

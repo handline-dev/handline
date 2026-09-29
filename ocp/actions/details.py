@@ -247,19 +247,26 @@ def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     return declared, undeclared
 
 
-def trust_worktrees(acct: str, worktrees: list[tuple[str, str]]) -> list[str]:
+def trust_each(acct: str, worktrees: list[tuple[str, str]]) -> list[tuple[bool, str]]:
     """Pre-authorize `acct` for each (agent, worktree), one throwaway session
-    at a time, so a real session there never meets the trust screen cold."""
+    at a time, so a real session there never meets the trust screen cold.
+    One (ok, line) per worktree."""
     return [_trust_one_worktree(acct, name, wt) for name, wt in worktrees]
 
 
-def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
+def trust_worktrees(acct: str, worktrees: list[tuple[str, str]]) -> tuple[bool, str]:
+    """`trust_each` as (ok when none failed, the lines joined by "; ")."""
+    done = trust_each(acct, worktrees)
+    return all(ok for ok, _ in done), "; ".join(line for _, line in done)
+
+
+def _trust_one_worktree(acct: str, agent: str, worktree: str) -> tuple[bool, str]:
     drv = vendors.for_account(acct)
     cmd = (f"cd {shlex.quote(worktree)} && {drv.config_dir_env()}="
            f"{shlex.quote(str(vendors.config_dir(acct)))} {shlex.quote(drv.binary() or drv.name)}")
     handle = orca.create_terminal(cmd, title=f"trust-{acct}-{agent}")
     if not handle:
-        return f"{agent} ({worktree}): could not start a session to trust it"
+        return False, f"{agent} ({worktree}): could not start a session to trust it"
     try:
         # Booting, not mid-turn: `wait_idle`'s probe wants a running session,
         # and this one has none yet, so a bounded poll for the one screen
@@ -272,13 +279,13 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> str:
         if orca.trust_prompt_showing(handle):
             ok, why = orca.confirm_trust(handle)
             if not ok:
-                return f"{agent} ({worktree}): {why}"
+                return False, f"{agent} ({worktree}): {why}"
             orca.wait_idle(handle)
             result = f"{agent} ({worktree}): trusted"
         else:
             result = f"{agent} ({worktree}): no trust prompt appeared - already trusted?"
         orca.send(handle, "/exit")
-        return result
+        return True, result
     finally:
         orca.close_terminal(handle)
 

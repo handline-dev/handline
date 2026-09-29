@@ -360,8 +360,8 @@ def test_trust_worktrees(home: Path) -> None:
         orcamod.close_terminal = lambda h, **k: (closed.append(h), (True, "closed"))[1]
 
         result = actions.trust_worktrees("gamma", [("backend", "/w/backend")])
-        check("trust: one line per worktree", len(result) == 1, str(result))
-        check("trust: reports the trust", "trusted" in result[0], result[0])
+        check("trust: ok, one line per worktree", result[0] and ";" not in result[1], str(result))
+        check("trust: reports the trust", "trusted" in result[1], result[1])
         check("trust: starts the session in the worktree, under the new account",
               created and "/w/backend" in created[0][0] and "gamma" in created[0][0],
               str(created))
@@ -373,11 +373,37 @@ def test_trust_worktrees(home: Path) -> None:
         orcamod.trust_prompt_showing = lambda h: False
         result = actions.trust_worktrees("gamma", [("backend", "/w/backend")])
         check("trust: no prompt shown is reported, not claimed as a confirmed trust",
-              not result[0].endswith(": trusted") and "no trust prompt" in result[0],
-              result[0])
+              result[0] and not result[1].endswith(": trusted") and "no trust prompt" in result[1],
+              str(result))
         check("trust: still exits and closes even then",
               sent == [("term_probe", "/exit")] and closed == ["term_probe"],
               str((sent, closed)))
+    finally:
+        (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
+         orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal) = real
+
+
+def test_trust_worktrees_reports_a_failure(home: Path) -> None:
+    """One worktree trusted, one refused: ok is False and both lines are there, joined by "; "."""
+    os.environ["OCP_HOME"] = str(home)
+    real = (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
+            orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal)
+    try:
+        orcamod.create_terminal = lambda cmd, **k: "term_probe"
+        orcamod.trust_prompt_showing = lambda h: True
+        orcamod.confirm_trust = lambda h: (("/w/b" in seen[-1]), "refused")
+        seen: list[str] = []
+        orcamod.create_terminal = lambda cmd, **k: (seen.append(cmd), "term_probe")[1]
+        orcamod.wait_idle = lambda h, *a, **k: True
+        orcamod.idle_now = lambda h: False
+        orcamod.send = lambda h, text, **k: (True, "ok")
+        orcamod.close_terminal = lambda h, **k: (True, "closed")
+        ok, text = actions.trust_worktrees("gamma", [("a", "/w/a"), ("b", "/w/b")])
+        check("trust: one refused makes ok False and both lines are kept, joined by '; '",
+              not ok and text == "a (/w/a): refused; b (/w/b): trusted", str((ok, text)))
+        orcamod.create_terminal = lambda cmd, **k: None
+        ok, text = actions.trust_worktrees("gamma", [("a", "/w/a")])
+        check("trust: no session started is a failure", not ok and "could not start" in text, text)
     finally:
         (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
          orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal) = real
@@ -785,14 +811,14 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
         con.close()
     trustmod.enact(str(home / "declared"), "test root")
 
-    real_trust = actions.trust_worktrees
+    real_trust = actions.trust_each
     asked: list[str] = []
     try:
-        actions.trust_worktrees = lambda acct, wts: [f"{a}: trusted" for a, w in wts]
+        actions.trust_each = lambda acct, wts: [(True, f"{a}: trusted") for a, w in wts]
         out = _capture(lambda: cliaccount._offer_to_trust_worktrees(
             "gamma", lambda p: (asked.append(p), "y")[1]))
     finally:
-        actions.trust_worktrees = real_trust
+        actions.trust_each = real_trust
     check("offer: the declared worktree is named in the question",
           any("backend" in p and str(wt_in) in p for p in asked), asked)
     check("offer: the undeclared one is named as skipped, not offered",
@@ -859,6 +885,7 @@ def main() -> int:
         run(lambda: test_ocp_trust_cli_is_wired(Path(td) / 'trust_cli'))
         run(lambda: test_eligible_worktrees_splits_declared_from_not(Path(td) / 'eligible_wt'))
         run(lambda: test_trust_worktrees(Path(td) / 'trust_wt'))
+        run(lambda: test_trust_worktrees_reports_a_failure(Path(td) / 'trust_wt_fail'))
         run(lambda: test_trust_worktrees_quotes_the_path(Path(td) / 'trust_wt_quote'))
         run(lambda: test_trust_prompt_folder_parses_a_live_capture())
         run(lambda: test_trust_prompt_dispatches_to_the_terminals_own_vendor(Path(td) / 'trustvendor'))

@@ -82,8 +82,7 @@ def _answer_block(con, log, **kw) -> tuple[bool, str]:
 
 def _trust(con, log, **kw) -> tuple[bool, str]:
     worktrees = [(a, w) for a, w in kw["worktrees"]]
-    said = details.trust_worktrees(kw["account"], worktrees)
-    return True, "; ".join(said)
+    return details.trust_worktrees(kw["account"], worktrees)
 
 
 VERBS = {

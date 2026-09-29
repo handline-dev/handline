@@ -7045,7 +7045,7 @@ def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
     while time.time() < deadline and not out:
         out = jobs.reap()
         time.sleep(0.05)
-    check("jobs: and its answer comes back the same way", out and "not STALLED" in out[0], str(out))
+    check("jobs: and its answer comes back the same way", out and "not STALLED" in out[0][1], str(out))
 
 
 def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
