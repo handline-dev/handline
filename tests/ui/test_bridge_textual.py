@@ -556,6 +556,35 @@ def test_the_task_title_is_cut_to_the_room_beside_the_other_columns() -> None:
     check("room: never below the minimum", tv.title_room(20, [10, 10]) == tv.MIN_TITLE)
 
 
+def test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process() -> None:
+    """Founder #5401: dismissing was slow because every verb started an interpreter. A verb
+    with nothing to wait for (dismiss) runs in this process and is collected the same way."""
+    import time
+    from ocp.team import ask as askmod
+    from ocp.ui import jobs as jobsmod
+    _home("inlinejob")
+    agents.register("reviewer")
+    _, _, rid = askmod.ask("human", "a question?", requester="reviewer")
+    jobs = jobsmod.Jobs()
+    check("jobs: dismiss starts", jobs.start("dismiss", f"#{rid}", "dismissing", (rid,), {"me": actions.HUMAN}) == "")
+    check("jobs: it is not a process", isinstance(jobs.running[0].proc, jobsmod.InlineProc)
+          and jobs.running[0].proc.pid is None)
+    said = []
+    for _ in range(100):
+        said = jobs.reap()
+        if said:
+            break
+        time.sleep(0.02)
+    con = db.connect()
+    try:
+        check("jobs: it is collected, and the row is dismissed",
+              said and said[0][0] and db.get_request(con, rid)["state"] == "done", str(said))
+    finally:
+        con.close()
+    check("jobs: a verb that waits on something is still a process of its own",
+          actions.WAITS["wake"][0] != "" and actions.WAITS["dismiss"][0] == "")
+
+
 def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
     from ocp.ui import chat_page as cp
     _home("tasks")
@@ -1508,6 +1537,7 @@ async def _run_all() -> None:
     test_a_message_between_two_other_agents_can_be_picked_in_all_chat()
     test_a_number_in_a_message_becomes_a_link_to_it()
     test_the_task_title_is_cut_to_the_room_beside_the_other_columns()
+    test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()

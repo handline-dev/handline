@@ -21,6 +21,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -44,6 +45,36 @@ GERUND = {"wake": "waking", "close": "closing", "park": "parking", "fold": "fold
 def _took(seconds: float) -> str:
     s = max(0, int(seconds))
     return f"{s}s" if s < 60 else f"{s // 60}m{s % 60:02d}s"
+
+
+class InlineProc:
+    """A verb that only writes the record, run on a thread of this process: the stand-in
+    for a `Popen` that `Jobs` polls and collects. A process of its own costs an
+    interpreter start (~170 ms) for a few milliseconds of work - and it never has
+    anything to stop, since it waits on nothing."""
+
+    pid = None
+
+    def __init__(self, verb: str, args: tuple, kwargs: dict) -> None:
+        self.returncode: int | None = None
+        self._out = ""
+        self._thread = threading.Thread(target=self._run, args=(verb, args, kwargs), daemon=True)
+        self._thread.start()
+
+    def _run(self, verb: str, args: tuple, kwargs: dict) -> None:
+        try:
+            ok, said = actions.perform(verb, *args, **kwargs)
+        except Exception as e:  # noqa: BLE001 - whatever went wrong is the answer
+            ok, said = False, f"{type(e).__name__}: {e}"
+        self._out = json.dumps({"ok": ok, "said": said})
+        self.returncode = 0 if ok else 1
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def communicate(self) -> tuple[str, str]:
+        self._thread.join()
+        return self._out, ""
 
 
 class Job:
@@ -89,6 +120,10 @@ class Jobs:
                     "one thing at a time on it")
         if len(self.running) >= MAX_JOBS:
             return f"{len(self.running)} actions are already running - wait for one to finish"
+        if not actions.WAITS[verb][0]:
+            self.running.append(Job(verb, target, what, InlineProc(verb, args, kwargs or {}), time.time(),
+                                    on_result))
+            return ""
         # The child's stdin is a pipe closed right after the request, so nothing
         # it starts can read the keys this loop is reading.
         env = dict(os.environ)
@@ -143,6 +178,8 @@ class Jobs:
         otherwise outlive the "declared bound is the stop" a screen shows -
         and `communicate()` above would then block until that grandchild, not
         `job.proc`, lets go of the pipes it inherited."""
+        if job.proc.pid is None:
+            return          # on a thread: it waits on nothing, so there is nothing to stop
         try:
             os.killpg(job.proc.pid, sig)
         except ProcessLookupError:

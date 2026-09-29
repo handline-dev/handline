@@ -217,7 +217,7 @@ class TasksView(Vertical):
 
     def on_resize(self) -> None:
         self._show_pane()
-        self.refresh_rows()         # the title column is cut to the width there is
+        self._tick()                # the title column is cut to the width there is
 
     def _show_pane(self) -> None:
         pane = self.query_one(TaskPane)
@@ -252,7 +252,7 @@ class TasksView(Vertical):
 
     def on_mount(self) -> None:
         self._set_columns()
-        self.set_interval(2.0, self.refresh_rows)
+        self.set_interval(2.0, self._tick)
         self.refresh_rows()
 
     @property
@@ -263,21 +263,43 @@ class TasksView(Vertical):
     def cur(self) -> int:
         return self.table.cursor_row
 
-    def refresh_rows(self) -> None:
-        if not self.display:
-            return
+    def _load(self) -> tuple[list, list]:
+        """What the database says, read once (on a thread or not): the rows the filters let
+        through, and, for the tree, every open task it hangs them on."""
+        ended = ("closed", "discarded", "merged")
         con = db.connect()
         try:
-            rows = actions.task_rows(con, state=sorted(self.states))
-            every = actions.task_rows(con) if self.as_tree else []
+            pool = actions.task_rows(con, include_closed=bool(self.states & set(ended)))
         finally:
             con.close()
+        rows = [r for r in pool if r["state"] in self.states]
+        every = [r for r in pool if r["state"] not in ended] if self.as_tree else []
         if self.mine:
             rows = [r for r in rows if actions.task_related_to(r, actions.HUMAN)]
         if self.closer:
             rows = [r for r in rows if r["closer"] == self.closer]
         if self.agent:
             rows = [r for r in rows if self.agent in (r["owner"], r["opened_by"])]
+        return rows, every
+
+    def refresh_rows(self) -> None:
+        if not self.display:
+            return
+        self._apply(*self._load())
+
+    def _tick(self) -> None:
+        """The two-second refresh and a resize: the database is read off the UI thread."""
+        if not self.display:
+            return
+
+        def work() -> None:
+            data = self._load()
+            self.app.call_from_thread(self._apply, *data)
+        self.run_worker(work, thread=True, exclusive=True, group="tasks_rows", exit_on_error=False)
+
+    def _apply(self, rows: list, every: list) -> None:
+        if not self.display:
+            return
         self.owners = sorted({r["owner"] for r in rows})
         if self.owner not in self.owners:
             self.owner = None
