@@ -495,7 +495,7 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
         "dismissed_by, dismissed_reason "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
-        "AND state != 'denied' AND kind IS NOT 'answer' ORDER BY id DESC LIMIT ?",
+        "AND state != 'denied' AND settles IS NULL ORDER BY id DESC LIMIT ?",
         (HUMAN, other, other, HUMAN, EXCHANGE_ROWS + len(skip)),
     ).fetchall()
     out: list[str] = []
