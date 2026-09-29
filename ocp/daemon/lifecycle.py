@@ -13,7 +13,7 @@ from .. import db
 from ..session import handoff as handoffmod
 from ..session import idle_close
 from ..session import launch
-from ..infra import lock
+from ..infra import lock, timefmt
 from ..usage import measure
 from ..session import observe as obs
 from ..session import orca
@@ -197,6 +197,21 @@ def _cold_before_typing(con, agent: str, row, now: int, st, log) -> bool | None:
     return ok
 
 
+def _note_abandoned(con, agent: str, now: int) -> None:
+    """Why the work behind this agent's prompt is being stopped (T424), once a stretch: the
+    close that stops it is the only place this is known, since the session is marked
+    closed, and the work gone, before the next sweep looks."""
+    if db.get_cursor(con, f"bg_stop_noted:{agent}"):
+        return
+    db.set_cursor(con, f"bg_stop_noted:{agent}", now)
+    grace = idle_close.bg_grace_s(agent)
+    db.add_event(con, agent, "background_abandoned",
+                 {"prompted_s": now - delivery.bg_prompted_at(con, agent),
+                  "silent_s": delivery.bg_silent_s(con, agent, now),
+                  "why": f"background work still running {timefmt.ago(grace)} after the agent was "
+                         f"told to finish or stop it, with nothing shown"})
+
+
 def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
@@ -315,6 +330,8 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     running = orca.background_work(handle)
     if running and not stale:
         return False, f"background work is running ({running}); not closing"
+    if running and delivery.bg_owes_nothing(con, agent):
+        _note_abandoned(con, agent, int(time.time()))
     # A dialog on screen is what `/exit` would answer instead of ending anything.
     # Past it first, so the close is one act and not a refusal the next tick
     # meets again; when it cannot be, the refusal says why.

@@ -935,7 +935,8 @@ def _background_detail(con, agent: str) -> str:
     now = int(time.time())
     since = dmn_delivery.bg_since(con, agent)
     return (f"background {timefmt.ago(now - since)}" if since else "background work") \
-        + (", stale" if dmn_delivery.bg_stale(con, agent, now) else "")
+        + (", stale" if dmn_delivery.bg_stale(con, agent, now) else "") \
+        + (", told to finish or stop it" if dmn_delivery.bg_prompted_at(con, agent) else "")
 
 
 def _waiting_for(held: str) -> str:

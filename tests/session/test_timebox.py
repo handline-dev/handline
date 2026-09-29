@@ -506,6 +506,10 @@ def test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(home: P
               and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_prompted'").fetchone()[0] == 1)
         timebox.sweep(con, lambda _m: None, now + 5)
         check("forgotten: told once while the stretch goes on", len(sent) == 1, str(sent))
+        from ocp.ui import tui
+        check("forgotten: the screen says it was told, so a stop is not a surprise",
+              "told to finish or stop it" in tui._background_detail(con, "marina"),
+              tui._background_detail(con, "marina"))
         row = db.get_agent_state(con, "marina")
         check("forgotten: until the second window is over the work is held and the session not closed",
               not dmn_delivery.bg_may_stop(con, "marina", now + V - 1)
@@ -514,15 +518,49 @@ def test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(home: P
         check("forgotten: the grace over with nothing shown and the work may be stopped, and the close is free",
               dmn_delivery.bg_may_stop(con, "marina", now + V)
               and dmn_lifecycle.should_close(con, "marina", "IDLE", row, now + V, st))
-        timebox.sweep(con, lambda _m: None, now + V + 5)
-        rows = con.execute("SELECT payload FROM events WHERE kind = 'background_abandoned'").fetchall()
-        check("forgotten: why it is stopped is recorded, once", len(rows) == 1 and "told to finish or stop it" in rows[0][0], str(rows))
         db.add_event(con, "marina", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'marina' AND id = (SELECT MAX(id) FROM events)",
                     (now + V + 5,))
         check("forgotten: a reply that shows something restarts the grace",
               not dmn_delivery.bg_may_stop(con, "marina", now + V + 10)
               and dmn_delivery.bg_may_stop(con, "marina", now + V + 5 + V))
+    finally:
+        con.close()
+
+
+def test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(home: Path) -> None:
+    """The close runs before the sweep in a tick and leaves the session closed, with its work
+    gone, so the why is written by the close and never depends on the sweep seeing it."""
+    _world(home)
+    con = db.connect()
+    try:
+        G = idle_close.bg_grace_s("marina")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = _forgotten(con, "marina", 600)
+        db.set_cursor(con, "bg_prompt:marina", now - G)
+        st = types.SimpleNamespace(session_id="s", ctx_pct=1)
+        real = (orcamod.background_work, orcamod.close_session, orcamod.close_terminal,
+                dmn_delivery._wait_session_gone, dmn_delivery._past_dialog, dmn_lifecycle._answer_exit_dialog)
+        orcamod.background_work = lambda h: "1 shell"
+        orcamod.close_session = lambda h: (True, "")
+        orcamod.close_terminal = lambda h, tab=True: (False, "kept")
+        dmn_delivery._wait_session_gone = lambda a: True
+        dmn_delivery._past_dialog = lambda *a, **k: ""
+        dmn_lifecycle._answer_exit_dialog = lambda *a, **k: False
+        try:
+            row = db.get_agent_state(con, "marina")
+            check("close order: the grace is over and the close is due",
+                  dmn_lifecycle.should_close(con, "marina", "IDLE", row, now, st))
+            ok, said = dmn_lifecycle.close_agent(con, "marina", lambda _m: None, st)
+            timebox.sweep(con, lambda _m: None, now + 1)
+            rows = con.execute("SELECT payload FROM events WHERE kind = 'background_abandoned'").fetchall()
+            check("close order: closed, and exactly one abandonment is recorded with its why",
+                  ok and len(rows) == 1 and "told to finish or stop it" in rows[0][0], str((ok, said, rows)))
+            check("close order: the sweep after it clears the marks", not db.get_cursor(con, "bg_prompt:marina")
+                  and not db.get_cursor(con, "bg_stop_noted:marina"))
+        finally:
+            (orcamod.background_work, orcamod.close_session, orcamod.close_terminal,
+             dmn_delivery._wait_session_gone, dmn_delivery._past_dialog, dmn_lifecycle._answer_exit_dialog) = real
     finally:
         con.close()
 
@@ -1117,6 +1155,7 @@ def main() -> int:
             run(lambda: test_the_human_is_the_supervisor_of_an_agent_with_none(Path(td) / 'tb9'))
             run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
             run(lambda: test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(Path(td) / 'tb10a'))
+            run(lambda: test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(Path(td) / 'tb10f'))
             run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
             run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))
             run(lambda: test_a_forgotten_agent_is_stopped_past_its_window_when_its_own_times_are_shorter(Path(td) / 'tb10e'))

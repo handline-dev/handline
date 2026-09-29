@@ -185,10 +185,9 @@ def sweep_forgotten_background(con, log, now: int) -> None:
     """Background work nobody waits on settles itself, with nobody asked. When the agent's
     idle window is over (`idle_close.bg_notice_s`, its idle close unless set) it is told
     once to finish or stop the work; `idle_close.bg_grace_s` later, with nothing shown, the
-    work is stopped (`bg_may_stop`:
-    the idle close then ends the session and its work) and why is recorded. An agent
-    set to never close is left alone. Both marks clear with the stretch: when the
-    work ends, or a request, an ask or a task makes it something owed."""
+    idle close ends the session and its work (`bg_may_stop`; `lifecycle.close_agent` records
+    why). An agent set to never close is left alone. Both marks clear with the stretch: when
+    the work ends, or a request, an ask or a task makes it something owed."""
     for agent in paths.list_agents():
         key, noted = f"bg_prompt:{agent}", f"bg_stop_noted:{agent}"
         if not delivery.has_background_work(con, agent) or not delivery.bg_owes_nothing(con, agent) \
@@ -208,14 +207,6 @@ def sweep_forgotten_background(con, log, now: int) -> None:
                 db.set_cursor(con, key, now)
                 db.add_event(con, agent, "background_prompted", {"silent_s": silent})
                 log(f"  {agent}: background work with nothing owed, silent {timefmt.ago(silent)} - told to finish or stop it")
-        elif delivery.bg_may_stop(con, agent, now) and not db.get_cursor(con, noted):
-            db.set_cursor(con, noted, now)
-            grace = idle_close.bg_grace_s(agent)
-            db.add_event(con, agent, "background_abandoned",
-                         {"prompted_s": now - delivery.bg_prompted_at(con, agent), "silent_s": silent,
-                          "why": f"background work still running {timefmt.ago(grace)} after the agent was "
-                                 f"told to finish or stop it, with nothing shown"})
-            log(f"  {agent}: still nothing shown {timefmt.ago(grace)} after it was told - its background work is stopped")
 
 
 def sweep_stop_wait_backstop(con, log, now: int) -> None:
