@@ -4642,6 +4642,103 @@ def test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(h
         con.close()
 
 
+def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(home: Path) -> None:
+    """T437: the board is built from a handful of set-based queries, however many
+    tasks there are, and says exactly what asking each task one by one says."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+
+    def request(requester, target, state="queued", fyi=False, ts=None):
+        rid = db.add_request(con, requester, target, "body", None, None, None, None, 0, None,
+                             state=state, fyi=fyi)
+        if ts:
+            con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?", (ts, ts + 5, rid))
+        return rid
+
+    def build(n_extra: int) -> None:
+        base = db.new_task(con, "parent", "worker", "manager")
+        kid = db.new_task(con, "child", "worker", "manager", parent_task=base)
+        db.link_request(con, kid, request("manager", "worker"))          # doing through its child
+        drafts = db.new_task(con, "a draft", "worker", "manager")
+        queued = db.new_task(con, "queued", "worker", "manager")
+        db.set_task_queued(con, queued, "human")
+        doing = db.new_task(con, "doing", "worker", "manager")
+        db.link_request(con, doing, request("manager", "worker"))
+        report = db.new_task(con, "only a report", "worker", "manager")
+        db.link_request(con, report, request("manager", "worker", fyi=True))    # asks nothing
+        begun = db.new_task(con, "begun on a founder message", "worker", "manager")
+        db.add_event(con, "worker", "task_begin", {"task_id": begun})
+        founder = db.new_task(con, "founder's own", "worker", "manager")
+        db.link_request(con, founder, request(actions.HUMAN, "worker", state="done", ts=1000))
+        done = db.new_task(con, "done", "worker", "manager")
+        db.mark_task_done(con, done, "evidence")
+        closed = db.new_task(con, "closed", "worker", "manager")
+        db.mark_task_done(con, closed, "e")
+        db.close_task(con, closed, "manager")
+        gone = db.new_task(con, "discarded", "worker", "manager")
+        db.discard_task(con, gone, "manager", "no")
+        merged = db.new_task(con, "merged", "worker", "manager")
+        db.merge_task(con, merged, drafts, "manager")
+        late = db.new_task(con, "late answer", "worker", "manager")
+        late_rid = request("manager", "worker", state="done")
+        stamp = int(time.time())
+        con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?", (stamp - 10, stamp + 100, late_rid))
+        db.link_request(con, late, late_rid)        # answered after every time the task itself has
+        blocked = db.new_task(con, "blocked", "worker", "manager")
+        db.add_block(con, blocked, doing)
+        db.add_block(con, blocked, done)       # a done blocker no longer blocks
+        for i in range(n_extra):
+            t = db.new_task(con, f"extra {i}", "worker", "manager")
+            if i % 3 == 0:
+                db.link_request(con, t, request("manager", "worker"))
+            if i % 5 == 0:
+                db.add_block(con, t, base)
+
+    try:
+        build(0)
+        for include_closed in (False, True):
+            rows = actions.task_rows(con, include_closed=include_closed)
+            check(f"task_rows: the fixture covers every state (include_closed={include_closed})",
+                  {"draft", "queued", "doing", "done"} <= {r["state"] for r in rows}
+                  and (not include_closed or {"closed", "discarded", "merged"} <= {r["state"] for r in rows}),
+                  str(sorted({r["state"] for r in rows})))
+            wrong = []
+            for r in rows:
+                t = r["row"]
+                single = {"state": actions.task_state(con, t), "closer": actions.task_asker(con, t),
+                          "blocked_by": [b["id"] for b in db.task_blockers(con, t["id"])],
+                          "last_activity": db.task_last_activity(con, t["id"])}
+                got = {k: r[k] for k in single}
+                if got != single:
+                    wrong.append((r["ref"], got, single))
+            check(f"task_rows: every row equals the per-task answer (include_closed={include_closed})",
+                  not wrong, str(wrong[:2]))
+        late_row = next(r for r in actions.task_rows(con) if r["title"] == "late answer")
+        check("task_rows: a request answered after everything else on the task is its last activity, in both paths",
+              late_row["last_activity"] == db.task_last_activity(con, late_row["id"])
+              and late_row["last_activity"] > late_row["row"]["created_at"] + 50, str(late_row["last_activity"]))
+        check("task_rows: a done blocker does not block, an open one does",
+              next(r for r in actions.task_rows(con) if r["title"] == "blocked")["blocked_by"] != [], "")
+
+        seen: list[str] = []
+        con.set_trace_callback(seen.append)
+        actions.task_rows(con)
+        few = len(seen)
+        con.set_trace_callback(None)
+        build(60)
+        seen.clear()
+        con.set_trace_callback(seen.append)
+        many_rows = actions.task_rows(con)
+        many = len(seen)
+        con.set_trace_callback(None)
+        check("task_rows: the number of queries does not grow with the number of tasks",
+              many == few and few <= 8 and len(many_rows) > 60, f"{few} queries for the small board, "
+              f"{many} for {len(many_rows)} tasks")
+    finally:
+        con.close()
+
+
 def test_the_per_task_event_lookups_use_the_index_not_a_scan(home: Path) -> None:
     """The task pages look events up by task once per task; each of those queries,
     as the code really runs it, is answered from `events_kind_task` - a scan of
@@ -8804,6 +8901,7 @@ def main() -> int:
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
+        run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
         run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
         run(lambda: test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
