@@ -70,898 +70,9 @@ def _screen_text(screen) -> str:
     return "\n".join(str(w.render()) for w in screen.query(Static))
 
 
-async def test_dashboard_shows_a_registered_agent_and_moves_the_cursor() -> None:
-    _home("dash")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        row = screen.query_one("#agents", DataTable).get_row("backend")
-        check("dashboard: the registered agent is on the AGENTS panel",
-              "backend" in str(row[0]) and "alpha" in str(row[1]), row)
-        await pilot.press("w")
-        await pilot.pause(0.2)
-        check("dashboard: a refused verb says why, as `actions.can` does",
-              "not parked or closed" in _said(screen), _said(screen))
-
-
-async def test_help_key_names_every_agent_verb_the_footer_folds_out() -> None:
-    """Task #54 item 2: `?` on an AGENTS/STUCK row - the one place fold and
-    move (and whatever a row's own state hid) are named at all, same as
-    curses's `agent_help_line` (tui.py). It must not fall through and do
-    nothing, the way an unhandled AGENT_KEYS lookup normally would."""
-    _home("help")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        await pilot.press("?")
-        await pilot.pause(0.1)
-        from ocp.ui.components.key_guide import KeyHelp
-        box = app.screen
-        listed = str(box.query_one("#keys").render()) if isinstance(box, KeyHelp) else ""
-        check("help: `?` opens the box with the full AGENT_KEYS legend, not nothing",
-              isinstance(box, KeyHelp) and all(label in listed for _, label in t.tui.AGENT_KEYS if label != "open"), listed)
-        check("help: the legend names a key the footer can fold away (move)", "move" in listed, listed)
-        await pilot.press("escape")
-        await pilot.pause(0.1)
-
-
-async def test_an_action_runs_off_the_key_loop_and_the_screen_says_so() -> None:
-    """Task #45 / #1615 (bridge-working): a key that acts must not block the
-    screen - it keeps redrawing and reading keys while the action runs, with a
-    line saying what it is doing."""
-    home = _home("jobs")
-    stub = home / "stub_slow.py"
-    stub.write_text(
-        "import sys, json, time\n"
-        "json.load(sys.stdin)\n"
-        "time.sleep(1.2)\n"
-        "print(json.dumps({'ok': True, 'said': 'closed backend (stub)'}), flush=True)\n"
-    )
-    real_command = jobsmod.ACT_COMMAND
-    jobsmod.ACT_COMMAND = [sys.executable, str(stub)]
-    try:
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 30)) as pilot:
-            await pilot.pause()
-            screen = app.screen
-            await pilot.press("c")             # close: CONFIRM
-            await pilot.pause(0.2)
-            check("act: `c` on an idle agent with a terminal asks first",
-                  isinstance(app.screen, Confirm), type(app.screen).__name__)
-            await pilot.press("y")
-            await pilot.pause(0.2)
-            check("act: confirming starts the job and returns to the dashboard at once",
-                  isinstance(app.screen, HomePage) and screen.jobs.running, "")
-            await pilot.pause(0.5)     # past jobs.QUIET_S, so the running line is drawn
-            mid_text = _screen_text(screen)
-            check("act: the running line names what it is and that it is running",
-                  "closing backend" in mid_text, mid_text)
-            before = dict(screen.sel)
-            await pilot.press("down")
-            await pilot.pause(0.1)
-            check("act: the screen still answers other keys while the job runs",
-                  screen.jobs.running, "job ended before the screen could be exercised")
-            deadline = asyncio.get_event_loop().time() + 5
-            while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
-                await pilot.pause(0.1)
-            check("act: once it answers, the line is replaced by what it said",
-                  "closed backend (stub)" in _said(screen) and not screen.jobs.running, _said(screen))
-    finally:
-        jobsmod.ACT_COMMAND = real_command
-
-
-async def test_confirm_rechecks_can_if_the_state_changed_while_it_was_open() -> None:
-    """auditor #2035 SHOULD-FIX 2: a confirm waits on a human for as long as
-    the human takes, and the daemon ticks every two seconds in the meantime -
-    `dispatch_agent_verb` reruns `tui._confirmed_can` on a yes rather than
-    trusting what `actions.can` said when the key was first pressed. Flips
-    `backend` to HANDOFF while the modal is open; curses's own pilot for this
-    (auditor #2008/#2035) got 'backend is HANDOFF - it changed while you
-    looked' - the port must say the same."""
-    home = _home("recheck")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        await pilot.press("c")             # close: CONFIRM
-        await pilot.pause(0.1)
-        check("recheck: c on an idle agent asks first",
-              isinstance(app.screen, Confirm), type(app.screen).__name__)
-        con = db.connect()
-        try:
-            db.set_agent_state(con, "backend", dmn_states.HANDOFF)
-        finally:
-            con.close()
-        await pilot.press("y")
-        await pilot.pause(0.2)
-        check("recheck: a yes rechecks actions.can rather than trusting the first read",
-              "HANDOFF" in _said(screen) and "changed while you looked" in _said(screen),
-              _said(screen))
-        check("recheck: and does not start the job", not screen.jobs.running, "")
-
-
-async def test_text_prompt_composer_sends_and_cancels() -> None:
-    async def read(multi: bool, keys: list[str]) -> str | None:
-        app_ = _HostApp(TextPrompt("to backend:", multi=multi))
-        async with app_.run_test(size=(80, 20)) as pilot:
-            await pilot.pause()
-            for k in keys:
-                await pilot.press(k)
-            await pilot.pause(0.2)
-        return app_.result
-
-    class _HostApp(bt.App):
-        def __init__(self, screen):
-            super().__init__()
-            self._screen, self.result = screen, "<unset>"
-
-        async def on_mount(self):
-            self.run_worker(self._read())
-
-        async def _read(self):
-            self.result = await self.push_screen_wait(self._screen)
-
-    sent = await read(False, list("hi") + ["enter"])
-    check("prompt: typed text is sent on enter", sent == "hi", repr(sent))
-    for multi in (True, False):
-        app_ = _HostApp(TextPrompt("to backend:", multi=multi))
-        async with app_.run_test(size=(80, 20)) as pilot:
-            await pilot.pause()
-            await pilot.press("안")
-            await app_.on_event(events.Key("enter", "녕"))      # what the founder's terminal sends
-            await pilot.pause(0.2)
-        check(f"prompt: a syllable the IME commits with enter is sent (multi={multi})",
-              app_.result == "안녕", repr(app_.result))
-    cancelled = await read(False, list("hi") + ["escape"])
-    check("prompt: escape cancels and sends nothing", cancelled is None, repr(cancelled))
-
-
-async def test_accounts_panel_cap_add_remove_and_open() -> None:
-    """ACCOUNTS' non-interactive actions (task #45's own third piece): `c`
-    sets the cap through `loadmod` directly, `a`/`x` refuse through the same
-    `accounts.add_account`/`remove_account` the CLI uses before either ever
-    needs a real login shell, and `enter` opens the account's page
-    (`AccountPage`)."""
-    _home("accts")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        await pilot.press("left")          # AGENTS -> ACCOUNTS
-        await pilot.pause(0.1)
-        screen = app.screen
-        check("accounts: left from AGENTS enters the ACCOUNTS panel", screen.panel == 0, str(screen.panel))
-
-        await pilot.press("c")
-        await pilot.pause(0.1)
-        for ch in "3":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("accounts: c sets the cap through loadmod",
-              "at most 3 agents mid-turn" in _said(screen), _said(screen))
-
-        await pilot.press("a")
-        await pilot.pause(0.1)
-        for ch in "alpha":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("accounts: adding one that exists refuses through accounts.add_account, "
-              "never reaching a real login", _said(screen) == "account 'alpha' already exists",
-              _said(screen))
-
-        await pilot.press("x")
-        await pilot.pause(0.2)
-        check("accounts: removing one an agent is on refuses through remove_plan, "
-              "before the human is ever asked to type its name",
-              "session open" in _said(screen) and not isinstance(app.screen, TextPrompt),
-              _said(screen))
-
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("accounts: enter opens that account's page",
-              isinstance(app.screen, AccountPage) and app.screen.account == "alpha",
-              type(app.screen).__name__)
-        await pilot.press("escape")
-        await pilot.pause(0.1)
-        check("accounts: escape closes it", isinstance(app.screen, HomePage),
-              type(app.screen).__name__)
-
-
-async def test_the_account_page_shows_the_account_and_sets_its_cap() -> None:
-    from unittest import mock
-    from textual.widgets import Input, Switch, Tabs
-    from ocp.team import accounts as accountsmod
-    from ocp.usage import load as loadmod
-    _home("acctpage")
-    check("account cap: a non-number or zero is refused",
-          not actions.set_account_cap("alpha", "")[0] and not actions.set_account_cap("alpha", "0")[0]
-          and not actions.set_account_cap("alpha", "x")[0])
-    loadmod.set_usage_recover("alpha", False)     # switched off with `ocp account recover`, before the page opens
-    ok, said = actions.set_account_cap("alpha", " 5 ")
-    check("account cap: a number is kept", ok and loadmod.cap_of("alpha") == 5 and "at most 5" in said, said)
-    with mock.patch.object(accountsmod, "identity", lambda acct: "me@example.com"):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 34)) as pilot:
-            await pilot.pause(0.3)
-            home = app.screen
-            app.push_screen(AccountPage("alpha"))
-            await pilot.pause(0.5)
-            page = app.screen
-            text = "\n".join(str(page.query_one(i, Static).render()) for i in ("#t_title", "#t_meta", "#t_badge", "#a_usage"))
-            check("account page: the overview names the account, its vendor and its email",
-                  "alpha" in text and "claude" in text and "me@example.com" in text, text)
-            check("account page: and says whether it is logged in and how full it is",
-                  "logged in" in text.lower() and "5h" in text and "7d" in text, text)
-            check("account page: it opens with the tab bar focused", isinstance(page.focused, Tabs), page.focused)
-            await pilot.press("right")
-            await pilot.pause(0.2)
-            table = page.query_one("#a_agents", DataTable)
-            check("account page: right on the bar changes tab, down goes into it, up comes back",
-                  table.display, "")
-            await pilot.press("down")
-            check("account page: down enters the agents table", page.focused is table, page.focused)
-            await pilot.press("up")
-            check("account page: up from its first row returns to the bar", isinstance(page.focused, Tabs), page.focused)
-            await pilot.press("right", "down", "down")
-            check("account page: in settings the arrows walk the fields", page.focused is page.query_one("#a_cap", Input),
-                  page.focused)
-            await pilot.press("up", "up", "left")     # back to the bar, then to the Agents tab
-            await pilot.pause(0.2)
-            check("account page: the agents tab lists who runs on the account",
-                  table.display and [k.value for k in table.rows] == ["backend"], [k.value for k in table.rows])
-            check("account page: the overview is hidden behind it", not page.query_one("#detail_pane").display)
-            await pilot.press("down", "enter")
-            await pilot.pause(0.4)
-            check("account page: Enter on an agent opens its chat page", isinstance(app.screen, ChatPage),
-                  type(app.screen).__name__)
-            await pilot.press("escape")
-            await pilot.pause(0.3)
-            check("account page: and Esc comes back to the account", app.screen is page, type(app.screen).__name__)
-
-            page.query_one("#scope", Tabs).active = "settings"
-            await pilot.pause(0.2)
-            check("account page: settings shows the cap and the buttons",
-                  page.query_one("#a_cap", Input).value == "5" and page.query_one("#a_buttons").display)
-            page.query_one("#a_cap", Input).value = "2"
-            page.query_one("#a_name", Input).value = "Work"
-            check("account page: the usage recovery switch is drawn from the config, off",
-                  page.query_one("#a_recover", Switch).value is False)
-            await pilot.click("#a_save")
-            await pilot.pause(0.3)
-            flash = _said(page)
-            check("account page: a save that changes the cap leaves recovery off",
-                  not loadmod.usage_recover_enabled("alpha") and page.query_one("#a_recover", Switch).value is False)
-            check("account page: Save writes the alias and the cap",
-                  loadmod.cap_of("alpha") == 2
-                  and loadmod.label_of("alpha") == "Work" and "at most 2" in flash, flash)
-            page.query_one("#a_recover", Switch).value = True
-            await pilot.click("#a_save")
-            await pilot.pause(0.3)
-            check("account page: Save writes the usage recovery switch", loadmod.usage_recover_enabled("alpha")
-                  and page.query_one("#a_recover", Switch).value is True)
-            check("account page: the title shows the new name",
-                  "Work" in str(page.query_one("#t_title", Static).render()))
-            page.query_one("#a_cap", Input).value = ""
-            await pilot.click("#a_save")
-            await pilot.pause(0.3)
-            flash = _said(page)
-            check("account page: an empty cap writes nothing", loadmod.cap_of("alpha") == 2, flash)
-            check("account page: and the box shows the account's own cap again",
-                  page.query_one("#a_cap", Input).value == "2", page.query_one("#a_cap", Input).value)
-            await pilot.click("#leave")
-            await pilot.pause(0.3)
-            check("account page: Back returns to the home page", app.screen is home, type(app.screen).__name__)
-
-
-async def test_accounts_remove_only_fires_on_the_typed_name() -> None:
-    """auditor #2016 SHOULD-FIX 2: the only remove check in the file uses an
-    in-use account, refused by remove_plan before confirm() is ever
-    consulted, so the typed-name check itself was never exercised. `beta` is
-    free (registered with `no_login`, so nothing here needs a real login
-    shell) - a wrong name must leave it, the exact name must remove it."""
-    _home("removefree")
-    from ocp.team import accounts as accountsmod
-    ok, msg = accountsmod.add_account("beta", lambda argv, env: 0, no_login=True)
-    assert ok, msg
-
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        await pilot.press("left")          # AGENTS -> ACCOUNTS
-        await pilot.press("down")          # alpha -> beta (list_accounts is sorted)
-        await pilot.pause(0.1)
-        screen = app.screen
-
-        await pilot.press("x")
-        await pilot.pause(0.1)
-        check("accounts: x on a free account prompts for its name",
-              isinstance(app.screen, TextPrompt), type(app.screen).__name__)
-        for ch in "betx":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("accounts: a wrong typed name leaves it",
-              "beta" in accountsmod.paths.list_accounts(),
-              str(accountsmod.paths.list_accounts()))
-        check("accounts: and says nothing was removed", "not removed" in _said(screen), _said(screen))
-
-        await pilot.press("x")
-        await pilot.pause(0.1)
-        for ch in "beta":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("accounts: the exact typed name removes it",
-              "beta" not in accountsmod.paths.list_accounts(),
-              str(accountsmod.paths.list_accounts()))
-        check("accounts: and says so", "removed account 'beta'" in _said(screen), _said(screen))
-
-
-async def test_messages_panel_open_reaches_the_agents_page() -> None:
-    """A MESSAGES row's `enter` opens the same conversation page an AGENTS
-    row does when the message belongs to one - `actions.message_place`,
-    reused rather than a separate detail view for the common case."""
-    home = _home("msgopen")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-    finally:
-        con.close()
-    from ocp.team import ask as askmod
-    askmod.ask("human", "please review this", requester="reviewer")
-
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        await pilot.press("right")         # AGENTS -> MESSAGES
-        await pilot.pause(0.1)
-        screen = app.screen
-        check("messages: right from AGENTS enters MESSAGES", screen.panel == 2, str(screen.panel))
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("messages: enter opens the sender's chat page",
-              isinstance(app.screen, ChatPage) and app.screen.agent == "reviewer",
-              type(app.screen).__name__)
-        await pilot.pause(0.3)
-        text = " ".join(str(w.render()) for w in app.screen.query("#transcript Static"))
-        check("messages: the message itself is on it", "please review this" in text, text)
-
-
-async def test_chat_refresh_keeps_a_scrolled_up_view_and_skips_a_no_op_rebuild() -> None:
-    """Founder #1975/T309: refresh_conversation used to tear the transcript down
-    and jump to the bottom on every 2s tick, even when nothing on screen had
-    changed (`_sig` is forced dirty by the agent's RUNNING/IDLE word alone) or
-    when a viewer had scrolled up to read something older."""
-    from textual.containers import VerticalScroll
-    _home("chatscroll")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-        # db.add_request directly, not `ask`: 20 rapid-fire asks from the same
-        # requester would trip its own hour-window throttle, which is not
-        # what this test is about.
-        for i in range(20):
-            rid = db.add_request(con, "reviewer", "human", f"message {i}", None,
-                                 "peer", "async", None, 0, None)
-            db.mark_delivered(con, rid)
-        con.commit()
-    finally:
-        con.close()
-
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 16)) as pilot:
-        await pilot.pause()
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        screen = app.screen
-        check("chatscroll: opened reviewer's chat", isinstance(screen, ChatPage), type(screen).__name__)
-        pane = screen.query_one("#transcript", VerticalScroll)
-        widgets_before = list(pane.children)
-        screen._sig = None      # what the agent's word alone forces dirty every flip
-        screen.refresh_conversation()
-        await pilot.pause()
-        check("chatscroll: `_sig` forced dirty with nothing actually changed still "
-              "skips the rebuild", list(pane.children) == widgets_before, len(pane.children))
-
-        pane.scroll_y = 0
-        await pilot.pause()
-        check("chatscroll: scrolled away from the bottom", not pane.is_vertical_scroll_end, pane.scroll_y)
-        con = db.connect()
-        try:
-            rid = db.add_request(con, "reviewer", "human", "one more", None,
-                                 "peer", "async", None, 0, None)
-            db.mark_delivered(con, rid)
-            con.commit()
-        finally:
-            con.close()
-        screen.refresh_conversation()
-        await pilot.pause()
-        check("chatscroll: a real change while scrolled up does not yank the scroll back down",
-              pane.scroll_y == 0, pane.scroll_y)
-        text = " ".join(str(w.render()) for w in pane.query("Static"))
-        check("chatscroll: the new message is still there, just not scrolled to",
-              "one more" in text, text)
-
-
-async def test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back() -> None:
-    """Task #89: Enter on an agent's row opens its chat page over the dashboard,
-    and Esc leaves it back to the dashboard."""
-    _home("chatopen")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        dash = app.screen
-        want = dash.sel.get(tui.AGENTS)
-        check("chat open: the dashboard is on the agents panel with an agent selected",
-              dash.panel == tui.AGENTS and want is not None, str(dash.sel))
-        await pilot.press("enter")
-        await pilot.pause(0.3)
-        check("chat open: Enter opens that agent's chat page",
-              isinstance(app.screen, ChatPage) and app.screen.agent == want, type(app.screen).__name__)
-        await pilot.press("escape")
-        await pilot.pause(0.3)
-        check("chat open: Esc leaves it and the dashboard is back", app.screen is dash,
-              type(app.screen).__name__)
-
-
 def cp_verbs():
     from ocp.ui import chat_page as cp
     return cp.CHAT_VERBS
-
-
-async def test_a_slash_agent_action_in_the_chat_runs_the_home_pages_flow() -> None:
-    """Founder #1196: `/park` typed in the chat asks first, as `p` does on the home page."""
-    from ocp.ui.components.confirm import Confirm
-    _home("chatverb")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause(0.3)
-        page = app.screen
-        check("chat verb: the chat page is open", isinstance(page, ChatPage), type(page).__name__)
-        page.query_one("#compose").text = "/park"
-        await pilot.pause(0.2)
-        await pilot.press("enter")
-        await pilot.pause(0.5)
-        check("chat verb: /park asks first", isinstance(app.screen, Confirm),
-              type(app.screen).__name__ + str([n.message for n in app._notifications]))
-        await pilot.press("escape")
-        await pilot.pause(0.3)
-        page.query_one("#compose").text = "/move alpha"
-        await pilot.pause(0.2)
-        await pilot.press("enter")
-        await pilot.pause(0.5)
-        check("chat verb: /move alpha skips the account prompt and asks to confirm",
-              isinstance(app.screen, Confirm) and "alpha" in str(app.screen.query("Static").first().render()),
-              type(app.screen).__name__)
-        await pilot.press("escape")
-        await pilot.pause(0.3)
-        page.verbs_pool = ()      # what the menu offers is not what typing may do
-        sent = []
-        page.start_send = lambda body, rid: sent.append(body)
-        page.query_one("#compose").text = "/wake"
-        await pilot.press("enter")
-        await pilot.pause(0.5)
-        check("chat verb: a verb the agent cannot take is toasted, never sent as a message",
-              not sent, str(sent))
-        con = db.connect()
-        try:
-            pool = tuple(v for v in cp_verbs() if actions.can(con, page.agent, v)[0])
-        finally:
-            con.close()
-        page.refresh_pools()
-        check("chat verb: the menu's verbs are the ones actions.can allows now",
-              page.verbs_pool == pool, f"{page.verbs_pool} != {pool}")
-
-
-async def test_a_double_click_on_a_row_is_enter() -> None:
-    _home("dblclick")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause(0.3)
-        dash = app.screen
-        table = dash.query_one("#agents", DataTable)
-        await pilot.click(table, offset=(5, 1))
-        await pilot.pause(0.3)
-        check("double click: one click only selects the row", app.screen is dash and dash.sel[tui.AGENTS] == "backend",
-              type(app.screen).__name__)
-        await pilot.pause(0.7)     # past DOUBLE_PRESS_S
-        await pilot.click(table, offset=(5, 1), times=2)
-        await pilot.pause(0.4)
-        check("double click: two open the agent's chat page, as Enter does",
-              isinstance(app.screen, ChatPage) and app.screen.agent == "backend", type(app.screen).__name__)
-
-
-async def test_wake_on_a_stalled_agent_asks_first() -> None:
-    """auditor #2008 BLOCKING 2a: waking a STALLED agent needs a yes first in
-    curses (`_needs_confirm`, founder #1620/#1631) - checking only `label in
-    tui.CONFIRM` misses it, since `wake` is deliberately left off that set for
-    every other state."""
-    home = _home("wake")
-    agents.register("backend")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.STALLED)
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        screen = app.screen
-        await pilot.press("w")
-        await pilot.pause(0.2)
-        check("wake: a STALLED agent asks before clearing the stall",
-              isinstance(app.screen, Confirm), type(app.screen).__name__)
-        await pilot.press("y")
-        deadline = asyncio.get_event_loop().time() + 5
-        while asyncio.get_event_loop().time() < deadline and screen.jobs.running:
-            await pilot.pause(0.1)
-        check("wake: confirming it clears the stall",
-              "STALLED -> QUEUED" in _said(screen), _said(screen))
-
-
-async def test_messages_panel_acts_on_a_folded_row() -> None:
-    """auditor #2008 BLOCKING 1: a folded row's key is `actions.fold_key`
-    (`"agent:<name>"`), not an id, and the ordinary row is folded - a report
-    with nothing pinning it. Acting on it must look the id up fresh, the same
-    way `tui._act_on` does, rather than trying to read the key as one."""
-    # auditor #2016 BLOCKING: Enter on a folded row - the ordinary way to read
-    # a message - reaches the same int(target) crash, and its own path
-    # (message_place -> the agent's page) also drops curses' check that the
-    # page could actually be built before choosing it. Its own fixture: Enter
-    # closes a report (`opened_by_human`), and the dismiss scenario below
-    # needs its own two reports still queued and folded.
-    _home("msgfoldopen")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-    finally:
-        con.close()
-    from ocp.team import ask as askmod
-    askmod.ask("human", "opened report", requester="reviewer", fyi=True)
-
-    opener = bt.BridgeApp()
-    async with opener.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        await pilot.press("right")         # AGENTS -> MESSAGES
-        await pilot.pause(0.1)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("messages: enter on a folded row does not crash the app",
-              opener.is_running, "app exited")
-        check("messages: it opens the sender's chat page",
-              isinstance(opener.screen, ChatPage) and opener.screen.agent == "reviewer",
-              type(opener.screen).__name__)
-
-    _home("msgfold")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "reviewer", "term_r", "wt")
-    finally:
-        con.close()
-    askmod.ask("human", "first report", requester="reviewer", fyi=True)
-    askmod.ask("human", "second report", requester="reviewer", fyi=True)
-
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        await pilot.press("right")         # AGENTS -> MESSAGES
-        await pilot.pause(0.1)
-        screen = app.screen
-        check("messages: a folded row is on the panel and selected",
-              screen.sel.get(screen.panel) == "agent:reviewer", str(screen.sel))
-        await pilot.press("x")
-        await pilot.pause(0.2)
-        check("messages: acting on a folded row does not crash the app",
-              app.is_running, "app exited")
-        # The dismiss is a real subprocess job (`ocp` starting up: seconds on a busy machine); the
-        # job's own `longest` bound stops it, so wait for its toast, with a bound only to not hang.
-        deadline = asyncio.get_event_loop().time() + 90
-        while asyncio.get_event_loop().time() < deadline and (screen.jobs.running or not _said(screen)):
-            await pilot.pause(0.1)
-        check("messages: it dismissed the row's latest, not a literal 'agent:reviewer'",
-              "dismiss" in _said(screen).lower() or "#" in _said(screen), _said(screen))
-
-
-async def test_text_prompt_keeps_a_paste_instead_of_dropping_it() -> None:
-    """auditor #2008 BLOCKING 3: Textual delivers a paste as `events.Paste`,
-    not as keys, so a key-only port drops what was pasted. `Composer.feed`
-    needs it wrapped in its own bracketed-paste markers, the same shape a raw
-    terminal read already gives it."""
-    class _HostApp(bt.App):
-        def __init__(self):
-            super().__init__()
-            self.result = "<unset>"
-
-        async def on_mount(self):
-            self.run_worker(self._read())
-
-        async def _read(self):
-            self.result = await self.push_screen_wait(TextPrompt("to backend:", multi=True))
-
-    app = _HostApp()
-    async with app.run_test(size=(80, 20)) as pilot:
-        await pilot.pause()
-        app.screen.post_message(events.Paste("line one\nline two"))
-        await pilot.pause(0.2)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-    check("prompt: a multi-line paste is sent whole, not dropped",
-          app.result == "line one\nline two", repr(app.result))
-
-
-async def test_copy_reaches_the_system_clipboard() -> None:
-    """T121: Textual's copy also goes to the system clipboard, not only OSC 52."""
-    from ocp.infra import clipboard
-    copied, real = [], clipboard.copy
-    clipboard.copy = lambda text: copied.append(text) or True
-    try:
-        app = ClipboardApp()
-        async with app.run_test(size=(40, 6)) as pilot:
-            await pilot.pause()
-            app.copy_to_clipboard("picked")
-    finally:
-        clipboard.copy = real
-    check("copy: the text also went to the system clipboard", copied == ["picked"], repr(copied))
-
-
-async def test_a_drag_selection_is_copied_when_the_mouse_is_let_go() -> None:
-    """T121, founder: Cmd+C copied nothing. The selection is copied on release."""
-    from ocp.infra import clipboard
-    from textual.widgets import Static
-    copied, real = [], clipboard.copy
-    clipboard.copy = lambda text: copied.append(text) or True
-    try:
-        class _HostApp(ClipboardApp):
-            def compose(self):
-                yield Static("hello world", id="s")
-
-        app = _HostApp()
-        async with app.run_test(size=(40, 6)) as pilot:
-            await pilot.pause()
-            await pilot.mouse_down("#s", offset=(0, 0))
-            await pilot.hover("#s", offset=(5, 0))
-            await pilot.mouse_up("#s", offset=(5, 0))
-            await pilot.pause(0.2)
-    finally:
-        clipboard.copy = real
-    check("drag: what was selected is copied on release", copied and copied[-1].startswith("hello"),
-          repr(copied))
-
-
-async def test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert() -> None:
-    """A one-line prompt joins a pasted block into one line (Input alone would
-    keep only its first), and a pasted escape sequence is never handed to the
-    terminal; alt+enter is a new line in a several-line prompt, enter sends."""
-    class _HostApp(bt.App):
-        def __init__(self, multi):
-            super().__init__()
-            self.multi, self.result = multi, "<unset>"
-
-        async def on_mount(self):
-            self.run_worker(self._read())
-
-        async def _read(self):
-            self.result = await self.push_screen_wait(TextPrompt("p:", multi=self.multi))
-
-    app = _HostApp(False)
-    async with app.run_test(size=(80, 12)) as pilot:
-        await pilot.pause()
-        app.screen.post_message(events.Paste("one\ntwo \033[2J\u009b31m\033]8;;http://evil.example\033\\x"))
-        await pilot.pause(0.2)
-        segs = [seg for strip in app.screen._compositor.render_strips() for seg in strip]
-        text = "".join(seg.text for seg in segs)
-        check("prompt: a pasted escape reaches no rendered segment",
-              "\033" not in text and "\u009b" not in text
-              and not any(seg.style and seg.style.link for seg in segs), repr(text[:200]))
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-    check("prompt: a one-line prompt joins a pasted block with a space",
-          app.result.startswith("one two "), repr(app.result))
-
-    app = _HostApp(True)
-    async with app.run_test(size=(80, 12)) as pilot:
-        await pilot.pause()
-        await pilot.press("a", "alt+enter", "b")
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-    check("prompt: alt+enter is a new line and enter sends, in a several-line prompt",
-          app.result == "a\nb", repr(app.result))
-
-    app = _HostApp(True)
-    async with app.run_test(size=(80, 12)) as pilot:
-        await pilot.pause()
-        app.screen.post_message(events.Paste("x\033[2Jy\u009bz\tw"))
-        await pilot.pause(0.2)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-    check("prompt: a pasted escape is not sent from a several-line prompt, a tab is",
-          app.result == "xyz\tw", repr(app.result))
-
-
-async def test_dashboard_accounts_table_is_fed_by_accounts_data() -> None:
-    """The ACCOUNTS panel is a DataTable fed by `tui.accounts_data` - the rows
-    (`alpha`, not logged in so its tick is a cross, and not the account work
-    goes next)."""
-    _home("acctdata")
-    con = db.connect()
-    try:
-        rows, notes = tui.accounts_data(con)
-    finally:
-        con.close()
-    check("accounts_data: one row per registered account, keyed by name",
-          [r.name for r in rows] == ["alpha"], rows)
-    check("accounts_data: a not-logged-in account carries the cross and not 'next'",
-          "\u2718" in rows[0].mark and rows[0].next == "", rows[0])
-    check("accounts_data: every column the panel draws has a cell",
-          set(rows[0].cells) == set(tui.ACCT_W) - {"name"}, sorted(rows[0].cells))
-
-
-async def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
-    """The AGENTS panel is a DataTable fed by `tui.agents_data`: one row per
-    drawn agent with its account, kind, state and inbox as plain values, the
-    state word and the fold count built by `state_cell`/`fold_suffix`."""
-    _home("agentdata")
-    con = db.connect()
-    try:
-        rows, notes = tui.agents_data(con)
-    finally:
-        con.close()
-    r = rows[0]
-    check("agents_data: one row per drawn agent, with its account and no error",
-          [x.name for x in rows] == ["backend"] and r.acct == "alpha" and r.error is None
-          and not notes, rows)
-    check("agents_data: the inbox is a count and the state a word",
-          r.inbox == 0 and r.state == tui.screen_state(db.connect(), db.get_agent_state(
-              db.connect(), "backend"))[0], r)
-    check("fold_suffix: nothing under it is nothing, a fold is its count, urgency follows",
-          tui.fold_suffix(0, None) == ""
-          and tui._ANSI.sub("", tui.fold_suffix(3, None)) == " +3"
-          and tui._ANSI.sub("", tui.fold_suffix(3, ("\u26a0", 2, tui.RED))) == " +3 \u26a02")
-
-
-async def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
-    """T317 (#1806): `tasks` is every task the agent owns and has not
-    finished - waiting ones plus its current one, not just 0/1 for whether it
-    has a current task (T300). `ready` needs that current task queued, no
-    open blocker on it, and the agent IDLE - T325 makes approving an
-    unblocked task deliver it too (no second `ask` needed), so `ready` only
-    still shows while an open blocker holds that delivery back, or once it
-    clears without anything having advanced the task since."""
-    _home("currenttask")
-    # backend has no manager in DESIGN_TEAM's `eng` team (no member named
-    # `eng`), so only the founder may approve its task - which needs its own
-    # routing edge to deliver, the same one production's team.yaml carries.
-    t.hand_edit_team(t.DESIGN_TEAM.replace(
-        "edges:\n", 'edges:\n  - { from: "human", to: "*", relation: supervisor, '
-                    'response: fire_and_forget }\n'))
-    con = db.connect()
-    try:
-        rows, _ = tui.agents_data(con)
-        r = next(x for x in rows if x.name == "backend")
-        check("agents_data: no owned task is no count", r.tasks == 0, r)
-
-        tid = db.new_task(con, "write the report", "backend", "product")
-        ok, said = actions.task_start(con, "backend", tid)
-        con.commit()
-        check("task_start: makes it backend's current task",
-              ok and db.current_task(con, "backend") == tid, said)
-        rows, _ = tui.agents_data(con)
-        r = next(x for x in rows if x.name == "backend")
-        check("agents_data: tasks is 1 for a draft current task, not yet ready",
-              r.tasks == 1 and not r.ready, r)
-
-        blocker = db.new_task(con, "blocker", "backend", "product")
-        db.add_block(con, tid, blocker)
-        con.commit()
-        ok, said = actions.set_queued(con, tid, actions.HUMAN, True)
-        con.commit()
-        check("set_queued: approves it, but an open blocker holds T325's "
-              "delivery back", ok and "was free" not in said, said)
-        rows, _ = tui.agents_data(con)
-        r = next(x for x in rows if x.name == "backend")
-        check("agents_data: queued and IDLE, but blocked - not ready; the blocker is an "
-              "unapproved draft, so it is not in the count (T371)",
-              r.state == "IDLE" and r.tasks == 1 and not r.ready, r)
-
-        db.remove_block(con, tid, blocker)
-        con.commit()
-        rows, _ = tui.agents_data(con)
-        r = next(x for x in rows if x.name == "backend")
-        check("agents_data: ready once its current task is queued, unblocked and IDLE "
-              "- the blocker cleared without anything having delivered it yet",
-              r.state == "IDLE" and r.tasks == 1 and r.ready, r)
-
-        db.mark_task_done(con, blocker, "done, T317", via="reason")
-        con.commit()
-        rows, _ = tui.agents_data(con)
-        r = next(x for x in rows if x.name == "backend")
-        check("agents_data: a done task drops out of the count",
-              r.tasks == 1 and r.ready, r)
-    finally:
-        con.close()
-
-
-async def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
-    """The FOR YOU panel is a DataTable fed by `tui.messages_data`: a title that
-    counts what is waiting, a row per message (sender, kind, its first line
-    with nothing a terminal would obey in it)."""
-    _home("msgdata")
-    agents.register("reviewer")
-    from ocp.team import ask as askmod
-    askmod.ask("human", "\n\033[2Jplease \033]8;;http://evil.example\033\\review\033]8;;\033\\ this",
-               requester="reviewer")
-    con = db.connect()
-    try:
-        title, rows, notes = tui.messages_data(con)
-    finally:
-        con.close()
-    check("messages_data: the title counts what is waiting", "1 " in title and title.startswith("FOR YOU"), title)
-    check("messages_data: one row from the sender, no note",
-          [r.sender for r in rows] == ["reviewer"] and not notes, rows)
-    check("messages_data: the first line is the first with something on it, inert",
-          rows[0].first == "please review this", repr(rows[0].first))
-
-
-async def test_stuck_data_with_no_agent_to_act_on_leaves_the_home_page_safe() -> None:
-    """`tui.stuck_data` rows about the daemon or an account have no agent (agent
-    None, and more than one row can share that). There is no STUCK panel: the home
-    page says what is stuck on the agent's row, so it must draw with such rows and
-    stay up."""
-    _home("stuckdata")
-    con = db.connect()
-    try:
-        title, rows = tui.stuck_data(con)
-    finally:
-        con.close()
-    check("stuck_data: the daemon not running is a row with no agent to act on",
-          rows and rows[0].agent is None and "daemon" in rows[0].what + rows[0].why, rows)
-    check("stuck_data: with something stuck the title is plain", title == "STUCK", title)
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 30)) as pilot:
-        await pilot.pause(0.3)
-        await pilot.press("tab")
-        await pilot.pause(0.3)
-        check("home: no STUCK panel, and stuck rows with no agent leave the page up",
-              app.is_running and not app.screen.query("#stuck"), app.is_running)
-
-
-async def test_a_key_never_acts_on_a_row_nobody_pointed_at() -> None:
-    """A selection can be stale - the row it named left the list - and a key
-    pressed then must do nothing, not act on whatever is under it now."""
-    _home("stalekey")
-    agents.register("reviewer")
-    from ocp.team import ask as askmod
-    askmod.ask("human", "first thing", requester="reviewer")
-    con = db.connect()
-    try:
-        before = [m["id"] for m in actions.messages(con)]
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 30)) as pilot:
-        await pilot.pause(0.3)
-        await pilot.press("right")         # AGENTS -> MESSAGES
-        await pilot.pause(0.2)
-        app.screen.sel[tui.MESSAGES] = "agent:nobody-is-called-this"
-        await pilot.press("x")             # dismiss
-        await pilot.pause(0.5)
-        con = db.connect()
-        try:
-            states = [db.get_request(con, rid)["state"] for rid in before]
-        finally:
-            con.close()
-        check("dashboard: a key on a selection that names no row acts on nothing",
-              states == ["queued"] * len(before) and not app.screen.jobs.running, (states, before))
 
 
 def test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark() -> None:
@@ -987,47 +98,6 @@ def test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out() -> 
     line = fit(keys, 19).plain
     check("key guide: the rank-3 key is dropped before the rank-1 one, even though that one still does not fit",
           "z" not in line and "aa" in line and "b" * 10 not in line, line)
-
-
-async def test_the_key_guide_stays_on_screen_when_the_table_is_long() -> None:
-    """founder #725: with many rows the table pushed the guide off the bottom."""
-    _home("guidefits")
-    con = db.connect()
-    try:
-        for i in range(40):
-            db.new_task(con, f"task {i}", "worker", "manager")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(100, 24)) as pilot:
-        await pilot.pause()
-        await pilot.press("T")
-        await pilot.pause(0.4)
-        foot = app.screen.query_one("#tasks_foot").region
-        check("tasks: the guide is on the last line of a screen with 40 tasks", foot.bottom <= 24, foot)
-
-
-async def test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit() -> None:
-    """T96: the Enter that commits a syllable goes through `Input.replace`, which checks
-    `restrict` against the whole new value, so a numeric field never takes a syllable."""
-    from textual.app import App
-    from textual.widgets import Input
-    from ocp.ui.components.ime import ImeInput
-
-    class _App(App):
-        def compose(self):
-            yield ImeInput(id="n", restrict=r"[0-9]*")
-
-    async with _App().run_test(size=(40, 6)) as pilot:
-        field = pilot.app.query_one("#n", Input)
-        field.focus()
-        await pilot.pause(0.1)
-        await pilot.press("7")
-        await field._on_key(events.Key("enter", "가"))
-        check("ime: a syllable is refused by a numeric field", field.value == "7", field.value)
-        field.insert_text_at_cursor("8")
-        check("ime: a digit is taken", field.value == "78", field.value)
-        await pilot.press("enter")
 
 
 def _week_sample(con, account: str, ts: int, used: int, reset: int) -> None:
@@ -1128,297 +198,6 @@ def test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart() -> Non
     check("chart: the recorded part and the guess have their own colours", {"cyan", "yellow"} <= styles, styles)
 
 
-async def test_stats_screen_draws_the_weekly_graph() -> None:
-    """Founder #824: S opens the weekly headroom graph, and the Stats tab shows the same."""
-    from ocp.ui.pages.stats import StatsScreen
-    _home("statsscreen")
-    con = db.connect()
-    try:
-        now = int(time.time())
-        for h in range(6, -1, -1):
-            _week_sample(con, "alpha", now - h * 3600, 40 + h, now + 86400)
-        con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES ('writer', 'IDLE', 0, '/w/writer')")
-        con.execute("INSERT INTO token_calls VALUES('alpha','p','p1',?,'claude-sonnet-5','/w/writer',0,1000,0,0,200,0)",
-                    (now - 3600,))
-        con.commit()
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(100, 24)) as pilot:
-        await pilot.pause()
-        await pilot.press("S")
-        await pilot.pause(0.3)
-        screen = app.screen
-        check("stats: S opens the screen", isinstance(screen, StatsScreen), type(screen).__name__)
-        view = screen.query_one("#stats_view")
-        check("stats: the recorded week is drawn", view.outlook.accounts == 1 and view.outlook.past, view.outlook.accounts)
-        await pilot.press("r")
-        await pilot.pause(0.3)
-        check("stats: r steps the date range and the graph follows",
-              view.range == "3d" and view.outlook.future[-1][0] - view.outlook.past[-1][0] >= 71 * 3600,
-              (view.range, view.outlook.future[-1][0] - view.outlook.past[-1][0]))
-        table = view.query_one("#outlook_table")
-        check("stats: the agents' use is a table under the graph", table.row_count == len(view.uses) and len(view.uses) >= 1,
-              table.row_count)
-        await pilot.press("enter")
-        await pilot.pause(0.3)
-        check("stats: enter on an agent overlays what it ate on the same graph, on the same screen",
-              view.picked == "writer" and app.screen is screen and len(view.over) == len(view.outlook.past), (view.picked, type(app.screen).__name__))
-        await pilot.press("enter")
-        await pilot.pause(0.3)
-        check("stats: enter on it again goes back to the week", view.picked is None, view.picked)
-        await pilot.press("escape")
-        await pilot.pause(0.2)
-        from textual.widgets import Tabs
-        app.screen.query_one("#scope", Tabs).active = "stats"
-        await pilot.pause(0.3)
-        tab = app.screen.query_one("#stats_view")
-        check("stats tab: home has a Stats tab with the same graph", tab.display and tab.outlook.accounts == 1,
-              (tab.display, tab.outlook.accounts))
-
-
-async def test_the_tasks_tab_switches_to_a_tree_and_remembers_it() -> None:
-    from ocp.ui.components.tasks_view import load_view
-    _home("taskstree")
-    con = db.connect()
-    try:
-        root = db.new_task(con, "root", "worker", "manager")
-        kid = db.new_task(con, "waits on root", "worker", "manager")
-        db.add_block(con, kid, root)
-        con.commit()
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 26)) as pilot:
-        await pilot.pause()
-        await pilot.press("T")
-        await pilot.pause()
-        view = app.screen.query_one("#tasks_view")
-        table = view.query_one("#tasks_table", DataTable)
-        check("tasks tree: opens as the list", not view.as_tree and "└─" not in table.get_row_at(0)[1].plain)
-        await pilot.press("t")
-        await pilot.pause(0.3)
-        rows = [table.get_row_at(i)[1].plain for i in range(table.row_count)]
-        check("tasks tree: t draws what waits under what holds it",
-              rows[:2] == [f"T{root} root", f"└─ T{kid} waits on root"], rows)
-        check("tasks tree: the choice is remembered", load_view())
-        await pilot.press("t")
-        await pilot.pause(0.3)
-        check("tasks tree: t again is the list, remembered", not view.as_tree and not load_view())
-
-
-async def test_tasks_screen_marks_batches_and_shows_each_refusal() -> None:
-    """T69: T opens the tasks screen; space marks; p sets the priority of the
-    marked tasks; c on tasks that are not done shows each refusal with its reason."""
-    from ocp.ui.pages.tasks import TasksScreen
-    from textual.widgets import Tabs
-    _home("tasksscreen")
-    con = db.connect()
-    try:
-        a = db.new_task(con, "first", "worker", "manager")
-        b = db.new_task(con, "second", "worker", "manager")
-        c = db.new_task(con, "third", "worker", "manager")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 26)) as pilot:
-        await pilot.pause()
-        await pilot.press("T")
-        await pilot.pause()
-        screen = app.screen
-        view = screen.query_one('#tasks_view')
-        check("tasks: T opens the screen, every open task listed",
-              isinstance(screen, TasksScreen) and {a, b, c} <= {r["id"] for r in view.rows},
-              type(screen).__name__)
-        foot = str(view.query_one("#tasks_foot").render())
-        check("tasks: the foot guides keys on one line and ends with ?",
-              "mark" in foot and "close" in foot and foot.rstrip().endswith("? keys") and "\n" not in foot, foot)
-        await pilot.press("question_mark")
-        await pilot.pause(0.2)
-        from ocp.ui.components.key_guide import KeyHelp
-        check("tasks: ? opens a box with every key", isinstance(app.screen, KeyHelp)
-              and "merge" in str(app.screen.query_one("#keys").render()), type(app.screen).__name__)
-        await pilot.press("escape")
-        await pilot.pause(0.2)
-        check("tasks: esc closes the box and stays on the screen", isinstance(app.screen, TasksScreen),
-              type(app.screen).__name__)
-        await pilot.press("space", "down", "space")
-        await pilot.pause()
-        check("tasks: space marks the rows", len(view.checked) == 2, view.checked)
-        await pilot.press("p")
-        await pilot.pause()
-        await pilot.press("1", "enter")
-        await pilot.pause(0.3)
-        from ocp.ui.components.confirm import Confirm
-        check("tasks: a batch asks once more, naming the tasks", isinstance(app.screen, Confirm)
-              and "2 tasks" in str(app.screen.query_one("#question").render()), type(app.screen).__name__)
-        await pilot.press("y")
-        await pilot.pause(0.3)
-        con = db.connect()
-        try:
-            prios = [db.get_task(con, t)["priority"] for t in (a, b)]
-        finally:
-            con.close()
-        check("tasks: p wrote P1 to both marked tasks", prios == [1, 1], prios)
-        await pilot.press("c")
-        await pilot.pause(0.3)
-        await pilot.press("y")
-        await pilot.pause(0.3)
-        said = " ".join(n.message for n in app._notifications)
-        check("tasks: c on tasks that are not done toasts a line per refusal, with the reason",
-              "T" in said and any(n.severity == "error" for n in app._notifications), said)
-        await pilot.press("enter")
-        await pilot.pause(0.3)
-        check("tasks: enter opens the task's detail", type(app.screen).__name__ == "TaskDetail", type(app.screen).__name__)
-        await pilot.press("escape", "escape")
-        await pilot.pause(0.2)
-        con = db.connect()
-        try:
-            mine = db.new_task(con, "founder's own", "worker", actions.HUMAN)
-        finally:
-            con.close()
-        home = app.screen
-        home.query_one("#scope", Tabs).active = "tasks"
-        await pilot.pause(0.3)
-        view = home.query_one("#tasks_view")
-        ids = {r["id"] for r in view.rows}
-        check("tasks tab: only the tasks that concern the founder", mine in ids and not ({a, b, c} & ids), ids)
-        view.query_one("#tasks_table").focus()
-        await pilot.press("f")
-        await pilot.pause(0.2)
-        check("tasks tab: f steps to an agent's own tasks", view.owner == "worker", view.owner)
-        from textual.widgets import Select
-        dd = view.query_one("#f_agent", Select)
-        check("tasks tab: the agent dropdown follows f", dd.value == "worker", dd.value)
-        dd.value = ""
-        await pilot.pause(0.2)
-        check("tasks tab: choosing all in the dropdown clears the agent", view.owner is None, view.owner)
-        view.query_one("#f_sort", Select).value = "number"
-        await pilot.pause(0.2)
-        check("tasks tab: the sort dropdown sets the sort", view.by == "number", view.by)
-        await pilot.press("S")
-        await pilot.pause(0.2)
-        check("tasks tab: S reverses the sort and the head shows it", view.rev
-              and "▼" in str(view.table.columns["number"].label), view.rev)
-        view.query_one("#tasks_table").focus()
-        await pilot.press("s")
-        await pilot.pause(0.2)
-        check("tasks tab: s sorts by the next column", view.by == "state", view.by)
-        view.action_check_all()
-        await pilot.pause(0.2)
-        check("tasks tab: the head of the mark column marks every row shown",
-              {r["id"] for r in view.rows} <= view.checked and view._mark_head == "[x]", view.checked)
-        view.action_check_all()
-        await pilot.pause(0.2)
-        check("tasks tab: and unmarks them when all are marked", not view.checked, view.checked)
-        from ocp.ui.components.tasks_view import TaskPane
-        pane = view.query_one(TaskPane)
-        await pilot.resize_terminal(170, 40)
-        await pilot.pause(0.3)
-        check("tasks tab: a wide terminal shows the task under the cursor at the right",
-              pane.display and view.rows[view.cur]["title"] in str(pane.query_one("#pane_text").render()), pane.display)
-        from textual.widgets import Button
-        check("tasks tab: the pane has Close, Reopen and Discard, enabled as the task page has them",
-              all(pane.query_one(f"#pane_{n}", Button).disabled == (not pane.d[f"can_{n}"])
-                  for n in ("close", "reopen", "discard")), pane.d)
-        await pilot.resize_terminal(100, 24)
-        await pilot.pause(0.3)
-        check("tasks tab: a narrow one hides the pane", not pane.display)
-        from ocp.ui.components.tasks_view import StatePicker
-        await pilot.press("v")
-        await pilot.pause(0.2)
-        check("tasks tab: v opens the state checkboxes", isinstance(app.screen, StatePicker), type(app.screen).__name__)
-        await pilot.press("space")
-        await pilot.pause(0.2)
-        check("tasks tab: space marks without applying", "draft" in view.states and isinstance(app.screen, StatePicker))
-        await pilot.press("enter")
-        await pilot.pause(0.2)
-        check("tasks tab: enter applies the checkboxes and closes (draft now unmarked)",
-              not isinstance(app.screen, StatePicker) and "draft" not in view.states
-              and {"queued", "doing", "done"} <= view.states, view.states)
-        await pilot.press("a")
-        await pilot.pause(0.2)
-        check("tasks tab: a adds the closed states", {"closed", "discarded", "merged"} <= view.states, view.states)
-        agent_dd = view.query_one("#f_agent", Select)
-        rebuilt = []
-        real = agent_dd.set_options
-        agent_dd.set_options = lambda *a, **k: (rebuilt.append(1), real(*a, **k))[1]
-        await pilot.pause(2.3)
-        view.refresh_rows()
-        await pilot.pause(0.2)
-        agent_dd.set_options = real
-        check("tasks tab: a refresh with the same agents does not rebuild the agent dropdown", not rebuilt, len(rebuilt))
-
-
-async def test_b_opens_the_tasks_tab_on_the_founders_done_tasks() -> None:
-    from textual.widgets import Tabs
-    from ocp.ui.components import summary as sm
-    from ocp.ui.components.tasks_view import TasksView
-    _home("checks")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        mine = db.new_task(con, "founder's done", "worker", actions.HUMAN)
-        theirs = db.new_task(con, "someone else's done", "worker", "orcapipe")
-        for t in (mine, theirs):
-            con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (t,))
-        con.commit()
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(100, 24)) as pilot:
-        await pilot.pause()
-        page = app.screen
-        view = page.query_one("#tasks_view", TasksView)
-        await pilot.press("b")
-        await pilot.pause(0.3)
-        ids = {r["id"] for r in view.rows}
-        check("checks: b goes to the Tasks tab, filtered to the done tasks the founder signs off",
-              app.screen is page and page.query_one("#scope", Tabs).active == "tasks"
-              and mine in ids and theirs not in ids, ids)
-        page.query_one("#scope", Tabs).active = "home"
-        await pilot.pause(0.2)
-        page.query_one("#scope", Tabs).active = "tasks"
-        await pilot.pause(0.3)
-        check("checks: the tab opened by hand is not filtered", view.closer is None and "doing" in view.states)
-        view.states = {"queued"}
-        page.query_one("#scope", Tabs).active = "home"
-        await pilot.pause(0.2)
-        page.query_one("#scope", Tabs).active = "tasks"
-        await pilot.pause(0.3)
-        check("checks: a filter the founder set stays when the tab is left and come back to", view.states == {"queued"})
-        page.query_one("#scope", Tabs).active = "home"
-        await pilot.pause(0.2)
-        text = sm.summary_text(True, "t", sm.Summary(0, 0, 1))
-        check("checks: the to-check part of the header is a link to the screen's checks action",
-              any(getattr(sp.style, "meta", {}).get("@click") == "screen.checks" for sp in text.spans))
-        await page.run_action("checks")
-        await pilot.pause(0.3)
-        check("checks: that action goes to the same filtered tab",
-              page.query_one("#scope", Tabs).active == "tasks" and {r["id"] for r in view.rows} == {mine})
-
-
-async def test_read_only_page_shows_foreign_text_inert() -> None:
-    """Auditor #2259: a page shows text an agent wrote (message bodies, a
-    handoff), so a colour code, an OSC 8 link, a C1 CSI or a BEL in a row must
-    not reach the terminal."""
-    _home("readonly_inert")
-    bad = "red:\033[31mRED\033[0m link:\033]8;;http://evil.example\033\\click\033]8;;\033\\ c1:\u009b2J bel:\a end"
-    app = bt.BridgeApp()
-    async with app.run_test(size=(80, 12)) as pilot:
-        await pilot.pause()
-        secs = [("ONE", [bad] + [f"row {i}" for i in range(30)]), ("TWO", ["x"])]
-        app.push_screen(ReadOnly("t", secs))
-        await pilot.pause()
-        segs = [seg for strip in app.screen._compositor.render_strips() for seg in strip]
-        text = "".join(seg.text for seg in segs)
-        check("readonly: no C1 or BEL reaches the rendered text",
-              "\u009b" not in text and "\a" not in text, repr(text[:200]))
-        check("readonly: no row carries a hyperlink",
-              not any(seg.style and seg.style.link for seg in segs))
-        check("readonly: the visible words survive", "red:RED" in text and "click" in text, text[:200])
-
-
 def test_only_y_n_or_escape_answers_a_confirm() -> None:
     """A wheel notch reaches a confirm as an arrow key and must not answer it."""
     for key, ch in (("up", None), ("down", None), ("left", None), ("right", None),
@@ -1429,25 +208,6 @@ def test_only_y_n_or_escape_answers_a_confirm() -> None:
     check("confirm: n declines", confirm_answer("n", "n") is False)
     check("confirm: escape declines", confirm_answer("escape", "\x1b") is False)
     check("confirm: ctrl+c declines", confirm_answer("ctrl+c", "\x03") is False)
-
-
-async def test_a_confirm_on_screen_ignores_an_arrow_and_answers_n() -> None:
-    """auditor #2281: the wiring, not only the rule - a wheel notch leaves the
-    pushed Confirm up and a later n answers it."""
-    _home("confirm")
-    answers: list = []
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause()
-        app.push_screen(Confirm("close it"), answers.append)
-        await pilot.pause()
-        await pilot.press("down", "up", "pagedown")
-        await pilot.pause()
-        check("confirm: arrows leave the pushed Confirm up",
-              isinstance(app.screen, Confirm) and answers == [], (type(app.screen).__name__, answers))
-        await pilot.press("n")
-        await pilot.pause()
-        check("confirm: n then answers it False", answers == [False], answers)
 
 
 def test_the_menu_offers_what_the_text_could_become() -> None:
@@ -1623,105 +383,6 @@ def test_replies_thread_under_the_message_they_answer() -> None:
           [m["rid"] for m in out] == [1, 2, 4, 3] and out[2].get("level") == 2, str(out))
 
 
-async def test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested() -> None:
-    """T410: `reply_to` shows the #id of the message it points at (head line, or 'you #id' on the
-    founder's own) and hides it again when another is picked; nested and out-of-view parents draw."""
-    from textual.app import App
-    from ocp.ui import chat_page as cp
-
-    def m(rid, side, **more):
-        return {"rid": rid, "part": 0, "side": side, "who": "backend" if side == "agent" else "you",
-                "when": 0, "text": f"t{rid}", "waiting": False, "answered": False, "queued": False,
-                "delivered": True, "held": False, "replyable": True, **more}
-    a, b, c = (cp.ChatMessage(m(1, "agent")), cp.ChatMessage(m(2, "you", nested=True)),
-               cp.ChatMessage(m(3, "agent", parent_out=9)))
-
-    class Host(App):
-        def compose(self):
-            yield from (a, b, c)
-    async with Host().run_test(size=(80, 30)) as pilot:
-        await pilot.pause(0.1)
-        a.show_id(True)
-        b.show_id(True)
-        await pilot.pause(0.1)
-        check("focus: an agent's head line gains its #id", "#1" in str(a._who.render()), str(a._who.render()))
-        check("focus: the founder's own message shows 'you' and its #id", b._who.display and "#2" in str(b._who.render())
-              and "you" in str(b._who.render()))
-        a.show_id(False)
-        b.show_id(False)
-        await pilot.pause(0.1)
-        check("focus: unfocused, the id is gone again",
-              "#1" not in str(a._who.render()) and "#2" not in str(b._who.render()))
-        check("head: a nested message of the founder's always shows 'you'; a plain one only when picked",
-              b._who.display and not cp.ChatMessage(m(4, "you"))._who.display)
-        check("thread: the nested class and the dim '↪ #9' are drawn",
-              b.has_class("nested") and not a.has_class("nested") and "↪ #9" in str(c.query_one(".parentout").render()))
-
-
-async def test_a_chat_opened_from_a_for_you_row_has_that_message_picked() -> None:
-    """Founder #2622: opening the chat from a message waiting for the founder picks it, so the
-    next thing typed replies to it and its #id shows."""
-    from ocp.team import ask as askmod
-    _home("chatfocus")
-    agents.register("reviewer")
-    _, _, rid = askmod.ask("human", "which branch?", requester="reviewer")
-    askmod.ask("human", "and later news", requester="reviewer", fyi=True)
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        page = ChatPage("reviewer", (rid, 0))
-        await app.push_screen(page)
-        await pilot.pause(0.5)
-        check("focus: the message the row named is the reply target, its #id shown",
-              page.replying is not None and page.replying.m["rid"] == rid
-              and f"#{rid}" in str(page.replying._who.render()),
-              str(page.replying and page.replying.m["rid"]))
-
-
-async def test_reply_puts_the_id_before_the_text_and_a_number_in_a_message_is_a_link() -> None:
-    """T410 (founder #2727): a picked message is the reply target, shown as 'reply to #<id>' in the
-    status line, never in the text; a #<id> in a message is a link that scrolls to it and lights it."""
-    from rich.text import Text
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
-    _home("replylinks")
-    agents.register("reviewer")
-    _, _, first = askmod.ask("reviewer", "which branch?", requester="human")
-    _, _, second = askmod.ask("reviewer", f"about #{first} and T5 and a#7", requester="human")
-    links = [(s.start, s.end, dict(s.style.meta)) for s in cp.link_refs(Text(f"see #{first} not a#7 or T5")).spans]
-    check("links: only a bare #<id> is a link, with its click action",
-          links == [(4, 4 + len(f"#{first}"), {"@click": f"screen.show_message({first})"})], str(links))
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        page = ChatPage("reviewer")
-        await app.push_screen(page)
-        await pilot.pause(0.5)
-        page.action_show_message(first)
-        await pilot.pause(0.2)
-        lit = [w.m["rid"] for w in page.query(cp.ChatMessage) if w.has_class("flash")]
-        check("link: following it lights that message", lit == [first],
-              str((lit, first, [w.m["rid"] for w in page.query(cp.ChatMessage)], _said(page))))
-        page.query(cp.ChatMessage).first().remove_class("flash")
-        second_w = next(w for w in page.query(cp.ChatMessage) if w.m["rid"] == second)
-        text = second_w.query_one(".text")
-        first_w = next(w for w in page.query(cp.ChatMessage) if w.m["rid"] == first)
-        first_w.remove_class("flash")
-        await pilot.click(text, offset=(len("about "), 0))
-        await pilot.pause(0.2)
-        check("link: clicking the #id lights that message and does not pick this one to reply to",
-              first_w.has_class("flash") and page.replying is None,
-              str((first_w.has_class("flash"), page.replying and page.replying.m["rid"])))
-        await pilot.click(text, offset=(0, 0))
-        await pilot.pause(0.2)
-        check("link: a click outside the link does pick it (so the link click above was not a dead message)",
-              page.replying is second_w, str(page.replying and page.replying.m["rid"]))
-        check("focus: the picked message is the reply target, named in the status line",
-              f"reply to #{second}" in page._status().plain and "reply to" not in str(second_w._who.render()),
-              page._status().plain)
-        check("chat: no message says it is answered or waiting for you",
-              "answered" not in str(second_w.query(".who").first().render())
-              and "waiting for you" not in str(second_w.query(".who").first().render()))
-
-
 def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -1801,82 +462,6 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
         m["queued"] for m in msgs if m["text"] == "second, not read yet"))
 
 
-async def test_escape_does_not_cancel_a_queued_message() -> None:
-    from ocp.team import ask as askmod
-    _home("noesc")
-    agents.register("reviewer")
-    _, _, mine = askmod.ask("reviewer", "still queued", requester=actions.HUMAN)
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        await pilot.press("escape")
-        await pilot.pause(0.3)
-        left = not isinstance(app.screen, ChatPage)
-    con = db.connect()
-    try:
-        state = db.get_request(con, mine)["state"]
-    finally:
-        con.close()
-    check("chat: Esc no longer takes back a queued message (Cancel is the way), it just leaves",
-          state == "queued" and left, state)
-
-
-async def test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter() -> None:
-    from unittest import mock
-    from textual.widgets import Input as _Input
-    from ocp.team import accounts as accountsmod
-    _home("imeplain")
-    with mock.patch.object(accountsmod, "identity", lambda acct: "me@example.com"):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 34)) as pilot:
-            await pilot.pause(0.3)
-            app.push_screen(AccountPage("alpha"))
-            await pilot.pause(0.5)
-            page = app.screen
-            box = page.query_one("#a_name", _Input)
-            box.focus()
-            await pilot.press("안")
-            await app.on_event(events.Key("enter", "녕"))
-            await pilot.pause(0.3)
-            check("account page: the alias box takes a syllable the IME commits with enter, and saves it",
-                  box.value == "안녕" and "안녕" in _said(page), f"{box.value!r} {_said(page)!r}")
-
-
-async def test_a_reply_to_a_selected_message_carries_its_request() -> None:
-    from ocp.team import ask as askmod
-    _home("selreply")
-    agents.register("reviewer")
-    _, _, mine = askmod.ask("reviewer", "status?", requester=actions.HUMAN)
-    con = db.connect()
-    try:
-        con.execute("UPDATE requests SET state = 'done', verdict = 'fine' WHERE id = ?", (mine,))
-        con.commit()
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        page = app.screen
-        msg = next(w for w in page.query("ChatMessage") if w.m["rid"] == mine and w.m["part"] == 1)
-        await pilot.click(msg)
-        await pilot.pause(0.1)
-        check("reply: clicking a message selects it", page.replying is msg, str(page.replying))
-        for ch in "ok":
-            await pilot.press(ch)
-        await pilot.press("enter")
-        await pilot.pause(1.0)
-    con = db.connect()
-    try:
-        kid = con.execute("SELECT parent_id, target FROM requests WHERE requester = ? AND id > ?",
-                          (actions.HUMAN, mine)).fetchone()
-    finally:
-        con.close()
-    check("reply: the send carries the selected message's request as its parent",
-          kid is not None and kid["parent_id"] == mine, str(dict(kid)) if kid else "none")
-
-
 def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
     from ocp.ui import chat_page as cp
     _home("tasks")
@@ -1913,209 +498,6 @@ def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() 
           got == [("closed 2: T14 T15", "information"), ("T16: not done yet", "error")], got)
 
 
-async def test_marks_hidden_by_a_state_change_are_dropped_so_an_action_cannot_reach_them() -> None:
-    """T149: a mark used to survive a row leaving the current states filter, so c/d/o/p/m
-    could act on a task the table no longer shows. A mark not among the current rows is
-    dropped the next time the view refreshes."""
-    from ocp.ui.components.tasks_view import TasksView
-    _home("marksdrop")
-    con = db.connect()
-    try:
-        a = db.new_task(con, "will close", "worker", "manager")
-        b = db.new_task(con, "stays open", "worker", "manager")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 26)) as pilot:
-        await pilot.pause()
-        await pilot.press("T")
-        await pilot.pause()
-        view = app.screen.query_one("#tasks_view", TasksView)
-        await pilot.press("space", "down", "space")
-        await pilot.pause()
-        check("marksdrop: both marked", view.checked == {a, b}, view.checked)
-        con = db.connect()
-        try:
-            con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (a,))
-            con.commit()
-            ok, _ = actions.close_task(con, a, "manager")
-        finally:
-            con.close()
-        check("marksdrop: the task closed", ok)
-        view.refresh_rows()
-        check("marksdrop: the closed task left the row list", a not in {r["id"] for r in view.rows}, view.rows)
-        check("marksdrop: its mark was dropped along with it", view.checked == {b}, view.checked)
-
-
-async def test_tasks_tab_refresh_keeps_a_manual_scroll_down() -> None:
-    """Founder #1975/T309: refresh_rows clears the table (dropping its scroll
-    along with its rows) on every 2s tick, so a scroll down a viewer made by
-    hand was undone every time even though nothing else changed. The offset
-    must survive a refresh."""
-    from ocp.ui.components.tasks_view import TasksView
-    _home("taskscroll")
-    con = db.connect()
-    try:
-        for i in range(30):
-            db.new_task(con, f"task {i}", "worker", "manager")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 12)) as pilot:
-        await pilot.pause()
-        await pilot.press("T")
-        await pilot.pause()
-        view = app.screen.query_one("#tasks_view", TasksView)
-        table = view.table
-        table.scroll_y = table.max_scroll_y
-        await pilot.pause()
-        scrolled = table.scroll_y
-        check("taskscroll: the table actually scrolled down", scrolled > 0, scrolled)
-        view.refresh_rows()
-        await pilot.pause()
-        check("taskscroll: a refresh with nothing new keeps the scroll where it was",
-              table.scroll_y == scrolled, (table.scroll_y, scrolled))
-
-
-async def test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone() -> None:
-    """T149: `_act`'s merge branch reads `self.rows[self.cur]` after the Confirm modal
-    returns - if a background refresh emptied or reordered the rows while that modal was
-    open (the marked tasks closed elsewhere), it must refuse, not raise IndexError."""
-    from ocp.ui.components.tasks_view import TasksView
-    from ocp.ui.components.confirm import Confirm
-    _home("mergerace")
-    con = db.connect()
-    try:
-        a = db.new_task(con, "keep", "worker", "manager")
-        b = db.new_task(con, "fold", "worker", "manager")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 26)) as pilot:
-        await pilot.pause()
-        await pilot.press("T")
-        await pilot.pause()
-        view = app.screen.query_one("#tasks_view", TasksView)
-        await pilot.press("space", "down", "space")
-        await pilot.pause()
-        await pilot.press("m")
-        await pilot.pause(0.2)
-        check("mergerace: merge asks first", isinstance(app.screen, Confirm), type(app.screen).__name__)
-        con = db.connect()
-        try:
-            con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id IN (?, ?)", (a, b))
-            con.commit()
-            oks = [actions.close_task(con, t, "manager")[0] for t in (a, b)]
-        finally:
-            con.close()
-        check("mergerace: both closed", all(oks), oks)
-        view.refresh_rows()      # what the 2s interval would have done meanwhile
-        check("mergerace: the row list emptied under the open modal", not view.rows, view.rows)
-        await pilot.press("y")
-        await pilot.pause(0.2)
-        check("mergerace: no crash - the app is still on the tasks screen", app.screen is not None
-              and not isinstance(app.screen, Confirm), type(app.screen).__name__)
-        check("mergerace: refused with a plain reason instead",
-              any("closed" in n.message for n in app._notifications),
-              [n.message for n in app._notifications])
-
-
-async def test_merge_lands_in_the_task_the_confirm_named_after_a_reorder() -> None:
-    """A refresh under the open Confirm moves another task under the cursor; the merge still
-    goes into the task the modal named."""
-    from ocp.ui.components.tasks_view import TasksView
-    from ocp.ui.components.confirm import Confirm
-    _home("mergereorder")
-    con = db.connect()
-    try:
-        a = db.new_task(con, "keep", "worker", "manager")
-        b = db.new_task(con, "fold", "worker", "manager")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(110, 26)) as pilot:
-        await pilot.pause()
-        await pilot.press("T")
-        await pilot.pause()
-        view = app.screen.query_one("#tasks_view", TasksView)
-        await pilot.press("space", "down", "space")
-        await pilot.pause()
-        named = view.rows[view.cur]["id"]
-        await pilot.press("m")
-        await pilot.pause(0.2)
-        check("mergereorder: merge asks first", isinstance(app.screen, Confirm), type(app.screen).__name__)
-        view.rows.reverse()      # what a refresh that reorders would leave under the cursor
-        await pilot.press("y")
-        await pilot.pause(0.2)
-        con = db.connect()
-        try:
-            other = a if named == b else b
-            states = {t: db.get_task(con, t)["closed_by"] for t in (a, b)}
-        finally:
-            con.close()
-        check("mergereorder: the named task kept, the other one folded",
-              not states[named] and states[other], str(states))
-
-
-async def test_the_agent_tasks_tab_shows_the_pane_when_wide() -> None:
-    from textual.widgets import Tabs
-    from ocp.ui import chat_page as cp
-    _home("agentpane")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        db.new_task(con, "pane subject", "reviewer", "orcapipe")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(170, 40)) as pilot:
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        page = app.screen
-        page.query_one(Tabs).active = "tasks"
-        await pilot.pause(0.5)
-        pane = page.query_one(cp.TaskPane)
-        check("agent tasks: a wide terminal shows the pane with the task under the cursor",
-              pane.display and "pane subject" in str(pane.query_one("#pane_text").render()), pane.display)
-        await pilot.resize_terminal(100, 30)
-        await pilot.pause(0.3)
-        check("agent tasks: a narrow one hides it", not pane.display)
-
-
-async def test_the_agent_tasks_tab_is_the_tasks_view_scoped_to_the_agent() -> None:
-    from textual.widgets import DataTable, Select, Tabs
-    from ocp.ui.components.tasks_view import TasksView
-    _home("agentview")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        own = db.new_task(con, "its own", "reviewer", "orcapipe")
-        opened = db.new_task(con, "it opened", "orcapipe", "reviewer")
-        db.new_task(con, "someone else's", "orcapipe", "orcapipe")
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(170, 40)) as pilot:
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        page = app.screen
-        page.query_one(Tabs).active = "tasks"
-        await pilot.pause(0.5)
-        view = page.query_one(TasksView)
-        check("agent tasks: the rows are what it owns or opened",
-              sorted(r["id"] for r in view.rows) == sorted([own, opened]), str([r["id"] for r in view.rows]))
-        check("agent tasks: no agent dropdown, the sort and state filters stay",
-              not view.query("#f_agent") and view.query_one("#f_sort", Select) is not None)
-        await pilot.press("space")
-        await pilot.pause(0.2)
-        check("agent tasks: space marks a row", len(view.checked) == 1, str(view.checked))
-        await pilot.press("A")
-        await pilot.pause(0.2)
-        check("agent tasks: A marks every row shown", view.checked == {own, opened}, str(view.checked))
-        page.set_sort("title")
-        check("agent tasks: /sort sorts the view", view.by == "title", view.by)
-
-
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -2141,23 +523,6 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         check("discard: and a discarded task is not offered again", not cp.task_detail(con, mine)["can_discard"])
     finally:
         con.close()
-
-
-async def test_the_settings_tab_switch_shows_and_saves_skip_prompts() -> None:
-    from textual.widgets import Switch, Tabs
-    _home("skipswitch")
-    agents.register("reviewer", skip_permissions=True)
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        page = app.screen
-        page.query_one(Tabs).active = "settings"
-        await pilot.pause(0.4)
-        sw = page.query_one("#s_skip", Switch)
-        check("settings tab: the switch shows the agent's setting", sw.value is True)
-        sw.value = False
-        check("settings tab: the form reads the switch", page.form()["skip_permissions"] == "off")
 
 
 def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
@@ -2422,28 +787,6 @@ def test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind() ->
               actions.queue_reason(con, "backend", nxt))
     finally:
         con.close()
-
-
-async def test_the_queue_line_says_why_an_agents_message_waits() -> None:
-    _home("heldwhy")
-    agents.register("reviewer")
-    con = db.connect()
-    try:
-        db.add_request(con, "reviewer", "backend", "for the busy one", None, None, None, None, 0, None)
-        con.execute("UPDATE agent_state SET state = 'RUNNING', terminal = 'x' WHERE agent = 'backend'")
-        con.commit()
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause(0.3)
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.5)
-        app.screen.run_command("all")
-        await pilot.pause(0.5)
-        line = next(w for w in app.screen.query("QueueLine") if w.rule)
-        check("chat: with only an agent's message below the line, the line says why (its recipient's state)",
-              "backend" in line.why and "mid-turn" in line.why, repr(line.why))
 
 
 def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window() -> None:
@@ -2714,67 +1057,6 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         con.close()
 
 
-async def test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot() -> None:
-    from ocp.ui.pages.home import HomePage
-    _home("toasts")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(100, 24)) as pilot:
-        await pilot.pause()
-        page = app.screen
-        page.toast("done it")
-        page.toast("refused it", False)
-        page.toast("  ")
-        await pilot.pause(0.1)
-        notes = list(app._notifications)
-        check("toast: a result is a toast, a refusal an error one, blank says nothing",
-              [(n.message, n.severity) for n in notes] == [("done it", "information"), ("refused it", "error")],
-              str([(n.message, n.severity) for n in notes]))
-        check("toast: the foot line holds no message", not hasattr(page, "flash") and isinstance(page, HomePage))
-
-
-async def test_starting_an_agent_asks_for_a_repo_only_when_it_has_none() -> None:
-    from types import SimpleNamespace
-    from ocp.ui.components.jobs_aware import dispatch_agent_verb
-    home = _home("startrepo")
-    agents.register("withrepo", repo=str(home))
-    agents.register("norepo")
-    asked, started = [], []
-
-    async def push_screen_wait(screen):
-        asked.append(screen.prompt)
-        return None
-    fake = SimpleNamespace(app=SimpleNamespace(push_screen_wait=push_screen_wait),
-                           toast=lambda *a: None,
-                           _start=lambda verb, target, what, args, *k: started.append(args) or "")
-    con = db.connect()
-    try:
-        await dispatch_agent_verb(fake, con, "withrepo", "terminal")
-        check("start: an agent with a repo set is not asked, and starts in it",
-              asked == [] and started == [("withrepo", str(home))], str((asked, started)))
-        await dispatch_agent_verb(fake, con, "norepo", "terminal")
-        check("start: one without a repo is asked plainly for the path",
-              asked == ["repo path for norepo:"] and len(started) == 1, str((asked, started)))
-    finally:
-        con.close()
-
-
-async def test_the_bridge_follows_the_os_light_dark_setting_while_open() -> None:
-    from unittest import mock
-    from ocp.ui import theme
-    _home("theme")
-    which = ["textual-light"]
-    with mock.patch.object(theme, "os_theme", lambda: which[0]), mock.patch.object(theme, "POLL_S", 0.1):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(100, 24)) as pilot:
-            await pilot.pause(0.2)
-            check("theme: the bridge opens in the OS's theme", app.theme == "textual-light", app.theme)
-            which[0] = "textual-dark"
-            await pilot.pause(0.4)
-            check("theme: and switches when the OS changes while it is open", app.theme == "textual-dark", app.theme)
-    with mock.patch.object(theme.subprocess, "run", side_effect=OSError):
-        check("theme: an unreadable setting is dark", theme.os_theme() == "textual-dark")
-
-
 class _FakeRules:
     """Stands in for `ocp.team.dialog_rules`, whose store is the founder-only protected dir."""
 
@@ -2793,98 +1075,6 @@ class _FakeRules:
         return True, "removed"
 
 
-async def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
-    import sys
-    from unittest import mock
-    from ocp.session import orca as orcamod
-    from ocp.team import trust
-    from ocp.ui.components.dialog_modal import DialogModal
-    home = _home("dialogmodal")
-    agents.register("reviewer")
-    rules = _FakeRules()
-    con = db.connect()
-    db.set_terminal(con, "reviewer", "term_d", "wt")
-    con.commit()
-    con.close()
-    dialog = orcamod.Dialog("Do you want to proceed?", ((1, "Yes"), (2, "Yes, and don't ask again"), (3, "No")), "Esc to cancel")
-    screen = {"dialog": dialog, "folder": None}
-    pressed = []
-
-    def press(handle, number):
-        pressed.append((handle, number))
-        screen["dialog"] = None
-        return orcamod.CLEARED, dialog.title, ""
-    with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}), \
-            mock.patch.object(orcamod, "dialog_on_screen", lambda h: screen["dialog"]), \
-            mock.patch.object(orcamod, "trust_prompt_folder", lambda h: screen["folder"]), \
-            mock.patch.object(orcamod, "confirm_trust", lambda h: (True, "trusted")), \
-            mock.patch.object(orcamod, "press_option", press):
-        import ocp.team as teampkg
-        teampkg.dialog_rules = rules
-        con = db.connect()
-        try:
-            d = actions.dialog_of(con, "reviewer")
-            check("dialog: a dialog on the terminal is read as title and numbered options",
-                  d and d["kind"] == "dialog" and d["title"] == dialog.title and d["options"][1][1].startswith("Yes, and"), str(d))
-            screen["dialog"] = orcamod.Dialog(dialog.title, dialog.options, dialog.footer,
-                                              (dialog.title, "Edit /tmp/x.py", "1. Yes", "2. Yes, and don't ask again", "3. No"))
-            check("dialog: the panel's other lines ride along, not the title or the options",
-                  actions.dialog_of(con, "reviewer")["body"] == ["Edit /tmp/x.py"])
-            screen["dialog"] = dialog
-            ok, said = actions.answer_dialog(con, "reviewer", "Some other title", 1)
-            check("dialog: a changed dialog is not pressed", not ok and not pressed, said)
-            screen["dialog"] = dialog
-            ok, said = actions.answer_dialog(con, "reviewer", dialog.title, 2, always=True)
-            check("dialog: the pick is pressed and 'always' saves a rule on the exact title and label",
-                  ok and pressed == [("term_d", 2)] and rules.rules == [
-                      {"vendor": "claude", "title": dialog.title, "label": "Yes, and don't ask again"}], str((said, rules.rules)))
-            screen["folder"] = str(home)
-            with mock.patch.object(orcamod, "screen_text", lambda h: "old\n" + "\u2500" * 20 + "\n Accessing workspace:\n\n /x/y\n\n \u276f No, exit\n   Yes, I trust this folder\n\n Enter to confirm \u00b7 Esc to cancel"):
-                check("dialog: the trust screen's own words ride along, without its two choices or key hint",
-                      actions.dialog_of(con, "reviewer")["body"] == ["Accessing workspace:", "/x/y"],
-                      str(actions.dialog_of(con, "reviewer")["body"]))
-            ok, said = actions.answer_dialog(con, "reviewer", f"Trust {home}?", 1, always=True)
-            check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
-                  ok and trust.is_declared(home) and len(rules.rules) == 1, said)
-            screen["folder"] = None
-            answers = actions.standing_answers()
-            check("dialog: the standing answers list the rule", any(a["kind"] == "dialog" for a in answers), str(answers))
-            ok, _ = actions.remove_answer("dialog", ("claude", dialog.title, "Yes, and don't ask again"))
-            check("dialog: and it can be removed", ok and rules.rules == [])
-        finally:
-            con.close()
-    del teampkg.dialog_rules
-
-
-async def test_the_dialog_modal_offers_always_except_for_a_truncated_title() -> None:
-    from textual.widgets import Checkbox
-    from ocp.session import orca as orcamod
-    from ocp.ui.components.dialog_modal import DialogModal
-    _home("dialogmodalalways")
-    options = [(1, "Yes"), (2, "No")]
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        async def pick(title: str, tick: bool):
-            got = []
-            await app.push_screen(DialogModal({"agent": "reviewer", "title": title, "options": options}),
-                                  lambda r: got.append(r))
-            await pilot.pause(0.3)
-            has_box = bool(app.screen.query("#always"))
-            if tick and has_box:
-                app.screen.query_one("#always", Checkbox).value = True
-            await pilot.press("1")
-            await pilot.pause(0.3)
-            return has_box, got
-        has_box, got = await pick(orcamod.TRUNCATED_TITLE, tick=True)
-        check("dialog modal: a truncated title offers no 'always' box, and a digit still picks",
-              not has_box and got == [(1, False)], str((has_box, got)))
-        has_box, got = await pick("Bash command", tick=True)
-        check("dialog modal: an ordinary title with 'always' ticked picks (n, True)",
-              has_box and got == [(1, True)], str((has_box, got)))
-        has_box, got = await pick("Bash command", tick=False)
-        check("dialog modal: unticked picks (n, False)", has_box and got == [(1, False)], str((has_box, got)))
-
-
 def _block(con, agent: str, kind: str, detail: dict, title: str = "t", wait_id=None, answerable=True) -> int:
     """A prompt_blocks row as the daemon's screen watch writes it."""
     return db.prompt_open(con, agent, kind, f"fp{time.time()}", title, [], detail, wait_id, answerable, int(time.time()))
@@ -2901,189 +1091,6 @@ def test_the_permission_modal_shows_the_whole_panel_without_the_tip() -> None:
           "msg" in text and "EOF" in text and "simple_expansion" in text and "Tip" not in text, text)
     check("permission modal: no panel lines falls back to the one-line command",
           panel_text({"command": "rm -rf build/", "lines": ()}) == "rm -rf build/")
-
-
-async def test_the_permission_modal_is_as_tall_as_its_content_not_the_window() -> None:
-    """T411 (founder #2692): the scrollable command box must not stretch the dialog over the window."""
-    from textual.app import App
-    from ocp.ui.components.permission_modal import PermissionModal
-    seen = {"agent": "backend", "tool": "Bash", "command": "ls", "lines": ("Bash command", "ls -la", "list it"),
-            "reason": "", "wait": 5}
-    long = dict(seen, lines=tuple(f"echo line {i}" for i in range(60)))
-
-    class Host(App):
-        pass
-    heights = []
-    for d in (seen, long):
-        app = Host()
-        async with app.run_test(size=(100, 50)) as pilot:
-            await app.push_screen(PermissionModal(d))
-            await pilot.pause(0.2)
-            heights.append(app.screen.query_one("#dialog").size.height)
-    check("permission modal: a short command gives a short dialog, a long one is capped below the window",
-          heights[0] < 15 and heights[1] <= 48 and heights[1] > heights[0], str(heights))
-
-
-async def test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer() -> None:
-    """T336/T396: the page reads the daemon's block rows - no terminal - and clicking sends
-    one answer request naming the block; a block is offered once and never without a hook id."""
-    from unittest import mock
-    from textual.screen import ModalScreen
-    from ocp.ui.components.dialog_modal import DialogModal
-    from ocp.ui.components.permission_modal import PermissionModal
-    from ocp.ui.components.question_modal import QuestionModal
-    _home("blockmodal")
-    agents.register("backend")
-    sent = []
-    question = {"agent": "backend", "header": "Library", "question": "Which library?",
-                "options": [{"label": "date-fns", "description": "", "checked": False}],
-                "multi_select": False, "other_number": 2, "other_text": None}
-    perm = {"agent": "backend", "tool": "Bash", "command": "rm -rf build/", "reason": "", "wait": 5}
-    with mock.patch.object(actions, "request_block_answer",
-                           lambda bid, choice: (sent.append((bid, choice)) or (True, "answered"))):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            page = ChatPage("backend")
-            await app.push_screen(page)
-            con = db.connect()
-            try:
-                loose = _block(con, "backend", "permission", perm, wait_id=None, answerable=False)
-                con.commit()
-                page.refresh_block()
-                await pilot.pause(0.3)
-                check("blocks: a permission prompt with no hook record gets no modal", app.screen is page)
-                db.prompt_close(con, loose, int(time.time()))
-                pid = _block(con, "backend", "permission", perm, wait_id=5)
-                con.commit()
-                page.refresh_block()
-                await pilot.pause(0.3)
-                check("blocks: a permission block shows the permission modal, alone",
-                      isinstance(app.screen, PermissionModal)
-                      and sum(isinstance(x, ModalScreen) for x in app.screen_stack) == 1, type(app.screen).__name__)
-                db.prompt_close(con, pid, int(time.time()))
-                con.commit()
-                page.refresh_block()
-                await pilot.pause(0.3)
-                check("blocks: the block going away closes its modal", app.screen is page, type(app.screen).__name__)
-                qid = _block(con, "backend", "question", question)
-                con.commit()
-                page.refresh_block()
-                await pilot.pause(0.3)
-                check("blocks: a question block shows the question modal", isinstance(app.screen, QuestionModal))
-                await pilot.click("#opt_0")
-                await pilot.pause(1.0)
-                check("blocks: a click sends one request naming the block and the choice",
-                      sent == [(qid, {"choices": [0], "text": None})], str(sent))
-                page.refresh_block()
-                await pilot.pause(0.3)
-                check("blocks: an answered block, still open, is not offered again", app.screen is page)
-                db.prompt_close(con, qid, int(time.time()))
-                did = _block(con, "backend", "dialog", {"agent": "backend", "options": [[1, "Yes"], [2, "No"]],
-                                                        "body": [], "truncated": False}, title="Proceed?")
-                con.commit()
-                page.refresh_block()
-                await pilot.pause(0.3)
-                check("blocks: a dialog block shows the dialog modal", isinstance(app.screen, DialogModal))
-                await pilot.click("#opt_2")
-                await pilot.pause(0.5)
-                check("blocks: the dialog pick is sent with its always flag",
-                      sent[-1] == (did, {"number": 2, "always": False}), str(sent))
-            finally:
-                con.close()
-
-
-async def test_a_question_modal_keeps_its_own_press_and_other_prompt() -> None:
-    """The block going away mid-press (the answer is what clears it) and the refresh while
-    Other's text prompt is up must not pop or bury the modal (founder capture 2026-09-28)."""
-    from ocp.ui.components.question_modal import QuestionModal
-    _home("blockmodal_multi")
-    agents.register("backend")
-    q = {"agent": "backend", "header": "Features", "question": "Which features?",
-         "options": [{"label": "logging", "description": "", "checked": False}],
-         "multi_select": True, "other_number": 2, "other_text": None}
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        page = ChatPage("backend")
-        await app.push_screen(page)
-        con = db.connect()
-        try:
-            bid = _block(con, "backend", "question", q)
-            con.commit()
-            page.refresh_block()
-            await pilot.pause(0.3)
-            modal = app.screen
-            check("question: multiSelect offers Other", isinstance(modal, QuestionModal) and modal.query("#other"))
-            await pilot.click("#other")
-            await pilot.pause(0.2)
-            page.refresh_block()
-            await pilot.pause(0.3)
-            check("question: a refresh does not bury Other's text prompt", isinstance(app.screen, TextPrompt),
-                  type(app.screen).__name__)
-            await pilot.press("escape")
-            await pilot.pause(0.2)
-            page._block_pressing = True
-            db.prompt_close(con, bid, int(time.time()))
-            con.commit()
-            page.refresh_block()
-            await pilot.pause(0.2)
-            check("question: the block clearing mid-press leaves the modal to finish", app.screen is modal)
-        finally:
-            con.close()
-
-
-async def test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll() -> None:
-    from unittest import mock
-    from ocp.ui import chat_page as cp
-    _home("tickingbackground")
-    agents.register("backend")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        page = ChatPage("backend")
-        await app.push_screen(page)
-        await pilot.pause(0.3)
-        page.agent_state = ("RUNNING", "background 40s")
-        page._sig = "marker"
-        with mock.patch.object(cp, "agent_state_of", lambda con, agent: ("RUNNING", "background 41s")):
-            page.refresh_agent_state()
-        check("agent state: the word staying RUNNING does not reset the transcript signature "
-              "just because the ticking detail text changed",
-              page._sig == "marker", page._sig)
-        check("agent state: the status line still shows the new detail",
-              "41s" in page._status().plain, page._status().plain)
-
-        with mock.patch.object(cp, "agent_state_of", lambda con, agent: ("IDLE", "")):
-            page.refresh_agent_state()
-        check("agent state: the word itself changing does reset the signature",
-              page._sig is None, page._sig)
-
-
-async def test_home_settings_lists_the_standing_answers_and_removes_one() -> None:
-    import sys
-    from unittest import mock
-    from textual.widgets import DataTable, Tabs
-    _home("answerslist")
-    rules = _FakeRules()
-    rules.add("claude", "Do you want to proceed?", "Yes")
-    import ocp.team as teampkg
-    teampkg.dialog_rules = rules
-    try:
-        with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}):
-            app = bt.BridgeApp()
-            async with app.run_test(size=(120, 40)) as pilot:
-                await pilot.pause()
-                page = app.screen
-                page.query_one("#scope", Tabs).active = "settings"
-                await pilot.pause(0.4)
-                table = page.query_one("#answers", DataTable)
-                check("answers: the settings tab lists the saved rule",
-                      table.row_count == 1 and "Do you want to proceed?" in str(table.get_row_at(0)[0]),
-                      str(table.row_count))
-                page._remove_answer()
-                await pilot.pause(0.2)
-                check("answers: remove deletes it and the list says none",
-                      rules.rules == [] and "none" in str(table.get_row_at(0)[0]))
-    finally:
-        del teampkg.dialog_rules
 
 
 def test_summary_line() -> None:
@@ -3165,306 +1172,6 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
           and note(row(until="12:30"), extra(), "⏳ 14:00") .startswith("12:30 · "))
 
 
-async def test_home_tab_bar_focus_mouse_and_columns() -> None:
-    from unittest import mock
-    from textual.widgets import Input, Tabs
-    from ocp.usage import load as loadmod
-    _home("homekeys")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause(0.3)
-        screen = app.screen
-        await pilot.press("up")            # AGENTS' first row -> ACCOUNTS' last: the panels are one list
-        await pilot.pause(0.1)
-        check("home: up from a panel's first row crosses into the panel above, not the tab bar",
-              not isinstance(screen.focused, Tabs) and screen.panel == tui.ACCOUNTS, screen.panel)
-        await pilot.press("up")
-        await pilot.pause(0.1)
-        check("home: up from the very first row does", isinstance(screen.focused, Tabs), screen.focused)
-        await pilot.press("right")
-        await pilot.pause(0.2)
-        check("home: right on the tab bar changes tab", screen.tab == "tasks", screen.tab)
-        await pilot.press("left")
-        await pilot.pause(0.2)
-        check("home: left changes it back", screen.tab == "home", screen.tab)
-        await pilot.press("down")
-        await pilot.pause(0.1)
-        check("home: down goes back into the tab's content", screen.focused is None, screen.focused)
-        await pilot.press("right")
-        await pilot.press("right")
-        await pilot.pause(0.1)
-        check("home: with the focus back in the panels the arrows move panels again", screen.panel != tui.ACCOUNTS)
-
-        screen.query_one("#scope", Tabs).active = "settings"
-        await pilot.pause(0.2)
-        screen.query_one("#default_cap", Input).value = "7"
-        await pilot.click("#settings_save")
-        await pilot.pause(0.2)
-        check("home: the Settings tab saves the default cap", loadmod.default_cap() == 7, loadmod.default_cap())
-        for bad in ("0", ""):
-            screen.query_one("#default_cap", Input).value = bad
-            await pilot.click("#settings_save")
-            await pilot.pause(0.2)
-            check(f"home: a default cap of {bad!r} is refused and the saved one stays",
-                  loadmod.default_cap() == 7 and "at least 1" in _said(screen),
-                  _said(screen))
-        screen.query_one("#default_cap", Input).value = "9"
-        screen.query_one("#scope", Tabs).active = "home"
-        await pilot.pause(0.2)
-        screen.query_one("#scope", Tabs).active = "settings"
-        await pilot.pause(0.2)
-        check("home: a cap typed and not saved (T67) is left unsaved by changing tab, and the field shows the saved one",
-              loadmod.default_cap() == 7 and screen.query_one("#default_cap", Input).value == "7",
-              (loadmod.default_cap(), screen.query_one("#default_cap", Input).value))
-        screen.query_one("#scope", Tabs).active = "home"
-        await pilot.pause(0.2)
-        last = next(p for p in reversed(screen.PANELS) if tui._keys_of(p))
-        screen.panel, screen.sel[last] = last, tui._keys_of(last)[-1]
-        screen.set_focus(None)
-        await pilot.press("down")
-        check("home: down on the last row stays there, it does not wrap to the top",
-              screen.panel == last and screen.sel[last] == tui._keys_of(last)[-1], (screen.panel, screen.sel))
-
-        table = screen.query_one("#agents", DataTable)
-        screen.panel = tui.ACCOUNTS
-        screen._redraw()
-        await pilot.pause(0.1)
-        with mock.patch("ocp.ui.pages.home.marks_on_screen", lambda: True):
-            screen._redraw()
-            sub = screen.query_one("#accounts-box").border_subtitle
-        check("home: with a mark on screen the legend joins the window note on the border",
-              "│ time passed in the window" in sub and "inferred" in sub, sub)
-        with mock.patch("ocp.ui.pages.home.marks_on_screen", lambda: False):
-            screen._redraw()
-            check("home: and it is gone again without one",
-                  "inferred" not in screen.query_one("#accounts-box").border_subtitle)
-
-        # a mouse press picks the row under the pointer
-        agents.register("second")
-        screen._redraw()
-        await pilot.pause(0.1)
-        agents_table = screen.query_one("#agents", DataTable)
-        keys = [k.value for k in agents_table.rows]
-        check("home: two agents are drawn", len(keys) >= 2, keys)
-        want = keys[-1]
-        await pilot.mouse_down(agents_table, offset=(3, agents_table.row_count - 1 + (1 if agents_table.show_header else 0)))
-        await pilot.pause(0.1)
-        check("home: a mouse press picks the row under the pointer",
-              screen.panel == tui.AGENTS and screen.sel.get(tui.AGENTS) == want, (screen.panel, screen.sel))
-
-    widths = {}
-    for w in (200, 70):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(w, 30)) as pilot:
-            await pilot.pause(0.3)
-            widths[w] = len(app.screen.query_one("#accounts", DataTable).columns)
-    check("home: the account columns drop as the terminal narrows", widths[200] > widths[70], widths)
-
-
-async def test_hr_tab_approve_reject_withdraw_and_the_red_dot() -> None:
-    from textual.widgets import Button, Tabs
-    from ocp.team import ask as askmod
-    from ocp.ui.components.proposals import ProposalsView
-    _home("hrtab")
-    agents.register("hr")
-    ok, said = hr.propose("add", "newbie", requester="hr", why="more hands")
-    check("hr tab: a proposal was raised", ok, said)
-    rid = int(said.split("#")[1].split(".")[0])
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 34)) as pilot:
-        await pilot.pause(0.3)
-        screen = app.screen
-        tabs = screen.query_one("#scope", Tabs)
-        check("hr tab: the tab wears a red dot while a proposal waits",
-              "●" in tabs.get_tab("hr").label.plain, tabs.get_tab("hr").label)
-        tabs.active = "hr"
-        await pilot.pause(0.3)
-        view = screen.query_one("#hr_view", ProposalsView)
-        check("hr tab: the proposal is listed and selected",
-              [p["rid"] for p in view.rows] == [rid] and view.current["agent"] == "newbie", view.rows)
-        check("hr tab: a decidable one offers approve and reject",
-              not screen.query_one("#hr_approve", Button).disabled
-              and not screen.query_one("#hr_reject", Button).disabled)
-
-        view.action_reject()
-        await pilot.pause(0.2)
-        check("hr tab: reject asks for a reason", isinstance(app.screen, TextPrompt), type(app.screen).__name__)
-        await pilot.press("space", "enter")
-        await pilot.pause(0.3)
-        con = db.connect()
-        try:
-            check("hr tab: a blank reason rejects nothing",
-                  db.get_request(con, rid)["state"] == "queued", dict(db.get_request(con, rid)))
-        finally:
-            con.close()
-
-        view.action_approve()
-        await pilot.pause(0.2)
-        check("hr tab: approve goes through a Confirm", isinstance(app.screen, Confirm), type(app.screen).__name__)
-        await pilot.press("n")
-        await pilot.pause(0.2)
-        con = db.connect()
-        try:
-            check("hr tab: answering no to it approves nothing", db.get_request(con, rid)["state"] == "queued")
-        finally:
-            con.close()
-        view.action_approve()
-        await pilot.pause(0.2)
-        await pilot.press("y")
-        await pilot.pause(0.5)
-        con = db.connect()
-        try:
-            req = db.get_request(con, rid)
-            check("hr tab: yes answers the escalation `approve`, through answer_ok",
-                  req["state"] == "done" and hr.decision(req["verdict"]) == "approved", dict(req))
-        finally:
-            con.close()
-        check("hr tab: the answered proposal leaves the list, and nothing is left to decide",
-              view.rows == [] and screen.query_one("#hr_approve", Button).disabled)
-        screen._redraw()
-        check("hr tab: the dot goes with it", "●" not in tabs.get_tab("hr").label.plain)
-
-    ok, said = hr.propose("add", "second", requester="hr", why="w")
-    rid2 = int(said.split("#")[1].split(".")[0])
-    ok, said = hr.propose("add", "third", requester="hr", why="w")
-    rid3 = int(said.split("#")[1].split(".")[0])
-    con = db.connect()
-    try:
-        con.execute("UPDATE requests SET state = 'done', verdict = 'sounds good' WHERE id = ?", (rid3,))
-    finally:
-        con.close()
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 34)) as pilot:
-        await pilot.pause(0.3)
-        screen = app.screen
-        screen.query_one("#scope", Tabs).active = "hr"
-        await pilot.pause(0.3)
-        view = screen.query_one("#hr_view", ProposalsView)
-        check("hr tab: a decide row and a no-decision row are both listed",
-              [p["status"] for p in view.rows] == ["decide", "no decision"], [p["status"] for p in view.rows])
-        view.query_one("#hr_table", DataTable).move_cursor(row=1)
-        await pilot.pause(0.2)
-        check("hr tab: a no-decision proposal only offers withdraw",
-              screen.query_one("#hr_approve", Button).disabled and screen.query_one("#hr_reject", Button).disabled
-              and not screen.query_one("#hr_withdraw", Button).disabled)
-        view.action_approve()
-        view.action_reject()
-        await pilot.pause(0.2)
-        check("hr tab: approve and reject do nothing on it", not isinstance(app.screen, (Confirm, TextPrompt)),
-              type(app.screen).__name__)
-        view.query_one("#hr_table", DataTable).move_cursor(row=0)
-        await pilot.pause(0.2)
-        view.action_reject()
-        await pilot.pause(0.2)
-        for ch in "too many":
-            await pilot.press("space" if ch == " " else ch)
-        await pilot.press("enter")
-        await pilot.pause(0.5)
-        con = db.connect()
-        try:
-            req = db.get_request(con, rid2)
-            check("hr tab: reject with a reason answers `reject <why>`",
-                  req["state"] == "done" and req["verdict"] == "reject too many", dict(req))
-        finally:
-            con.close()
-
-async def test_the_account_page_leaves_a_page_on_top_alone_and_closes_when_it_is_back() -> None:
-    from unittest import mock
-    from ocp.team import accounts as accountsmod
-    from ocp.ui.components.read_only import ReadOnly
-    _home("acctgone")
-    with mock.patch.object(accountsmod, "identity", lambda acct: None):
-        app = bt.BridgeApp()
-        async with app.run_test(size=(120, 34)) as pilot:
-            await pilot.pause(0.3)
-            home = app.screen
-            app.push_screen(AccountPage("alpha"))
-            await pilot.pause(0.4)
-            page = app.screen
-            app.push_screen(ReadOnly("on top", [("", ["x"])]))
-            await pilot.pause(0.2)
-            top = app.screen
-            with mock.patch("ocp.ui.pages.account.paths.list_accounts", lambda: []):
-                page._load()        # its timer keeps running under the page on top
-                await pilot.pause(0.2)
-                check("account page: the account going while another page is on top does not pop that page",
-                      app.screen is top, type(app.screen).__name__)
-                app.pop_screen()
-                await pilot.pause(0.4)
-            check("account page: back on top it sees the account is gone and closes itself",
-                  app.screen is home, type(app.screen).__name__)
-
-
-async def test_the_home_accounts_row_shows_the_alias() -> None:
-    from ocp.usage import load as loadmod
-    _home("alias_row")
-    loadmod.set_label("alpha", "Work")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 30)) as pilot:
-        await pilot.pause(0.3)
-        first = app.screen.query_one("#accounts", DataTable).get_row_at(0)[0]
-        check("home: the ACCOUNTS row shows the alias, not the account's name",
-              first.plain.strip() == "Work", first.plain)
-
-
-async def test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor() -> None:
-    from rich.text import Text
-    from textual.app import App
-    from ocp.ui.components.table_sync import sync_rows
-
-    class T(App):
-        def compose(self):
-            yield DataTable(cursor_type="row")
-
-    rows = lambda tick: [(str(i), (Text(str(i)), Text(f"t{tick}"))) for i in range(60)]
-    app = T()
-    async with app.run_test(size=(40, 10)) as pilot:
-        table = app.query_one(DataTable)
-        table.add_columns("n", "idle")
-        sync_rows(table, rows(0))
-        await pilot.pause(0.2)
-        table.move_cursor(row=30)
-        await pilot.pause(0.2)
-        at = table.scroll_y
-        check("table sync: scrolled down to the cursor", at > 0, at)
-        rebuilt = sync_rows(table, rows(1))
-        await pilot.pause(0.2)
-        check("table sync: changed cells patch in place, no rebuild", not rebuilt)
-        check("table sync: scroll and cursor untouched", table.scroll_y == at and table.cursor_row == 30,
-              (table.scroll_y, table.cursor_row))
-        check("table sync: the new text is shown", table.get_row_at(5)[1].plain == "t1")
-        sync_rows(table, [("0", (Text("a", style="bold"), Text("x")))])
-        sync_rows(table, [("0", (Text("a", style="dim"), Text("x")))])
-        check("table sync: a style-only change is shown", str(table.get_row_at(0)[0].style) == "dim",
-              str(table.get_row_at(0)[0].style))
-        check("table sync: a changed row set rebuilds", sync_rows(table, rows(1)[:50]))
-
-
-async def test_the_chat_page_reopens_on_the_chat_tab_last_picked() -> None:
-    from textual.widgets import Tabs
-    _home("chatscope")
-    agents.register("reviewer")
-    app = bt.BridgeApp()
-    async with app.run_test(size=(120, 20)) as pilot:
-        await pilot.pause()
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        check("chatscope: a first visit opens on My chat", app.screen.query_one("#scope", Tabs).active == "mine")
-        app.screen.query_one("#scope", Tabs).active = "all"
-        await pilot.pause(0.3)
-        await app.pop_screen()
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        check("chatscope: reopened on All chat", app.screen.query_one("#scope", Tabs).active == "all"
-              and app.screen.everyone)
-        app.screen.query_one("#scope", Tabs).active = "mine"
-        await pilot.pause(0.3)
-        await app.pop_screen()
-        await app.push_screen(ChatPage("reviewer"))
-        await pilot.pause(0.3)
-        check("chatscope: and back to My chat", app.screen.query_one("#scope", Tabs).active == "mine")
-
-
 def test_account_settings_alias_and_default_cap() -> None:
     from ocp.usage import load as loadmod
     from ocp.session import triggers
@@ -3503,7 +1210,195 @@ def test_account_settings_alias_and_default_cap() -> None:
     check("settings: and back on", loadmod.usage_recover_enabled("beta"))
 
 
+def test_dashboard_accounts_table_is_fed_by_accounts_data() -> None:
+    """The ACCOUNTS panel is a DataTable fed by `tui.accounts_data` - the rows
+    (`alpha`, not logged in so its tick is a cross, and not the account work
+    goes next)."""
+    _home("acctdata")
+    con = db.connect()
+    try:
+        rows, notes = tui.accounts_data(con)
+    finally:
+        con.close()
+    check("accounts_data: one row per registered account, keyed by name",
+          [r.name for r in rows] == ["alpha"], rows)
+    check("accounts_data: a not-logged-in account carries the cross and not 'next'",
+          "\u2718" in rows[0].mark and rows[0].next == "", rows[0])
+    check("accounts_data: every column the panel draws has a cell",
+          set(rows[0].cells) == set(tui.ACCT_W) - {"name"}, sorted(rows[0].cells))
+
+def test_dashboard_agents_table_is_fed_by_agents_data() -> None:
+    """The AGENTS panel is a DataTable fed by `tui.agents_data`: one row per
+    drawn agent with its account, kind, state and inbox as plain values, the
+    state word and the fold count built by `state_cell`/`fold_suffix`."""
+    _home("agentdata")
+    con = db.connect()
+    try:
+        rows, notes = tui.agents_data(con)
+    finally:
+        con.close()
+    r = rows[0]
+    check("agents_data: one row per drawn agent, with its account and no error",
+          [x.name for x in rows] == ["backend"] and r.acct == "alpha" and r.error is None
+          and not notes, rows)
+    check("agents_data: the inbox is a count and the state a word",
+          r.inbox == 0 and r.state == tui.screen_state(db.connect(), db.get_agent_state(
+              db.connect(), "backend"))[0], r)
+    check("fold_suffix: nothing under it is nothing, a fold is its count, urgency follows",
+          tui.fold_suffix(0, None) == ""
+          and tui._ANSI.sub("", tui.fold_suffix(3, None)) == " +3"
+          and tui._ANSI.sub("", tui.fold_suffix(3, ("\u26a0", 2, tui.RED))) == " +3 \u26a02")
+
+def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
+    """T317 (#1806): `tasks` is every task the agent owns and has not
+    finished - waiting ones plus its current one, not just 0/1 for whether it
+    has a current task (T300). `ready` needs that current task queued, no
+    open blocker on it, and the agent IDLE - T325 makes approving an
+    unblocked task deliver it too (no second `ask` needed), so `ready` only
+    still shows while an open blocker holds that delivery back, or once it
+    clears without anything having advanced the task since."""
+    _home("currenttask")
+    # backend has no manager in DESIGN_TEAM's `eng` team (no member named
+    # `eng`), so only the founder may approve its task - which needs its own
+    # routing edge to deliver, the same one production's team.yaml carries.
+    t.hand_edit_team(t.DESIGN_TEAM.replace(
+        "edges:\n", 'edges:\n  - { from: "human", to: "*", relation: supervisor, '
+                    'response: fire_and_forget }\n'))
+    con = db.connect()
+    try:
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: no owned task is no count", r.tasks == 0, r)
+
+        tid = db.new_task(con, "write the report", "backend", "product")
+        ok, said = actions.task_start(con, "backend", tid)
+        con.commit()
+        check("task_start: makes it backend's current task",
+              ok and db.current_task(con, "backend") == tid, said)
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: tasks is 1 for a draft current task, not yet ready",
+              r.tasks == 1 and not r.ready, r)
+
+        blocker = db.new_task(con, "blocker", "backend", "product")
+        db.add_block(con, tid, blocker)
+        con.commit()
+        ok, said = actions.set_queued(con, tid, actions.HUMAN, True)
+        con.commit()
+        check("set_queued: approves it, but an open blocker holds T325's "
+              "delivery back", ok and "was free" not in said, said)
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: queued and IDLE, but blocked - not ready; the blocker is an "
+              "unapproved draft, so it is not in the count (T371)",
+              r.state == "IDLE" and r.tasks == 1 and not r.ready, r)
+
+        db.remove_block(con, tid, blocker)
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: ready once its current task is queued, unblocked and IDLE "
+              "- the blocker cleared without anything having delivered it yet",
+              r.state == "IDLE" and r.tasks == 1 and r.ready, r)
+
+        db.mark_task_done(con, blocker, "done, T317", via="reason")
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: a done task drops out of the count",
+              r.tasks == 1 and r.ready, r)
+    finally:
+        con.close()
+
+def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
+    """The FOR YOU panel is a DataTable fed by `tui.messages_data`: a title that
+    counts what is waiting, a row per message (sender, kind, its first line
+    with nothing a terminal would obey in it)."""
+    _home("msgdata")
+    agents.register("reviewer")
+    from ocp.team import ask as askmod
+    askmod.ask("human", "\n\033[2Jplease \033]8;;http://evil.example\033\\review\033]8;;\033\\ this",
+               requester="reviewer")
+    con = db.connect()
+    try:
+        title, rows, notes = tui.messages_data(con)
+    finally:
+        con.close()
+    check("messages_data: the title counts what is waiting", "1 " in title and title.startswith("FOR YOU"), title)
+    check("messages_data: one row from the sender, no note",
+          [r.sender for r in rows] == ["reviewer"] and not notes, rows)
+    check("messages_data: the first line is the first with something on it, inert",
+          rows[0].first == "please review this", repr(rows[0].first))
+
+def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
+    import sys
+    from unittest import mock
+    from ocp.session import orca as orcamod
+    from ocp.team import trust
+    from ocp.ui.components.dialog_modal import DialogModal
+    home = _home("dialogmodal")
+    agents.register("reviewer")
+    rules = _FakeRules()
+    con = db.connect()
+    db.set_terminal(con, "reviewer", "term_d", "wt")
+    con.commit()
+    con.close()
+    dialog = orcamod.Dialog("Do you want to proceed?", ((1, "Yes"), (2, "Yes, and don't ask again"), (3, "No")), "Esc to cancel")
+    screen = {"dialog": dialog, "folder": None}
+    pressed = []
+
+    def press(handle, number):
+        pressed.append((handle, number))
+        screen["dialog"] = None
+        return orcamod.CLEARED, dialog.title, ""
+    with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}), \
+            mock.patch.object(orcamod, "dialog_on_screen", lambda h: screen["dialog"]), \
+            mock.patch.object(orcamod, "trust_prompt_folder", lambda h: screen["folder"]), \
+            mock.patch.object(orcamod, "confirm_trust", lambda h: (True, "trusted")), \
+            mock.patch.object(orcamod, "press_option", press):
+        import ocp.team as teampkg
+        teampkg.dialog_rules = rules
+        con = db.connect()
+        try:
+            d = actions.dialog_of(con, "reviewer")
+            check("dialog: a dialog on the terminal is read as title and numbered options",
+                  d and d["kind"] == "dialog" and d["title"] == dialog.title and d["options"][1][1].startswith("Yes, and"), str(d))
+            screen["dialog"] = orcamod.Dialog(dialog.title, dialog.options, dialog.footer,
+                                              (dialog.title, "Edit /tmp/x.py", "1. Yes", "2. Yes, and don't ask again", "3. No"))
+            check("dialog: the panel's other lines ride along, not the title or the options",
+                  actions.dialog_of(con, "reviewer")["body"] == ["Edit /tmp/x.py"])
+            screen["dialog"] = dialog
+            ok, said = actions.answer_dialog(con, "reviewer", "Some other title", 1)
+            check("dialog: a changed dialog is not pressed", not ok and not pressed, said)
+            screen["dialog"] = dialog
+            ok, said = actions.answer_dialog(con, "reviewer", dialog.title, 2, always=True)
+            check("dialog: the pick is pressed and 'always' saves a rule on the exact title and label",
+                  ok and pressed == [("term_d", 2)] and rules.rules == [
+                      {"vendor": "claude", "title": dialog.title, "label": "Yes, and don't ask again"}], str((said, rules.rules)))
+            screen["folder"] = str(home)
+            with mock.patch.object(orcamod, "screen_text", lambda h: "old\n" + "\u2500" * 20 + "\n Accessing workspace:\n\n /x/y\n\n \u276f No, exit\n   Yes, I trust this folder\n\n Enter to confirm \u00b7 Esc to cancel"):
+                check("dialog: the trust screen's own words ride along, without its two choices or key hint",
+                      actions.dialog_of(con, "reviewer")["body"] == ["Accessing workspace:", "/x/y"],
+                      str(actions.dialog_of(con, "reviewer")["body"]))
+            ok, said = actions.answer_dialog(con, "reviewer", f"Trust {home}?", 1, always=True)
+            check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
+                  ok and trust.is_declared(home) and len(rules.rules) == 1, said)
+            screen["folder"] = None
+            answers = actions.standing_answers()
+            check("dialog: the standing answers list the rule", any(a["kind"] == "dialog" for a in answers), str(answers))
+            ok, _ = actions.remove_answer("dialog", ("claude", dialog.title, "Yes, and don't ask again"))
+            check("dialog: and it can be removed", ok and rules.rules == [])
+        finally:
+            con.close()
+    del teampkg.dialog_rules
+
+
 async def _run_all() -> None:
+    test_dashboard_accounts_table_is_fed_by_accounts_data()
+    test_dashboard_agents_table_is_fed_by_agents_data()
+    test_agents_data_shows_its_current_task_and_flags_it_ready()
+    test_dashboard_messages_table_is_fed_by_messages_data()
+    test_a_dialog_on_an_agent_terminal_is_read_and_pressed()
     test_only_y_n_or_escape_answers_a_confirm()
     test_the_menu_offers_what_the_text_could_become()
     test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number()
@@ -3512,66 +1407,23 @@ async def _run_all() -> None:
     test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_replies_thread_under_the_message_they_answer()
-    await test_a_chat_opened_from_a_for_you_row_has_that_message_picked()
-    await test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested()
-    await test_reply_puts_the_id_before_the_text_and_a_number_in_a_message_is_a_link()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
-    await test_the_agent_tasks_tab_shows_the_pane_when_wide()
-    await test_the_agent_tasks_tab_is_the_tasks_view_scoped_to_the_agent()
-    await test_the_settings_tab_switch_shows_and_saves_skip_prompts()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
-    await test_a_confirm_on_screen_ignores_an_arrow_and_answers_n()
-    await test_dashboard_shows_a_registered_agent_and_moves_the_cursor()
-    await test_help_key_names_every_agent_verb_the_footer_folds_out()
-    await test_an_action_runs_off_the_key_loop_and_the_screen_says_so()
-    await test_confirm_rechecks_can_if_the_state_changed_while_it_was_open()
-    await test_text_prompt_composer_sends_and_cancels()
-    await test_accounts_panel_cap_add_remove_and_open()
-    await test_the_account_page_shows_the_account_and_sets_its_cap()
-    await test_accounts_remove_only_fires_on_the_typed_name()
-    await test_messages_panel_open_reaches_the_agents_page()
-    await test_chat_refresh_keeps_a_scrolled_up_view_and_skips_a_no_op_rebuild()
-    await test_enter_on_an_agent_opens_its_chat_page_and_esc_comes_back()
-    await test_a_slash_agent_action_in_the_chat_runs_the_home_pages_flow()
-    await test_a_double_click_on_a_row_is_enter()
-    await test_wake_on_a_stalled_agent_asks_first()
-    await test_messages_panel_acts_on_a_folded_row()
-    await test_text_prompt_keeps_a_paste_instead_of_dropping_it()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out()
-    await test_a_numeric_ime_input_refuses_a_committed_syllable_and_takes_a_digit()
     test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
     test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
     test_the_agents_table_is_a_tree_with_the_group_total_on_top()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
-    await test_stats_screen_draws_the_weekly_graph()
-    await test_the_key_guide_stays_on_screen_when_the_table_is_long()
-    await test_tasks_screen_marks_batches_and_shows_each_refusal()
-    await test_marks_hidden_by_a_state_change_are_dropped_so_an_action_cannot_reach_them()
-    await test_tasks_tab_refresh_keeps_a_manual_scroll_down()
-    await test_merge_refuses_instead_of_crashing_when_the_cursor_row_is_gone()
-    await test_merge_lands_in_the_task_the_confirm_named_after_a_reorder()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
     test_a_send_that_went_shows_no_toast_and_a_refused_one_does()
-    await test_copy_reaches_the_system_clipboard()
-    await test_a_drag_selection_is_copied_when_the_mouse_is_let_go()
-    await test_b_opens_the_tasks_tab_on_the_founders_done_tasks()
-    await test_dashboard_accounts_table_is_fed_by_accounts_data()
-    await test_dashboard_agents_table_is_fed_by_agents_data()
-    await test_agents_data_shows_its_current_task_and_flags_it_ready()
-    await test_dashboard_messages_table_is_fed_by_messages_data()
-    await test_stuck_data_with_no_agent_to_act_on_leaves_the_home_page_safe()
-    await test_a_key_never_acts_on_a_row_nobody_pointed_at()
-    await test_text_prompt_line_keeps_a_multiline_paste_and_shows_escapes_inert()
-    await test_read_only_page_shows_foreign_text_inert()
-    await test_the_account_page_leaves_a_page_on_top_alone_and_closes_when_it_is_back()
     test_gauge_elapsed_fraction_bar_and_usage_cells()
     test_agent_rows_short_model_cache_and_founder_block()
     test_agent_rows_collect_carries_the_agents_own_model_and_effort()
@@ -3579,36 +1431,16 @@ async def _run_all() -> None:
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
-    await test_home_settings_lists_the_standing_answers_and_removes_one()
-    await test_a_dialog_on_an_agent_terminal_is_read_and_pressed()
-    await test_the_dialog_modal_offers_always_except_for_a_truncated_title()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
-    await test_the_permission_modal_is_as_tall_as_its_content_not_the_window()
-    await test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer()
-    await test_a_question_modal_keeps_its_own_press_and_other_prompt()
-    await test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll()
-    await test_the_bridge_follows_the_os_light_dark_setting_while_open()
-    await test_starting_an_agent_asks_for_a_repo_only_when_it_has_none()
-    await test_a_screen_says_how_it_went_in_a_toast_and_leaves_nothing_at_the_foot()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
-    await test_home_tab_bar_focus_mouse_and_columns()
-    await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
-    await test_the_home_accounts_row_shows_the_alias()
     test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
     test_the_chat_says_typed_until_the_transcript_shows_the_line()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
-    await test_escape_does_not_cancel_a_queued_message()
-    await test_a_plain_input_keeps_the_syllable_an_ime_commits_with_enter()
-    await test_the_queue_line_says_why_an_agents_message_waits()
-    await test_a_reply_to_a_selected_message_carries_its_request()
     test_account_settings_alias_and_default_cap()
-    await test_a_timer_redraw_of_a_table_keeps_its_scroll_and_cursor()
-    await test_the_chat_page_reopens_on_the_chat_tab_last_picked()
-    await test_the_tasks_tab_switches_to_a_tree_and_remembers_it()
 
 
 def main() -> int:
