@@ -1125,6 +1125,39 @@ def test_background_work_is_tracked_while_running_too(home: Path) -> None:
         con.close()
 
 
+def test_a_closed_session_shows_no_background_work(home: Path) -> None:
+    """T405: the founder closed a session that had background work; its `bgwork`
+    cursor stayed, so `ocp team` kept saying 'RUNNING background 8h, stale'. A
+    session that is gone runs nothing: the screen reads it IDLE straight away,
+    and the next tick drops the cursor."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    names = ("available", "alive", "background_work", "live_terminals")
+    real = {n: getattr(orcamod, n) for n in names}
+    try:
+        orca_seen()
+        orcamod.background_work = lambda h: "1 shell"
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        dmn_delivery.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
+        check("closed: setup - an open session with background work reads RUNNING",
+              tui.screen_state(con, db.get_agent_state(con, "backend"))[0] == "RUNNING")
+
+        db.set_closed(con, "backend", "sess-1")
+        row = db.get_agent_state(con, "backend")
+        check("closed: the moment it is recorded closed the row is not RUNNING",
+              tui.screen_state(con, row) == ("IDLE", "") and not dmn_delivery.has_background_work(con, "backend"),
+              str(tui.screen_state(con, row)))
+        check("closed: a closed session has no background 'since'", dmn_delivery.bg_since(con, "backend") is None)
+        dmn_delivery.track_background_work(con, "backend", row)
+        check("closed: the tick drops the stale cursor, so a wake starts clean",
+              not db.get_cursor(con, "bgwork:backend"))
+    finally:
+        for n, f in real.items():
+            setattr(orcamod, n, f)
+        con.close()
+
+
 def test_t52_idle_timeout_and_cache_expiry_overrides(home: Path) -> None:
     """T52: config.yaml's global park timeout and cache-expiry-ignore switch,
     and agent.yaml's own override of either - the agent's own setting always
@@ -4253,6 +4286,7 @@ def main() -> int:
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
         run(lambda: test_an_agent_with_background_work_is_not_idle_until_it_ends(Path(td) / 'bgw0'))
         run(lambda: test_background_work_is_tracked_while_running_too(Path(td) / 'bgw1'))
+        run(lambda: test_a_closed_session_shows_no_background_work(Path(td) / 'bgw2'))
         run(lambda: test_t52_idle_timeout_and_cache_expiry_overrides(Path(td) / 'idletimeout'))
         run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))
         run(lambda: test_a_running_daemon_is_reported_whatever_daemon_pid_says(Path(td) / 'd6'))

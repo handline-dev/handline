@@ -458,11 +458,13 @@ def track_background_work(con, agent: str, row) -> None:
     the idle clock starts there (`idle_since`), not at its last hook event;
     the end is not a model turn, so it stays out of `db.last_activity`, which
     the prompt cache is judged by."""
-    if not row or row["state"] in (HANDOFF, STALLED) or row["closed_at"] \
-            or not row["terminal"] or not orca.available():
+    key = f"bgwork:{agent}"
+    if row and (row["closed_at"] or not row["terminal"]):
+        db.clear_cursor(con, key)      # the session is gone, and so is what ran behind its prompt
+        return
+    if not row or row["state"] in (HANDOFF, STALLED) or not orca.available():
         return
     running = orca.background_work(row["terminal"])
-    key = f"bgwork:{agent}"
     if running is None:
         return                # unreadable is not "ended"
     if running and not db.get_cursor(con, key):
@@ -480,7 +482,9 @@ def idle_since(con, agent: str) -> int | None:
 
 
 def has_background_work(con, agent: str) -> bool:
-    return bool(db.get_cursor(con, f"bgwork:{agent}"))
+    """A closed session runs nothing, whatever the cursor still says from before it closed."""
+    row = db.get_agent_state(con, agent)
+    return bool(db.get_cursor(con, f"bgwork:{agent}")) and not (row and row["closed_at"])
 
 
 # Background work the agent has shown nothing beside this long is stale: forgotten
