@@ -5,6 +5,7 @@ import json
 import time
 
 from .requests import HUMAN
+from .schema import EVENT_TASK
 
 
 # RULE: a task row holds these fields and nothing else. Never a copy of a
@@ -197,7 +198,7 @@ def task_handoffs(con, tid: int) -> list[dict]:
     the task's page shows, and what `previous_owner` reads."""
     out = []
     for r in con.execute("SELECT ts, payload FROM events WHERE kind = 'task_handoff' "
-                         "AND json_extract(payload, '$.task_id') = ? ORDER BY id", (tid,)):
+                         f"AND {EVENT_TASK} = ? ORDER BY id", (tid,)):
         p = json.loads(r["payload"])
         out.append({"ts": r["ts"], "from": p.get("from"), "to": p.get("to"), "note": p.get("note", ""),
                     "verdict": p.get("verdict")})

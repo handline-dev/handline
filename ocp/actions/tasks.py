@@ -188,7 +188,7 @@ def _begun(con, tid: int) -> bool:
     under way from then until it is done or closed, whatever became of the
     chat request that is its only link."""
     return con.execute(
-        "SELECT 1 FROM events WHERE kind = 'task_begin' AND json_extract(payload, '$.task_id') = ? "
+        f"SELECT 1 FROM events WHERE kind = 'task_begin' AND {db.EVENT_TASK} = ? "
         "LIMIT 1", (tid,)).fetchone() is not None
 
 
@@ -686,11 +686,11 @@ def _told_at_done(con, tid: int, dep: int) -> bool:
     but a reopen voids the earlier release, since `tid` blocks `dep` again from
     that point and the owner is told afresh once it finishes a second time."""
     since = con.execute(
-        "SELECT MAX(id) FROM events WHERE kind = 'reopen_task' "
-        "AND json_extract(payload, '$.task_id') = ?", (tid,)).fetchone()[0] or 0
+        f"SELECT MAX(id) FROM events WHERE kind = 'reopen_task' AND {db.EVENT_TASK} = ?",
+        (tid,)).fetchone()[0] or 0
     return con.execute(
-        "SELECT 1 FROM events WHERE kind = 'released_at_done' "
-        "AND json_extract(payload, '$.task_id') = ? AND json_extract(payload, '$.blocks_on') = ? "
+        f"SELECT 1 FROM events WHERE kind = 'released_at_done' AND {db.EVENT_TASK} = ? "
+        "AND json_extract(payload, '$.blocks_on') = ? "
         "AND json_extract(payload, '$.told') = 1 AND id > ? LIMIT 1",
         (dep, tid, since)).fetchone() is not None
 
@@ -822,7 +822,7 @@ def _reset_after(con, tid: int) -> int:
     marks = ",".join("?" * len(_RESET_EVENTS))
     return con.execute(
         "SELECT COALESCE(MAX(CAST(json_extract(payload, '$.after_request') AS INTEGER)), 0) "
-        f"FROM events WHERE kind IN ({marks}) AND json_extract(payload, '$.task_id') = ?",
+        f"FROM events WHERE kind IN ({marks}) AND {db.EVENT_TASK} = ?",
         (*_RESET_EVENTS, tid)).fetchone()[0]
 
 

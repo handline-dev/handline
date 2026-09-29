@@ -4518,6 +4518,46 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
         con.close()
 
 
+def test_the_per_task_event_lookups_use_the_index_not_a_scan(home: Path) -> None:
+    """The task pages look events up by task once per task; each of those queries,
+    as the code really runs it, is answered from `events_kind_task` - a scan of
+    the events table there is what made every page slow (T430)."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for i in range(300):
+            db.add_event(con, "worker", "task_begin" if i % 3 == 0 else "reopen_task", {"task_id": i % 7})
+        seen: list[tuple[str, tuple]] = []
+        calls = (
+            lambda: actions.tasks._begun(con, 3),
+            lambda: db.task_handoffs(con, 3),
+            lambda: actions.tasks._told_at_done(con, 3, 4),
+            lambda: actions.tasks._reset_after(con, 3),
+        )
+        for call in calls:
+            con.set_trace_callback(lambda sql: seen.append(sql))
+            call()
+            con.set_trace_callback(None)
+        lookups = [q for q in seen if db.EVENT_TASK in q and "FROM events" in q]
+        check("index: every per-task events query was captured", len(lookups) >= 5, str(len(lookups)))
+        for q in lookups:
+            plan = " | ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q))
+            check(f"index: {q[:60]!r} is a search on events_kind_task, not a scan of events",
+                  "events_kind_task" in plan and "SCAN" not in plan, plan)
+        # A payload that is not JSON is a row the index skips, never a failed write or build.
+        con.execute("INSERT INTO events (ts, agent, kind, payload) VALUES (?, 'w', 'decision', 'not json')",
+                    (int(time.time()),))
+        con.execute("DROP INDEX events_kind_task")
+        con.close()
+        con = db.connect()          # rebuilds the index over a table that holds the bad row
+        check("index: a table holding a non-JSON payload still builds the index and answers",
+              con.execute("SELECT name FROM sqlite_master WHERE name = 'events_kind_task'").fetchone()
+              is not None and actions.tasks._begun(con, 3))
+    finally:
+        con.close()
+
+
 def test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(home: Path) -> None:
     """T421 (auditor #2828): an answer row is a message in the chain, not an ask
     in it - so answering does not use up the answerer's asks, and a follow-up
@@ -8546,6 +8586,7 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
         run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
