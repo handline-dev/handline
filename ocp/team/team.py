@@ -241,7 +241,7 @@ class Team:
             return default
 
         if edge_exempt:
-            return Decision(True, f"{requester} -> {target}: a task handed back on a FAIL needs no edge",
+            return Decision(True, f"{requester} -> {target}: a review or merge task needs no edge",
                             relation=HANDBACK, response="fire_and_forget", kind="task",
                             chain_depth=chain_depth)
         return Decision(

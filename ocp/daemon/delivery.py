@@ -781,7 +781,8 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     if task is not None:
         tid = task["id"]
         text = (f"T{tid} (#{head['id']}) is still yours and you have been idle {idle}{after}. "
-                f"Done: hand it on (`ocp task handoff T{tid} ...`) or `ocp task done T{tid}`. "
+                f"Done: `ocp task review T{tid} <sha> ...` for code (you keep it and wait), hand it on "
+                f"(`ocp task handoff T{tid} ...`) or `ocp task done T{tid}`. "
                 f"Waiting on something: record it - `ocp task edit T{tid} --blocked-by T<m>`, "
                 f"or a child or decision task.")
     else:
@@ -874,9 +875,9 @@ def answer_verb(con, head) -> str:
         task = _task_of(con, head)
         if task is not None:
             from ..actions import tasks as taskmod
-            return (f"you own T{task['id']} now: hand it on with "
-                    f"{taskmod.handoff_command(con, task, head['target'])}, or "
-                    f"`ocp task done T{task['id']}` if you are its last step")
+            return (f"you own T{task['id']} now: {taskmod.finish_command(con, task, head['target'])}"
+                    + (f", or `ocp task done T{task['id']}` if you are its last step"
+                       if not taskmod.gate_kind(con, task) else ""))
     return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
 
 

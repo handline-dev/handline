@@ -2677,6 +2677,10 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task discard": "writes a row; driven in test_task_discard, not this scene",
         "task queue": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes, not this scene",
         "task draft": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes, not this scene",
+        "task review": "T442: opens a child task for the auditor; driven in "
+                       "test_review_and_land_are_children_the_owner_waits_on, not this scene",
+        "task land": "T442: opens a child task for the merger; driven in "
+                     "test_review_and_land_are_children_the_owner_waits_on, not this scene",
         "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task release": "writes a row; driven in test_release_takes_a_doing_task_back_to_queued (T286), not this scene",

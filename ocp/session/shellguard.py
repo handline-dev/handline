@@ -16,7 +16,7 @@ _HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 REASON = ("Refused: nothing in this command ran, including any heredoc or file write in it. "
           "A backtick or $( inside double quotes is shell substitution. Resend the body in "
           "single quotes, or written to a file first in a separate step and passed with "
-          "--file PATH (ocp say, ocp ask, ocp resolve, ocp task handoff), or on stdin "
+          "--file PATH (ocp say, ocp ask, ocp resolve, ocp task handoff, review or land), or on stdin "
           "through a quoted heredoc (<<'EOF').")
 
 

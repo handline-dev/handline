@@ -286,7 +286,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     system-triggered, already-authorized delivery (`advance_current_task`).
 
     `edge_exempt` lets the request through when only a missing edge would
-    refuse it (`task handoff --fail` to the previous holder, T392); an
+    refuse it; an
     explicit deny, the loop guards and the rate limit still apply.
 
     `speaker` is who is really typing the command (see `_ENV`). `notify` False

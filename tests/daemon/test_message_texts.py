@@ -16,7 +16,7 @@ TEAM = """
 agents:
   manager: {}
   worker: {}
-  x.auditor: {}
+  x.helper: {}
 edges:
   - { from: "*", to: "*", relation: peer, response: async }
 """
@@ -27,15 +27,15 @@ def _world(home: Path, title_len: int = 640):
     """A task manager opened, worker owns, handed to the auditor with NOTE; returns (con, tid, request)."""
     _daemon_home(home, 20)
     hand_edit_team(TEAM)
-    for a in ("manager", "worker", "x.auditor"):
+    for a in ("manager", "worker", "x.helper"):
         agents.register(a)
     con = db.connect()
     title = ("Task timeout: every task gets a default " * 20)[:title_len]
     ok, msg, tid = actions.task_new("manager", "worker", title, title)
     check("setup: the task opens", ok, msg)
-    ok, msg = actions.task_handoff(con, "worker", tid, "x.auditor", NOTE)
-    check("setup: the owner hands it to the auditor", ok, msg)
-    return con, tid, db.head_of_queue(con, "x.auditor"), title
+    ok, msg = actions.task_handoff(con, "worker", tid, "x.helper", NOTE)
+    check("setup: the owner hands it on", ok, msg)
+    return con, tid, db.head_of_queue(con, "x.helper"), title
 
 
 def test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(home: Path) -> None:
@@ -47,7 +47,7 @@ def test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(home: Path) -> 
         check("notice: it names the task", f"T{tid} handed to you" in text, text)
         check("notice: it stays inside the three typed lines", text.count("\n") <= 2, text)
         long_note = "x" * 500
-        db.edit_task(con, tid, "worker", owner="x.auditor")
+        db.edit_task(con, tid, "worker", owner="x.helper")
         body = f"T{tid} handed to you by worker: short title\n\n{long_note}"
         con.execute("UPDATE requests SET body = ? WHERE id = ?", (body, head["id"]))
         cut = dmn_delivery.tell_text(con, db.get_request(con, head["id"]), 1)
@@ -64,9 +64,9 @@ def test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(home: Path) -> Non
         check("verb: a task handoff is not told to resolve", "ocp resolve" not in text, text)
         check("verb: it says the task is now the receiver's",
               f"you own T{tid} now" in text and f"`ocp task done T{tid}`" in text, text)
-        check("verb: an auditor is told where a PASS and a FAIL go",
-              f'`ocp task handoff T{tid} manager "<note>" --pass`' in text
-              and f'`ocp task handoff T{tid} worker "<note>" --fail`' in text, text)
+        check("verb: it names the ways to end or pass it on, never a verdict flag",
+              f'`ocp task review T{tid} <sha> "<note>"`' in text and f'`ocp task handoff T{tid} <agent> "<note>"`' in text
+              and "--pass" not in text, text)
         waiting = dmn_delivery.tell_text(con, head, 3)
         check("queue: a task's queue moves on when it is handed on or finished",
               "[2 more waiting - the next comes when you hand this on or finish it.]" in waiting, waiting)
@@ -77,7 +77,7 @@ def test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(home: Path) -> Non
         ask_text = dmn_delivery.tell_text(con, db.get_request(con, rid), 3)
         check("queue: an ask still says it moves on when resolved or dismissed",
               "resolve or dismiss" in ask_text, ask_text)
-        rc, out = support._cli(["inbox"], as_agent="x.auditor")
+        rc, out = support._cli(["inbox"], as_agent="x.helper")
         check("inbox: the same task verb and queue wording, no resolve",
               f"you own T{tid} now" in out and "ocp resolve" not in out, out)
     finally:
@@ -90,7 +90,7 @@ def test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(home: Path) -> N
         askmod.resolve(int(head["id"]), "PASS accepted; merged", notify=False)
         line, _ = dmn_delivery.answer_line(db.get_request(con, head["id"]))
         check("answer line: a task row reads as your handoff, not as something you were handed",
-              f"(your handoff of T{tid} to x.auditor)" in line and "you asked" not in line, line)
+              f"(your handoff of T{tid} to x.helper)" in line and "you asked" not in line, line)
     finally:
         con.close()
 
@@ -102,7 +102,6 @@ agents:
   p.auditor: {}
   p.x.auditor: {}
   p.merger: {}
-  p.y.merger: {}
   q.auditor: {}
   q.merger: {}
 edges:
@@ -110,38 +109,43 @@ edges:
 """
 
 
-def test_the_next_holder_is_named_from_the_tasks_own_project(home: Path) -> None:
-    """One runnable command per candidate of the sender's own project; another project's auditor
-    or merger is never offered, and no command lists two names."""
+def test_a_review_and_a_merge_are_told_what_to_close_them_with(home: Path) -> None:
+    """The auditor and the merger are told the exact close for the small task they hold;
+    the owner is told the next step for the kind of task it holds. Only the sender's own
+    project's auditor or merger is ever the receiver."""
     _daemon_home(home, 20)
     hand_edit_team(TEAM2)
-    for a in ("p.manager", "p.worker", "p.auditor", "p.x.auditor", "p.merger", "p.y.merger", "q.auditor", "q.merger"):
+    for a in ("p.manager", "p.worker", "p.auditor", "p.x.auditor", "p.merger", "q.auditor", "q.merger"):
         agents.register(a)
     con = db.connect()
     try:
         ok, msg, tid = actions.task_new("p.manager", "p.worker", "ship it", "ship it")
         check("setup: the task opens", ok, msg)
-        row = db.get_task(con, tid)
-        text = actions.handoff_command(con, row, "p.worker")
-        check("owner: one command per auditor of its own project, none of another's",
-              f'`ocp task handoff T{tid} p.auditor "<note>"` or `ocp task handoff T{tid} p.x.auditor "<note>"`' in text
-              and "q." not in text and " or p." not in text, text)
-        ok, msg = actions.task_handoff(con, "p.worker", tid, "p.auditor", "please review")
-        check("setup: handed to the auditor", ok, msg)
-        ok, msg = actions.task_handoff(con, "p.auditor", tid, "p.manager", "looks right", verdict="PASS")
-        check("setup: the auditor passes it back to the opener", ok, msg)
-        row = db.get_task(con, tid)
-        text = actions.handoff_command(con, row, "p.manager")
-        check("opener after a PASS: a merger of its own project, or the maker to send it back",
-              f'`ocp task handoff T{tid} p.merger "<note>"` or `ocp task handoff T{tid} p.y.merger "<note>"`' in text
-              and f'`ocp task handoff T{tid} p.worker "<note>"` to send it back' in text and "q." not in text, text)
-        ok, msg = actions.task_handoff(con, "p.manager", tid, "p.merger", "merge it")
-        check("setup: the opener hands it to a merger", ok, msg)
-        text = actions.handoff_command(con, db.get_task(con, tid), "p.merger")
-        check("merger: back to whoever handed it over", text == f'`ocp task handoff T{tid} p.manager "<note>"`', text)
-        text = actions.handoff_command(con, db.get_task(con, tid), "zz.worker")
-        check("no auditor in the sender's project: a placeholder, not another project's auditor",
-              f'`ocp task handoff T{tid} <auditor> "<note>"`' == text, text)
+        text = actions.finish_command(con, db.get_task(con, tid), "p.worker")
+        check("owner: told it can ask for a review and keeps the task",
+              f'`ocp task review T{tid} <sha> "<note>"`' in text and "you keep" in text, text)
+        ok, msg = actions.task_review(con, "p.worker", tid, "abc1234", "branch b: fixed it")
+        check("setup: the review opens", ok, msg)
+        kid = next(k for k in db.open_child_tasks(con, tid))
+        check("the review goes to the sender's own project's auditor, first by name",
+              kid["owner"] == "p.auditor" and kid["title"] == f"review T{tid} @abc1234", dict(kid))
+        text = actions.finish_command(con, kid, "p.auditor")
+        check("auditor: PASS or FAIL with notes, and nothing about resolving",
+              '"PASS: <notes>"' in text and '"FAIL: <what fails>"' in text and "resolve" not in text, text)
+        rc, out = support._cli(["inbox"], as_agent="p.auditor")
+        check("auditor inbox: says what closes the review", f"you own T{kid['id']} now" in out and "PASS" in out, out)
+        ok, msg = actions.mark_task_done(con, kid["id"], "p.auditor", reason="PASS: green")
+        check("setup: the auditor passes it", ok, msg)
+        ok, msg = actions.task_land(con, "p.worker", tid, "abc1234", "merge b")
+        check("setup: the merge opens", ok, msg)
+        kid = next(k for k in db.open_child_tasks(con, tid))
+        text = actions.finish_command(con, kid, "p.merger")
+        check("merger: the merged commit id, or not merged with the reason",
+              f"`ocp task done T{kid['id']} --sha <merged commit>`" in text and "not merged: <reason>" in text, text)
+        ok, msg = actions.task_review(con, "zz.worker", actions.task_new("p.manager", "p.worker", "y", "y")[2],
+                                      "abc1234", "x")
+        check("no auditor in the sender's project: refused, another project's is not used",
+              not ok, msg)
     finally:
         con.close()
 
@@ -150,7 +154,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(Path(td) / 'm0'))
         run(lambda: test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(Path(td) / 'm1'))
-        run(lambda: test_the_next_holder_is_named_from_the_tasks_own_project(Path(td) / 'm3'))
+        run(lambda: test_a_review_and_a_merge_are_told_what_to_close_them_with(Path(td) / 'm3'))
         run(lambda: test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(Path(td) / 'm2'))
     return run_area(tests)
 

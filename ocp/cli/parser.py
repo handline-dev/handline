@@ -22,7 +22,7 @@ from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ig
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
+from .task import cmd_task_review, cmd_task_land, _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
 from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
 from .usage import cmd_collect, cmd_usage
 
@@ -565,23 +565,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--expects", type=_expects_arg, default="report", metavar="K",
                    help="what `task done` must give back: sha, verdict, decision or report (default)")
     p.set_defaults(fn=cmd_task_begin)
-    p = tk.add_parser("handoff", help="hand T<n> to another agent with a note (T377): owner -> "
-                                      "auditor -> back to the opener on a PASS or to whoever handed it "
-                                      "over on a FAIL; the opener passes it to a merger")
+    p = tk.add_parser("handoff", help="hand T<n> to another agent with a note (T377): its owner "
+                                      "gives it up and the receiver owns it")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("to", help="the agent that takes it")
     p.add_argument("note", nargs="?", default=None,
-                   help="required: what changed, and what the receiver should know "
-                        "(PASS/FAIL, test results, how to reproduce a FAIL)")
+                   help="required: what changed, and what the receiver should know")
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the note from this file instead of the inline argument - "
                         "safe against a shell expanding backticks or $() in the text")
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("--pass", dest="verdict", action="store_const", const="PASS",
-                   help="an auditor's verdict: on to the opener, who may then pass it to a merger")
-    g.add_argument("--fail", dest="verdict", action="store_const", const="FAIL",
-                   help="an auditor's verdict: back to whoever handed it over")
     p.set_defaults(fn=cmd_task_handoff)
+    for verb, fn, what, who in (("review", cmd_task_review, "review", "auditor"),
+                                ("land", cmd_task_land, "merge", "merger")):
+        p = tk.add_parser(verb, help=f"ask your project's {who} to {what} T<n> @ sha: opens a "
+                                     f"small child task for them, T<n> waits on it and stays yours")
+        p.add_argument("task", type=_task_arg, metavar="T")
+        p.add_argument("sha", help="the commit to " + what)
+        p.add_argument("note", nargs="?", default=None,
+                       help="required: the branch, what changed, and what the " + who + " should know")
+        p.add_argument("--file", default=None, metavar="PATH",
+                       help="read the note from this file instead of the inline argument")
+        p.set_defaults(fn=fn)
     p = tk.add_parser("start", help="pick up T<n> as your current task (T292) - for one "
                                     "delivered while you already held another")
     p.add_argument("task", type=_task_arg, metavar="T")

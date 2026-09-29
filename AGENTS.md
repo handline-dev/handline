@@ -12,7 +12,13 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 - You hold one task at a time. It ends with `ocp task done T<n> "<evidence>"`,
   or you hand it on with `ocp task handoff T<n> <agent> "<note>"` - that is how
   the result reaches whoever asked, never a second task repeating it. The next
-  task arrives only then.
+  task arrives only then. Code is reviewed and merged without leaving your
+  hands: `ocp task review T<n> <sha> "<note>"` opens a small task for the
+  auditor and T<n> waits on it (it stays yours, doing); its PASS or FAIL comes
+  back to you. On a PASS, `ocp task land T<n> <sha> "<note>"` does the same
+  with the merger, which closes it with the merged commit id or "not merged:
+  <reason>". Then close T<n> with that sha if you may, else hand it up to its
+  opener.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
   `ocp team` (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown

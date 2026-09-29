@@ -8222,16 +8222,17 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         con.close()
 
 
-def test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(home: Path) -> None:
-    """T377: owner -> auditor; the auditor returns it to the opener (PASS) or to
-    whoever handed it over (FAIL); the opener passes it to a merger. A note is
-    required, only the owner may hand it on, and every handoff stays in order."""
+def test_a_task_is_handed_over_with_a_note(home: Path) -> None:
+    """T377: its owner (or the founder) hands a task to another agent with a note; the
+    note travels as the delivery and the record lists every handoff in order. An
+    auditor or a merger is not handed a task: they are asked through a child (T442)."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
 agents:
   manager: {}
   worker: {}
+  helper: {}
   dev.auditor: {}
   dev.merger: {}
 edges:
@@ -8240,236 +8241,196 @@ limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
 """)
-    for n in ("manager", "worker", "dev.auditor", "dev.merger"):
+    for n in ("manager", "worker", "helper", "dev.auditor", "dev.merger"):
         agents.register(n)
     con = db.connect()
     try:
         ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
         check("handoff: setup - worker holds T", ok and db.current_task(con, "worker") == t)
-        H = lambda me, to, note="note", v=None: actions.task_handoff(con, me, t, to, note, v)
-        ok, msg = H("worker", "dev.auditor", "  ")
+        H = lambda me, to, note="note": actions.task_handoff(con, me, t, to, note)
+        ok, msg = H("worker", "helper", "  ")
         check("handoff: a note is required, and blank is not one", not ok and "note" in msg, msg)
-        ok, msg = H("worker", "manager", "straight to the manager")
-        check("handoff: the maker may only hand it to an auditor", not ok and "auditor" in msg, msg)
-        ok, msg = H("manager", "dev.auditor", "not the owner")
+        ok, msg = H("manager", "helper", "not the owner")
         check("handoff: only the owner hands it on", not ok and "only its owner" in msg, msg)
-        ok, msg = H("worker", "nobody.auditor", "no such agent")
+        ok, msg = H("worker", "nobody", "no such agent")
         check("handoff: the receiver must exist", not ok and "no agent" in msg, msg)
-
-        ok, msg = H("worker", "dev.auditor", "verdict from a maker", "PASS")
-        check("handoff: only an auditor gives a verdict", not ok and "only an auditor" in msg, msg)
-        ok, msg = H("worker", "dev.auditor", "branch@abc123: fixed the retry")
-        row = db.get_task(con, t)
-        check("handoff: the maker hands it to the auditor", ok and row["owner"] == "dev.auditor", msg)
-        sent = [r for r in db.task_requests(con, t) if r["target"] == "dev.auditor"]
+        ok, msg = H("worker", "dev.auditor", "review it")
+        check("handoff: an auditor is asked through `task review`, not handed the task",
+              not ok and "task review" in msg and db.get_task(con, t)["owner"] == "worker", msg)
+        ok, msg = H("worker", "dev.merger", "merge it")
+        check("handoff: a merger through `task land`", not ok and "task land" in msg, msg)
+        ok, msg = H("worker", "helper", "branch@abc123: fixed the retry")
+        check("handoff: the owner hands it on", ok and db.get_task(con, t)["owner"] == "helper", msg)
+        sent = [r for r in db.task_requests(con, t) if r["target"] == "helper"]
         check("handoff: the note travels with it, as the delivery itself",
               len(sent) == 1 and "branch@abc123: fixed the retry" in sent[0]["body"]
               and sent[0]["requester"] == "worker", str([dict(r) for r in sent]))
         check("handoff: the old owner is not left holding it",
               db.current_task(con, "worker") is None
               and not [r for r in db.queued_for(con, "worker") if r["kind"] == "task"])
-        check("handoff: the auditor now holds it", db.current_task(con, "dev.auditor") == t)
-
-        ok, msg = H("dev.auditor", "dev.merger", "skipping the manager", "PASS")
-        check("handoff: an auditor may not hand it to a merger", not ok and "opener" in msg, msg)
-        ok, msg = H("dev.auditor", "manager", "no verdict given")
-        check("handoff: an auditor's handoff must carry a verdict", not ok and "--pass" in msg, msg)
-        ok, msg = H("dev.auditor", "manager", "wrong way", "FAIL")
-        check("handoff: a FAIL may not go to the opener", not ok and "worker" in msg, msg)
-        ok, msg = H("dev.auditor", "worker", "FAIL: retry loops; repro: run x", "FAIL")
-        check("handoff: a FAIL goes back to whoever handed it over",
-              ok and db.get_task(con, t)["owner"] == "worker", msg)
-        ok, msg = H("worker", "dev.auditor", "fixed the loop")
-        ok2, msg2 = H("dev.auditor", "manager", "PASS: 5900 passed", "PASS")
-        check("handoff: a PASS goes to the opener", ok and ok2 and db.get_task(con, t)["owner"] == "manager", msg + msg2)
-        check("handoff: who handed it over is read from the record",
-              actions.previous_owner(con, t, "manager") == "dev.auditor"
-              and actions.previous_owner(con, t, "dev.auditor") == "worker"
-              and actions.previous_owner(con, t, "dev.merger") is None)
-
-        ok, msg = H("manager", "dev.merger", "ready to land")
-        check("handoff: the opener passes it to a merger", ok and db.get_task(con, t)["owner"] == "dev.merger", msg)
-        ok, msg = H("dev.merger", "worker", "conflict")
-        check("handoff: a merger may only send it back to who handed it over", not ok and "manager" in msg, msg)
-        ok, msg = H("dev.merger", "manager", "conflicts with main in x.py")
-        check("handoff: and it can", ok and db.get_task(con, t)["owner"] == "manager", msg)
-
+        check("handoff: the receiver now holds it", db.current_task(con, "helper") == t)
+        ok, msg = H("helper", "manager", "back up")
         hist = db.task_handoffs(con, t)
-        check("handoff: the record lists every handoff in the order they happened, with its note",
-              [(h["from"], h["to"]) for h in hist] == [
-                  ("worker", "dev.auditor"), ("dev.auditor", "worker"), ("worker", "dev.auditor"),
-                  ("dev.auditor", "manager"), ("manager", "dev.merger"), ("dev.merger", "manager")]
-              and hist[0]["note"] == "branch@abc123: fixed the retry" and hist[3]["note"] == "PASS: 5900 passed",
-              str(hist))
-        check("handoff: the verdict is recorded with the handoff",
-              [h["verdict"] for h in hist] == [None, "FAIL", None, "PASS", None, None], str(hist))
-        own = db.new_task(con, "self-opened", "worker", "worker")
-        G = lambda me, to, v=None: actions.task_handoff(con, me, own, to, "note", v)
-        ok, msg = G("worker", "dev.merger")
-        check("handoff: a self-opened task cannot skip the audit", not ok and "auditor" in msg, msg)
-        G("worker", "dev.auditor")
-        G("dev.auditor", "worker", "FAIL")
-        ok, msg = G("worker", "dev.merger")
-        check("handoff: after a FAIL a self-opened task still cannot reach a merger", not ok, msg)
-        back = db.new_task(con, "send back", "worker", "manager")
-        B = lambda me, to, v=None: actions.task_handoff(con, me, back, to, "note", v)
-        B("worker", "dev.auditor")
-        B("dev.auditor", "manager", "PASS")
-        ok, msg = B("manager", "dev.auditor")
-        check("handoff: the opener may not send it back to the auditor that passed it", not ok, msg)
-        B("manager", "dev.merger")
-        B("dev.merger", "manager")
-        ok, msg = B("manager", "worker")
-        check("handoff: the opener sends it back to the maker, also after a merger sent it back for a conflict the opener still reaches the maker",
-              ok and db.get_task(con, back)["owner"] == "worker", msg)
+        check("handoff: the record lists every handoff in order, with its note",
+              ok and [(h["from"], h["to"]) for h in hist] == [("worker", "helper"), ("helper", "manager")]
+              and hist[0]["note"] == "branch@abc123: fixed the retry", str(hist))
         ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "the founder may")
         check("handoff: the founder may hand it to anyone", ok and db.get_task(con, t)["owner"] == "worker", msg)
         actions.mark_task_done(con, t, "worker", reason="done")
-        ok, msg = H("worker", "dev.auditor", "too late")
+        ok, msg = H("worker", "helper", "too late")
         check("handoff: a finished task is not handed over", not ok and "finished" in msg, msg)
 
-        rc, out = _cli(["task", "handoff", f"T{t}", "dev.auditor", "x"], as_agent="worker")
+        rc, out = _cli(["task", "handoff", f"T{t}", "helper", "x"], as_agent="worker")
         check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
-        cli_t = db.new_task(con, "via cli", "worker", "manager")
-        _cli(["task", "handoff", f"T{cli_t}", "dev.auditor", "x"], as_agent="worker")
-        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x"], as_agent="dev.auditor")
-        check("handoff: the cli refuses an auditor's handoff without a verdict", rc == 1 and "--pass" in out, out)
-        try:
-            rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass", "--fail"], as_agent="dev.auditor")
-        except SystemExit as e:
-            rc, out = e.code, "argparse"
-        check("handoff: the cli refuses both verdict flags", rc == 2 and db.get_task(con, cli_t)["owner"] == "dev.auditor", out)
-        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass"], as_agent="dev.auditor")
-        check("handoff: --pass drives the handoff through the cli",
-              rc == 0 and db.get_task(con, cli_t)["owner"] == "manager"
-              and db.task_handoffs(con, cli_t)[-1]["verdict"] == "PASS", out)
-
         # T401 item 17: --file, same as ocp ask/say/resolve, safe against a
         # shell expanding backticks or $() in the note.
         file_t = db.new_task(con, "via file", "worker", "manager")
         note_path = home / "note.txt"
         note_path.write_text("branch@abc123: fixed it, backtick ` and $( stay literal")
-        rc, out = _cli(["task", "handoff", f"T{file_t}", "dev.auditor", "--file", str(note_path)],
+        rc, out = _cli(["task", "handoff", f"T{file_t}", "helper", "--file", str(note_path)],
                        as_agent="worker")
         check("handoff: --file reads the note from a file", rc == 0, out)
         check("handoff: the note in the record is the file's content, untouched",
               db.task_handoffs(con, file_t)[-1]["note"]
               == "branch@abc123: fixed it, backtick ` and $( stay literal")
         rc, out = _cli(["task", "handoff", f"T{file_t}", "manager", "inline", "--file",
-                        str(note_path)], as_agent="dev.auditor")
+                        str(note_path)], as_agent="helper")
         check("handoff: inline and --file together is refused",
               rc == 1 and "not both" in out, out)
     finally:
         con.close()
 
 
-def test_an_auditor_handed_a_non_review_task_needs_no_verdict(home: Path) -> None:
-    """T401 item 16: a task opened straight onto an auditor (a report, not a
-    review of someone else's work) has no previous owner to audit, so a
-    handoff off it needs no --pass/--fail."""
+def test_review_and_land_are_children_the_owner_waits_on(home: Path) -> None:
+    """T442: `task review T<n> <sha>` opens a small child for the project's auditor and
+    T<n> waits on it, staying its owner's. The auditor closes it with PASS or FAIL, the
+    owner is told the result; `task land` does the same with the merger, closed with the
+    merged commit or `not merged: <reason>`. No edge is needed to ask; an explicit deny
+    still stops it."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
 agents:
   manager: {}
+  dev.worker: {}
   dev.auditor: {}
-  worker2: {}
-edges:
-  - { from: "manager", to: "dev.auditor", relation: peer, response: async }
-  - { from: "dev.auditor", to: "manager", relation: peer, response: async }
-  - { from: "manager", to: "worker2", relation: supervisor, response: async }
-  - { from: "worker2", to: "manager", relation: subordinate, response: async }
-  - { from: "worker2", to: "dev.auditor", relation: peer, response: async }
-limits: { max_chain_depth: 4, ask_rate_per_hour: 50 }
-""")
-    for n in ("manager", "dev.auditor", "worker2"):
-        agents.register(n)
-    con = db.connect()
-    try:
-        ok, _, t = actions.task_new("manager", "dev.auditor", "review every X for Y", "review every X for Y")
-        check("setup: opened straight onto the auditor", ok)
-        check("not a review: no previous owner recorded",
-              actions.previous_owner(con, t, "dev.auditor") is None)
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "done, see report")
-        check("handoff: no verdict needed when it is not a review",
-              ok and db.get_task(con, t)["owner"] == "manager", msg)
-
-        # Once an auditor really is reviewing someone's work (received via a
-        # handoff), the plain refusal still applies - no "not a review?"
-        # escape (auditor #2466): that hint led straight to a PASS on work
-        # nobody reviewed, the thing the verdict gate exists to stop.
-        ok, _, u = actions.task_new("manager", "worker2", "the change", "the change")
-        actions.task_handoff(con, "worker2", u, "dev.auditor", "branch@abc: fixed it")
-        ok, msg = actions.task_handoff(con, "dev.auditor", u, "manager", "no verdict")
-        check("handoff: a real review still needs a verdict, plainly, no escape hint",
-              not ok and "--pass" in msg and "not a review" not in msg, msg)
-    finally:
-        con.close()
-
-
-def test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(home: Path) -> None:
-    """T392: the auditor's --fail handoff back to the maker was refused with "no
-    edge declares dev.auditor -> worker". Only that route is exempt; the edge
-    check still holds for a PASS, for an explicit deny, and at delivery."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    hand_edit_team("""
-agents:
-  manager: {}
-  worker: {}
-  dev.auditor: {}
+  dev.merger: {}
+  other.auditor: {}
 edges:
   - { from: manager, to: "*", relation: supervisor, response: async }
-  - { from: worker, to: dev.auditor, relation: peer, response: async }
+  - { from: dev.worker, to: manager, relation: subordinate, response: async }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
 """)
-    for n in ("manager", "worker", "dev.auditor"):
+    for n in ("manager", "dev.worker", "dev.auditor", "dev.merger", "other.auditor"):
         agents.register(n)
+    repo = home / "repo"
+    repo.mkdir()
+    def git(*a):
+        return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "one")
+    merged = git("rev-parse", "HEAD")
     con = db.connect()
     try:
-        ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
-        ok, msg = actions.task_handoff(con, "worker", t, "dev.auditor", "for review")
-        check("fail-edge: setup - the maker reaches the auditor by a declared edge", ok, msg)
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "PASS: green", "PASS")
-        check("fail-edge: a PASS to the opener still needs its edge", not ok and "no edge" in msg
-              and db.get_task(con, t)["owner"] == "dev.auditor", msg)
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "worker", "FAIL: repro x", "FAIL")
-        check("fail-edge: a FAIL to the previous holder goes through with no edge declared",
-              ok and db.get_task(con, t)["owner"] == "worker", msg)
-        row = [r for r in db.task_requests(con, t) if r["target"] == "worker"][-1]
-        check("fail-edge: the request says it is a hand-back, and does not park the auditor on a reply",
-              row["relation"] == "handback" and row["response"] == "fire_and_forget"
-              and (db.get_agent_state(con, "dev.auditor") or {"state": ""})["state"] != "PARKED",
-              str(dict(row)))
-        dmn_delivery.enforce_edges(con, "worker", lambda _m: None)
-        row = db.get_request(con, row["id"])
-        check("fail-edge: and the daemon's delivery re-check keeps it, not refusing it as edgeless",
-              row["state"] == "queued" and row["edge_ok"], str(dict(row)))
-        ok, msg = actions.task_handoff(con, "worker", t, "dev.auditor", "fixed")
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "FAIL: wrong way", "FAIL")
-        check("fail-edge: a FAIL to anyone but the previous holder is still refused", not ok, msg)
+        ok, _, t = actions.task_new("manager", "dev.worker", "the change", "the change")
+        R = lambda me, sha="abc1234", note="branch b": actions.task_review(con, me, t, sha, note)
+        ok, msg = R("manager")
+        check("review: only the owner asks", not ok and "only its owner" in msg, msg)
+        ok, msg = R("dev.worker", "not-a-sha")
+        check("review: a commit id is required", not ok and "commit id" in msg, msg)
+        ok, msg = R("dev.worker", note="  ")
+        check("review: a note is required", not ok and "note" in msg, msg)
+        ok, msg = actions.task_review(con, "zz.worker", t, "abc1234", "x")
+        check("review: an agent of no project with an auditor is refused", not ok, msg)
+        ok, msg = R("dev.worker")
+        kids = db.open_child_tasks(con, t)
+        check("review: opens one child for the project's auditor, with no edge declared",
+              ok and len(kids) == 1 and kids[0]["owner"] == "dev.auditor"
+              and kids[0]["title"] == "review T%d @abc1234" % t and kids[0]["opened_by"] == "dev.worker"
+              and kids[0]["expects"] == "verdict", msg)
+        check("review: T stays with its owner, blocked by the child",
+              db.get_task(con, t)["owner"] == "dev.worker"
+              and [b["id"] for b in db.task_blockers(con, t)] == [kids[0]["id"]])
+        check("review: the auditor holds it and was sent the note",
+              db.current_task(con, "dev.auditor") == kids[0]["id"]
+              and any("branch b" in r["body"] for r in db.task_requests(con, kids[0]["id"])))
+        ok, msg = R("dev.worker")
+        check("review: a second one while it is out is refused", not ok and "already waits" in msg, msg)
+        kid = kids[0]["id"]
+        ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="looks fine")
+        check("review: closed with anything but PASS or FAIL is refused", not ok and "PASS or FAIL" in msg, msg)
+        ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="FAIL: retry loops; repro x")
+        row = db.get_task(con, kid)
+        check("review: FAIL closes the child and lifts the block",
+              ok and row["closed_by"] and not db.task_blockers(con, t)
+              and db.get_task(con, t)["owner"] == "dev.worker", msg)
+        told = [r for r in db.task_requests(con, t) if r["requester"] != "dev.worker" and r["target"] == "dev.worker"
+                and "unblocked" in r["body"]]
+        check("review: the owner is told the verdict, with what to do next",
+              len(told) == 1 and "FAIL: retry loops; repro x" in told[0]["body"]
+              and "fix it" in told[0]["body"], str([dict(r) for r in told]))
+        ok, msg = R("dev.worker", "def5678")
+        check("review: after a FAIL it can be asked again", ok, msg)
+        kid = db.open_child_tasks(con, t)[0]["id"]
+        actions.mark_task_done(con, kid, "dev.auditor", reason="PASS: 5900 passed")
+        told = [r for r in db.task_requests(con, t) if "PASS: 5900 passed" in r["body"]]
+        check("review: a PASS tells the owner to land it", len(told) == 1 and "task land" in told[0]["body"],
+              str([dict(r) for r in told]))
+
+        ok, msg = actions.task_land(con, "dev.worker", t, "def5678", "merge b")
+        kids = db.open_child_tasks(con, t)
+        check("land: opens one child for the merger", ok and len(kids) == 1 and kids[0]["owner"] == "dev.merger"
+              and kids[0]["title"] == "merge T%d @def5678" % t and kids[0]["expects"] == "sha", msg)
+        kid = kids[0]["id"]
+        ok, msg = actions.mark_task_done(con, kid, "dev.merger", reason="merged, trust me")
+        check("land: a merge closes with a commit or `not merged:`", not ok and "not merged" in msg, msg)
+        ok, msg = actions.mark_task_done(con, kid, "dev.merger", reason="not merged: conflicts in x.py")
+        told = [r for r in db.task_requests(con, t) if "conflicts in x.py" in r["body"]]
+        check("land: a conflict closes it as not merged, with the reason, and tells the owner",
+              ok and db.get_task(con, kid)["closed_by"] and len(told) == 1
+              and not db.task_blockers(con, t), msg)
+        ok, msg = actions.task_land(con, "dev.worker", t, "def5678", "again")
+        kid = db.open_child_tasks(con, t)[0]["id"]
+        ok, msg = actions.mark_task_done(con, kid, "dev.merger", sha=merged, repo=repo)
+        told = [r for r in db.task_requests(con, t) if merged in r["body"]]
+        check("land: closed with the merged commit, the owner is told and how to close or send up",
+              ok and db.get_task(con, kid)["done_evidence"] == merged and len(told) == 1
+              and "--sha" in told[0]["body"] and "handoff" in told[0]["body"], msg)
+        ok, msg = actions.mark_task_done(con, t, "dev.worker", sha=merged, repo=repo)
+        check("land: the owner then finishes T with that commit", ok, msg)
+        ok, msg = actions.close_task(con, t, "manager")
+        check("land: and its opener closes it", ok, msg)
+        rc, out = _cli(["task", "review", f"T{t}", "abc1234", "x"], as_agent="dev.worker")
+        check("cli: review of a finished task is refused and exits 1", rc == 1 and "finished" in out, out)
+        t2 = db.new_task(con, "cli", "dev.worker", "manager")
+        db.set_current_task(con, "dev.worker", t2)
+        rc, out = _cli(["task", "review", f"T{t2}", "abc1234", "branch b"], as_agent="dev.worker")
+        check("cli: review opens the child and says T stays", rc == 0 and f"you keep T{t2}" in out, out)
+        rc, out = _cli(["task", "land", f"T{t2}", "abc1234", "merge"], as_agent="dev.worker")
+        check("cli: land while a review is still out is refused", rc == 1 and "already waits" in out, out)
     finally:
         con.close()
     hand_edit_team("""
 agents:
   manager: {}
-  worker: {}
+  dev.worker: {}
   dev.auditor: {}
 edges:
   - { from: manager, to: "*", relation: supervisor, response: async }
-  - { from: worker, to: dev.auditor, relation: peer, response: async }
 deny:
-  - { from: dev.auditor, to: worker, reason: "no hand-backs" }
+  - { from: dev.worker, to: dev.auditor, reason: "no reviews" }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
 """)
     con = db.connect()
     try:
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "worker", "FAIL: again", "FAIL")
-        check("fail-edge: an explicit deny still stops it", not ok and "no hand-backs" in msg, msg)
+        t3 = db.new_task(con, "denied", "dev.worker", "manager")
+        ok, msg = actions.task_review(con, "dev.worker", t3, "abc1234", "x")
+        check("review: an explicit deny still stops it, and leaves no child", not ok and "no reviews" in msg
+              and not db.open_child_tasks(con, t3), msg)
     finally:
         con.close()
 
@@ -8976,9 +8937,8 @@ def main() -> int:
         run(lambda: test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(Path(td) / 'taskqtick'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
-        run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
-        run(lambda: test_an_auditor_handed_a_non_review_task_needs_no_verdict(Path(td) / 'nonreview'))
-        run(lambda: test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(Path(td) / 'fe1'))
+        run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
+        run(lambda: test_review_and_land_are_children_the_owner_waits_on(Path(td) / 'reviewland'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))

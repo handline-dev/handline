@@ -68,6 +68,8 @@ back to the account its session lives on.""",
   ocp read <id>                   one of them whole
   ocp task done T<n> "<evidence>" finish your task (a sha, --request N, or a reason)
   ocp task handoff T<n> <agent> "<note>"   hand it on to someone else
+  ocp task review T<n> <sha> "<note>"   ask the auditor to review it; you keep T<n> and wait
+  ocp task land T<n> <sha> "<note>"     after a PASS: ask the merger to merge it, same way
   ocp cancel <id>                 the founder's: take any request out of an agent's queue
   ocp progress "<note>"           what is done and what is left on your task in progress
                                    (replaces the last note, at most 1500 characters; no note
