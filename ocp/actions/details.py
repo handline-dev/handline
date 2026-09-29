@@ -247,11 +247,16 @@ def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     return declared, undeclared
 
 
-def trust_worktrees(acct: str, worktrees: list[tuple[str, str]]) -> tuple[bool, str]:
+def trust_each(acct: str, worktrees: list[tuple[str, str]]) -> list[tuple[bool, str]]:
     """Pre-authorize `acct` for each (agent, worktree), one throwaway session
     at a time, so a real session there never meets the trust screen cold.
-    (ok, one line per worktree joined by "; "): ok when none failed."""
-    done = [_trust_one_worktree(acct, name, wt) for name, wt in worktrees]
+    One (ok, line) per worktree."""
+    return [_trust_one_worktree(acct, name, wt) for name, wt in worktrees]
+
+
+def trust_worktrees(acct: str, worktrees: list[tuple[str, str]]) -> tuple[bool, str]:
+    """`trust_each` as (ok when none failed, the lines joined by "; ")."""
+    done = trust_each(acct, worktrees)
     return all(ok for ok, _ in done), "; ".join(line for _, line in done)
 
 
