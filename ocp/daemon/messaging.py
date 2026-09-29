@@ -211,6 +211,11 @@ def migrate_old_messages(con, log) -> None:
                            "AND target != ?", (db.HUMAN,)).fetchall():
         askmod.resolve(int(row["id"]), "closed: told before says were typed at once", notify=False)
         log(f"  #{row['id']}: an old say, settled")
+    # T431: a request the daemon before T418 told has `delivered_at` and never a `typed_at`, so
+    # the landing sweep (which reads typed rows) never saw it and it stayed "queued" for good.
+    # Told then is typed then: the sweep now finds it in the transcript, or types it again.
+    con.execute("UPDATE requests SET typed_at = delivered_at WHERE state = 'queued' AND target != ? "
+                "AND delivered_at IS NOT NULL AND typed_at IS NULL AND landed_at IS NULL", (db.HUMAN,))
 
 
 def reload_pending(con, log) -> None:

@@ -1538,6 +1538,37 @@ def test_service_status_when_not_installed(home: Path) -> None:
         service.run_launchctl = orig_runner
 
 
+def test_service_status_when_the_plist_cannot_be_looked_at(home: Path) -> None:
+    """T431: a sandboxed agent cannot stat ~/Library/LaunchAgents; launchd is asked,
+    so a daemon it runs is not reported as hand-started."""
+    import os
+    walled = home / "walled"
+    walled.mkdir(parents=True, exist_ok=True)
+    orig, orig_runner = service.plist_path, service.run_launchctl
+    calls: list = []
+
+    class Printed:
+        returncode, stderr = 0, ""
+        stdout = "\tpid = 31338\n\tlast exit code = 0\n"
+
+    def fake_print(args):
+        calls.append(args)
+        return Printed()
+
+    try:
+        service.plist_path = lambda: walled / "job.plist"
+        service.run_launchctl = fake_print
+        os.chmod(walled, 0)
+        st = service.status()
+        check("service: an unlookable plist makes status() ask launchd",
+              st["installed"] and st["loaded"] and st["pid"] == 31338 and calls, str(st))
+        check("service: that pid is supervised by launchd, not hand-started",
+              service.supervisor_of(31338) == f"launchd ({service.LABEL})")
+    finally:
+        os.chmod(walled, 0o700)
+        service.plist_path, service.run_launchctl = orig, orig_runner
+
+
 def test_service_supervisor_of(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     orig = service.status
@@ -4914,6 +4945,7 @@ def main() -> int:
         run(lambda: test_service_plist(Path(td) / 'svc1'))
         run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
         run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))
+        run(lambda: test_service_status_when_the_plist_cannot_be_looked_at(Path(td) / 'svc3b'))
         run(lambda: test_service_supervisor_of(Path(td) / 'svc4'))
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
