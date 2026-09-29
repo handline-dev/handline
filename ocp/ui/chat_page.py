@@ -138,10 +138,11 @@ def messages_of(rows, agent: str) -> list[dict]:
 
 
 def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
-    """Replies as a tree (founder #2514, #2659). Requests link by `parent_id`; in each thread the
-    longest chain (the newest on a tie) is the outermost line and is not indented. Every other
-    reply is `nested`, in one rail, and comes right after the message it branches from, before
-    the main line goes on. A reply always follows its parent, never the messages that happened
+    """Replies as a tree (founder #2514, #2659, #2746). Requests link by `parent_id`; a thread's
+    first message is not indented and every reply is `nested` from `level` 1 on. At each message
+    the longest chain (the newest on a tie) goes on at the same level, so a long talk does not
+    creep rightwards; every other reply is one level deeper and comes right after the message it
+    branches from, before the longest chain goes on. A reply always follows its parent, never the messages that happened
     to come between. One whose parent is not on screen keeps its place and carries `parent_out`
     (that id). A message still waiting to be delivered is never moved up: it stays below the
     queue line."""
@@ -166,25 +167,27 @@ def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
 
     placed: set[int] = set()
 
-    def group(rid: int, nested: bool) -> list[dict]:
+    def group(rid: int, level: int) -> list[dict]:
         placed.add(rid)
-        return [dict(m, nested=True) if nested else m for m in of[rid]] + below(rid, nested)
+        return [dict(m, nested=level > 0, level=level) if level else m for m in of[rid]] + below(rid, level)
 
-    def below(rid: int, nested: bool) -> list[dict]:
-        """The messages of everything that answers `rid`, side branches first."""
+    def below(rid: int, level: int) -> list[dict]:
+        """The messages of everything that answers `rid`: its side branches first, one level
+        deeper, then its longest chain, which goes on at the first indent."""
         live = sorted(k for k in kids.get(rid, ()) if k not in held)
-        main = None if nested else max(live, key=down, default=None)
+        main = max(live, key=down, default=None)
+        line = max(level, 1)
         out = []
         for kid in live:
             if kid != main:
-                out += group(kid, True)
-        return out + (group(main, False) if main is not None else [])
+                out += group(kid, line + 1)
+        return out + (group(main, line) if main is not None else [])
     flat = [m for m in msgs if parents.get(m["rid"]) not in parents or m["rid"] in held]
     out = []
     for i, m in enumerate(flat):
         out.append(m)
         if not any(n["rid"] == m["rid"] for n in flat[i + 1:]):
-            out += below(m["rid"], False)
+            out += below(m["rid"], 0)
     return out + [dict(m, nested=True) for m in msgs
                   if m["rid"] not in placed and m["rid"] not in {f["rid"] for f in flat}]
 
@@ -449,6 +452,9 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     return out
 
 
+MAX_LEVEL = 4       # deeper branches keep drawing at this indent
+
+
 class ChatMessage(Vertical):
     """One message; a click makes it what the next thing typed replies to. Its send
     now button is shown only while the agent is `working` (mid-turn): with the agent
@@ -480,6 +486,8 @@ class ChatMessage(Vertical):
                 *buttons, classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}" + (" nested" if m.get("nested") else ""))
         self.m = m
+        if m.get("nested"):
+            self.styles.margin = (1, 0, 0, 4 * min(m.get("level", 1), MAX_LEVEL))
         self.set_working(working)
 
     def show_id(self, on: bool) -> None:

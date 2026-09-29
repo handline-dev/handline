@@ -1564,9 +1564,9 @@ def _page_rows(con, rid: int) -> list:
 
 
 def test_replies_thread_under_the_message_they_answer() -> None:
-    """T410 (founder #2514, #2659): the longest chain (the newest on a tie) is the outermost line,
-    every other reply is nested right after the message it branches from, and a reply follows
-    its parent, not the messages that came between."""
+    """T410 (founder #2514, #2659, #2746): a thread's first message is outermost, the longest chain
+    (the newest on a tie) goes on at the first indent, every other reply is one level deeper right
+    after the message it branches from, and a reply follows its parent, not the messages between."""
     from ocp.ui import chat_page as cp
 
     def msg(rid):
@@ -1575,13 +1575,14 @@ def test_replies_thread_under_the_message_they_answer() -> None:
     out = cp.thread_order([msg(r) for r in (10, 11, 12, 13, 14, 15, 20, 30)], parents)
     check("thread: the side chain 14 15 follows 10, then the main line 11 12 13 goes on",
           [m["rid"] for m in out] == [10, 14, 15, 11, 12, 13, 20, 30], str([m["rid"] for m in out]))
-    check("thread: only the side chain is nested",
-          {m["rid"] for m in out if m.get("nested")} == {14, 15}, str(out))
+    check("thread: the root is plain, the main line is level 1 and the side chain level 2",
+          {m["rid"]: m.get("level", 0) for m in out if m["rid"] < 20} ==
+          {10: 0, 11: 1, 12: 1, 13: 1, 14: 2, 15: 2}, str(out))
     check("thread: a reply to an unloaded parent stays put and names it",
           [m["parent_out"] for m in out if m["rid"] == 20] == [5])
     tie = cp.thread_order([msg(r) for r in (1, 2, 3, 4)], {1: None, 2: 1, 3: None, 4: 1})
     check("thread: on equal length the newest chain is the main line, and a reply sits under its parent",
-          [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (4, False), (3, False)],
+          [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (4, True), (3, False)],
           str([(m["rid"], m.get("nested")) for m in tie]))
     held = [msg(r) for r in (1, 2, 3, 4)]
     held[3]["queued"], held[3]["delivered"] = True, False
@@ -2183,7 +2184,8 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": delivered, "replied": 0, "parent_id": None}
+                "dismissed_reason": None, "delivered_at": delivered, "replied": 0, "parent_id": None,
+                "kind": None, "tasks": None}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
