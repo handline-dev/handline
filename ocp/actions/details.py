@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shlex
+import threading
 import time
 
 from ..team import accounts
@@ -292,6 +293,7 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> tuple[bool, str
 
 _SAMPLES: dict = {"db": None, "floor": None, "stamp": None, "rows": [], "ts": []}
 _SAMPLES_BUCKET_S = 300
+_SAMPLES_LOCK = threading.Lock()        # the outlook loads on worker threads, and two can overlap
 
 
 def _usage_samples(con, since: int) -> list:
@@ -300,7 +302,13 @@ def _usage_samples(con, since: int) -> list:
     under it, each with a slightly different `since` - and again only when a sample has
     been written since, or a later window needs older ones than were read. Unchanged
     samples are not read out of the database three times over."""
+    with _SAMPLES_LOCK:
+        return _usage_samples_locked(con, since)
+
+
+def _usage_samples_locked(con, since: int) -> list:
     from bisect import bisect_left
+    from ..usage import outlook
     from ..infra import paths
     have = _SAMPLES
     where = str(paths.db_file())
@@ -311,6 +319,7 @@ def _usage_samples(con, since: int) -> list:
             return have["rows"][bisect_left(have["ts"], since):]
     floor = since - since % _SAMPLES_BUCKET_S
     rows = db.usage_samples(con, since=floor)
+    outlook.forget_before(floor)
     have.update(db=where, floor=floor, rows=rows, ts=[r["ts"] for r in rows],
                 stamp=(len(rows), rows[-1]["ts"] if rows else 0))
     return rows[bisect_left(have["ts"], since):]

@@ -171,6 +171,20 @@ def test_the_outlook_reads_each_sample_once_and_says_the_same(home: Path) -> Non
             db.usage_samples = real_samples
         check("outlook: the three asks of one refresh read the samples once", once == 1, str(once))
         check("outlook: a sample written since is read", after_new == 2, str(after_new))
+
+        # A window that has moved past old samples does not keep them: the cache holds
+        # only what the current window can ask for, so a bridge left open does not grow.
+        outlook._WEEK_CACHE.clear()
+        actions.details._SAMPLES["db"] = None
+        actions.weekly_outlook(con, NOW, 24)
+        before = len(outlook._WEEK_CACHE)
+        later = NOW + 30 * H
+        _sample(con, "alpha", 0.2, 91)
+        actions.weekly_outlook(con, later, 24)
+        floor = actions.details._SAMPLES["floor"]
+        check("outlook: the cache holds no sample older than the floor of what was read",
+              before > 0 and all(k[0] >= floor for k in outlook._WEEK_CACHE)
+              and len(outlook._WEEK_CACHE) < before, f"{before} -> {len(outlook._WEEK_CACHE)}, floor {floor}")
     finally:
         con.close()
 
