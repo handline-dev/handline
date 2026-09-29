@@ -1007,69 +1007,84 @@ DUMP_VALUES = [0.1, -0.0, 2.5, 1e16, -1e16, 1e-7, 1.5e300, 5e-324, 0, -3, 10 ** 
                True, False, None]
 
 
+PYYAML_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "pyyaml_expected.json"
+
+
+def yaml_dump_texts() -> list[str]:
+    """What `yamlcompat.dump` writes for every string and value it is tried on."""
+    return [yamlcompat.dump({"k": v}) for v in DUMP_STRINGS + DUMP_VALUES]
+
+
+def pyyaml_expected() -> dict:
+    """What PyYAML reads from every source the differential tries, as repr text
+    (`<error>` where it refuses). Needs PyYAML: run by
+    `tests/fixtures/regen_pyyaml_expected.py`, never by the suite."""
+    import yaml as pyyaml
+
+    def read(src: str) -> str:
+        try:
+            return repr(pyyaml.safe_load(src))
+        except pyyaml.YAMLError:
+            return "<error>"
+    return {"parse": {src: read(src) for src in DIFFERENTIAL_CASES + [team.STARTER, DESIGN_TEAM]},
+            "dump": {text: read(text) for text in yaml_dump_texts()}}
+
+
 def _check_yaml_differential() -> None:
-    """Compare the bundled parser with PyYAML, which must be importable here.
+    """Compare the bundled parser with what PyYAML reads, kept in
+    tests/fixtures/pyyaml_expected.json so the suite needs no PyYAML.
 
     A source is a mismatch only when ours returns a different value; raising
     where PyYAML succeeds is loud, not silent. Every string `dump` writes must
-    also be read back as itself by both.
+    also read back as itself. Where PyYAML is importable the fixture is also
+    checked to still be what it says.
     """
-    import yaml as pyyaml
+    import json
+    if not PYYAML_FIXTURE.exists():
+        print(f"SKIP  yaml differential: {PYYAML_FIXTURE.name} is missing - "
+              "run tests/fixtures/regen_pyyaml_expected.py where PyYAML is installed")
+        return
+    fixture = json.loads(PYYAML_FIXTURE.read_text())
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        check("yaml differential: the fixture is still what PyYAML reads",
+              fixture == pyyaml_expected(), "run tests/fixtures/regen_pyyaml_expected.py")
 
-    mismatches = []
+    mismatches, missing = [], []
     for src in DIFFERENTIAL_CASES + [team.STARTER, DESIGN_TEAM]:
+        expected = fixture["parse"].get(src)
+        if expected is None:
+            missing.append(src)
+            continue
         try:
-            expected = pyyaml.safe_load(src)
-        except pyyaml.YAMLError:
-            expected = "<error>"
-        try:
-            got = yamlcompat.parse(src)
+            got = repr(yamlcompat.parse(src))
         except yamlcompat.ConfigError:
-            got = "<error>"
-        # A value that agrees in ==, such as 1 and True, is still a different
-        # value here; a NaN never equals itself.
-        if got != "<error>" and (got != expected or repr(got) != repr(expected)):
+            continue    # ours refuses: loud, not silent
+        if got != expected:
             mismatches.append((src, expected, got))
     check("yaml differential: no silent disagreement with PyYAML",
-          not mismatches,
-          "; ".join(f"{s!r}: pyyaml={e!r} ours={g!r}" for s, e, g in mismatches[:3]))
+          not mismatches and not missing,
+          "; ".join(f"{s!r}: pyyaml={e} ours={g}" for s, e, g in mismatches[:3])
+          + (f"; not in the fixture, regenerate it: {missing[0]!r}" if missing else ""))
     check("yaml differential: the list still covers what it was built for",
           len(DIFFERENTIAL_CASES) >= 30, str(len(DIFFERENTIAL_CASES)))
 
     unread = []
-    for value in DUMP_STRINGS:
+    for value in DUMP_STRINGS + DUMP_VALUES:
         text = yamlcompat.dump({"k": value})
         try:
-            ours = yamlcompat.parse(text)
+            ours = repr(yamlcompat.parse(text))
         except yamlcompat.ConfigError:
             ours = "<error>"
-        try:
-            theirs = pyyaml.safe_load(text)
-        except pyyaml.YAMLError:
-            theirs = "<error>"
-        if ours != {"k": value} or theirs != {"k": value}:
-            unread.append((value, text, ours, theirs))
-    for value in DUMP_VALUES:
-        text = yamlcompat.dump({"k": value})
-        ours, theirs = yamlcompat.parse(text), pyyaml.safe_load(text)
-        if repr(ours.get("k")) != repr(value) or repr(theirs["k"]) != repr(value):
+        theirs = fixture["dump"].get(text, "<not in the fixture>")
+        if ours != repr({"k": value}) or theirs != repr({"k": value}):
             unread.append((value, text, ours, theirs))
     check("yaml differential: what dump writes, both parsers read back as the value",
-          not unread, "; ".join(f"{v!r} -> {t!r}: ours={o!r} pyyaml={p!r}"
+          not unread, "; ".join(f"{v!r} -> {t!r}: ours={o} pyyaml={p}"
                                 for v, t, o, p in unread[:3]))
-
-
-def _python_with_pyyaml() -> str | None:
-    """A python3 that can import yaml: the interpreter running the suite when
-    it can, else the machine's venv (requirements.txt), else /usr/bin/python3
-    (which ships it on macOS), else python3 on PATH."""
-    import shutil
-    for py in (sys.executable, str(venvmod.venv_python(MACHINE_VENV)), "/usr/bin/python3",
-               shutil.which("python3")):
-        if py and subprocess.run([py, "-c", "import yaml"],
-                                 capture_output=True).returncode == 0:
-            return py
-    return None
 
 
 def _parsed(src: str):
@@ -2096,7 +2111,9 @@ __all__ = [
     'DUMP_STRINGS',
     'DUMP_VALUES',
     '_check_yaml_differential',
-    '_python_with_pyyaml',
+    'pyyaml_expected',
+    'yaml_dump_texts',
+    'PYYAML_FIXTURE',
     '_parsed',
     '_roundtrip',
     '_refused',

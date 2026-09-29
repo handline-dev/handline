@@ -2,5 +2,3 @@
 # decided, read by both `ocp venv install` (ocp/venv.py) and bin/ocp's own
 # staleness check.
 textual>=0.58
-# Only the test suite imports it: the bundled parser is compared against it.
-pyyaml>=6
