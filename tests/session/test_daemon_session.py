@@ -3522,9 +3522,9 @@ def test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(hom
               dmn_lifecycle.closed_wake_cause(con, "backend", row) is None
               and shown()[0] != "closed, waking", str(shown()))
 
-        ok, msg, tid = actions.task_new("product", "backend", "the blocked thing")
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked thing", "the blocked thing")
         check("setup: a task for it", ok, msg)
-        ok, msg, blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         ok, msg = actions.add_block(con, tid, blocker, "product")
         check("setup: its task is blocked on record", ok, msg)
         con.execute("UPDATE requests SET delivered_at = NULL WHERE target = 'backend'")
@@ -3859,9 +3859,9 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
             db.remove_block(con, w, b_)
 
         # The other half: `--blocked-by` itself refuses to close a loop.
-        _, _, x = actions.task_new("product", "backend", "x")
-        _, _, y = actions.task_new("product", "backend", "y")
-        _, _, z = actions.task_new("product", "backend", "z")
+        _, _, x = actions.task_new("product", "backend", "x", "x")
+        _, _, y = actions.task_new("product", "backend", "y", "y")
+        _, _, z = actions.task_new("product", "backend", "z", "z")
         ok1, _ = actions.add_block(con, x, y, "product")
         ok1b, _ = actions.add_block(con, y, z, "product")
         ok2, why2 = actions.add_block(con, z, x, "product")

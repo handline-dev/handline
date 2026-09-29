@@ -13,4 +13,5 @@ def cmd_say(args) -> int:
     if err:
         print(err)
         return 1
-    return _send("say", target=args.target, body=body, parent=args.parent)
+    return _send("say", target=args.target, body=body, parent=args.parent,
+                 task=args.task, fyi=args.fyi)

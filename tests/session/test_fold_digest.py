@@ -505,13 +505,13 @@ def test_the_handoff_names_the_effective_head_not_a_blocked_one(home: Path) -> N
         write_agent_status("backend", "alpha", session_id="sess-1",
                            transcript_path="/tmp/sess-1.jsonl")
 
-        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head", "the blocked head")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         nxt = db.add_request(con, "reviewer", "backend", "fix it", None,
                              "peer", "async", None, 0, None)
         db.mark_delivered(con, nxt)
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)

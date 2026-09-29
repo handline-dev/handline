@@ -2618,14 +2618,14 @@ def test_a_cold_session_reads_its_blocked_head_through_effective_head(home: Path
         st, now = _cold_backend(home, con, sent)
         log = lambda _m: None
 
-        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head", "the blocked head")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         db.mark_delivered(con, head)
         nxt = db.add_request(con, "reviewer", "backend", "the one behind it", None,
                              "peer", "async", None, 0, None)
         db.mark_delivered(con, nxt)
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)
@@ -3685,7 +3685,7 @@ def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
     rc, out = _cli(["close", "42"])
     check("close: a bare number is refused with both readings, closing nothing",
           rc == 1 and "task 42 or request 42" in out, out)
-    _cli(["task", "new", "--owner", "worker", "t", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "t", "t", "-t", "1h"])
     rc, out = _cli(["close", "T1", "fine"])
     check("close: a real task with evidence says why it refused "
           "(#71: evidence belongs to `ocp task done` now)",

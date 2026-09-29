@@ -884,6 +884,9 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     the board's "waiting on" line, and the notice `_clear_blocks_on` sends
     once the child closes.
     """
+    if not (body or "").strip():
+        return False, ("a task needs a body: the work itself, what done looks like - "
+                       "the title alone is not a brief"), None
     if priority is None:
         priority = db.DEFAULT_PRIORITY
     if parent is not None:
@@ -894,7 +897,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         finally:
             con.close()
     kind = None if owner == HUMAN else "task"
-    ok, msg, rid = askmod.ask(owner, body or title, requester=me, kind=kind)
+    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind)
     if not ok:
         return False, msg, None
     con = db.connect()
