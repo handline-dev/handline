@@ -104,7 +104,7 @@ def reconcile(con, log) -> list[str]:
             # See lifecycle._wake_agent's own closed-agent gate (T146 pt.1):
             # nothing else ever enforces a closed agent's edges.
             delivery.enforce_edges(con, agent, log)
-        if row["closed_at"] and lifecycle.waiting_for(con, agent):
+        if row["closed_at"] and row["terminal"] and lifecycle.waiting_for(con, agent):
             try:
                 ok, why = lifecycle.wake_agent(con, agent, log)
             except (ConfigError, UnicodeDecodeError, OSError) as e:

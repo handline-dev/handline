@@ -3438,6 +3438,50 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         con.close()
 
 
+def test_a_due_park_with_no_terminal_is_started_not_held(home: Path) -> None:
+    """T406: a reboot leaves a parked, closed agent with its deadline due and no
+    terminal. The wake needs a terminal, failed, and kept the park "still due"
+    before the start for work that gives it one - so the row read "wakes at
+    HH:MM", PENDING due, on every tick for good."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    started: list = []
+    real = (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session)
+    try:
+        orcamod.available = lambda: True
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
+
+        def fake_spawn(agent, repo, base="main"):
+            started.append(agent)
+            db.set_terminal(db.connect(), agent, "term_new", str(repo))
+            return True, f"{agent}: worktree {repo}"
+
+        spawnmod.spawn = fake_spawn
+        agents.register("marina", repo=str(home / "checkout"))
+        db.set_terminal(con, "marina", None, None)
+        db.set_closed(con, "marina", "sess_old")
+        support.something_waiting(con, "marina")
+        db.set_agent_state(con, "marina", dmn_states.PARKED,
+                           wake_at=int(time.time()) - 10, detail="usage; wakes at 01:59")
+
+        dmn_reconciler.reconcile(con, lambda _m: None)
+        row = db.get_agent_state(con, "marina")
+        check("reconcile: a due park with no terminal is spent, not left due",
+              row["wake_at"] is None and row["state"] != dmn_states.PARKED, str(dict(row)))
+
+        db.set_agent_state(con, "marina", dmn_states.PARKED,
+                           wake_at=int(time.time()) - 10, detail="usage; wakes at 01:59")
+        dmn_evaluate.supervise(con, "marina", lambda _m: None, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "marina")
+        check("tick: the same park is spent, and the agent is given a terminal for its work",
+              started == ["marina"] and row["wake_at"] is None and row["terminal"] == "term_new",
+              f"{started} {dict(row)}")
+    finally:
+        (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
+        con.close()
+
+
 def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
     """After its window ends, an idle account's last figure describes a window
     that no longer exists, so the only way to learn the truth is to ask.
@@ -4334,6 +4378,7 @@ def main() -> int:
         run(lambda: test_a_resumed_hand_park_stays_forceable_too(Path(td) / 'parklevel6b'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
         run(lambda: test_an_agent_can_put_another_one_to_work(Path(td) / 'dispatch'))
+        run(lambda: test_a_due_park_with_no_terminal_is_started_not_held(Path(td) / 'dueterm'))
         run(lambda: test_a_passed_window_is_asked_about_rather_than_guessed(Path(td) / 'probedue'))
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(
