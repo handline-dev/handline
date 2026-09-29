@@ -127,21 +127,33 @@ class OutlookView(Vertical):
     def on_resize(self) -> None:
         self._draw()
 
+    def _load(self):
+        """What the database says (usage files are read and parsed: hundreds of ms), read on a
+        thread so the page moves while it works."""
+        con = db.connect()
+        try:
+            now, hours = int(time.time()), dict(RANGES)[self.range]
+            outlook = actions.weekly_outlook(con, now, hours)
+            uses = stats.group_uses(actions.agent_use(con, now, hours))
+            picked = self.picked if self.picked in {r.key for r in uses} else None
+            use = next((r.use for r in uses if r.key == picked), None)
+            over = (actions.agent_overlay(con, use, now, hours, [t for t, _ in outlook.past])
+                    if use else [])
+        finally:
+            con.close()
+        return outlook, uses, picked, over
+
     def refresh_rows(self) -> None:
         if not self.display:
             return
-        con = db.connect()
-        try:
-            self.outlook = actions.weekly_outlook(con, int(time.time()), dict(RANGES)[self.range])
-            now, hours = int(time.time()), dict(RANGES)[self.range]
-            self.uses = stats.group_uses(actions.agent_use(con, now, hours))
-            if self.picked not in {r.key for r in self.uses}:
-                self.picked = None
-            use = next((r.use for r in self.uses if r.key == self.picked), None)
-            self.over = (actions.agent_overlay(con, use, now, hours, [t for t, _ in self.outlook.past])
-                         if use else [])
-        finally:
-            con.close()
+
+        def work() -> None:
+            data = self._load()
+            self.app.call_from_thread(self._apply, *data)
+        self.run_worker(work, thread=True, exclusive=True, group="outlook", exit_on_error=False)
+
+    def _apply(self, outlook, uses, picked, over) -> None:
+        self.outlook, self.uses, self.picked, self.over = outlook, uses, picked, over
         table = self.query_one(DataTable)
         keep = table.cursor_row
         out = []
