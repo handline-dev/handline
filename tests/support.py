@@ -49,6 +49,16 @@ os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
 atexit.register(shutil.rmtree, TEST_ROOT, True)
 
+# The suite must not need the real claude: a machine without one (an agent's
+# sandbox) would fail every test that gets as far as launching. A stub that
+# exits at once stands in when none is on PATH; a real one is left alone.
+if shutil.which("claude") is None:
+    _stub_dir = TEST_ROOT / "stub-bin"
+    _stub_dir.mkdir()
+    (_stub_dir / "claude").write_text("#!/bin/sh\nexit 0\n")
+    (_stub_dir / "claude").chmod(0o755)
+    os.environ["PATH"] = f"{_stub_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+
 from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
                      health as clihealth, setup as clisetup, task as clitask)
 from ocp.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
@@ -1051,9 +1061,11 @@ def _check_yaml_differential() -> None:
 
 def _python_with_pyyaml() -> str | None:
     """A python3 that can import yaml: the interpreter running the suite when
-    it can, else /usr/bin/python3 (which ships it on macOS), else python3 on PATH."""
+    it can, else the machine's venv (requirements.txt), else /usr/bin/python3
+    (which ships it on macOS), else python3 on PATH."""
     import shutil
-    for py in (sys.executable, "/usr/bin/python3", shutil.which("python3")):
+    for py in (sys.executable, str(venvmod.venv_python(MACHINE_VENV)), "/usr/bin/python3",
+               shutil.which("python3")):
         if py and subprocess.run([py, "-c", "import yaml"],
                                  capture_output=True).returncode == 0:
             return py
