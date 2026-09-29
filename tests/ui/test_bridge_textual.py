@@ -1522,6 +1522,34 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
     check("history: only strings are read back", cp.load_history() == ["ok"])
 
 
+def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
+    """T421: an answer is a message of its own, so the chat gives the ask and the
+    answer two numbers, draws each once, and a reply under the answer counts as
+    the reply to the ask."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("chatanswer")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        actions.chat_reply(con, "reviewer", "which one?")
+        q = actions.chat_parent(con, "reviewer")
+        askmod.resolve(q, "this one")
+        rows, _ = cp.requests_page(con, "reviewer", False)
+        check("chat: the answer row is not a request of its own in the page",
+              [r["id"] for r in rows] == [q] and rows[0]["answer_id"] is not None, str([dict(r) for r in rows]))
+        msgs = cp.messages_of(rows, "reviewer")
+        check("chat: the ask and the answer carry two different numbers",
+              [(m["part"], m["mid"]) for m in msgs] == [(0, q), (1, rows[0]["answer_id"])]
+              and rows[0]["answer_id"] != q, str(msgs))
+        check("chat: nothing replied yet", not rows[0]["replied"])
+        askmod.ask("reviewer", "thanks", requester=actions.HUMAN, parent_id=rows[0]["answer_id"])
+        check("chat: a reply under the answer's number is a reply to the ask",
+              cp.requests_page(con, "reviewer", False)[0][0]["replied"])
+    finally:
+        con.close()
+
+
 def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -3349,6 +3377,7 @@ async def _run_all() -> None:
     test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number()
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
+    test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()

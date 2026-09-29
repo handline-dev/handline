@@ -81,9 +81,13 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     params = (actions.HUMAN, *params)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
            "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, landing_tries, "
-           "EXISTS (SELECT 1 FROM requests c WHERE c.parent_id = requests.id AND c.requester = ? "
-           f"AND c.state NOT IN {_GONE}) AS replied "
-           f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
+           "EXISTS (SELECT 1 FROM requests c WHERE c.requester = ? AND c.state NOT IN "
+           f"{_GONE} AND (c.parent_id = requests.id OR c.parent_id = "
+           "(SELECT a.id FROM requests a WHERE a.parent_id = requests.id AND a.kind = 'answer' "
+           "LIMIT 1))) AS replied, "
+           "(SELECT a.id FROM requests a WHERE a.parent_id = requests.id AND a.kind = 'answer' "
+           "ORDER BY a.id LIMIT 1) AS answer_id "
+           f"FROM requests WHERE state NOT IN {_GONE} AND kind IS NOT 'answer' AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
         return rows, False
@@ -107,9 +111,15 @@ def signature(con, agent: str, everyone: bool) -> tuple:
     return tuple(row)
 
 
+def _answer_id(r) -> int | None:
+    """The number of the answer's own message, when the row was read with it."""
+    return r["answer_id"] if "answer_id" in r.keys() else None
+
+
 def messages_of(rows, agent: str) -> list[dict]:
     """One dict per message of these requests, in time order: who, when, text,
-    the request it belongs to, whether it is the ask (part 0) or the verdict
+    the request it belongs to (`rid`), its own number (`mid`: the request's for an
+    ask, the answer row's for a verdict), whether it is the ask (part 0) or the verdict
     (part 1), which side said it, whether it is waiting on the human or has been
     answered, and whether the human can reply to it."""
     human = actions.HUMAN
@@ -134,6 +144,7 @@ def messages_of(rows, agent: str) -> list[dict]:
             who = ("you" if speaker == human else speaker) + (
                 "" if human in (speaker, to) else f" → {to}")
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
+                         "mid": r["id"] if part == 0 else _answer_id(r),
                          "text": (text or "").strip("\n") or "(empty)",
                          "waiting": part == 0 and r["state"] == "queued" and r["target"] == human,
                          "replyable": human in (r["requester"], r["target"]),

@@ -26,7 +26,7 @@ def _chat_rows(con, agent: str) -> list:
     return con.execute(
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
         "dismissed_by, dismissed_reason, chain_id, delivered_at, typed_at, landed_at, landing_tries, fyi FROM requests "
-        "WHERE state != 'denied' AND chain_id IN ("
+        "WHERE state != 'denied' AND kind IS NOT 'answer' AND chain_id IN ("
         "  SELECT chain_id FROM requests WHERE "
         "  (requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
         "ORDER BY id", (HUMAN, agent, agent, HUMAN)).fetchall()
@@ -90,13 +90,15 @@ class Said(Row):
     waiting: bool      # the agent is waiting on the human for it
     rid: int | None    # the request it is the ask of (part 0) or the verdict of (part 1)
     part: int
+    mid: int | None    # the message's own number: the request's (part 0), the answer row's (part 1)
 
     def __new__(cls, kind: str, who: str, text: str = "", side: str = "", ts: int = 0,
-                tail: str = "", waiting: bool = False, rid: int | None = None, part: int = 0):
+                tail: str = "", waiting: bool = False, rid: int | None = None, part: int = 0,
+                mid: int | None = None):
         self = super().__new__(cls, f"{who}  {text}" if kind == "msg" else who)
         self.kind, self.who, self.side, self.text = kind, who, side, text
         self.ts, self.tail, self.waiting = ts, tail, waiting
-        self.rid, self.part = rid, part
+        self.rid, self.part, self.mid = rid, part, mid
         return self
 
 
@@ -119,7 +121,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
         chains.setdefault(str(r["chain_id"]), []).append(r)
 
     def said(speaker: str, to: str, text, ts, tail: str = "", waiting: bool = False,
-             rid: int | None = None, part: int = 0) -> Said:
+             rid: int | None = None, part: int = 0, mid: int | None = None) -> Said:
         # What is not between the human and this agent is neither's: the agent
         # asking a third agent is drawn as that, not as the agent speaking to them.
         between = HUMAN in (speaker, to)
@@ -127,7 +129,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
         who = "you" if speaker == HUMAN else speaker if between else f"{speaker} → {to}"
         body = (text or "").strip("\n")
         return Said("msg", who, body if body.strip() else "(empty)", side, ts or 0, tail,
-                    waiting, rid, part)
+                    waiting, rid, part, mid)
 
     threads = []
     for cid, rows in chains.items():
@@ -145,13 +147,15 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
                     tail += f" · #{r['id']}"       # what /cancel names
             msgs.append((r["ts"], r["id"], 0,
                          said(r["requester"], r["target"], r["body"], r["ts"], tail,
-                              r["state"] == "queued" and r["target"] == HUMAN, r["id"], 0)))
+                              r["state"] == "queued" and r["target"] == HUMAN, r["id"], 0, r["id"])))
             shown = db.shown_verdict(r)
             if shown:
                 at = r["resolved_at"] or r["ts"]
+                ans = db.answer_row_of(con, r["id"])
                 msgs.append((at, r["id"], 1, said(r["target"], r["requester"], shown,
                                                   at, f"answers #{r['id']}",
-                                                  rid=r["id"], part=1)))
+                                                  rid=r["id"], part=1,
+                                                  mid=ans["id"] if ans else None)))
         msgs.sort(key=lambda m: m[:3])
         threads.append((max(m[0] for m in msgs), cid, msgs))
     threads.sort(key=lambda t: t[0])
@@ -219,12 +223,14 @@ def chat_unread(con, agent: str) -> int:
     arrive out of order and an id cursor would step past the older one for good.
     Times are whole seconds, so what lands in the very second the tab was marked
     counts as read; the other way, what was just read would stay new. A
-    dismissal counts: the conversation draws it as a new line.
+    dismissal counts: the conversation draws it as a new line. An answer row is
+    not counted as a message of its own: it is the same line the answered
+    request's verdict already counts.
     """
     seen = db.get_cursor(con, _seen_key(agent))
     row = con.execute(
         "SELECT COUNT(*) AS n FROM requests WHERE state != 'denied' AND "
-        "((requester = ? AND target = ? AND ts > ?) OR "
+        "((requester = ? AND target = ? AND ts > ? AND kind IS NOT 'answer') OR "
         " (requester = ? AND target = ? AND (verdict IS NOT NULL OR dismissed_by IS NOT NULL) "
         "  AND resolved_at > ?))",
         (agent, HUMAN, seen, HUMAN, agent, seen)).fetchone()

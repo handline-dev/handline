@@ -91,7 +91,9 @@ def chain_members(con, chain_id: str, exclude_id: int | None = None) -> list:
     counting it before that write lands would count a conversation that, from
     the target's side, never happened.
     """
-    clauses = [f"state NOT IN ({','.join('?' * len(NEVER_REACHED_TARGET))})"]
+    # An answer is a message in the chain, never an ask in it: the rate limit, the
+    # cycle guard and the ping-pong check all count asks.
+    clauses = [f"state NOT IN ({','.join('?' * len(NEVER_REACHED_TARGET))})", "kind IS NOT 'answer'"]
     params: list = [chain_id, *NEVER_REACHED_TARGET]
     if exclude_id is not None:
         clauses.append("id != ?")
@@ -425,12 +427,44 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
         "announced_at = COALESCE(announced_at, ?), dismissed_by = ?, dismissed_reason = ? "
         "WHERE id = ? AND state = 'queued'",
         (state, verdict, now, now if announced else None, dismissed_by, dismissed_reason, rid))
+    if cur.rowcount > 0 and state == "done" and verdict and dismissed_by is None:
+        add_answer(con, rid, verdict)
     return cur.rowcount > 0
+
+
+ANSWER_KIND = "answer"
+
+
+def add_answer(con, rid: int, text: str, at: int | None = None) -> int:
+    """Store what answered request `rid` as a message of its own, with its own
+    id, from the one asked to the one who asked and under the request in its
+    thread - so a reply to the answer can name it. It is already read: telling
+    the asker is the request's own announcement, not this row's."""
+    row = get_request(con, rid)
+    when = int(time.time()) if at is None else at
+    cur = con.execute(
+        "INSERT INTO requests(ts, requester, target, body, kind, chain_depth, parent_id, "
+        "chain_id, state, announced_at, resolved_at, edge_ok) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,1)",
+        (when, row["target"], row["requester"], text, ANSWER_KIND, row["chain_depth"], rid,
+         row["chain_id"], "done", when, when))
+    aid = int(cur.lastrowid)
+    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (aid, aid))
+    return aid
+
+
+def answer_row_of(con, rid: int):
+    """The answer row of request `rid`, if it has one: the message that carries
+    what answered it, and the id to number it by."""
+    return con.execute("SELECT * FROM requests WHERE parent_id = ? AND kind = ? ORDER BY id LIMIT 1",
+                       (rid, ANSWER_KIND)).fetchone()
 
 
 def append_verdict(con, rid: int, text: str) -> None:
     """Add a line to the verdict of a request already closed, before its requester is told."""
     con.execute("UPDATE requests SET verdict = verdict || ? WHERE id = ?", ("\n\n" + text, rid))
+    con.execute("UPDATE requests SET body = body || ? WHERE parent_id = ? AND kind = ?",
+                ("\n\n" + text, rid, ANSWER_KIND))
 
 
 def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None) -> bool:
@@ -482,7 +516,7 @@ def oldest_counted_ask(con, requester: str, since_ts: int) -> int | None:
     """
     row = con.execute(
         "SELECT ts FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' "
-        "ORDER BY ts LIMIT 1", (requester, since_ts),
+        "AND kind IS NOT 'answer' ORDER BY ts LIMIT 1", (requester, since_ts),
     ).fetchone()
     return int(row["ts"]) if row else None
 
@@ -504,7 +538,8 @@ def standing_denial(con, requester: str, target: str, body: str, files: str | No
 
 def asks_since(con, requester: str, since_ts: int) -> int:
     row = con.execute(
-        "SELECT COUNT(*) AS c FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied'",
+        "SELECT COUNT(*) AS c FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' "
+        "AND kind IS NOT 'answer'",
         (requester, since_ts),
     ).fetchone()
     return int(row["c"])
