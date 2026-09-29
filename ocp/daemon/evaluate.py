@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, lifecycle, messaging, reconciler, timebox, usage_poll, waitfor
+from . import delivery, handoff, landing, lifecycle, messaging, reconciler, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED, awaiting_reply)
 
@@ -111,6 +111,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # or a wake still settling - gets one more try every tick, RUNNING
     # included: unlike the rest of this function, a pending message is not
     # gated on being idle.
+    landing.sweep(con, agent, log)
     messaging.tell_undelivered(con, agent, log)
     messaging.deliver_pending(con, agent, log)
 
@@ -158,13 +159,15 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             # See lifecycle._wake_agent's own closed-agent gate (T146 pt.1):
             # nothing else ever enforces a closed agent's edges.
             delivery.enforce_edges(con, agent, log)
-        if restored and not (row["terminal"] and lifecycle.waiting_for(con, agent)):
+        if restored and not ((row["terminal"] or lifecycle.resumable_without_terminal(row))
+                             and lifecycle.waiting_for(con, agent)):
             # The deadline is spent and nothing came for it: a closed session
             # is not resumed to be told nothing. It stays closed, and what
             # arrives next is what wakes it (the block below). Nor is one with
-            # no terminal (a reboot leaves that): a wake needs a terminal to
-            # type into, and still-due would hold it here for good, ahead of
-            # the start for work below that is what gives it one (T406).
+            # nowhere to run (a reboot leaves that): still-due would hold it
+            # here for good, ahead of the start for work below that is what
+            # gives it a terminal (T406). A closed one whose pane closed with
+            # its session has a worktree to wake into.
             woke, restored = False, False
         else:
             woke, why = lifecycle.wake_agent(con, agent, log)

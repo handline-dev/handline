@@ -18,6 +18,7 @@ import concurrent.futures
 import os
 import re
 import subprocess
+import time
 import sys
 import tempfile
 from pathlib import Path
@@ -37,10 +38,15 @@ def area_files() -> list[Path]:
     return sorted(files, key=lambda p: -p.stat().st_size)
 
 
+TIMES: dict[str, float] = {}     # file name -> seconds its process took
+
+
 def _run_one(path: Path, args: list[str], python: str | None = None) -> tuple[Path, int, str]:
     env = {k: v for k, v in os.environ.items() if k not in ("OCP_AGENT", "OCP_ACCOUNT")}
+    started = time.monotonic()
     done = subprocess.run([python or sys.executable, str(path), *args], capture_output=True,
                           text=True, env=env)
+    TIMES[path.name] = time.monotonic() - started
     return path, done.returncode, done.stdout + done.stderr
 
 
@@ -107,6 +113,8 @@ def run_all(argv: list[str]) -> int:
         failures += re.findall(r"^  FAILED: (.*)$", output, re.M)
     if skipped:
         print(skipped)
+    print("\nslowest files: " + ", ".join(f"{n} {t:.0f}s" for n, t in
+                                         sorted(TIMES.items(), key=lambda kv: -kv[1])[:6]))
     print(f"\n{passed} passed, {failed} failed")
     for f in failures:
         print(f"  FAILED: {f}")

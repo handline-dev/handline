@@ -58,6 +58,33 @@ def cmd_idle_timeout(args) -> int:
     return 0
 
 
+def cmd_idle_background(args) -> int:
+    """T424: when an idle agent that still runs background work is told to finish or stop
+    it, and how long after that the work is stopped. Global, or one agent's own."""
+    if args.clear and not args.agent:
+        print("--clear only applies with --agent", file=sys.stderr)
+        return 1
+    try:
+        for key, value in (("bg_notice_s", args.notice), ("bg_grace_s", args.grace)):
+            if value is not None or args.clear:
+                idle_close.set_bg_seconds(key, None if args.clear else value, args.agent)
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    who = args.agent or "default"
+    notice = idle_close.bg_notice_s(args.agent) if args.agent else idle_close.config_seconds(
+        "bg_notice_s", idle_close.default_close_timeout_s())
+    grace = idle_close.bg_grace_s(args.agent) if args.agent else idle_close.config_seconds(
+        "bg_grace_s", idle_close.BG_GRACE_S)
+    closes = idle_close.close_timeout_s(args.agent) if args.agent else idle_close.default_close_timeout_s()
+    if closes == idle_close.NEVER:
+        print(f"{who}: never told - its idle window is 'never close'")
+        return 0
+    print(f"{who}: told to finish or stop its background work after {timefmt.ago(notice)} of nothing "
+          f"shown, and it is stopped {timefmt.ago(grace)} after that")
+    return 0
+
+
 def cmd_auto_accept(args) -> int:
     if args.state is not None:
         try:

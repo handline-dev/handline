@@ -1274,7 +1274,7 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
 
-        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing")
+        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing", "do the blocked thing")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         check("setup: task_new already delivered it - backend was idle and typeable",
@@ -1291,7 +1291,7 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
         check("blocked: nothing new to deliver while the head is merely open",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
 
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)
@@ -1356,7 +1356,7 @@ def test_head_task_blocked_by_the_agents_own_linked_ask(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("product", "backend", "needs a mockup first")
+        ok, msg, tid = actions.task_new("product", "backend", "needs a mockup first", "needs a mockup first")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         check("setup: not blocked before anything is asked",
@@ -1387,7 +1387,7 @@ def test_a_blocked_head_is_not_shown_as_a_pending_reminder(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing")
+        ok, msg, tid = actions.task_new("product", "backend", "do the blocked thing", "do the blocked thing")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         db.set_agent_state(con, "backend", dmn_states.IDLE)
@@ -1402,7 +1402,7 @@ def test_a_blocked_head_is_not_shown_as_a_pending_reminder(home: Path) -> None:
         check("setup: an ordinary open head would show as a pending reminder",
               f"reminder to resolve #{head}" in blockedmod.work_waiting(con, "backend", row, now))
 
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)
@@ -1424,13 +1424,13 @@ def test_a_closed_agents_wake_reads_the_blocked_head_through_effective_head(home
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head", "the blocked head")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         check("unblocked: waiting_for sees the plain head",
               dmn_lifecycle.waiting_for(con, "backend"))
 
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)
@@ -2620,8 +2620,8 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         "task edit --blocked-by": ["task", "edit", f"T{other}", "--blocked-by", n],
         "task edit --unblock": ["task", "edit", f"T{other}", "--unblock", n],
         "task link": ["task", "link", n, "1"],
-        "task new --parent": ["task", "new", "--owner", "worker", "y", "--parent", n, "-t", "1h"],
-        "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "--blocked-by", n,
+        "task new --parent": ["task", "new", "--owner", "worker", "y", "y", "--parent", n, "-t", "1h"],
+        "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "y", "--blocked-by", n,
                                   "-t", "1h"],
         "resolve --task": ["resolve", "1", "ok", "--task", n],
         "dismiss --task": ["dismiss", "1", "--task", n],
@@ -3390,13 +3390,19 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
 
         # Replying to an answer is a new request in that answer's thread. It is
         # the one place a parent id is known rather than guessed.
+        answer = db.answer_row_of(con, rid)
+        check("T421: the answer is a message of its own - its own id, under the request, from the one asked",
+              answer is not None and answer["id"] != rid and answer["parent_id"] == rid
+              and answer["kind"] == "answer" and answer["body"].startswith("MERGE.")
+              and answer["requester"] == "reviewer" and answer["target"] == actions.HUMAN,
+              str(dict(answer) if answer else None))
         said = actions.answer(con, rid, "merged, thank you")
-        follow = db.get_request(con, rid + 1)
+        follow = db.get_request(con, answer["id"] + 1)
         check("mailbox: replying sends it back to the agent that answered",
               follow["target"] == "reviewer" and follow["requester"] == actions.HUMAN,
               said)
-        check("mailbox: in the thread it replies to",
-              follow["parent_id"] == rid
+        check("mailbox: in the thread it replies to - under the answer, by its own id",
+              follow["parent_id"] == answer["id"]
               and follow["chain_id"] == db.get_request(con, rid)["chain_id"],
               f"parent={follow['parent_id']} chain={follow['chain_id']}")
         check("mailbox: and what was replied to leaves the mailbox",
@@ -4145,15 +4151,15 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
 
 def test_task_new_list_and_link(home: Path) -> None:
     _board_world(home)
-    rc, out = _cli(["task", "new", "--owner", "worker", "build the board", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "build the board", "build the board", "-t", "1h"])
     check("task new: opens a task", rc == 0 and "task T1" in out, out)
-    rc, out = _cli(["task", "new", "--owner", "nobody", "x", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--owner", "nobody", "x", "x", "-t", "1h"])
     check("task new: an owner that is not an agent is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "x", "-t", "1h"], as_agent=askmod.HUMAN)
+    rc, out = _cli(["task", "new", "--owner", "worker", "x", "x", "-t", "1h"], as_agent=askmod.HUMAN)
     check("task new: never in the founder's name", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "part", "--parent", "T9", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "part", "part", "--parent", "T9", "-t", "1h"])
     check("task new: a parent that does not exist is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "--parent", "T1", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
     check("task new: a child task", rc == 0, out)
     rid = _human_request()
     rc, out = _cli(["task", "link", "T1", str(rid)])
@@ -4172,11 +4178,11 @@ def test_task_new_parent_auto_blocks(home: Path) -> None:
     A re-check reopens the same child rather than opening a new one, and the
     parent stays blocked the whole time it is done but not yet closed."""
     _board_world(home)
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work", "parent work"])
     check("task new: opens the parent", rc == 0, out)
     t_parent = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it", "review it",
                     "--parent", f"T{t_parent}", "--expects", "verdict"], as_agent="worker")
     check("task new --parent: opens the child", rc == 0, out)
     t_child = int(out.split("task T", 1)[1].split()[0])
@@ -4232,13 +4238,13 @@ def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
     visible must not make merge see a reason to refuse where none was there
     before. An unrelated, explicit `--blocked-by` still refuses as always."""
     _board_world(home)
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work", "parent work"])
     t_parent = int(out.split("task T", 1)[1].split()[0])
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it", "review it",
                     "--parent", f"T{t_parent}"], as_agent="worker")
     check("task new --parent: opens the open child", rc == 0, out)
     t_child = int(out.split("task T", 1)[1].split()[0])
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "other work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "other work", "other work"])
     t_other = int(out.split("task T", 1)[1].split()[0])
 
     rc, out = _cli(["task", "merge", f"T{t_other}", f"T{t_parent}"])
@@ -4293,7 +4299,7 @@ limits:
         before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "outsider", "not my line"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "outsider", "not my line", "not my line"])
     check("task new: refused by the routing table, the same as `ocp ask` (C2)",
           rc == 1 and "denied" in out, out)
     con = db.connect()
@@ -4324,7 +4330,7 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "second one"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "second one", "second one"])
     check("task new: a second task for an owner who already holds one still opens and "
           "delivers", rc == 0, out)
     tid2 = int(out.split("task T", 1)[1].split()[0])
@@ -4387,7 +4393,8 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", askmod.HUMAN, "founder decision needed"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", askmod.HUMAN, "founder decision needed",
+                    "founder decision needed"])
     check("task new: the founder is a valid owner - a decision task (C3)",
           rc == 0 and "task T" in out, out)
     tid_human = int(out.split("task T", 1)[1].split()[0])
@@ -4413,7 +4420,7 @@ limits:
     # review finding): its live request was retired some other way (the
     # founder's own `cancel`), which clears nothing on the task side, so
     # discard is reachable while current_task still points at it.
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "will be discarded", "--expects", "report"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "will be discarded", "will be discarded", "--expects", "report"])
     check("setup: a third task for worker", rc == 0, out)
     tid3 = int(out.split("task T", 1)[1].split()[0])
     _cli(["task", "start", f"T{tid3}"], as_agent="worker")
@@ -4442,7 +4449,7 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
     _board_world(home)
 
     def _new(title: str, priority: str | None = None, blocked_by: int | None = None) -> int:
-        argv = ["task", "new", "-t", "90m", "--owner", "worker", title]
+        argv = ["task", "new", "-t", "90m", "--owner", "worker", title, title]
         if priority is not None:
             argv += ["--priority", priority]
         if blocked_by is not None:
@@ -4511,6 +4518,207 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
         con.close()
 
 
+def test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(home: Path) -> None:
+    """T421 (auditor #2828): an answer row is a message in the chain, not an ask
+    in it - so answering does not use up the answerer's asks, and a follow-up
+    under an answer is not a cycle."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  a: {}
+  b: {}
+
+edges:
+  - { from: "a", to: "b", response: fire_and_forget }
+  - { from: "b", to: "a", response: fire_and_forget }
+
+limits:
+  max_chain_depth: 8
+  ask_rate_per_hour: 3
+""")
+    for n in ("a", "b"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        rids = []
+        for i in range(3):
+            ok, msg, rid = askmod.ask("b", f"question {i}", requester="a")
+            check(f"setup: a's ask {i} goes", ok, msg)
+            rids.append(rid)
+        for rid in rids:
+            askmod.resolve(rid, "answered")
+        check("rate: three answers were written as rows", len([1 for r in rids if db.answer_row_of(con, r)]) == 3)
+        check("rate: answering used none of b's asks", db.asks_since(con, "b", 0) == 0,
+              str(db.asks_since(con, "b", 0)))
+        ok, msg, _ = askmod.ask("a", "b's first ask of the hour", requester="b")
+        check("rate: so b's own first ask goes through", ok, msg)
+        check("rate: and the oldest counted ask is b's own, not an answer",
+              db.oldest_counted_ask(con, "b", 0) is not None)
+
+        hand_edit_team("""
+agents:
+  a: {}
+  b: {}
+
+edges:
+  - { from: "a", to: "b", response: fire_and_forget }
+  - { from: "b", to: "a", response: fire_and_forget }
+
+limits:
+  max_chain_depth: 8
+  ask_rate_per_hour: 50
+""")
+        answer = db.answer_row_of(con, rids[0])
+        ok, msg, _ = askmod.ask("b", "under the answer", requester="a", parent_id=answer["id"])
+        check("cycle: a follow-up under the answer row is not a cycle", ok and "Escalated" not in msg, msg)
+        ok, msg, _ = askmod.ask("b", "under its own request", requester="a", parent_id=rids[1])
+        check("cycle: nor one under the request that was answered", ok and "Escalated" not in msg, msg)
+    finally:
+        con.close()
+
+
+def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> None:
+    """T421: what answers a request is stored as a row of its own - its own id,
+    under the request in its thread - so the chat can number it and a reply can
+    name it. A dismissal is no answer, an old verdict is given a row once, and
+    the conversation draws each message once."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, msg, rid = askmod.ask("manager", "quick q?", requester="worker")
+        check("setup: a request", ok, msg)
+        askmod.resolve(rid, "the answer")
+        ans = db.answer_row_of(con, rid)
+        check("answer row: its own id, under the request, from the one asked to the asker",
+              ans is not None and ans["id"] != rid and ans["parent_id"] == rid
+              and ans["requester"] == "manager" and ans["target"] == "worker"
+              and ans["body"] == "the answer" and ans["kind"] == "answer" and ans["state"] == "done"
+              and ans["chain_id"] == db.get_request(con, rid)["chain_id"], str(dict(ans) if ans else None))
+        check("answer row: it is already read, so nobody is told twice",
+              ans["announced_at"] is not None)
+        db.append_verdict(con, rid, "and one more line")
+        check("answer row: a line added to the verdict is added to the message",
+              db.get_request(con, rid)["verdict"].endswith("one more line")
+              and db.answer_row_of(con, rid)["body"] == "the answer\n\nand one more line")
+
+        ok, msg, rid2 = askmod.ask("manager", "another?", requester="worker")
+        actions.dismiss(con, rid2, me="manager", reason="not needed")
+        check("dismissal: no answer row - it is a state, not words", db.answer_row_of(con, rid2) is None)
+
+        hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        ok, msg, h1 = askmod.ask("manager", "founder question", requester=actions.HUMAN)
+        askmod.resolve(h1, "manager's answer")
+        ok, msg, h2 = askmod.ask("manager", "another founder question", requester=actions.HUMAN)
+        actions.dismiss(con, h2, me=actions.HUMAN, reason="not needed", no_task="nothing to build")
+        h_ans = db.answer_row_of(con, h1)
+        rows, _ = actions.conversation_and_drawn(con, "manager", hint=False)
+        said = [r for r in rows if getattr(r, "kind", "") == "msg"]
+        asks = [r for r in said if r.part == 0 and r.rid == h1]
+        answers = [r for r in said if r.part == 1 and r.rid == h1]
+        check("conversation: the ask and its answer are each drawn once, numbered apart",
+              len(asks) == 1 and len(answers) == 1 and asks[0].mid == h1 and answers[0].mid == h_ans["id"]
+              and h_ans["id"] != h1, str([(r.rid, r.part, r.mid) for r in said]))
+        check("conversation: no answer row is drawn as a request of its own",
+              len([r for r in said if r.text == "manager's answer"]) == 1,
+              str([r.text for r in said]))
+        dismissed = [r for r in said if r.rid == h2 and r.part == 1]
+        check("conversation: a dismissal has no number of its own", dismissed and dismissed[0].mid is None)
+
+        # An old verdict, written before answer rows existed, is given one - once.
+        old = db.add_request(con, "worker", "manager", "old question", None, None, None, None, 0,
+                             None, state="done", verdict="old verdict")
+        con.execute("UPDATE requests SET resolved_at = 1000 WHERE id = ?", (old,))
+        db.set_cursor(con, "migrated:answer_rows", 0)
+        con.close()
+        con = db.connect()
+        made = db.answer_row_of(con, old)
+        check("migration: an old verdict becomes an answer row, at the time it was answered",
+              made is not None and made["body"] == "old verdict" and made["ts"] == 1000,
+              str(dict(made) if made else None))
+        count = con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"]
+        con.close()
+        con = db.connect()
+        check("migration: a second connect adds nothing, and the earlier answers are not doubled",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"] == count
+              and len([1 for r in con.execute("SELECT id FROM requests WHERE parent_id = ? AND kind = 'answer'",
+                                              (rid,))]) == 1)
+    finally:
+        con.close()
+
+
+def test_decide_records_the_founders_decision_and_closes_the_task(home: Path) -> None:
+    """T361 step 2: `actions.decide` is the one way a founder-owned task is
+    decided; every refusal comes before anything is written."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    ok, msg, tid = actions.task_new("worker", askmod.HUMAN, "which name?", "which name should it have?")
+    check("setup: a decision task", ok, msg)
+    ok, msg, plain = actions.task_new("manager", "worker", "build it", "build it")
+    check("setup: a task that is not the founder's", ok, msg)
+    con = db.connect()
+    try:
+        card = next(r for r in db.task_requests(con, tid) if r["target"] == askmod.HUMAN)["id"]
+        for text in ("", "   \n"):
+            ok, said = actions.decide(con, tid, text)
+            check(f"decide {text!r}: refused as no decision typed", not ok and "no decision" in said, said)
+        ok, said = actions.decide(con, 99999, "x")
+        check("decide: a missing task is refused", not ok and "no task T99999" in said, said)
+        ok, said = actions.decide(con, plain, "x")
+        check("decide: a task that is not the founder's is refused", not ok and "not the founder's" in said, said)
+        check("decide: the refusals wrote nothing",
+              db.get_request(con, card)["state"] == "queued" and not db.get_task(con, tid)["done_evidence"]
+              and not db.get_task(con, plain)["done_evidence"])
+
+        ok, msg, kid = actions.task_new("worker", "manager", "sub-question", "a part of it", parent=tid)
+        check("setup: an open child task", ok, msg)
+        ok, said = actions.decide(con, tid, "call it x")
+        check("decide: an open child refuses before anything is written",
+              not ok and f"T{kid}" in said and "open child" in said, said)
+        check("decide: so the card is still open and the task undecided",
+              db.get_request(con, card)["state"] == "queued" and not db.get_task(con, tid)["done_evidence"]
+              and not db.get_task(con, tid)["closed_by"])
+        db.close_task(con, kid, "manager")
+
+        ok, said = actions.decide(con, tid, "  call it x  ")
+        row = db.get_task(con, tid)
+        check("decide: the retry decides", ok, said)
+        check("decide: the text is the evidence and the founder closed it",
+              row["done_evidence"] == "call it x" and row["closed_by"] == askmod.HUMAN,
+              str(dict(row)))
+        req = db.get_request(con, card)
+        check("decide: the card's request is settled with the same text",
+              req["state"] == "done" and req["verdict"] == "call it x")
+        ok, said = actions.decide(con, tid, "again")
+        check("decide: a task already decided is refused and keeps the first decision",
+              not ok and "already decided" in said and db.get_task(con, tid)["done_evidence"] == "call it x", said)
+    finally:
+        con.close()
+
+
 def test_advance_current_task_never_touches_the_founder(home: Path) -> None:
     """Auditor #1873 finding 1: a decision task (owner human) ending must
     never set a current-task row or reorder a queue for the founder - it
@@ -4531,13 +4739,13 @@ limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50
 """)
-    ok, msg, t_done = actions.task_new("worker", askmod.HUMAN, "decision: done path")
+    ok, msg, t_done = actions.task_new("worker", askmod.HUMAN, "decision: done path", "decision: done path")
     check("setup: first decision task opens", ok, msg)
-    ok, msg, t_close = actions.task_new("worker", askmod.HUMAN, "decision: close path")
+    ok, msg, t_close = actions.task_new("worker", askmod.HUMAN, "decision: close path", "decision: close path")
     check("setup: second decision task opens", ok, msg)
-    ok, msg, t_discard = actions.task_new("worker", askmod.HUMAN, "decision: discard path")
+    ok, msg, t_discard = actions.task_new("worker", askmod.HUMAN, "decision: discard path", "decision: discard path")
     check("setup: third decision task opens", ok, msg)
-    ok, msg, t_untouched = actions.task_new("worker", askmod.HUMAN, "decision: left queued")
+    ok, msg, t_untouched = actions.task_new("worker", askmod.HUMAN, "decision: left queued", "decision: left queued")
     check("setup: fourth decision task opens, its own request left queued throughout", ok, msg)
 
     con = db.connect()
@@ -4585,9 +4793,9 @@ def test_promote_to_front_never_jumps_a_delivered_head(home: Path) -> None:
     finally:
         con.close()
 
-    ok, msg, t1 = actions.task_new("manager", "worker", "first")
+    ok, msg, t1 = actions.task_new("manager", "worker", "first", "first")
     check("setup: t1 opens", ok, msg)
-    ok, msg, t2 = actions.task_new("manager", "worker", "second")
+    ok, msg, t2 = actions.task_new("manager", "worker", "second", "second")
     check("setup: t2 opens", ok, msg)
     con = db.connect()
     try:
@@ -4631,9 +4839,9 @@ def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
     check("timeout parsing: 90m and 4h themselves are fine",
           actions.parse_task_timeout("90m") == 5400
           and actions.parse_task_timeout("4h") == actions.MAX_TASK_TIMEOUT_S)
-    rc, out = _cli(["task", "new", "--owner", "worker", "no timeout given"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "no timeout given", "no timeout given"])
     check("task new: -t/--timeout is required", rc != 0 and "timeout" in out.lower(), out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "timed", "-t", "90m"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "timed", "timed", "-t", "90m"])
     check("task new: a valid timeout opens the task", rc == 0 and "task T1" in out, out)
     con = db.connect()
     try:
@@ -5031,12 +5239,12 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "dependent",
+    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "dependent", "dependent",
                     "--blocked-by", f"T{t_blocker}", "-t", "1h"])
     check("task new --blocked-by: opens the task blocked", rc == 0, out)
     t_dep = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "--owner", "worker", "x", "--blocked-by", "T999", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--owner", "worker", "x", "x", "--blocked-by", "T999", "-t", "1h"])
     check("task new --blocked-by: a blocker that does not exist is refused",
           rc == 1 and "no task" in out, out)
 
@@ -5314,8 +5522,8 @@ def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None
     """The guard (#1259): every human-requester resolve, including a reply in a
     running thread, needs --task or --no-task; nothing else is guarded."""
     _board_world(home)
-    _cli(["task", "new", "--owner", "worker", "deliverable one", "-t", "1h"])
-    _cli(["task", "new", "--owner", "worker", "deliverable two", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "deliverable one", "deliverable one", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "deliverable two", "deliverable two", "-t", "1h"])
     r1 = _human_request()
     rc, out = _cli(["resolve", str(r1), "ok"])
     check("guard: a bare resolve of the founder's request is refused", rc == 1 and "--task" in out, out)
@@ -5595,7 +5803,7 @@ limits:
     for n in ("manager", "worker", "owner2"):
         agents.register(n)
 
-    fok, fmsg, first = actions.task_new("manager", "worker", "first")
+    fok, fmsg, first = actions.task_new("manager", "worker", "first", "first")
     check("setup: worker's first task is delivered and current", fok, fmsg)
     con = db.connect()
     try:
@@ -5625,7 +5833,7 @@ limits:
     # the ordinary way once owner2 marks `busy` done. What must not happen
     # is `deferred`'s own delivery, right after, re-parking manager for an
     # approval it made and moved on from - never a live wait of its own.
-    bok, bmsg, busy = actions.task_new("manager", "owner2", "busy")
+    bok, bmsg, busy = actions.task_new("manager", "owner2", "busy", "busy")
     check("setup: owner2's first task is delivered and current", bok, bmsg)
     con = db.connect()
     try:
@@ -5660,7 +5868,7 @@ def test_advance_moves_past_a_done_task_even_if_it_carries_a_stale_blocker(home:
     finished work until someone closes it, which itself needs the blocker
     gone first - exactly what T318/T325 exist to avoid."""
     _board_world(home)
-    fok, fmsg, x = actions.task_new("manager", "worker", "x")
+    fok, fmsg, x = actions.task_new("manager", "worker", "x", "x")
     check("setup: x is worker's current task", fok and db.current_task(
         db.connect(), "worker") == x, fmsg)
     con = db.connect()
@@ -5670,7 +5878,7 @@ def test_advance_moves_past_a_done_task_even_if_it_carries_a_stale_blocker(home:
         con.close()
     rc, out = _cli(["task", "edit", f"T{x}", "--blocked-by", f"T{y}"], as_agent="manager")
     check("setup: x waits on y", rc == 0, out)
-    zok, zmsg, z = actions.task_new("manager", "worker", "z")
+    zok, zmsg, z = actions.task_new("manager", "worker", "z", "z")
     check("setup: z is worker's second, still-queued task", zok, zmsg)
 
     rc, out = _cli(["task", "done", f"T{x}", "shipped"], as_agent="worker")
@@ -5779,7 +5987,7 @@ def test_a_reopen_voids_the_earlier_release_so_a_later_close_still_advances(home
     # T1 is a real delivered task, its own request still open - the one
     # thing that keeps advance_current_task from overriding it (T1's
     # own busy-ness, not just a current_task row set by hand).
-    ok, msg, t1 = actions.task_new("manager", "worker", "T1, worker's other work")
+    ok, msg, t1 = actions.task_new("manager", "worker", "T1, worker's other work", "T1, worker's other work")
     check("setup: T1 is delivered as worker's current task", ok and t1 is not None, msg)
     con = db.connect()
     try:
@@ -6489,7 +6697,7 @@ def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None
     """#1341: dismiss is the second way an agent closes a request the founder
     made, so it takes the same guard; the founder's own hands do not."""
     _board_world(home)
-    _cli(["task", "new", "--owner", "worker", "the work", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "the work", "the work", "-t", "1h"])
     r = _human_request()
     rc, out = _cli(["dismiss", str(r)])
     check("dismiss: a founder request is refused without --task or --no-task",
@@ -6586,9 +6794,9 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
     git("add", ".")
     git("commit", "-q", "-m", "on main")
     full = git("rev-parse", "HEAD")
-    _cli(["task", "new", "--owner", "worker", "one", "-t", "1h"])
-    _cli(["task", "new", "--owner", "worker", "two", "-t", "1h"])
-    _cli(["task", "new", "--owner", "worker", "three", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "one", "one", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "two", "two", "-t", "1h"])
+    _cli(["task", "new", "--owner", "worker", "three", "three", "-t", "1h"])
     rc, out = _cli(["task", "done", "T1", "abc123", "--repo", str(repo)], as_agent="worker")
     check("sha: hex that names no commit is refused, not recorded as a reason",
           rc == 1 and "not an ancestor of main" in out, out)
@@ -7080,10 +7288,10 @@ def test_task_priority_sorts_and_numbers_compare_as_numbers(home: Path) -> None:
         ids = [db.new_task(con, f"filler {i}", "worker", "manager") for i in range(11)]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "urgent", "--owner", "worker", "--priority", "P1", "-t", "1h"],
+    rc, out = _cli(["task", "new", "urgent", "--owner", "worker", "urgent", "--priority", "P1", "-t", "1h"],
                    as_agent="manager")
     check("priority: new takes --priority", rc == 0 and "P1" in out, out)
-    rc, out = _cli(["task", "new", "later", "--owner", "worker", "--priority", "p3", "-t", "1h"],
+    rc, out = _cli(["task", "new", "later", "--owner", "worker", "later", "--priority", "p3", "-t", "1h"],
                    as_agent="manager")
     try:
         actions.parse_priority("P4")
@@ -7374,7 +7582,7 @@ def test_the_open_task_count_is_queued_plus_doing(home: Path) -> None:
         check("count: nothing yet is nothing", count() == 0)
         draft = db.new_task(con, "just a draft", "worker", "manager")
         check("count: a draft that is not current is not counted", count() == 0)
-        ok, _, doing = actions.task_new("manager", "worker", "in hand")
+        ok, _, doing = actions.task_new("manager", "worker", "in hand", "in hand")
         check("count: a delivered task is doing, and counted",
               ok and actions.task_state(con, db.get_task(con, doing)) == "doing" and count() == 1)
         queued = db.new_task(con, "next up", "worker", "manager")
@@ -7421,7 +7629,7 @@ def test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(home: 
 
         # worker is already busy with a first, delivered task - queuing `t`
         # must not jump the line: it stays queued, nothing sent for it yet.
-        fok, fmsg, first = actions.task_new("manager", "worker", "first")
+        fok, fmsg, first = actions.task_new("manager", "worker", "first", "first")
         check("setup: worker's first task is delivered and current",
               fok and db.current_task(con, "worker") == first, fmsg)
 
@@ -7633,7 +7841,7 @@ limits:
         agents.register(n)
     con = db.connect()
     try:
-        ok, _, t = actions.task_new("manager", "worker", "the change")
+        ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
         check("handoff: setup - worker holds T", ok and db.current_task(con, "worker") == t)
         H = lambda me, to, note="note", v=None: actions.task_handoff(con, me, t, to, note, v)
         ok, msg = H("worker", "dev.auditor", "  ")
@@ -7775,7 +7983,7 @@ limits: { max_chain_depth: 4, ask_rate_per_hour: 50 }
         agents.register(n)
     con = db.connect()
     try:
-        ok, _, t = actions.task_new("manager", "dev.auditor", "review every X for Y")
+        ok, _, t = actions.task_new("manager", "dev.auditor", "review every X for Y", "review every X for Y")
         check("setup: opened straight onto the auditor", ok)
         check("not a review: no previous owner recorded",
               actions.previous_owner(con, t, "dev.auditor") is None)
@@ -7787,7 +7995,7 @@ limits: { max_chain_depth: 4, ask_rate_per_hour: 50 }
         # handoff), the plain refusal still applies - no "not a review?"
         # escape (auditor #2466): that hint led straight to a PASS on work
         # nobody reviewed, the thing the verdict gate exists to stop.
-        ok, _, u = actions.task_new("manager", "worker2", "the change")
+        ok, _, u = actions.task_new("manager", "worker2", "the change", "the change")
         actions.task_handoff(con, "worker2", u, "dev.auditor", "branch@abc: fixed it")
         ok, msg = actions.task_handoff(con, "dev.auditor", u, "manager", "no verdict")
         check("handoff: a real review still needs a verdict, plainly, no escape hint",
@@ -7818,7 +8026,7 @@ limits:
         agents.register(n)
     con = db.connect()
     try:
-        ok, _, t = actions.task_new("manager", "worker", "the change")
+        ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
         ok, msg = actions.task_handoff(con, "worker", t, "dev.auditor", "for review")
         check("fail-edge: setup - the maker reaches the auditor by a declared edge", ok, msg)
         ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "PASS: green", "PASS")
@@ -8221,7 +8429,7 @@ limits:
 
         # An open decision task to human is a recorded wait - answered, it
         # is not.
-        ok, msg, dec = actions.task_new("worker", askmod.HUMAN, "founder decision needed")
+        ok, msg, dec = actions.task_new("worker", askmod.HUMAN, "founder decision needed", "founder decision needed")
         check("setup: a decision task", ok, msg)
         dec_rid = db.task_requests(con, dec)[0]["id"]
         check("stop_wait_reason: an open decision task to human is a recorded wait",
@@ -8338,6 +8546,9 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
+        run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
+        run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
             Path(td) / 'nexttask'))
         run(lambda: test_advance_current_task_never_touches_the_founder(Path(td) / 'nexttaskhuman'))

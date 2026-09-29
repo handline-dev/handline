@@ -150,22 +150,24 @@ def worktree_path(recorded: str | None) -> str | None:
     return path if Path(path).is_dir() else None
 
 
-def start_in(agent: str, worktree: str) -> tuple[bool, str]:
+def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, str]:
     """Start an agent in a worktree it already has.
 
     A terminal can be closed by a human, or lost when Orca restarts, without
     anything happening to the work: the branch, the checkout and whatever is
     uncommitted in it are all still there. Making a second worktree for that
     agent would be the wrong repair - it would strand the first.
+
+    `cmd` is what the terminal runs; a wake passes its launch with the resume id
+    and prompt file, since a closed session's pane is closed with it (T407).
     """
     if not shutil.which("orca"):
         return False, "orca is not on PATH"
     if not Path(worktree).exists():
         return False, f"{agent}: its worktree {worktree} is gone"
-    cmd = launch.command_for(agent)
     code, out, err = _run([
         "orca", "terminal", "create", "--worktree", f"path:{worktree}",
-        "--title", agent, "--command", cmd, "--json",
+        "--title", agent, "--command", cmd or launch.command_for(agent), "--json",
     ])
     if code != 0:
         return False, f"{agent}: could not start in {worktree}: {err or out}"

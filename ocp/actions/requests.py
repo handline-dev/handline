@@ -30,6 +30,18 @@ def answer(con, rid: int, verdict: str) -> str:
     return answer_ok(con, rid, verdict)[1]
 
 
+def decision_task_of(con, row) -> int | None:
+    """The open task owned by the founder that this request delivers, if any:
+    replying to its card is the decision, not a verdict on the request."""
+    if row["state"] != "queued" or row["target"] != HUMAN:
+        return None
+    hit = con.execute(
+        "SELECT t.id FROM tasks t JOIN task_requests l ON l.task_id = t.id "
+        "WHERE l.request_id = ? AND t.owner = ? AND t.closed_by IS NULL "
+        "AND t.done_evidence IS NULL", (row["id"], HUMAN)).fetchone()
+    return int(hit["id"]) if hit else None
+
+
 def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
     """Reply to one row of the human's mailbox, whichever way it is pointing.
 
@@ -45,8 +57,14 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
     row = db.get_request(con, rid)
     if row is None:
         return False, f"#{rid} is gone"
+    tid = decision_task_of(con, row)
+    if tid is not None:
+        from . import tasks
+        return tasks.decide(con, tid, verdict)
     if _is_answer_to_human(row):
-        ok, msg, _ = askmod.ask(row["target"], verdict, requester=HUMAN, parent_id=rid)
+        said = db.answer_row_of(con, rid)
+        ok, msg, _ = askmod.ask(row["target"], verdict, requester=HUMAN,
+                                parent_id=said["id"] if said else rid)
         if ok:
             # Replied to is read: leaving it in the mailbox would ask the human
             # to dismiss what they have just answered.
@@ -479,7 +497,7 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
         "dismissed_by, dismissed_reason "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
-        "AND state != 'denied' ORDER BY id DESC LIMIT ?",
+        "AND state != 'denied' AND kind IS NOT 'answer' ORDER BY id DESC LIMIT ?",
         (HUMAN, other, other, HUMAN, EXCHANGE_ROWS + len(skip)),
     ).fetchall()
     out: list[str] = []

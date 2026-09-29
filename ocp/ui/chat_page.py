@@ -25,6 +25,7 @@ from textual.widgets.option_list import Option
 
 from .. import actions, db
 from ..actions.prompt_blocks import PERMISSION, QUESTION
+from ..daemon import landing as landingmod
 from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
 from ..usage import status
@@ -50,6 +51,14 @@ _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 # Requests read per page. The newest page is what opens; older ones are read
 # only when the chat is scrolled to its top.
 PAGE = 30
+# T418: what the row under a message the agent has not answered says. Only a line
+# its transcript shows is delivered.
+LANDING_LABELS = {
+    "queued": "queued, not delivered",
+    "typed": "typed, not in its session yet",
+    "lost": f"not delivered: {landingmod.LOST_TEXT}",
+    "delivered": "delivered, not answered yet",
+}
 
 
 def _scope(agent: str, everyone: bool) -> tuple[str, tuple]:
@@ -69,13 +78,20 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
+    params = (actions.HUMAN, *params)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at, parent_id, kind, "
+           "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, landing_tries, parent_id, kind, "
            "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
            "WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, "
-           "(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id "
-           f"FROM requests WHERE state NOT IN {_GONE} AND {where}")
+           "(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, "
+           "EXISTS (SELECT 1 FROM requests c WHERE c.requester = ? AND c.state NOT IN "
+           f"{_GONE} AND (c.parent_id = requests.id OR c.parent_id = "
+           "(SELECT a.id FROM requests a WHERE a.parent_id = requests.id AND a.kind = 'answer' "
+           "LIMIT 1))) AS replied, "
+           "(SELECT a.id FROM requests a WHERE a.parent_id = requests.id AND a.kind = 'answer' "
+           "ORDER BY a.id LIMIT 1) AS answer_id "
+           f"FROM requests WHERE state NOT IN {_GONE} AND kind IS NOT 'answer' AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
         return _with_task_state(con, rows), False
@@ -103,15 +119,27 @@ def signature(con, agent: str, everyone: bool) -> tuple:
     where, params = _scope(agent, everyone)
     row = con.execute(
         "SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(resolved_at), 0), "
-        "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), "
+        "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), COALESCE(MAX(landed_at), 0), "
+        "COUNT(landed_at), COALESCE(MAX(typed_at), 0), COALESCE(SUM(landing_tries), 0), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
         params).fetchone()
     return tuple(row)
 
 
+def _col(r, name: str):
+    """A column of a page row, None when the row was read without it."""
+    return r[name] if name in r.keys() else None
+
+
+def _answer_id(r) -> int | None:
+    """The number of the answer's own message, when the row was read with it."""
+    return _col(r, "answer_id")
+
+
 def messages_of(rows, agent: str) -> list[dict]:
     """One dict per message of these requests, in time order: who, when, text,
-    the request it belongs to, whether it is the ask (part 0) or the verdict
+    the request it belongs to (`rid`), its own number (`mid`: the request's for an
+    ask, the answer row's for a verdict), whether it is the ask (part 0) or the verdict
     (part 1), which side said it, and whether the human can reply to it. Nothing here tracks
     whether a message was answered (founder #2659)."""
     human = actions.HUMAN
@@ -129,27 +157,36 @@ def messages_of(rows, agent: str) -> list[dict]:
                       and r["state"] == "queued")
             held = (part == 0 and speaker != human and r["target"] != human
                     and r["state"] == "queued" and not r["delivered_at"])
-            waiting_to_go = held or queued and not r["delivered_at"]
-            if part == 0 and r["delivered_at"]:
-                at = r["delivered_at"]      # a message sits where its agent read it, not where it queued
+            landing = landingmod.state(r)
+            waiting_to_go = held or queued and landing != "delivered"
+            if part == 0 and r["landed_at"]:
+                at = r["landed_at"]      # a message sits where its agent read it, not where it queued
             who = ("you" if speaker == human else speaker) + (
                 "" if human in (speaker, to) else f" → {to}")
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
+                         "mid": r["id"] if part == 0 else _answer_id(r),
                          "text": (text or "").strip("\n") or "(empty)",
                          "replyable": human in (r["requester"], r["target"]),
                          "queued": queued,
                          "held": held,
                          "to": to,
-                         "kind": r["kind"],
-                         "tasks": sorted(int(t) for t in (r["tasks"] or "").split(",") if t),
-                         "task_title": r["task_title"], "task_state": r["task_state"],
-                         "delivered": bool(r["delivered_at"]),
+                         "kind": _col(r, "kind"),
+                         "tasks": sorted(int(t) for t in (_col(r, "tasks") or "").split(",") if t),
+                         "task_title": _col(r, "task_title"), "task_state": _col(r, "task_state"),
+                         "delivered": landing == "delivered",
+                         "landing": landing,
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
     msgs.sort(key=lambda m: m["_key"])
     for m in msgs:
         del m["_key"]
-    return thread_order(msgs, {r["id"]: r["parent_id"] for r in rows})
+    of_answer = {r["answer_id"]: r["id"] for r in rows if _answer_id(r)}
+    return thread_order(msgs, {r["id"]: of_answer.get(_col(r, "parent_id"), _col(r, "parent_id")) for r in rows})
+
+
+def mid_of(m: dict) -> int:
+    """The number a message goes by: its own row's (an answer has one), else its request's."""
+    return m.get("mid") or m["rid"]
 
 
 def thread_order(msgs: list[dict], parents: dict) -> list[dict]:
@@ -307,13 +344,13 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
 
 
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
-    """Send `body` as a reply to request `rid`, or where the conversation says
-    it goes when `rid` is None. A question the agent is waiting on is closed
-    with `body` as its verdict, and an answer to the human's own request gets a
-    new request and is marked read (both `actions.answer_ok`); anything else -
-    a question already closed - is a new request under it to the agent on
-    that row - its target if the human asked it, else its requester - which in All chat
-    is not always the agent whose page this is."""
+    """Send `body` as a reply to request `rid`, or as a plain message when `rid`
+    is None. Inside a decision card the reply is the decision, and inside a
+    legacy question to the human it is that request's verdict (both
+    `actions.answer_ok`); an answer to the human's own request gets a new request
+    and is marked read; anything else is a new request under the row, to the agent
+    on it - its target if the human asked it, else its requester - which in All
+    chat is not always the agent whose page this is."""
     if rid is None:
         return actions.chat_reply_ok(con, agent, body)
     row = db.get_request(con, rid)
@@ -494,14 +531,14 @@ class ChatMessage(Vertical):
         if note is not None:
             parts.append(Static(note, classes="qstate"))
         self._send_now: Button | None = None
+        landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
         if m.get("queued"):
             buttons = []
-            if not m.get("delivered"):
+            if landing == "queued":
                 self._send_now = Button("⚡ send now", classes="sendnow", compact=True)
                 buttons = [self._send_now, Button("✕ cancel", classes="cancel", compact=True)]
             parts.append(Horizontal(
-                Static("delivered, not answered yet" if m.get("delivered") else "queued, not delivered",
-                       classes="qstate"),
+                Static(LANDING_LABELS[landing], classes="qstate"),
                 *buttons, classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}" + (" nested" if m.get("nested") else "")
                          + (" card" if is_card(m) else ""))
@@ -515,7 +552,7 @@ class ChatMessage(Vertical):
         self._who.display = on or self._always
         head = self._head.copy()
         if on:
-            head.append(f"  #{self.m['rid']}", style="bold")
+            head.append(f"  #{mid_of(self.m)}", style="bold")
         self._who.update(head)
 
     def set_working(self, working: bool) -> None:
@@ -1108,7 +1145,7 @@ class ChatPage(JobsAware, Screen):
             agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the queue line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
-            (f"   reply to #{reply.m['rid']}" if reply else "", "bold"),
+            (f"   reply to #{mid_of(reply.m)}" if reply else "", "bold"),
             ("  · esc to cancel" if reply else "", "dim"))
 
     def on_mount(self) -> None:
@@ -1266,7 +1303,7 @@ class ChatPage(JobsAware, Screen):
             con.close()
         self.oldest = rows[0]["id"] if rows else None
         msgs = messages_of(rows, self.agent)
-        waiting = [m for m in msgs if m["queued"] and not m["delivered"]]
+        waiting = [m for m in msgs if m["queued"] and m["landing"] == "queued"]
         held = [m for m in msgs if m["held"]]
         why = ""
         if waiting and self.agent_state[0] != "RUNNING":     # the spinner already says it
@@ -1283,7 +1320,8 @@ class ChatPage(JobsAware, Screen):
                 con.close()
         state, detail = self.agent_state
         wait = detail if detail.startswith("waiting for") else ""
-        key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["dismissed_by"])
+        key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
+                      r["landing_tries"], r["dismissed_by"])
                      for r in rows), state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:
             return          # nothing a viewer would see changed - the widgets and scroll stay put
@@ -1611,7 +1649,7 @@ class ChatPage(JobsAware, Screen):
 
     def action_show_message(self, rid: int) -> None:
         """Scroll to message `rid` and light it for a moment."""
-        target = next((w for w in self.query(ChatMessage) if w.m["rid"] == rid), None)
+        target = next((w for w in self.query(ChatMessage) if rid in (w.m["rid"], w.m.get("mid"))), None)
         if target is None:
             self.notify(f"#{rid} is not on this page - scroll up for older messages", timeout=6)
             return
@@ -1665,7 +1703,7 @@ class ChatPage(JobsAware, Screen):
             box.text = ""
             self.run_verb(word, arg.strip())
             return
-        rid = self.replying.m["rid"] if self.replying else None
+        rid = mid_of(self.replying.m) if self.replying else None
         self.start_send(body, rid)
 
     def send_now(self, rid: int) -> None:

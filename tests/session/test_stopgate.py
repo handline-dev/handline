@@ -20,7 +20,7 @@ from ocp.infra import protected  # noqa: E402
 
 def _open_task(home: Path) -> int:
     _board_world(home)
-    ok, msg, tid = actions.task_new("manager", "worker", "doing something")
+    ok, msg, tid = actions.task_new("manager", "worker", "doing something", "doing something")
     check("setup: the task opens and is delivered", ok, msg)
     return tid
 
@@ -66,7 +66,7 @@ def test_stop_hook_active_and_once_per_session_guard_the_loop(home: Path) -> Non
     block, reason = stopgate.decide("worker", {"session_id": "s2"})
     check("a new session: reported again for the same task", reason is not None, reason)
 
-    ok, msg, tid2 = actions.task_new("manager", "worker", "another task")
+    ok, msg, tid2 = actions.task_new("manager", "worker", "another task", "another task")
     check("setup: worker already holds one, so this stays queued behind it", ok, msg)
     block, reason = stopgate.decide("worker", {"session_id": "s2"})
     check("same session, task unchanged still: not reported a third time",

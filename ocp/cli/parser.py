@@ -18,7 +18,7 @@ from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_drift, cmd_events, cmd_fold, cmd_rollover, cmd_status, cmd_triggers
 from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status, cmd_hooks_sync
 from .hr import cmd_hr, cmd_trust
-from .idle import cmd_auto_accept, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
+from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
@@ -289,6 +289,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read the body from this file instead of the inline argument")
     p.add_argument("--parent", type=int, default=None,
                    help="the say this replies to, for its thread - a reply to a say is a say")
+    p.add_argument("--task", type=_task_arg, default=None, metavar="T",
+                   help="a say to your report about this task: it lands as a note on T<n>")
+    p.add_argument("--fyi", default=None, metavar="WHY",
+                   help="a say to your report that is not work: say why (the reason is a check, not stored)")
     p.set_defaults(fn=cmd_say)
 
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")
@@ -441,6 +445,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with --agent, drop its override and follow the global setting again")
     p.set_defaults(fn=cmd_idle_timeout)
 
+    p = sub.add_parser("idle-background", help="show or set when an idle agent still running background "
+                       "work is told to finish or stop it, and how long after that it is stopped (T424)")
+    p.add_argument("--notice", type=span_arg, default=None, metavar="SPAN",
+                   help="how long it may show nothing before the notice (90s, 10m); default is its idle timeout")
+    p.add_argument("--grace", type=span_arg, default=None, metavar="SPAN",
+                   help="how long after the notice its work is stopped if it still shows nothing; default 5m")
+    p.add_argument("--agent", default=None,
+                   help="set only this agent's own override, instead of the global default")
+    p.add_argument("--clear", action="store_true",
+                   help="with --agent, drop both its overrides and follow the global settings again")
+    p.set_defaults(fn=cmd_idle_background)
+
     p = sub.add_parser("ignore-cache-expiry", help="show or set whether a resume may reuse "
                        "a session past its prompt cache's expiry instead of starting fresh (T52)")
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None,
@@ -523,7 +539,7 @@ def build_parser() -> argparse.ArgumentParser:
                                   "to --owner, checked against the routing table")
     p.add_argument("title")
     p.add_argument("body", nargs="?", default=None,
-                   help="the work itself, sent to --owner; the title is used if omitted")
+                   help="the work itself, sent to --owner; required - the title is not a brief")
     p.add_argument("--owner", required=True, help="an agent, or 'human' for a decision task")
     p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
                    help="the task this is a part of, written T<number>")

@@ -1522,6 +1522,38 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
     check("history: only strings are read back", cp.load_history() == ["ok"])
 
 
+def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
+    """T421: an answer is a message of its own, so the chat gives the ask and the
+    answer two numbers, draws each once, and a reply under the answer counts as
+    the reply to the ask."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("chatanswer")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        actions.chat_reply(con, "reviewer", "which one?")
+        q = actions.chat_parent(con, "reviewer")
+        askmod.resolve(q, "this one")
+        rows, _ = cp.requests_page(con, "reviewer", False)
+        check("chat: the answer row is not a request of its own in the page",
+              [r["id"] for r in rows] == [q] and rows[0]["answer_id"] is not None, str([dict(r) for r in rows]))
+        msgs = cp.messages_of(rows, "reviewer")
+        check("chat: the ask and the answer carry two different numbers",
+              [(m["part"], m["mid"]) for m in msgs] == [(0, q), (1, rows[0]["answer_id"])]
+              and rows[0]["answer_id"] != q, str(msgs))
+        check("chat: nothing replied yet", not rows[0]["replied"])
+        askmod.ask("reviewer", "thanks", requester=actions.HUMAN, parent_id=rows[0]["answer_id"])
+        check("chat: a reply under the answer's number is a reply to the ask",
+              cp.requests_page(con, "reviewer", False)[0][0]["replied"])
+        after = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+        check("chat: a reply to the answer sits one level under its ask and answer",
+              [(m["part"], m.get("level", 0)) for m in after] == [(0, 0), (1, 0), (0, 1)]
+              and cp.mid_of(after[1]) == rows[0]["answer_id"], str(after))
+    finally:
+        con.close()
+
+
 def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -1546,7 +1578,8 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
         msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
         check("chat: a queued message can be cancelled, not yet delivered",
               msgs[0]["queued"] and not msgs[0]["delivered"] and msgs[0]["side"] == "you", str(msgs[0]))
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (int(time.time()), first))
+        con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ? WHERE id = ?",
+                    (int(time.time()),) * 3 + (first,))
         con.commit()
         check("chat: once delivered it says so",
               cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")[0]["delivered"])
@@ -2183,7 +2216,8 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": delivered, "replied": 0, "parent_id": None,
+                "dismissed_reason": None, "delivered_at": delivered, "typed_at": delivered,
+                "landed_at": delivered, "landing_tries": None, "replied": 0, "parent_id": None,
                 "kind": None, "tasks": None, "task_title": None, "task_state": None}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
@@ -2206,6 +2240,35 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
           and "waiting for x's reply (#1)" in line.render().plain, str(waits))
 
 
+def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
+    """T418: a request typed at an agent is delivered only once its transcript shows it."""
+    from ocp.ui import chat_page as cp
+    now = int(time.time())
+    def row(typed, landed, tries=None):
+        return {"id": 1, "ts": 100, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
+                "state": "queued", "body": "m", "verdict": None, "dismissed_by": None,
+                "dismissed_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
+                "landing_tries": tries, "replied": 0}
+    def label_and_buttons(r):
+        m = cp.messages_of([r], "reviewer")[0]
+        kids = cp.ChatMessage(m)._pending_children
+        strip = [c for c in kids if type(c).__name__ == "Horizontal"][0]
+        texts = [str(c.content) for c in strip._pending_children
+                 if type(c).__name__ == "Static"]
+        return m["landing"], texts, [c for c in strip._pending_children if type(c).__name__ == "Button"]
+    check("chat: not typed yet reads queued, with send now and cancel",
+          label_and_buttons(row(None, None))[0] == "queued" and len(label_and_buttons(row(None, None))[2]) == 2)
+    landing, texts, buttons = label_and_buttons(row(now, None))
+    check("chat: typed but not in the transcript reads typed, and cannot be sent now",
+          landing == "typed" and texts == ["typed, not in its session yet"] and not buttons, str((landing, texts)))
+    landing, texts, _ = label_and_buttons(row(now - 1000, None, 2))
+    check("chat: typed again and again with nothing in the transcript reads not delivered",
+          landing == "lost" and texts[0].startswith("not delivered"), str((landing, texts)))
+    landing, texts, _ = label_and_buttons(row(now, now))
+    check("chat: the transcript shows it: delivered", landing == "delivered"
+          and texts == ["delivered, not answered yet"], str((landing, texts)))
+
+
 def test_a_delivery_changes_the_chat_signature() -> None:
     from ocp.ui import chat_page as cp
     _home("sigdeliver")
@@ -2214,10 +2277,13 @@ def test_a_delivery_changes_the_chat_signature() -> None:
         rid = db.add_request(con, "alpha", "reviewer", "one", None, None, None, None, 0, None)
         con.commit()
         before = cp.signature(con, "reviewer", True)
-        con.execute("UPDATE requests SET delivered_at = 5 WHERE id = ?", (rid,))
+        con.execute("UPDATE requests SET delivered_at = 5, typed_at = 5 WHERE id = ?", (rid,))
         con.commit()
-        check("chat: a delivery moves the signature though the state stays queued",
-              cp.signature(con, "reviewer", True) != before)
+        typed = cp.signature(con, "reviewer", True)
+        check("chat: a typing moves the signature though the state stays queued", typed != before)
+        con.execute("UPDATE requests SET landed_at = 6 WHERE id = ?", (rid,))
+        con.commit()
+        check("chat: and so does the line landing in its transcript", cp.signature(con, "reviewer", True) != typed)
     finally:
         con.close()
 
@@ -2338,12 +2404,12 @@ def test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind() ->
     _home("qblocked")
     con = db.connect()
     try:
-        ok, msg, tid = actions.task_new("product", "backend", "the blocked head")
+        ok, msg, tid = actions.task_new("product", "backend", "the blocked head", "the blocked head")
         check("setup: backend holds the task", ok, msg)
         head = db.task_requests(con, tid)[0]["id"]
         ok, msg, nxt = askmod.ask("backend", "fix it instead", requester="reviewer")
         check("setup: another request queues behind it", ok, msg)
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated")
+        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
         check("setup: a task to block on", ok, msg)
         ok, msg = actions.add_block(con, tid, t_blocker, "product")
         check("setup: the task is now blocked", ok, msg)
@@ -2822,6 +2888,40 @@ async def test_the_dialog_modal_offers_always_except_for_a_truncated_title() -> 
 def _block(con, agent: str, kind: str, detail: dict, title: str = "t", wait_id=None, answerable=True) -> int:
     """A prompt_blocks row as the daemon's screen watch writes it."""
     return db.prompt_open(con, agent, kind, f"fp{time.time()}", title, [], detail, wait_id, answerable, int(time.time()))
+
+
+def test_the_permission_modal_shows_the_whole_panel_without_the_tip() -> None:
+    """T411: a multi-line command never matches the hook's one-line summary, so the panel's own
+    lines are what the founder judges by, warning line included, minus the auto-mode tip."""
+    from ocp.ui.components.permission_modal import panel_text
+    d = {"command": "Bash command", "lines": ("Bash command", "git commit -F - <<'EOF'", "msg", "EOF",
+                                              "Tip: auto mode handles these prompts", "Contains simple_expansion")}
+    text = panel_text(d)
+    check("permission modal: every line of the command and the warning is shown, the tip is not",
+          "msg" in text and "EOF" in text and "simple_expansion" in text and "Tip" not in text, text)
+    check("permission modal: no panel lines falls back to the one-line command",
+          panel_text({"command": "rm -rf build/", "lines": ()}) == "rm -rf build/")
+
+
+async def test_the_permission_modal_is_as_tall_as_its_content_not_the_window() -> None:
+    """T411 (founder #2692): the scrollable command box must not stretch the dialog over the window."""
+    from textual.app import App
+    from ocp.ui.components.permission_modal import PermissionModal
+    seen = {"agent": "backend", "tool": "Bash", "command": "ls", "lines": ("Bash command", "ls -la", "list it"),
+            "reason": "", "wait": 5}
+    long = dict(seen, lines=tuple(f"echo line {i}" for i in range(60)))
+
+    class Host(App):
+        pass
+    heights = []
+    for d in (seen, long):
+        app = Host()
+        async with app.run_test(size=(100, 50)) as pilot:
+            await app.push_screen(PermissionModal(d))
+            await pilot.pause(0.2)
+            heights.append(app.screen.query_one("#dialog").size.height)
+    check("permission modal: a short command gives a short dialog, a long one is capped below the window",
+          heights[0] < 15 and heights[1] <= 48 and heights[1] > heights[0], str(heights))
 
 
 async def test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer() -> None:
@@ -3409,6 +3509,7 @@ async def _run_all() -> None:
     test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number()
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
+    test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_replies_thread_under_the_message_they_answer()
     await test_a_chat_opened_from_a_for_you_row_has_that_message_picked()
@@ -3481,6 +3582,8 @@ async def _run_all() -> None:
     await test_home_settings_lists_the_standing_answers_and_removes_one()
     await test_a_dialog_on_an_agent_terminal_is_read_and_pressed()
     await test_the_dialog_modal_offers_always_except_for_a_truncated_title()
+    test_the_permission_modal_shows_the_whole_panel_without_the_tip()
+    await test_the_permission_modal_is_as_tall_as_its_content_not_the_window()
     await test_the_chat_page_shows_one_modal_per_block_and_only_asks_for_the_answer()
     await test_a_question_modal_keeps_its_own_press_and_other_prompt()
     await test_a_ticking_background_detail_does_not_rebuild_the_transcript_every_poll()
@@ -3493,6 +3596,7 @@ async def _run_all() -> None:
     await test_hr_tab_approve_reject_withdraw_and_the_red_dot()
     await test_the_home_accounts_row_shows_the_alias()
     test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue()
+    test_the_chat_says_typed_until_the_transcript_shows_the_line()
     test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()

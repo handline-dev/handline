@@ -653,6 +653,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
     try:
         orca_seen()
         orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         table = sessions_are("backend")
         orcamod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -792,6 +793,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         check("start: and a worktree that is gone is not one",
               spawnmod.worktree_path(f"abc123::{wt}-missing") is None)
         db.set_terminal(con, "backend", None, f"abc123::{wt}")
+        db.clear_closed(con, "backend")     # closed with a session to resume, it is woken instead (T407)
 
         started: list[list[str]] = []
         real_run = spawnmod._run
@@ -1270,40 +1272,39 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         actions.chat_seen(con, "reviewer")
         check("chat: seen clears the count", tab()[0] == "CONVERSATION", tab()[0])
 
-        # A message typed without picking one to reply to starts a thread of its own (#2622).
+        # Typed outside a card, a message is a plain message: nothing is guessed.
         actions.chat_reply(con, "reviewer", "thanks - now the docs")
-        second = db.get_request(con, actions.chat_parent(con, "reviewer"))
-        check("chat: an unaddressed message has no parent", second["parent_id"] is None, str(dict(second)))
+        plain = db.get_request(con, actions.chat_parent(con, "reviewer"))
+        check("chat: a message typed in the tab is a new message to the agent",
+              plain["body"] == "thanks - now the docs" and plain["requester"] == actions.HUMAN
+              and plain["target"] == "reviewer" and plain["parent_id"] is None, str(dict(plain)))
 
-        # Two open questions with a report older than both: the oldest question.
+        # An open question is not answered by typing in the tab; only inside its card.
         old_fyi = askmod.ask(actions.HUMAN, "status: started", requester="reviewer", fyi=True)[2]
         q1 = askmod.ask(actions.HUMAN, "first question?", requester="reviewer")[2]
         q2 = askmod.ask(actions.HUMAN, "second question?", requester="reviewer")[2]
-        check("chat: the oldest open question, never a report",
-              actions.chat_target(con, "reviewer") == ("answers", q1),
-              str(actions.chat_target(con, "reviewer")))
         actions.chat_reply(con, "reviewer", "one")
-        check("chat: and then the next", actions.chat_target(con, "reviewer") == ("answers", q2))
-        actions.chat_reply(con, "reviewer", "two")
+        check("chat: typing in the tab closes no question",
+              db.get_request(con, q1)["state"] == "queued" and db.get_request(con, q2)["state"] == "queued")
+        check("chat: and the footer promises nothing about answering",
+              not any("answers #" in r for r in tab()[1]), str(tab()[1][-2:]))
+        actions.answer_ok(con, q1, "one")
+        check("chat: a legacy question is closed by a reply inside its card",
+              db.get_request(con, q1)["verdict"] == "one" and db.get_request(con, q2)["state"] == "queued")
+        askmod.resolve(q2, "two")
         askmod.resolve(old_fyi, "read")
 
-        # A question followed by a report: the reply is to the question.
-        q = askmod.ask(actions.HUMAN, "which colour?", requester="reviewer")[2]
-        f = askmod.ask(actions.HUMAN, "status: halfway", requester="reviewer", fyi=True)[2]
-        check("chat: the footer names the question, not the newer report",
-              any(f"answers #{q}" in r for r in tab()[1]), str(tab()[1][-2:]))
-        actions.chat_reply(con, "reviewer", "blue")
-        check("chat: the reply closes the question and leaves the report",
-              db.get_request(con, q)["verdict"] == "blue"
-              and db.get_request(con, f)["verdict"] is None)
-        askmod.resolve(f, "read")
-
-        # An agent's question to the human is answered, not asked under.
-        rid, = [askmod.ask(actions.HUMAN, "which name?", requester="reviewer")[2]]
-        actions.chat_reply(con, "reviewer", "call it x")
-        check("chat: a question to the human is closed by the reply",
-              db.get_request(con, rid)["state"] == "done"
-              and db.get_request(con, rid)["verdict"] == "call it x")
+        # A decision card: the reply inside it is the decision, recorded and closed.
+        ok, msg, tid = actions.task_new("reviewer", actions.HUMAN, "which name?", "which name?")
+        card = next(r for r in db.task_requests(con, tid) if r["target"] == actions.HUMAN)["id"]
+        ok, said = actions.answer_ok(con, card, "call it x")
+        row = db.get_task(con, tid)
+        check("chat: the reply in a decision card decides and closes its task",
+              ok and row["done_evidence"] == "call it x" and row["closed_by"] == actions.HUMAN, said)
+        check("chat: and settles the request that carried the card",
+              db.get_request(con, card)["state"] == "done" and db.get_request(con, card)["verdict"] == "call it x")
+        ok, said = actions.answer_ok(con, card, "again")
+        check("chat: a second reply decides nothing", db.get_task(con, tid)["done_evidence"] == "call it x", said)
     finally:
         con.close()
 
@@ -1508,6 +1509,24 @@ def test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(home: Pa
     out = _capture(lambda: climod.main(["ignore-cache-expiry", "--agent", "backend", "--clear"]))
     check("ignore-cache-expiry: --clear drops it back to the global switch",
           idle_close.ignore_cache_expiry("backend"), out)
+
+
+def test_t424_idle_background_sets_the_notice_and_the_grace_globally_and_per_agent(home: Path) -> None:
+    _daemon_home(home, 20)
+    out = _capture(lambda: climod.main(["idle-background"]))
+    check("idle-background: with nothing set, the notice is the idle close and the grace 5 minutes",
+          "default: told to finish or stop its background work after 10m of nothing shown, "
+          "and it is stopped 5m after that" in out, out)
+    out = _capture(lambda: climod.main(["idle-background", "--notice", "20m", "--grace", "2m"]))
+    check("idle-background: sets the global times", "after 20m" in out and "2m after" in out, out)
+    out = _capture(lambda: climod.main(["idle-background", "--agent", "backend", "--grace", "30s"]))
+    check("idle-background: one agent's own grace wins, the notice stays global",
+          out.startswith("backend:") and "after 20m" in out and "30s after" in out, out)
+    out = _capture(lambda: climod.main(["idle-background", "--agent", "backend", "--clear"]))
+    check("idle-background: --clear drops its own back to the global times", "2m after" in out, out)
+    idle_close.set_agent_close_timeout("backend", idle_close.NEVER)
+    out = _capture(lambda: climod.main(["idle-background", "--agent", "backend"]))
+    check("idle-background: an agent that never closes is never told", "never told" in out, out)
 
 
 def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: Path) -> None:
@@ -1968,7 +1987,9 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
             db.set_closed(con, "backend", "s1") if closed else db.clear_closed(con, "backend")
             db.set_cursor(con, "notify:backend", rid if told else 0)
             if not told:      # not told is not shown either: a delivered request is not a cause to wake a closed agent
-                con.execute("UPDATE requests SET delivered_at = NULL")
+                con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL, landed_at = NULL")
+            else:             # told, and its transcript shows it: what "told and has not answered" is
+                con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ?)", (int(time.time()),))
             con.execute("UPDATE requests SET ts = ?",
                         (int(time.time()) - (actions.STUCK_AFTER_S + 60 if age is None
                                              else age),))
@@ -2600,6 +2621,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                            "(recover.py's own mechanism is driven in test_recover_*)",
         "idle-timeout": "writes the global or a per-agent park timeout; prints it - driven in "
                         "test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line, not this scene",
+        "idle-background": "writes the global or a per-agent background notice and grace time; prints them - "
+                           "driven in test_t424_idle_background_sets_the_notice_and_the_grace_globally_and_per_agent, "
+                           "not this scene",
         "ignore-cache-expiry": "writes the global or a per-agent switch; prints it - driven in "
                                "test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line, not this scene",
         "usage": "calls the usage endpoint and the Keychain against a real login "
@@ -3469,6 +3493,7 @@ def main() -> int:
         run(lambda: test_a_pasted_escape_in_a_message_being_typed_is_never_sent(Path(td) / 'ar4g'))
         run(lambda: test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(Path(td) / 'ar5'))
         run(lambda: test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(Path(td) / 'idletimeoutcli'))
+        run(lambda: test_t424_idle_background_sets_the_notice_and_the_grace_globally_and_per_agent(Path(td) / 'idlebgcli'))
         run(lambda: test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(Path(td) / 'panelagents'))
         run(lambda: test_the_team_is_drawn_the_way_it_is_routed(Path(td) / 'tree'))
         run(lambda: test_the_wake_time_is_in_the_state_cell_not_a_column(Path(td) / 'waketime'))

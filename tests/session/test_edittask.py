@@ -53,7 +53,7 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
     check("T401 item 19: it says to ask whoever gave the work, not just to wait",
           "ask whoever gave you this work" in why and "ocp say" in why, why)
 
-    ok, msg, tid = actions.task_new("product", "backend", "do the thing")
+    ok, msg, tid = actions.task_new("product", "backend", "do the thing", "do the thing")
     check("setup: backend now holds a current task", ok, msg)
     check("holding a current task: never refused, enforced or not",
           edittask.guard("backend", "Write", call) is None)
@@ -136,7 +136,7 @@ def test_record_from_stdin_denies_through_claudes_own_format(home: Path) -> None
     check("hook: no current task prints a deny decision with the reason",
           deny["hookEventName"] == "PreToolUse" and deny["permissionDecision"] == "deny"
           and "no current task" in deny["permissionDecisionReason"], str(out))
-    ok, msg, tid = actions.task_new("product", "backend", "do the thing")
+    ok, msg, tid = actions.task_new("product", "backend", "do the thing", "do the thing")
     check("setup: backend picks up a task", ok, msg)
     check("hook: holding one, the same call prints nothing to act on",
           _hook("PreToolUse", **call) == "{}")

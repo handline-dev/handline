@@ -10,11 +10,19 @@ from __future__ import annotations
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from ...infra import textsafe
+
+
+def panel_text(d: dict) -> str:
+    """What the terminal's prompt says about the call - the whole command, the reason and
+    Claude's warning line, as drawn there - without the auto-mode tip; the one-line
+    `command` when the panel's lines were not read."""
+    lines = [ln for ln in d.get("lines") or () if not ln.strip().lower().startswith("tip:")]
+    return "\n".join(textsafe.drawable("\n".join(lines) if lines else d.get("command") or ""))
 
 
 class PermissionModal(ModalScreen["bool | None"]):
@@ -24,11 +32,12 @@ class PermissionModal(ModalScreen["bool | None"]):
     BINDINGS = [Binding("escape", "dismiss(None)", "close")]
     DEFAULT_CSS = """
     PermissionModal { align: center middle; background: $background 60%; }
-    PermissionModal #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2;
+    PermissionModal #dialog { width: 72; max-width: 90%; height: auto; max-height: 95%; padding: 1 2;
                               border: thick $warning; background: $panel; }
     PermissionModal #title { margin-bottom: 1; text-style: bold; }
     PermissionModal #tool { color: $text-muted; }
-    PermissionModal #command { margin-top: 1; }
+    PermissionModal #command { margin-top: 1; height: auto; max-height: 20; border: round $primary-darken-1; padding: 0 1; }
+    PermissionModal #command Static { width: auto; }
     PermissionModal #reason { margin-top: 1; color: $text-muted; }
     PermissionModal #buttons { height: 1; margin-top: 1; align-horizontal: right; }
     PermissionModal Button { margin-left: 2; }
@@ -45,9 +54,11 @@ class PermissionModal(ModalScreen["bool | None"]):
             yield Static(Text(f"{textsafe.oneline(d['agent'])} needs permission"), id="title")
             if d.get("tool"):
                 yield Static(Text(textsafe.oneline(d["tool"])), id="tool")
-            if d.get("command"):
-                yield Static(Text("\n".join(textsafe.drawable(d["command"]))), id="command")
-            if d.get("reason"):
+            shown = panel_text(d)
+            if shown:
+                with VerticalScroll(id="command"):
+                    yield Static(Text(shown))
+            elif d.get("reason"):
                 yield Static(Text(f"reason: {textsafe.oneline(d['reason'])}"), id="reason")
             with Horizontal(id="buttons"):
                 yield Button("No  n", id="no", compact=True)
