@@ -99,7 +99,8 @@ def cmd_team(args) -> int:
         if theirs:
             print("\nmay ask you: "
                   + ", ".join(f"{n} ({rel})" for n, rel in theirs))
-        print("\n`ocp ask <name> \"<task>\"` sends one. It is the only way to give an "
+        print("\n`ocp task new --owner <name> -t <time> \"<title>\" \"<body>\"` gives one work, "
+              "and `ocp say <name> \"...\"` sends a message. A task is the only way to give an "
               "agent work:\na subagent you spawn yourself dies with this session and "
               "nobody can see it.")
         return 0

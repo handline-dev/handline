@@ -42,17 +42,18 @@ back on the same account.
 ## Give an agent work
 
 ```bash
-ocp ask keeper "rebase onto main and re-run the suite"
+ocp task new --owner keeper -t 2h "rebase onto main" "rebase onto main and re-run the suite"
+ocp say keeper "the suite is green on main"   # a message: typed at once, needs no answer
 ocp inbox                       # what is waiting on you, and what came back
 ocp read 12                     # one of them whole, with its answer
-ocp resolve 12 "approved"       # answer one
-ocp dismiss 12                  # take one off the list without replying
+ocp task done T7 "rebased, suite green"   # finish the task you hold
 ```
 
-That is all of it. The daemon delivers: an idle agent is told, a closed one is
+That is all of it: work and questions are tasks, everything else is a say. The
+daemon delivers: an idle agent is told, a closed one is
 resumed first and then told, and a busy one is left alone until it is free.
 Nobody has to go and nudge a terminal. An interactive shell with no `OCP_AGENT`
-is a human's, so `ocp ask` from your own prompt comes from `human`; a
+is a human's, so `ocp say` from your own prompt comes from `human`; a
 script that lost the variable is refused rather than promoted; agents start
 with `ocp launch`, which sets it.
 
@@ -106,8 +107,8 @@ work again. ocp names the dialog and never answers it.
 | `ocp doctor` | verify the preconditions of every phase |
 | `ocp account list` | how the accounts stand now: usage windows, the agents assigned to each and how many are running, and whether it may take work |
 | `ocp status` | why the daemon picked the account it picked, and the price of one more agent it rests on |
-| `ocp ask <target> "<req>"` | queue work for an agent; the daemon delivers it |
-| `ocp inbox` / `ocp resolve <id> "<verdict>"` / `ocp dismiss <id>` / `ocp cancel <id>` (founder) | request queue |
+| `ocp task new --owner NAME -t <time> "<title>" "<body>"` / `ocp say <target> "<msg>"` | give an agent work or a question that needs an answer (a task, body required); or send a message that needs none |
+| `ocp inbox` / `ocp read <id>` / `ocp cancel <id>` (founder) | the queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
 | `ocp rollover` | midnight carry-forward, no model |
 | `ocp digest` / `ocp handoff <agent>` | the digest / the handoff waiting for an agent (four facts: its request, the agent's own progress note on it, its transcript, its worktree) |
@@ -180,11 +181,11 @@ tick, so a threshold crossed while the daemon was dead is still acted on.
 **Unlisted edges are denied.** Agents cannot spray requests around, and a
 refusal explains itself so they do not try to route around it.
 
-**An answer goes back the way the question came.** `ocp resolve` writes the
-verdict on the request; the daemon reads it out to the agent that asked, and a
+**A result goes back the way the work came.** `ocp task done` records the
+evidence on the task; the daemon reads it out to the agent that asked, and a
 human reads it in `ocp inbox` and on `ocp bridge`. Both directions, or the team
 learns to talk around it: with only one drawn, agents took to sending a second,
-unrelated request repeating what they had already answered.
+unrelated task repeating what they had already reported.
 
 ## Layout
 

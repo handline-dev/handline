@@ -4518,6 +4518,41 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
         con.close()
 
 
+def test_a_say_to_the_founder_asks_for_no_reply(home: Path) -> None:
+    """Step 5 (auditor #5355): the status report the guidance now teaches, `ocp say
+    human`, is a message that needs no answer - it is not pinned, not a gate, and
+    folds like the fyi report it replaces."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    con = db.connect()
+    try:
+        ok, said, rid = askmod.say(askmod.HUMAN, "status: step 5 is up for review", requester="worker")
+        check("say to the founder: sent, and not called an escalation", ok and "[escalation" not in said, said)
+        row = next(m for m in actions.mailbox_rows(con) if m["id"] == rid)
+        check("say to the founder: not a gate and not waiting on them",
+              not row["gate"] and not row["waiting"], str(row))
+        ok, said, ask_rid = askmod.ask(askmod.HUMAN, "which colour?", requester="worker")
+        check("contrast: an ask to the founder is still an escalation that waits", "[escalation" in said, said)
+        rows = {m["id"]: m for m in actions.mailbox_rows(con)}
+        check("contrast: and it is the one waiting", rows[ask_rid]["gate"] and not rows[rid]["waiting"], str(rows))
+        listed = actions.messages(con)
+        check("say to the founder: the list folds it into worker's line, unpinned, counted to read",
+              any(m["from"] == "worker" and not m["gate"] and not m["waiting"] and m["unread"] >= 1
+                  for m in listed) and all(not (m["from"] == "worker" and m["id"] == rid and m["waiting"])
+                                            for m in listed), str(listed))
+    finally:
+        con.close()
+
+
 def test_the_per_task_event_lookups_use_the_index_not_a_scan(home: Path) -> None:
     """The task pages look events up by task once per task; each of those queries,
     as the code really runs it, is answered from `events_kind_task` - a scan of
@@ -8586,6 +8621,7 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))

@@ -37,7 +37,7 @@ from . import events, triggers
 # `build` and `fingerprint` must name the same tools, or a change to one
 # reads as a launch that never drifted to the other.
 #
-# Work for another agent goes through `ocp ask`, where the bridge can see
+# Work for another agent goes through `ocp task new`, where the bridge can see
 # it. Agent spawns a subagent that dies with the session, unseen; SendMessage
 # reaches another agent's own session directly, bypassing the bridge the
 # same way - a manager used exactly that tonight to resume two subordinates
@@ -529,28 +529,32 @@ def _your_team(agent: str) -> str:
     boss = actions.supervisor_of(t, agent) or actions.HUMAN
     reports = [n for n in paths.list_agents()
                if n != agent and actions.supervisor_of(t, n) == agent]
-    report = (f"You report to `{boss}`. A task you were handed ends with `ocp resolve <id> "
-              f"\"<report>\"` (or dismiss) - that is your report, even a deferral: the next "
-              f"task arrives only then, and an answer typed in chat reaches no one.")
+    report = (f"You report to `{boss}`. A task you were handed ends with `ocp task done T<n> "
+              f"\"<evidence>\"` or `ocp task handoff T<n> <agent> \"<note>\"` - that is your "
+              f"report, even a deferral: the next task arrives only then, and an answer typed "
+              f"in chat reaches no one.")
     if boss != actions.HUMAN:
-        # An ask to the human is a row the founder has to clear, so it is named
-        # once, below, for the decisions that are theirs.
-        report += (f" `ocp ask {boss} \"...\"` is for being blocked, a decision only "
-                   f"they can make, or work nobody handed you.")
+        # A decision for the human is a task of theirs, so it is named once,
+        # below, for the decisions that are theirs.
+        report += (f" `ocp say {boss} \"...\"` is a message that needs no answer. Being "
+                   f"blocked, a decision only they can make, or work nobody handed you is a task "
+                   f"for them: `ocp task new --owner {boss} -t <time> \"<title>\" \"<body>\"`.")
     lines = ["# Your team", report]
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
-                     "You do not implement - give one work with `ocp ask <name> "
-                     "\"<task>\"`, and read what it sends back. One task at a "
-                     "time; to correct one not yet delivered, `--replaces <id>` "
-                     "or `ocp withdraw <id>`, not a message behind it. Withdraw an ask "
-                     "that has gone stale. Record a wait as `--blocked-by T<n>` on the "
-                     "task, not in prose. Check main before you assign, so nobody "
-                     "rebuilds what landed. Quote the founder's own words in the task "
-                     "you open for their request, and answer the founder through "
-                     "`ocp`, never in chat.")
-    lines.append("`ocp team` shows who you may ask and what each is doing now. "
-                 "A decision or a block only the founder can clear: `ocp ask human`.")
+                     "You do not implement - give one work with `ocp task new --owner <name> "
+                     "-t <time> \"<title>\" \"<what to do, and what done looks like>\"`, and read "
+                     "what it sends back. A message to a report is `ocp say <name> ... --task "
+                     "T<n>` (a note on that task) or `--fyi \"<why it is not work>\"`. "
+                     "One task at a time; correct one with `ocp task note T<n> \"...\"`, not a "
+                     "message behind it, and throw a stale one away with `ocp task discard T<n> "
+                     "\"<why>\"`. Record a wait as `--blocked-by T<n>` on the task, not in "
+                     "prose. Check main before you assign, so nobody rebuilds what landed. Quote "
+                     "the founder's own words in the task you open for their request, and answer "
+                     "the founder through `ocp`, never in chat.")
+    lines.append("`ocp team` shows who you may reach and what each is doing now. "
+                 "A decision or a block only the founder can clear is a task of theirs: "
+                 "`ocp task new --owner human -t <time> \"<title>\" \"<body>\"`.")
     # A self-scheduled wakeup survives the park's /clear and fires into a
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
