@@ -1041,8 +1041,9 @@ def _check_yaml_differential() -> None:
     """
     import json
     if not PYYAML_FIXTURE.exists():
-        print(f"SKIP  yaml differential: {PYYAML_FIXTURE.name} is missing - "
-              "run tests/fixtures/regen_pyyaml_expected.py where PyYAML is installed")
+        check("yaml differential: the fixture of what PyYAML reads is there", False,
+              f"{PYYAML_FIXTURE.name} is missing - run tests/fixtures/regen_pyyaml_expected.py "
+              "where PyYAML is installed")
         return
     fixture = json.loads(PYYAML_FIXTURE.read_text())
     try:
