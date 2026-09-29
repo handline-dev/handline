@@ -307,11 +307,88 @@ def test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch() -> None:
           and timefmt.stamp(None, "%Y") == timefmt.stamp(0, "%Y"))
 
 
+def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> None:
+    """A run of the suite must end on its own: a file that dies on a module that
+    is not installed is reported SKIPPED with the module's name, and one that
+    hangs is killed at its limit and fails with a message that says so."""
+    import contextlib
+    import io
+    import tempfile
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    import test_ocp as runner
+    with tempfile.TemporaryDirectory() as td:
+        hang, nomod, fine = (Path(td) / n for n in ("test_hang.py", "test_nomod.py", "test_fine.py"))
+        hang.write_text("import time\ntime.sleep(60)\n")
+        nomod.write_text("import surely_not_installed_anywhere\n")
+        fine.write_text('print("1 passed, 0 failed")\n')
+
+        path, code, out = runner._run_one(hang, [], timeout=1)
+        check("runner: a hanging file is stopped at its limit, with the code and the words",
+              code == runner.TIMED_OUT and "timed out after 1s" in out, out)
+        check("runner: a missing module is found from the crash",
+              runner.missing_module(subprocess.run([sys.executable, str(nomod)], capture_output=True,
+                                                   text=True).stderr) == "surely_not_installed_anywhere")
+        check("runner: a file that ran and counted is never a skip",
+              runner.missing_module("No module named 'x'\n1 passed, 0 failed\n") is None)
+
+        own = Path(td) / "test_own.py"
+        own.write_text("import ocp.daemon.no_such_module_left_behind\n")
+        _, _, out = runner._run_one(own, [], timeout=30)
+        check("runner: a module of this repo that does not exist is not a skip - it is a broken import",
+              runner.missing_module(out) is None and "no_such_module_left_behind" in out, out)
+        mid = Path(td) / "test_mid.py"
+        mid.write_text('print("FAIL  something broke")\nimport surely_not_installed_anywhere\n')
+        _, _, out = runner._run_one(mid, [], timeout=30)
+        check("runner: a file that already ran a test is never skipped for a later import",
+              runner.missing_module(out) is None and "FAIL  something broke" in out, out)
+        kid = Path(td) / "test_kid.py"
+        pidfile = Path(td) / "kid.pid"
+        kid.write_text("import subprocess, sys, time\n"
+                       "p = subprocess.Popen(['sleep', '600'], stdout=subprocess.DEVNULL, "
+                       f"stderr=subprocess.DEVNULL); open({str(pidfile)!r}, 'w').write(str(p.pid))\n"
+                       "print('started', flush=True); sys.stderr.write('stderr so far\\n'); sys.stderr.flush()\n"
+                       "time.sleep(600)\n")
+        began = time.time()
+        _, code, out = runner._run_one(kid, [], timeout=2)
+        took = time.time() - began
+        time.sleep(0.5)
+        child = int(pidfile.read_text())
+        try:
+            os.kill(child, 0)
+            alive = True
+        except ProcessLookupError:
+            alive = False
+        if alive:
+            os.kill(child, signal.SIGKILL)      # what a failing run must not leave behind
+        check("runner: a timeout keeps what the file printed, stderr too", "started" in out and "stderr so far" in out, out)
+        check("runner: and ends what the test started, not only the test itself - a child that "
+              "holds no pipe is still gone", code == runner.TIMED_OUT and not alive and took < 30,
+              f"code={code} alive={alive} took={took:.1f}s")
+
+        saved = (runner.area_files, runner.FILE_TIMEOUT_S, runner._python_with_textual)
+        runner.area_files, runner.FILE_TIMEOUT_S = (lambda: [hang, nomod, fine]), 1
+        runner._python_with_textual = lambda: None
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = runner.run_all([])
+        finally:
+            runner.area_files, runner.FILE_TIMEOUT_S, runner._python_with_textual = saved
+        said = buf.getvalue()
+        check("runner: the skip names the file and the module and is not a failure",
+              "SKIPPED  test_nomod.py: it needs the module surely_not_installed_anywhere" in said
+              and "test_nomod.py did not finish" not in said, said)
+        check("runner: the hang is a failure that names the file and the limit",
+              rc == 1 and "test_hang.py timed out (limit 1s" in said, said)
+        check("runner: the file that ran is still counted", "1 passed, 0 failed" in said, said)
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch())
+        run(lambda: test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs())
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_run_recovers_from_an_uncaught_error())

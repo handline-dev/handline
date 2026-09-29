@@ -282,6 +282,29 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
     check("history: only strings are read back", cp.load_history() == ["ok"])
 
 
+def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:
+    """T429: a kind=task row comes with its task's live state (the card draws it); a
+    plain message linked to a task does not, so the page pays for no other task_state."""
+    from ocp.ui import chat_page as cp
+    _home("chatstate")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+        actions.chat_reply(con, "reviewer", "just a say")
+        say = actions.chat_parent(con, "reviewer")
+        db.link_request(con, tid, say)
+        con.commit()
+        by = {r["id"]: r for r in cp.requests_page(con, "reviewer", False)[0]}
+        card = next(r for r in by.values() if r["kind"] == "task")
+        live = actions.task_state(con, db.get_task(con, tid))
+        check("chat page: a task delivery carries its task's live state",
+              ok and card["task_state"] == live and live is not None, str(dict(card)))
+        check("chat page: a say linked to a task carries no state", by[say]["task_state"] is None, str(dict(by[say])))
+    finally:
+        con.close()
+
+
 def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
     """T421: an answer is a message of its own, so the chat gives the ask and the
     answer two numbers, draws each once, and a reply under the answer counts as
@@ -1401,6 +1424,7 @@ async def _run_all() -> None:
     test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number()
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
+    test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery()
     test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_replies_thread_under_the_message_they_answer()
