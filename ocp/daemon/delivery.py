@@ -237,12 +237,15 @@ def _clear_over_background(con, agent: str, handle: str, running: str, log) -> t
         return False, f"background work is running ({running}); {orca.clear_command(handle)} is owed"
     if now - since < CLEAR_WAIT_S:
         return False, f"background work is running ({running}); {orca.clear_command(handle)} is owed"
-    rec = db.get_handoff(con, agent) or ""
-    db.set_handoff(con, agent, f"{rec}\n\n## Cut off by the clear\nThis session was cleared with "
-                   f"background work still running ({running}); it was told {timefmt.ago(now - since)} "
-                   f"earlier and asked to stop it. That work is gone - rerun it if it still matters.\n")
     log(f"  {agent}: {CLEAR_WAIT_S // 60} min are up with background work still running ({running}) - clearing")
-    return _clear_now(con, agent, handle, log)
+    ok, why = _clear_now(con, agent, handle, log)
+    if ok:
+        # Only once it has landed: a clear that waits for the agent's turn to end is tried again next tick.
+        rec = db.get_handoff(con, agent) or ""
+        db.set_handoff(con, agent, f"{rec}\n\n## Cut off by the clear\nThis session was cleared with "
+                       f"background work still running ({running}); it was told {timefmt.ago(now - since)} "
+                       f"earlier and asked to stop it. That work is gone - rerun it if it still matters.\n")
+    return ok, why
 
 
 def wall_reason(con, agent: str, row=None) -> str | None:
@@ -788,8 +791,9 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
     """
     agent = row["target"]
     handle = db.get_terminal(con, agent)
-    if typing_hold(con, agent):
-        return False, f"{agent} is at its usage limit"
+    held = typing_hold(con, agent)
+    if held:
+        return False, held
     if not handle or not orca.available() or not orca.alive(handle):
         return False, f"{agent} has no terminal"
     if not session_present(agent):

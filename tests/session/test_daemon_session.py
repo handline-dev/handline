@@ -3703,6 +3703,11 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
               and not dmn_messaging.can_type_now(con, "backend", "term_x")[0] and len(sent) == 1, str(sent))
 
+        gone = db.get_request(con, db.add_request(con, "marina", "backend", "never mind", None,
+                                                  "peer", "async", None, 0, None))
+        check("owed (b): a cancelled request is refused with the hold's own reason, not the usage limit's",
+              "about to be cleared" in dmn_delivery.notify_cancelled(con, gone, "withdrawn")[1])
+
         dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 10, {}, [])
         check("owed (b): a tick with the work still running waits and tells it nothing more",
               not cleared and len(sent) == 1, f"{cleared} {sent}")
@@ -3728,6 +3733,27 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
         check("owed (b)-forced: at the limit the clear is typed over the work, and it is no failure",
               cleared == ["term_x"] and row["state"] == dmn_states.PARKED and row["throttle_count"] == 0,
               f"{cleared} {dict(row)}")
+        check("owed (b)-forced: and its record has the note once",
+              (db.get_handoff(con, "backend") or "").count("Cut off by the clear") == 1)
+
+        # A clear that has to wait for the agent's turn (it is writing its progress note) is
+        # tried again, and the record is written once, when it lands.
+        fresh()
+        db.add_event(con, "backend", "ask", {})
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        db.set_cursor(con, "clear_owed:backend", now - dmn_delivery.CLEAR_WAIT_S - 1)
+        tries = []
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
+            tries.append(h), (True, "context cleared") if len(tries) > 2 else (False, "agent is mid-turn; not clearing"))[1]
+        for _ in range(3):
+            db.clear_cursor(con, "typed_at:backend")
+            dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
+        check("owed (b)-forced: a clear that fails twice on the agent's turn then lands writes the note once",
+              len(tries) == 3 and (db.get_handoff(con, "backend") or "").count("Cut off by the clear") == 1
+              and db.get_agent_state(con, "backend")["state"] == dmn_states.PARKED,
+              f"{len(tries)} {db.get_handoff(con, 'backend')}")
+        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (cleared.append(h), (True, "context cleared"))[1]
+
         check("owed (b)-forced: and the handoff record says what was cut off",
               "1 shell" in (db.get_handoff(con, "backend") or "") and "gone" in (db.get_handoff(con, "backend") or ""),
               str(db.get_handoff(con, "backend")))
