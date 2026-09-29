@@ -458,11 +458,13 @@ def track_background_work(con, agent: str, row) -> None:
     the idle clock starts there (`idle_since`), not at its last hook event;
     the end is not a model turn, so it stays out of `db.last_activity`, which
     the prompt cache is judged by."""
-    if not row or row["state"] in (HANDOFF, STALLED) or row["closed_at"] \
-            or not row["terminal"] or not orca.available():
+    key = f"bgwork:{agent}"
+    if row and (row["closed_at"] or not row["terminal"]):
+        db.clear_cursor(con, key)      # the session is gone, and so is what ran behind its prompt
+        return
+    if not row or row["state"] in (HANDOFF, STALLED) or not orca.available():
         return
     running = orca.background_work(row["terminal"])
-    key = f"bgwork:{agent}"
     if running is None:
         return                # unreadable is not "ended"
     if running and not db.get_cursor(con, key):
@@ -480,7 +482,9 @@ def idle_since(con, agent: str) -> int | None:
 
 
 def has_background_work(con, agent: str) -> bool:
-    return bool(db.get_cursor(con, f"bgwork:{agent}"))
+    """A closed session runs nothing, whatever the cursor still says from before it closed."""
+    row = db.get_agent_state(con, agent)
+    return bool(db.get_cursor(con, f"bgwork:{agent}")) and not (row and row["closed_at"])
 
 
 # Background work the agent has shown nothing beside this long is stale: forgotten
@@ -528,6 +532,20 @@ def bg_holds(con, agent: str, now: int) -> bool:
     return has_background_work(con, agent) and not bg_may_stop(con, agent, now)
 
 
+def _waiting_on_ask(con, agent: str, head) -> bool:
+    """Does `agent` have an open ask it may be waiting on instead of `head`?
+    Not the ones that are why a task ahead of `head` is blocked (`head_task_blocked`,
+    T337): `head` stands in for that task, so the agent is meant to be working it
+    while they are open (T343)."""
+    asks = set(db.open_ask_ids_of(con, agent))
+    true_head = db.task_head(con, agent)
+    if asks and true_head and int(true_head["id"]) != int(head["id"]) \
+            and head_task_blocked(con, agent, true_head):
+        for t in db.tasks_for_request(con, int(true_head["id"])):
+            asks -= {int(r["id"]) for r in db.task_requests(con, int(t["id"]))}
+    return bool(asks)
+
+
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """What the agent is holding, if it looks like a resolve nobody wrote: its next
     task (`effective_task_head`) when that was told and is still open, otherwise the
@@ -561,7 +579,7 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
                      and (r["told_out_of_turn"] or cursor == int(r["id"]))), None)
         if head is None:
             return None
-    if db.open_asks_of(con, agent) or db.unannounced_answers(con, agent):
+    if _waiting_on_ask(con, agent, head) or db.unannounced_answers(con, agent):
         return None
     idle = now - max(int(head["delivered_at"]), idle_since(con, agent) or 0)
     return {"head": head, "idle_s": idle, "behind": db.queue_depth(con, agent) - 1}
