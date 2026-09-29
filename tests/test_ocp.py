@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -37,11 +39,43 @@ def area_files() -> list[Path]:
     return sorted(files, key=lambda p: -p.stat().st_size)
 
 
-def _run_one(path: Path, args: list[str], python: str | None = None) -> tuple[Path, int, str]:
+# A file that runs longer than this is a failure, not a wait: a background run
+# of the suite must end on its own. Overridable for a slow machine.
+FILE_TIMEOUT_S = int(os.environ.get("OCP_TEST_FILE_TIMEOUT", "1800"))
+TIMED_OUT = 124
+
+
+def _run_one(path: Path, args: list[str], python: str | None = None,
+             timeout: float | None = None) -> tuple[Path, int, str]:
     env = {k: v for k, v in os.environ.items() if k not in ("OCP_AGENT", "OCP_ACCOUNT")}
-    done = subprocess.run([python or sys.executable, str(path), *args], capture_output=True,
-                          text=True, env=env)
-    return path, done.returncode, done.stdout + done.stderr
+    limit = FILE_TIMEOUT_S if timeout is None else timeout
+    # Its own session, so a timeout ends whatever the test started as well, not
+    # only the test's own python.
+    proc = subprocess.Popen([python or sys.executable, "-u", str(path), *args], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, env=env, start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=limit)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+        return path, TIMED_OUT, (out or "") + f"\n{path.name} timed out after {limit:g}s\n"
+    return path, proc.returncode, out or ""
+
+
+def missing_module(output: str) -> str | None:
+    """The third-party module a file died on at import, when that is all that
+    happened: it printed no PASS or FAIL, so it never ran a test. A module of
+    this repo - ocp, or a file beside the tests - is a broken import, a failure."""
+    if re.search(r"^(PASS|FAIL)  ", output, re.M) or re.search(r"^\d+ passed, \d+ failed$", output, re.M):
+        return None
+    m = re.search(r"^ModuleNotFoundError: No module named '([^']+)'", output, re.M)
+    if not m:
+        return None
+    top = m.group(1).split(".")[0]
+    if top == "ocp" or (HERE / f"{top}.py").exists() or any((d / f"{top}.py").exists() for d in HERE.glob("*/")):
+        return None
+    return m.group(1)
 
 
 def run_all(argv: list[str]) -> int:
@@ -92,9 +126,18 @@ def run_all(argv: list[str]) -> int:
     passed = failed = 0
     failures: list[str] = []
     crashed = False
+    skips: list[str] = []
     for path, code, output in results:
+        module = missing_module(output)
+        if module:
+            skips.append(f"SKIPPED  {path.name}: it needs the module {module}, which is not installed here")
+            continue
         print(output, end="")
         counted = re.findall(r"^(\d+) passed, (\d+) failed$", output, re.M)
+        if code == TIMED_OUT and not counted:
+            crashed = True
+            failures.append(f"{path.name} timed out (limit {FILE_TIMEOUT_S}s, OCP_TEST_FILE_TIMEOUT)")
+            continue
         if counted:
             passed += int(counted[-1][0])
             failed += int(counted[-1][1])
@@ -107,6 +150,8 @@ def run_all(argv: list[str]) -> int:
         failures += re.findall(r"^  FAILED: (.*)$", output, re.M)
     if skipped:
         print(skipped)
+    for line in skips:
+        print(line)
     print(f"\n{passed} passed, {failed} failed")
     for f in failures:
         print(f"  FAILED: {f}")
