@@ -165,16 +165,21 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
 _UNBLOCK_REQUESTER = "task-board"
 
 
+def _asker_of(row, requesters) -> str:
+    """The rule of `task_asker`, given who made each request linked to the task."""
+    for who in requesters:
+        if who == HUMAN:
+            return HUMAN
+    return row["opened_by"]
+
+
 def task_asker(con, row) -> str:
     """Who task `row` answers to when it closes (#71): the founder, if any
     request linked to it came from the founder - the task exists because the
     founder asked for something. Otherwise whoever opened the task itself: a
     task the manager opens on its own (an auditor finding, internal cleanup)
     is the manager's own to close, never its own superior's."""
-    for r in db.task_requests(con, row["id"]):
-        if r["requester"] == HUMAN:
-            return HUMAN
-    return row["opened_by"]
+    return _asker_of(row, (r["requester"] for r in db.task_requests(con, row["id"])))
 
 
 def _asks(r) -> bool:
@@ -219,14 +224,8 @@ def reads_doing(con, tid: int) -> bool:
               for r in db.task_requests(con, c["id"]))
 
 
-def task_state(con, row) -> str:
-    """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
-    done, closed and discarded are written, once each, and so is queued (T82: approved
-    to run; without it the task is a draft). doing is never stored - read live from
-    whether a request is currently queued against this task or an open child
-    of it, the same live read the board already does for "who holds it now",
-    so there is nothing here that a write path must remember to keep in
-    sync."""
+def _state_of(row, doing: bool) -> str:
+    """The ladder of `task_state`, given whether the task reads as being worked."""
     if row["merged_into"]:
         return "merged"
     if row["discarded_by"]:
@@ -235,9 +234,22 @@ def task_state(con, row) -> str:
         return "closed"
     if row["done_evidence"]:
         return "done"
-    if reads_doing(con, row["id"]):
+    if doing:
         return "doing"
     return "queued" if row["queued_by"] else "draft"
+
+
+def task_state(con, row) -> str:
+    """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
+    done, closed and discarded are written, once each, and so is queued (T82: approved
+    to run; without it the task is a draft). doing is never stored - read live from
+    whether a request is currently queued against this task or an open child
+    of it, the same live read the board already does for "who holds it now",
+    so there is nothing here that a write path must remember to keep in
+    sync."""
+    if row["merged_into"] or row["discarded_by"] or row["closed_by"] or row["done_evidence"]:
+        return _state_of(row, False)        # written states: nothing to read
+    return _state_of(row, reads_doing(con, row["id"]))
 
 
 def stop_wait_reason(con, agent: str) -> str | None:
@@ -1433,13 +1445,15 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     states = None if state is None else {state} if isinstance(state, str) else set(state)
     ended = ("closed", "discarded", "merged")
     show_ended = include_closed or bool(states and states & set(ended))
+    tasks = db.all_tasks(con) if show_ended else db.open_tasks(con)
+    facts = _board_facts(con, [t for t in tasks if not t["closed_by"]])
     out = []
-    for t in (db.all_tasks(con) if show_ended else db.open_tasks(con)):
+    for t in tasks:
         if owner is not None and t["owner"] != owner:
             continue
         if owners is not None and t["owner"] not in owners:
             continue
-        st = task_state(con, t)
+        st = facts.state(t)
         if states is not None and st not in states:
             continue
         out.append({
@@ -1447,12 +1461,58 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
             "owner": t["owner"], "opened_by": t["opened_by"],
             "parent_task": t["parent_task"], "priority": t["priority"],
             "priority_ref": priority_ref(t["priority"]), "state": st,
-            "closer": task_asker(con, t),
-            "blocked_by": [b["id"] for b in db.task_blockers(con, t["id"])],
-            "last_activity": db.task_last_activity(con, t["id"]),
+            "closer": facts.asker(t),
+            "blocked_by": facts.blockers.get(t["id"], []),
+            "last_activity": facts.last_activity(t),
             "row": t,
         })
     return out
+
+
+class _board_facts:
+    """What `task_rows` needs about every task, read in a fixed handful of
+    queries instead of four or five per task: the requests linked to each task,
+    the tasks begun on a founder's message, each task's open children, and what
+    blocks each. `state`, `asker` and `last_activity` are the same rules as
+    `task_state`, `task_asker` and `db.task_last_activity`, on this data - a test
+    holds the two paths to the same answers."""
+
+    def __init__(self, con, open_tasks: list):
+        self.links: dict[int, list] = {}
+        for r in con.execute(
+                "SELECT l.task_id AS tid, r.id, r.state, r.fyi, r.requester, r.ts, r.resolved_at "
+                "FROM task_requests l JOIN requests r ON r.id = l.request_id "
+                "ORDER BY l.task_id, r.id"):
+            self.links.setdefault(r["tid"], []).append(r)
+        self.begun = {r[0] for r in con.execute(
+            f"SELECT DISTINCT {db.EVENT_TASK} FROM events WHERE kind = 'task_begin'") if r[0] is not None}
+        self.children: dict[int, list[int]] = {}
+        for c in open_tasks:
+            if c["parent_task"] is not None:
+                self.children.setdefault(c["parent_task"], []).append(c["id"])
+        self.blockers: dict[int, list[int]] = {}
+        for r in con.execute(
+                "SELECT b.task_id AS tid, t.id AS blocker FROM task_blocks b "
+                "JOIN tasks t ON t.id = b.blocks_on "
+                "WHERE t.closed_by IS NULL AND t.done_evidence IS NULL ORDER BY b.task_id, t.id"):
+            self.blockers.setdefault(r["tid"], []).append(r["blocker"])
+
+    def _doing(self, tid: int) -> bool:
+        return (tid in self.begun
+                or any(_asks(r) for r in self.links.get(tid, []))
+                or any(_asks(r) for c in self.children.get(tid, []) for r in self.links.get(c, [])))
+
+    def state(self, row) -> str:
+        return _state_of(row, self._doing(row["id"]))
+
+    def asker(self, row) -> str:
+        return _asker_of(row, (r["requester"] for r in self.links.get(row["id"], [])))
+
+    def last_activity(self, row) -> int:
+        seen = [row[k] or 0 for k in ("created_at", "edited_at", "done_at", "closed_at")]
+        for r in self.links.get(row["id"], []):
+            seen += [r["ts"] or 0, r["resolved_at"] or 0]
+        return int(max(seen))
 
 
 TASK_STATES = ("draft", "queued", "doing", "done", "closed", "discarded", "merged")
