@@ -44,7 +44,6 @@ VALID_RESPONSE = {"async", "fire_and_forget"}
 ASK_WINDOW_S = 3600
 
 
-
 @dataclass
 class Decision:
     allowed: bool

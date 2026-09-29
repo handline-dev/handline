@@ -8298,7 +8298,7 @@ limits:
 def test_a_review_is_an_ordinary_child_the_owner_waits_on(home: Path) -> None:
     """T442: no review or merge command - the owner opens a child task for the auditor
     (`task new --parent`), which blocks its task while it stays the owner's and doing;
-    the child closes with its result, and the block lifts."""
+    the child closes with its result, and the owner is told it in the unblock notice."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
@@ -8327,8 +8327,9 @@ limits:
         check("review: the child closes with the result", ok, msg)
         ok, msg = actions.close_task(con, kid, "dev.worker")
         told = [r for r in db.task_requests(con, t) if "unblocked" in r["body"]]
-        check("review: the block lifts and the owner is told it is unblocked",
-              ok and not db.task_blockers(con, t) and len(told) == 1, str([dict(r) for r in told]))
+        check("review: the block lifts and the owner is told the result in the notice",
+              ok and not db.task_blockers(con, t) and len(told) == 1
+              and "FAIL: retry loops; repro x" in told[0]["body"], str([dict(r) for r in told]))
         check("review: T is still the worker's",
               db.get_task(con, t)["owner"] == "dev.worker" and not db.get_task(con, t)["closed_by"])
     finally:

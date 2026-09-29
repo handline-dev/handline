@@ -654,6 +654,9 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     calling): the owner who just closed the blocker themselves does not need
     telling."""
     text = f"task T{dep_tid} is unblocked - T{closed_tid}, its last open blocker, {how}"
+    result = db.get_task(con, closed_tid)["done_evidence"]
+    if result:
+        text += f": {result}"     # until T443's own result line lands and takes this over
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)
