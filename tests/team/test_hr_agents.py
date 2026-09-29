@@ -91,30 +91,9 @@ def test_yaml_differential() -> None:
     having no fallback: `creates_gate: no` was True under one and False under
     the other, which decides whether an escalation needs a human.
 
-    Without PyYAML on the interpreter running the suite the comparison runs
-    under one that has it, and with none anywhere the test fails: a skip was
-    how it went a day unexercised on the default python and then, when its
-    cases were deleted, unnoticed.
+    What PyYAML reads is kept in tests/fixtures/pyyaml_expected.json, so the
+    suite needs no PyYAML; where it is installed the fixture is checked too.
     """
-    try:
-        import yaml  # noqa: F401
-    except ImportError:
-        py = _python_with_pyyaml()
-        if py is None:
-            check("yaml differential: a python3 with PyYAML to compare against", False,
-                  "none found; pip install pyyaml, or use /usr/bin/python3")
-            return
-        r = subprocess.run(
-            [py, "-c", "import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]]; "
-             "import test_ocp as t; t._check_yaml_differential(); "
-             "sys.exit(1 if t.FAIL else 0)",
-             str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parent.parent)],
-            capture_output=True, text=True, env={k: v for k, v in os.environ.items()
-                                                 if k != "OCP_AGENT"})
-        check(f"yaml differential: under {py}, no silent disagreement with PyYAML",
-              r.returncode == 0 and "PASS  yaml differential" in r.stdout,
-              (r.stdout + r.stderr)[-600:])
-        return
     _check_yaml_differential()
 
 
