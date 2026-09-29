@@ -402,6 +402,59 @@ def test_with_the_daemon_down_ask_and_say_send_nothing(home: Path) -> None:
         con.close()
 
 
+def test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(home: Path) -> None:
+    """T303: an agent's sandbox has no process table and no Orca, so `resolve`, a task command or
+    a withdraw cannot type the notice itself. Each writes its row and asks the daemon: the same
+    telling the tick would make, and a refusal for something that is no agent."""
+    sent = _world(home)
+    orcamod.typeable_now = lambda h: True
+    con = db.connect()
+    try:
+        # push: the next task of an agent, and one named request.
+        rid = db.add_request(con, "product", "backend", "do the sea", None, "peer", "async", "task", 0, None)
+        reply = _verb({"verb": "push", "target": "backend"})
+        check("push: the daemon types the task that was queued for the agent",
+              reply["ok"] and len(sent) == 1 and "do the sea" in sent[0][1], f"{reply} {sent}")
+        check("push: and it is marked told, so the tick does not repeat it",
+              db.get_request(con, rid)["delivered_at"] is not None)
+        note = db.add_request(con, "product", "backend", "also this", None, "peer", "async", None, 0, None)
+        reply = _verb({"verb": "push", "target": "backend", "rid": note})
+        check("push: a named message is typed at once", reply["ok"] and any("also this" in t for _, t in sent), str(sent))
+
+        # push_answer: the requester hears what it asked.
+        del sent[:]
+        agents.register("frontend")
+        db.set_terminal(con, "frontend", "term_p", "wt2")
+        sessions_are("backend", "frontend")
+        asked = db.add_request(con, "frontend", "backend", "is it done?", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, asked)
+        orcamod.typeable_now = lambda h: False       # the sandboxed resolve could type nothing
+        ok, _ = askmod.resolve(asked, "yes, done")
+        del sent[:]
+        orcamod.typeable_now = lambda h: True
+        reply = _verb({"verb": "push_answer", "requester": "frontend"})
+        check("push_answer: the daemon types the answer at the one who asked",
+              ok and reply["ok"] and any(h == "term_p" and "yes, done" in t for h, t in sent), f"{reply} {sent}")
+
+        # notify_cancelled: the agent is told a request it holds was closed under it.
+        del sent[:]
+        held = db.add_request(con, "product", "backend", "long job", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, held)
+        row = db.get_request(con, held)
+        db.close_if_queued(con, held, "rejected", "not needed any more", announced=True)
+        reply = _verb({"verb": "notify_cancelled", "rid": held, "verdict": "not needed any more"})
+        check("notify_cancelled: the agent is told to stop",
+              reply["ok"] and any("was cancelled" in t and "not needed any more" in t for _, t in sent), f"{reply} {sent}")
+
+        # And nothing invented: no agent, no request.
+        for payload in ({"verb": "push", "target": "nobody"}, {"verb": "push", "target": "human"},
+                        {"verb": "push_answer", "requester": "nobody"},
+                        {"verb": "notify_cancelled", "rid": 99999, "verdict": "x"}):
+            check(f"refused: {payload}", not _verb(payload)["ok"])
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(Path(td) / "s1"))
@@ -419,6 +472,7 @@ def main() -> int:
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))
         run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
+        run(lambda: test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(Path(td) / "s16"))
     return run_area(tests)
 
 
