@@ -1068,6 +1068,7 @@ def test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(home:
 
     class R:
         returncode = 44
+        stdout = stderr = ""
 
     try:
         claude_mod.subprocess.run = lambda *a, **k: R()
