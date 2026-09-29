@@ -3390,13 +3390,19 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
 
         # Replying to an answer is a new request in that answer's thread. It is
         # the one place a parent id is known rather than guessed.
+        answer = db.answer_row_of(con, rid)
+        check("T421: the answer is a message of its own - its own id, under the request, from the one asked",
+              answer is not None and answer["id"] != rid and answer["parent_id"] == rid
+              and answer["kind"] == "answer" and answer["body"].startswith("MERGE.")
+              and answer["requester"] == "reviewer" and answer["target"] == actions.HUMAN,
+              str(dict(answer) if answer else None))
         said = actions.answer(con, rid, "merged, thank you")
-        follow = db.get_request(con, rid + 1)
+        follow = db.get_request(con, answer["id"] + 1)
         check("mailbox: replying sends it back to the agent that answered",
               follow["target"] == "reviewer" and follow["requester"] == actions.HUMAN,
               said)
-        check("mailbox: in the thread it replies to",
-              follow["parent_id"] == rid
+        check("mailbox: in the thread it replies to - under the answer, by its own id",
+              follow["parent_id"] == answer["id"]
               and follow["chain_id"] == db.get_request(con, rid)["chain_id"],
               f"parent={follow['parent_id']} chain={follow['chain_id']}")
         check("mailbox: and what was replied to leaves the mailbox",
@@ -4508,6 +4514,144 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
               db.current_task(con, "worker"))
         check("T318: t_blocked stays skipped - its own blocker task was never closed, "
               "only its request answered", db.task_blockers(con, t_blocked) != [])
+    finally:
+        con.close()
+
+
+def test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(home: Path) -> None:
+    """T421 (auditor #2828): an answer row is a message in the chain, not an ask
+    in it - so answering does not use up the answerer's asks, and a follow-up
+    under an answer is not a cycle."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  a: {}
+  b: {}
+
+edges:
+  - { from: "a", to: "b", response: fire_and_forget }
+  - { from: "b", to: "a", response: fire_and_forget }
+
+limits:
+  max_chain_depth: 8
+  ask_rate_per_hour: 3
+""")
+    for n in ("a", "b"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        rids = []
+        for i in range(3):
+            ok, msg, rid = askmod.ask("b", f"question {i}", requester="a")
+            check(f"setup: a's ask {i} goes", ok, msg)
+            rids.append(rid)
+        for rid in rids:
+            askmod.resolve(rid, "answered")
+        check("rate: three answers were written as rows", len([1 for r in rids if db.answer_row_of(con, r)]) == 3)
+        check("rate: answering used none of b's asks", db.asks_since(con, "b", 0) == 0,
+              str(db.asks_since(con, "b", 0)))
+        ok, msg, _ = askmod.ask("a", "b's first ask of the hour", requester="b")
+        check("rate: so b's own first ask goes through", ok, msg)
+        check("rate: and the oldest counted ask is b's own, not an answer",
+              db.oldest_counted_ask(con, "b", 0) is not None)
+
+        hand_edit_team("""
+agents:
+  a: {}
+  b: {}
+
+edges:
+  - { from: "a", to: "b", response: fire_and_forget }
+  - { from: "b", to: "a", response: fire_and_forget }
+
+limits:
+  max_chain_depth: 8
+  ask_rate_per_hour: 50
+""")
+        answer = db.answer_row_of(con, rids[0])
+        ok, msg, _ = askmod.ask("b", "under the answer", requester="a", parent_id=answer["id"])
+        check("cycle: a follow-up under the answer row is not a cycle", ok and "Escalated" not in msg, msg)
+        ok, msg, _ = askmod.ask("b", "under its own request", requester="a", parent_id=rids[1])
+        check("cycle: nor one under the request that was answered", ok and "Escalated" not in msg, msg)
+    finally:
+        con.close()
+
+
+def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> None:
+    """T421: what answers a request is stored as a row of its own - its own id,
+    under the request in its thread - so the chat can number it and a reply can
+    name it. A dismissal is no answer, an old verdict is given a row once, and
+    the conversation draws each message once."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ok, msg, rid = askmod.ask("manager", "quick q?", requester="worker")
+        check("setup: a request", ok, msg)
+        askmod.resolve(rid, "the answer")
+        ans = db.answer_row_of(con, rid)
+        check("answer row: its own id, under the request, from the one asked to the asker",
+              ans is not None and ans["id"] != rid and ans["parent_id"] == rid
+              and ans["requester"] == "manager" and ans["target"] == "worker"
+              and ans["body"] == "the answer" and ans["kind"] == "answer" and ans["state"] == "done"
+              and ans["chain_id"] == db.get_request(con, rid)["chain_id"], str(dict(ans) if ans else None))
+        check("answer row: it is already read, so nobody is told twice",
+              ans["announced_at"] is not None)
+        db.append_verdict(con, rid, "and one more line")
+        check("answer row: a line added to the verdict is added to the message",
+              db.get_request(con, rid)["verdict"].endswith("one more line")
+              and db.answer_row_of(con, rid)["body"] == "the answer\n\nand one more line")
+
+        ok, msg, rid2 = askmod.ask("manager", "another?", requester="worker")
+        actions.dismiss(con, rid2, me="manager", reason="not needed")
+        check("dismissal: no answer row - it is a state, not words", db.answer_row_of(con, rid2) is None)
+
+        hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        ok, msg, h1 = askmod.ask("manager", "founder question", requester=actions.HUMAN)
+        askmod.resolve(h1, "manager's answer")
+        ok, msg, h2 = askmod.ask("manager", "another founder question", requester=actions.HUMAN)
+        actions.dismiss(con, h2, me=actions.HUMAN, reason="not needed", no_task="nothing to build")
+        h_ans = db.answer_row_of(con, h1)
+        rows, _ = actions.conversation_and_drawn(con, "manager", hint=False)
+        said = [r for r in rows if getattr(r, "kind", "") == "msg"]
+        asks = [r for r in said if r.part == 0 and r.rid == h1]
+        answers = [r for r in said if r.part == 1 and r.rid == h1]
+        check("conversation: the ask and its answer are each drawn once, numbered apart",
+              len(asks) == 1 and len(answers) == 1 and asks[0].mid == h1 and answers[0].mid == h_ans["id"]
+              and h_ans["id"] != h1, str([(r.rid, r.part, r.mid) for r in said]))
+        check("conversation: no answer row is drawn as a request of its own",
+              len([r for r in said if r.text == "manager's answer"]) == 1,
+              str([r.text for r in said]))
+        dismissed = [r for r in said if r.rid == h2 and r.part == 1]
+        check("conversation: a dismissal has no number of its own", dismissed and dismissed[0].mid is None)
+
+        # An old verdict, written before answer rows existed, is given one - once.
+        old = db.add_request(con, "worker", "manager", "old question", None, None, None, None, 0,
+                             None, state="done", verdict="old verdict")
+        con.execute("UPDATE requests SET resolved_at = 1000 WHERE id = ?", (old,))
+        db.set_cursor(con, "migrated:answer_rows", 0)
+        con.close()
+        con = db.connect()
+        made = db.answer_row_of(con, old)
+        check("migration: an old verdict becomes an answer row, at the time it was answered",
+              made is not None and made["body"] == "old verdict" and made["ts"] == 1000,
+              str(dict(made) if made else None))
+        count = con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"]
+        con.close()
+        con = db.connect()
+        check("migration: a second connect adds nothing, and the earlier answers are not doubled",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"] == count
+              and len([1 for r in con.execute("SELECT id FROM requests WHERE parent_id = ? AND kind = 'answer'",
+                                              (rid,))]) == 1)
     finally:
         con.close()
 
@@ -8402,6 +8546,8 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
+        run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
         run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
             Path(td) / 'nexttask'))

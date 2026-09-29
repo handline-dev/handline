@@ -410,6 +410,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _add_missing_columns(con)
     _unhide_the_humans_answers(con)
     _rename_orchestrator(con)
+    _give_answers_their_own_rows(con)
     return con
 
 
@@ -586,6 +587,33 @@ def _unhide_the_humans_answers(con) -> None:
     con.execute("UPDATE requests SET announced_at = NULL WHERE requester = ? "
                 "AND state IN ('done', 'rejected')", (ask.HUMAN,))
     set_cursor(con, "migrated:human_answers", 1)
+
+
+def _give_answers_their_own_rows(con) -> None:
+    """Every answer a request already carries becomes a message of its own, so
+    an old verdict has an id to be numbered by and replied to (T421). Only what
+    someone said: a dismissal, a retired row and a system reason are no answer.
+    Ledgered, so it runs once; the verdict column is left as it was."""
+    if get_cursor(con, "migrated:answer_rows"):
+        return
+    from . import requests as dbreq
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if get_cursor(con, "migrated:answer_rows"):     # another process got here first
+            con.execute("ROLLBACK")
+            return
+        for r in con.execute(
+                "SELECT id, verdict, COALESCE(resolved_at, ts) AS at FROM requests "
+                "WHERE state = 'done' AND verdict IS NOT NULL AND verdict != '' "
+                "AND dismissed_by IS NULL AND kind IS NOT 'answer' AND id NOT IN "
+                "(SELECT parent_id FROM requests WHERE kind = 'answer' AND parent_id IS NOT NULL) "
+                "ORDER BY id").fetchall():
+            dbreq.add_answer(con, r["id"], r["verdict"], at=r["at"])
+        set_cursor(con, "migrated:answer_rows", 1)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
 
 
 # What the founder used to be called. "orchestrator" read as a component of
