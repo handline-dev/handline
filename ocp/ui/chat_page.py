@@ -52,10 +52,10 @@ _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 # only when the chat is scrolled to its top.
 PAGE = 30
 # T418: what the row under a message the agent has not answered says. Only a line
-# its transcript shows is delivered.
+# its transcript shows is delivered; queued and typed both read sending (founder #5299).
 LANDING_LABELS = {
-    "queued": "queued, not delivered",
-    "typed": "typed, not in its session yet",
+    "queued": "sending",
+    "typed": "sending",
     "lost": f"not delivered: {landingmod.LOST_TEXT}",
     "delivered": "delivered, not answered yet",
 }

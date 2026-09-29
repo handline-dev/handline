@@ -631,7 +631,7 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
           label_and_buttons(row(None, None))[0] == "queued" and len(label_and_buttons(row(None, None))[2]) == 2)
     landing, texts, buttons = label_and_buttons(row(now, None))
     check("chat: typed but not in the transcript reads typed, and cannot be sent now",
-          landing == "typed" and texts == ["typed, not in its session yet"] and not buttons, str((landing, texts)))
+          landing == "typed" and texts == ["sending"] and not buttons, str((landing, texts)))
     landing, texts, _ = label_and_buttons(row(now - 1000, None, 2))
     check("chat: typed again and again with nothing in the transcript reads not delivered",
           landing == "lost" and texts[0].startswith("not delivered"), str((landing, texts)))
