@@ -34,8 +34,11 @@ _WEEK_CACHE_MAX = 400_000
 
 def forget_before(ts: int) -> None:
     """Drop what is cached for samples older than `ts`: nothing reads them again."""
-    for key in [k for k in _WEEK_CACHE if k[0] < ts]:
-        del _WEEK_CACHE[key]
+    # `list(dict)` is taken in one step and `pop` is tolerant: `_week` inserts and clears
+    # from other threads without this module's lock.
+    for key in list(_WEEK_CACHE):
+        if key[0] < ts:
+            _WEEK_CACHE.pop(key, None)
 
 
 def _week(row) -> tuple[int, float, int | None] | None:

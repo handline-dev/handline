@@ -185,6 +185,31 @@ def test_the_outlook_reads_each_sample_once_and_says_the_same(home: Path) -> Non
         check("outlook: the cache holds no sample older than the floor of what was read",
               before > 0 and all(k[0] >= floor for k in outlook._WEEK_CACHE)
               and len(outlook._WEEK_CACHE) < before, f"{before} -> {len(outlook._WEEK_CACHE)}, floor {floor}")
+        import threading
+        errors: list = []
+        stop = threading.Event()
+
+        def writer():
+            n = 0
+            while not stop.is_set():
+                n += 1
+                outlook._WEEK_CACHE[(n % 60000, n)] = None
+                if n % 20000 == 0:
+                    outlook._WEEK_CACHE.clear()
+        t = threading.Thread(target=writer)
+        t.start()
+        try:
+            for _ in range(60):
+                for k in range(20000):
+                    outlook._WEEK_CACHE[(k, -k)] = None
+                outlook.forget_before(10000)
+        except Exception as e:      # a dict that changed under the scan
+            errors.append(repr(e))
+        finally:
+            stop.set()
+            t.join()
+        check("outlook: forgetting old samples while another thread caches new ones does not raise",
+              not errors, str(errors))
     finally:
         con.close()
 
