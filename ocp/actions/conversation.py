@@ -162,8 +162,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
         out.append(f"nothing yet between you and {agent}")
     if hint:
         how, rid = chat_target(con, agent)
-        goes = {"answers": f" · answers #{rid}", "under": f" · goes under #{rid}",
-                "new": " · starts a new thread"}[how]
+        goes = {"answers": f" · answers #{rid}", "new": " · starts a new thread"}[how]
         out += ["", f"↵ write to {agent}{goes} · e in $EDITOR"]
     return out, drawn
 
@@ -201,16 +200,15 @@ def chat_target(con, agent: str) -> tuple[str, int | None]:
     parked on that row, so a reply is its verdict - an ask under it would leave
     it queued and the agent waiting. A report (fyi) is not a question, and
     neither is the human's own row, so neither can be what a reply answers.
-    ('under', id): otherwise a new ask in the thread of the latest row between
-    them. ('new', None): nothing between them yet.
+    ('new', None): otherwise - a message typed without picking one to reply to (founder #2622)
+    starts a thread of its own, under nothing.
     """
     q = con.execute(
         "SELECT MIN(id) AS m FROM requests WHERE requester = ? AND target = ? "
         "AND state = 'queued' AND fyi = 0", (agent, HUMAN)).fetchone()
     if q and q["m"]:
         return "answers", int(q["m"])
-    rid = chat_parent(con, agent)
-    return ("under", rid) if rid else ("new", None)
+    return "new", None
 
 
 def chat_reply(con, agent: str, body: str) -> str:
@@ -225,11 +223,7 @@ def chat_reply_ok(con, agent: str, body: str) -> tuple[bool, str]:
     how, rid = chat_target(con, agent)
     if how == "new":
         return message_ok(con, agent, body)
-    row = db.get_request(con, rid)
-    if how == "answers" or _is_answer_to_human(row):
-        return answer_ok(con, rid, body)
-    ok, msg, _ = askmod.ask(agent, body, requester=HUMAN, parent_id=rid)
-    return ok, msg
+    return answer_ok(con, rid, body)
 
 
 def _seen_key(agent: str) -> str:

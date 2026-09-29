@@ -1621,6 +1621,25 @@ async def test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested()
               b.has_class("nested") and not a.has_class("nested") and "↪ #9" in str(c.query_one(".parentout").render()))
 
 
+async def test_a_chat_opened_from_a_for_you_row_has_that_message_picked() -> None:
+    """Founder #2622: opening the chat from a message waiting for the founder picks it, so the
+    next thing typed replies to it and its #id shows."""
+    from ocp.team import ask as askmod
+    _home("chatfocus")
+    agents.register("reviewer")
+    _, _, rid = askmod.ask("human", "which branch?", requester="reviewer")
+    askmod.ask("human", "and later news", requester="reviewer", fyi=True)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        page = ChatPage("reviewer", (rid, 0))
+        await app.push_screen(page)
+        await pilot.pause(0.5)
+        check("focus: the message the row named is the reply target, its #id shown",
+              page.replying is not None and page.replying.m["rid"] == rid
+              and f"#{rid}" in str(page.replying._who.render()),
+              str(page.replying and page.replying.m["rid"]))
+
+
 def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -3341,6 +3360,7 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_replies_thread_under_the_message_they_answer()
+    await test_a_chat_opened_from_a_for_you_row_has_that_message_picked()
     await test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()

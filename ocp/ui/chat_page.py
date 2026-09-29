@@ -978,9 +978,11 @@ class TaskDetail(TaskActions, Screen):
 class ChatPage(JobsAware, Screen):
     BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history")]
 
-    def __init__(self, agent: str) -> None:
+    def __init__(self, agent: str, focus: tuple[int, int] | None = None) -> None:
         super().__init__(classes="chat_page")
         self.agent = agent
+        self._focus = focus      # (request id, part) to pick as the reply target once it is drawn
+        self._tabbed = False     # the opening tab has been activated (that clears any reply target)
         self.replying: ChatMessage | None = None
         self.everyone = False
         self.showing_tasks = False
@@ -1254,6 +1256,13 @@ class ChatPage(JobsAware, Screen):
         for w in widgets:
             if keep and isinstance(w, ChatMessage) and (w.m["rid"], w.m["part"]) == keep:
                 self.reply_to(w)
+        if self._focus:
+            picked = next((w for w in widgets if isinstance(w, ChatMessage)
+                           and (w.m["rid"], w.m["part"]) == self._focus and w.m["replyable"]), None)
+            if picked is not None:
+                self.reply_to(picked)
+                self.call_after_refresh(picked.scroll_visible)
+                self._focus = None if self._tabbed else self._focus
 
     def load_older(self) -> None:
         """Read the page of requests just older than the oldest on screen and
@@ -1472,6 +1481,7 @@ class ChatPage(JobsAware, Screen):
                 self._scope_wait = None     # the remembered tab is up; from here a pick is the human's
         self.oldest, self.more, self._sig, self._transcript_key = None, False, None, None
         self.reply_to(None)
+        self._tabbed = True
         if self.is_mounted:
             self.query_one("#body").display = chat
             self.query_one("#dock").display = chat

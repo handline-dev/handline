@@ -1270,15 +1270,10 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         actions.chat_seen(con, "reviewer")
         check("chat: seen clears the count", tab()[0] == "CONVERSATION", tab()[0])
 
-        # A reply goes under the thread it continues.
-        before = actions.chat_parent(con, "reviewer")
+        # A message typed without picking one to reply to starts a thread of its own (#2622).
         actions.chat_reply(con, "reviewer", "thanks - now the docs")
-        first = before
         second = db.get_request(con, actions.chat_parent(con, "reviewer"))
-        check("chat: a reply keeps the chain", second["chain_id"] == row["chain_id"]
-              and second["parent_id"] == first, str(dict(second)))
-        check("chat: one chain header, not two",
-              sum(r.startswith("── chain") for r in tab()[1]) == 1, str(tab()[1]))
+        check("chat: an unaddressed message has no parent", second["parent_id"] is None, str(dict(second)))
 
         # Two open questions with a report older than both: the oldest question.
         old_fyi = askmod.ask(actions.HUMAN, "status: started", requester="reviewer", fyi=True)[2]

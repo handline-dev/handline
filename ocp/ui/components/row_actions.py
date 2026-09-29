@@ -15,9 +15,10 @@ from .read_only import ReadOnly
 class RowActions(AccountActions):
     """Mixin for a screen that keeps `panel` and `sel` and starts jobs (`JobsAware`)."""
 
-    def open_chat(self, agent: str) -> None:
+    def open_chat(self, agent: str, focus: tuple[int, int] | None = None) -> None:
+        """`focus` is a (request id, part) the chat opens with picked as the message to reply to."""
         from ..chat_page import ChatPage  # chat_page imports the components this page uses
-        self.app.push_screen(ChatPage(agent))
+        self.app.push_screen(ChatPage(agent, focus))
 
     async def _act_and_redraw(self, key: str) -> None:
         await self._act(key)
@@ -120,7 +121,7 @@ class RowActions(AccountActions):
             actions.opened_by_human(con, rid)
             place = actions.message_place(con, rid)
             if place is not None:
-                self.open_chat(place[0])
+                self.open_chat(place[0], (rid, place[1]))
                 return
             detail = actions.message_detail(con, rid)
             if detail is None:
