@@ -1578,9 +1578,46 @@ def test_replies_thread_under_the_message_they_answer() -> None:
     check("thread: only the side chain is nested", {m["rid"] for m in out if m.get("nested")} == {14, 15})
     check("thread: a reply to an unloaded parent stays in the main line and names it",
           out[-1]["parent_out"] == 5 and not out[-1].get("nested"))
+    held = [msg(r) for r in (1, 2, 3, 4)]
+    held[3]["queued"], held[3]["delivered"] = True, False
+    out = cp.thread_order(held, {1: None, 2: 1, 3: 2, 4: 1})
+    check("thread: a message not yet delivered is neither moved nor nested",
+          [m["rid"] for m in out] == [1, 2, 3, 4] and not out[3].get("nested"), str(out))
     tie = cp.thread_order([msg(r) for r in (1, 2, 3)], {1: None, 2: 1, 3: 1})
     check("thread: on equal length the chain with the newest message is the main line",
           [(m["rid"], bool(m.get("nested"))) for m in tie] == [(1, False), (2, True), (3, False)], str(tie))
+
+
+async def test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested() -> None:
+    """T410: `reply_to` shows the #id of the message it points at (head line, or 'you #id' on the
+    founder's own) and hides it again when another is picked; nested and out-of-view parents draw."""
+    from textual.app import App
+    from ocp.ui import chat_page as cp
+
+    def m(rid, side, **more):
+        return {"rid": rid, "part": 0, "side": side, "who": "backend" if side == "agent" else "you",
+                "when": 0, "text": f"t{rid}", "waiting": False, "answered": False, "queued": False,
+                "delivered": True, "held": False, "replyable": True, **more}
+    a, b, c = (cp.ChatMessage(m(1, "agent")), cp.ChatMessage(m(2, "you", nested=True)),
+               cp.ChatMessage(m(3, "agent", parent_out=9)))
+
+    class Host(App):
+        def compose(self):
+            yield from (a, b, c)
+    async with Host().run_test(size=(80, 30)) as pilot:
+        await pilot.pause(0.1)
+        a.show_id(True)
+        b.show_id(True)
+        await pilot.pause(0.1)
+        check("focus: an agent's head line gains its #id", "#1" in str(a._who.render()), str(a._who.render()))
+        check("focus: the founder's own message shows 'you #2'", b._ident.display and "#2" in str(b._ident.render()))
+        a.show_id(False)
+        b.show_id(False)
+        await pilot.pause(0.1)
+        check("focus: unfocused, the id is gone again",
+              "#1" not in str(a._who.render()) and not b._ident.display)
+        check("thread: the nested class and the dim '↪ #9' are drawn",
+              b.has_class("nested") and not a.has_class("nested") and "↪ #9" in str(c.query_one(".parentout").render()))
 
 
 def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
@@ -3303,6 +3340,7 @@ async def _run_all() -> None:
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_replies_thread_under_the_message_they_answer()
+    await test_a_focused_message_shows_its_id_and_a_side_reply_is_drawn_nested()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
