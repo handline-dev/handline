@@ -296,6 +296,44 @@ def _task_done_targets(con, tid: int) -> set[str]:
     return {r["target"] for r in db.task_requests(con, tid) if r["state"] in ("queued", "done")}
 
 
+def decide(con, tid: int, text: str) -> tuple[bool, str]:
+    """The founder's decision on a task they own (a decision card): the text is
+    recorded as the task's evidence, the task is closed, and the opener is told
+    it - one act, however it was typed (a card's reply, a command). Nothing
+    else marks a question answered.
+
+    The request that delivered the card is settled with the same text, which
+    is what tells the asker and takes the card off the founder's screen.
+    """
+    text = (text or "").strip()
+    if not text:
+        return False, "nothing sent: no decision typed"
+    row = db.get_task(con, tid)
+    if row is None:
+        return False, f"no task T{tid}"
+    if row["owner"] != HUMAN:
+        return False, f"task T{tid} is not the founder's to decide"
+    if row["closed_by"] or row["done_evidence"]:
+        return False, f"task T{tid} is already decided"
+    kids = db.open_child_tasks(con, tid)
+    if kids:
+        # What `close_task` would refuse, said before anything is written: a
+        # decision that settled the card and then could not close the task
+        # would leave it done but open, and nothing could retry it.
+        ids = ", ".join(f"T{k['id']}" for k in kids)
+        return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
+    for r in db.task_requests(con, tid):
+        if r["state"] == "queued" and r["target"] == HUMAN:
+            ok, msg = askmod.resolve(r["id"], text)
+            if not ok:
+                return False, msg
+    ok, msg = mark_task_done(con, tid, HUMAN, reason=text)
+    if not ok:
+        return False, msg
+    ok, closed = close_task(con, tid, HUMAN)
+    return ok, f"T{tid} decided" + ("" if ok else f" ({closed})")
+
+
 def mark_task_done(con, tid: int, by: str, sha: str | None = None,
                    request_id: int | None = None, reason: str | None = None,
                    repo: Path | None = None) -> tuple[bool, str]:
