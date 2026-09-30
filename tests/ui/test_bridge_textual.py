@@ -276,14 +276,29 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
           len(grown) == cp.HISTORY_MAX and grown[-1] == "new" and grown[0] == "1")
     check("history: matches are newest first and ignore case",
           cp.history_matches("AB", ["xab", "no", "ab2"]) == ["ab2", "xab"])
-    check("history: no file is an empty history", cp.load_history() == [])
-    cp.save_history(["one", "two é"])
-    check("history: it survives a reload", cp.load_history() == ["one", "two é"]
+    check("history: no file is an empty history", cp.load_history("backend") == [])
+    cp.save_history("backend", ["one", "two é"])
+    check("history: it survives a reload", cp.load_history("backend") == ["one", "two é"]
           and str(cp.history_file()).startswith(str(paths.home())))
+    cp.save_history("reviewer", ["other"])
+    check("history: each room keeps its own",
+          cp.load_history("backend") == ["one", "two é"] and cp.load_history("reviewer") == ["other"]
+          and cp.load_history("product") == [])
+    cp.history_file().write_text('["old", "shared"]')
+    check("history: the list from before rooms is dropped",
+          cp.load_history("backend") == [] == cp.load_history("reviewer"))
+    cp.save_history("backend", ["new"])
+    check("history: and the next save starts a per-room file",
+          cp.load_history("backend") == ["new"] and cp.load_history("reviewer") == [])
     cp.history_file().write_text("{not json")
-    check("history: a corrupt file is an empty history, not an error", cp.load_history() == [])
-    cp.history_file().write_text('[1, "ok", null]')
-    check("history: only strings are read back", cp.load_history() == ["ok"])
+    check("history: a corrupt file is an empty history, not an error", cp.load_history("backend") == [])
+    cp.save_history("backend", ["again"])
+    check("history: and the next save starts a good file", cp.load_history("backend") == ["again"])
+    cp.history_file().write_text('{"rooms": {"backend": [1, "ok", null]}}')
+    check("history: only strings are read back", cp.load_history("backend") == ["ok"])
+    cp.history_file().write_text(json.dumps({"rooms": {"backend": [str(i) for i in range(150)]}}))
+    check("history: a room reads at most HISTORY_MAX", cp.load_history("backend")[0] == "50"
+          and len(cp.load_history("backend")) == cp.HISTORY_MAX)
 
 
 def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:
@@ -1610,7 +1625,7 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
 
 def test_home_settings_marks_and_the_delegated_view() -> None:
     from ocp.ui.pages.home import AnswerMarks
-    from ocp.ui.components.tasks_view import TasksView
+    from ocp.ui.components.tasks_view import LISTED, TasksView
     _home("home_marks")
     for title in ("Run A?", "Run B?"):
         actions.add_answer(vendor="claude", title=title, label="Yes")
@@ -1642,7 +1657,36 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
           str((view.owner, view.states, view.closer)))
     view.show_checks(False)
     check("delegated view: a plain visit afterwards is the default view again",
-          (view.owner, view.states, view.closer) == (None, set(actions.OPEN_STATES), None))
+          (view.owner, view.states, view.closer) == (None, set(LISTED), None))
+    check("task list: it opens with done out of the way, the other open states in",
+          set(LISTED) == {"draft", "queued", "doing"} and "done" in actions.OPEN_STATES)
+    from ocp.ui.chat_page import TaskBody, TaskPane
+    check("task list: the side view is the task page's component, adding no call of its own",
+          issubclass(TaskPane, TaskBody) and not [n for n in vars(TaskPane) if n.startswith(("action_", "memo_"))])
+
+
+def test_the_bridge_stylesheet_parses() -> None:
+    """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
+    from textual.app import App
+    from textual.css.stylesheet import Stylesheet
+    from ocp.ui.bridge_textual import BridgeApp
+    sheet = Stylesheet(variables=App().get_css_variables())
+    sheet.read(BridgeApp.CSS_PATH)
+    try:
+        sheet.parse()
+        ok, why = True, ""
+    except Exception as e:  # noqa: BLE001
+        ok, why = False, str(e)[:200]
+    check("bridge: chat_page.tcss parses", ok, why)
+
+
+def test_assign_offers_the_holders_team_first() -> None:
+    _home("assign_team")
+    everyone = ["analytics", "backend", "frontend", "marketing", "reviewer"]
+    check("assign to: the holder's own team, then the rest, without the holder",
+          actions.assign_targets("backend", everyone) == (["frontend"], ["analytics", "marketing", "reviewer"]))
+    check("assign to: a holder in no team has no own team, and everyone is offered",
+          actions.assign_targets("human", everyone) == ([], everyone))
 
 
 def test_assign_answers_from_the_task_page() -> None:
@@ -1860,6 +1904,8 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
+    test_the_bridge_stylesheet_parses()
+    test_assign_offers_the_holders_team_first()
     test_assign_answers_from_the_task_page()
     test_a_task_timeline_holds_memos_and_handoffs_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()
