@@ -34,7 +34,9 @@ class TaskAssign(ModalScreen["tuple[str, str, str] | None"]):
     def __init__(self, ref: str, holder: str, agents: list[str]) -> None:
         super().__init__()
         self.ref, self.holder = ref, holder
-        self.others = [a for a in agents if a != holder]
+        team, rest = actions.assign_targets(holder, agents)
+        self.options = [(a, a) for a in team] + [(f"{a}  (other team)" if team else a, a) for a in rest]
+        self.others = [a for _, a in self.options]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
@@ -44,7 +46,7 @@ class TaskAssign(ModalScreen["tuple[str, str, str] | None"]):
                 yield Select(_HOWS, id="ta_how", allow_blank=False, compact=True, value="note")
             with Horizontal(classes="frow", id="ta_to_row"):
                 yield Static("to", classes="flabel")
-                yield Select([(a, a) for a in self.others], id="ta_to", allow_blank=False, compact=True,
+                yield Select(self.options, id="ta_to", allow_blank=False, compact=True,
                              value=self.others[0]) if self.others else Static("no other agent")
             yield TextArea(id="ta_text")
             with Horizontal(id="ta_buttons"):

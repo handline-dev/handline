@@ -1631,6 +1631,15 @@ def test_the_bridge_stylesheet_parses() -> None:
     check("bridge: chat_page.tcss parses", ok, why)
 
 
+def test_assign_offers_the_holders_team_first() -> None:
+    _home("assign_team")
+    everyone = ["analytics", "backend", "frontend", "marketing", "reviewer"]
+    check("assign to: the holder's own team, then the rest, without the holder",
+          actions.assign_targets("backend", everyone) == (["frontend"], ["analytics", "marketing", "reviewer"]))
+    check("assign to: a holder in no team has no own team, and everyone is offered",
+          actions.assign_targets("human", everyone) == ([], everyone))
+
+
 def test_assign_answers_from_the_task_page() -> None:
     _home("assign")
     agents.register("reviewer")
@@ -1749,6 +1758,7 @@ async def _run_all() -> None:
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
     test_the_bridge_stylesheet_parses()
+    test_assign_offers_the_holders_team_first()
     test_assign_answers_from_the_task_page()
     test_a_task_timeline_holds_memos_handoffs_and_notes_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()

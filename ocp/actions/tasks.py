@@ -15,7 +15,7 @@ from ..infra import textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError
 
-from .routing import HUMAN, supervisor_of
+from .routing import HUMAN, routing, supervisor_of
 
 
 def finding_owner(me: str) -> str | None:
@@ -1200,6 +1200,16 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
 
 
 ASSIGN_HOWS = ("note", "handoff")
+
+
+def assign_targets(holder: str, agents: list[str]) -> tuple[list[str], list[str]]:
+    """Who a task can be handed to, out of `agents`, as (the holder's own team, everyone else),
+    each in a stable order and without the holder. The team is the one team.yaml puts the
+    holder in; a holder in no team has no own team."""
+    t = routing()
+    mine = set(t.members(t.team_of(holder))) if t is not None and t.team_of(holder) else set()
+    others = [a for a in agents if a != holder]
+    return [a for a in others if a in mine], [a for a in others if a not in mine]
 
 
 def assign_task(con, tid: int, to: str, how: str, text: str) -> tuple[bool, str]:
