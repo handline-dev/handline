@@ -207,6 +207,21 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     con.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
 
 
+def set_request_body(con, rid: int, body: str) -> None:
+    con.execute("UPDATE requests SET body = ? WHERE id = ?", (body, rid))
+
+
+def task_body_edits(con, tid: int) -> list[dict]:
+    """T689: the edits that changed T<tid>'s body, in the order they happened: {ts, by, old, new}."""
+    out = []
+    for r in con.execute("SELECT ts, agent, payload FROM events WHERE kind = 'edit_task' "
+                         f"AND {EVENT_TASK} = ? ORDER BY id", (tid,)):
+        b = (json.loads(r["payload"]) or {}).get("body")
+        if isinstance(b, dict):
+            out.append({"ts": r["ts"], "by": r["agent"], "old": b.get("old", ""), "new": b.get("new", "")})
+    return out
+
+
 def task_handoffs(con, tid: int) -> list[dict]:
     """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}
     (a verdict only on a handoff made before verdicts were removed), and `at`, the moment to
