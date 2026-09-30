@@ -18,6 +18,7 @@ from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_drift, cmd_events, cmd_fold, cmd_rollover, cmd_status, cmd_triggers
 from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status, cmd_hooks_sync
 from .hr import cmd_hr, cmd_trust
+from .schedule import cmd_schedule
 from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
@@ -472,6 +473,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
     p.set_defaults(fn=cmd_ignore_cache_expiry)
+
+    p = sub.add_parser("schedule", help="show, add or remove the messages the daemon types at an agent "
+                       "on a cron schedule (T605); adding and removing are the founder's")
+    p.add_argument("action", choices=["list", "add", "remove"], nargs="?", default="list")
+    p.add_argument("--agent", default=None, help="the agent (list: only this one)")
+    p.add_argument("--cron", default=None, help="add: five fields, minute hour day-of-month month day-of-week, "
+                   "local time - e.g. '*/30 * * * *'")
+    p.add_argument("--message", default=None, help="add: what is typed at the agent, one line")
+    p.add_argument("--index", type=int, default=None, help="remove: which one, as list numbers them")
+    p.set_defaults(fn=cmd_schedule)
 
     p = sub.add_parser("auto-accept", help="show or set whether ocp answers the dialogs a working "
                        "agent meets all day: a browser tool's prompt, a declared folder's trust screen (T64)")
