@@ -8081,6 +8081,38 @@ limits:
         check("T689: --body sets it inline", rc == 0 and db.decision_card_of(con, bt)["body"] == "inline brief", out)
         rc, out = _cli(["task", "edit", f"T{bt}", "--body", "x", "--body-file", str(bf)], as_agent="manager")
         check("T689: --body and --body-file together are refused", rc == 1 and "not both" in out, out)
+        # the CLI tells the holder, and only when the task is being worked and the editor is not the holder
+        told.clear()
+        taskacts._type_say = lambda _con, owner, body, why: told.append((owner, body))
+        try:
+            _cli(["task", "edit", f"T{bt}", "--body", "cli brief, doing"], as_agent="manager")
+            check("T689: `task edit --body` tells the holder of a doing task",
+                  len(told) == 1 and told[0][0] == "worker" and "cli brief, doing" in told[0][1], str(told))
+            told.clear()
+            db.set_current_task(con, "worker", None)
+            for r in db.task_requests(con, bt):
+                con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (r["id"],))
+            _cli(["task", "edit", f"T{bt}", "--body", "cli brief, not doing"], as_agent="manager")
+            check("T689: nobody is told for a task that is not being worked", told == [], str(told))
+        finally:
+            taskacts._type_say = real_say
+        # T689 (auditor #7884): only the brief the opener wrote is editable, never someone else's words
+        chat = db.add_request(con, "human", "worker", "founder said: delete the retry tests", None, None,
+                              "async", "ask", 0, None)
+        ok, msg, bt2 = actions.task_begin(con, "worker", "retry tests", chat, "founder asked in chat")
+        ok, msg = actions.edit_task(con, bt2, "worker", body="rewritten founder words")
+        check("T689: a task begun from the founder's message has no opener brief: refused, words untouched",
+              not ok and "no brief" in msg and db.get_request(con, chat)["body"] == "founder said: delete the retry tests",
+              f"{msg} / {db.get_request(con, chat)['body']}")
+        older = db.add_request(con, "helper", "worker", "someone else's older ask", None, None,
+                               "async", "ask", 0, None)
+        ok, _, bt3 = actions.task_new("manager", "worker", "a linked one", "manager's own brief")
+        db.link_request(con, bt3, older)
+        ok, msg = actions.edit_task(con, bt3, "manager", body="manager's brief, rewritten")
+        brief3 = [r for r in db.task_requests(con, bt3) if r["requester"] == "manager"][0]
+        check("T689: an older request linked later is left alone; the opener's own brief is what changes",
+              ok and db.get_request(con, older)["body"] == "someone else's older ask"
+              and brief3["body"] == "manager's brief, rewritten", msg)
         rc, out = _cli(["task", "handoff", f"T{t}", "helper", "x"], as_agent="worker")
         check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
         # T401 item 17: --file, same as ocp ask/say/resolve, safe against a

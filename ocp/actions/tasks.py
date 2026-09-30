@@ -1382,9 +1382,10 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
         text = textsafe.text(body).strip()
         if not text:
             return False, "a task needs a body: the work itself, what done looks like"
-        first = db.decision_card_of(con, tid)
+        first = _brief_of(con, row)
         if first is None:
-            return False, f"task T{tid} has no brief to edit"
+            return False, (f"task T{tid} has no brief its opener wrote to edit - a task begun from a "
+                           f"message, or linked to someone else's request, keeps those words as they are")
         if text != (first["body"] or "").strip():
             new_body, body_rid = text, first["id"]
             changes["body"] = {"old": first["body"] or "", "new": new_body}
@@ -1432,6 +1433,14 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     said = ", ".join("body changed" if k == "body" else f"{k} {v['old']!r} -> {v['new']!r}"
                      for k, v in changes.items())
     return True, f"task T{tid} edited by {by}: {said}"
+
+
+def _brief_of(con, row):
+    """T689: the request that is the task's own brief - the first one linked to it that its opener
+    sent. A request someone else sent (a founder's message a task was begun from, an older ask linked
+    later) is a record, and is never rewritten."""
+    return next((r for r in sorted(db.task_requests(con, row["id"]), key=lambda r: r["id"])
+                 if r["requester"] == row["opened_by"]), None)
 
 
 def tell_body_edited(con, tid: int, by: str) -> None:
