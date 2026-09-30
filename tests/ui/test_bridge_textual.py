@@ -1782,7 +1782,7 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
         db.add_block(con, t, dep)
         con.commit()
         state = tui.screen_state(con, db.get_agent_state(con, "reviewer"))
-        check("blocked: an idle agent whose task is blocked says by which", state == ("IDLE", f"blocked by T{dep}"), str(state))
+        check("blocked: an idle agent whose task is blocked says by which", state == ("IDLE", f"blocked by T{dep} (backend)"), str(state))
     finally:
         con.close()
     app = BridgeApp()
@@ -1796,7 +1796,7 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
         page.refresh_conversation()
         await pilot.pause()
         shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
-        check("blocked: the work line shows it", f"blocked by T{dep}" in shown and "working" not in shown)
+        check("blocked: the work line shows it", f"blocked by T{dep} (backend)" in shown and "working" not in shown)
         line = page.query_one(cp.WorkLine)
         links = [sp.style.meta["@click"] for sp in line.render().spans if getattr(sp.style, "meta", None)]
         check("blocked: the T<n> on the work line is a link that opens that task",

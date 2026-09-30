@@ -315,13 +315,13 @@ def child_wait(con, agent: str) -> str | None:
 
 def block_wait(con, agent: str) -> str | None:
     """T563: what `agent` is held up by when its current task is blocked (`--blocked-by`), as the
-    sentence a screen shows: `blocked by T12, T14`; None when it is not blocked."""
+    sentence a screen shows: `blocked by T12 (orcapipe.auditor), T14 (orcapipe)`; None when it is not blocked."""
     tid = db.current_task(con, agent)
     row = db.get_task(con, tid) if tid is not None else None
     if row is None or row["closed_by"] or row["done_evidence"]:
         return None
     blockers = db.task_blockers(con, tid)
-    return "blocked by " + ", ".join(f"T{b['id']}" for b in blockers) if blockers else None
+    return "blocked by " + ", ".join(f"T{b['id']} ({b['owner']})" for b in blockers) if blockers else None
 
 
 _TASK_NAMED = re.compile(r"\bT(\d+)\b")
