@@ -1887,6 +1887,29 @@ def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
           str([m.get("change") or m["rid"] for m in merged]))
 
 
+def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
+    """T601: `task new`, a handoff and the queue sweep log no start; the delivery's landing says when."""
+    from ocp.ui import chat_page as cp
+    _home("landeddoing")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        con.execute("UPDATE requests SET landed_at = 500 WHERE id = ?", (rid,))
+        db.add_event(con, "reviewer", "mark_task_done", {"task_id": t})
+        con.execute("UPDATE events SET ts = 600 WHERE id = (SELECT MAX(id) FROM events)")
+        con.commit()
+        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+        changes = cp.task_changes(con, msgs)
+    finally:
+        con.close()
+    check("changes: a delivery that landed is doing from then, before done",
+          [(c["change"], c["when"]) for c in changes] == [("queued -> doing", 500), ("doing -> done", 600)],
+          str([(c["change"], c["when"]) for c in changes]))
+
+
 async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
     from ocp.ui import chat_page as cp
     from ocp.ui.bridge_textual import BridgeApp
@@ -1980,6 +2003,7 @@ async def _run_all() -> None:
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
     test_task_changes_are_set_among_the_messages_at_their_time()
+    test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event()
     test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_queue_reason_comes_from_the_message_below_the_line()

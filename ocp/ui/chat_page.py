@@ -140,14 +140,17 @@ def task_changes(con, msgs: list[dict]) -> list[dict]:
     events = con.execute(
         f"SELECT ts, kind, {db.EVENT_TASK} AS tid FROM events WHERE kind IN ({','.join('?' * len(kinds))}) "
         f"AND {db.EVENT_TASK} IN ({marks}) ORDER BY id", (*kinds, *cards)).fetchall()
+    steps = [(e["ts"], e["tid"], _STATE_AFTER[e["kind"]]) for e in events]
+    for m in msgs:      # every delivery leaves when the task reached its owner, which is when it became doing
+        if is_card(m) and m["landing"] == "delivered" and m["when"]:
+            steps.append((m["when"], m["tasks"][0], "doing"))
     state: dict[int, str] = {}
     out = []
-    for e in events:
-        before, after = state.get(e["tid"], "queued"), _STATE_AFTER[e["kind"]]
-        state[e["tid"]] = after
-        if before != after and e["ts"] >= since:
-            out.append({"change": f"{before} -> {after}", "tasks": [e["tid"]], "task_title": cards[e["tid"]],
-                        "when": e["ts"]})
+    for ts, tid, after in sorted(steps, key=lambda step: step[0]):
+        before = state.get(tid, "queued")
+        state[tid] = after
+        if before != after and ts >= since:
+            out.append({"change": f"{before} -> {after}", "tasks": [tid], "task_title": cards[tid], "when": ts})
     return out
 
 
