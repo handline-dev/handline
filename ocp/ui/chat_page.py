@@ -1088,6 +1088,8 @@ class TaskBody(TaskActions, Vertical):
     TaskBody .section { padding-top: 1; border-top: solid $primary-darken-1; margin-top: 1; height: auto; }
     """
 
+    POLL_S = 2      # how often an open page looks for what an agent added
+
     class Changed(Message):
         """An action changed the task: the host redraws what it lists."""
 
@@ -1119,7 +1121,7 @@ class TaskBody(TaskActions, Vertical):
 
     def on_mount(self) -> None:
         self.load()
-        self.set_interval(2, self.poll)
+        self._poller = self.set_interval(self.POLL_S, self.poll)
 
     def show(self, tid: int | None) -> None:
         self.tid = tid or 0

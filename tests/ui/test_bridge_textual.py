@@ -1752,9 +1752,23 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
     app = BridgeApp()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
+        cp.TaskBody.POLL_S = 0.05
         await app.push_screen(cp.TaskDetail(tid))
         await pilot.pause()
         body = app.screen.query_one(cp.TaskBody)
+        con = db.connect()
+        try:
+            actions.memo_add(con, tid, "reviewer", "posted while it was open")
+        finally:
+            con.close()
+        for _ in range(60):     # the page's own timer, no poll() by hand
+            await pilot.pause(0.05)
+            if body.d and body.d["timeline"]:
+                break
+        cp.TaskBody.POLL_S = 2
+        body._poller.stop()     # what follows calls poll() by hand
+        check("task page: its own timer draws a memo an agent added while it was open",
+              [e["text"] for e in body.d["timeline"]] == ["posted while it was open"], str(body.d["timeline"]))
         loads = []
         real = body.load
         body.load = lambda: (loads.append(1), real())[1]
@@ -1768,9 +1782,10 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
         body.poll()
         await pilot.pause()
         check("task page: a memo added meanwhile is drawn on the next poll",
-              loads == [1] and [e["text"] for e in body.d["timeline"]] == ["found the cause"], str(body.d["timeline"]))
+              [e["text"] for e in body.d["timeline"]] == ["posted while it was open", "found the cause"]
+              and len(loads) == 1, str(body.d["timeline"]))
         body.poll()
-        check("task page: and the poll after that leaves it alone again", loads == [1])
+        check("task page: and the poll after that leaves it alone again", len(loads) == 1)
 
 
 def test_the_bridge_stylesheet_parses() -> None:
