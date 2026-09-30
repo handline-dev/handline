@@ -1253,52 +1253,70 @@ def parse_task_timeout(text) -> int:
 
 def memos_of(con, tid: int) -> list[dict]:
     """T493: a task's memos as data, oldest first: `id`, `author`, `body`, `created_at`,
-    `edited_at` (None until edited). Whether an agent may read them is the founder's to
-    say (T494); this reads for whoever calls it."""
+    `edited_at` (None until edited). Everyone may read them."""
     return [dict(m) for m in db.task_memos(con, tid)]
 
 
-def _memo_guard(by: str) -> str | None:
-    return None if by == HUMAN else "memos are the founder's: only the founder adds, edits or deletes one"
+def _memo_guard(row, by: str) -> str | None:
+    """A memo is anyone's to add; only its author or the founder edits or deletes it."""
+    if by == HUMAN or by == row["author"]:
+        return None
+    return f"memo {row['id']} is {row['author']}'s: only its author or the founder edits or deletes it"
+
+
+def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
+    """T493: a memo changing on a task that is doing is told to its holder at once, typed like
+    a say; on any other task, or when the holder made the change, nothing is sent."""
+    row = db.get_task(con, tid)
+    if row is None or row["owner"] in (HUMAN, by) or task_state(con, row) != "doing":
+        return
+    body = f"T{tid} memo {what} by {by}" + (f": {' '.join(text.split())[:400]}" if text else "")
+    rid = db.add_request(con, _UNBLOCK_REQUESTER, row["owner"], body, None, None,
+                         "fire_and_forget", "say", 0, None)
+    db.mark_send_now(con, rid)
+    askmod.deliver(rid, _UNBLOCK_REQUESTER, row["owner"], body, None,
+                   team.Decision(True, "task memo", kind="say", response="fire_and_forget",
+                                 creates_gate=False, chain_depth=0))
+    askmod.push(con, row["owner"], rid)
 
 
 def memo_add(con, tid: int, by: str, body: str) -> tuple[bool, str, int | None]:
-    """Add a founder's memo to task `tid`. (ok, message, memo id)."""
-    refusal = _memo_guard(by)
-    if refusal:
-        return False, refusal, None
+    """Add `by`'s memo to task `tid`. (ok, message, memo id)."""
     if db.get_task(con, tid) is None:
         return False, f"no task T{tid}", None
     if not body.strip():
         return False, "a memo needs some text", None
     mid = db.add_memo(con, tid, by, body)
+    _tell_memo_holder(con, tid, by, "added", body)
     return True, f"memo {mid} added to T{tid}", mid
 
 
 def memo_edit(con, mid: int, by: str, body: str) -> tuple[bool, str]:
     """Replace a memo's text and stamp `edited_at`; the same text is no edit."""
-    refusal = _memo_guard(by)
-    if refusal:
-        return False, refusal
     row = db.get_memo(con, mid)
     if row is None:
         return False, f"no memo {mid}"
+    refusal = _memo_guard(row, by)
+    if refusal:
+        return False, refusal
     if not body.strip():
         return False, "a memo needs some text"
     if body == row["body"]:
         return False, f"memo {mid} already reads that way - nothing to edit"
     db.edit_memo(con, mid, body)
+    _tell_memo_holder(con, row["task_id"], by, "edited", body)
     return True, f"memo {mid} on T{row['task_id']} edited"
 
 
 def memo_delete(con, mid: int, by: str) -> tuple[bool, str]:
-    refusal = _memo_guard(by)
-    if refusal:
-        return False, refusal
     row = db.get_memo(con, mid)
     if row is None:
         return False, f"no memo {mid}"
+    refusal = _memo_guard(row, by)
+    if refusal:
+        return False, refusal
     db.delete_memo(con, mid)
+    _tell_memo_holder(con, row["task_id"], by, "deleted", "")
     return True, f"memo {mid} deleted from T{row['task_id']}"
 
 

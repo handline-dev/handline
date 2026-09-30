@@ -22,7 +22,7 @@ from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ig
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
+from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
 from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
 from .usage import cmd_collect, cmd_usage
 
@@ -584,6 +584,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("text")
     p.set_defaults(fn=cmd_task_note)
+    p = tk.add_parser("memo", help="memos beside T<n>: list, add TEXT, edit ID TEXT, delete ID - "
+                                   "anyone adds, the author or founder edits; a change on a doing "
+                                   "task is told to its holder at once")
+    p.add_argument("task", type=_task_arg, metavar="T")
+    p.add_argument("verb", choices=("list", "add", "edit", "delete"))
+    p.add_argument("rest", nargs="*")
+    p.set_defaults(fn=cmd_task_memo)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
     p.add_argument("--owner", default=None, help="only this agent's tasks")

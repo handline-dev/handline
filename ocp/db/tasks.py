@@ -311,7 +311,7 @@ def merge_task(con, tid: int, into: int, by: str) -> bool:
 
 
 def move_task_links(con, tid: int, into: int) -> None:
-    """Hand `tid`'s linked requests, sub-tasks and the edges that name it as
+    """Hand `tid`'s linked requests, memos, sub-tasks and the edges that name it as
     a blocker to `into`. A request already linked to both stays linked once.
 
     T294: `tid`'s own children reparent to `into` above, so any block `tid`
@@ -329,6 +329,7 @@ def move_task_links(con, tid: int, into: int) -> None:
     con.execute("UPDATE OR IGNORE task_blocks SET task_id = ? WHERE task_id = ? AND blocks_on != ?",
                 (into, tid, into))
     con.execute("DELETE FROM task_blocks WHERE task_id = ?", (tid,))
+    con.execute("UPDATE task_memos SET task_id = ? WHERE task_id = ?", (into, tid))
 
 
 def task_last_activity(con, tid: int) -> int:

@@ -5186,6 +5186,124 @@ def test_promote_to_front_never_jumps_a_delivered_head(home: Path) -> None:
         con.close()
 
 
+def test_task_memos_anyone_adds_author_or_founder_changes(home: Path) -> None:
+    """T493: anyone adds a memo (author recorded), only the author or the founder edits or
+    deletes it, edited_at moves only on a real edit, memos_of reads oldest first, and merging
+    a task carries its memos to the one kept."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        check("memo: the table exists on any db, an old one included",
+              con.execute("SELECT name FROM sqlite_master WHERE name = 'task_memos'").fetchone() is not None)
+        tid = db.new_task(con, "with memos", "worker", "manager", timeout_s=5400)
+        ok, msg, m1 = actions.memo_add(con, tid, actions.HUMAN, "first")
+        check("memo: the founder adds one", ok and m1 is not None, msg)
+        ok, msg, m2 = actions.memo_add(con, tid, "manager", "second")
+        rows = actions.memos_of(con, tid)
+        check("memo: an agent adds one; read oldest first, author recorded, never edited",
+              ok and [(r["author"], r["body"]) for r in rows] == [(actions.HUMAN, "first"), ("manager", "second")]
+              and all(r["edited_at"] is None and r["created_at"] for r in rows), str(rows))
+        check("memo: another agent cannot edit or delete it",
+              not actions.memo_edit(con, m2, "worker", "x")[0] and not actions.memo_delete(con, m2, "worker")[0])
+        check("memo: no memo on a task that is not there, or edit/delete of one that is not",
+              not actions.memo_add(con, 999, "manager", "x")[0]
+              and not actions.memo_edit(con, 999, actions.HUMAN, "x")[0]
+              and not actions.memo_delete(con, 999, actions.HUMAN)[0])
+        check("memo: empty text is refused", not actions.memo_add(con, tid, "manager", "  ")[0]
+              and not actions.memo_edit(con, m2, "manager", "")[0])
+        ok, msg = actions.memo_edit(con, m2, "manager", "second, changed")
+        row = db.get_memo(con, m2)
+        check("memo: the author edits it, and edited_at is stamped", ok and row["body"] == "second, changed"
+              and row["edited_at"] is not None, msg)
+        check("memo: the other memo is untouched", db.get_memo(con, m1)["edited_at"] is None)
+        check("memo: the same text is no edit", not actions.memo_edit(con, m2, "manager", "second, changed")[0])
+        check("memo: the founder edits an agent's memo", actions.memo_edit(con, m2, actions.HUMAN, "by founder")[0])
+        ok, msg = actions.memo_delete(con, m1, "manager")
+        check("memo: an agent cannot delete the founder's", not ok and "founder" in msg, msg)
+        keep = db.new_task(con, "kept", "worker", "manager", timeout_s=5400)
+        db.move_task_links(con, tid, keep)
+        check("memo: merging carries the memos to the task kept",
+              [r["id"] for r in actions.memos_of(con, keep)] == [m1, m2] and not actions.memos_of(con, tid))
+        check("memo: the author deletes their own", actions.memo_delete(con, m2, "manager")[0]
+              and [r["id"] for r in actions.memos_of(con, keep)] == [m1])
+        check("memo: deleting a gone memo is refused", not actions.memo_delete(con, m2, actions.HUMAN)[0])
+    finally:
+        con.close()
+
+
+def test_a_memo_change_is_told_to_the_holder_only_while_doing(home: Path) -> None:
+    """T493 (founder #6075): a memo added, edited or deleted on a doing task is typed to its
+    holder at once, like a say; on a task not doing, or when the holder wrote it, it is silent."""
+    _board_world(home)
+    con = db.connect()
+
+    def told() -> list[str]:
+        return [r["body"] for r in con.execute(
+            "SELECT body FROM requests WHERE requester = 'task-board' AND target = 'worker' "
+            "AND kind = 'say' ORDER BY id")]
+    try:
+        ok, msg, tid = actions.task_new("manager", "worker", "doing it", "doing it")
+        check("setup: the task is delivered and doing",
+              ok and actions.task_state(con, db.get_task(con, tid)) == "doing", msg)
+        _, _, mid = actions.memo_add(con, tid, "manager", "mind the edge case")
+        check("memo told: an add on a doing task reaches the holder, with who and what",
+              told() == [f"T{tid} memo added by manager: mind the edge case"], str(told()))
+        rid = con.execute("SELECT MAX(id) m FROM requests WHERE kind = 'say'").fetchone()["m"]
+        check("memo told: as a say marked to be typed at once", db.get_request(con, rid)["send_now"] is not None)
+        actions.memo_edit(con, mid, "manager", "mind the other edge case")
+        actions.memo_delete(con, mid, "manager")
+        check("memo told: an edit and a delete are told too",
+              len(told()) == 3 and "edited by manager" in told()[1]
+              and told()[2] == f"T{tid} memo deleted by manager", str(told()))
+        actions.memo_add(con, tid, "worker", "my own note")
+        check("memo told: not to the holder about its own change", len(told()) == 3, str(told()))
+        actions.memo_add(con, tid, actions.HUMAN, "founder adds")
+        check("memo told: the founder's change is told", len(told()) == 4)
+        idle = db.new_task(con, "not doing", "worker", "manager", timeout_s=5400)
+        actions.memo_add(con, idle, "manager", "quiet")
+        check("memo told: silent when the task is not doing", len(told()) == 4, str(told()))
+    finally:
+        con.close()
+
+
+def test_task_memo_verbs(home: Path) -> None:
+    """T493: `ocp task memo T<n> list|add|edit|delete` as the founder and as an agent."""
+    _board_world(home)
+    con = db.connect()
+    tid = db.new_task(con, "with memos", "worker", "manager", timeout_s=5400)
+    con.close()
+
+    class Tty:
+        def isatty(self) -> bool:
+            return True
+
+    def founder(args: list[str]) -> tuple[int, str]:
+        """At the founder's own prompt: no OCP_AGENT, a terminal on stdin."""
+        real_env, real_stdin = os.environ.pop("OCP_AGENT", None), sys.stdin
+        sys.stdin = Tty()
+        try:
+            return _cli(args, as_agent=None)
+        finally:
+            sys.stdin = real_stdin
+            if real_env is not None:
+                os.environ["OCP_AGENT"] = real_env
+    rc, out = founder(["task", "memo", f"T{tid}", "add", "from the founder"])
+    check("memo verb: the founder adds", rc == 0 and "added" in out, out)
+    rc, out = _cli(["task", "memo", f"T{tid}", "add", "from manager"], as_agent="manager")
+    check("memo verb: an agent adds", rc == 0, out)
+    rc, out = _cli(["task", "memo", f"T{tid}", "list"], as_agent="worker")
+    check("memo verb: anyone lists them, author shown", rc == 0 and "from the founder" in out
+          and "manager" in out, out)
+    rc, out = _cli(["task", "memo", f"T{tid}", "edit", "1", "nope"], as_agent="manager")
+    check("memo verb: an agent cannot edit the founder's", rc == 1 and "founder" in out, out)
+    rc, out = _cli(["task", "memo", f"T{tid}", "edit", "2", "manager again"], as_agent="manager")
+    check("memo verb: the author edits", rc == 0 and "edited" in out, out)
+    rc, out = founder(["task", "memo", f"T{tid}", "delete", "999"])
+    check("memo verb: a memo of another task or none is refused", rc == 1, out)
+    rc, out = founder(["task", "memo", f"T{tid}", "delete", "1"])
+    check("memo verb: the founder deletes", rc == 0 and "deleted" in out, out)
+
+
 def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
     """T286: `ocp task new` requires -t/--timeout (at most 4h; missing or over
     is refused). Its clock only counts while the task is doing (founder
@@ -8951,6 +9069,9 @@ def main() -> int:
             Path(td) / 'nexttask'))
         run(lambda: test_advance_current_task_never_touches_the_founder(Path(td) / 'nexttaskhuman'))
         run(lambda: test_promote_to_front_never_jumps_a_delivered_head(Path(td) / 'nexttaskhead'))
+        run(lambda: test_task_memos_anyone_adds_author_or_founder_changes(Path(td) / 'memos'))
+        run(lambda: test_a_memo_change_is_told_to_the_holder_only_while_doing(Path(td) / 'memotold'))
+        run(lambda: test_task_memo_verbs(Path(td) / 'memoverbs'))
         run(lambda: test_task_timeout_new_requires_it_and_edit_extends_it(Path(td) / 'tasktimeout'))
         run(lambda: test_reopening_a_timed_task_resumes_its_clock_only_if_still_doing(
             Path(td) / 'taskreopentimeout'))
