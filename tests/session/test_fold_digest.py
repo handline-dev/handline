@@ -453,15 +453,22 @@ def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path)
         db.set_terminal(con, "backend", "term_x", str(_worktree_with_a_dirty_file(home / "wt-backend")))
         write_agent_status("backend", "alpha", session_id="sess-1",
                            transcript_path="/tmp/sess-1.jsonl")
-        ok, said = handoffmod.set_progress(con, "backend", "x")
-        check("progress: no request in hand, nothing to note", not ok, said)
+        ok, said = handoffmod.set_progress(con, "backend", "deferred: waits on T9")
+        check("progress: no request in hand, the note is kept on the agent (T366)",
+              ok and handoffmod.get_progress(con, "backend") == "deferred: waits on T9", said)
+        handoffmod.record(con, "backend")
+        check("progress: the handoff of an agent with no request carries it",
+              "deferred: waits on T9" in db.get_handoff(con, "backend"))
         rid = db.add_request(con, "marina", "backend", "fix it", None,
                              "peer", "async", None, 0, None)
         ok, said = handoffmod.set_progress(con, "backend", "x")
-        check("progress: a request not yet delivered is not one in hand", not ok, said)
+        check("progress: a request not yet delivered is not one in hand; the note stays on the agent",
+              ok and said.startswith("you"), said)
         db.mark_delivered(con, rid)
         ok, said = handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
         check("progress: kept on the delivered request", ok and said == f"#{rid}", said)
+        check("progress: the agent's own note is dropped once a request has one",
+              db.get_meta(con, "progress-agent:backend") is None)
         handoffmod.record(con, "backend")
         text = db.get_handoff(con, "backend")
         check("progress: the handoff carries both lines, right after the request",
