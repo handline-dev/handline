@@ -1417,6 +1417,26 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     return True, f"task T{tid} edited by {by}: {said}"
 
 
+def send_moved_task(con, tid: int, old_owner: str) -> None:
+    """T545: after `edit_task` gave `tid` to a new owner - once its write has committed, since
+    `resolve` and the delivery write through their own connections. The old owner's request for it
+    is taken back, and the new owner is sent the task now: left as it was, the request stayed queued
+    for the old owner and the new one saw a task already being asked. No-op if the owner did not change."""
+    row = db.get_task(con, tid)
+    if row is None or row["owner"] == old_owner:
+        return
+    for r in db.task_requests(con, tid):
+        if r["state"] == "queued" and r["target"] == old_owner:
+            askmod.resolve(r["id"], f"moved to {row['owner']}", state="withdrawn", notify=False)
+            db.set_task_queued(con, tid, r["requester"])    # asked, so approved: it must not fall back to a draft
+    if db.current_task(con, old_owner) == tid:
+        db.set_current_task(con, old_owner, None)
+        if advance_current_task(con, old_owner):
+            askmod.push(con, old_owner)
+    if advance_current_task(con, row["owner"]):
+        askmod.push(con, row["owner"])
+
+
 def _under(con, tid: int, ancestor: int) -> bool:
     """Is `ancestor` `tid` itself or somewhere up its parent chain."""
     seen: set[int] = set()
@@ -1686,7 +1706,10 @@ def batch_task(con, verb: str, tids: list[int], by: str, arg: str = "") -> list[
         elif verb == "discard":
             ok, msg = discard_task(con, tid, by, arg)
         elif verb == "owner":
+            was = (db.get_task(con, tid) or {"owner": None})["owner"]
             ok, msg = edit_task(con, tid, by, owner=arg.strip())
+            if ok:
+                send_moved_task(con, tid, was)
         else:
             ok, msg = edit_task(con, tid, by, priority=prio)
         out.append((tid, ok, msg))

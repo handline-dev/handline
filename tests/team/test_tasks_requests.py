@@ -8456,6 +8456,100 @@ def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited
         con.close()
 
 
+def test_a_queued_task_for_an_agent_with_no_terminal_starts_it(home: Path) -> None:
+    """T545 (founder: "all agents are idle"): a queued task whose owner has no terminal is
+    delivered and its owner started - by queuing it, and by the tick when no edge did."""
+    from ocp.daemon import lifecycle as dmn_lifecycle, taskqueue
+    _board_world(home)
+    con = db.connect()
+    started: list[str] = []
+    real_start, real_daemon = dmn_lifecycle._start_for_work, askmod.IN_DAEMON
+    dmn_lifecycle._start_for_work = lambda _con, agent, log: started.append(agent) or "started"
+    askmod.IN_DAEMON = True
+    try:
+        t = db.new_task(con, "queued for a downed worker", "worker", "manager")
+        actions.set_queued(con, t, "manager", True)
+        check("queue: the task went out and its owner was started",
+              len(db.task_requests(con, t)) == 1 and "worker" in started, str(started))
+
+        t2 = db.new_task(con, "waits behind it", "worker", "manager")
+        actions.set_queued(con, t2, "manager", True)
+        started.clear()
+        req = db.task_requests(con, t)[0]
+        askmod.resolve(req["id"], "done")
+        db.set_current_task(con, "worker", None)
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("tick: the next waiting task goes out and starts the owner still without a terminal",
+              len(db.task_requests(con, t2)) == 1 and "worker" in started, str(started))
+    finally:
+        dmn_lifecycle._start_for_work, askmod.IN_DAEMON = real_start, real_daemon
+        con.close()
+
+
+def test_moving_a_task_to_another_owner_sends_it_there(home: Path) -> None:
+    """T545: `ocp task edit --owner` moved a queued task and nothing delivered it - its request
+    stayed queued for the old owner, and the new one saw a task already being asked."""
+    from ocp.daemon import lifecycle as dmn_lifecycle, taskqueue
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+  other:   {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "manager", to: "other", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "other", to: "manager", relation: subordinate, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    agents.register("other")
+    con = db.connect()
+    started: list[str] = []
+    real_start, real_daemon = dmn_lifecycle._start_for_work, askmod.IN_DAEMON
+    dmn_lifecycle._start_for_work = lambda _con, agent, log: started.append(agent) or "started"
+    askmod.IN_DAEMON = True
+    try:
+        ok, msg, first = actions.task_new("manager", "worker", "busy the worker", "busy")
+        ok, msg, t = actions.task_new("manager", "worker", "the moved one", "the moved one")
+        (old,) = db.task_requests(con, t)
+        check("setup: the moved task is asked of the worker, who is busy with the first",
+              old["target"] == "worker" and old["state"] == "queued")
+        started.clear()
+
+        rc, msg = _cli(["task", "edit", f"T{t}", "--owner", "other"])
+        ok = rc == 0
+        old = db.get_request(con, old["id"])
+        sent = [r for r in db.task_requests(con, t) if r["target"] == "other" and r["state"] == "queued"]
+        check("edit: the old owner's request is taken back, not left to be worked",
+              ok and old["state"] == "withdrawn", str((msg, dict(old))))
+        check("edit: the new owner is sent the task now, and started",
+              len(sent) == 1 and db.current_task(con, "other") == t and "other" in started,
+              str((sent, started)))
+        check("edit: the old owner is told nothing more, and its current task is still its own",
+              db.current_task(con, "worker") == first)
+
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("edit: the tick sends it once", len([r for r in db.task_requests(con, t)
+                                                    if r["target"] == "other"]) == 1)
+
+        ok, msg, t2 = actions.task_new("manager", "worker", "moved from the board", "moved from the board")
+        started.clear()
+        (res,) = actions.batch_task(con, "owner", [t2], "manager", "other")
+        mine = [r["state"] for r in db.task_requests(con, t2) if r["target"] == "worker"]
+        check("board: a batch owner change takes the old request back and keeps the task approved, waiting behind "
+              "the new owner's busy one",
+              res[1] and mine == ["withdrawn"] and actions.task_state(con, db.get_task(con, t2)) == "queued",
+              str((res, mine)))
+    finally:
+        dmn_lifecycle._start_for_work, askmod.IN_DAEMON = real_start, real_daemon
+        con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -9297,6 +9391,8 @@ def main() -> int:
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
+        run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
+        run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
     return run_area(tests)
 
 
