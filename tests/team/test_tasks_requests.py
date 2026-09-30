@@ -8618,6 +8618,111 @@ limits:
         con.close()
 
 
+def test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(home: Path) -> None:
+    """T577 (founder #6793): T458 waited on a decision task the founder dismissed. Settling the card
+    ends that task at the db layer, which ran none of the release a close does: a queued dependent was
+    read as already handled and never sent, a doing one never told, and the block row was left."""
+    from ocp.daemon import taskqueue
+    team = """
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+"""
+    settles = (("dismissed", lambda con, card: actions.dismiss(con, card, me=actions.HUMAN, reason="no")),
+               ("answered", lambda con, card: askmod.resolve(card, "go ahead")))
+    for name, how in settles:
+        for kind in ("queued", "doing"):
+            label = f"{name}/{kind}"
+            _board_world(home / label.replace("/", "-"))
+            hand_edit_team(team)
+            con = db.connect()
+            real_push = askmod.push
+            askmod.push = lambda _con, agent, rid=None: ""
+            try:
+                if kind == "queued":
+                    t = db.new_task(con, "the work", "worker", "manager")
+                    actions.set_queued(con, t, "manager", True)
+                    ok, msg = actions.release_task(con, t, "manager")     # its old request is retired
+                    check(f"{label}: setup: released back to queued", ok, msg)
+                else:
+                    ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+                    check(f"{label}: setup: doing", ok and db.current_task(con, "worker") == t, msg)
+                ok, msg, card = actions.open_decision("manager", "which way?")
+                dec = db.tasks_for_request(con, card)[0]["id"]
+                ok, msg = actions.add_block(con, t, dec, "manager")
+                check(f"{label}: setup: it waits on the decision task", ok, msg)
+                told = lambda: [r for r in db.task_requests(con, t)
+                                if r["requester"] == actions._UNBLOCK_REQUESTER and "is unblocked" in r["body"]]
+                sent = len(db.task_requests(con, t))
+                now = int(time.time())
+                taskqueue.sweep(con, lambda _m: None, now)
+                check(f"{label}: blocked, nothing is sent", len(db.task_requests(con, t)) == sent and not told())
+
+                how(con, card)
+                taskqueue.sweep(con, lambda _m: None, now + taskqueue.RETRY_S + 1)
+                check(f"{label}: no block row is left", db.tasks_blocked_by(con, dec) == [])
+                check(f"{label}: its owner is told once it is unblocked", len(told()) == 1, str(len(told())))
+                if kind == "queued":
+                    check(f"{label}: and it is its owner's current task again, as after any close",
+                          db.current_task(con, "worker") == t, str(db.current_task(con, "worker")))
+                taskqueue.sweep(con, lambda _m: None, now + 2 * taskqueue.RETRY_S + 2)
+                check(f"{label}: and only once", len(told()) == 1, str(len(told())))
+            finally:
+                askmod.push = real_push
+                con.close()
+
+
+def test_a_blocker_that_cannot_be_released_does_not_stop_the_others(home: Path) -> None:
+    """T588 (auditor #6841): one bad blocker's transaction re-raised every tick and would have halted
+    the queue sweep for every agent. It is logged and left for the next tick; the rest are released."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    real_push, real_clear = askmod.push, actions.tasks._clear_blocks_on
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        bad = db.new_task(con, "bad blocker", "manager", "manager")
+        good = db.new_task(con, "good blocker", "manager", "manager")
+        d_bad = db.new_task(con, "waits on bad", "worker", "manager")
+        d_good = db.new_task(con, "waits on good", "worker", "manager")
+        db.add_block(con, d_bad, bad)
+        db.add_block(con, d_good, good)
+        db.discard_task(con, bad, "manager", "gone")           # the db layer leaves the rows
+        db.discard_task(con, good, "manager", "gone")
+
+        def flaky(con_, tid, *a, **k):
+            if tid == bad:
+                raise RuntimeError("boom")
+            return real_clear(con_, tid, *a, **k)
+        actions.tasks._clear_blocks_on = flaky
+        said: list[str] = []
+        taskqueue.sweep(con, said.append, int(time.time()))     # must not raise
+        check("a failing blocker: the other is still released",
+              db.tasks_blocked_by(con, good) == [] and any("released" in r["body"] or "unblocked" in r["body"]
+                                                             for r in db.task_requests(con, d_good)))
+        check("a failing blocker: its own rows are left, rolled back, for the next tick",
+              [r["task_id"] for r in db.tasks_blocked_by(con, bad)] == [d_bad])
+        check("a failing blocker: and it is logged, naming the task",
+              any(f"T{bad}" in m and "boom" in m for m in said), str(said))
+
+        actions.tasks._clear_blocks_on = real_clear
+        taskqueue.sweep(con, said.append, int(time.time()) + taskqueue.RETRY_S + 1)
+        check("a failing blocker: once it works the next tick releases it", db.tasks_blocked_by(con, bad) == [])
+    finally:
+        actions.tasks._clear_blocks_on = real_clear
+        askmod.push = real_push
+        con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -9461,6 +9566,8 @@ def main() -> int:
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
+        run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(Path(td) / 'decsettle'))
+        run(lambda: test_a_blocker_that_cannot_be_released_does_not_stop_the_others(Path(td) / 'relguard'))
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
     return run_area(tests)
