@@ -67,18 +67,30 @@ def _progress_key(request_id: int) -> str:
     return f"progress:{request_id}"
 
 
+def _task_progress_key(tid: int) -> str:
+    return f"progress-task:{tid}"
+
+
 def set_progress(con, agent: str, note: str) -> tuple[bool, str]:
     """Keep `note` as the progress on the agent's delivered request (its
     effective head, T337 - the one it was actually told, not a blocked true
-    head it never saw), replacing the last one. An empty note clears it."""
+    head it never saw), replacing the last one. With no request in progress it is
+    kept on the task the agent holds, or on the agent when it holds none, so a
+    deferred agent can still leave a handoff note (T366). An empty note clears it."""
     from ..daemon import delivery  # local: see _request_line
     head = delivery.effective_head(con, agent)
-    if head is None or not head["delivered_at"]:
-        return False, "no request is in progress for you"
+    delivered = head is not None and bool(head["delivered_at"])
     note = textsafe.text(note).strip()
     if len(note) > PROGRESS_MAX:
         return False, (f"{len(note)} characters; the handoff carries at most "
                        f"{PROGRESS_MAX} - keep what is done and what is left")
+    if not delivered:
+        tid = db.current_task(con, agent)
+        if tid is not None:
+            db.set_meta(con, _task_progress_key(tid), note or None)
+            return True, f"T{tid} (no request in progress)"
+        db.set_meta(con, db.agent_progress_key(agent), note or None)
+        return True, "you (no request in progress)"
     db.set_meta(con, _progress_key(int(head["id"])), note or None)
     return True, f"#{head['id']}"
 
@@ -89,11 +101,14 @@ def progress_of(con, request_id: int) -> str | None:
 
 
 def get_progress(con, agent: str) -> str | None:
-    """The note kept on the agent's effective head (T337 - see _request_line)."""
+    """The note kept on the agent's effective head (T337 - see _request_line), or
+    on the current task, else on the agent, when it has no request in progress (T366)."""
     from ..daemon import delivery  # local: see _request_line
     head = delivery.effective_head(con, agent)
     if head is None or not head["delivered_at"]:
-        return None
+        tid = db.current_task(con, agent)
+        key = db.agent_progress_key(agent) if tid is None else _task_progress_key(tid)
+        return db.get_meta(con, key) or None
     return db.get_meta(con, _progress_key(int(head["id"]))) or None
 
 
