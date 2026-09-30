@@ -381,7 +381,8 @@ def shown_verdict(row) -> str | None:
 
 def close_if_queued(con, rid: int, state: str, verdict: str | None,
                     announced: bool = False, dismissed_by: str | None = None,
-                    dismissed_reason: str | None = None, answered_by: int | None = None) -> bool:
+                    dismissed_reason: str | None = None, answered_by: int | None = None,
+                    settle: bool = True) -> bool:
     """Close a request that is still open, atomically. True only if this call
     was the one that closed it: an agent resolving it in the same instant wins,
     and its answer is not overwritten. `announced=True` is `resolve`'s
@@ -391,7 +392,10 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
     that window would announce it anyway.
 
     `answered_by` names a reply row that is itself the answer (T361: a `say --parent`): it is
-    marked as settling this request, and no second answer row is written for the same words."""
+    marked as settling this request, and no second answer row is written for the same words.
+
+    `settle=False` (T684): the request is closed because its task is being handed on, so the task
+    a decision card belongs to is not settled with it - it is still open, with a new holder."""
     if _would_strand_a_proposal(con, rid, state, verdict):
         return False
     now = int(time.time())
@@ -405,7 +409,8 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
             con.execute("UPDATE requests SET settles = ? WHERE id = ?", (rid, answered_by))
         elif state == "done" and verdict and dismissed_by is None:
             add_answer(con, rid, verdict)
-        _settle(con, rid, state, verdict, dismissed_by)
+        if settle:
+            _settle(con, rid, state, verdict, dismissed_by)
     return cur.rowcount > 0
 
 
