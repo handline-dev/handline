@@ -1794,6 +1794,67 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
               "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
 
 
+async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed() -> None:
+    import html, re
+    from textual.app import App
+    from textual.widgets import Select
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components.ime import ImeInput
+    from ocp.ui.components.schedule_add import ScheduleAdd
+    from ocp.ui.components.schedules_section import SchedulesSection
+    _home("schedules_ui")
+    actions.schedule_add("backend", "0 9 * * *", "first one")
+    actions.schedule_add("backend", "30 18 * * 1-5", "second one")
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss") if hasattr(cp, "Path") else None
+
+        def compose(self):
+            yield SchedulesSection("backend")
+
+    app = Host()
+
+    def screen_text() -> str:
+        return html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        check("schedules ui: both schedules are listed, in words", "every day 09:00" in screen_text()
+              and "weekdays 18:30" in screen_text() and "first one" in screen_text() and "second one" in screen_text())
+        got: list = []
+        form = ScheduleAdd()
+        await app.push_screen(form, got.append)
+        await pilot.pause()
+        form.query_one("#sa_kind", Select).value = "every week"
+        await pilot.pause()
+        form.query_one("#sa_hour", ImeInput).value = "18"
+        form.query_one("#sa_minute", ImeInput).value = "05"
+        form.query_one("#sa_message", ImeInput).value = "  weekly   note "
+        check("schedules ui: 'every week' shows the day", form.query_one("#sa_day_row").display)
+        form.query_one("#sa_kind", Select).value = "every N minutes"
+        await pilot.pause()
+        check("schedules ui: 'every N minutes' hides the time and shows the interval",
+              not form.query_one("#sa_time_row").display and form.query_one("#sa_every_row").display)
+        form.query_one("#sa_kind", Select).value = "every hour"
+        await pilot.pause()
+        check("schedules ui: 'every hour' keeps the minute and hides the hour",
+              form.query_one("#sa_time_row").display and not form.query_one("#sa_hour").display)
+        form.query_one("#sa_kind", Select).value = "every week"
+        await pilot.pause()
+        await pilot.click("#sa_add")
+        await pilot.pause()
+        check("schedules ui: Add dismisses with the cron built from the fields and a one-line message",
+              got == [("5 18 * * 1", "weekly note")], str(got))
+        await pilot.click("#sc_rm_2")
+        await pilot.pause()
+        await pilot.click("#yes")
+        await pilot.pause()
+        left = actions.schedule_rows("backend")
+        check("schedules ui: the row pressed is the one removed, on disk and on screen",
+              [r["message"] for r in left] == ["first one"] and "first one" in screen_text()
+              and "second one" not in screen_text(), str(left))
+
+
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
     """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
     working and a wait for a reply come first."""
@@ -1909,6 +1970,7 @@ async def _run_all() -> None:
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
+    await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
     await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 
