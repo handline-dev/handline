@@ -214,11 +214,118 @@ def test_the_outlook_reads_each_sample_once_and_says_the_same(home: Path) -> Non
         con.close()
 
 
+def _week_row(con, account, ts, used, reset=NOW + 48 * H) -> None:
+    wins = [{"minutes": 10080, "used_percent": used, "resets_at": reset, "lost": False}]
+    con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)",
+                (account, ts, json.dumps(wins)))
+
+
+def test_the_guess_resets_the_week_again_each_week(home: Path) -> None:
+    """T162/T320: after the account's week resets the guess starts from nothing used, and it does so
+    again every week - on 14d it had run on past the first reset and the refill stopped at zero."""
+    from ocp.usage import outlook
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for i in range(40):                                      # 1% an hour, week resets 48h from now
+            _week_row(con, "alpha", NOW - (40 - i) * H, 30 + i)
+        rows = db.usage_samples(con, since=NOW - 42 * H)
+        o = outlook.weekly_outlook(rows, NOW, 336)
+        reset = NOW + 48 * H
+        left = lambda t: min(o.future, key=lambda p: abs(p[0] - t))[1]
+        pace = 24.0                                              # points a day
+        at = min(o.future, key=lambda p: abs(p[0] - (NOW + 24 * H)))
+        check("week: before the reset the guess keeps using the week at its pace",
+              abs(at[1] - (100 - (69 + (at[0] - NOW) / H * pace / 24))) < 1, str(at))
+        check("week: just after the reset the week is nearly all left again",
+              left(reset + 2 * H) > 90, str(left(reset + 2 * H)))
+        check("week: eight days after it, one day into the second week, not empty",
+              abs(left(reset + 8 * 24 * H) - (100 - pace)) < 4, str(left(reset + 8 * 24 * H)))
+        check("week: and at the second reset it is full again",
+              left(reset + 7 * 24 * H + H) > 90, str(left(reset + 7 * 24 * H + H)))
+    finally:
+        con.close()
+
+
+def test_week_consumed_and_the_curve_start_from_the_last_sample_before_the_range(home: Path) -> None:
+    """T163/T164: the rise from the last sample before the range into its first was dropped by one
+    reader and not the other; both count it, and only from a sample that still says what was held."""
+    from ocp.usage import outlook
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        lo, hi = NOW - 4 * H, NOW
+        _week_row(con, "alpha", lo - H, 10)          # just before the range: where the first rise starts
+        _week_row(con, "alpha", lo + H, 14)
+        _week_row(con, "alpha", lo + 3 * H, 20)
+        _week_row(con, "beta", lo - 5 * H, 10)       # older than a sample still holds: no rise from it
+        _week_row(con, "beta", lo + H, 14)
+        _week_row(con, "beta", lo + 3 * H, 20)
+        _week_row(con, "gamma", lo - H, 50)          # nothing read inside the range: says nothing of it
+        rows = db.usage_samples(con, since=lo - 6 * H)
+        used = outlook.week_consumed(rows, lo, hi)
+        check("consumed: the rise into the range counts, from the sample just before it",
+              used.get("alpha") == 10.0, str(used))
+        check("consumed: a sample too old to say what was held is not where a rise starts",
+              used.get("beta") == 6.0, str(used))
+        check("consumed: an account with nothing inside the range is left out", "gamma" not in used, str(used))
+        times = [lo, lo + 2 * H, lo + 4 * H]
+        curves = outlook.consumed_curve(rows, times)
+        check("curve: the points used so far at each time, from the first (the sample before is where it starts)",
+              curves["alpha"] == [0.0, 4.0, 10.0], str(curves["alpha"]))
+        check("curve: its end is what `week_consumed` says for the same span", curves["alpha"][-1] == used["alpha"])
+    finally:
+        con.close()
+
+
+def test_the_agents_overlay_is_its_share_of_each_account_times_what_it_used(home: Path) -> None:
+    """T164: the curve under the graph for a picked agent - values, not only its length - and the
+    three readers of one refresh look at the same window (T163)."""
+    from ocp import actions
+    from ocp.usage import outlook
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        lo = NOW - 24 * H
+        for acct, (a, b, c) in {"alpha": (10, 20, 20), "beta": (0, 0, 4)}.items():
+            _week_row(con, acct, lo - H, a)
+            _week_row(con, acct, lo + 6 * H, b)
+            _week_row(con, acct, lo + 18 * H, c)
+        use = stats.AgentUse("x", 0, 0.0, 0.0, None, {"alpha": 0.5, "beta": 1.0})
+        times = [lo, lo + 12 * H, lo + 24 * H]
+        got = actions.agent_overlay(con, use, NOW, 24, times)
+        # alpha: 0, +10 by the 12th hour, still 10 at the end; beta: 0, 0, +4. Averaged over two accounts.
+        want = [0.0, 0.5 * 10 / 2, (0.5 * 10 + 1.0 * 4) / 2]
+        check("overlay: the agent's share of each account times what it used, averaged", got == want, str(got))
+        check("overlay: nothing for an agent with no share", actions.agent_overlay(
+            con, stats.AgentUse("y", 0, 0.0, 0.0, None, {}), NOW, 24, times) == [0.0, 0.0, 0.0])
+
+        seen = {}
+        real = outlook.week_consumed
+        outlook.week_consumed = lambda rows, lo_, hi_: (seen.setdefault("first", rows[0]["ts"]), real(rows, lo_, hi_))[1]
+        try:
+            actions.agent_use(con, NOW, 24)
+        finally:
+            outlook.week_consumed = real
+        check("overlay: what each agent used reads the samples from the same start as the graph",
+              seen.get("first") == lo - H, str(seen))
+        check("overlay: the graph reads from there too",
+              actions.details._outlook_rows(con, NOW, 24)[0]["ts"] == lo - H)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_prices(Path(td) / 'stats1'))
         run(lambda: test_agent_use_is_by_what_tokens_cost(Path(td) / 'stats2'))
         run(lambda: test_the_outlook_reads_each_sample_once_and_says_the_same(Path(td) / 'stats3'))
+        run(lambda: test_the_guess_resets_the_week_again_each_week(Path(td) / 'stats4'))
+        run(lambda: test_week_consumed_and_the_curve_start_from_the_last_sample_before_the_range(Path(td) / 'stats5'))
+        run(lambda: test_the_agents_overlay_is_its_share_of_each_account_times_what_it_used(Path(td) / 'stats6'))
     return run_area(tests)
 
 
