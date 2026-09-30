@@ -544,23 +544,6 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     return True, f"task T{tid} closed by {by}"
 
 
-def founder_ok(con, tid: int) -> tuple[bool, str]:
-    """The founder checked work handed to them (a task they hold that is still doing) and
-    signs it off in one step: done on 'founder OK', then closed. Refused, with nothing written,
-    where the close would be (an open child task)."""
-    row = db.get_task(con, tid)
-    if row is None:
-        return False, f"no task T{tid}"
-    if row["owner"] != HUMAN or task_state(con, row) != "doing":
-        return False, f"task T{tid} is not doing with the founder - nothing to sign off yet"
-    kids = db.open_child_tasks(con, tid)
-    if kids:
-        ids = ", ".join(f"T{k['id']}" for k in kids)
-        return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
-    ok, said = mark_task_done(con, tid, HUMAN, reason="founder OK")
-    return close_task(con, tid, HUMAN) if ok else (ok, said)
-
-
 def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tuple[bool, str]:
     """Throw a task away before it is done (task #85) - the asker's or the founder's call
     (see `task_asker`), in one step with a one-line reason. It is recorded as

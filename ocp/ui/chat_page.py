@@ -249,7 +249,7 @@ def task_detail(con, tid: int) -> dict | None:
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
             "closed": (t["closed_by"], t["closed_at"]) if t["closed_by"] else None,
             "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
-            "can_close": state == "done" and mine or state == "doing" and t["owner"] == actions.HUMAN,
+            "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing") and mine,
             "can_assign": state in ("draft", "queued", "doing")}
@@ -917,26 +917,20 @@ class TaskActions:
 
     def action_close_task(self) -> None:
         if not (self.d and self.d["can_close"]):
-            self.say("only a done task that you asked for, or one handed to you, can be closed")
+            self.say("only a done task that you asked for can be closed")
             return
-        handed = self.d["state"] == "doing"
 
         def answered(yes: bool | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} close: answered {'yes' if yes else 'no'}")
             if yes:
                 con = db.connect()
                 try:
-                    if handed:
-                        ok, said = actions.founder_ok(con, self.tid)
-                    else:
-                        ok, said = actions.close_task(con, self.tid, actions.HUMAN)
+                    ok, said = actions.close_task(con, self.tid, actions.HUMAN)
                 finally:
                     con.close()
                 self.report("close", ok, said)
         self.app.push_screen(
-            Confirm(f"Close task {actions.task_ref(self.tid)}",
-                    ("You checked it: it is marked done ('founder OK') and closed, final." if handed
-                     else "Your sign-off, and final: a closed task cannot be reopened."),
+            Confirm(f"Close task {actions.task_ref(self.tid)}", "Your sign-off, and final: a closed task cannot be reopened.",
                     yes="Close", danger=True), answered)
 
     def action_assign_task(self) -> None:
