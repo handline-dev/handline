@@ -1801,6 +1801,37 @@ def test_assign_offers_the_holders_team_first() -> None:
           actions.assign_targets("human", everyone) == ([], everyone))
 
 
+def test_schedules_are_built_read_and_written_through_actions() -> None:
+    _home("schedules")
+    cron = actions.schedule_cron
+    check("schedule: each kind builds its cron",
+          [cron("every day", "9", "30"), cron("weekdays", "9", "0"), cron("every week", "18", "5", 1),
+           cron("every hour", minute="15"), cron("every N minutes", every="10")]
+          == ["30 9 * * *", "0 9 * * 1-5", "5 18 * * 1", "15 * * * *", "*/10 * * * *"])
+    for bad in (("every day", "24", "0"), ("every day", "9", "60"), ("every N minutes", "9", "0", 1, "0"),
+                ("sometimes", "9", "0")):
+        try:
+            cron(*bad)
+            check(f"schedule: {bad} is refused", False)
+        except ValueError:
+            check(f"schedule: {bad} is refused", True)
+    check("schedule: what it builds reads back in words, and anything else stays as written",
+          [actions.schedule_words(c) for c in ("30 9 * * *", "0 9 * * 1-5", "5 18 * * 1", "15 * * * *", "*/10 * * * *", "0 0 1 * *")]
+          == ["every day 09:30", "weekdays 09:00", "Mon 18:05", "every hour at :15", "every 10 minutes", "0 0 1 * *"])
+    check("schedule: an agent starts with none", actions.schedule_rows("backend") == [])
+    actions.schedule_add("backend", cron("weekdays", "9", "0"), "  check   the board ")
+    rows = actions.schedule_rows("backend")
+    check("schedule: an added one is listed with its next run and a one-line message",
+          [(r["cron"], r["message"]) for r in rows] == [("0 9 * * 1-5", "check the board")] and rows[0]["next"] != "never")
+    try:
+        actions.schedule_add("backend", "not a cron", "x")
+        check("schedule: a bad cron is refused", False)
+    except ValueError:
+        check("schedule: a bad cron is refused", len(actions.schedule_rows("backend")) == 1)
+    actions.schedule_remove("backend", 1)
+    check("schedule: a removed one is gone", actions.schedule_rows("backend") == [])
+
+
 def test_assign_answers_from_the_task_page() -> None:
     _home("assign")
     agents.register("reviewer")
@@ -2106,6 +2137,67 @@ async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() ->
         check("for-you chat: a message older than one page is drawn", old in drawn, str(drawn[:3]))
 
 
+async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed() -> None:
+    import html, re
+    from textual.app import App
+    from textual.widgets import Select
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components.ime import ImeInput
+    from ocp.ui.components.schedule_add import ScheduleAdd
+    from ocp.ui.components.schedules_section import SchedulesSection
+    _home("schedules_ui")
+    actions.schedule_add("backend", "0 9 * * *", "first one")
+    actions.schedule_add("backend", "30 18 * * 1-5", "second one")
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield SchedulesSection("backend")
+
+    app = Host()
+
+    def screen_text() -> str:
+        return html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        check("schedules ui: both schedules are listed, in words", "every day 09:00" in screen_text()
+              and "weekdays 18:30" in screen_text() and "first one" in screen_text() and "second one" in screen_text())
+        got: list = []
+        form = ScheduleAdd()
+        await app.push_screen(form, got.append)
+        await pilot.pause()
+        form.query_one("#sa_kind", Select).value = "every week"
+        await pilot.pause()
+        form.query_one("#sa_hour", ImeInput).value = "18"
+        form.query_one("#sa_minute", ImeInput).value = "05"
+        form.query_one("#sa_message", ImeInput).value = "  weekly   note "
+        check("schedules ui: 'every week' shows the day", form.query_one("#sa_day_row").display)
+        form.query_one("#sa_kind", Select).value = "every N minutes"
+        await pilot.pause()
+        check("schedules ui: 'every N minutes' hides the time and shows the interval",
+              not form.query_one("#sa_time_row").display and form.query_one("#sa_every_row").display)
+        form.query_one("#sa_kind", Select).value = "every hour"
+        await pilot.pause()
+        check("schedules ui: 'every hour' keeps the minute and hides the hour",
+              form.query_one("#sa_time_row").display and not form.query_one("#sa_hour").display)
+        form.query_one("#sa_kind", Select).value = "every week"
+        await pilot.pause()
+        await pilot.click("#sa_add")
+        await pilot.pause()
+        check("schedules ui: Add dismisses with the cron built from the fields and a one-line message",
+              got == [("5 18 * * 1", "weekly note")], str(got))
+        await pilot.click("#sc_rm_2")
+        await pilot.pause()
+        await pilot.click("#yes")
+        await pilot.pause()
+        left = actions.schedule_rows("backend")
+        check("schedules ui: the row pressed is the one removed, on disk and on screen",
+              [r["message"] for r in left] == ["first one"] and "first one" in screen_text()
+              and "second one" not in screen_text(), str(left))
+
+
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
     """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
     working and a wait for a reply come first."""
@@ -2316,6 +2408,7 @@ async def _run_all() -> None:
     test_the_open_task_counts_read_once_and_match_the_one_agent_count()
     test_agents_data_scans_the_open_tasks_once_for_all_agents()
     test_assign_offers_the_holders_team_first()
+    test_schedules_are_built_read_and_written_through_actions()
     test_assign_answers_from_the_task_page()
     test_a_task_page_shows_every_line_of_a_multi_line_task()
     await test_the_shared_task_view_draws_the_brief()
@@ -2335,6 +2428,7 @@ async def _run_all() -> None:
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
+    await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
     await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 
