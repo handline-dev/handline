@@ -42,7 +42,7 @@ def new_task(con, title: str, owner: str, opened_by: str,
 
 def add_memo(con, tid: int, author: str, body: str) -> int:
     cur = con.execute("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
-                      (tid, author, body, int(time.time())))
+                      (tid, author, body, time.time()))
     return int(cur.lastrowid)
 
 
@@ -209,13 +209,14 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
 
 def task_handoffs(con, tid: int) -> list[dict]:
     """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}
-    (a verdict only on a handoff made before verdicts were removed). What the task's page shows."""
+    (a verdict only on a handoff made before verdicts were removed), and `at`, the moment to
+    the fraction of a second (`ts` for one made before it was recorded). What the task's page shows."""
     out = []
     for r in con.execute("SELECT ts, payload FROM events WHERE kind = 'task_handoff' "
                          f"AND {EVENT_TASK} = ? ORDER BY id", (tid,)):
         p = json.loads(r["payload"])
         out.append({"ts": r["ts"], "from": p.get("from"), "to": p.get("to"), "note": p.get("note", ""),
-                    "verdict": p.get("verdict")})
+                    "at": p.get("at", r["ts"]), "verdict": p.get("verdict")})
     return out
 
 
