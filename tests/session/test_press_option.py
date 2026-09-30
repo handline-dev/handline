@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from ocp.actions import confirmations, dialogs  # noqa: E402
 from ocp.team import dialog_rules  # noqa: E402
 
 DIALOG = ["  earlier output", "▔" * 60, "   Do you want to proceed?", "   ❯ 1. Yes",
@@ -100,7 +101,7 @@ class _WideKeyTerm:
 
 
 def test_answer_dialog_never_remembers_a_press_that_failed(home: Path) -> None:
-    """T383 (auditor finding): dialogs.answer_dialog used to call _remember
+    """T383 (auditor finding): dialogs.press_choice used to call _remember
     before orca.press_option, so 'always' could write a standing rule even
     when the press itself then failed - especially bad under a truncated
     dialog's shared placeholder title (T383), which would wrongly answer
@@ -112,16 +113,16 @@ def test_answer_dialog_never_remembers_a_press_that_failed(home: Path) -> None:
         # A dialog that never clears when pressed - press_option reports
         # STILL_OPEN, never CLEARED.
         _KeyTerm(DIALOG, ignores_key=True)
-        ok, said = actions.answer_dialog(con, "backend", "Do you want to proceed?", 1, always=True)
-        check("answer_dialog: a press that does not clear the dialog is not ok", not ok, said)
-        check("answer_dialog: and nothing was remembered from it",
+        ok, said = dialogs.press_choice(con, "backend", "Do you want to proceed?", 1, always=True)
+        check("press_choice: a press that does not clear the dialog is not ok", not ok, said)
+        check("press_choice: and nothing was remembered from it",
               dialog_rules.list_rules() == [], str(dialog_rules.list_rules()))
 
         # The same dialog, but this time it actually clears.
         _KeyTerm(DIALOG)
-        ok, said = actions.answer_dialog(con, "backend", "Do you want to proceed?", 1, always=True)
-        check("answer_dialog: a press that clears the dialog is ok", ok, said)
-        check("answer_dialog: and this time it is remembered",
+        ok, said = dialogs.press_choice(con, "backend", "Do you want to proceed?", 1, always=True)
+        check("press_choice: a press that clears the dialog is ok", ok, said)
+        check("press_choice: and this time it is remembered",
               len(dialog_rules.list_rules()) == 1, str(dialog_rules.list_rules()))
     finally:
         con.close()
@@ -196,20 +197,20 @@ def test_a_truncated_dialogs_title_is_stable_across_reads(home: Path) -> None:
         con.close()
 
 
-def test_a_heredoc_permission_prompt_now_reaches_pending_confirmation(home: Path) -> None:
+def test_a_heredoc_permission_prompt_is_read_from_the_screen(home: Path) -> None:
     """The actual founder report (#2254/#2255): a Bash permission prompt for
     a long (heredoc) command never reached the bridge, because
     confirmation_on_screen (built on dialog_on_screen) found nothing to
-    answer. With the read widened, actions.pending_confirmation - what the
-    bridge's chat page polls - now finds it."""
+    answer. With the read widened, the prompt is found and described."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
         waiting.note("backend", "Bash", {"command": "git checkout -q x; python3 - <<'EOF'",
                                          "description": ""}, after_event_id=1)
         orcamod._screen = _wide_screen(_heredoc_dialog(45))
-        found = actions.pending_confirmation(con, "backend")
-        check("heredoc confirm: the bridge's own poll now finds the prompt",
+        prompt = orcamod.confirmation_on_screen("term_x")
+        found = confirmations.describe("backend", prompt, None) if prompt else None
+        check("heredoc confirm: the prompt is now found, with its wait record",
               found is not None and found["wait"] == 1, str(found))
     finally:
         con.close()
@@ -223,7 +224,7 @@ def test_always_on_a_truncated_dialog_presses_but_saves_no_rule(home: Path) -> N
     con = db.connect()
     try:
         _WideKeyTerm(_heredoc_dialog(450))
-        ok, said = actions.answer_dialog(con, "backend", orcamod.TRUNCATED_TITLE, 1, always=True)
+        ok, said = dialogs.press_choice(con, "backend", orcamod.TRUNCATED_TITLE, 1, always=True)
         check("truncated always: the press itself still lands", ok and "chose 1" in said, said)
         check("truncated always: the founder is told it was not remembered",
               "not remembered" in said and "and will again" not in said, said)
@@ -243,7 +244,7 @@ def main() -> int:
         run(lambda: test_a_command_past_the_widest_read_still_shows_a_truncated_dialog(Path(td) / 'po2'))
         run(lambda: test_an_ordinary_short_dialog_costs_only_the_one_read(Path(td) / 'po3'))
         run(lambda: test_a_truncated_dialogs_title_is_stable_across_reads(Path(td) / 'po4'))
-        run(lambda: test_a_heredoc_permission_prompt_now_reaches_pending_confirmation(Path(td) / 'po5'))
+        run(lambda: test_a_heredoc_permission_prompt_is_read_from_the_screen(Path(td) / 'po5'))
     return run_area(tests)
 
 
