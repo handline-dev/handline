@@ -831,10 +831,9 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
                 f"Waiting on something: record it - `ocp task edit T{tid} --blocked-by T<m>`, "
                 f"or a child or decision task.")
     else:
-        what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
-                if head["kind"] == "report" else
-                f"If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
-                f"not, say what you are waiting on.")
+        what = ("It asks nothing." if head["kind"] == "report" and head["requester"] != db.HUMAN else
+                f"If the work is done, {answer_verb(con, head)}; if it is not, say what you are "
+                f"waiting on.")
         text = (f"#{head['id']} was delivered to you and is still open, and you have been "
                 f"idle {idle}{after}. {what}")
     ok = type_notice(con, agent, text)
@@ -909,20 +908,23 @@ def _task_of(con, req):
 
 
 def answer_verb(con, head) -> str:
-    """How the agent closes what it was just told: a report is dismissed, a say
-    needs nothing, a task handed on or finished (resolving it would leave the
-    task owned by whoever resolved it), and everything else resolved."""
-    if head["kind"] == "report":
-        return f"it asks nothing - `ocp dismiss {head['id']}` when read"
-    if head["kind"] == "say":
-        return "it needs no answer"
+    """How the agent answers what it was just told (T361). Everything is a message or a task:
+    a task is handed on or finished; the founder is always answered through ocp, since a reply
+    typed in the terminal reaches no one (T361, founder #6166); another agent's request is
+    answered by a reply that names it; a say or a report asks nothing."""
     if head["kind"] == "task":
         task = _task_of(con, head)
         if task is not None:
             return (f"you own T{task['id']} now: hand it on with "
                     f"`ocp task handoff T{task['id']} <agent> \"<note>\"`, or "
                     f"`ocp task done T{task['id']}` if you are its last step")
-    return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
+    if head["requester"] == db.HUMAN:
+        return (f"answer the founder with `ocp say human --parent {head['id']} \"<answer>\" "
+                f"--task T<n>` (or `--no-task \"<why nothing needs building>\"`) - "
+                f"a reply typed in your terminal reaches no one")
+    if head["kind"] in ("report", "say"):
+        return "it asks nothing"
+    return f"answer with `ocp say {head['requester']} --parent {head['id']} \"<answer>\"`"
 
 
 def more_waiting(kind: str, more: int) -> str | None:
@@ -933,7 +935,7 @@ def more_waiting(kind: str, more: int) -> str | None:
         return None
     if kind == "task":
         return f"{more} more waiting - the next comes when you hand this on or finish it."
-    return f"{more} more waiting - the next comes when you resolve or dismiss this one."
+    return f"{more} more waiting - the next comes when you answer this one."
 
 
 def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str:
@@ -967,7 +969,8 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
             f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}"
-            + ("." if head["kind"] == "say" else ", or `ocp inbox` any time."))
+            + ("." if head["kind"] in ("say", "report") and head["requester"] != db.HUMAN
+               else ", or `ocp inbox` any time."))
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,

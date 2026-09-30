@@ -150,7 +150,7 @@ def cmd_cancel(args) -> int:
     """
     if askmod.asking_agent() != askmod.HUMAN:
         print("cancel is the founder's: an agent takes back its own request with "
-              "`ocp withdraw`, and answers one it was handed with `ocp resolve`.")
+              "`ocp withdraw`, and answers one it was handed with `ocp say <them> --parent <id>`.")
         return 1
     con = db.connect()
     try:
@@ -269,8 +269,8 @@ def cmd_inbox(args) -> int:
         finally:
             con.close()
     else:
-        closes = ("`ocp dismiss <id>` closes it, it asks nothing" if head["kind"] == "report"
-                  else "`ocp resolve <id> \"<verdict>\"` answers it")
+        closes = ("it asks nothing" if head["kind"] == "report"
+                  else f"`ocp say {head['requester']} --parent <id> \"<answer>\"` answers it")
     print(f"\n{closes}. `ocp inbox --all` shows the whole queue and its history.")
     return 0
 
@@ -302,8 +302,8 @@ def _human_inbox(show_all: bool = False) -> int:
             behind = f" (+{m['unread'] - 1})" if m["unread"] > 1 else ""
             print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
                   f"{textsafe.oneline(actions.first_line(m['body']))[:60]}{behind}")
-        print("`ocp resolve <id> \"<text>\"` answers one - on a `<` row that goes back "
-              "as a reply in its thread; `ocp dismiss <id>` takes it off the list.")
+        print("`ocp say <who> --parent <id> \"<text>\"` answers one - a reply settles what it "
+              "answers, and on a `<` row it goes back in that thread.")
         if show_all:
             # Not the ones printed above: an answer that is still on the list is
             # not "already dealt with", and printing it twice would say it was.
