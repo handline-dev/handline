@@ -2402,6 +2402,25 @@ async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pr
               [(r["cron"], r["message"]) for r in actions.schedule_rows("backend")]
               == [("0 9 * * *", "first one"), ("30 18 * * 1-5", "second, reworded")]
               and "second, reworded" in screen_text(), str(actions.schedule_rows("backend")))
+        actions.schedule_add("backend", "0 9-17 * * 1-5", "hourly in office hours")
+        section = app.screen_stack[0].query_one(SchedulesSection)
+        section.load()
+        await pilot.pause()
+        await pilot.click("#sc_ed_3")
+        await pilot.pause()
+        form = app.screen
+        check("schedules ui: a time the form cannot build is offered as kept, as it is",
+              isinstance(form, ScheduleAdd) and form.query_one("#sa_kind", Select).value == "custom"
+              and not form.query_one("#sa_time_row").display)
+        form.query_one("#sa_message", ImeInput).value = "office hours, reworded"
+        await pilot.click("#sa_add")
+        await pilot.pause()
+        check("schedules ui: editing only the message of such a schedule keeps its cron",
+              [(r["cron"], r["message"]) for r in actions.schedule_rows("backend")][2:]
+              == [("0 9-17 * * 1-5", "office hours, reworded")], str(actions.schedule_rows("backend")))
+        actions.schedule_remove("backend", 3)
+        section.load()
+        await pilot.pause()
         await pilot.click("#sc_rm_2")
         await pilot.pause()
         await pilot.click("#yes")
