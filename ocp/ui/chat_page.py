@@ -1096,8 +1096,9 @@ class TaskBody(TaskActions, Vertical):
 
     def _blank(self, said: str) -> None:
         self.query_one("#t_title", Static).update(Text(said, style="dim"))
-        for name in ("badge", "meta", "kids", "reqs", "memo_head"):
+        for name in ("badge", "brief", "meta", "kids", "reqs", "memo_head"):
             self.query_one(f"#t_{name}", Static).update("")
+        self.query_one("#t_brief", Static).display = False
         self.query_one("#t_memos", Vertical).remove_children()
         for name in ("assign", "close", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
