@@ -155,6 +155,29 @@ def test_an_answer_needs_the_very_prompt_the_row_names(home: Path) -> None:
         con.close()
 
 
+def test_an_answer_is_refused_while_something_else_holds_the_terminal(home: Path) -> None:
+    """T351/T603: a key pressed here and a line the tick types can land in the same input box, so an
+    answer takes the terminal lock the tick takes - the only lock left on the answer path."""
+    from ocp.infra import lock
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        waiting.note("backend", "Bash", {"command": "rm -rf build"}, after_event_id=7)
+        term = _Term(PERMISSION_PROMPT)
+        _pass(con)
+        row = _open(con)
+        with lock.terminal("backend") as held:
+            check("lock: setup: this test holds the terminal", held)
+            ok, said = actions.answer_block(con, row["id"], {"yes": True})
+            check("lock: refused, nothing pressed, and the prompt is still open",
+                  not ok and "something else is using its terminal" in said and not term.sent
+                  and _open(con) is not None, str((ok, said, term.sent)))
+        ok, said = actions.answer_block(con, row["id"], {"yes": True})
+        check("lock: once it is free the same answer goes through", ok and term.sent == ["1"], str((ok, said, term.sent)))
+    finally:
+        con.close()
+
+
 def test_a_question_and_a_dialog_are_answered_from_their_blocks(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
@@ -279,6 +302,7 @@ def main() -> int:
         run(lambda: test_the_row_follows_the_screen_and_fails_closed(Path(td) / 'b2'))
         run(lambda: test_a_permission_prompt_with_no_hook_record_is_left_to_the_terminal(Path(td) / 'b3'))
         run(lambda: test_an_answer_needs_the_very_prompt_the_row_names(Path(td) / 'b4'))
+        run(lambda: test_an_answer_is_refused_while_something_else_holds_the_terminal(Path(td) / 'pblock'))
         run(lambda: test_a_question_and_a_dialog_are_answered_from_their_blocks(Path(td) / 'b5'))
         run(lambda: test_cancel_sends_esc_after_the_same_checks_and_records_it(Path(td) / 'b8'))
         run(lambda: test_cancel_is_refused_on_a_stale_prompt_or_one_that_stays(Path(td) / 'b9'))

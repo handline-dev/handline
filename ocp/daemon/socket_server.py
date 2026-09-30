@@ -25,7 +25,7 @@ import threading
 import time
 
 from .. import db
-from ..actions import confirmations, control, details, dialogs, prompt_blocks
+from ..actions import control, details, prompt_blocks
 from ..infra import paths
 
 from . import messaging, sends
@@ -67,15 +67,6 @@ def _message(con, log, **kw) -> tuple[bool, str]:
     return messaging.send_message(con, kw["agent"], kw["text"], log)
 
 
-def _answer_dialog(con, log, **kw) -> tuple[bool, str]:
-    return dialogs.answer_dialog(con, kw["agent"], kw["title"], int(kw["number"]),
-                                 bool(kw.get("always", False)))
-
-
-def _confirm(con, log, **kw) -> tuple[bool, str]:
-    return confirmations.answer(con, kw["agent"], bool(kw["yes"]), kw["seen"])
-
-
 def _answer_block(con, log, **kw) -> tuple[bool, str]:
     return prompt_blocks.answer(con, int(kw["block"]), dict(kw.get("choice") or {}))
 
@@ -98,8 +89,6 @@ VERBS = {
     "fold": _fold,
     "move": _move,
     "start": _start,
-    "answer_dialog": _answer_dialog,
-    "confirm": _confirm,
     "answer_block": _answer_block,
     "trust": _trust,
 }

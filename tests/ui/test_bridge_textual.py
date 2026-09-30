@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 # First, so OCP_TEST_ROOT is set before any ocp module reads a path.
 import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 from textual import events  # noqa: E402
+from ocp.actions import dialogs as dialogs_mod  # noqa: E402
 from ocp import actions, db
 from ocp.team import agents, hr
 from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
@@ -1574,10 +1575,10 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
             check("dialog: the panel's other lines ride along, not the title or the options",
                   actions.dialog_of(con, "reviewer")["body"] == ["Edit /tmp/x.py"])
             screen["dialog"] = dialog
-            ok, said = actions.answer_dialog(con, "reviewer", "Some other title", 1)
+            ok, said = dialogs_mod.press_choice(con, "reviewer", "Some other title", 1)
             check("dialog: a changed dialog is not pressed", not ok and not pressed, said)
             screen["dialog"] = dialog
-            ok, said = actions.answer_dialog(con, "reviewer", dialog.title, 2, always=True)
+            ok, said = dialogs_mod.press_choice(con, "reviewer", dialog.title, 2, always=True)
             check("dialog: the pick is pressed and 'always' saves a rule on the exact title and label",
                   ok and pressed == [("term_d", 2)] and rules.rules == [
                       {"vendor": "claude", "title": dialog.title, "label": "Yes, and don't ask again"}], str((said, rules.rules)))
@@ -1586,7 +1587,7 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
                 check("dialog: the trust screen's own words ride along, without its two choices or key hint",
                       actions.dialog_of(con, "reviewer")["body"] == ["Accessing workspace:", "/x/y"],
                       str(actions.dialog_of(con, "reviewer")["body"]))
-            ok, said = actions.answer_dialog(con, "reviewer", f"Trust {home}?", 1, always=True)
+            ok, said = dialogs_mod.press_choice(con, "reviewer", f"Trust {home}?", 1, always=True)
             check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
                   ok and trust.is_declared(home) and len(rules.rules) == 1, said)
             screen["folder"] = None
