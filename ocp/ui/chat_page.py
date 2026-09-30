@@ -430,8 +430,7 @@ def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dic
         if picked:
             head.append(f"  #{mid_of(m)}", style="bold")
         out.append_text(head)
-        # the reply link sits on the head line, else it opens the body's first line
-        out.append("  " if m.get("reply_to") else "\n")
+        out.append("\n")
     if m.get("reply_to"):
         out.append_text(reply_link(m["reply_to"]))
         out.append(" ")
