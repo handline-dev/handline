@@ -1681,6 +1681,30 @@ def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
     check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
 
 
+async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> None:
+    """T355: a press that raises (db, orca) must not leave the modal disabled with esc blocked."""
+    from ocp.ui.bridge_textual import BridgeApp
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("questionraises")
+    found = {"agent": "reviewer", "header": "h", "question": "which?", "multi_select": False, "other_number": None,
+             "other_text": None, "options": [{"label": "a"}, {"label": "b"}]}
+
+    def press(choices, text):
+        raise OSError("orca is gone")
+    started, got = [], []
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        modal = QuestionModal(found, press, lambda: started.append(1))
+        app.push_screen(modal, got.append)
+        await pilot.pause()
+        await modal._submit((0,), None)
+        await pilot.pause()
+        check("question: a press that raises dismisses the modal with (False, the reason)",
+              started == [1] and len(got) == 1 and got[0][0] is False and "orca is gone" in got[0][1], str(got))
+        check("question: and the modal is off the stack", modal not in app.screen_stack)
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -2183,6 +2207,7 @@ async def _run_all() -> None:
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
+    await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 
