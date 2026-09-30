@@ -207,6 +207,18 @@ CREATE TABLE IF NOT EXISTS task_blocks (
 );
 CREATE INDEX IF NOT EXISTS task_blocks_on ON task_blocks(blocks_on);
 
+-- T493: the founder's memos on a task: text kept beside it, added, edited and deleted in
+-- place. Not a message - nothing is sent or delivered, and `edited_at` is NULL until changed.
+CREATE TABLE IF NOT EXISTS task_memos (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     INTEGER NOT NULL REFERENCES tasks(id),
+  author      TEXT NOT NULL,
+  body        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  edited_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS task_memos_task ON task_memos(task_id, id);
+
 -- Advanced only after the fold output validates.
 -- Small named values that are not counters: the orchestration Run this team's
 -- work hangs under, and anything else that is one string per installation.

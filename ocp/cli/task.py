@@ -376,6 +376,54 @@ def cmd_task_note(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_task_memo(args) -> int:
+    """T493: `ocp task memo T<n> list | add TEXT | edit ID TEXT | delete ID`. Anyone reads and
+    adds; the author or the founder edits and deletes. A change on a doing task is told to its
+    holder at once."""
+    me = askmod.asking_agent()
+    if me is None:
+        print(_who_refusal("write a memo"))
+        return 1
+    verb, rest = args.verb, args.rest
+    shape = {"list": 0, "add": 1, "edit": 2, "delete": 1}[verb]
+    if len(rest) != shape:
+        print({"list": "list takes nothing more", "add": "add takes the memo text",
+               "edit": "edit takes the memo id, then the new text",
+               "delete": "delete takes the memo id"}[verb])
+        return 1
+    con = db.connect()
+    try:
+        if db.get_task(con, args.task) is None:
+            print(f"no task T{args.task}")
+            return 1
+        if verb == "list":
+            memos = actions.memos_of(con, args.task)
+            for m in memos:
+                edited = f", edited {timefmt.stamp(m['edited_at'])}" if m["edited_at"] else ""
+                print(f"memo {m['id']}  {m['author']}  {timefmt.stamp(m['created_at'])}{edited}\n  {m['body']}")
+            if not memos:
+                print(f"T{args.task} has no memos")
+            return 0
+        if verb == "add":
+            ok, msg, _ = actions.memo_add(con, args.task, me, rest[0])
+        else:
+            try:
+                mid = int(rest[0])
+            except ValueError:
+                print(f"{rest[0]!r} is not a memo id - `ocp task memo T{args.task} list` shows them")
+                return 1
+            memo = db.get_memo(con, mid)
+            if memo is None or memo["task_id"] != args.task:
+                print(f"T{args.task} has no memo {mid}")
+                return 1
+            ok, msg = (actions.memo_edit(con, mid, me, rest[1]) if verb == "edit"
+                       else actions.memo_delete(con, mid, me))
+        print(msg)
+        return 0 if ok else 1
+    finally:
+        con.close()
+
+
 def cmd_task_link(args) -> int:
     con = db.connect()
     try:

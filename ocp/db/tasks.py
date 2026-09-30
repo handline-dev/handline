@@ -40,6 +40,30 @@ def new_task(con, title: str, owner: str, opened_by: str,
     return int(cur.lastrowid)
 
 
+def add_memo(con, tid: int, author: str, body: str) -> int:
+    cur = con.execute("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+                      (tid, author, body, int(time.time())))
+    return int(cur.lastrowid)
+
+
+def get_memo(con, mid: int):
+    return con.execute("SELECT * FROM task_memos WHERE id = ?", (mid,)).fetchone()
+
+
+def task_memos(con, tid: int) -> list:
+    """The task's memos, oldest first."""
+    return con.execute("SELECT * FROM task_memos WHERE task_id = ? ORDER BY id", (tid,)).fetchall()
+
+
+def edit_memo(con, mid: int, body: str) -> None:
+    con.execute("UPDATE task_memos SET body = ?, edited_at = ? WHERE id = ?",
+                (body, int(time.time()), mid))
+
+
+def delete_memo(con, mid: int) -> None:
+    con.execute("DELETE FROM task_memos WHERE id = ?", (mid,))
+
+
 def get_task(con, tid: int):
     return con.execute("SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
 
@@ -287,7 +311,7 @@ def merge_task(con, tid: int, into: int, by: str) -> bool:
 
 
 def move_task_links(con, tid: int, into: int) -> None:
-    """Hand `tid`'s linked requests, sub-tasks and the edges that name it as
+    """Hand `tid`'s linked requests, memos, sub-tasks and the edges that name it as
     a blocker to `into`. A request already linked to both stays linked once.
 
     T294: `tid`'s own children reparent to `into` above, so any block `tid`
@@ -305,6 +329,7 @@ def move_task_links(con, tid: int, into: int) -> None:
     con.execute("UPDATE OR IGNORE task_blocks SET task_id = ? WHERE task_id = ? AND blocks_on != ?",
                 (into, tid, into))
     con.execute("DELETE FROM task_blocks WHERE task_id = ?", (tid,))
+    con.execute("UPDATE task_memos SET task_id = ? WHERE task_id = ?", (into, tid))
 
 
 def task_last_activity(con, tid: int) -> int:
