@@ -34,14 +34,20 @@ def _hook(event: str, agent: str = "backend", **fields) -> str:
 def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
     _daemon_home(home, 20)
     call = {"file_path": "/repo/some/file.py"}
-    check("warn-only by default: guard lets it through",
+    why = edittask.guard("backend", "Write", call)
+    check("T480: on by default - a write with no current task is refused", why is not None, why)
+    check("T480: it says why, and with no task of the agent's names `ocp task begin` and `ocp say`",
+          "holds no current task" in why and "You own no open task" in why
+          and "`ocp task begin" in why and "`ocp say <them>" in why, why)
+    edittask.set_enforced(False)
+    check("switched off by the founder: guard lets it through",
           edittask.guard("backend", "Write", call) is None)
     con = db.connect()
     try:
         rows = con.execute("SELECT payload FROM events WHERE agent = 'backend' "
                            "AND kind = 'edit_gate'").fetchall()
-        check("but logs one edit_gate event, enforced=false",
-              len(rows) == 1 and json.loads(rows[0]["payload"])["enforced"] is False,
+        check("but logs an edit_gate event, enforced=false for that one",
+              len(rows) == 2 and json.loads(rows[1]["payload"])["enforced"] is False,
               [dict(r) for r in rows])
     finally:
         con.close()
@@ -51,10 +57,19 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
     check("enforced: now a real refusal, naming the agent and the tool",
           why is not None and "backend" in why and "Edit" in why, why)
     check("T401 item 19: it says to ask whoever gave the work, not just to wait",
-          "ask whoever gave you this work" in why and "ocp say" in why, why)
+          "ask whoever gave you the work" in why and "ocp say" in why, why)
 
     ok, msg, tid = actions.task_new("product", "backend", "do the thing", "do the thing")
     check("setup: backend now holds a current task", ok, msg)
+    con = db.connect()
+    try:
+        db.set_current_task(con, "backend", None)
+        why = edittask.guard("backend", "Edit", call)
+        check("T480: owning an open task, the refusal names it and the exact `ocp task start`",
+              why is not None and f"`ocp task start T{tid}`" in why and "do the thing" in why, why)
+        db.set_current_task(con, "backend", tid)
+    finally:
+        con.close()
     check("holding a current task: never refused, enforced or not",
           edittask.guard("backend", "Write", call) is None)
 
@@ -109,7 +124,7 @@ def test_the_plan_mode_folder_is_exempt_but_no_name_match_elsewhere(home: Path) 
 
 def test_the_edit_gate_enforce_switch_is_the_founders_to_flip(home: Path) -> None:
     _daemon_home(home, 20)
-    check("off by default", edittask.enforced() is False)
+    check("on by default", edittask.enforced() is True)
     os.environ["OCP_AGENT"] = "backend"
     try:
         edittask.set_enforced(True)
@@ -119,10 +134,14 @@ def test_the_edit_gate_enforce_switch_is_the_founders_to_flip(home: Path) -> Non
     finally:
         del os.environ["OCP_AGENT"]
     rc, out = _cli(["hooks", "gate", "edit-task"], as_agent=None)
-    check("founder: show", rc == 0 and "off (warn-only)" in out, out)
+    check("founder: show", rc == 0 and "gate: on" in out, out)
+    rc, out = _cli(["hooks", "gate", "edit-task", "off"], as_agent=None)
+    check("founder: set off", rc == 0 and "off (warn-only)" in out and edittask.enforced() is False, out)
     rc, out = _cli(["hooks", "gate", "edit-task", "on"], as_agent=None)
     check("founder: set on", rc == 0 and "edit-task gate: on" in out, out)
     check("enforced() now reads True", edittask.enforced() is True)
+    stopgate.set_enforced(False)
+    edittask.set_enforced(True)
     check("the stop-wait gate is untouched by the edit-task one",
           stopgate.enforced() is False)
 
