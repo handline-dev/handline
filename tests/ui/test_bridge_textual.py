@@ -1649,6 +1649,10 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
         CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss") if hasattr(cp, "Path") else None
 
     app = Host()
+    def screen_text() -> str:
+        import html, re
+        return html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+
     async with app.run_test(size=(100, 30)) as pilot:
         page = cp.ChatPage("reviewer")
         await app.push_screen(page)
@@ -1664,20 +1668,21 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
         check("noflash: the messages are the same widgets after the agent starts working",
               before and list(page.query(cp.ChatMessage)) == before)
         line = page.query(cp.WorkLine).first()
-        check("noflash: and the spare row now spins", line.working is True and "working" in line.render().plain)
+        check("noflash: and the screen now spins", line.working is True and "working" in screen_text())
         page.agent_state = ("IDLE", "waiting for x's reply (#1)")
         page._sig = None
         page.refresh_conversation()
         await pilot.pause()
-        check("noflash: back to idle with a wait, the row shows the wait, not 'working'",
-              "working" not in line.render().plain and "waiting for x's reply (#1)" in line.render().plain
-              and list(page.query(cp.ChatMessage)) == before, line.render().plain)
+        shown = screen_text()
+        check("noflash: back to idle with a wait, the screen shows the wait, not 'working'",
+              "working" not in shown and "waiting for x's reply (#1)" in shown
+              and list(page.query(cp.ChatMessage)) == before)
         page.agent_state = ("IDLE", "waiting for y's reply (#2)")
         page._sig = None
         page.refresh_conversation()
         await pilot.pause()
-        check("noflash: a change of the wait text alone redraws the row",
-              "waiting for y's reply (#2)" in line.render().plain and list(page.query(cp.ChatMessage)) == before)
+        check("noflash: a change of the wait text alone shows on the screen",
+              "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
 
 
 async def _run_all() -> None:
