@@ -26,7 +26,7 @@ def _chat_rows(con, agent: str) -> list:
     return con.execute(
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
         "dismissed_by, dismissed_reason, chain_id, delivered_at, typed_at, landed_at, landing_tries, fyi FROM requests "
-        "WHERE state != 'denied' AND kind IS NOT 'answer' AND chain_id IN ("
+        "WHERE state != 'denied' AND settles IS NULL AND chain_id IN ("
         "  SELECT chain_id FROM requests WHERE "
         "  (requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
         "ORDER BY id", (HUMAN, agent, agent, HUMAN)).fetchall()
@@ -230,7 +230,7 @@ def chat_unread(con, agent: str) -> int:
     seen = db.get_cursor(con, _seen_key(agent))
     row = con.execute(
         "SELECT COUNT(*) AS n FROM requests WHERE state != 'denied' AND "
-        "((requester = ? AND target = ? AND ts > ? AND kind IS NOT 'answer') OR "
+        "((requester = ? AND target = ? AND ts > ? AND settles IS NULL) OR "
         " (requester = ? AND target = ? AND (verdict IS NOT NULL OR dismissed_by IS NOT NULL) "
         "  AND resolved_at > ?))",
         (agent, HUMAN, seen, HUMAN, agent, seen)).fetchone()

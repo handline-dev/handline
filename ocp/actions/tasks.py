@@ -165,16 +165,21 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
 _UNBLOCK_REQUESTER = "task-board"
 
 
+def _asker_of(row, requesters) -> str:
+    """The rule of `task_asker`, given who made each request linked to the task."""
+    for who in requesters:
+        if who == HUMAN:
+            return HUMAN
+    return row["opened_by"]
+
+
 def task_asker(con, row) -> str:
     """Who task `row` answers to when it closes (#71): the founder, if any
     request linked to it came from the founder - the task exists because the
     founder asked for something. Otherwise whoever opened the task itself: a
     task the manager opens on its own (an auditor finding, internal cleanup)
     is the manager's own to close, never its own superior's."""
-    for r in db.task_requests(con, row["id"]):
-        if r["requester"] == HUMAN:
-            return HUMAN
-    return row["opened_by"]
+    return _asker_of(row, (r["requester"] for r in db.task_requests(con, row["id"])))
 
 
 def _asks(r) -> bool:
@@ -188,7 +193,7 @@ def _begun(con, tid: int) -> bool:
     under way from then until it is done or closed, whatever became of the
     chat request that is its only link."""
     return con.execute(
-        "SELECT 1 FROM events WHERE kind = 'task_begin' AND json_extract(payload, '$.task_id') = ? "
+        f"SELECT 1 FROM events WHERE kind = 'task_begin' AND {db.EVENT_TASK} = ? "
         "LIMIT 1", (tid,)).fetchone() is not None
 
 
@@ -219,14 +224,8 @@ def reads_doing(con, tid: int) -> bool:
               for r in db.task_requests(con, c["id"]))
 
 
-def task_state(con, row) -> str:
-    """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
-    done, closed and discarded are written, once each, and so is queued (T82: approved
-    to run; without it the task is a draft). doing is never stored - read live from
-    whether a request is currently queued against this task or an open child
-    of it, the same live read the board already does for "who holds it now",
-    so there is nothing here that a write path must remember to keep in
-    sync."""
+def _state_of(row, doing: bool) -> str:
+    """The ladder of `task_state`, given whether the task reads as being worked."""
     if row["merged_into"]:
         return "merged"
     if row["discarded_by"]:
@@ -235,9 +234,22 @@ def task_state(con, row) -> str:
         return "closed"
     if row["done_evidence"]:
         return "done"
-    if reads_doing(con, row["id"]):
+    if doing:
         return "doing"
     return "queued" if row["queued_by"] else "draft"
+
+
+def task_state(con, row) -> str:
+    """One of draft, queued, doing, done, closed (#71), discarded (#85) or merged (T68).
+    done, closed and discarded are written, once each, and so is queued (T82: approved
+    to run; without it the task is a draft). doing is never stored - read live from
+    whether a request is currently queued against this task or an open child
+    of it, the same live read the board already does for "who holds it now",
+    so there is nothing here that a write path must remember to keep in
+    sync."""
+    if row["merged_into"] or row["discarded_by"] or row["closed_by"] or row["done_evidence"]:
+        return _state_of(row, False)        # written states: nothing to read
+    return _state_of(row, reads_doing(con, row["id"]))
 
 
 def stop_wait_reason(con, agent: str) -> str | None:
@@ -253,6 +265,28 @@ def stop_wait_reason(con, agent: str) -> str | None:
     if db.open_decision_tasks_of(con, agent):
         return None
     return f"T{tid} is current with no recorded wait"
+
+
+def child_blocker_of(con, tid: int):
+    """The open child task of someone else that blocks `tid`, or None - whatever it is for (a
+    review, a merge, a piece of the work): the flow that uses one is project guidance (T443). A child
+    the owner holds itself is not waited on: it is the next thing to do, and holding the parent on it
+    would leave the owner waiting on itself."""
+    owner = db.get_task(con, tid)["owner"]
+    return next((b for b in db.task_blockers(con, tid)
+                 if b["parent_task"] == tid and b["owner"] != owner), None)
+
+
+def child_wait(con, agent: str) -> str | None:
+    """T443: what `agent` is waiting on when its current task is held by a child of its own, as
+    the sentence a screen shows: `waiting for T13 (orcapipe.auditor)`; None when it waits on no
+    such child. It is waiting on the child, not on a reply, and is given no other work meanwhile."""
+    tid = db.current_task(con, agent)
+    row = db.get_task(con, tid) if tid is not None else None
+    if row is None or row["closed_by"] or row["done_evidence"]:
+        return None
+    child = child_blocker_of(con, tid)
+    return f"waiting for T{child['id']} ({child['owner']})" if child else None
 
 
 _TASK_NAMED = re.compile(r"\bT(\d+)\b")
@@ -296,6 +330,22 @@ def _task_done_targets(con, tid: int) -> set[str]:
     return {r["target"] for r in db.task_requests(con, tid) if r["state"] in ("queued", "done")}
 
 
+def open_decision(me: str, body: str) -> tuple[bool, str, int | None]:
+    """A question only the founder can answer, as a task of theirs - a decision
+    card - rather than a request nobody tracks: (ok, message, the id of the
+    request that carries the card). The title is the body's first line."""
+    title = textsafe.oneline((body or "").strip().split("\n", 1)[0])[:80] or "a decision"
+    ok, msg, tid = task_new(me, HUMAN, title, body, expects="decision")
+    if not ok:
+        return False, msg, None
+    con = db.connect()
+    try:
+        card = next((r["id"] for r in db.task_requests(con, tid) if r["target"] == HUMAN), None)
+    finally:
+        con.close()
+    return True, msg, card
+
+
 def decide(con, tid: int, text: str) -> tuple[bool, str]:
     """The founder's decision on a task they own (a decision card): the text is
     recorded as the task's evidence, the task is closed, and the opener is told
@@ -322,16 +372,27 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
         # would leave it done but open, and nothing could retry it.
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
-    for r in db.task_requests(con, tid):
-        if r["state"] == "queued" and r["target"] == HUMAN:
-            ok, msg = askmod.resolve(r["id"], text)
-            if not ok:
-                return False, msg
-    ok, msg = mark_task_done(con, tid, HUMAN, reason=text)
-    if not ok:
-        return False, msg
-    ok, closed = close_task(con, tid, HUMAN)
-    return ok, f"T{tid} decided" + ("" if ok else f" ({closed})")
+    from .requests import check_open_proposal
+    card = db.decision_card_of(con, tid)
+    cards = [card] if card is not None and card["state"] == "queued" and card["target"] == HUMAN else []
+    for r in cards:
+        refusal = check_open_proposal(r["id"], r, text)     # an unclear answer decides nothing
+        if refusal:
+            return False, refusal
+    for r in cards:
+        ok, msg = askmod.resolve(r["id"], text)
+        if not ok:
+            return False, msg
+    # Settling the card settled the task too (`db.settle_decision_tasks`); only a
+    # card that was already closed some other way leaves it here to be decided.
+    if not db.get_task(con, tid)["closed_by"]:
+        ok, msg = mark_task_done(con, tid, HUMAN, reason=text)
+        if not ok:
+            return False, msg
+        ok, closed = close_task(con, tid, HUMAN)
+        if not ok:
+            return False, f"T{tid} decided ({closed})"
+    return True, f"T{tid} decided"
 
 
 def mark_task_done(con, tid: int, by: str, sha: str | None = None,
@@ -615,6 +676,9 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     calling): the owner who just closed the blocker themselves does not need
     telling."""
     text = f"task T{dep_tid} is unblocked - T{closed_tid}, its last open blocker, {how}"
+    closed = db.get_task(con, closed_tid)
+    if closed["done_evidence"] and closed["parent_task"] != dep_tid:
+        text += f": {closed['done_evidence']}"     # a child's result is told on its own, by _child_result_notice
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)
@@ -622,6 +686,34 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
                  {"task_id": dep_tid, "request_id": rid, "closed_task": closed_tid,
                   "after_request": _newest_request(con)})
     return rid, owner, text
+
+
+def _child_result_notice(con, dep_row, by: str, tid: int) -> tuple[int, str, str] | None:
+    """T443: when a child `tid` of `dep_row`'s task ends, the task's owner is told how, whether or
+    not other blockers remain - the "unblocked" notice is for the last one going, and says nothing
+    of the result. Once per finish (a reopen voids it), whichever of the done and the close
+    comes first."""
+    child = db.get_task(con, tid)
+    if child is None or child["parent_task"] != dep_row["id"] or dep_row["owner"] == by:
+        return None
+    since = con.execute(f"SELECT MAX(id) FROM events WHERE kind = 'reopen_task' AND {db.EVENT_TASK} = ?",
+                        (tid,)).fetchone()[0] or 0
+    if con.execute(f"SELECT 1 FROM events WHERE kind = 'child_result_told' AND {db.EVENT_TASK} = ? "
+                   "AND json_extract(payload, '$.child') = ? AND id > ? LIMIT 1",
+                   (dep_row["id"], tid, since)).fetchone():
+        return None
+    if child["done_evidence"]:
+        text = f"T{tid} done by {child['owner']}: " + " ".join(child["done_evidence"].split())
+    elif child["discarded_by"]:
+        text = f"T{tid} discarded by {child['discarded_by']}: " + " ".join((child["discard_reason"] or "").split())
+    else:
+        text = f"T{tid} closed by {child['closed_by']}"
+    text = text.rstrip(": ")
+    rid = db.add_request(con, _UNBLOCK_REQUESTER, dep_row["owner"], text, None, None,
+                         "fire_and_forget", "report", 0, None)
+    db.link_request(con, dep_row["id"], rid)
+    db.add_event(con, by, "child_result_told", {"task_id": dep_row["id"], "child": tid, "request_id": rid})
+    return rid, dep_row["owner"], text
 
 
 def _clear_blocks_on(con, tid: int, closer: str,
@@ -645,6 +737,9 @@ def _clear_blocks_on(con, tid: int, closer: str,
         dep_row = db.get_task(con, dep["task_id"])
         if dep_row is None or dep_row["closed_by"]:
             continue
+        told_result = _child_result_notice(con, dep_row, closer, tid)
+        if told_result:
+            notices.append(told_result)
         if db.task_blockers(con, dep["task_id"]):
             continue
         freed_owners.add(dep_row["owner"])
@@ -669,6 +764,9 @@ def _free_blocked_by(con, tid: int, by: str) -> tuple[list[tuple[int, str, str]]
         dep_row = db.get_task(con, dep["task_id"])
         if dep_row is None or dep_row["closed_by"]:
             continue
+        told_result = _child_result_notice(con, dep_row, by, tid)
+        if told_result:
+            notices.append(told_result)
         if db.task_blockers(con, dep["task_id"]):
             continue
         freed_owners.add(dep_row["owner"])
@@ -686,11 +784,11 @@ def _told_at_done(con, tid: int, dep: int) -> bool:
     but a reopen voids the earlier release, since `tid` blocks `dep` again from
     that point and the owner is told afresh once it finishes a second time."""
     since = con.execute(
-        "SELECT MAX(id) FROM events WHERE kind = 'reopen_task' "
-        "AND json_extract(payload, '$.task_id') = ?", (tid,)).fetchone()[0] or 0
+        f"SELECT MAX(id) FROM events WHERE kind = 'reopen_task' AND {db.EVENT_TASK} = ?",
+        (tid,)).fetchone()[0] or 0
     return con.execute(
-        "SELECT 1 FROM events WHERE kind = 'released_at_done' "
-        "AND json_extract(payload, '$.task_id') = ? AND json_extract(payload, '$.blocks_on') = ? "
+        f"SELECT 1 FROM events WHERE kind = 'released_at_done' AND {db.EVENT_TASK} = ? "
+        "AND json_extract(payload, '$.blocks_on') = ? "
         "AND json_extract(payload, '$.told') = 1 AND id > ? LIMIT 1",
         (dep, tid, since)).fetchone() is not None
 
@@ -802,7 +900,9 @@ def _current_task_still_asking(con, agent: str) -> bool:
     row = db.get_task(con, tid)
     if row is None or row["closed_by"] or row["done_evidence"]:
         return False
-    return _begun(con, tid) or any(_asks(r) for r in db.task_requests(con, tid))
+    # T443: an owner waiting on a child of its own is held on it, whatever became of its request.
+    return (_begun(con, tid) or child_blocker_of(con, tid) is not None
+            or any(_asks(r) for r in db.task_requests(con, tid)))
 
 
 # Events after which a task's earlier answers no longer mean it was handled: it
@@ -822,7 +922,7 @@ def _reset_after(con, tid: int) -> int:
     marks = ",".join("?" * len(_RESET_EVENTS))
     return con.execute(
         "SELECT COALESCE(MAX(CAST(json_extract(payload, '$.after_request') AS INTEGER)), 0) "
-        f"FROM events WHERE kind IN ({marks}) AND json_extract(payload, '$.task_id') = ?",
+        f"FROM events WHERE kind IN ({marks}) AND {db.EVENT_TASK} = ?",
         (*_RESET_EVENTS, tid)).fetchone()[0]
 
 
@@ -900,14 +1000,13 @@ def _retire_task_requests(con, tid: int, verdict: str, state: str = "done") -> N
 
 
 def task_new(me: str, owner: str, title: str, body: str | None = None,
-            parent: int | None = None, expects: str = "report",
+            parent: int | None = None, expects: str | None = None,
             priority: int | None = None,
             timeout_s: int | None = None) -> tuple[bool, str, int | None]:
     """T292 (auditor #1655 section 4): opens the task and asks its owner in
     one call, through the routing table (`askmod.ask`, C2) - a refused owner
     leaves no task row behind. The request is kind='task' except for a human
-    owner (C3), which keeps the edge's own 'escalate' so the bridge's gate
-    and `founder_waits` still see it.
+    owner (C3), whose card is the founder's gate while the task is open.
 
     No `con`: like `ask`, this manages its own connection(s); the task row
     and its link are one write, only the call into `ask` is separate.
@@ -922,6 +1021,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     the board's "waiting on" line, and the notice `_clear_blocks_on` sends
     once the child closes.
     """
+    # A task of the founder's is a decision unless it says otherwise.
+    expects = expects or ("decision" if owner == HUMAN else "report")
     if not (body or "").strip():
         return False, ("a task needs a body: the work itself, what done looks like - "
                        "the title alone is not a brief"), None
@@ -935,7 +1036,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         finally:
             con.close()
     kind = None if owner == HUMAN else "task"
-    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind)
+    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False)
     if not ok:
         return False, msg, None
     con = db.connect()
@@ -1045,39 +1146,11 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
     return True, f"note sent on T{tid} - " + "; ".join(sent)
 
 
-def _role(agent: str) -> str:
-    """The last dotted segment of an agent's name when it is one of the two roles
-    a handoff knows - `orcapipe.auditor` is an auditor, `harbor.merger` a merger."""
-    last = agent.rsplit(".", 1)[-1]
-    return last if last in ("auditor", "merger") else ""
-
-
-def previous_owner(con, tid: int, owner: str) -> str | None:
-    """Who handed T<tid> to `owner`, read from the handoff record: the latest
-    handoff whose receiver is `owner`. None if nobody did."""
-    for h in reversed(db.task_handoffs(con, tid)):
-        if h["to"] == owner:
-            return h["from"]
-    return None
-
-
-def last_audit(con, tid: int) -> tuple[str | None, str | None]:
-    """(verdict, maker) of the latest handoff that carried a verdict: PASS or
-    FAIL, and who had handed the task to that auditor. (None, None) if unaudited."""
-    hist = db.task_handoffs(con, tid)
-    for i in range(len(hist) - 1, -1, -1):
-        if hist[i]["verdict"]:
-            maker = next((g["from"] for g in reversed(hist[:i]) if g["to"] == hist[i]["from"]), None)
-            return hist[i]["verdict"], maker
-    return None, None
-
-
-def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None) -> str | None:
-    """Why `me` may not hand this task to `to`, or None. The chain is fixed: the
-    owner hands it to an auditor; the auditor returns it to the task's opener
-    (a PASS) or the one who handed it over (a FAIL); while the last audit is a
-    PASS, the opener passes it to a merger or sends it back to the maker.
-    Without a PASS nobody reaches a merger. The founder may do anything."""
+def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
+    """Why `me` may not hand this task to `to`, or None. A task moves to another
+    owner when its owner (or the founder) says so, with a note. Who reviews and who
+    merges is the project's guideline, not a rule here: the owner keeps its task
+    and waits on a child task it opens for them."""
     tid = row["id"]
     if row["closed_by"] or row["done_evidence"]:
         return f"task T{tid} is already finished - nothing to hand over"
@@ -1087,85 +1160,27 @@ def _handoff_refusal(con, row, me: str, to: str, note: str, verdict: str | None)
         return f"no agent named {to}"
     if to == row["owner"]:
         return f"T{tid} is already {to}'s"
-    if me == HUMAN:
-        return None
-    if me != row["owner"]:
+    if me != HUMAN and me != row["owner"]:
         return f"T{tid} is {row['owner']}'s: only its owner hands it on"
-    prev = previous_owner(con, tid, me)
-    role, target = _role(me), _role(to)
-    if verdict and role != "auditor":
-        return "only an auditor gives a verdict (--pass or --fail)"
-    if role == "auditor":
-        if verdict is None:
-            if prev is not None:
-                return "an auditor's handoff must say --pass or --fail"
-            dest = row["opened_by"]
-            allowed = to == dest
-            hint = f"{dest or 'nobody'} (not a review, so no verdict is needed)"
-        else:
-            dest = row["opened_by"] if verdict == "PASS" else prev
-            allowed = to == dest
-            hint = f"{dest or 'nobody'} on a {verdict} ({'the task opener' if verdict == 'PASS' else 'who handed it over'})"
-    elif role == "merger":
-        allowed = to == prev
-        hint = f"{prev or 'nobody'}, who handed it over - a merger closes it done once merged"
-    elif me == row["opened_by"] and last_audit(con, tid)[0] == "PASS":
-        maker = last_audit(con, tid)[1]
-        allowed = target == "merger" or to == maker
-        hint = f"a merger, or {maker or 'nobody'} (the maker, to send it back)"
-    else:
-        allowed = target == "auditor"
-        hint = "an auditor"
-    if not allowed:
-        return f"{me} may hand T{tid} only to {hint}, not {to}"
     return None
 
 
-def handoff_command(con, row, me: str) -> str:
-    """What `me` types to hand T<n> on, from the same chain `_handoff_refusal` enforces:
-    an auditor returns it to the opener on a PASS or to the one who handed it over on a
-    FAIL; a merger to the one who handed it over; the opener of an audited-PASS task to a
-    merger or back to the maker; anyone else to an auditor."""
-    tid = row["id"]
-    prev = previous_owner(con, tid, me)
-
-    def cmd(to: str | None, flag: str = "") -> str:
-        return f'`ocp task handoff T{tid} {to or "<who>"} "<note>"{flag}`'
-
-    def named(role: str) -> str:
-        """One command per `role` agent of `me`'s own project (the name's first segment):
-        another project's auditor is not where its work goes."""
-        mine = [a for a in paths.list_agents() if _role(a) == role and a.split(".")[0] == me.split(".")[0]]
-        return " or ".join(cmd(a) for a in mine) or cmd(f"<{role}>")
-    role = _role(me)
-    if role == "auditor":
-        return f"{cmd(row['opened_by'], ' --pass')} on a PASS, or {cmd(prev, ' --fail')} on a FAIL"
-    if role == "merger":
-        return cmd(prev)
-    if me == row["opened_by"] and last_audit(con, tid)[0] == "PASS":
-        return f"{named('merger')} to merge it, or {cmd(last_audit(con, tid)[1])} to send it back"
-    return named("auditor")
-
-
-def task_handoff(con, me: str, tid: int, to: str, note: str,
-                 verdict: str | None = None) -> tuple[bool, str]:
+def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]:
     """One verb for passing a task along: its owner changes to `to`, the note goes
     to `to` with the task, and both the note and the handoff stay in the task's
     record (`db.task_handoffs`, in the order they happened). A required note
-    replaces the separate ask: nothing else is sent. An auditor's handoff carries
-    its verdict, PASS or FAIL, which also picks where it goes."""
+    replaces the separate ask: nothing else is sent."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
     said = textsafe.text(note or "").strip()
-    why = _handoff_refusal(con, row, me, to, said, verdict)
+    why = _handoff_refusal(con, row, me, to, said)
     if why:
         return False, why
     # The delivery is the only thing that can be refused past this point (the
     # routing table), so it goes first: a refusal leaves the task where it was.
     ok, msg, rid = askmod.ask(to, f"T{tid} handed to you by {me}: {row['title']}\n\n{said}",
-                              requester=me, kind="task",
-                              edge_exempt=verdict == "FAIL" and me != HUMAN)
+                              requester=me, kind="task")
     if not ok:
         return False, msg
     old = row["owner"]
@@ -1175,7 +1190,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str,
     db.edit_task(con, tid, me, owner=to)
     db.link_request(con, tid, rid)
     db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
-                                            "request_id": rid, "verdict": verdict})
+                                            "request_id": rid})
     if db.current_task(con, old) == tid:
         db.set_current_task(con, old, None)
         if advance_current_task(con, old):
@@ -1404,13 +1419,15 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     states = None if state is None else {state} if isinstance(state, str) else set(state)
     ended = ("closed", "discarded", "merged")
     show_ended = include_closed or bool(states and states & set(ended))
+    tasks = db.all_tasks(con) if show_ended else db.open_tasks(con)
+    facts = _board_facts(con, [t for t in tasks if not t["closed_by"]])
     out = []
-    for t in (db.all_tasks(con) if show_ended else db.open_tasks(con)):
+    for t in tasks:
         if owner is not None and t["owner"] != owner:
             continue
         if owners is not None and t["owner"] not in owners:
             continue
-        st = task_state(con, t)
+        st = facts.state(t)
         if states is not None and st not in states:
             continue
         out.append({
@@ -1418,12 +1435,58 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
             "owner": t["owner"], "opened_by": t["opened_by"],
             "parent_task": t["parent_task"], "priority": t["priority"],
             "priority_ref": priority_ref(t["priority"]), "state": st,
-            "closer": task_asker(con, t),
-            "blocked_by": [b["id"] for b in db.task_blockers(con, t["id"])],
-            "last_activity": db.task_last_activity(con, t["id"]),
+            "closer": facts.asker(t),
+            "blocked_by": facts.blockers.get(t["id"], []),
+            "last_activity": facts.last_activity(t),
             "row": t,
         })
     return out
+
+
+class _board_facts:
+    """What `task_rows` needs about every task, read in a fixed handful of
+    queries instead of four or five per task: the requests linked to each task,
+    the tasks begun on a founder's message, each task's open children, and what
+    blocks each. `state`, `asker` and `last_activity` are the same rules as
+    `task_state`, `task_asker` and `db.task_last_activity`, on this data - a test
+    holds the two paths to the same answers."""
+
+    def __init__(self, con, open_tasks: list):
+        self.links: dict[int, list] = {}
+        for r in con.execute(
+                "SELECT l.task_id AS tid, r.id, r.state, r.fyi, r.requester, r.ts, r.resolved_at "
+                "FROM task_requests l JOIN requests r ON r.id = l.request_id "
+                "ORDER BY l.task_id, r.id"):
+            self.links.setdefault(r["tid"], []).append(r)
+        self.begun = {r[0] for r in con.execute(
+            f"SELECT DISTINCT {db.EVENT_TASK} FROM events WHERE kind = 'task_begin'") if r[0] is not None}
+        self.children: dict[int, list[int]] = {}
+        for c in open_tasks:
+            if c["parent_task"] is not None:
+                self.children.setdefault(c["parent_task"], []).append(c["id"])
+        self.blockers: dict[int, list[int]] = {}
+        for r in con.execute(
+                "SELECT b.task_id AS tid, t.id AS blocker FROM task_blocks b "
+                "JOIN tasks t ON t.id = b.blocks_on "
+                "WHERE t.closed_by IS NULL AND t.done_evidence IS NULL ORDER BY b.task_id, t.id"):
+            self.blockers.setdefault(r["tid"], []).append(r["blocker"])
+
+    def _doing(self, tid: int) -> bool:
+        return (tid in self.begun
+                or any(_asks(r) for r in self.links.get(tid, []))
+                or any(_asks(r) for c in self.children.get(tid, []) for r in self.links.get(c, [])))
+
+    def state(self, row) -> str:
+        return _state_of(row, self._doing(row["id"]))
+
+    def asker(self, row) -> str:
+        return _asker_of(row, (r["requester"] for r in self.links.get(row["id"], [])))
+
+    def last_activity(self, row) -> int:
+        seen = [row[k] or 0 for k in ("created_at", "edited_at", "done_at", "closed_at")]
+        for r in self.links.get(row["id"], []):
+            seen += [r["ts"] or 0, r["resolved_at"] or 0]
+        return int(max(seen))
 
 
 TASK_STATES = ("draft", "queued", "doing", "done", "closed", "discarded", "merged")

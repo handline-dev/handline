@@ -124,7 +124,10 @@ def _unasked_running(con, agent: str, row) -> bool:
     if not row or row["closed_at"] or not row["terminal"] or db.queued_for(con, agent):
         return False
     # Background work with nothing owed is not asked about: `sweep_forgotten_background` settles it.
-    return row["state"] == RUNNING and not delivery.has_background_work(con, agent)
+    if row["state"] != RUNNING or delivery.has_background_work(con, agent):
+        return False
+    from .. import actions
+    return actions.child_wait(con, agent) is None      # T443: waiting on a child of its own is a reason
 
 
 def sweep_unasked_running(con, log, now: int) -> None:

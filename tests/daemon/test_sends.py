@@ -216,6 +216,8 @@ def test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(home: Path) -> No
         check("typed say: typed at once", reply["ok"] and len(sent) == 1, str((reply, sent)))
         check("typed say: and finished - done, not left queued for a resolve",
               row["state"] == "done", str(dict(row)))
+        check("typed say: closed with no verdict, so no reply is made of it (T441)",
+              row["verdict"] is None and db.answer_row_of(con, row["id"]) is None, str(dict(row)))
         check("typed say: in = 0", db.unreached_count(con, "backend") == 0)
         check("typed say: the agent reads IDLE",
               dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
@@ -299,13 +301,164 @@ def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> No
         shown = db.add_request(con, "product", "backend", "an old ask, shown", None, "peer", "async", None, 0, None)
         db.mark_delivered(con, shown)
         unshown = db.add_request(con, "product", "backend", "an old ask, never shown", None, "peer", "async", None, 0, None)
+        human = db.add_request(con, "human", "backend", "told by the daemon before T418", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, human)
+        to_human = db.add_request(con, "backend", db.HUMAN, "drawn, not typed", None, "peer", "async", None, 0, None)
+        db.mark_delivered(con, to_human)
         dmn_messaging.migrate_old_messages(con, lambda _m: None)
-        check("migration: the old say is settled", db.get_request(con, say)["state"] == "done")
+        check("migration (T431): a request told before T418 is typed as of then, so the landing sweep sees it",
+              db.get_request(con, shown)["typed_at"] == db.get_request(con, shown)["delivered_at"]
+              and db.get_request(con, human)["typed_at"] is not None
+              and db.get_request(con, unshown)["typed_at"] is None)
+        check("migration (T431): a row for the human is drawn, never typed - left alone",
+              db.get_request(con, to_human)["typed_at"] is None)
+        check("migration: the old say is settled, with no verdict to be drawn as a reply",
+              db.get_request(con, say)["state"] == "done" and db.get_request(con, say)["verdict"] is None
+              and db.answer_row_of(con, say) is None)
         check("migration: an old ask that was shown stays open, still owing its answer",
               db.get_request(con, shown)["state"] == "queued")
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("migration: an old ask never shown is typed once by the tick",
               len(sent) == 1 and "never shown" in sent[0][1] and db.unreached_count(con, "backend") == 0, str(sent))
+    finally:
+        con.close()
+
+
+def _drawn_replies(con, target: str) -> list[str]:
+    """What the founder's chat with `target` shows as a reply (part 1 of an exchange)."""
+    rows, _ = actions.conversation_and_drawn(con, target, hint=False)
+    return [r.text for r in rows if getattr(r, "kind", "") == "msg" and r.part == 1]
+
+
+def test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(home: Path) -> None:
+    """T441 (founder #5467): the chat drew "typed" as backend's reply to a say. It is drawn from
+    the verdict of the request row, so the say is closed with none."""
+    _world(home)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, actions.HUMAN, "backend", "hello there", None, "peer", "async", "say", 0, None)
+        dmn_messaging.finish_say(db.get_request(con, rid))
+        row = db.get_request(con, rid)
+        check("chat: the say is done and has no verdict", row["state"] == "done" and row["verdict"] is None)
+        check("chat: no reply is drawn for it", _drawn_replies(con, "backend") == [], str(_drawn_replies(con, "backend")))
+        real = db.add_request(con, actions.HUMAN, "backend", "and a question", None, "peer", "async", None, 0, None)
+        askmod.resolve(real, "an answer that somebody wrote")
+        check("chat: a real answer is still drawn", _drawn_replies(con, "backend") == ["an answer that somebody wrote"],
+              str(_drawn_replies(con, "backend")))
+    finally:
+        con.close()
+
+
+def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) -> None:
+    """T441: says closed before this carry "typed" (or the old-say note) as a verdict and an answer
+    message of its own. Both go, whichever shape the answer has; a real answer to a former ask stays."""
+    _world(home)
+    con = db.connect()
+    try:
+        told = [db.add_request(con, actions.HUMAN, "backend", f"say {i}", None, "peer", "async", "say", 0, None,
+                               state="done", verdict=note)
+                for i, note in enumerate(("typed", "closed: told before says were typed at once"))]
+        fakes = [db.add_answer(con, t, db.get_request(con, t)["verdict"]) for t in told]
+        ask = db.add_request(con, actions.HUMAN, "backend", "a former ask", None, "peer", "async", "say", 0, None,
+                             state="done", verdict="PASS, nothing to change")
+        real = db.add_answer(con, ask, "PASS, nothing to change")
+        old_ask = db.add_request(con, actions.HUMAN, "backend", "before answers were says", None, "peer", "async",
+                                 None, 0, None, state="done", verdict="typed")
+        old_fake = db.add_answer(con, old_ask, "typed")
+        con.execute("UPDATE requests SET kind = 'answer', settles = NULL WHERE id = ?", (fakes[0],))   # the old shape
+        db.set_cursor(con, "migrated:close_notes", 0)
+        con.close()
+        con = db.connect()
+        gone = [con.execute("SELECT 1 FROM requests WHERE id = ?", (f,)).fetchone() is None for f in fakes]
+        check("close notes: the messages made of them are gone, as an answer row or as a say", all(gone), str(gone))
+        check("close notes: and the verdicts, so nothing is drawn from the say either",
+              all(db.get_request(con, t)["verdict"] is None for t in told))
+        check("close notes: a real answer to a former ask stays, drawn once",
+              con.execute("SELECT 1 FROM requests WHERE id = ?", (real,)).fetchone() is not None
+              and _drawn_replies(con, "backend").count("PASS, nothing to change") == 1,
+              str(_drawn_replies(con, "backend")))
+        check("close notes: an ask that was not a say when it was answered is left alone",
+              db.get_request(con, old_ask)["verdict"] == "typed"
+              and con.execute("SELECT 1 FROM requests WHERE id = ?", (old_fake,)).fetchone() is not None)
+        check("close notes: the old-say note is drawn as nobody's reply",
+              "closed: told before says were typed at once" not in _drawn_replies(con, "backend"),
+              str(_drawn_replies(con, "backend")))
+    finally:
+        con.close()
+
+
+def test_a_hold_on_a_task_is_always_said_once_with_its_reason(home: Path) -> None:
+    """T456 (founder #5770): core sat IDLE for 43 min with a task queued and nothing in the log. Whatever
+    holds a task back is said, once per reason, with the request id."""
+    sent = _world(home)
+    con = db.connect()
+    lines: list[str] = []
+    try:
+        rid = db.add_request(con, "product", "backend", "a piece of work", None, "peer", "async", "task", 0, None)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("hold: a screen that is not idle holds it, and says why once",
+              not sent and len([m for m in lines if f"#{rid} is held" in m and "not idle" in m]) == 1, str(lines))
+
+        db.set_cursor(con, "clear_owed:backend", int(time.time()))
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("hold: a different reason is said when it changes",
+              any(f"#{rid} is held" in m and "cleared" in m for m in lines), str(lines))
+        db.clear_cursor(con, "clear_owed:backend")
+
+        orcamod.typeable_now = lambda h: True
+        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("typed: once nothing holds it, it is told, and it is no longer said to be held",
+              told and len(sent) == 1 and not dmn_delivery._HELD.get("backend"), str((told, sent)))
+    finally:
+        con.close()
+
+
+def test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(home: Path) -> None:
+    """T459 (founder, from #5744/#5787/#5806): three auditor PASS handbacks sat for hours behind an
+    open head orcapipe was told about and left open. A told head keeps what is behind it back while the
+    agent is busy, says why once, and lets the next one through once the agent has been idle on it."""
+    sent = _world(home)
+    orcamod.typeable_now = lambda h: True
+    con = db.connect()
+    lines: list[str] = []
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        first = db.add_request(con, "product", "backend", "the work it is on", None, "peer", "async", "task", 0, None)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        second = db.add_request(con, "orcapipe.auditor", "backend", "PASS handback", None, "peer", "async", "task", 0, None)
+        db.add_event(con, "backend", "task_note", {})
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: a busy agent is not told the next task, and the hold is said once with its reason",
+              len(sent) == 1 and len([m for m in lines if f"#{second} is held" in m and f"#{first}" in m]) == 1,
+              str((sent, lines)))
+
+        old = int(time.time()) - dmn_delivery.NUDGE_AFTER_S - 5
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (old, first))
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
+        row = db.get_request(con, second)
+        check("open head: an agent idle on it is told the next task, marked as told ahead of it",
+              told and len(sent) == 2 and f"#{second}" in sent[1][1] and f"#{first}" in sent[1][1]
+              and row["told_out_of_turn"] and db.get_cursor(con, "notify:backend") == first
+              and not dmn_delivery._HELD.get("backend"), str((told, sent)))
+
+        third = db.add_request(con, "product", "backend", "one more", None, "peer", "async", "task", 0, None)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: telling one restarts the wait, so the next is not typed on the following tick",
+              len(sent) == 2 and not db.get_request(con, third)["delivered_at"], str(sent))
+        con.execute("UPDATE requests SET delivered_at = delivered_at - ? WHERE delivered_at IS NOT NULL",
+                    (dmn_delivery.NUDGE_AFTER_S + 5,))
+        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
+        check("open head: once idle again for the whole wait, the one after it goes out",
+              told and len(sent) == 3 and f"#{third}" in sent[2][1]
+              and any(f"told about #{third} (ahead of #{first}, idle)" in m for m in lines), str((sent, lines)))
     finally:
         con.close()
 
@@ -468,6 +621,71 @@ def test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(home: Path) 
         con.close()
 
 
+def test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(home: Path) -> None:
+    """T408: `ocp task new`, `resolve` and the rest push in their own process, which in an agent's
+    sandbox cannot start a session - the work waited for the next tick. Outside the daemon the push
+    goes over its socket; the daemon (and a caller it cannot reach) does the start itself."""
+    from ocp.daemon import client
+    from ocp.team import ask as askmod
+    _world(home)
+    con = db.connect()
+    sent, started = [], []
+    real_send, real_start = client.send, dmn_lifecycle._start_for_work
+    client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "handed"})[1]
+    dmn_lifecycle._start_for_work = lambda c, a, log: (started.append(a), "started")[1]
+    try:
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        db.add_request(con, "product", "backend", "do the sea", None, "peer", "async", "task", 0, None)
+        said = askmod.push(con, "backend")
+        check("outside the daemon: the push is sent as the socket's verb, and starts nothing here",
+              sent == [{"verb": "push", "target": "backend", "rid": None}] and not started and "handed" in said,
+              f"{sent} {started} {said}")
+        said = askmod.push_answer(con, "backend")
+        check("outside the daemon: an answer's push goes the same way",
+              sent[-1] == {"verb": "push_answer", "requester": "backend"} and not started, str(sent))
+        client.send = lambda payload, timeout=None: None
+        askmod.push(con, "backend")
+        check("the daemon not answering: the push is done in this process, as before", started == ["backend"], str(started))
+        started.clear()
+        sent.clear()
+        client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "x"})[1]
+        askmod.IN_DAEMON = True
+        try:
+            askmod.push(con, "backend")
+        finally:
+            askmod.IN_DAEMON = False
+        check("in the daemon: it starts the agent itself and does not ask itself over the socket",
+              started == ["backend"] and not sent, f"{started} {sent}")
+    finally:
+        client.send, dmn_lifecycle._start_for_work = real_send, real_start
+        con.close()
+
+
+def test_the_daemons_push_verbs_never_hand_the_push_back_to_the_daemon(home: Path) -> None:
+    """T408 (auditor #5913): the verb runs the push in this process, so it starts the agent
+    whatever `IN_DAEMON` says - forwarding to itself would loop over the socket on thread after thread."""
+    from ocp.daemon import client
+    from ocp.team import ask as askmod
+    _world(home)
+    con = db.connect()
+    sent, started = [], []
+    real_send, real_start = client.send, dmn_lifecycle._start_for_work
+    client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "again"})[1]
+    dmn_lifecycle._start_for_work = lambda c, a, log: (started.append(a), "started")[1]
+    try:
+        assert askmod.IN_DAEMON is False
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        db.add_request(con, "product", "backend", "do the sea", None, "peer", "async", "task", 0, None)
+        reply = _verb({"verb": "push", "target": "backend"})
+        check("push verb: the agent is started here and the verb sends nothing to the socket",
+              reply["ok"] and started == ["backend"] and not sent, f"{reply} {started} {sent}")
+        _verb({"verb": "push_answer", "requester": "backend"})
+        check("push_answer verb: nothing sent to the socket either", not sent, str(sent))
+    finally:
+        client.send, dmn_lifecycle._start_for_work = real_send, real_start
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(Path(td) / "s1"))
@@ -481,11 +699,17 @@ def main() -> int:
         run(lambda: test_only_what_has_not_reached_the_agent_counts(Path(td) / "s10"))
         run(lambda: test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(Path(td) / "s11"))
         run(lambda: test_the_daemon_start_settles_old_says_and_leaves_old_asks(Path(td) / "s12"))
+        run(lambda: test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(Path(td) / 'saychat'))
+        run(lambda: test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(Path(td) / 'closenotes'))
+        run(lambda: test_a_hold_on_a_task_is_always_said_once_with_its_reason(Path(td) / 'bgtask'))
+        run(lambda: test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(Path(td) / 'openhead'))
         run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))
         run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
         run(lambda: test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(Path(td) / "s16"))
+        run(lambda: test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(Path(td) / "s17"))
+        run(lambda: test_the_daemons_push_verbs_never_hand_the_push_back_to_the_daemon(Path(td) / "s18"))
     return run_area(tests)
 
 

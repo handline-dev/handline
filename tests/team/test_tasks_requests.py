@@ -478,7 +478,7 @@ def test_cycle_and_escalation(home: Path) -> None:
     con = db.connect()
     try:
         esc = con.execute(
-            "SELECT * FROM requests WHERE target='human' AND kind='escalate'"
+            "SELECT * FROM requests WHERE target='human' AND kind='task'"
         ).fetchall()
         check("chain: the escalation is a real queued request", len(esc) == 1, str(len(esc)))
         check("chain: it carries the original body",
@@ -1032,7 +1032,7 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
         # obstacle from whatever the agent's open escalation is about.
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.block_clear(con, "backend")
-        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'escalate'")
+        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
         askmod.escalate(con, "backend", "something else", "unrelated")
         blockedmod._checked.clear()
         blockedmod.sweep(con, lambda _m: None, t0 + 5000)
@@ -1218,8 +1218,13 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
                      reset_5h=now + 1800)
         db.set_cursor(con, "notify:backend", head)
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("nudge: supervise makes the same call", len(sent) == 1 and "ocp resolve" in sent[0],
-              str(sent))
+        check("nudge: supervise tells the next task past the idle head instead, and nudges nothing that tick",
+              len(sent) == 1 and "#2 from" in sent[0] and "sat idle" in sent[0], str(sent))
+        # Back to the queue the stuck checks below were written against.
+        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL, told_out_of_turn = NULL WHERE id = 2")
+        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
+        nudge(int(time.time()))
+        sent.clear()
 
         # The bridge: nothing until the second interval, then one row.
         check("stuck: nothing on the screen for it before the second interval",
@@ -2005,12 +2010,12 @@ def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
         finally:
             con.close()
 
-        out = _capture(lambda: climod.main(["ask", "reviewer"]))
-        check("ask: neither inline nor --file is a clear refusal, not a crash",
-              "required" in out or "--file" in out, out)
         real_in = sys.stdin
-        sys.stdin = io.StringIO("")
+        sys.stdin = io.StringIO("")     # never the real stdin: an open pipe would be waited on
         try:
+            out = _capture(lambda: climod.main(["ask", "reviewer"]))
+            check("ask: neither inline nor --file is a clear refusal, not a crash",
+                  "required" in out or "--file" in out, out)
             out = _capture(lambda: climod.main(["ask", "reviewer"]))
             check("ask: an empty stdin is the same refusal", "required" in out, out)
             sys.stdin = io.StringIO(hostile)
@@ -3158,8 +3163,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         askmod.resolve(hr.load_proposal(said.split()[1])["request"], "reject", notify=False)
         check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
 
-        db.add_request(con, "marina", actions.HUMAN, "which branch do we cut?", None,
-                       "peer", "async", "escalate", 0, None)
+        askmod.ask(actions.HUMAN, "which branch do we cut?", requester="marina")
         w = waits("escalation")
         check("escalation: an unanswered one is waiting on the founder, in red",
               len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
@@ -3393,7 +3397,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         answer = db.answer_row_of(con, rid)
         check("T421: the answer is a message of its own - its own id, under the request, from the one asked",
               answer is not None and answer["id"] != rid and answer["parent_id"] == rid
-              and answer["kind"] == "answer" and answer["body"].startswith("MERGE.")
+              and answer["kind"] == "say" and answer["settles"] == rid and answer["body"].startswith("MERGE.")
               and answer["requester"] == "reviewer" and answer["target"] == actions.HUMAN,
               str(dict(answer) if answer else None))
         said = actions.answer(con, rid, "merged, thank you")
@@ -4518,6 +4522,317 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
         con.close()
 
 
+def test_a_say_to_the_founder_asks_for_no_reply(home: Path) -> None:
+    """Step 5 (auditor #5355): the status report the guidance now teaches, `ocp say
+    human`, is a message that needs no answer - it is not pinned, not a gate, and
+    folds like the fyi report it replaces."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+""")
+    con = db.connect()
+    try:
+        ok, said, rid = askmod.say(askmod.HUMAN, "status: step 5 is up for review", requester="worker")
+        check("say to the founder: sent, and not called an escalation", ok and "[escalation" not in said, said)
+        row = next(m for m in actions.mailbox_rows(con) if m["id"] == rid)
+        check("say to the founder: not a gate and not waiting on them",
+              not row["gate"] and not row["waiting"], str(row))
+        ok, said, ask_rid = askmod.ask(askmod.HUMAN, "which colour?", requester="worker")
+        check("contrast: an ask to the founder is still an escalation that waits", "[escalation" in said, said)
+        rows = {m["id"]: m for m in actions.mailbox_rows(con)}
+        check("contrast: and it is the one waiting", rows[ask_rid]["gate"] and not rows[rid]["waiting"], str(rows))
+        listed = actions.messages(con)
+        check("say to the founder: the list folds it into worker's line, unpinned, counted to read",
+              any(m["from"] == "worker" and not m["gate"] and not m["waiting"] and m["unread"] >= 1
+                  for m in listed) and all(not (m["from"] == "worker" and m["id"] == rid and m["waiting"])
+                                            for m in listed), str(listed))
+    finally:
+        con.close()
+
+
+def test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(home: Path) -> None:
+    """T361 step A: no row keeps the kind ask, report or escalate that is over, and
+    none that is still open is lost - it is a task for its target, or a say."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        def row(kind, state, target="worker", requester="manager", fyi=0, body="do the thing\nmore"):
+            cur = con.execute(
+                "INSERT INTO requests(ts, requester, target, body, kind, state, fyi, chain_depth, edge_ok) "
+                "VALUES(?,?,?,?,?,?,?,0,1)", (1000, requester, target, body, kind, state, fyi))
+            con.execute("UPDATE requests SET chain_id = ?, queue_order = ? WHERE id = ?",
+                        (str(cur.lastrowid), cur.lastrowid, cur.lastrowid))
+            return cur.lastrowid
+
+        h_ask, h_rep, h_esc = row(None, "done"), row("report", "done"), row("escalate", "done", target="human")
+        h_rej = row(None, "rejected")
+        q_delivered = row(None, "queued", target="reviewer")     # already shown to its target, mid-answer
+        con.execute("UPDATE requests SET delivered_at = 1001 WHERE id = ?", (q_delivered,))
+        q_ask, q_human = row(None, "queued"), row(None, "queued", target="human", requester="worker",
+                                                  body="which name?")
+        q_fyi = row(None, "queued", target="human", requester="worker", fyi=1)      # only shown to the founder
+        q_rep = row("report", "queued")             # an unblock notice: waits for an agent to read it
+        q_null_card = row(None, "queued", target="human", requester="worker", body="linked, no kind")
+        linked_task = db.new_task(con, "already a task", "worker", "manager")
+        q_linked = row(None, "queued")
+        db.link_request(con, linked_task, q_linked)
+        card_task = db.new_task(con, "already a card", "human", "worker")
+        null_task = db.new_task(con, "a card with no kind", "human", "worker")
+        db.link_request(con, null_task, q_null_card)
+        q_card = row("escalate", "queued", target="human", requester="worker")
+        db.link_request(con, card_task, q_card)
+        answer, plain_say, task_row = row("answer", "done"), row("say", "done"), row("task", "done")
+        tasks_before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
+        db.set_cursor(con, "migrated:kinds_to_say", 0)
+        con.close()
+        con = db.connect()
+
+        def kind(rid):
+            return db.get_request(con, rid)["kind"]
+
+        check("kinds: a finished ask, report, escalation and refusal are says",
+              [kind(r) for r in (h_ask, h_rep, h_esc, h_rej)] == ["say"] * 4,
+              str([kind(r) for r in (h_ask, h_rep, h_esc, h_rej)]))
+        check("kinds: a queued fyi to the founder is a say and opens no task",
+              kind(q_fyi) == "say" and not db.tasks_for_request(con, q_fyi))
+        check("kinds: a queued report to an agent is left as it is - an unblock notice must still be delivered",
+              kind(q_rep) == "report" and db.get_request(con, q_rep)["state"] == "queued"
+              and not db.tasks_for_request(con, q_rep) and db.head_of_queue(con, "worker") is not None)
+        check("kinds: a linked queued row to the founder with no kind is a card",
+              kind(q_null_card) == "escalate")
+        check("kinds: a queued ask already linked to a task is that task's delivery",
+              kind(q_linked) == "task" and db.tasks_for_request(con, q_linked)[0]["id"] == linked_task)
+        check("kinds: a queued escalation already a card stays one",
+              kind(q_card) == "escalate" and db.tasks_for_request(con, q_card)[0]["id"] == card_task)
+        t_ask = db.tasks_for_request(con, q_ask)
+        check("kinds: a queued ask that was already delivered is left as it is - it is being answered as an ask",
+              kind(q_delivered) is None and not db.tasks_for_request(con, q_delivered)
+              and db.get_request(con, q_delivered)["state"] == "queued")
+        askmod.resolve(q_delivered, "looks good")
+        check("kinds: answered, it leaves no open task behind",
+              not db.tasks_for_request(con, q_delivered)
+              and db.get_request(con, q_delivered)["state"] == "done")
+        check("kinds: a queued ask becomes a task for its target, the row its delivery",
+              len(t_ask) == 1 and t_ask[0]["owner"] == "worker" and t_ask[0]["opened_by"] == "manager"
+              and t_ask[0]["title"] == "do the thing" and kind(q_ask) == "task"
+              and db.get_request(con, q_ask)["state"] == "queued", str([dict(t) for t in t_ask]))
+        t_human = db.tasks_for_request(con, q_human)
+        check("kinds: a queued ask to the founder becomes a decision task with the row as its card",
+              len(t_human) == 1 and t_human[0]["owner"] == "human" and t_human[0]["expects"] == "decision"
+              and kind(q_human) == "escalate" and t_human[0]["title"] == "which name?",
+              str([dict(t) for t in t_human]))
+        check("kinds: answers, says and tasks are left as they were",
+              (kind(answer), kind(plain_say), kind(task_row)) == ("answer", "say", "task"))
+        check("kinds: exactly two tasks were opened (the two unlinked queued asks; the card was linked already)",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == tasks_before + 2)
+        check("kinds: no finished ask, report or escalation is left over, and no undelivered queued ask without a task",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE state != 'queued' AND id != ? AND "
+                          "(kind IS NULL OR kind IN ('report', 'escalate'))", (q_delivered,)).fetchone()["c"] == 0
+              and con.execute("SELECT COUNT(*) c FROM requests WHERE state = 'queued' AND kind IS NULL "
+                              "AND fyi = 0 AND delivered_at IS NULL").fetchone()["c"] == 0)
+        con.close()
+        con = db.connect()
+        check("kinds: a second connect changes nothing",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == tasks_before + 2)
+    finally:
+        con.close()
+
+
+def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(home: Path) -> None:
+    """T437: the board is built from a handful of set-based queries, however many
+    tasks there are, and says exactly what asking each task one by one says."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+
+    def request(requester, target, state="queued", fyi=False, ts=None):
+        rid = db.add_request(con, requester, target, "body", None, None, None, None, 0, None,
+                             state=state, fyi=fyi)
+        if ts:
+            con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?", (ts, ts + 5, rid))
+        return rid
+
+    def build(n_extra: int) -> None:
+        base = db.new_task(con, "parent", "worker", "manager")
+        kid = db.new_task(con, "child", "worker", "manager", parent_task=base)
+        db.link_request(con, kid, request("manager", "worker"))          # doing through its child
+        drafts = db.new_task(con, "a draft", "worker", "manager")
+        queued = db.new_task(con, "queued", "worker", "manager")
+        db.set_task_queued(con, queued, "human")
+        doing = db.new_task(con, "doing", "worker", "manager")
+        db.link_request(con, doing, request("manager", "worker"))
+        report = db.new_task(con, "only a report", "worker", "manager")
+        db.link_request(con, report, request("manager", "worker", fyi=True))    # asks nothing
+        begun = db.new_task(con, "begun on a founder message", "worker", "manager")
+        db.add_event(con, "worker", "task_begin", {"task_id": begun})
+        founder = db.new_task(con, "founder's own", "worker", "manager")
+        db.link_request(con, founder, request(actions.HUMAN, "worker", state="done", ts=1000))
+        done = db.new_task(con, "done", "worker", "manager")
+        db.mark_task_done(con, done, "evidence")
+        closed = db.new_task(con, "closed", "worker", "manager")
+        db.mark_task_done(con, closed, "e")
+        db.close_task(con, closed, "manager")
+        gone = db.new_task(con, "discarded", "worker", "manager")
+        db.discard_task(con, gone, "manager", "no")
+        merged = db.new_task(con, "merged", "worker", "manager")
+        db.merge_task(con, merged, drafts, "manager")
+        late = db.new_task(con, "late answer", "worker", "manager")
+        late_rid = request("manager", "worker", state="done")
+        stamp = int(time.time())
+        con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?", (stamp - 10, stamp + 100, late_rid))
+        db.link_request(con, late, late_rid)        # answered after every time the task itself has
+        blocked = db.new_task(con, "blocked", "worker", "manager")
+        db.add_block(con, blocked, doing)
+        db.add_block(con, blocked, done)       # a done blocker no longer blocks
+        for i in range(n_extra):
+            t = db.new_task(con, f"extra {i}", "worker", "manager")
+            if i % 3 == 0:
+                db.link_request(con, t, request("manager", "worker"))
+            if i % 5 == 0:
+                db.add_block(con, t, base)
+
+    try:
+        build(0)
+        for include_closed in (False, True):
+            rows = actions.task_rows(con, include_closed=include_closed)
+            check(f"task_rows: the fixture covers every state (include_closed={include_closed})",
+                  {"draft", "queued", "doing", "done"} <= {r["state"] for r in rows}
+                  and (not include_closed or {"closed", "discarded", "merged"} <= {r["state"] for r in rows}),
+                  str(sorted({r["state"] for r in rows})))
+            wrong = []
+            for r in rows:
+                t = r["row"]
+                single = {"state": actions.task_state(con, t), "closer": actions.task_asker(con, t),
+                          "blocked_by": [b["id"] for b in db.task_blockers(con, t["id"])],
+                          "last_activity": db.task_last_activity(con, t["id"])}
+                got = {k: r[k] for k in single}
+                if got != single:
+                    wrong.append((r["ref"], got, single))
+            check(f"task_rows: every row equals the per-task answer (include_closed={include_closed})",
+                  not wrong, str(wrong[:2]))
+        late_row = next(r for r in actions.task_rows(con) if r["title"] == "late answer")
+        check("task_rows: a request answered after everything else on the task is its last activity, in both paths",
+              late_row["last_activity"] == db.task_last_activity(con, late_row["id"])
+              and late_row["last_activity"] > late_row["row"]["created_at"] + 50, str(late_row["last_activity"]))
+        check("task_rows: a done blocker does not block, an open one does",
+              next(r for r in actions.task_rows(con) if r["title"] == "blocked")["blocked_by"] != [], "")
+
+        seen: list[str] = []
+        con.set_trace_callback(seen.append)
+        actions.task_rows(con)
+        few = len(seen)
+        con.set_trace_callback(None)
+        build(60)
+        seen.clear()
+        con.set_trace_callback(seen.append)
+        many_rows = actions.task_rows(con)
+        many = len(seen)
+        con.set_trace_callback(None)
+        check("task_rows: the number of queries does not grow with the number of tasks",
+              many == few and few <= 8 and len(many_rows) > 60, f"{few} queries for the small board, "
+              f"{many} for {len(many_rows)} tasks")
+    finally:
+        con.close()
+
+
+def test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(home: Path) -> None:
+    """T361 step B2: what the daemon raises for the founder opens a decision task,
+    once per shape, with its request as the card; the founder's gate is an open
+    decision task, not a kind of row; an old queued escalation opens one on migrate."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        rid = askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph")
+        tasks = db.tasks_for_request(con, rid)
+        check("escalate: opens one decision task of the founder's, opened by the agent it is about",
+              len(tasks) == 1 and tasks[0]["owner"] == "human" and tasks[0]["opened_by"] == "backend"
+              and tasks[0]["expects"] == "decision", str([dict(t) for t in tasks]))
+        check("escalate: its card is a task row, not an escalate one", db.get_request(con, rid)["kind"] == "task")
+        check("escalate: exactly the same text again is that decision, not a second",
+              askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph") == rid
+              and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 1)
+        other = askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nother", "wait-for graph")
+        prefix = askmod.escalate(con, "backend", "[wait-for] T1 waits", "wait-for graph")
+        check("escalate: different text is its own card, kept whole - nothing an agent wrote is lost",
+              len({rid, other, prefix}) == 3 and "other" in db.get_request(con, other)["body"]
+              and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 3)
+        one = askmod._escalate(con, "backend", "reviewer", "NOTES ONE", None, "c1", 2, None, "loop")
+        two = askmod._escalate(con, "backend", "reviewer", "NOTES TWO different", None, "c1", 2, None, "loop")
+        check("escalate: two different stopped requests in one chain are two cards, both bodies kept",
+              one != two and "NOTES ONE" in db.get_request(con, one)["body"]
+              and "NOTES TWO different" in db.get_request(con, two)["body"])
+        for extra in (other, prefix, one, two):
+            actions.decide(con, db.tasks_for_request(con, extra)[0]["id"], "seen")
+        check("gate: the card is the founder's gate and shows in their waits",
+              next(m for m in actions.mailbox_rows(con) if m["id"] == rid)["gate"]
+              and any(w["kind"] == "escalation" and w["who"] == "backend" for w in actions.founder_waits(con)))
+        check("gate: open_escalations_of counts it", db.open_escalations_of(con, "backend") == 1)
+        ok, msg = actions.decide(con, tasks[0]["id"], "fine")
+        check("gate: decided, it is no gate", ok and not db.open_escalations_of(con, "backend"), msg)
+        loose = con.execute(
+            "INSERT INTO requests(ts, requester, target, body, kind, state, fyi, chain_depth, edge_ok) "
+            "VALUES(1000, 'worker', 'human', 'which name?', 'escalate', 'queued', 0, 0, 1)").lastrowid
+        db.set_cursor(con, "migrated:escalations_are_tasks", 0)
+        con.close()
+        con = db.connect()
+        t = db.tasks_for_request(con, loose)
+        check("migrate: a queued escalation no task carries opens one, and the row is a task row",
+              len(t) == 1 and t[0]["owner"] == "human" and t[0]["opened_by"] == "worker"
+              and db.get_request(con, loose)["kind"] == "task", str([dict(x) for x in t]))
+        check("migrate: and it is a gate", loose in db.open_decision_card_ids(con))
+    finally:
+        con.close()
+
+
+def test_the_per_task_event_lookups_use_the_index_not_a_scan(home: Path) -> None:
+    """The task pages look events up by task once per task; each of those queries,
+    as the code really runs it, is answered from `events_kind_task` - a scan of
+    the events table there is what made every page slow (T430)."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for i in range(300):
+            db.add_event(con, "worker", "task_begin" if i % 3 == 0 else "reopen_task", {"task_id": i % 7})
+        seen: list[tuple[str, tuple]] = []
+        calls = (
+            lambda: actions.tasks._begun(con, 3),
+            lambda: db.task_handoffs(con, 3),
+            lambda: actions.tasks._told_at_done(con, 3, 4),
+            lambda: actions.tasks._reset_after(con, 3),
+        )
+        for call in calls:
+            con.set_trace_callback(lambda sql: seen.append(sql))
+            call()
+            con.set_trace_callback(None)
+        lookups = [q for q in seen if db.EVENT_TASK in q and "FROM events" in q]
+        check("index: every per-task events query was captured", len(lookups) >= 5, str(len(lookups)))
+        for q in lookups:
+            plan = " | ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q))
+            check(f"index: {q[:60]!r} is a search on events_kind_task, not a scan of events",
+                  "events_kind_task" in plan and "SCAN" not in plan, plan)
+        # A payload that is not JSON is a row the index skips, never a failed write or build.
+        con.execute("INSERT INTO events (ts, agent, kind, payload) VALUES (?, 'w', 'decision', 'not json')",
+                    (int(time.time()),))
+        con.execute("DROP INDEX events_kind_task")
+        con.close()
+        con = db.connect()          # rebuilds the index over a table that holds the bad row
+        check("index: a table holding a non-JSON payload still builds the index and answers",
+              con.execute("SELECT name FROM sqlite_master WHERE name = 'events_kind_task'").fetchone()
+              is not None and actions.tasks._begun(con, 3))
+    finally:
+        con.close()
+
+
 def test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(home: Path) -> None:
     """T421 (auditor #2828): an answer row is a message in the chain, not an ask
     in it - so answering does not use up the answerer's asks, and a follow-up
@@ -4593,7 +4908,8 @@ def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> No
         check("answer row: its own id, under the request, from the one asked to the asker",
               ans is not None and ans["id"] != rid and ans["parent_id"] == rid
               and ans["requester"] == "manager" and ans["target"] == "worker"
-              and ans["body"] == "the answer" and ans["kind"] == "answer" and ans["state"] == "done"
+              and ans["body"] == "the answer" and ans["kind"] == "say" and ans["settles"] == rid
+              and ans["state"] == "done"
               and ans["chain_id"] == db.get_request(con, rid)["chain_id"], str(dict(ans) if ans else None))
         check("answer row: it is already read, so nobody is told twice",
               ans["announced_at"] is not None)
@@ -4645,13 +4961,62 @@ edges:
         check("migration: an old verdict becomes an answer row, at the time it was answered",
               made is not None and made["body"] == "old verdict" and made["ts"] == 1000,
               str(dict(made) if made else None))
-        count = con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"]
+        count = con.execute("SELECT COUNT(*) c FROM requests WHERE settles IS NOT NULL").fetchone()["c"]
         con.close()
         con = db.connect()
         check("migration: a second connect adds nothing, and the earlier answers are not doubled",
-              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'answer'").fetchone()["c"] == count
-              and len([1 for r in con.execute("SELECT id FROM requests WHERE parent_id = ? AND kind = 'answer'",
-                                              (rid,))]) == 1)
+              con.execute("SELECT COUNT(*) c FROM requests WHERE settles IS NOT NULL").fetchone()["c"] == count
+              and len([1 for r in con.execute("SELECT id FROM requests WHERE settles = ?", (rid,))]) == 1)
+
+        # A row written before this step, with the kind answer, becomes a say that settles its request.
+        legacy = db.add_request(con, "worker", "manager", "q", None, None, None, None, 0, None,
+                                state="done", verdict="old answer")
+        aid = con.execute("INSERT INTO requests(ts, requester, target, body, kind, state, parent_id, chain_id, "
+                          "edge_ok) VALUES (5, 'manager', 'worker', 'old answer', 'answer', 'done', ?, ?, 1)",
+                          (legacy, str(legacy))).lastrowid
+        db.set_cursor(con, "migrated:answers_are_says", 0)
+        con.close()
+        con = db.connect()
+        got = db.get_request(con, aid)
+        check("migration: an old answer-kind row becomes a say that settles the request it answered",
+              got["kind"] == "say" and got["settles"] == legacy and got["parent_id"] == legacy
+              and db.answer_row_of(con, legacy)["id"] == aid, str(dict(got)))
+        check("migration: an interim reply from the target is a say but not the answer",
+              db.answer_row_of(con, rid)["id"] != db.add_request(
+                  con, "manager", "worker", "still on it", None, None, None, "say", 0, rid, state="done"))
+    finally:
+        con.close()
+
+
+def test_the_answer_lookups_use_the_settles_index_not_a_scan(home: Path) -> None:
+    """T361 B1 (auditor #5476): the chat page finds the answer of every row it
+    draws by `settles`; that is a search on requests_settles, never a scan of the
+    requests table (which made the page 350 times slower)."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for i in range(200):
+            rid = db.add_request(con, "worker", "manager", f"q{i}", None, None, None, None, 0, None)
+            con.execute("UPDATE requests SET state = 'done', verdict = 'a' WHERE id = ?", (rid,))
+            if i % 2 == 0:
+                db.add_answer(con, rid, "a")
+        check("settles: the index exists on a database built now",
+              con.execute("SELECT 1 FROM sqlite_master WHERE name = 'requests_settles'").fetchone() is not None)
+        for label, sql in (
+                ("answer_row_of", "SELECT * FROM requests WHERE settles = ? ORDER BY id LIMIT 1"),
+                ("requests_page answer_id", "SELECT (SELECT a.id FROM requests a WHERE a.settles = requests.id "
+                                            "ORDER BY a.id LIMIT 1) AS answer_id FROM requests WHERE id = ?"),
+                ("append_verdict", "UPDATE requests SET body = body || 'x' WHERE settles = ?")):
+            plan = " | ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + sql, (5,)))
+            check(f"settles: {label} is a search on requests_settles", "requests_settles" in plan
+                  and "SCAN requests" not in plan, plan)
+        # An old database, built before the column: the index is made after the column is.
+        con.execute("DROP INDEX requests_settles")
+        con.close()
+        con = db.connect()
+        check("settles: reconnecting an old database creates the index too",
+              con.execute("SELECT 1 FROM sqlite_master WHERE name = 'requests_settles'").fetchone() is not None)
     finally:
         con.close()
 
@@ -4768,8 +5133,11 @@ limits:
 
         rid_discard = db.task_requests(con, t_discard)[0]["id"]
         askmod.cancel(rid_discard)
+        gone = db.get_task(con, t_discard)
+        check("discard_task: cancelling a decision's card discards the task with it",
+              gone["closed_by"] and gone["discarded_by"] and not gone["done_evidence"], str(dict(gone)))
         ok, msg = actions.discard_task(con, t_discard, askmod.HUMAN, "no longer needed")
-        check("discard_task: succeeds for a decision task", ok, msg)
+        check("discard_task: and it is not discarded twice", not ok and "already discarded" in msg, msg)
         check("finding 1: discard - the founder still holds no current-task row",
               db.current_task(con, askmod.HUMAN) is None, db.current_task(con, askmod.HUMAN))
 
@@ -7701,6 +8069,166 @@ def test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(home
         con.close()
 
 
+def test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(home: Path) -> None:
+    """T440 (founder #5442): T296 was queued while its owner was busy and sat 12h - the edges
+    that deliver the next task never fired again. The tick reads the same picker as a level."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    pushed: list[str] = []
+    real_push = askmod.push
+    askmod.push = lambda _con, agent, rid=None: pushed.append(agent) or ""
+    try:
+        first_ok, msg, first = actions.task_new("manager", "worker", "first", "first")
+        t = db.new_task(con, "waits", "worker", "manager")
+        actions.set_queued(con, t, "manager", True)
+        check("setup: the owner is busy, so nothing went out for the queued task",
+              first_ok and db.task_requests(con, t) == [], msg)
+
+        pushed.clear()      # setup's own deliveries
+        now = int(time.time())
+        taskqueue.sweep(con, lambda _m: None, now)
+        check("tick: a busy owner is left alone - its task is still being asked",
+              db.task_requests(con, t) == [] and not pushed)
+
+        # The first task ends in a way that fires no edge: done and let go straight in the db.
+        db.mark_task_done(con, first, "done", "reason")
+        db.set_current_task(con, "worker", None)
+        check("setup: the edge did not deliver it", db.task_requests(con, t) == [])
+
+        taskqueue.sweep(con, lambda _m: None, now + 1)
+        check("tick: the free owner is sent the waiting task, and it is current",
+              len(db.task_requests(con, t)) == 1 and db.current_task(con, "worker") == t)
+        check("tick: and is pushed to now", pushed and set(pushed) == {"worker"}, str(pushed))
+
+        told = len(pushed)
+        taskqueue.sweep(con, lambda _m: None, now + 2)
+        check("tick: it is sent once", len(db.task_requests(con, t)) == 1 and len(pushed) == told)
+    finally:
+        askmod.push = real_push
+        con.close()
+
+
+def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_result(home: Path) -> None:
+    """T443 (founder #5652): a doing task blocked by a child of its own - whoever owns it, whatever
+    it is for - is not "waiting for reply": it says what it waits for, gets no other work and no
+    "ask it what it is doing" alert, and is told the result when the child ends."""
+    from ocp.daemon import taskqueue, timebox
+    from ocp.ui import tui
+    _board_world(home)
+    con = db.connect()
+    real_push = askmod.push
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+        (req,) = db.task_requests(con, t)
+        waiting = db.new_task(con, "next", "worker", "manager")
+        actions.set_queued(con, waiting, "manager", True)
+        check("setup: worker holds the work; the next task waits", db.current_task(con, "worker") == t
+              and actions.child_wait(con, "worker") is None, msg)
+
+        dep = db.new_task(con, "not a child", "manager", "manager")
+        db.add_block(con, t, dep)
+        check("wait: a blocker that is not a child is not this wait", actions.child_wait(con, "worker") is None)
+        child = db.new_task(con, "review the work", "team.auditor", "worker", parent_task=t)
+        db.add_block(con, t, child)
+        check("wait: it names the child and who owns it, nothing about what it is for",
+              actions.child_wait(con, "worker") == f"waiting for T{child} (team.auditor)",
+              str(actions.child_wait(con, "worker")))
+        askmod.resolve(req["id"], "handed to review")        # its own request is answered: still held
+        actions.advance_current_task(con, "worker")
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("hold: no new task is sent while its child is out",
+              db.current_task(con, "worker") == t and db.task_requests(con, waiting) == [])
+
+        db.set_agent_state(con, "worker", "IDLE")
+        check("screen: it is IDLE, waiting for the child, not for a reply",
+              tui.screen_state(con, db.get_agent_state(con, "worker"))
+              == ("IDLE", f"waiting for T{child} (team.auditor)"),
+              str(tui.screen_state(con, db.get_agent_state(con, "worker"))))
+        db.set_agent_state(con, "worker", "RUNNING")
+        con.execute("UPDATE agent_state SET terminal = 'term_w' WHERE agent = 'worker'")
+        check("alert: RUNNING with its child out is not asked about",
+              not timebox._unasked_running(con, "worker", db.get_agent_state(con, "worker")))
+
+        ok, msg = actions.mark_task_done(con, child, "team.auditor", reason="PASS: nothing to change")
+        told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: the child is done, and the owner is told who did it and what came of it",
+              ok and told == ["T%d done by team.auditor: PASS: nothing to change" % child], str(told))
+        actions.mark_task_done(con, dep, "manager", reason="done")
+        told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: the unblocked notice comes when the last blocker goes, without the result",
+              len(told) == 2 and told[1].startswith("task T%d is unblocked" % t) and "PASS" not in told[1],
+              str(told))
+        actions.close_task(con, child, "worker")
+        told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: closing the child after its done tells nothing twice", len(told) == 2, str(told))
+
+        # A child that is discarded says so, and the result reaches the owner with another blocker left.
+        p2 = db.new_task(con, "p2", "worker", "manager")
+        dep2 = db.new_task(con, "a dependency", "manager", "manager")
+        kid = db.new_task(con, "a piece", "other", "worker", parent_task=p2)
+        db.add_block(con, p2, dep2)
+        db.add_block(con, p2, kid)
+        ok, msg = actions.discard_task(con, kid, actions.HUMAN, "not needed")
+        told2 = [r["body"] for r in db.task_requests(con, p2) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: a discarded child is told as discarded, though another blocker remains",
+              ok and told2 == ["T%d discarded by %s: not needed" % (kid, actions.HUMAN)], str(told2))
+    finally:
+        askmod.push = real_push
+        con.close()
+
+
+def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited_on(home: Path) -> None:
+    """T443 (auditor #5855): a review that is the only blocker gives one result notice and an
+    unblocked line without it; a child the owner holds itself is the next task, not a wait."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    real_push = askmod.push
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        parent = db.new_task(con, "the work", "worker", "manager")
+        review = db.new_task(con, "review", "team.auditor", "worker", parent_task=parent)
+        db.add_block(con, parent, review)
+        ok, msg = actions.mark_task_done(con, review, "team.auditor", reason="PASS: fine")
+        told = [r["body"] for r in db.task_requests(con, parent) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("only child: one result notice, then the unblocked line with no result",
+              ok and len(told) == 2 and told[0] == "T%d done by team.auditor: PASS: fine" % review
+              and told[1].startswith("task T%d is unblocked" % parent) and "PASS" not in told[1], str(told))
+
+        dep = db.new_task(con, "a dependency", "manager", "manager")
+        blocked = db.new_task(con, "held", "worker", "manager")
+        db.add_block(con, blocked, dep)
+        actions.mark_task_done(con, dep, "manager", reason="landed")
+        told = [r["body"] for r in db.task_requests(con, blocked) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("non-child blocker: the unblocked line still carries its result",
+              told == ["task T%d is unblocked - T%d, its last open blocker, done: landed" % (blocked, dep)], str(told))
+    finally:
+        askmod.push = real_push
+        con.close()
+
+    _board_world(home / "own")
+    con = db.connect()
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        ok, msg, p = actions.task_new("manager", "worker", "the work", "the work")
+        (req,) = db.task_requests(con, p)
+        mine = db.new_task(con, "a piece of it", "worker", "worker", parent_task=p)
+        db.add_block(con, p, mine)
+        actions.set_queued(con, mine, "manager", True)
+        check("own child: it is no wait", actions.child_wait(con, "worker") is None)
+        askmod.resolve(req["id"], "split it")
+        actions.advance_current_task(con, "worker")
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("own child: the owner is given it, not held on it",
+              db.current_task(con, "worker") == mine and len(db.task_requests(con, mine)) == 1,
+              str(db.current_task(con, "worker")))
+    finally:
+        askmod.push = real_push
+        con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -7819,16 +8347,16 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         con.close()
 
 
-def test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(home: Path) -> None:
-    """T377: owner -> auditor; the auditor returns it to the opener (PASS) or to
-    whoever handed it over (FAIL); the opener passes it to a merger. A note is
-    required, only the owner may hand it on, and every handoff stays in order."""
+def test_a_task_is_handed_over_with_a_note(home: Path) -> None:
+    """T377: its owner (or the founder) hands a task to another agent with a note; the
+    note travels as the delivery and the record lists every handoff in order."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
 agents:
   manager: {}
   worker: {}
+  helper: {}
   dev.auditor: {}
   dev.merger: {}
 edges:
@@ -7837,236 +8365,100 @@ limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
 """)
-    for n in ("manager", "worker", "dev.auditor", "dev.merger"):
+    for n in ("manager", "worker", "helper", "dev.auditor", "dev.merger"):
         agents.register(n)
     con = db.connect()
     try:
         ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
         check("handoff: setup - worker holds T", ok and db.current_task(con, "worker") == t)
-        H = lambda me, to, note="note", v=None: actions.task_handoff(con, me, t, to, note, v)
-        ok, msg = H("worker", "dev.auditor", "  ")
+        H = lambda me, to, note="note": actions.task_handoff(con, me, t, to, note)
+        ok, msg = H("worker", "helper", "  ")
         check("handoff: a note is required, and blank is not one", not ok and "note" in msg, msg)
-        ok, msg = H("worker", "manager", "straight to the manager")
-        check("handoff: the maker may only hand it to an auditor", not ok and "auditor" in msg, msg)
-        ok, msg = H("manager", "dev.auditor", "not the owner")
+        ok, msg = H("manager", "helper", "not the owner")
         check("handoff: only the owner hands it on", not ok and "only its owner" in msg, msg)
-        ok, msg = H("worker", "nobody.auditor", "no such agent")
+        ok, msg = H("worker", "nobody", "no such agent")
         check("handoff: the receiver must exist", not ok and "no agent" in msg, msg)
-
-        ok, msg = H("worker", "dev.auditor", "verdict from a maker", "PASS")
-        check("handoff: only an auditor gives a verdict", not ok and "only an auditor" in msg, msg)
-        ok, msg = H("worker", "dev.auditor", "branch@abc123: fixed the retry")
-        row = db.get_task(con, t)
-        check("handoff: the maker hands it to the auditor", ok and row["owner"] == "dev.auditor", msg)
-        sent = [r for r in db.task_requests(con, t) if r["target"] == "dev.auditor"]
+        ok, msg = H("worker", "helper", "branch@abc123: fixed the retry")
+        check("handoff: the owner hands it on", ok and db.get_task(con, t)["owner"] == "helper", msg)
+        sent = [r for r in db.task_requests(con, t) if r["target"] == "helper"]
         check("handoff: the note travels with it, as the delivery itself",
               len(sent) == 1 and "branch@abc123: fixed the retry" in sent[0]["body"]
               and sent[0]["requester"] == "worker", str([dict(r) for r in sent]))
         check("handoff: the old owner is not left holding it",
               db.current_task(con, "worker") is None
               and not [r for r in db.queued_for(con, "worker") if r["kind"] == "task"])
-        check("handoff: the auditor now holds it", db.current_task(con, "dev.auditor") == t)
-
-        ok, msg = H("dev.auditor", "dev.merger", "skipping the manager", "PASS")
-        check("handoff: an auditor may not hand it to a merger", not ok and "opener" in msg, msg)
-        ok, msg = H("dev.auditor", "manager", "no verdict given")
-        check("handoff: an auditor's handoff must carry a verdict", not ok and "--pass" in msg, msg)
-        ok, msg = H("dev.auditor", "manager", "wrong way", "FAIL")
-        check("handoff: a FAIL may not go to the opener", not ok and "worker" in msg, msg)
-        ok, msg = H("dev.auditor", "worker", "FAIL: retry loops; repro: run x", "FAIL")
-        check("handoff: a FAIL goes back to whoever handed it over",
-              ok and db.get_task(con, t)["owner"] == "worker", msg)
-        ok, msg = H("worker", "dev.auditor", "fixed the loop")
-        ok2, msg2 = H("dev.auditor", "manager", "PASS: 5900 passed", "PASS")
-        check("handoff: a PASS goes to the opener", ok and ok2 and db.get_task(con, t)["owner"] == "manager", msg + msg2)
-        check("handoff: who handed it over is read from the record",
-              actions.previous_owner(con, t, "manager") == "dev.auditor"
-              and actions.previous_owner(con, t, "dev.auditor") == "worker"
-              and actions.previous_owner(con, t, "dev.merger") is None)
-
-        ok, msg = H("manager", "dev.merger", "ready to land")
-        check("handoff: the opener passes it to a merger", ok and db.get_task(con, t)["owner"] == "dev.merger", msg)
-        ok, msg = H("dev.merger", "worker", "conflict")
-        check("handoff: a merger may only send it back to who handed it over", not ok and "manager" in msg, msg)
-        ok, msg = H("dev.merger", "manager", "conflicts with main in x.py")
-        check("handoff: and it can", ok and db.get_task(con, t)["owner"] == "manager", msg)
-
+        check("handoff: the receiver now holds it", db.current_task(con, "helper") == t)
+        ok, msg = H("helper", "manager", "back up")
         hist = db.task_handoffs(con, t)
-        check("handoff: the record lists every handoff in the order they happened, with its note",
-              [(h["from"], h["to"]) for h in hist] == [
-                  ("worker", "dev.auditor"), ("dev.auditor", "worker"), ("worker", "dev.auditor"),
-                  ("dev.auditor", "manager"), ("manager", "dev.merger"), ("dev.merger", "manager")]
-              and hist[0]["note"] == "branch@abc123: fixed the retry" and hist[3]["note"] == "PASS: 5900 passed",
-              str(hist))
-        check("handoff: the verdict is recorded with the handoff",
-              [h["verdict"] for h in hist] == [None, "FAIL", None, "PASS", None, None], str(hist))
-        own = db.new_task(con, "self-opened", "worker", "worker")
-        G = lambda me, to, v=None: actions.task_handoff(con, me, own, to, "note", v)
-        ok, msg = G("worker", "dev.merger")
-        check("handoff: a self-opened task cannot skip the audit", not ok and "auditor" in msg, msg)
-        G("worker", "dev.auditor")
-        G("dev.auditor", "worker", "FAIL")
-        ok, msg = G("worker", "dev.merger")
-        check("handoff: after a FAIL a self-opened task still cannot reach a merger", not ok, msg)
-        back = db.new_task(con, "send back", "worker", "manager")
-        B = lambda me, to, v=None: actions.task_handoff(con, me, back, to, "note", v)
-        B("worker", "dev.auditor")
-        B("dev.auditor", "manager", "PASS")
-        ok, msg = B("manager", "dev.auditor")
-        check("handoff: the opener may not send it back to the auditor that passed it", not ok, msg)
-        B("manager", "dev.merger")
-        B("dev.merger", "manager")
-        ok, msg = B("manager", "worker")
-        check("handoff: the opener sends it back to the maker, also after a merger sent it back for a conflict the opener still reaches the maker",
-              ok and db.get_task(con, back)["owner"] == "worker", msg)
+        check("handoff: the record lists every handoff in order, with its note",
+              ok and [(h["from"], h["to"]) for h in hist] == [("worker", "helper"), ("helper", "manager")]
+              and hist[0]["note"] == "branch@abc123: fixed the retry", str(hist))
         ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "the founder may")
         check("handoff: the founder may hand it to anyone", ok and db.get_task(con, t)["owner"] == "worker", msg)
         actions.mark_task_done(con, t, "worker", reason="done")
-        ok, msg = H("worker", "dev.auditor", "too late")
+        ok, msg = H("worker", "helper", "too late")
         check("handoff: a finished task is not handed over", not ok and "finished" in msg, msg)
 
-        rc, out = _cli(["task", "handoff", f"T{t}", "dev.auditor", "x"], as_agent="worker")
+        rc, out = _cli(["task", "handoff", f"T{t}", "helper", "x"], as_agent="worker")
         check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
-        cli_t = db.new_task(con, "via cli", "worker", "manager")
-        _cli(["task", "handoff", f"T{cli_t}", "dev.auditor", "x"], as_agent="worker")
-        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x"], as_agent="dev.auditor")
-        check("handoff: the cli refuses an auditor's handoff without a verdict", rc == 1 and "--pass" in out, out)
-        try:
-            rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass", "--fail"], as_agent="dev.auditor")
-        except SystemExit as e:
-            rc, out = e.code, "argparse"
-        check("handoff: the cli refuses both verdict flags", rc == 2 and db.get_task(con, cli_t)["owner"] == "dev.auditor", out)
-        rc, out = _cli(["task", "handoff", f"T{cli_t}", "manager", "x", "--pass"], as_agent="dev.auditor")
-        check("handoff: --pass drives the handoff through the cli",
-              rc == 0 and db.get_task(con, cli_t)["owner"] == "manager"
-              and db.task_handoffs(con, cli_t)[-1]["verdict"] == "PASS", out)
-
         # T401 item 17: --file, same as ocp ask/say/resolve, safe against a
         # shell expanding backticks or $() in the note.
         file_t = db.new_task(con, "via file", "worker", "manager")
         note_path = home / "note.txt"
         note_path.write_text("branch@abc123: fixed it, backtick ` and $( stay literal")
-        rc, out = _cli(["task", "handoff", f"T{file_t}", "dev.auditor", "--file", str(note_path)],
+        rc, out = _cli(["task", "handoff", f"T{file_t}", "helper", "--file", str(note_path)],
                        as_agent="worker")
         check("handoff: --file reads the note from a file", rc == 0, out)
         check("handoff: the note in the record is the file's content, untouched",
               db.task_handoffs(con, file_t)[-1]["note"]
               == "branch@abc123: fixed it, backtick ` and $( stay literal")
         rc, out = _cli(["task", "handoff", f"T{file_t}", "manager", "inline", "--file",
-                        str(note_path)], as_agent="dev.auditor")
+                        str(note_path)], as_agent="helper")
         check("handoff: inline and --file together is refused",
               rc == 1 and "not both" in out, out)
     finally:
         con.close()
 
 
-def test_an_auditor_handed_a_non_review_task_needs_no_verdict(home: Path) -> None:
-    """T401 item 16: a task opened straight onto an auditor (a report, not a
-    review of someone else's work) has no previous owner to audit, so a
-    handoff off it needs no --pass/--fail."""
+def test_a_review_is_an_ordinary_child_the_owner_waits_on(home: Path) -> None:
+    """T442: no review or merge command - the owner opens a child task for the auditor
+    (`task new --parent`), which blocks its task while it stays the owner's and doing;
+    the child closes with its result, and the owner is told it in the unblock notice."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
 agents:
   manager: {}
-  dev.auditor: {}
-  worker2: {}
-edges:
-  - { from: "manager", to: "dev.auditor", relation: peer, response: async }
-  - { from: "dev.auditor", to: "manager", relation: peer, response: async }
-  - { from: "manager", to: "worker2", relation: supervisor, response: async }
-  - { from: "worker2", to: "manager", relation: subordinate, response: async }
-  - { from: "worker2", to: "dev.auditor", relation: peer, response: async }
-limits: { max_chain_depth: 4, ask_rate_per_hour: 50 }
-""")
-    for n in ("manager", "dev.auditor", "worker2"):
-        agents.register(n)
-    con = db.connect()
-    try:
-        ok, _, t = actions.task_new("manager", "dev.auditor", "review every X for Y", "review every X for Y")
-        check("setup: opened straight onto the auditor", ok)
-        check("not a review: no previous owner recorded",
-              actions.previous_owner(con, t, "dev.auditor") is None)
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "done, see report")
-        check("handoff: no verdict needed when it is not a review",
-              ok and db.get_task(con, t)["owner"] == "manager", msg)
-
-        # Once an auditor really is reviewing someone's work (received via a
-        # handoff), the plain refusal still applies - no "not a review?"
-        # escape (auditor #2466): that hint led straight to a PASS on work
-        # nobody reviewed, the thing the verdict gate exists to stop.
-        ok, _, u = actions.task_new("manager", "worker2", "the change", "the change")
-        actions.task_handoff(con, "worker2", u, "dev.auditor", "branch@abc: fixed it")
-        ok, msg = actions.task_handoff(con, "dev.auditor", u, "manager", "no verdict")
-        check("handoff: a real review still needs a verdict, plainly, no escape hint",
-              not ok and "--pass" in msg and "not a review" not in msg, msg)
-    finally:
-        con.close()
-
-
-def test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(home: Path) -> None:
-    """T392: the auditor's --fail handoff back to the maker was refused with "no
-    edge declares dev.auditor -> worker". Only that route is exempt; the edge
-    check still holds for a PASS, for an explicit deny, and at delivery."""
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    hand_edit_team("""
-agents:
-  manager: {}
-  worker: {}
+  dev.worker: {}
   dev.auditor: {}
 edges:
-  - { from: manager, to: "*", relation: supervisor, response: async }
-  - { from: worker, to: dev.auditor, relation: peer, response: async }
+  - { from: "*", to: "*", relation: peer, response: async }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
 """)
-    for n in ("manager", "worker", "dev.auditor"):
+    for n in ("manager", "dev.worker", "dev.auditor"):
         agents.register(n)
     con = db.connect()
     try:
-        ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
-        ok, msg = actions.task_handoff(con, "worker", t, "dev.auditor", "for review")
-        check("fail-edge: setup - the maker reaches the auditor by a declared edge", ok, msg)
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "PASS: green", "PASS")
-        check("fail-edge: a PASS to the opener still needs its edge", not ok and "no edge" in msg
-              and db.get_task(con, t)["owner"] == "dev.auditor", msg)
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "worker", "FAIL: repro x", "FAIL")
-        check("fail-edge: a FAIL to the previous holder goes through with no edge declared",
-              ok and db.get_task(con, t)["owner"] == "worker", msg)
-        row = [r for r in db.task_requests(con, t) if r["target"] == "worker"][-1]
-        check("fail-edge: the request says it is a hand-back, and does not park the auditor on a reply",
-              row["relation"] == "handback" and row["response"] == "fire_and_forget"
-              and (db.get_agent_state(con, "dev.auditor") or {"state": ""})["state"] != "PARKED",
-              str(dict(row)))
-        dmn_delivery.enforce_edges(con, "worker", lambda _m: None)
-        row = db.get_request(con, row["id"])
-        check("fail-edge: and the daemon's delivery re-check keeps it, not refusing it as edgeless",
-              row["state"] == "queued" and row["edge_ok"], str(dict(row)))
-        ok, msg = actions.task_handoff(con, "worker", t, "dev.auditor", "fixed")
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "manager", "FAIL: wrong way", "FAIL")
-        check("fail-edge: a FAIL to anyone but the previous holder is still refused", not ok, msg)
-    finally:
-        con.close()
-    hand_edit_team("""
-agents:
-  manager: {}
-  worker: {}
-  dev.auditor: {}
-edges:
-  - { from: manager, to: "*", relation: supervisor, response: async }
-  - { from: worker, to: dev.auditor, relation: peer, response: async }
-deny:
-  - { from: dev.auditor, to: worker, reason: "no hand-backs" }
-limits:
-  max_chain_depth: 4
-  ask_rate_per_hour: 500
-""")
-    con = db.connect()
-    try:
-        ok, msg = actions.task_handoff(con, "dev.auditor", t, "worker", "FAIL: again", "FAIL")
-        check("fail-edge: an explicit deny still stops it", not ok and "no hand-backs" in msg, msg)
+        ok, _, t = actions.task_new("manager", "dev.worker", "the change", "the change")
+        ok, msg, kid = actions.task_new("dev.worker", "dev.auditor", "review T%d @abc1234" % t,
+                                        "branch b: fixed it", parent=t, expects="verdict")
+        check("review: the child opens for the auditor", ok, msg)
+        check("review: T stays its owner's and is blocked by the child",
+              db.get_task(con, t)["owner"] == "dev.worker"
+              and [b["id"] for b in db.task_blockers(con, t)] == [kid])
+        ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="FAIL: retry loops; repro x")
+        check("review: the child closes with the result", ok, msg)
+        ok, msg = actions.close_task(con, kid, "dev.worker")
+        told = [r["body"] for r in db.task_requests(con, t) if "unblocked" in r["body"]]
+        result = [r["body"] for r in db.task_requests(con, t) if "FAIL: retry loops; repro x" in r["body"]]
+        check("review: the block lifts; the result is told once, on its own, and not in the notice",
+              ok and not db.task_blockers(con, t) and len(told) == 1 and "FAIL" not in told[0]
+              and result == ["T%d done by dev.auditor: FAIL: retry loops; repro x" % kid],
+              f"{told} {result}")
+        check("review: T is still the worker's",
+              db.get_task(con, t)["owner"] == "dev.worker" and not db.get_task(con, t)["closed_by"])
     finally:
         con.close()
 
@@ -8546,8 +8938,14 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
+        run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
+        run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
+        run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
+        run(lambda: test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
+        run(lambda: test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(Path(td) / 'escgate'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
+        run(lambda: test_the_answer_lookups_use_the_settles_index_not_a_scan(Path(td) / 'settlesidx'))
         run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))
         run(lambda: test_the_next_waiting_task_becomes_current_by_priority_then_age(
             Path(td) / 'nexttask'))
@@ -8564,11 +8962,13 @@ def main() -> int:
         run(lambda: test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes(Path(td) / 'taskstates'))
         run(lambda: test_the_open_task_count_is_queued_plus_doing(Path(td) / 'taskcount'))
         run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
+        run(lambda: test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(Path(td) / 'taskqtick'))
+        run(lambda: test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_result(Path(td) / 'reviewwait'))
+        run(lambda: test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited_on(Path(td) / 'reviewwait2'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
-        run(lambda: test_a_task_is_handed_over_with_a_note_along_the_fixed_chain(Path(td) / 'handoff'))
-        run(lambda: test_an_auditor_handed_a_non_review_task_needs_no_verdict(Path(td) / 'nonreview'))
-        run(lambda: test_a_fail_handoff_to_the_previous_holder_needs_no_declared_edge(Path(td) / 'fe1'))
+        run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
+        run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))

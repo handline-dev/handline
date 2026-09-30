@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, landing, lifecycle, messaging, reconciler, timebox, usage_poll, waitfor
+from . import delivery, handoff, landing, lifecycle, messaging, reconciler, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED, awaiting_reply)
 
@@ -83,6 +83,16 @@ def queued_or_idle(con, agent: str, when: str) -> str:
     return IDLE
 
 
+def _reply_settled(con, row) -> bool:
+    """Is the request an `AWAIT_REPLY_MARK` park names no longer waiting for an answer? A detail
+    that does not parse, or names no request, is not judged."""
+    parts = (row["detail"] or "").split()
+    if len(parts) < 2 or not parts[1].startswith("#") or not parts[1][1:].isdigit():
+        return False
+    req = db.get_request(con, int(parts[1][1:]))
+    return req is not None and req["state"] != "queued"
+
+
 def supervise(con, agent: str, log, now: int, samples: dict,
               actions: list[str]) -> None:
     """One agent's turn in a tick.
@@ -96,6 +106,12 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 
     if state == STALLED:
         return  # 8.6: only a human clears this
+    if state == PARKED and awaiting_reply(row) and _reply_settled(con, row):
+        # T456: a park is on one reply. A resolve un-parks its asker only when nothing else it asked
+        # is outstanding, so with another ask open the park kept naming an answer that had come.
+        state = queued_or_idle(con, agent, f"the reply it waited for ({row['detail'].split()[1]}) is settled")
+        log(f"  {agent}: no longer waiting for {row['detail'].split()[1]} - it is settled ({state})")
+        row = db.get_agent_state(con, agent)
     if state not in EVALUATED:
         return
 
@@ -278,8 +294,9 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             row = db.get_agent_state(con, agent)
         if closed is None:
             delivery.deliver_answers(con, agent, log)
-            delivery.deliver_queued(con, agent, log)
-            delivery.nudge_forgotten_resolve(con, agent, row, now, log)
+            # A task told past an idle head starts a turn: the nudge about that head waits.
+            if not delivery.deliver_queued(con, agent, log):
+                delivery.nudge_forgotten_resolve(con, agent, row, now, log)
 
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,
@@ -499,6 +516,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
         timebox.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a notice that failed is not the tick's failure
         log(f"  timebox: {type(e).__name__}: {e}")
+    try:
+        taskqueue.sweep(con, log, now)
+    except Exception as e:  # noqa: BLE001 - a task left waiting is tried again, not the tick's failure
+        log(f"  task queue: {type(e).__name__}: {e}")
     try:
         waitfor.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a report that failed is not the tick's failure

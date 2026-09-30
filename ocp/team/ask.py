@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import atomic, paths
+from ..infra import atomic, paths, textsafe
 from ..infra.yamlcompat import ConfigError
 from . import team
 from ..infra import timefmt
@@ -125,21 +125,31 @@ def _escalate(con, requester: str, target: str, body: str, files: str | None,
 def escalate(con, agent: str, text: str, reason: str, files: str | None = None, *,
              chain_id: str | None = None, depth: int = 0, parent_id: int | None = None,
              event_extra: dict | None = None) -> int:
-    """Put something only a human can act on in front of them.
+    """Put something only a human can act on in front of them: a decision task of
+    the founder's, opened by `agent`, with the request that shows it as its card.
 
     `agent` is who it is about: the requester of a runaway, or an agent the
     daemon found for itself that it cannot give its work. `reason` is the short
     form kept on the event for `ocp events`. Fire and forget, so nothing is
-    typed back at `agent` when the human reads it.
+    typed back at `agent` when the human reads it. Once per shape: exactly the same
+    text still waiting from the same agent is that decision, not a second one;
+    anything different is its own card, so nothing an agent wrote is lost.
     """
+    title = textsafe.oneline(text.strip().split("\n", 1)[0])[:80] or "a decision"
+    same = db.open_decision_card_ids(con, agent, body=text)
+    if same:
+        return same[0]
     rid = db.add_request(con, agent, ESCALATION_TARGET, text, files,
-                         None, "fire_and_forget", "escalate", depth, parent_id,
+                         None, "fire_and_forget", "task", depth, parent_id,
                          chain_id=chain_id)
+    tid = db.new_task(con, title, ESCALATION_TARGET, agent, expects="decision")
+    db.set_task_queued(con, tid, ESCALATION_TARGET)
+    db.link_request(con, tid, rid)
     deliver(rid, agent, ESCALATION_TARGET, text, files,
-            team.Decision(True, reason, kind="escalate", response="fire_and_forget",
+            team.Decision(True, reason, kind="task", response="fire_and_forget",
                           creates_gate=True, chain_depth=depth))
     db.add_event(con, agent, "escalate",
-                 {"request_id": rid, "reason": reason, **(event_extra or {})})
+                 {"request_id": rid, "task_id": tid, "reason": reason, **(event_extra or {})})
     return rid
 
 
@@ -252,8 +262,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         reason: str | None = None,
         timebox_s: int | None = None, kind: str | None = None,
         park: bool = True, send_now: bool = False,
-        on_behalf_of: bool = False, edge_exempt: bool = False, speaker=_ENV,
-        notify: bool = True) -> tuple[bool, str, int | None]:
+        on_behalf_of: bool = False, speaker=_ENV,
+        notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
     `first` and `replaces` are request #189's --first and --replaces; see
@@ -274,10 +284,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `requester` this call already verified from our own database, not a
     live claim by whoever's session happens to be running it. Only for a
     system-triggered, already-authorized delivery (`advance_current_task`).
-
-    `edge_exempt` lets the request through when only a missing edge would
-    refuse it (`task handoff --fail` to the previous holder, T392); an
-    explicit deny, the loop guards and the rate limit still apply.
 
     `speaker` is who is really typing the command (see `_ENV`). `notify` False
     leaves telling the target to the caller - the daemon, which types the
@@ -372,7 +378,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                 depth, parent_id, detect)
                 return False, f"{detect}\nEscalated to {ESCALATION_TARGET} as #{eid}.", None
 
-        decision = t.route(requester, target, chain_depth=depth, edge_exempt=edge_exempt)
+        decision = t.route(requester, target, chain_depth=depth)
         if not decision.allowed:
             if db.standing_denial(con, requester, target, body, files,
                                   int(time.time()) - team.ASK_WINDOW_S) is None:
@@ -444,6 +450,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                          else None))
         if send_now:
             db.mark_send_now(con, rid)
+        if card and target == HUMAN and not fyi and (kind or decision.kind) == "escalate":
+            # What is asked of the founder is a decision task, and this row its card;
+            # `task new` opens its own task and says `card=False`.
+            tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
+                              HUMAN, requester, expects="decision")
+            db.set_task_queued(con, tid, HUMAN)
+            db.link_request(con, tid, rid)
         deliver(rid, requester, target, body, files, decision)
         if fyi:
             # One live report per sender: the newer one says what the older did.
@@ -483,7 +496,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
         if old is not None:
             note = f"replaces #{replaces}; {note}"
-        if decision.creates_gate and not fyi:
+        if decision.creates_gate and not fyi and kind != SAY_KIND:
             note += " [escalation: needs a human gate]"
         elif notify:
             note += "\n" + push(con, target, rid)
@@ -526,6 +539,24 @@ def _close_replied_say(parent_id: int, reply_id: int, reply_body: str) -> None:
         resolve(parent_id, reply_body, notify=False)
 
 
+# T408: True only in the daemon's own process. Every other process - an agent's sandbox has no
+# Orca and no process table - hands the start or wake to the daemon, which does it at once.
+IN_DAEMON = False
+_HAND_OFF_TIMEOUT_S = 10.0      # the verbs answer before they type, so a slow answer means no daemon
+
+
+def _hand_off(verb: str, **payload) -> str | None:
+    """What the daemon said, once it took `verb`; None when this is the daemon or it did not answer."""
+    if IN_DAEMON:
+        return None
+    from ..daemon import client
+
+    reply = client.send({"verb": verb, **payload}, timeout=_HAND_OFF_TIMEOUT_S)
+    if reply and reply.get("ok"):
+        return "  " + str(reply.get("said", "")).strip()
+    return None
+
+
 def push(con, target: str, rid: int | None = None) -> str:
     """Get the request to the agent now, rather than at the next daemon tick.
 
@@ -542,12 +573,18 @@ def push(con, target: str, rid: int | None = None) -> str:
     sender and one delivered by the tick are the same delivery. The daemon
     stays the safety net: anything this could not finish is still queued.
     """
-    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, messaging
-
     if target == HUMAN:
         return "it is on the founder's screen (`ocp bridge`)"
     if target not in paths.list_agents():
         return f"{target} is not registered with ocp - nothing can be started for it"
+    handed = _hand_off("push", target=target, rid=rid)
+    return handed if handed is not None else push_here(con, target, rid)
+
+
+def push_here(con, target: str, rid: int | None = None) -> str:
+    """`push` done in this process - the daemon's socket verb calls this, never `push`, so it cannot hand the work back to itself."""
+    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, messaging
+
     sent = db.get_request(con, rid) if rid is not None else None
     if sent is not None and sent["kind"] != "task":
         told = messaging.tell_now(con, rid, lambda _m: None)
@@ -578,12 +615,18 @@ def push_answer(con, requester: str) -> str:
     row until a daemon tick happened to read it out. Down and up are the same
     loop, so they are finished the same way.
     """
-    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
-
     if requester == HUMAN:
         return "  the founder reads it on `ocp bridge`"
     if requester not in paths.list_agents():
         return f"  {requester} is not registered with ocp - nothing to tell"
+    handed = _hand_off("push_answer", requester=requester)
+    return handed if handed is not None else push_answer_here(con, requester)
+
+
+def push_answer_here(con, requester: str) -> str:
+    """`push_answer` done in this process - see `push_here`."""
+    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
+
     row = db.get_agent_state(con, requester)
     said = []
     if row and row["closed_at"]:

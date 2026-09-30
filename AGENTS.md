@@ -4,18 +4,36 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 
 - Text typed into your own session reaches no one. Everything that has to
   reach someone goes through `ocp`.
-- Work reaches another agent only through `ocp ask <target> "..."`, never a
-  subagent: it dies with your session and appears on no screen.
-- You hold one request at a time. It ends with `ocp resolve <id> "<verdict>"`,
-  which is also how a reply reaches whoever asked - never a second request
-  repeating it, which leaves the first open. `ocp dismiss <id>` takes one off
-  your mailbox without replying. The next request arrives only then.
-- An ask can be refused; the refusal says why, and the policy behind it is
-  deliberate, not a fault to route around. A name that is not on `ocp team`
-  (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown target" in
-  the command's own output - read it, or you wait for a reply that never comes.
-- A decision only the founder can make is `ocp ask human "..."`; a status
-  report that needs nothing is `ocp ask human "..." --fyi`.
+- There is one kind of message, `ocp say <target> "..."`: typed at once, needs
+  no answer, starts no work. Anything that needs an answer or a result is a
+  task: `ocp task new --owner <target> -t <time> "<title>" "<body>"`. Work
+  reaches another agent only as a task, never a subagent: it dies with your
+  session and appears on no screen.
+- You hold one task at a time. It ends with `ocp task done T<n> "<evidence>"`,
+  or you hand it on with `ocp task handoff T<n> <agent> "<note>"` - that is how
+  the result reaches whoever asked, never a second task repeating it. The next
+  task arrives only then.
+- Review and merge (orcapipe's project guideline; `ocp team` names your own
+  project's auditor and merger) are child tasks you wait on, not handoffs: you
+  keep your task, in doing. When code is ready, `ocp task new --owner orcapipe.auditor
+  --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
+  check>"`; the child blocks T<n>, and the auditor closes it with `ocp task done
+  T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
+  is done, with its result. On a PASS open the same for `orcapipe.merger`
+  (`"merge T<n> @<sha>"`, body naming the PASS task); it closes with the merged
+  commit (`--sha`) or `"not merged: <reason>"`. Then close T<n> with that sha if
+  you may close it, else `ocp task handoff T<n> <its opener> "merged <sha>"`.
+  An auditor or merger never hands a review or merge task back: it closes it.
+- A task or a say can be refused; the refusal says why, and the policy behind
+  it is deliberate, not a fault to route around. A name that is not on
+  `ocp team` (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown
+  target" in the command's own output - read it, or you wait for a reply that
+  never comes.
+- A manager cannot hand a report work by message: a say to a report carries
+  `--task T<n>` (a note on that task) or `--fyi "<why it is not work>"`.
+- A decision only the founder can make is a task of theirs: `ocp task new
+  --owner human ...`. A status report that needs nothing is `ocp say human
+  "..."`.
 
 ## Hard rules
 
@@ -59,7 +77,7 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - Tests: when you change code, write unit tests for the change in the same
   commit. Work is not done until they pass. While iterating, run only the
   tests you touched (`python3 tests/test_ocp.py -k <name>`); run the whole
-  suite once, right before `ocp ask orcapipe.auditor`, with `tools/suite.sh`, in
+  suite once, right before you hand the task to `orcapipe.auditor`, with `tools/suite.sh`, in
   the foreground with a 600000 ms Bash timeout, never in the background. The
   auditor reruns it at the exact sha; a count you quote is not a verdict.
 - UI: don't design a screen alone. Agree on its shape with the human first,
@@ -72,6 +90,6 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - Permission prompts: edit files with the Edit tool, never `sed -i`, which can
   write any file and so always prompts. Don't start a command with `cd`; use
   paths or `git -C` instead.
-- Text to `ocp resolve` and `ocp ask` goes in single quotes (a literal `'` as
-  `'"'"'`): in double quotes the shell runs backticked words and they vanish
-  from the message. `--task T<n>` / `--no-task 'reason'` come after the text.
+- Text to `ocp say`, `ocp task new` and `ocp task handoff` goes in single quotes
+  (a literal `'` as `'"'"'`): in double quotes the shell runs backticked words
+  and they vanish from the message.

@@ -220,7 +220,8 @@ def propose(kind: str, name: str, requester: str, why: str,
         dump(prop)
     except ConfigError as e:
         return False, f"could not write the proposal down, so nothing was raised: {e}"
-    ok, said, rid = askmod.ask(askmod.HUMAN, _escalation(prop), requester=requester)
+    from .. import actions      # a decision is a task of the founder's
+    ok, said, rid = actions.open_decision(requester, _escalation(prop))
     if not ok:
         return False, f"could not raise it: {said}"
     prop["request"] = rid

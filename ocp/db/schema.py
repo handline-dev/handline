@@ -11,6 +11,9 @@ from ..infra import paths
 from .cursors import get_cursor, set_cursor
 
 
+# The task an event names, as the index and every lookup by it spell it.
+EVENT_TASK = "CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,6 +25,12 @@ CREATE TABLE IF NOT EXISTS events (
   dedup_key  TEXT UNIQUE
 );
 CREATE INDEX IF NOT EXISTS events_agent_id ON events(agent, id);
+-- The task pages ask "which events of this kind belong to task N" once per task
+-- (`_begun`, `task_handoffs`, the reset and release marks); without this each
+-- is a scan of the whole table. The queries spell the expression exactly so
+-- (`db.EVENT_TASK`); the json_valid guard is so that a payload that is not JSON
+-- is a row the index skips, not an insert or a build that fails.
+CREATE INDEX IF NOT EXISTS events_kind_task ON events(kind, CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END);
 
 CREATE TABLE IF NOT EXISTS requests (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -411,6 +420,10 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _unhide_the_humans_answers(con)
     _rename_orchestrator(con)
     _give_answers_their_own_rows(con)
+    _asks_reports_and_escalations_to_says(con)
+    _answers_are_says(con)
+    _drop_daemon_close_notes(con)
+    _escalations_are_tasks(con)
     return con
 
 
@@ -605,8 +618,8 @@ def _give_answers_their_own_rows(con) -> None:
         for r in con.execute(
                 "SELECT id, verdict, COALESCE(resolved_at, ts) AS at FROM requests "
                 "WHERE state = 'done' AND verdict IS NOT NULL AND verdict != '' "
-                "AND dismissed_by IS NULL AND kind IS NOT 'answer' AND id NOT IN "
-                "(SELECT parent_id FROM requests WHERE kind = 'answer' AND parent_id IS NOT NULL) "
+                "AND dismissed_by IS NULL AND settles IS NULL AND id NOT IN "
+                "(SELECT settles FROM requests WHERE settles IS NOT NULL) "
                 "ORDER BY id").fetchall():
             dbreq.add_answer(con, r["id"], r["verdict"], at=r["at"])
         set_cursor(con, "migrated:answer_rows", 1)
@@ -614,6 +627,118 @@ def _give_answers_their_own_rows(con) -> None:
     except Exception:
         con.execute("ROLLBACK")
         raise
+
+
+def _asks_reports_and_escalations_to_says(con) -> None:
+    """T361 step A: the founder removed ask, report and escalate as kinds of
+    message - what is left is a say, and work or a decision is a task.
+
+    A row that is over becomes a say: it is history, and says nothing new. A row
+    still queued is not dropped: one that asks for work or an answer opens as a
+    task for its target (a decision, when that is the founder) with the row as
+    its first link - the card, as `task_new` makes it - unless it has been
+    delivered: the agent is answering it as the ask it was shown, and a task
+    opened beside that would never end. Those, and a queued report to an agent
+    (it has not been read: an unblock notice is one), are left as they are until
+    they settle; one to the founder becomes a say. A queued ask already linked to a task is that task's
+    delivery, kind `task`. A queued row to the founder is an `escalate` card
+    until the readers stop keying on that kind. Answer rows are not touched here.
+    Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:kinds_to_say"):
+        return
+    from . import tasks as dbtasks
+    from .requests import HUMAN
+    from ..infra import textsafe
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if get_cursor(con, "migrated:kinds_to_say"):     # another process got here first
+            con.execute("ROLLBACK")
+            return
+        old = "(kind IS NULL OR kind IN ('escalate', 'report'))"
+        con.execute(f"UPDATE requests SET kind = 'say' WHERE state != 'queued' AND {old}")
+        # A report still waiting for an agent is not history: it has not been read, and
+        # the daemon delivers it as a request (an unblock notice is one). It stays
+        # until the step that types those as says. One to the founder is only shown.
+        con.execute(f"UPDATE requests SET kind = 'say' WHERE state = 'queued' AND {old} "
+                    "AND (fyi = 1 OR kind = 'report') AND target = ?", (HUMAN,))
+        # Still asking for something, and linked to a task already: that task's delivery
+        # (or, to the founder, its card).
+        con.execute(f"UPDATE requests SET kind = 'task' WHERE state = 'queued' AND {old} "
+                    "AND fyi = 0 AND COALESCE(kind, '') != 'report' AND target != ? "
+                    "AND id IN (SELECT request_id FROM task_requests)", (HUMAN,))
+        con.execute("UPDATE requests SET kind = 'escalate' WHERE state = 'queued' AND kind IS NULL "
+                    "AND fyi = 0 AND target = ? AND id IN (SELECT request_id FROM task_requests)", (HUMAN,))
+        for r in con.execute(
+                f"SELECT id, requester, target, body FROM requests WHERE state = 'queued' AND {old} "
+                "AND fyi = 0 AND COALESCE(kind, '') != 'report' AND delivered_at IS NULL "
+                "AND id NOT IN (SELECT request_id FROM task_requests) ORDER BY id").fetchall():
+            title = textsafe.oneline((r["body"] or "").strip().split("\n", 1)[0])[:80] or "(no text)"
+            tid = dbtasks.new_task(con, title, r["target"], r["requester"],
+                                   expects="decision" if r["target"] == HUMAN else "report")
+            dbtasks.set_task_queued(con, tid, HUMAN)
+            dbtasks.link_request(con, tid, r["id"])
+            con.execute("UPDATE requests SET kind = ? WHERE id = ?",
+                        ("escalate" if r["target"] == HUMAN else "task", r["id"]))
+        set_cursor(con, "migrated:kinds_to_say", 1)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+
+
+def _escalations_are_tasks(con) -> None:
+    """T361 step B2: the founder's gate is an open decision task, not a kind of row.
+    A queued `escalate` row that no task carries opens one (its card, opened by the
+    agent it is about); every `escalate` row is then a `task` - the delivery of one,
+    or history. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:escalations_are_tasks"):
+        return
+    from . import tasks as dbtasks
+    from .requests import HUMAN
+    from ..infra import textsafe
+    for r in con.execute("SELECT id, ts, requester, body FROM requests WHERE kind = 'escalate' "
+                         "AND state = 'queued' AND target = ? "
+                         "AND id NOT IN (SELECT request_id FROM task_requests)", (HUMAN,)).fetchall():
+        title = textsafe.oneline((r["body"] or "").strip().split("\n", 1)[0])[:80] or "a decision"
+        tid = dbtasks.new_task(con, title, HUMAN, r["requester"], expects="decision")
+        con.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (r["ts"], tid))
+        dbtasks.set_task_queued(con, tid, HUMAN)
+        dbtasks.link_request(con, tid, r["id"])
+    con.execute("UPDATE requests SET kind = 'task' WHERE kind = 'escalate'")
+    set_cursor(con, "migrated:escalations_are_tasks", 1)
+
+
+def _answers_are_says(con) -> None:
+    """T361 step B1: an answer row is a say that references the request it settled
+    (`parent_id`, and `settles` to tell it from an interim reply). Ledgered, so it
+    runs once."""
+    if get_cursor(con, "migrated:answers_are_says"):
+        return
+    con.execute("UPDATE requests SET kind = 'say', settles = parent_id "
+                "WHERE kind = 'answer' AND parent_id IS NOT NULL")
+    set_cursor(con, "migrated:answers_are_says", 1)
+
+
+# What the daemon wrote as the verdict of a say it closed: when it typed it, or when it settled an
+# old one. Both were drawn in the chat as a reply from the target (T441).
+_DAEMON_CLOSE_NOTES = ("typed", "closed: told before says were typed at once")
+
+
+def _drop_daemon_close_notes(con) -> None:
+    """A say the daemon closed had its own note as the verdict, and (T421) as an answer message:
+    drawn as a reply nobody wrote (T441). The message goes, and so does the verdict. Once,
+    ledgered. The message is found as an answer row, or, once answers are says, by the `settles`
+    that marks it; its body is the parent's verdict, and the parent is a say."""
+    if get_cursor(con, "migrated:close_notes"):
+        return
+    marks = ",".join("?" * len(_DAEMON_CLOSE_NOTES))
+    answer = "a.kind = 'answer'" + (" OR a.settles IS NOT NULL" if "settles" in _cols(con, "requests") else "")
+    con.execute("DELETE FROM requests WHERE id IN (SELECT a.id FROM requests a JOIN requests p "
+                f"ON p.id = a.parent_id WHERE ({answer}) AND a.body = p.verdict AND p.kind = 'say' "
+                f"AND p.verdict IN ({marks}))", _DAEMON_CLOSE_NOTES)
+    con.execute(f"UPDATE requests SET verdict = NULL WHERE kind = 'say' AND state = 'done' "
+                f"AND verdict IN ({marks})", _DAEMON_CLOSE_NOTES)
+    set_cursor(con, "migrated:close_notes", 1)
 
 
 # What the founder used to be called. "orchestrator" read as a component of
@@ -669,6 +794,12 @@ def _add_missing_columns(con) -> None:
     if "windows" not in _cols(con, "usage_samples"):
         con.execute("ALTER TABLE usage_samples ADD COLUMN windows TEXT")
     request_cols = _cols(con, "requests")
+    if "settles" not in request_cols:
+        # The request a say settled, when it is the answer that closed it (T361).
+        con.execute("ALTER TABLE requests ADD COLUMN settles INTEGER")
+    # After the column exists, on an old db as on a new one (SCHEMA runs before this):
+    # the chat page looks up the answer of every row it draws by this.
+    con.execute("CREATE INDEX IF NOT EXISTS requests_settles ON requests(settles)")
     for col in ("dismissed_by", "dismissed_reason"):
         if col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")

@@ -341,6 +341,21 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
         _, _, out = runner._run_one(mid, [], timeout=30)
         check("runner: a file that already ran a test is never skipped for a later import",
               runner.missing_module(out) is None and "FAIL  something broke" in out, out)
+        reader = Path(td) / "test_reads_stdin.py"
+        reader.write_text("import sys\nsys.stdin.read()\nprint('reached eof')\n")
+        held_r, held_w = os.pipe()      # a stdin pipe nobody ever writes to or closes
+        saved_fd = os.dup(0)
+        os.dup2(held_r, 0)
+        began = time.time()
+        try:
+            _, code, out = runner._run_one(reader, [], timeout=20)
+        finally:
+            os.dup2(saved_fd, 0)
+            for fd in (saved_fd, held_r, held_w):
+                os.close(fd)
+        check("runner: a file that reads stdin gets EOF at once, though the runner's own stdin is an open pipe",
+              code == 0 and "reached eof" in out and time.time() - began < 15,
+              f"code={code} took={time.time() - began:.1f}s {out}")
         kid = Path(td) / "test_kid.py"
         pidfile = Path(td) / "kid.pid"
         kid.write_text("import subprocess, sys, time\n"

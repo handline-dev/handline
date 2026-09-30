@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import time
 
+from .events import add_event
 from .requests import HUMAN
+from .schema import EVENT_TASK
 
 
 # RULE: a task row holds these fields and nothing else. Never a copy of a
@@ -193,11 +195,11 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
 
 
 def task_handoffs(con, tid: int) -> list[dict]:
-    """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}. What
-    the task's page shows, and what `previous_owner` reads."""
+    """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}
+    (a verdict only on a handoff made before verdicts were removed). What the task's page shows."""
     out = []
     for r in con.execute("SELECT ts, payload FROM events WHERE kind = 'task_handoff' "
-                         "AND json_extract(payload, '$.task_id') = ? ORDER BY id", (tid,)):
+                         f"AND {EVENT_TASK} = ? ORDER BY id", (tid,)):
         p = json.loads(r["payload"])
         out.append({"ts": r["ts"], "from": p.get("from"), "to": p.get("to"), "note": p.get("note", ""),
                     "verdict": p.get("verdict")})
@@ -315,3 +317,82 @@ def task_last_activity(con, tid: int) -> int:
         "JOIN task_requests l ON l.request_id = q.id WHERE l.task_id = t.id), 0)) "
         "FROM tasks t WHERE t.id = ?", (tid,)).fetchone()
     return int(r[0] or 0)
+
+
+DECISION_CARD_SQL = ("SELECT t.id FROM tasks t WHERE t.owner = ? "
+                     "AND t.closed_by IS NULL AND t.done_evidence IS NULL AND "
+                     "(SELECT MIN(request_id) FROM task_requests WHERE task_id = t.id) = ?")
+
+
+# The requests that are the card of an open task of the founder's (`?` is HUMAN): what
+# the founder is being asked to decide, whatever kind the card row is.
+OPEN_DECISION_CARDS_SQL = ("(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id "
+                           "WHERE t.owner = ? AND t.closed_by IS NULL AND t.done_evidence IS NULL "
+                           "GROUP BY t.id)")
+
+
+def open_decision_card_ids(con, agent: str | None = None, prefix: str | None = None,
+                           body: str | None = None) -> list[int]:
+    """The queued cards of the founder's open decision tasks, oldest first - about
+    `agent` (its requester) when given, whose body starts with `prefix` when given, and
+    is exactly `body` when given."""
+    sql = ("SELECT id FROM requests WHERE target = ? AND state = 'queued' "
+           f"AND id IN {OPEN_DECISION_CARDS_SQL}")
+    args: list = [HUMAN, HUMAN]
+    if agent is not None:
+        sql += " AND requester = ?"
+        args.append(agent)
+    if prefix is not None:
+        sql += " AND substr(body, 1, ?) = ?"
+        args += [len(prefix), prefix]
+    if body is not None:
+        sql += " AND body = ?"
+        args.append(body)
+    return [r[0] for r in con.execute(sql + " ORDER BY id", args)]
+
+
+def open_escalations_of(con, agent: str) -> int:
+    """Decisions raised about this agent that are still waiting on the founder."""
+    return len(open_decision_card_ids(con, agent))
+
+
+def open_escalation_ids(con, agent: str, prefix: str) -> list[int]:
+    """The still-waiting decision cards about this agent whose body starts with `prefix`."""
+    return open_decision_card_ids(con, agent, prefix)
+
+
+def decision_task_of_card(con, rid: int) -> int | None:
+    """The open task of the founder's whose card is request `rid`: the request
+    `task_new` opened for it - the first linked, never one linked later (a side
+    question about the task is not the task). What the task expects does not
+    matter: the founder's reply in its card is their answer to it."""
+    row = con.execute(DECISION_CARD_SQL, (HUMAN, rid)).fetchone()
+    return int(row["id"]) if row else None
+
+
+def decision_card_of(con, tid: int):
+    """The request that is task `tid`'s card, whatever its state, or None."""
+    return con.execute(
+        "SELECT r.* FROM requests r WHERE r.id = (SELECT MIN(request_id) FROM task_requests "
+        "WHERE task_id = ?)", (tid,)).fetchone()
+
+
+def settle_decision_tasks(con, rid: int, state: str, verdict: str | None,
+                          dismissed_by: str | None = None) -> None:
+    """A request that is the card of a decision task has left 'queued': the task
+    goes with it, however the request was closed. An answer is the decision -
+    the task is done with it as evidence and closed; anything else (withdrawn,
+    replaced, refused, dismissed) leaves nothing to decide, so it is discarded.
+    Called from every write that moves a request out of the queue, so no path
+    leaves a decision on the founder's board that nothing can answer. Only the
+    task's own card settles it: a question linked to a task later is left alone."""
+    tid = decision_task_of_card(con, rid)
+    if tid is None:
+        return
+    if state == "done" and verdict and dismissed_by is None:
+        mark_task_done(con, tid, verdict, "reason")
+        close_task(con, tid, HUMAN)
+    else:
+        discard_task(con, tid, HUMAN, f"its request was {'dismissed' if dismissed_by else state}"
+                     + (f": {verdict}" if verdict and not dismissed_by else ""))
+    add_event(con, HUMAN, "settle_decision_task", {"task_id": tid, "request_id": rid, "state": state})

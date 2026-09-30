@@ -5,15 +5,24 @@ import signal
 import time
 
 from .. import db
+from ..infra import gitrun
 from ..infra import lock
+from ..infra import paths
 from ..infra import service
 from ..infra import textsafe
 from ..session import triggers
+from ..team import ask as askmod
 
 from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server
 
 
 # ---------------------------------------------------------------- loop
+def _loaded_sha() -> str:
+    """The checkout's HEAD at the moment this process imported its code."""
+    rc, out, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+    return out.strip() if rc == 0 and out.strip() else "unknown"
+
+
 def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) -> int:
     """`max_ticks` counts this process's own ticks. A dev-mode restart
     (task #64) execs a fresh process, so a run that restarts mid-way starts
@@ -69,6 +78,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         samples: dict = {}
         dev_state: dict = {"fp": None, "warned": None}
         srv = socket_server.SocketServer(log)
+        askmod.IN_DAEMON = True     # T408: before the socket takes a verb - a push here starts the session itself
         try:
             srv.start()
         except OSError as e:
@@ -81,6 +91,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             if not once and not max_ticks:      # a bounded run (a test, --once) has no screens to watch
                 prompts.start(stopping, log)
             log("daemon starting - reconciling")
+            log(f"  code: {_loaded_sha()}")     # T431: what a stale daemon is measured against
             reconciler.reconcile(con, log)
             # #2117: whatever a message could not be typed at before the last
             # restart is still owed - try it now, for any agent already free
@@ -124,6 +135,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     time.sleep(triggers.POLL_S)
             log(f"stopped after {ticks} tick(s)")
         finally:
+            askmod.IN_DAEMON = False
             srv.stop()
             con.close()
 

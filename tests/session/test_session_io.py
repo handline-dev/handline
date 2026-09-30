@@ -822,7 +822,54 @@ def test_a_dialog_ocp_can_decline_is_cleared_and_reported(home: Path) -> None:
         con.close()
 
 
-def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(home: Path) -> None:
+def test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(home: Path) -> None:
+    """T415: core sat for hours on `/exit`'s dialog over background shells - nothing
+    queued for it, its state still RUNNING - because only agents with work waiting
+    were looked at."""
+    con, term = _decline_world(home)
+    con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+    db.set_agent_state(con, "backend", dmn_states.RUNNING)
+    lines: list[str] = []
+    t0 = int(time.time()) - 5000
+    try:
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        blockedmod.sweep(con, lines.append, t0)
+        rec = db.block_get(con, "backend")
+        check("exit dialog, nothing waiting: it is seen and held, nothing pressed yet",
+              rec is not None and rec["origin"] == "exit" and term.sent == [], str(term.sent))
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.PRESS_AFTER_S - 1)
+        check("exit dialog, nothing waiting: a person gets the wait first", term.sent == [], str(term.sent))
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.PRESS_AFTER_S)
+        check("exit dialog, nothing waiting: then Esc, once, though the state reads running",
+              term.sent == [("\x1b", False)] and db.block_get(con, "backend") is None, str(term.sent))
+        rep = _reports(con)
+        check("exit dialog, nothing waiting: the founder is told it sat with nobody answering",
+              len(rep) == 1 and "sat on it with nobody answering" in rep[0]["body"]
+              and "could not be given its work" not in rep[0]["body"], str([dict(r) for r in rep]))
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        blockedmod.sweep(con, lines.append, t0 + 300)
+        check("exit dialog, nothing waiting: once it is gone the agent is left alone",
+              term.sent == [("\x1b", False)] and db.block_get(con, "backend") is None)
+
+        # Any other dialog on an agent with nothing waiting is not this one's to press.
+        term.bring_back(PERMISSION_PROMPT)
+        blockedmod._checked.clear()
+        blockedmod._probed.clear()
+        term.sent.clear()
+        blockedmod.sweep(con, lines.append, t0 + 400)
+        blockedmod.sweep(con, lines.append, t0 + 400 + blockedmod.PRESS_AFTER_S)
+        check("other dialog, nothing waiting: neither held nor pressed",
+              db.block_get(con, "backend") is None and term.sent == [], str(term.sent))
+    finally:
+        con.close()
+
+
+def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agents_after_a_wait(home: Path) -> None:
     con, term = _decline_world(home)
     con.execute("UPDATE requests SET state = 'done', announced_at = 1")
     now = int(time.time())
@@ -832,7 +879,8 @@ def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(home:
         check("own exit: its own dialog is pressed on the first sweep, no person being in it",
               term.sent == [("\x1b", False)] and db.block_get(con, "backend") is None, str(term.sent))
 
-        # An agent that is working may be waiting on a person for that dialog.
+        # No working agent is at the exit dialog, whatever its state still says and
+        # whether work was waiting before the dialog came or after.
         for state in (dmn_states.RUNNING, dmn_states.HANDOFF):
             db.block_clear(con, "backend")
             blockedmod._checked.clear()
@@ -841,8 +889,24 @@ def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(home:
             db.set_agent_state(con, "backend", state)
             db.add_request(con, "marina", "backend", "more", None, "peer", "async", None, 0, None)
             blockedmod.sweep(con, lambda _m: None, now + 5000)
-            blockedmod.sweep(con, lambda _m: None, now + 6000)
-            check(f"working: nothing is pressed at a {state} agent's dialog", term.sent == [], str(term.sent))
+            check(f"{state}: a person gets the wait first", term.sent == [], str(term.sent))
+            blockedmod._checked.clear()
+            blockedmod.sweep(con, lambda _m: None, now + 5000 + blockedmod.PRESS_AFTER_S)
+            check(f"{state}: work waiting first, the exit dialog is then pressed once, Esc",
+                  term.sent == [("\x1b", False)], str(term.sent))
+            con.execute("UPDATE requests SET state = 'done', announced_at = 1")
+
+        # Any other dialog on a working agent may have a person in it.
+        db.block_clear(con, "backend")
+        blockedmod._checked.clear()
+        term.sent.clear()
+        term.bring_back(PERMISSION_PROMPT)
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        db.add_request(con, "marina", "backend", "again", None, "peer", "async", None, 0, None)
+        blockedmod.sweep(con, lambda _m: None, now + 9000)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lambda _m: None, now + 9000 + blockedmod.PRESS_AFTER_S)
+        check("working: another dialog is not pressed at a running agent", term.sent == [], str(term.sent))
     finally:
         con.close()
 
@@ -1020,7 +1084,7 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
     try:
         blockedmod.sweep(con, lines.append, now)
         esc = con.execute("SELECT id FROM requests WHERE target = 'human' "
-                          "AND kind = 'escalate'").fetchall()
+                          "AND kind = 'task'").fetchall()
         check("press history: a fresh, unrelated block is not escalated on sight",
               not esc, str(esc))
         rec = db.block_get(con, "backend")
@@ -3382,7 +3446,7 @@ def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
               not ok and str(wt) in why, why)
         check("closed wake: it is escalated to the founder, naming the folder",
               con.execute("SELECT COUNT(*) c FROM requests WHERE target = ? AND kind = "
-                          "'escalate' AND body LIKE ?", (askmod.HUMAN, f"%{wt}%")
+                          "'task' AND body LIKE ?", (askmod.HUMAN, f"%{wt}%")
                           ).fetchone()["c"] == 1)
         check("closed wake: and stalled", row["state"] == dmn_states.STALLED, dict(row))
         check("closed wake: it stays closed", row["closed_at"] is not None, dict(row))
@@ -3715,7 +3779,8 @@ def main() -> int:
         run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
         run(lambda: test_a_close_never_stops_background_work(Path(td) / 'dcl0x'))
         run(lambda: test_a_dialog_ocp_can_decline_is_cleared_and_reported(Path(td) / 'dcl1'))
-        run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agent_never(Path(td) / 'dcl2'))
+        run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agents_after_a_wait(Path(td) / 'dcl2'))
+        run(lambda: test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(Path(td) / 'dcl2b'))
         run(lambda: test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(Path(td) / 'dcl3'))
         run(lambda: test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(Path(td) / 'dcl4'))
         run(lambda: test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(Path(td) / 'dcl5'))

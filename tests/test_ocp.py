@@ -54,10 +54,12 @@ def _run_one(path: Path, args: list[str], python: str | None = None,
     env = {k: v for k, v in os.environ.items() if k not in ("OCP_AGENT", "OCP_ACCOUNT")}
     limit = FILE_TIMEOUT_S if timeout is None else timeout
     # Its own session, so a timeout ends whatever the test started as well, not
-    # only the test's own python.
+    # only the test's own python. No stdin: a test that reads it gets EOF at once
+    # instead of waiting on whatever pipe the runner was started with.
     started = time.monotonic()
-    proc = subprocess.Popen([python or sys.executable, "-u", str(path), *args], stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True, env=env, start_new_session=True)
+    proc = subprocess.Popen([python or sys.executable, "-u", str(path), *args], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
+                            start_new_session=True)
     try:
         out, _ = proc.communicate(timeout=limit)
         TIMES[path.name] = time.monotonic() - started

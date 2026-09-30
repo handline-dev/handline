@@ -188,6 +188,38 @@ def test_daemon_kill_recovery(home: Path) -> None:
         con.close()
 
 
+def test_the_daemon_marks_itself_before_its_socket_takes_a_verb(home: Path) -> None:
+    """T408 (auditor #5913): a push made inside the daemon starts the session itself, and the flag
+    that says so is up before the socket can take a push verb."""
+    from ocp.team import ask as askmod
+    _daemon_home(home, 20)
+    seen = {}
+    real_start, real_tick = dmn_socket_server.SocketServer.start, dmn_evaluate.tick
+    real_send = dmn_client.send
+
+    def start(self):
+        seen["at socket start"] = askmod.IN_DAEMON
+
+    def tick(con, log, **kw):
+        seen["in a tick"] = askmod.IN_DAEMON
+        dmn_client.send = lambda payload, timeout=None: seen.setdefault("sent", payload)
+        try:
+            askmod.push(con, "backend")
+        finally:
+            dmn_client.send = real_send
+        return real_tick(con, log, **kw)
+    dmn_socket_server.SocketServer.start, dmn_evaluate.tick = start, tick
+    try:
+        dmn_loop.run(once=True, verbose=False)
+    finally:
+        dmn_socket_server.SocketServer.start, dmn_evaluate.tick = real_start, real_tick
+        dmn_client.send = real_send
+    check("daemon: the in-daemon flag is up when the socket starts and during a tick",
+          seen.get("at socket start") is True and seen.get("in a tick") is True, str(seen))
+    check("daemon: a push made inside it is not sent over its own socket", "sent" not in seen, str(seen))
+    check("daemon: the flag is down again once it stops", askmod.IN_DAEMON is False)
+
+
 def test_reconcile_stalls_one_agents_unreadable_config_not_the_others(home: Path) -> None:
     """orcapipe #1571: a malformed agent.yaml reached in-process, uncaught,
     through resume_handoff -> agents.current_account -> account_of -> read -
@@ -798,6 +830,64 @@ def test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(home: Path) -> None:
               row["state"] == dmn_states.PARKED and row["detail"] == waiting_detail, str(dict(row)))
     finally:
         orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(home: Path) -> None:
+    """T456 (founder #5770): a resolve un-parks its asker only when nothing else it asked is
+    outstanding, so an agent with a second ask open stayed "waiting for" an answer that had come,
+    with what was told to it queued behind. The tick reads the park against its request."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive)
+    try:
+        orcamod.available = lambda: False
+        db.set_terminal(con, "backend", "term_x", "wt")
+        first = db.add_request(con, "backend", "marina", "the first ask", None, "peer", "async", None, 0, None)
+        second = db.add_request(con, "backend", "marina", "the second ask", None, "peer", "async", None, 0, None)
+        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
+                           detail=askmod.await_reply_detail(first, "marina"))
+        lines: list[str] = []
+        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: while its reply is still awaited it stays parked",
+              row["state"] == dmn_states.PARKED and not lines, str((dict(row), lines)))
+        askmod.resolve(first, "answered")             # the second ask is still open, so nothing un-parks it
+        row = db.get_agent_state(con, "backend")
+        check("park: setup - the resolve left it parked on the answered ask", row["state"] == dmn_states.PARKED,
+              str(dict(row)))
+        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("park: the next tick drops it, and says so",
+              row["state"] != dmn_states.PARKED and any(f"#{first}" in m and "settled" in m for m in lines),
+              str((dict(row), lines)))
+    finally:
+        orcamod.available, orcamod.alive = real
+        con.close()
+
+
+def test_an_owed_clear_that_holds_everything_says_why_once(home: Path) -> None:
+    """T456: settle_owed_clear returns True while a clear is owed and the tick then does nothing else
+    for the agent - it must not do so silently."""
+    from ocp.daemon import handoff as dmn_handoff
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (dmn_delivery.session_present, dmn_delivery._type_gate)
+    lines: list[str] = []
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_cursor(con, "clear_owed:backend", int(time.time()))
+        dmn_delivery.session_present = lambda a: True
+        dmn_delivery._type_gate = lambda *a, **k: "backend was typed at moments ago; letting the screen catch up"
+        held = [dmn_handoff.settle_owed_clear(con, "backend", lines.append) for _ in range(3)]
+        check("owed clear: it holds the agent's tick", held == [True, True, True])
+        check("owed clear: and says why, once", len([m for m in lines if "moments ago" in m and "owed" in m]) == 1,
+              str(lines))
+        db.clear_cursor(con, "clear_owed:backend")
+        dmn_handoff.settle_owed_clear(con, "backend", lines.append)
+        check("owed clear: the reason is forgotten once nothing is owed", not dmn_handoff._OWED_SAID.get("backend"))
+    finally:
+        dmn_delivery.session_present, dmn_delivery._type_gate = real
         con.close()
 
 
@@ -1539,6 +1629,37 @@ def test_service_status_when_not_installed(home: Path) -> None:
         service.run_launchctl = orig_runner
 
 
+def test_service_status_when_the_plist_cannot_be_looked_at(home: Path) -> None:
+    """T431: a sandboxed agent cannot stat ~/Library/LaunchAgents; launchd is asked,
+    so a daemon it runs is not reported as hand-started."""
+    import os
+    walled = home / "walled"
+    walled.mkdir(parents=True, exist_ok=True)
+    orig, orig_runner = service.plist_path, service.run_launchctl
+    calls: list = []
+
+    class Printed:
+        returncode, stderr = 0, ""
+        stdout = "\tpid = 31338\n\tlast exit code = 0\n"
+
+    def fake_print(args):
+        calls.append(args)
+        return Printed()
+
+    try:
+        service.plist_path = lambda: walled / "job.plist"
+        service.run_launchctl = fake_print
+        os.chmod(walled, 0)
+        st = service.status()
+        check("service: an unlookable plist makes status() ask launchd",
+              st["installed"] and st["loaded"] and st["pid"] == 31338 and calls, str(st))
+        check("service: that pid is supervised by launchd, not hand-started",
+              service.supervisor_of(31338) == f"launchd ({service.LABEL})")
+    finally:
+        os.chmod(walled, 0o700)
+        service.plist_path, service.run_launchctl = orig, orig_runner
+
+
 def test_service_supervisor_of(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     orig = service.status
@@ -1618,6 +1739,25 @@ def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
     check("daemon: refuses while another process holds the lock", rc == 1)
     check("daemon: the refusal is logged, not printed bare",
           "daemon starting - already running" in out, out)
+
+
+def test_the_daemon_logs_the_code_sha_it_started_on(home: Path) -> None:
+    """T431: a daemon left behind by merges is caught by comparing this line to main."""
+    from ocp.infra import gitrun
+    _daemon_home(home, 20)
+    _, head, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+    out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
+    check("daemon: the start line names the checkout's HEAD",
+          head.strip() != "" and f"  code: {head.strip()}\n" in out, out[:300])
+
+    real = dmn_loop.gitrun.run
+    dmn_loop.gitrun.run = lambda *a, **k: (None, "", "git is not there")
+    try:
+        out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
+    finally:
+        dmn_loop.gitrun.run = real
+    check("daemon: when git fails the start line says unknown, not an empty sha",
+          "  code: unknown\n" in out, out[:300])
 
 
 def test_service_log_rotation(tmp: Path) -> None:
@@ -3953,7 +4093,7 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
     log: list[str] = []
 
     def escalations() -> list:
-        return con.execute("SELECT body FROM requests WHERE kind = 'escalate' AND body LIKE '[wait-for]%'"
+        return con.execute("SELECT body FROM requests WHERE kind = 'task' AND target = 'human' AND body LIKE '[wait-for]%'"
                            ).fetchall()
 
     try:
@@ -3978,7 +4118,13 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
             "SELECT 1 FROM cursors WHERE name LIKE 'waitfor:%'").fetchone())
         db.add_block(con, c, a)
         waitfor.sweep(con, log.append, 0)
-        check("wait-for: and told again if it comes back", len(escalations()) == 2)
+        check("wait-for: back while the first is still undecided, it is that decision, not a second",
+              len(escalations()) == 1)
+        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
+        con.execute("UPDATE tasks SET closed_by = 'human', done_evidence = 'seen' WHERE owner = 'human'")
+        db.clear_cursor(con, next(r["name"] for r in con.execute("SELECT name FROM cursors WHERE name LIKE 'waitfor:%'")))
+        waitfor.sweep(con, log.append, 0)
+        check("wait-for: and told again once that was decided", len(escalations()) == 2)
         db.remove_block(con, c, a)
 
         d = db.new_task(con, "waits on a task that goes away", "backend", "manager")
@@ -4024,7 +4170,7 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         db.add_block(con, n_, m_)
         before = len(escalations())
         waitfor.sweep(con, log.append, 0)
-        row = con.execute("SELECT requester FROM requests WHERE kind = 'escalate' ORDER BY id DESC LIMIT 1").fetchone()
+        row = con.execute("SELECT requester FROM requests WHERE kind = 'task' AND target = 'human' ORDER BY id DESC LIMIT 1").fetchone()
         check("wait-for: a loop only the founder owns is filed under him, not under an agent that may not exist",
               len(escalations()) == before + 1 and row["requester"] == db.HUMAN, str(dict(row)))
         for w, b_ in ((m_, n_), (n_, m_)):
@@ -4877,6 +5023,7 @@ def main() -> int:
         run(lambda: test_daemon_resume(Path(td) / 'd2'))
         run(lambda: test_daemon_kill_recovery(Path(td) / 'd3'))
         run(lambda: test_reconcile_stalls_one_agents_unreadable_config_not_the_others(Path(td) / 'reconbad'))
+        run(lambda: test_the_daemon_marks_itself_before_its_socket_takes_a_verb(Path(td) / 'inddaemon'))
         run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
             Path(td) / 'readguarddaemon'))
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))
@@ -4899,6 +5046,8 @@ def main() -> int:
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
         run(lambda: test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(Path(td) / 'awaitwall'))
+        run(lambda: test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(Path(td) / 'settledpark'))
+        run(lambda: test_an_owed_clear_that_holds_everything_says_why_once(Path(td) / 'owedsaid'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
@@ -4915,9 +5064,11 @@ def main() -> int:
         run(lambda: test_service_plist(Path(td) / 'svc1'))
         run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
         run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))
+        run(lambda: test_service_status_when_the_plist_cannot_be_looked_at(Path(td) / 'svc3b'))
         run(lambda: test_service_supervisor_of(Path(td) / 'svc4'))
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
+        run(lambda: test_the_daemon_logs_the_code_sha_it_started_on(Path(td) / 'codesha'))
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(Path(td) / 'cfgguard'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))

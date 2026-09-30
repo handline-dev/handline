@@ -94,10 +94,131 @@ def test_agent_use_is_by_what_tokens_cost(home: Path) -> None:
         con.close()
 
 
+def _sample(con, account, ago_h, used, reset_h=48, legacy=False, lost=False) -> None:
+    ts = NOW - int(ago_h * H)
+    if legacy:      # written before windows were a list: the four names of claude's two
+        con.execute("INSERT INTO usage_samples(account, ts, exists_, pct_5h, reset_5h, pct_7d, reset_7d) "
+                    "VALUES(?,?,1,?,?,?,?)", (account, ts, 10, ts + 3600, used, NOW + reset_h * H))
+        return
+    wins = [{"minutes": 300, "used_percent": 10, "resets_at": ts + 3600, "lost": False},
+            {"minutes": 10080, "used_percent": used, "resets_at": NOW + reset_h * H, "lost": lost}]
+    con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)",
+                (account, ts, json.dumps(wins)))
+
+
+def test_the_outlook_reads_each_sample_once_and_says_the_same(home: Path) -> None:
+    """T439: the stats tab walks the same samples three ways on every refresh; what a
+    sample says about its week is parsed once, the rows are read once, and the
+    numbers are exactly what reading it every time gives."""
+    from ocp.usage import outlook, windows
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    try:
+        for i in range(60):
+            _sample(con, "alpha", 40 - i * 0.6, 20 + i * 0.7)
+            _sample(con, "beta", 40 - i * 0.6, 5 + i * 0.3, reset_h=20, legacy=i % 4 == 0)
+            if i % 7 == 0:
+                _sample(con, "gamma", 40 - i * 0.6, 50, lost=True)      # unreadable: not a reading
+        rows = db.usage_samples(con, since=NOW - 41 * H)
+        times = [NOW - h * H for h in range(24, -1, -2)]
+
+        def everything():
+            return (outlook.weekly_outlook(rows, NOW, 24), outlook.week_consumed(rows, NOW - 24 * H, NOW),
+                    outlook.consumed_curve(rows, times))
+
+        outlook._WEEK_CACHE.clear()
+        real_max, outlook._WEEK_CACHE_MAX = outlook._WEEK_CACHE_MAX, 0      # every sample read afresh
+        try:
+            cold = everything()
+        finally:
+            outlook._WEEK_CACHE_MAX = real_max
+        outlook._WEEK_CACHE.clear()
+        calls = []
+        real_entries = windows.entries
+        windows.entries = lambda raw: (calls.append(1), real_entries(raw))[1]
+        try:
+            first = everything()
+            parsed_first = len(calls)
+            second = everything()
+            parsed_second = len(calls) - parsed_first
+        finally:
+            windows.entries = real_entries
+        check("outlook: the fixture reads (an account, a legacy row and a lost one among them)",
+              cold[0].accounts == 2 and cold[0].past and cold[0].future and cold[1] and cold[2], str(cold[0].accounts))
+        check("outlook: with the cache the outlook is exactly what reading every sample gives",
+              (first[0].past, first[0].future, first[0].accounts) == (cold[0].past, cold[0].future, cold[0].accounts)
+              and first[1] == cold[1] and first[2] == cold[2])
+        check("outlook: a second look at unchanged samples does not parse one of them again",
+              parsed_first == len(rows) and parsed_second == 0, f"first {parsed_first} of {len(rows)}, second {parsed_second}")
+        check("outlook: and says the same again", (second[0].past, second[1], second[2]) == (first[0].past, first[1], first[2]))
+
+        # The layer above reads the rows once for all three, and again only for a new sample.
+        reads = []
+        real_samples = db.usage_samples
+        db.usage_samples = lambda *a, **k: (reads.append(1), real_samples(*a, **k))[1]
+        try:
+            actions.details._SAMPLES["db"] = None
+            o1 = actions.weekly_outlook(con, NOW, 24)
+            actions.agent_use(con, NOW, 24)
+            actions.agent_overlay(con, stats.AgentUse("x", 1, 1.0, 1.0, None, {"alpha": 1.0}), NOW, 24,
+                                  [t for t, _ in o1.past])
+            once = len(reads)
+            _sample(con, "alpha", 0.1, 90)
+            actions.weekly_outlook(con, NOW, 24)
+            after_new = len(reads)
+        finally:
+            db.usage_samples = real_samples
+        check("outlook: the three asks of one refresh read the samples once", once == 1, str(once))
+        check("outlook: a sample written since is read", after_new == 2, str(after_new))
+
+        # A window that has moved past old samples does not keep them: the cache holds
+        # only what the current window can ask for, so a bridge left open does not grow.
+        outlook._WEEK_CACHE.clear()
+        actions.details._SAMPLES["db"] = None
+        actions.weekly_outlook(con, NOW, 24)
+        before = len(outlook._WEEK_CACHE)
+        later = NOW + 30 * H
+        _sample(con, "alpha", 0.2, 91)
+        actions.weekly_outlook(con, later, 24)
+        floor = actions.details._SAMPLES["floor"]
+        check("outlook: the cache holds no sample older than the floor of what was read",
+              before > 0 and all(k[0] >= floor for k in outlook._WEEK_CACHE)
+              and len(outlook._WEEK_CACHE) < before, f"{before} -> {len(outlook._WEEK_CACHE)}, floor {floor}")
+        import threading
+        errors: list = []
+        stop = threading.Event()
+
+        def writer():
+            n = 0
+            while not stop.is_set():
+                n += 1
+                outlook._WEEK_CACHE[(n % 60000, n)] = None
+                if n % 20000 == 0:
+                    outlook._WEEK_CACHE.clear()
+        t = threading.Thread(target=writer)
+        t.start()
+        try:
+            for _ in range(60):
+                for k in range(20000):
+                    outlook._WEEK_CACHE[(k, -k)] = None
+                outlook.forget_before(10000)
+        except Exception as e:      # a dict that changed under the scan
+            errors.append(repr(e))
+        finally:
+            stop.set()
+            t.join()
+        check("outlook: forgetting old samples while another thread caches new ones does not raise",
+              not errors, str(errors))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_prices(Path(td) / 'stats1'))
         run(lambda: test_agent_use_is_by_what_tokens_cost(Path(td) / 'stats2'))
+        run(lambda: test_the_outlook_reads_each_sample_once_and_says_the_same(Path(td) / 'stats3'))
     return run_area(tests)
 
 

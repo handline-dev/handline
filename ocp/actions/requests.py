@@ -14,7 +14,7 @@ from .routing import HUMAN
 
 
 def message(con, agent: str, body: str) -> str:
-    """Send an agent work, as the human."""
+    """Send an agent a message, as the human."""
     return message_ok(con, agent, body)[1]
 
 
@@ -22,7 +22,7 @@ def message_ok(con, agent: str, body: str) -> tuple[bool, str]:
     """`message`, and whether it went: what is typed is kept unless it did."""
     if not body.strip():
         return False, "nothing sent: no message typed"
-    ok, msg, _ = askmod.ask(agent, body, requester=HUMAN)
+    ok, msg, _ = askmod.say(agent, body, requester=HUMAN)
     return ok, msg
 
 
@@ -31,15 +31,12 @@ def answer(con, rid: int, verdict: str) -> str:
 
 
 def decision_task_of(con, row) -> int | None:
-    """The open task owned by the founder that this request delivers, if any:
-    replying to its card is the decision, not a verdict on the request."""
+    """The open decision task that this request is the card of, if any: replying to
+    its card is the decision, not a verdict on the request. A question linked to a
+    task later is not its card."""
     if row["state"] != "queued" or row["target"] != HUMAN:
         return None
-    hit = con.execute(
-        "SELECT t.id FROM tasks t JOIN task_requests l ON l.task_id = t.id "
-        "WHERE l.request_id = ? AND t.owner = ? AND t.closed_by IS NULL "
-        "AND t.done_evidence IS NULL", (row["id"], HUMAN)).fetchone()
-    return int(hit["id"]) if hit else None
+    return db.decision_task_of_card(con, row["id"])
 
 
 def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
@@ -63,7 +60,7 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
         return tasks.decide(con, tid, verdict)
     if _is_answer_to_human(row):
         said = db.answer_row_of(con, rid)
-        ok, msg, _ = askmod.ask(row["target"], verdict, requester=HUMAN,
+        ok, msg, _ = askmod.say(row["target"], verdict, requester=HUMAN,
                                 parent_id=said["id"] if said else rid)
         if ok:
             # Replied to is read: leaving it in the mailbox would ask the human
@@ -258,6 +255,7 @@ def mailbox_rows(con) -> list[dict]:
     had already answered.
     """
     out = []
+    gates = set(db.open_decision_card_ids(con))
     for r in con.execute(
         "SELECT id, ts, requester, target, kind, response, body, parent_id, fyi "
         "FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
@@ -272,7 +270,8 @@ def mailbox_rows(con) -> list[dict]:
         # `waiting` says the sender asked for a reply and parked on it - which
         # is what it did at the time; whether it is still parked now is the
         # agent's own state, and the screen says what the row records rather
-        # than reading one as the other. A report is `fyi` by definition
+        # than reading one as the other. A say asks for no reply either - it is the
+        # message that needs none - so it never waits. A report is `fyi` by definition
         # asking for no reply, whatever response the routing happened to pick
         # for that sender's other traffic - `response == "async"` alone would
         # let one hand-edited routing line pin every report from an agent and
@@ -280,8 +279,8 @@ def mailbox_rows(con) -> list[dict]:
         out.append({
             "id": r["id"], "ts": r["ts"], "from": r["requester"],
             "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
-            "gate": r["kind"] == "escalate",
-            "waiting": r["response"] == "async" and not r["fyi"],
+            "gate": int(r["id"]) in gates,
+            "waiting": r["response"] == "async" and not r["fyi"] and r["kind"] != "say",
             "answer": False,
         })
 
@@ -394,8 +393,8 @@ def founder_waits(con) -> list[dict]:
                     "since": int(req["ts"])})
 
     for r in con.execute(
-        "SELECT id, ts, requester, body FROM requests WHERE target = ? "
-        "AND kind = 'escalate' AND state = 'queued' ORDER BY id", (HUMAN,)).fetchall():
+        "SELECT id, ts, requester, body FROM requests WHERE target = ? AND state = 'queued' "
+        f"AND id IN {db.OPEN_DECISION_CARDS_SQL} ORDER BY id", (HUMAN, HUMAN)).fetchall():
         if int(r["id"]) in proposed:
             continue
         out.append({"kind": "escalation", "who": r["requester"], "red": True,
@@ -497,7 +496,7 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
         "dismissed_by, dismissed_reason "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
-        "AND state != 'denied' AND kind IS NOT 'answer' ORDER BY id DESC LIMIT ?",
+        "AND state != 'denied' AND settles IS NULL ORDER BY id DESC LIMIT ?",
         (HUMAN, other, other, HUMAN, EXCHANGE_ROWS + len(skip)),
     ).fetchall()
     out: list[str] = []
