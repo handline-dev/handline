@@ -317,7 +317,12 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     register` uses, which keeps every other field as it is. A running session
     is not restarted."""
     new = {k: v for k, _, v in changes}
-    idle = new.pop("idle_close", None) if "idle_close" in new else None
+    idle = new.pop("idle_close", None)
+    if idle is not None:
+        try:
+            actions.parse_idle_close(idle)      # a bad one is refused before the file is written
+        except ValueError as e:
+            return False, f"not saved: {e}"
     if new:
         try:
             agents.register(agent, model=new.get("model"), effort=new.get("effort"),
@@ -326,10 +331,11 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
                             context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
         except (ValueError, agents.ConfigError, OSError) as e:
             return False, f"not saved: {e}"
-    if "idle_close" in {k for k, _, _ in changes}:
+    if idle is not None:
         ok, said = actions.set_idle_close(idle, agent)
         if not ok:
-            return False, f"not saved: {said}"
+            done = ", ".join(f"{k} {v}" for k, v in new.items())
+            return False, f"idle close not saved: {said}" + (f" ({done} was saved)" if done else "")
     return True, "saved: " + ", ".join(f"{k} {v}" for k, _, v in changes)
 
 

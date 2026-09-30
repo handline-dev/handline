@@ -1566,6 +1566,13 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
     ok, said = cp.save_settings("backend", cp.settings_changes(cfg, {**form, "idle_close": "0"}))
     check("idle close: the agent form saves it, 0 is never", ok and idle_close.close_timeout_s("backend") == idle_close.NEVER, said)
     check("idle close: a word is refused", cp.settings_problem({**form, "repo": "", "idle_close": "soon"}) is not None)
+    before = (cp.settings_of("backend")["effort"], idle_close.close_timeout_s("backend"))
+    ok, said = cp.save_settings("backend", [("effort", before[0], "low"), ("idle_close", "", "soon")])
+    check("idle close: a bad one saves nothing, not even the rest of the form",
+          not ok and (cp.settings_of("backend")["effort"], idle_close.close_timeout_s("backend")) == before, said)
+    ok, said = cp.save_settings("backend", [("context_k", "200", "abc"), ("idle_close", "", "7")])
+    check("idle close: when the rest fails it is not saved either",
+          not ok and idle_close.close_timeout_s("backend") == before[1], said)
 
 
 def test_home_settings_marks_and_the_delegated_view() -> None:
