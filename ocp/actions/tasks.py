@@ -276,7 +276,8 @@ def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
     open_linked = [r for r in open_requests if r["id"] in linked and not r["fyi"]]
     if not row["queued_by"] and open_linked:
         return f"draft with work out (#{open_linked[0]['id']}) - its opener has not queued it"
-    if state == "queued" and not open_linked:
+    # the founder is never typed at (T681): a queued task of theirs waits on them, with no request out
+    if state == "queued" and not open_linked and row["owner"] != HUMAN:
         return "approved, but no request is out"
     return None
 
