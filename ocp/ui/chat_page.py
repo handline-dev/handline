@@ -43,6 +43,7 @@ from .components.jobs_aware import JobsAware, dispatch_agent_verb
 from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
+from .components.section_head import SectionHead
 from .components.switch_row import SwitchRow
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
@@ -1122,11 +1123,13 @@ class ChatPage(JobsAware, Screen):
         yield TasksView(agent=self.agent, id="tasks_view")
         with Vertical(id="settings_view"):
             with VerticalScroll(id="settings_pane"):
+                yield SectionHead("agent")
                 for key, label in (("session_account", "session runs on"),
                                    ("vendor", "vendor"), ("enabled", "enabled")):
                     with Horizontal(classes="frow"):
                         yield Static(label, classes="flabel")
                         yield Static(id=f"s_{key}", classes="fvalue")
+                yield SectionHead("model")
                 with Horizontal(classes="frow"):
                     yield Static("model", classes="flabel")
                     yield ImeInput(id="s_model", compact=True)
@@ -1137,14 +1140,16 @@ class ChatPage(JobsAware, Screen):
                     yield Static("weight", classes="flabel")
                     yield Select([(w, w) for w in WEIGHTS], id="s_weight", allow_blank=False, compact=True)
                 with Horizontal(classes="frow"):
-                    yield Static("repo", classes="flabel")
-                    yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
-                yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
-                with Horizontal(classes="frow"):
                     yield Static("hand off at", classes="flabel")
                     yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
                     yield Static("k tokens", classes="unit")
                     yield Static(id="s_context_share", classes="fvalue")
+                yield SectionHead("work")
+                with Horizontal(classes="frow"):
+                    yield Static("repo", classes="flabel")
+                    yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
+                yield SectionHead("session")
+                yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
                 with Horizontal(classes="frow"):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
