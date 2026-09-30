@@ -1436,11 +1436,11 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
 
 
 def _brief_of(con, row):
-    """T689: the request that is the task's own brief - the first one linked to it that its opener
-    sent. A request someone else sent (a founder's message a task was begun from, an older ask linked
-    later) is a record, and is never rewritten."""
-    return next((r for r in sorted(db.task_requests(con, row["id"]), key=lambda r: r["id"])
-                 if r["requester"] == row["opened_by"]), None)
+    """T689: the request the task was opened with - its first link - when its opener sent it, else
+    None. Anything else is a record and is never rewritten: a founder's message a task was begun
+    from, an older ask linked later, a handoff delivery."""
+    first = db.first_linked_request(con, row["id"])
+    return first if first is not None and first["requester"] == row["opened_by"] else None
 
 
 def tell_body_edited(con, tid: int, by: str) -> None:

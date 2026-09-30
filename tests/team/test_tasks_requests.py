@@ -8104,6 +8104,13 @@ limits:
         check("T689: a task begun from the founder's message has no opener brief: refused, words untouched",
               not ok and "no brief" in msg and db.get_request(con, chat)["body"] == "founder said: delete the retry tests",
               f"{msg} / {db.get_request(con, chat)['body']}")
+        # the opener hands the begun task on: the handoff delivery is not the brief either
+        ok, msg = actions.task_handoff(con, "worker", bt2, "manager", "over to you")
+        handed = [r for r in db.task_requests(con, bt2) if r["requester"] == "worker" and "over to you" in (r["body"] or "")]
+        ok, msg = actions.edit_task(con, bt2, "worker", body="rewritten after the handoff")
+        check("T689: after a handoff the delivery is not the brief: refused, the handoff request untouched",
+              not ok and "no brief" in msg and len(handed) == 1 and "over to you" in db.get_request(con, handed[0]["id"])["body"],
+              f"{msg} / {[dict(r)['body'] for r in handed]}")
         older = db.add_request(con, "helper", "worker", "someone else's older ask", None, None,
                                "async", "ask", 0, None)
         ok, _, bt3 = actions.task_new("manager", "worker", "a linked one", "manager's own brief")
