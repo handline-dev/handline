@@ -8681,6 +8681,48 @@ limits:
                 con.close()
 
 
+def test_a_blocker_that_cannot_be_released_does_not_stop_the_others(home: Path) -> None:
+    """T588 (auditor #6841): one bad blocker's transaction re-raised every tick and would have halted
+    the queue sweep for every agent. It is logged and left for the next tick; the rest are released."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    real_push, real_clear = askmod.push, actions.tasks._clear_blocks_on
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        bad = db.new_task(con, "bad blocker", "manager", "manager")
+        good = db.new_task(con, "good blocker", "manager", "manager")
+        d_bad = db.new_task(con, "waits on bad", "worker", "manager")
+        d_good = db.new_task(con, "waits on good", "worker", "manager")
+        db.add_block(con, d_bad, bad)
+        db.add_block(con, d_good, good)
+        db.discard_task(con, bad, "manager", "gone")           # the db layer leaves the rows
+        db.discard_task(con, good, "manager", "gone")
+
+        def flaky(con_, tid, *a, **k):
+            if tid == bad:
+                raise RuntimeError("boom")
+            return real_clear(con_, tid, *a, **k)
+        actions.tasks._clear_blocks_on = flaky
+        said: list[str] = []
+        taskqueue.sweep(con, said.append, int(time.time()))     # must not raise
+        check("a failing blocker: the other is still released",
+              db.tasks_blocked_by(con, good) == [] and any("released" in r["body"] or "unblocked" in r["body"]
+                                                             for r in db.task_requests(con, d_good)))
+        check("a failing blocker: its own rows are left, rolled back, for the next tick",
+              [r["task_id"] for r in db.tasks_blocked_by(con, bad)] == [d_bad])
+        check("a failing blocker: and it is logged, naming the task",
+              any(f"T{bad}" in m and "boom" in m for m in said), str(said))
+
+        actions.tasks._clear_blocks_on = real_clear
+        taskqueue.sweep(con, said.append, int(time.time()) + taskqueue.RETRY_S + 1)
+        check("a failing blocker: once it works the next tick releases it", db.tasks_blocked_by(con, bad) == [])
+    finally:
+        actions.tasks._clear_blocks_on = real_clear
+        askmod.push = real_push
+        con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -9525,6 +9567,7 @@ def main() -> int:
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
         run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(Path(td) / 'decsettle'))
+        run(lambda: test_a_blocker_that_cannot_be_released_does_not_stop_the_others(Path(td) / 'relguard'))
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
     return run_area(tests)
