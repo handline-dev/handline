@@ -154,8 +154,11 @@ def cmd_team_seal(args) -> int:
     except PermissionError as e:
         print(e)
         return 1
-    n = sealed.seal_everything()
-    print(f"sealed {n} file(s) as they are now")
+    adopted = sealed.seal_everything()
+    for label, was in adopted:
+        print(f"  sealed {label} ({'no seal before' if was == 'new' else 'it did not match its seal'})")
+    print(f"sealed {len(adopted)} file(s) as they are now" if adopted
+          else "nothing to seal: every file already matches its seal")
     return 0
 
 
