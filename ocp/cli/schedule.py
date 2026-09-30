@@ -3,7 +3,6 @@ adding and removing write agent.yaml, which only the founder's terminal may."""
 from __future__ import annotations
 
 import json
-import sys
 import time
 
 from ..daemon import schedules
@@ -17,7 +16,7 @@ def _next(item: dict) -> str:
 
 
 def _show(agent: str) -> None:
-    items = schedules.of(agent)
+    items = schedules.load(agent)
     if not items:
         print(f"{agent}: no schedules")
         return
@@ -41,24 +40,24 @@ def cmd_schedule(args) -> int:
                 _show(a)
             return 0
         if not args.agent:
-            print("--agent is needed", file=sys.stderr)
+            print("--agent is needed")
             return 1
-        items = schedules.of(args.agent)
+        items = schedules.load(args.agent)
         if args.action == "add":
             if not args.cron or not args.message:
-                print("add needs --cron and --message", file=sys.stderr)
+                print("add needs --cron and --message")
                 return 1
             items = schedules.parse(items + [{"cron": args.cron, "message": args.message}])
         else:
             if not args.index or not 1 <= args.index <= len(items):
-                print(f"remove needs --index 1..{len(items)}", file=sys.stderr)
+                print(f"remove needs --index 1..{len(items)}")
                 return 1
             del items[args.index - 1]
         _write(args.agent, items)
         _show(args.agent)
         return 0
     except (ValueError, FileNotFoundError, PermissionError) as e:
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {e}")
         return 1
 
 

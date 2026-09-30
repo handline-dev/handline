@@ -147,6 +147,55 @@ def test_a_schedule_never_piles_up_behind_an_unread_message(home: Path) -> None:
         con.close()
 
 
+def test_a_long_silence_is_still_one_message(home: Path) -> None:
+    """T605 (auditor #7079): a minute schedule after a gap longer than any walk of its times must not
+    fire again the tick after the first message is delivered - the cursor is the minute handled, not a slot."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        _give("backend", [{"cron": "* * * * *", "message": "patrol"}])
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        t0 = _at(2026, 9, 30, 21, 10)
+        schedules.sweep(con, lambda _m: None, t0)
+        later = t0 + 3 * 86400 + 30
+        schedules.sweep(con, lambda _m: None, later)
+        schedules.sweep(con, lambda _m: None, later + 20)
+        check("silence: three days of missed minutes are one message, and no second one follows in that minute",
+              len(sent) == 1, str(len(sent)))
+        schedules.sweep(con, lambda _m: None, later + 70)
+        check("silence: the next minute is the next message", len(sent) == 2, str(len(sent)))
+    finally:
+        con.close()
+
+
+def test_a_removed_schedule_added_back_is_new_and_a_bad_value_is_said(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        item = {"cron": "*/30 * * * *", "message": "patrol"}
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        _give("backend", [item])
+        schedules.sweep(con, lambda _m: None, _at(2026, 9, 30, 21, 10))
+        _give("backend", [])
+        schedules.sweep(con, lambda _m: None, _at(2026, 9, 30, 21, 20))
+        check("removed: its cursors are dropped",
+              con.execute("SELECT COUNT(*) FROM cursors WHERE name LIKE 'schedule_%'").fetchone()[0] == 0)
+        _give("backend", [item])
+        schedules.sweep(con, lambda _m: None, _at(2026, 10, 2, 21, 10))
+        check("removed: added back later it counts from when it is seen again, not from before", sent == [], str(sent))
+
+        cfg = agents.read("backend")
+        cfg["schedules"] = "not json"
+        agents.write("backend", cfg)
+        rc, out = _cli(["schedule", "list", "--agent", "backend"], as_agent=None)
+        check("bad value: list says so, not 'no schedules'", rc == 1 and "not JSON" in out, out)
+        rc, out = _cli(["schedule", "add", "--agent", "backend", "--cron", "0 * * * *", "--message", "x"], as_agent=None)
+        check("bad value: add refuses to replace it silently", rc == 1 and agents.read("backend")["schedules"] == "not json", out)
+        check("bad value: the sweep just leaves it alone", schedules.of("backend") == [])
+    finally:
+        con.close()
+
+
 def test_a_due_schedule_wakes_a_closed_session(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -172,6 +221,8 @@ def main() -> int:
         run(lambda: test_a_due_schedule_is_typed_once_and_waits_for_a_running_agent(Path(td) / "c3"))
         run(lambda: test_a_schedule_never_piles_up_behind_an_unread_message(Path(td) / "c4"))
         run(lambda: test_a_due_schedule_wakes_a_closed_session(Path(td) / "c5"))
+        run(lambda: test_a_long_silence_is_still_one_message(Path(td) / "c6"))
+        run(lambda: test_a_removed_schedule_added_back_is_new_and_a_bad_value_is_said(Path(td) / "c7"))
     return run_area(tests)
 
 

@@ -5,7 +5,8 @@ agent's `schedules` in agent.yaml is a JSON list of {"cron", "message"}; whoever
 founder (agent.yaml is sealed). When a schedule comes due the message is typed like a say: a closed
 session is woken and a missing one started (`messaging.tell_now`). A schedule that fell due while the
 agent was RUNNING waits for it to stop; several missed times are one message, and one still undelivered
-is never followed by another. A level read from a cursor per schedule, the last time it was handled.
+is never followed by another. A level read from a cursor per schedule: the minute it was last handled,
+after which any time of the expression up to now is due.
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ from ..team import agents, ask as askmod, team
 from .states import HANDOFF, RUNNING, STALLED
 
 REQUESTER = "schedule"
-MAX_CATCHUP = 2000          # times looked at in one go after a long silence: they are one message anyway
 
 
 def parse(text) -> list[dict]:
@@ -44,10 +44,15 @@ def parse(text) -> list[dict]:
     return out
 
 
+def load(agent: str) -> list[dict]:
+    """This agent's schedules; ValueError when its value is bad, and whatever agents.read raises."""
+    return parse((agents.read(agent) or {}).get("schedules"))
+
+
 def of(agent: str) -> list[dict]:
-    """This agent's schedules; none for an agent whose agent.yaml cannot be read."""
+    """`load`, and none for an agent whose agent.yaml or value cannot be read - the sweep's view."""
     try:
-        return parse((agents.read(agent) or {}).get("schedules"))
+        return load(agent)
     except Exception:  # noqa: BLE001 - a bad agent.yaml is doctor's to report, not this sweep's
         return []
 
@@ -55,17 +60,6 @@ def of(agent: str) -> list[dict]:
 def sid(item: dict) -> str:
     """What identifies a schedule: editing its cron or its message makes it a new one."""
     return hashlib.sha1(f"{item['cron']}\n{item['message']}".encode()).hexdigest()[:10]
-
-
-def latest_due(expr: str, after: int, now: int) -> int | None:
-    """The latest time of `expr` in (after, now], or None."""
-    c, last, t = cron.parse(expr), None, after
-    for _ in range(MAX_CATCHUP):
-        n = cron.next_after(c, t)
-        if n is None or n > now:
-            break
-        last, t = n, n
-    return last
 
 
 def _ready(row) -> bool:
@@ -85,20 +79,30 @@ def sweep(con, log, now: int) -> None:
             log(f"  {agent}: schedule failed: {type(e).__name__}: {e}")
 
 
+def _forget_removed(con, agent: str, keep: set[str]) -> None:
+    """Drop the cursors of schedules the agent no longer has, so one added back later is new."""
+    for (name,) in con.execute("SELECT name FROM cursors WHERE name LIKE ? OR name LIKE ?",
+                               (f"schedule_at:{agent}:%", f"schedule_rid:{agent}:%")).fetchall():
+        if name.rsplit(":", 1)[1] not in keep:
+            db.clear_cursor(con, name)
+
+
 def _agent(con, agent: str, items: list[dict], log, now: int) -> None:
+    _forget_removed(con, agent, {sid(i) for i in items})
+    minute = now - now % 60
     for item in items:
         key = sid(item)
         at, rid_key = f"schedule_at:{agent}:{key}", f"schedule_rid:{agent}:{key}"
         handled = db.get_cursor(con, at)
         if not handled:                       # seen for the first time: it counts from now, not from the past
-            db.set_cursor(con, at, now - now % 60)
+            db.set_cursor(con, at, minute)
             continue
-        slot = latest_due(item["cron"], handled, now)
-        if slot is None:
+        due = cron.next_after(cron.parse(item["cron"]), handled)
+        if due is None or due > now:
             continue
         pending = db.get_request(con, db.get_cursor(con, rid_key)) if db.get_cursor(con, rid_key) else None
         if pending is not None and pending["state"] == "queued" and not pending["delivered_at"]:
-            db.set_cursor(con, at, slot)      # the last one is still unread: this time is that one
+            db.set_cursor(con, at, minute)    # the last one is still unread: these times are that one
             continue
         row = db.get_agent_state(con, agent)
         if not _ready(row):
@@ -109,7 +113,7 @@ def _agent(con, agent: str, items: list[dict], log, now: int) -> None:
         askmod.deliver(rid, REQUESTER, agent, body, None,
                        team.Decision(True, "schedule", kind="say", response="fire_and_forget",
                                      creates_gate=False, chain_depth=0))
-        db.set_cursor(con, at, slot)
+        db.set_cursor(con, at, minute)
         db.set_cursor(con, rid_key, rid)
         db.add_event(con, agent, "schedule_fired", {"cron": item["cron"], "request_id": rid})
         log(f"  {agent}: schedule '{item['cron']}' is due - message #{rid} sent")
