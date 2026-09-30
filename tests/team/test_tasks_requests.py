@@ -7522,6 +7522,20 @@ def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited
         check("own and foreign child: the owner is given its own piece, not held on the review",
               db.current_task(con, "worker") == mine and len(db.task_requests(con, mine)) == 1,
               str(db.current_task(con, "worker")))
+        # a draft piece of its own cannot be worked on: it does not lift the wait on the review
+        _board_world(home / "draftpiece")
+        con2 = db.connect()
+        try:
+            ok, msg, p2 = actions.task_new("manager", "worker", "the work", "the work")
+            rev2 = db.new_task(con2, "review", "team.auditor", "worker", parent_task=p2)
+            later = db.new_task(con2, "a finding for later", "worker", "worker", parent_task=p2)
+            db.add_block(con2, p2, rev2)
+            db.add_block(con2, p2, later)
+            check("own DRAFT child: the owner still waits on the review",
+                  (actions.child_wait(con2, "worker") or "").startswith("waiting for T%d" % rev2),
+                  str(actions.child_wait(con2, "worker")))
+        finally:
+            con2.close()
         actions.mark_task_done(con, mine, "worker", reason="done")
         db.set_current_task(con, "worker", p)
         check("own and foreign child: once its piece is done the review is what it waits on",
