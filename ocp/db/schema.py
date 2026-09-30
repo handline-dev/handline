@@ -57,8 +57,8 @@ CREATE TABLE IF NOT EXISTS requests (
   -- be two days apart: a screen that sorts answers by `ts` puts yesterday's
   -- reply above this morning's, which reads as an old message nobody answered.
   resolved_at INTEGER,
-  -- FIFO position within one target's queue - defaults to id, but `--first`
-  -- bisects between two existing orders, so this is REAL, not INTEGER.
+  -- FIFO position within one target's queue - starts as id, and promoting a
+  -- row moves it to a smaller value, so this is REAL, not INTEGER.
   queue_order REAL,
   -- Set once, the first time this request is actually shown to its target
   -- (request #189). NULL is what makes a request still withdrawable/
@@ -492,7 +492,7 @@ def _pre_schema_migrate(con) -> None:
         # above, so the head is its smallest id). The old delivery did show a
         # target every queued row, not just this one, so a row past the head
         # may already have been read; marking it delivered anyway would leave
-        # --first nothing left to land in front of, which matters more.
+        # nothing to promote ahead of it.
         con.execute("""
             UPDATE requests SET delivered_at = ts WHERE state = 'queued' AND id IN (
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target

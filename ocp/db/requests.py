@@ -37,11 +37,9 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
                 verdict: str | None = None, chain_id: str | None = None,
-                first: bool = False, queue_order: float | None = None,
                 fyi: bool = False, timebox_s: int | None = None) -> int:
     """Insert a request. `queue_order`, not `id`, decides FIFO position - see
-    `queued_for`. `first` and `queue_order` are request #189's --first and
-    --replaces.
+    `queued_for`; it starts as the id and only `promote_to_front` moves it.
     """
     # An agent's session cannot verify the routing table it read, so what it
     # writes waits for the daemon's check (`delivery.enforce_edges`) before
@@ -58,22 +56,7 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     if chain_id is None:
         # A request with no parent starts its own chain, named after itself.
         con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
-    order = rid if queue_order is None else queue_order
-    if first and state == "queued":
-        # Midpoint between the last delivered row and the first undelivered
-        # one; queue_order is REAL so there is always room to bisect into.
-        row = con.execute(
-            "SELECT MIN(CASE WHEN delivered_at IS NULL THEN queue_order END) AS ceiling, "
-            "MAX(CASE WHEN delivered_at IS NOT NULL THEN queue_order END) AS floor_ "
-            "FROM requests WHERE target = ? AND state = 'queued'", (target,)).fetchone()
-        ceiling, floor_ = row["ceiling"], row["floor_"]
-        if ceiling is not None and floor_ is not None:
-            order = (float(ceiling) + float(floor_)) / 2
-        elif ceiling is not None:
-            order = float(ceiling) - 1
-        elif floor_ is not None:
-            order = float(floor_) + 1
-    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (order, rid))
+    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (rid, rid))
     return rid
 
 

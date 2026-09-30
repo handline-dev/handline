@@ -220,8 +220,8 @@ def test_one_request_at_a_time(home: Path) -> None:
 
 def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
     """Review of buddyron/one-task-at-a-time: the first version of this
-    migration marked every existing queued row delivered, which left --first
-    nothing to land in front of and sent it to the back of a live queue."""
+    migration marked every existing queued row delivered, so none was left
+    to promote ahead of the rest."""
     import sqlite3
     home.mkdir(parents=True, exist_ok=True)
     p = home / "old.sqlite"
@@ -253,14 +253,6 @@ def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
         check("migration: only the head is marked delivered",
               rows[0]["delivered_at"] is not None and rows[1]["delivered_at"] is None
               and rows[2]["delivered_at"] is None, str([dict(r) for r in rows]))
-
-        # --first now has room to land right after the migrated head, not at
-        # the back of the whole queue.
-        new_id = db.add_request(con, "someone", "keeper", "urgent", None,
-                                "peer", "async", None, 0, None, first=True)
-        order = [r["id"] for r in db.queued_for(con, "keeper")]
-        check("migration: --first lands right after the migrated head",
-              order == [rows[0]["id"], new_id, rows[1]["id"], rows[2]["id"]], str(order))
     finally:
         con.close()
 
