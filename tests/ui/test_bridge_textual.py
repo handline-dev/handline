@@ -698,6 +698,17 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
                            (f"T{held} discarded%stop work%",)).fetchall()
         check("discard: an owner who already holds it (task start) is told to stop, though nothing was delivered",
               ok and len(told) == 1, said)
+        _, _, chat = askmod.ask("reviewer", "look into the retry", requester=actions.HUMAN)
+        askmod.resolve(chat, "on it")
+        db.set_current_task(con, "reviewer", None)      # the earlier tasks of this test held it
+        ok, said, begun = actions.task_begin(con, "reviewer", "retry", chat, "the founder asked")
+        check("discard: a task begun on a founder message is doing with no request open", ok and
+              cp.task_detail(con, begun)["state"] == "doing", said)
+        ok, said = actions.discard_task(con, begun, actions.HUMAN, "no", stop=True)
+        told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
+                           (f"T{begun} discarded%stop work%",)).fetchall()
+        check("discard: and discarding it with stop tells its owner exactly once", ok and len(told) == 1,
+              f"{said} {len(told)}")
     finally:
         con.close()
 

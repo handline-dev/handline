@@ -583,9 +583,9 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
     live = [r for r in db.task_requests(con, tid) if _asks(r)]
-    in_hand = False
+    in_hand = stop and by == HUMAN and (db.current_task(con, row["owner"]) == tid
+                                        or any(r["delivered_at"] for r in live))
     if live and stop and by == HUMAN:
-        in_hand = db.current_task(con, row["owner"]) == tid or any(r["delivered_at"] for r in live)
         cancelled = []
         for r in live:
             ok, said_cancel = askmod.cancel(r["id"])
