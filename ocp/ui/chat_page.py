@@ -595,7 +595,8 @@ class ChatMessage(Vertical):
 # Slash commands of the page itself: name, what it does, the tab it opens.
 PAGE_COMMANDS = (("chat", "My chat", "mine"), ("all", "All chat", "all"), ("task", "Tasks", "tasks"),
                  ("sort", "Sort the tasks", "tasks"), ("settings", "Agent settings", "settings"),
-                 ("back", "Back to the main screen", None))
+                 ("back", "Back to the main screen", None), ("help", "List the commands", "help"),
+                 ("exit", "Quit the bridge", "exit"))
 
 
 MENU_MAX = 8
@@ -605,6 +606,30 @@ VERB_WHAT = {'terminal': 'go to its terminal', 'wake': 'wake it now', 'close': '
 # The home page's agent keys that make sense typed in the agent's own chat: `open` is this page,
 # and `message` and `editor` are the box itself.
 CHAT_VERBS = ('terminal', 'wake', 'close', 'park', 'fold', 'move')
+
+
+def slash_action(body: str) -> tuple | None:
+    """What a box text starting with `/` asks for, never a message to the agent: None when it is
+    not a command line; ("run", name), ("verb", word, arg), ("open", task id), ("sort", column);
+    or ("error", why) for a name nothing answers to or an argument it cannot take."""
+    text = body.strip()
+    if not text.startswith("/"):
+        return None
+    word, _, arg = text[1:].partition(" ")
+    arg = arg.strip()
+    names = {n for n, _, _ in PAGE_COMMANDS}
+    if word in names and (not arg or word not in ("task", "sort")):
+        return ("error", f"/{word} takes no argument") if arg else ("run", word)
+    if word == "task":
+        tid = arg.lstrip("#").lstrip("tT")
+        return ("open", int(tid)) if tid.isdigit() else ("error", "/task needs a task number, like /task 12")
+    if word == "sort":
+        return ("sort", arg) if arg in actions.TASK_SORTS else ("error", "/sort needs a column: " + ", ".join(actions.TASK_SORTS))
+    if word in CHAT_VERBS:
+        return ("error", f"/{word} takes no argument") if arg and word != "move" else ("verb", word, arg)
+    return ("error", f"no command /{word} - /help lists them" if word else "type a command after the /, /help lists them")
+
+
 _REF_TAIL = re.compile(r"(?:^|\s)#(\d*)$")
 
 
@@ -1565,9 +1590,41 @@ class ChatPage(JobsAware, Screen):
     def set_sort(self, column: str) -> None:
         self.query_one("#tasks_view").sort_named(column)
 
+    def run_slash(self, what: tuple) -> None:
+        """A `/` line is a command of the bridge: do it, or say why not and keep the text."""
+        kind = what[0]
+        if kind == "error":
+            self.notify(what[1], severity="error", timeout=6, markup=False)
+            return
+        self.query_one("#compose", ChatBox).text = ""
+        if kind == "run":
+            self.run_command(what[1])
+        elif kind == "verb":
+            self.run_verb(what[1], what[2])
+        elif kind == "open":
+            self.app.push_screen(TaskDetail(what[1]))
+        elif kind == "sort":
+            self.set_sort(what[1])
+            self.query_one("#scope", Tabs).active = "tasks"
+
     def run_command(self, name: str) -> None:
-        """Do the page command `name`: open the tab it names."""
+        """Do the page command `name`: open the tab it names, list the commands, or quit."""
         tab = next(t for n, _, t in PAGE_COMMANDS if n == name)
+        if tab == "help":
+            self.query_one("#compose", ChatBox).text = ""
+            self.notify("\n".join(f"/{n}  {what}" for n, what, _ in PAGE_COMMANDS)
+                        + "\n" + "\n".join(f"/{v}  {VERB_WHAT[v]}" for v in CHAT_VERBS),
+                        title="commands", timeout=15, markup=False)
+            return
+        if tab == "exit":
+            self.query_one("#compose", ChatBox).text = ""
+            if not self.sending:
+                self.app.exit()
+            else:
+                self.app.push_screen(Confirm("Quit the bridge", f"{self.sending} message(s) still being sent.",
+                                             yes="Quit", no="Stay", danger=True),
+                                     lambda yes: yes and self.app.exit())
+            return
         if tab is None:
             self.leave()
             return
@@ -1737,14 +1794,9 @@ class ChatPage(JobsAware, Screen):
             return
         if not body.strip():
             return
-        named = body.strip()[1:] if body.strip().startswith("/") else None
-        if named in {n for n, _, _ in PAGE_COMMANDS}:
-            self.run_command(named)
-            return
-        word, _, arg = (named or "").partition(" ")
-        if word in CHAT_VERBS and (word == "move" or not arg.strip()):   # a refusal is toasted, never sent as a message
-            box.text = ""
-            self.run_verb(word, arg.strip())
+        what = slash_action(body)
+        if what is not None:
+            self.run_slash(what)
             return
         rid = mid_of(self.replying.m) if self.replying else None
         self.start_send(body, rid)
