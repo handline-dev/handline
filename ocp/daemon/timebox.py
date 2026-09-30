@@ -238,9 +238,17 @@ def sweep_background_check(con, log, now: int) -> None:
         text = (f"Background work has been running for {timefmt.ago(now - since)}: {listing or 'something ocp cannot name'}. "
                 f"Stop what you no longer need, and for each one you keep say in a line why. "
                 f"You are asked again in {timefmt.ago(every)} while any runs.")
-        if _tell(con, agent, text, now):
+        # The event goes in before the typing: its id is what separates the turn that ended
+        # before the check from the one that answers it (`delivery.bg_last_shown`).
+        checked = db.add_event(con, agent, "background_checked", {"jobs": len(jobs), "unnamed": unnamed})
+        told = False
+        try:
+            told = _tell(con, agent, text, now)
+        finally:
+            if not told:                    # nothing typed, or the typing raised: no check was asked
+                con.execute("DELETE FROM events WHERE id = ?", (checked,))
+        if told:
             db.set_cursor(con, key, now)
-            db.add_event(con, agent, "background_checked", {"jobs": len(jobs), "unnamed": unnamed, "at": now})
             log(f"  {agent}: background work for {timefmt.ago(now - since)} - asked which to stop")
 
 

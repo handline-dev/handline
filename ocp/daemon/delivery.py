@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import time
 from pathlib import Path
@@ -650,18 +649,20 @@ def bg_last_shown(con, agent: str) -> int | None:
     check: each check asks for an answer, and an agent that gives one every N minutes would
     otherwise never be silent long enough to be told to stop, or to be stale. A check's
     answer turn runs from its typing to the first Stop after it - that turn only."""
-    checks = sorted(int(json.loads(r["payload"] or "{}").get("at", r["ts"])) for r in con.execute(
-        "SELECT ts, payload FROM events WHERE agent = ? AND kind = 'background_checked'", (agent,)))
-    checks = [c for c in checks if c >= (bg_since(con, agent) or 0)]
+    since = bg_since(con, agent) or 0
+    checks = [r["id"] for r in con.execute(
+        "SELECT id FROM events WHERE agent = ? AND kind = 'background_checked' AND ts >= ? ORDER BY id",
+        (agent, since))]
     if not checks:
         return db.last_activity(con, agent)
     marks = ",".join("?" * len(db.AGENT_ACTIVITY_KINDS))
-    rows = con.execute(f"SELECT ts, kind FROM events WHERE agent = ? AND ts >= ? "
-                       f"AND kind IN ({marks}) ORDER BY ts, id",
-                       (agent, checks[0], *db.AGENT_ACTIVITY_KINDS)).fetchall()
-    shown, answering, i = db.last_activity_before(con, agent, checks[0]), False, 0
+    rows = con.execute(f"SELECT id, ts, kind FROM events WHERE agent = ? AND id > ? "
+                       f"AND kind IN ({marks}) ORDER BY id", (agent, checks[0], *db.AGENT_ACTIVITY_KINDS)).fetchall()
+    first = con.execute(f"SELECT MAX(ts) AS t FROM events WHERE agent = ? AND id < ? AND kind IN ({marks})",
+                        (agent, checks[0], *db.AGENT_ACTIVITY_KINDS)).fetchone()["t"]
+    shown, answering, i = (int(first) if first is not None else None), False, 0
     for r in rows:
-        while i < len(checks) and checks[i] <= r["ts"]:
+        while i < len(checks) and checks[i] < r["id"]:      # by event order, not by clock
             answering, i = True, i + 1
         if not answering:
             shown = int(r["ts"])
