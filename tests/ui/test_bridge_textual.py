@@ -1665,6 +1665,22 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
           issubclass(TaskPane, TaskBody) and not [n for n in vars(TaskPane) if n.startswith(("action_", "memo_"))])
 
 
+def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
+    from ocp.ui import chat_page as cp
+    page = cp.ChatPage.__new__(cp.ChatPage)
+    page._blocks_done, page._block_pressing, sent, said = set(), True, [], []
+    page.send_block = lambda bid, kind, choice: sent.append((bid, kind, choice))
+    page.block_result = lambda kind, ok, text: said.append((kind, ok, text))
+    page.block_picked(7, "permission", None, None)
+    page.block_picked(8, "dialog", (1, False), {"number": 1, "always": False})
+    page.block_asked(9, None)
+    page.block_asked(10, (True, "sent"))
+    check("block modals: Esc sends a cancel, a pick sends the pick, a finished question sends nothing more",
+          sent == [(7, "permission", {"cancel": True}), (8, "dialog", {"number": 1, "always": False}),
+                   (9, "question", {"cancel": True})] and said == [("question", True, "sent")], str((sent, said)))
+    check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -1960,6 +1976,7 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
+    test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
     test_the_bridge_stylesheet_parses()
     test_assign_offers_the_holders_team_first()
     test_assign_answers_from_the_task_page()

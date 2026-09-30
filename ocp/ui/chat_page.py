@@ -1414,12 +1414,15 @@ class ChatPage(JobsAware, Screen):
                 bid, "dialog", picked, None if picked is None else {"number": picked[0], "always": picked[1]}))
         self._block_modal = modal
 
-    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
-        """A permission or dialog modal closed: send its pick to the daemon and say what came back."""
-        self._blocks_done.add(block_id)      # closed or answered: not offered again
-        if choice is None:
-            return
+    CANCEL = {"cancel": True}
 
+    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
+        """A permission or dialog modal closed: send its pick to the daemon and say what came back.
+        Esc closes it with no pick, and that is sent as a cancel (Esc in the terminal)."""
+        self._blocks_done.add(block_id)      # closed or answered: not offered again
+        self.send_block(block_id, kind, choice or self.CANCEL)
+
+    def send_block(self, block_id: int, kind: str, choice: dict) -> None:
         def press() -> None:
             ok, said = actions.request_block_answer(block_id, choice)
             self.app.call_from_thread(self.block_result, kind, ok, said)
@@ -1428,7 +1431,9 @@ class ChatPage(JobsAware, Screen):
     def block_asked(self, block_id: int, result: "tuple[bool, str] | None") -> None:
         self._blocks_done.add(block_id)
         self._block_pressing = False
-        if result is not None:      # None: closed by hand before anything was sent
+        if result is None:      # Esc before anything was sent: a cancel
+            self.send_block(block_id, "question", self.CANCEL)
+        else:
             self.block_result("question", *result)
 
     def block_result(self, kind: str, ok: bool, said: str) -> None:
