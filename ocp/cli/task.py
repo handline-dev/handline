@@ -511,6 +511,7 @@ def cmd_task_edit(args) -> int:
         try:
             if actions.advance_current_task(con, unblocked_owner):
                 askmod.push(con, unblocked_owner)
+            actions.self_close(con, args.task)      # a done child held only by that blocker
         finally:
             con.close()
     return 0 if ok else 1
