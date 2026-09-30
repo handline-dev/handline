@@ -18,7 +18,7 @@ from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
 from ...infra import paths, textsafe
-from ..chat_page import TaskPane, TaskTable
+from ..chat_page import TaskBody, TaskPane, TaskTable
 from .action_bar import ActionBar
 from .table_sync import sync_rows
 from .confirm import Confirm
@@ -102,6 +102,10 @@ def title_room(width: int, others: list[int]) -> int:
     return max(width - sum(w + 2 for w in others) - 4, MIN_TITLE)
 
 
+# What a list shows when it opens: done tasks are out of the way until asked for.
+LISTED = tuple(st for st in actions.OPEN_STATES if st != "done")
+
+
 class _StateList(SelectionList):
     """Enter applies the picker instead of toggling the row; space toggles."""
 
@@ -178,18 +182,17 @@ class TasksView(Vertical):
     HEADS = (("", "mark"), ("#", "number"), ("P", "priority"), ("state", "state"), ("title", "title"),
              ("owner", "owner"), ("idle", "idle"), ("asker", "closer"), ("blocked by", "blocked"))
 
-    def __init__(self, mine: bool = False, back: bool = False, states: set[str] | None = None,
+    def __init__(self, mine: bool = False, states: set[str] | None = None,
                  closer: str | None = None, agent: str | None = None, **kw) -> None:
         super().__init__(**kw)
         self.agent = agent
         self.mine = mine
         self.closer = closer
-        self.back = back
         self.checked: set[int] = set()
         self.by = "priority"
         self.rev = False
         self.as_tree = load_view()
-        self.states: set[str] = set(states or actions.OPEN_STATES)
+        self.states: set[str] = set(states or LISTED)
         self.owner: str | None = None
         self.owners: list[str] = []
         self.rows: list[dict] = []
@@ -222,7 +225,7 @@ class TasksView(Vertical):
         if pane.fit(self.size.width, self.table):
             pane.show(self.rows[self.cur]["id"] if self.cur < len(self.rows) else None)
 
-    def on_task_pane_changed(self, event: TaskPane.Changed) -> None:
+    def on_task_body_changed(self, event: TaskBody.Changed) -> None:
         event.stop()
         self.refresh_rows()
 
@@ -354,8 +357,8 @@ class TasksView(Vertical):
     def _state_label(self) -> str:
         if self.states == set(actions.TASK_STATES):
             return "all states"
-        if self.states == set(actions.OPEN_STATES):
-            return "open"
+        if self.states == set(LISTED):
+            return "not done"
         return ",".join(st for st in actions.TASK_STATES if st in self.states) or "no state"
 
     def _sync_filters(self) -> None:
@@ -437,8 +440,7 @@ class TasksView(Vertical):
         self.refresh_rows()
 
     def _keys(self) -> list[Key]:
-        keys = [k for k in self.KEYS if not (self.agent and k.key == "f")]
-        return [*keys, *([Key("esc", "back", 1, "back")] if self.back else [])]
+        return [k for k in self.KEYS if not (self.agent and k.key == "f")]
 
     def action_key_help(self) -> None:
         self.app.push_screen(KeyHelp("MY TASKS keys" if self.mine else "TASKS keys", self._keys()))

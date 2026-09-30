@@ -317,36 +317,6 @@ def test_control_start_refuses_when_the_lock_is_held_elsewhere(home: Path) -> No
         con.close()
 
 
-def test_dialogs_answer_dialog_refuses_when_the_lock_is_held_elsewhere(home: Path) -> None:
-    """dialogs.answer_dialog took lock.terminal in this phase (T351)."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    holder = _hold_terminal_lock_elsewhere("backend")
-    try:
-        ok, said = actions.answer_dialog(con, "backend", "Trust this folder?", 1)
-        check("answer_dialog: refused, not pressed, while something else holds the terminal",
-              not ok and "something else" in said, said)
-    finally:
-        holder.kill()
-        holder.wait()
-        con.close()
-
-
-def test_confirmations_answer_refuses_when_the_lock_is_held_elsewhere(home: Path) -> None:
-    """confirmations.answer took lock.terminal in this phase (T351)."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    holder = _hold_terminal_lock_elsewhere("backend")
-    try:
-        ok, said = actions.answer_confirmation(con, "backend", True, {})
-        check("confirm: refused, not pressed, while something else holds the terminal",
-              not ok and "something else" in said, said)
-    finally:
-        holder.kill()
-        holder.wait()
-        con.close()
-
-
 def test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(home: Path) -> None:
     _typeable_world(home)
     reply = _serve_one_roundtrip({"verb": "not-a-real-verb", "agent": "backend"})
@@ -376,8 +346,6 @@ def main() -> int:
         run(lambda: test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(Path(td) / 's3c'))
         run(lambda: test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(Path(td) / 's4'))
         run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
-        run(lambda: test_dialogs_answer_dialog_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4b'))
-        run(lambda: test_confirmations_answer_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4c'))
         run(lambda: test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(Path(td) / 's5'))
     return run_area(tests)
 

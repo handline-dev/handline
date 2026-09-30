@@ -36,7 +36,6 @@ from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
 from .stats import StatsScreen
-from .tasks import TasksScreen
 
 DOUBLE_PRESS_S = 0.5     # two presses on one row this close are a double press
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": tui.MESSAGES}
@@ -138,6 +137,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._answers: list[dict] = []
         self._removing = AnswerMarks()      # answers marked for removal; Save removes them
         self._checks_shown = False      # the Tasks tab is showing a header link's view now
+        self._focus_tab = False         # the tab being opened takes the focus into its content
         self._checks: str | None = None  # the next Tasks tab opens on "delegated"
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
@@ -213,6 +213,9 @@ class HomePage(RowActions, JobsAware, Screen):
             else:
                 view.refresh_rows()
             self._checks_shown, self._checks = bool(self._checks), None
+            if self._focus_tab:
+                self._enter_tab()
+            self._focus_tab = False
         if self.tab == "stats":
             self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
@@ -577,8 +580,13 @@ class HomePage(RowActions, JobsAware, Screen):
         if k == "S":     # T65b: token use per agent and account
             self.app.push_screen(StatsScreen())
             return
-        if k == "T":     # T69: every open task - free on every panel
-            self.app.push_screen(TasksScreen())
+        if k == "T":     # every open task: the Tasks tab, free on every panel
+            tabs = self.query_one("#scope", Tabs)
+            if tabs.active == "tasks":
+                self._enter_tab()
+            else:
+                self._focus_tab = True      # the table takes the keys once the tab is shown, as the tasks screen did
+                tabs.active = "tasks"
             return
         if k in tui.NEXT_ROW and self._on_bottom_row():
             return      # the last row is the end: ↓ does not wrap round to the top

@@ -121,6 +121,53 @@ def _with_task_state(con, rows) -> list[dict]:
     return out
 
 
+# The task events that move a task to a state; the state `doing` is not stored, so the two
+# events that put a task in its owner's hands stand for it.
+_STATE_AFTER = {"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing",
+                "mark_task_done": "done", "close_task": "closed", "discard_task": "discarded",
+                "reopen_task": "queued"}
+
+
+def task_changes(con, msgs: list[dict]) -> list[dict]:
+    """The state changes, since the first of `msgs`, of the tasks delivered in them, as entries for
+    the chat: {change: "queued -> doing", tasks, task_title, when}. A task starts as queued."""
+    cards = {m["tasks"][0]: m["task_title"] for m in msgs if is_card(m)}
+    if not cards:
+        return []
+    since = min((m["when"] for m in msgs if m["when"]), default=0)
+    marks = ",".join("?" * len(cards))
+    kinds = tuple(_STATE_AFTER)
+    events = con.execute(
+        f"SELECT ts, kind, {db.EVENT_TASK} AS tid FROM events WHERE kind IN ({','.join('?' * len(kinds))}) "
+        f"AND {db.EVENT_TASK} IN ({marks}) ORDER BY id", (*kinds, *cards)).fetchall()
+    steps = [(e["ts"], e["tid"], _STATE_AFTER[e["kind"]]) for e in events]
+    for m in msgs:      # every delivery leaves when the task reached its owner, which is when it became doing
+        if is_card(m) and m["landing"] == "delivered" and m["when"]:
+            steps.append((m["when"], m["tasks"][0], "doing"))
+    state: dict[int, str] = {}
+    out = []
+    for ts, tid, after in sorted(steps, key=lambda step: step[0]):
+        before = state.get(tid, "queued")
+        state[tid] = after
+        if before != after and ts >= since:
+            out.append({"change": f"{before} -> {after}", "tasks": [tid], "task_title": cards[tid], "when": ts})
+    return out
+
+
+def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
+    """The messages with each change of a task set among them at its time; a message still waiting to
+    go stays last."""
+    sent = [m for m in msgs if not m["unread"]]
+    waiting = [m for m in msgs if m["unread"]]
+    out: list[dict] = []
+    later = sorted(changes, key=lambda c: c["when"])
+    for m in sent:
+        while later and later[0]["when"] < (m["when"] or 0):
+            out.append(later.pop(0))
+        out.append(m)
+    return out + later + waiting
+
+
 def signature(con, agent: str, everyone: bool) -> tuple:
     """A cheap reading that changes whenever something in the chat does: a new
     request, or a request answered, closed or changed."""
@@ -131,7 +178,9 @@ def signature(con, agent: str, everyone: bool) -> tuple:
         "COUNT(landed_at), COALESCE(MAX(typed_at), 0), COALESCE(SUM(landing_tries), 0), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
         params).fetchone()
-    return tuple(row)
+    events = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM events WHERE kind IN "
+                         f"({','.join('?' * len(_STATE_AFTER))})", tuple(_STATE_AFTER)).fetchone()
+    return (*row, *events)
 
 
 def _col(r, name: str):
@@ -245,7 +294,10 @@ def task_detail(con, tid: int) -> dict | None:
         reqs.append((r["id"], r["requester"], r["target"], r["state"],
                      body.splitlines()[0] if body else ""))
     parent = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
-    return {"id": tid, "title": t["title"], "state": state, "owner": t["owner"],
+    brief = ((db.task_requests(con, tid) or [{"body": ""}])[0]["body"] or "").strip()
+    if brief.split("\n", 1)[0].strip() == t["title"].strip():
+        brief = brief.split("\n", 1)[1].strip("\n") if "\n" in brief else ""      # the title is drawn above
+    return {"id": tid, "title": t["title"], "brief": brief, "state": state, "owner": t["owner"],
             "opened_by": t["opened_by"], "created_at": t["created_at"],
             "parent": (t["parent_task"], parent["title"]) if parent else None,
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
@@ -416,16 +468,19 @@ def is_card(m: dict) -> bool:
     return m.get("part") == 0 and m.get("kind") == "task" and bool(m.get("tasks"))
 
 
-def card_top(m: dict) -> tuple[Text, Text]:
-    """The card's top line (TASK T<n> and its state) and its bold title; both open the task."""
+def card_lines(m: dict) -> Text:
+    """A task in the chat, as little as it takes: the time, TASK T<n> and the title on one line (cut
+    to the room, and a click opens the task), then, for a change of state, the change alone."""
     tid = m["tasks"][0]
-    go = Style(meta={"@click": f"screen.open_task({tid})"})
-    st = m.get("task_state") or ""
-    top = Text("TASK ", style="dim")
-    top.append(actions.task_ref(tid), style=Style(bold=True, underline=True, meta=go.meta))
-    if st:
-        top.append(f"  {safe(st)} ", style=STATE_STYLE.get(st, ""))
-    return top, Text(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go.meta))
+    go = {"@click": f"screen.open_task({tid})"}
+    stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m.get("when") else ""
+    out = Text(f"{stamp} TASK ", style="dim", no_wrap=True, overflow="ellipsis")
+    out.append(actions.task_ref(tid), style=Style(bold=True, underline=True, meta=go))
+    out.append(" : ", style="dim")
+    out.append(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go))
+    if m.get("change"):
+        out.append("\n  " + m["change"], style=STATE_STYLE.get(m["change"].rsplit(" ", 1)[-1], ""))
+    return out
 
 
 def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dict | None = None) -> Text:
@@ -435,11 +490,7 @@ def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dic
     head, body, note = message_parts(m)
     out = Text()
     if is_card(m):
-        top, title = card_top(m)
-        out.append_text(top)
-        out.append("\n")
-        out.append_text(title)
-        out.append("\n")
+        return card_lines(m)
     if head_shown:
         head = head.copy()
         colour = (colors or {}).get({"them": "success", "other": "text-muted"}.get(side, ""), "")
@@ -494,7 +545,7 @@ def task_page(d: dict) -> dict:
     """What a task's page draws, as safe `Text`: title, badge, the facts, the
     sub-tasks (each a link that opens it) and the requests."""
     def link(tid: int, label: str) -> Text:
-        return Text(label, style=Style(underline=True, meta={"@click": f"screen.open_task({tid})"}))
+        return Text(label, style=Style(underline=True, meta={"@click": f"open_task({tid})"}))
 
     def when(ts) -> Text:
         return Text(timefmt.stamp(ts, timefmt.DATE_TIME) if ts else "", style="dim")
@@ -523,11 +574,20 @@ def task_page(d: dict) -> dict:
     badge.append(f"   {actions.task_ref(d['id'])}", style="dim")
     return {
         "title": Text(safe(d["title"]), style="bold"), "badge": badge, "meta": meta,
+        "brief": Text(safe_block(d["brief"])) if d.get("brief") else Text(),
         "kids": [Text.assemble(link(i, f"{actions.task_ref(i)}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
                                link(i, safe(title))) for i, title, st in d["children"]],
         "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
                  for i, a, b, st, line in d["requests"]],
         "timeline": [timeline_text(e) for e in d["timeline"]]}
+
+
+class TaskChange(Static):
+    """A task's change of state, set among the messages at the time it happened."""
+
+    def __init__(self, m: dict) -> None:
+        super().__init__(card_lines(m), classes="msg card change")
+        self.m = m
 
 
 class WorkLine(Static):
@@ -564,6 +624,9 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     out: list = []
     first = True
     for m in msgs:
+        if "change" in m:
+            out.append(TaskChange(m))
+            continue
         out.append(ChatMessage(m, working, why if m["unread"] and first else ""))
         first = first and not m["unread"]
     out.append(WorkLine(working, wait=wait))
@@ -717,14 +780,24 @@ def log_action(what: str) -> None:
         pass
 
 
-def load_history() -> list[str]:
-    """What was typed and sent, oldest first. A missing or unreadable file is
-    an empty history, never an error."""
+def _history_file_data() -> "list | dict | None":
     try:
-        data = json.loads(history_file().read_text())
+        return json.loads(history_file().read_text())
     except (OSError, ValueError):
-        return []
+        return None
+
+
+def _strings(data) -> list[str]:
     return [x for x in data if isinstance(x, str)][-HISTORY_MAX:] if isinstance(data, list) else []
+
+
+def load_history(room: str) -> list[str]:
+    """What was typed and sent in `room` (an agent's chat), oldest first, at most HISTORY_MAX. The
+    one shared list the file held before rooms were kept apart is not read. A missing or
+    unreadable file is an empty history, never an error."""
+    data = _history_file_data()
+    rooms = data.get("rooms") if isinstance(data, dict) else None
+    return _strings(rooms.get(room) if isinstance(rooms, dict) else None)
 
 
 def remember(history: list[str], text: str) -> list[str]:
@@ -736,10 +809,13 @@ def remember(history: list[str], text: str) -> list[str]:
     return ([h for h in history if h != text] + [text])[-HISTORY_MAX:]
 
 
-def save_history(history: list[str]) -> None:
+def save_history(room: str, history: list[str]) -> None:
+    """`room`'s history, keeping every other room's."""
+    data = _history_file_data()
+    rooms = data.get("rooms") if isinstance(data, dict) and isinstance(data.get("rooms"), dict) else {}
     try:
         history_file().parent.mkdir(parents=True, exist_ok=True)
-        history_file().write_text(json.dumps(history, ensure_ascii=False))
+        history_file().write_text(json.dumps({"rooms": {**rooms, room: history}}, ensure_ascii=False))
     except OSError:
         pass
 
@@ -985,129 +1061,74 @@ class TaskActions:
         self.app.push_screen(TextPrompt("stop it and discard - why?" if doing else "discard - why?"), answered)
 
 
-class TaskPane(TaskActions, Vertical):
-    """The task under the cursor, beside a table when the terminal is wide: what its page
-    (`chat_page.task_page`) says, the sub-tasks without links."""
+class TaskText(Static):
+    """A `Static` on a task's page whose links open another task's page, wherever the page is."""
 
-    WIDE = 130
-    WIDTH = 50
-    DEFAULT_CSS = f"""
-    TaskPane {{ width: {WIDTH}; height: 100%; padding: 0 1; border-left: solid $primary; }}
-    TaskPane #pane_scroll {{ height: 1fr; }}
-    TaskPane #pane_foot {{ dock: bottom; height: auto; }}
-    TaskPane #pane_buttons {{ height: 1; }}
+    def action_open_task(self, tid: int) -> None:
+        self.app.push_screen(TaskDetail(tid))
+
+
+class TaskBody(TaskActions, Vertical):
+    """One task as the human sees it: title, state, the facts, sub-tasks, requests, the timeline
+    with a memo box, and the calls on it. The task page and the side view of the task list are
+    both this, so what one can do the other can. `show(tid)` draws a task; the host redraws
+    its own lists when `Changed` arrives."""
+
+    DEFAULT_CSS = """
+    TaskBody { height: 1fr; }
+    TaskBody #detail_pane { height: 1fr; padding: 1 3; }
+    TaskBody .tl_row { height: 1; }
+    TaskBody .tl_text { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    TaskBody .tl_icon { width: 3; min-width: 0; margin-left: 1; }
+    TaskBody #t_memo_new { height: 1; margin-top: 1; }
+    TaskBody #t_memo_box { width: 1fr; }
+    TaskBody #t_memo_new Button { width: auto; min-width: 0; margin-left: 1; }
+    TaskBody #t_title { text-style: bold; padding-bottom: 1; }
+    TaskBody #t_badge, TaskBody #t_meta { padding-bottom: 1; }
+    TaskBody .section { padding-top: 1; border-top: solid $primary-darken-1; margin-top: 1; height: auto; }
     """
 
     class Changed(Message):
-        """An action changed the task: the host redraws its table."""
+        """An action changed the task: the host redraws what it lists."""
 
-    def __init__(self, **kw) -> None:
+    def __init__(self, tid: int = 0, keys: bool = False, **kw) -> None:
         super().__init__(**kw)
-        self.tid = 0
-        self.d = None
-
-    def fit(self, width: int, table: "TaskTable") -> bool:
-        """Show beside `table` when `width` allows; then a click on a row only moves the
-        cursor, and the pane says what is under it."""
-        wide = width >= self.WIDE
-        self.display = wide
-        table.click_selects = not wide
-        return wide
-
-    def compose(self) -> ComposeResult:
-        with VerticalScroll(id="pane_scroll"):
-            yield Static(id="pane_text")
-        with Vertical(id="pane_foot"):
-            with Horizontal(id="pane_buttons"):
-                yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
-                yield Button("Discard", id="pane_discard", variant="error", compact=True)
-
-    def redraw(self) -> None:
-        self.show(self.tid)
-        self.post_message(self.Changed())
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        event.stop()
-        {"pane_reopen": self.action_reopen_task,
-         "pane_discard": self.action_discard_task}[event.button.id]()
-
-    def show(self, tid: int | None) -> None:
-        text = self.query_one("#pane_text", Static)
-        self.tid = tid or 0
-        self.d = None
-        for name in ("reopen", "discard"):
-            self.query_one(f"#pane_{name}", Button).disabled = True
-        if tid is None:
-            text.update(Text("no task", style="dim"))
-            return
-        con = db.connect()
-        try:
-            d = task_detail(con, tid)
-        finally:
-            con.close()
-        if d is None:
-            text.update(Text(f"task {actions.task_ref(tid)} is gone", style="dim"))
-            return
-        self.d = d
-        for name in ("reopen", "discard"):
-            self.query_one(f"#pane_{name}", Button).disabled = not d[f"can_{name}"]
-        page = task_page(d)
-        out = Text()
-        for part in (page["title"], page["badge"]):
-            out.append_text(part)
-            out.append("\n")
-        out.append("\n")
-        out.append_text(page["meta"])
-        for title, lines in (("Sub-tasks", [Text(f"{actions.task_ref(i)}  {st}  {t}")
-                                            for i, t, st in d["children"]]), ("Requests", page["reqs"])):
-            out.append(f"\n{title}", style="bold")
-            out.append(f"  {len(lines)}\n", style="dim")
-            for line in lines or [Text("none", style="dim")]:
-                out.append("  ")
-                out.append_text(line)
-                out.append("\n")
-        text.update(out)
-
-
-class TaskDetail(TaskActions, Screen):
-    """One task: its title and state, who has it, what it grew out of, its
-    sub-tasks and requests, and the calls the human may make on it - send
-    a done task back with a reason, or discard one nothing is running on."""
-    BINDINGS = [Binding("escape", "app.pop_screen", "back"),
-                Binding("r", "reopen_task", "reopen"),
-                Binding("a", "assign_task", "assign"),
-                Binding("d", "discard_task", "discard")]
-
-    def __init__(self, tid: int) -> None:
-        super().__init__(classes="chat_page")
         self.tid = tid
         self.d: dict | None = None
+        self.keys = keys          # the buttons name their keys: the host binds them
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with Horizontal(id="t_top"):
-            yield Button("‹ Back", id="back", compact=True)
+        def label(word: str, key: str) -> str:
+            return f"{word}  {key}" if self.keys else word
         with VerticalScroll(id="detail_pane"):
-            yield Static(id="t_title")
-            yield Static(id="t_badge")
-            yield Static(id="t_meta")
-            yield Static(id="t_kids", classes="section")
-            yield Static(id="t_reqs", classes="section")
+            yield TaskText(id="t_title")
+            yield TaskText(id="t_badge")
+            yield TaskText(id="t_brief")
+            yield TaskText(id="t_meta")
+            yield TaskText(id="t_kids", classes="section")
+            yield TaskText(id="t_reqs", classes="section")
             yield Static(id="t_memo_head", classes="section")
             yield Vertical(id="t_memos")
             with Horizontal(id="t_memo_new"):
                 yield ImeInput(id="t_memo_box", compact=True, placeholder="a memo on this task")
                 yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
-            yield Button("Assign  a", id="assign", variant="primary", compact=True)
-            yield Button("Reopen  r", id="reopen", variant="warning", compact=True)
-            yield Button("Discard  d", id="discard", variant="error", compact=True)
+            yield Button(label("Assign", "a"), id="assign", variant="primary", compact=True)
+            yield Button(label("Reopen", "r"), id="reopen", variant="warning", compact=True)
+            yield Button(label("Discard", "d"), id="discard", variant="error", compact=True)
 
     def on_mount(self) -> None:
-        self.sub_title = f"task {actions.task_ref(self.tid)}"
+        self.load()
+
+    def show(self, tid: int | None) -> None:
+        self.tid = tid or 0
         self.load()
 
     def load(self) -> None:
+        self.d = None
+        if not self.tid:
+            self._blank("no task")
+            return
         con = db.connect()
         try:
             self.d = task_detail(con, self.tid)
@@ -1115,18 +1136,29 @@ class TaskDetail(TaskActions, Screen):
             con.close()
         d = self.d
         if d is None:
-            self.query_one("#t_title", Static).update(f"task {actions.task_ref(self.tid)} is gone")
+            self._blank(f"task {actions.task_ref(self.tid)} is gone")
             return
         page = task_page(d)
         self.query_one("#t_title", Static).update(page["title"])
         self.query_one("#t_badge", Static).update(page["badge"])
+        brief = self.query_one("#t_brief", Static)
+        brief.update(page["brief"])
+        brief.display = bool(page["brief"].plain)
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
         self.draw_memos(page["timeline"])
-        self.query_one("#assign", Button).disabled = not d["can_assign"]
-        self.query_one("#reopen", Button).disabled = not d["can_reopen"]
-        self.query_one("#discard", Button).disabled = not d["can_discard"]
+        for name in ("assign", "reopen", "discard"):
+            self.query_one(f"#{name}", Button).disabled = not d[f"can_{name}"]
+
+    def _blank(self, said: str) -> None:
+        self.query_one("#t_title", Static).update(Text(said, style="dim"))
+        for name in ("badge", "brief", "meta", "kids", "reqs", "memo_head"):
+            self.query_one(f"#t_{name}", Static).update("")
+        self.query_one("#t_brief", Static).display = False
+        self.query_one("#t_memos", Vertical).remove_children()
+        for name in ("assign", "reopen", "discard"):
+            self.query_one(f"#{name}", Button).disabled = True
 
     def draw_memos(self, texts: list[Text]) -> None:
         """The timeline: a line each, and a memo's own line ends in edit and delete icons."""
@@ -1177,9 +1209,6 @@ class TaskDetail(TaskActions, Screen):
             con.close()
         self.report(f"memo {verb}", ok, said)
 
-    def action_open_task(self, tid: int) -> None:
-        self.app.push_screen(TaskDetail(tid))
-
     @staticmethod
     def _section(title: str, lines: list[Text]) -> Text:
         out = Text(title, style="bold")
@@ -1192,16 +1221,82 @@ class TaskDetail(TaskActions, Screen):
 
     def redraw(self) -> None:
         self.load()
+        self.post_message(self.Changed())
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        event.stop()
         bid = event.button.id or ""
         if bid[:3] in ("me_", "md_") and bid[3:].isdigit():
+            event.stop()
             (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
             return
-        {"memo_add": self.action_memo_add, "assign": self.action_assign_task,
-         "reopen": self.action_reopen_task, "discard": self.action_discard_task,
-         "back": self.app.pop_screen}[event.button.id]()
+        call = {"memo_add": self.action_memo_add, "assign": self.action_assign_task,
+                "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
+        if call:
+            event.stop()
+            call()
+
+
+class TaskPane(TaskBody):
+    """The task under the cursor, beside a table when the terminal is wide."""
+
+    WIDE = 130
+    WIDTH = 50
+    DEFAULT_CSS = f"""
+    TaskPane {{ width: {WIDTH}; height: 100%; border-left: solid $primary; }}
+    TaskPane #detail_pane {{ padding: 0 1; }}
+    TaskPane #t_actions {{ padding: 0 1; margin-bottom: 0; }}
+    TaskPane #t_actions Button {{ margin-right: 1; }}
+    """
+
+    def fit(self, width: int, table: "TaskTable") -> bool:
+        """Show beside `table` when `width` allows; then a click on a row only moves the
+        cursor, and the pane says what is under it."""
+        wide = width >= self.WIDE
+        self.display = wide
+        table.click_selects = not wide
+        return wide
+
+
+class TaskDetail(Screen):
+    """One task's page: the shared `TaskBody` under a Back button, with a key for each call the
+    human may make on it."""
+    BINDINGS = [Binding("escape", "app.pop_screen", "back"),
+                Binding("r", "reopen_task", "reopen"),
+                Binding("a", "assign_task", "assign"),
+                Binding("d", "discard_task", "discard")]
+
+    def __init__(self, tid: int) -> None:
+        super().__init__(classes="chat_page")
+        self.tid = tid
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Horizontal(id="t_top"):
+            yield Button("‹ Back", id="back", compact=True)
+        yield TaskBody(self.tid, keys=True, id="task_body")
+
+    def on_mount(self) -> None:
+        self.sub_title = f"task {actions.task_ref(self.tid)}"
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "back":
+            event.stop()
+            self.app.pop_screen()
+
+    def action_open_task(self, tid: int) -> None:
+        self.app.push_screen(TaskDetail(tid))
+
+    def _body(self) -> TaskBody:
+        return self.query_one(TaskBody)
+
+    def action_reopen_task(self) -> None:
+        self._body().action_reopen_task()
+
+    def action_assign_task(self) -> None:
+        self._body().action_assign_task()
+
+    def action_discard_task(self) -> None:
+        self._body().action_discard_task()
 
 
 class ChatPage(JobsAware, Screen):
@@ -1223,7 +1318,7 @@ class ChatPage(JobsAware, Screen):
         self.tasks_pool: list[tuple] = []     # what `#` and `/task` can offer
         self.requests_pool: list[tuple] = []
         self.suggestions: list[Suggestion] = []
-        self.history = load_history()
+        self.history = load_history(self.agent)
         self.hist_pos: int | None = None    # entry Up/Down has recalled, None when typing fresh
         self.hist_draft = ""                # what was in the box before the first Up
         self._recalling = False
@@ -1371,12 +1466,15 @@ class ChatPage(JobsAware, Screen):
                 bid, "dialog", picked, None if picked is None else {"number": picked[0], "always": picked[1]}))
         self._block_modal = modal
 
-    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
-        """A permission or dialog modal closed: send its pick to the daemon and say what came back."""
-        self._blocks_done.add(block_id)      # closed or answered: not offered again
-        if choice is None:
-            return
+    CANCEL = {"cancel": True}
 
+    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
+        """A permission or dialog modal closed: send its pick to the daemon and say what came back.
+        Esc closes it with no pick, and that is sent as a cancel (Esc in the terminal)."""
+        self._blocks_done.add(block_id)      # closed or answered: not offered again
+        self.send_block(block_id, kind, choice or self.CANCEL)
+
+    def send_block(self, block_id: int, kind: str, choice: dict) -> None:
         def press() -> None:
             ok, said = actions.request_block_answer(block_id, choice)
             self.app.call_from_thread(self.block_result, kind, ok, said)
@@ -1385,7 +1483,9 @@ class ChatPage(JobsAware, Screen):
     def block_asked(self, block_id: int, result: "tuple[bool, str] | None") -> None:
         self._blocks_done.add(block_id)
         self._block_pressing = False
-        if result is not None:      # None: closed by hand before anything was sent
+        if result is None:      # Esc before anything was sent: a cancel
+            self.send_block(block_id, "question", self.CANCEL)
+        else:
             self.block_result("question", *result)
 
     def block_result(self, kind: str, ok: bool, said: str) -> None:
@@ -1466,13 +1566,14 @@ class ChatPage(JobsAware, Screen):
         con = db.connect()
         try:
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
+            changes = task_changes(con, msgs)
         finally:
             con.close()
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
         key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
                       r["landing_tries"], r["dismissed_by"])
-                     for r in rows))
+                     for r in rows), tuple((c["tasks"][0], c["when"], c["change"]) for c in changes))
         live = (state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:
             if live != self._live:      # only the spinner, the wait or a reason: redraw those, not the chat
@@ -1489,7 +1590,7 @@ class ChatPage(JobsAware, Screen):
         pane = self.query_one("#transcript", VerticalScroll)
         at_bottom = pane.is_vertical_scroll_end
         pane.remove_children()
-        widgets = transcript_widgets(msgs, state == "RUNNING", why, wait)
+        widgets = transcript_widgets(with_task_changes(msgs, changes), state == "RUNNING", why, wait)
         pane.mount(*widgets)
         if at_bottom:
             pane.anchor()       # stays at its end as the new messages are laid out, until the reader scrolls
@@ -1964,7 +2065,7 @@ class ChatPage(JobsAware, Screen):
         worker answers; a refusal puts the text back in the box."""
         box = self.query_one("#compose", ChatBox)
         self.history = remember(self.history, body)
-        save_history(self.history)
+        save_history(self.agent, self.history)
         self.hist_pos, self.history_mode = None, False
         box.text = ""
         self.reply_to(None)

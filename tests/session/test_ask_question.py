@@ -72,6 +72,14 @@ PERMISSION_PROMPT = ["earlier output", RULE, "   Bash command", "     rm -rf bui
                      "   Esc to cancel · Tab to amend"]
 
 
+def _pending(con, agent: str = "backend"):
+    """What `ask_question._as_dict` makes of the question the agent's screen shows now, with its hook record."""
+    row = db.get_agent_state(con, agent)
+    handle = row["terminal"] if row and row["terminal"] and not row["closed_at"] else None
+    q = orcamod.question_on_screen(handle) if handle else None
+    return ask_question._as_dict(agent, q, waiting.read(agent)) if q else None
+
+
 def test_the_claude_adapter_recognizes_the_askuserquestion_prompt(home: Path) -> None:
     drv = Claude()
     q = drv.ask_question(SINGLE_DEFAULT)
@@ -234,33 +242,6 @@ def test_answer_question_sends_the_keys_and_confirms_it_cleared(home: Path) -> N
           not term.sent and out[0] == orcamod.NOT_PRESSED, str(out))
 
 
-def test_a_pending_question_is_listed_and_answered_through_actions(home: Path) -> None:
-    orcamod.PRESS_SETTLE_S = 0
-    _daemon_home(home, 20)
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.RUNNING)
-        check("pending: none without a hook record naming AskUserQuestion",
-              ask_question.pending_all(con) == [])
-        waiting.note("backend", "AskUserQuestion", {"questions": [{"header": "Library"}]}, 7)
-        term = _Term(SINGLE_DEFAULT)
-        found = ask_question.pending_all(con)
-        check("pending: listed once the hook says the agent waits on AskUserQuestion",
-              len(found) == 1 and found[0]["header"] == "Library"
-              and [o["label"] for o in found[0]["options"]] == ["date-fns", "dayjs", "luxon"], str(found))
-        check("pending: the actions package exposes it for the UI",
-              actions.pending_questions(con) == found and actions.pending_question(con, "backend") == found[0])
-
-        ok, said = ask_question.answer(con, "backend", found[0], choices=(0,))
-        check("answer: the founder's pick reaches the terminal and is confirmed",
-              ok and term.sent == [("1", False)], str((ok, said, term.sent)))
-    finally:
-        con.close()
-
-
 def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: Path) -> None:
     _daemon_home(home, 20)
     orcamod.available = lambda: True
@@ -276,7 +257,7 @@ def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: 
                                                 {"label": "dayjs", "description": ""},
                                                 {"label": "luxon", "description": ""}],
                                     "multiSelect": False}]}, 7)
-        found = ask_question.pending(con, "backend")
+        found = _pending(con)
         check("pending: question_data's own words are shown when its shape still matches the screen",
               found["header"] == "Dates" and found["question"] == "Pick a date library"
               and found["options"][0]["description"] == "the one to use", str(found))
@@ -284,7 +265,7 @@ def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: 
         waiting.note("backend", "AskUserQuestion",
                      {"questions": [{"header": "Stale", "question": "a question already answered",
                                     "options": [{"label": "X"}, {"label": "Y"}], "multiSelect": False}]}, 8)
-        found = ask_question.pending(con, "backend")
+        found = _pending(con)
         check("pending: a stale question_data (wrong option count) falls back to the screen's own words",
               found["header"] == "Library" and [o["label"] for o in found["options"]]
               == ["date-fns", "dayjs", "luxon"], str(found))
@@ -292,11 +273,9 @@ def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: 
         con.close()
 
 
-def test_a_permission_prompt_the_screen_shows_wins_over_a_question_reading(home: Path) -> None:
-    """T336, founder #1977: a live screen where both detectors agreed on a
-    plain Bash permission prompt showed both modals for it. `pending` now
-    defers to `confirmations.pending` whenever the same terminal is also a
-    recognized permission prompt, whatever the AskUserQuestion reading says."""
+def test_a_screen_two_recognizers_accept_is_one_prompt_and_the_permission_one(home: Path) -> None:
+    """T336 (founder #1977): a screen both the permission and the question recognizer accepted showed
+    both modals. `orca.prompt_on_screen` reads one prompt, and a permission prompt outranks a question."""
     from ocp.vendors.base import Confirmation
     _daemon_home(home, 20)
     orcamod.available = lambda: True
@@ -306,17 +285,17 @@ def test_a_permission_prompt_the_screen_shows_wins_over_a_question_reading(home:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.RUNNING)
         _Term(SINGLE_DEFAULT)
-        waiting.note("backend", "AskUserQuestion", {"questions": [{"header": "Library"}]}, 7)
-        check("pending: a real AskUserQuestion screen is listed on its own",
-              ask_question.pending(con, "backend") is not None)
-
-        real_confirmation_on_screen = orcamod.confirmation_on_screen
-        orcamod.confirmation_on_screen = lambda h: Confirmation("Bash command", (), 1, 2)
+        check("one prompt: a real AskUserQuestion screen reads as a question",
+              orcamod.prompt_on_screen("term_x")[0] == orcamod.PROMPT_QUESTION)
+        driver, real_read = orcamod._driver_for("term_x"), orcamod._read_dialog
+        driver.confirmation = lambda dialog: Confirmation("Bash command", (), 1, 2)
+        orcamod._read_dialog = lambda h, **k: (None, None, object())      # a dialog for it to recognize
         try:
-            check("pending: the same screen is dropped once a permission prompt also reads it",
-                  ask_question.pending(con, "backend") is None)
+            check("one prompt: the same screen is the permission prompt once that recognizer accepts it too",
+                  orcamod.prompt_on_screen("term_x")[0] == orcamod.PROMPT_PERMISSION)
         finally:
-            orcamod.confirmation_on_screen = real_confirmation_on_screen
+            del driver.confirmation
+            orcamod._read_dialog = real_read
     finally:
         con.close()
 
@@ -327,9 +306,8 @@ def main() -> int:
         run(lambda: test_question_keys_match_the_measured_key_sequence(Path(td) / 'q1'))
         run(lambda: test_multiselect_boxes_and_other_together_toggle_then_reach_other(Path(td) / 'q1b'))
         run(lambda: test_answer_question_sends_the_keys_and_confirms_it_cleared(Path(td) / 'q2'))
-        run(lambda: test_a_pending_question_is_listed_and_answered_through_actions(Path(td) / 'q3'))
         run(lambda: test_question_data_is_preferred_only_when_it_still_matches_the_screen(Path(td) / 'q4'))
-        run(lambda: test_a_permission_prompt_the_screen_shows_wins_over_a_question_reading(Path(td) / 'q5'))
+        run(lambda: test_a_screen_two_recognizers_accept_is_one_prompt_and_the_permission_one(Path(td) / 'q4b'))
     return run_area(tests)
 
 
