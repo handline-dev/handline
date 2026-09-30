@@ -21,7 +21,7 @@ GUARDED_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 def enforced() -> bool:
     """Whether holding no current task refuses the call; only the founder's `off` makes it log."""
-    return protected.get(_NS, _NAME) != "off"
+    return not protected.is_off(_NS, _NAME)
 
 
 def set_enforced(on: bool) -> None:
@@ -79,7 +79,7 @@ def _refusal(con, agent: str, tool: str) -> str:
 def guard(agent: str, tool: str | None, tool_input: object) -> str | None:
     """The reason to refuse this call, or None to let it through - None
     whenever the founder has switched it off, even for a real hit."""
-    if tool not in GUARDED_TOOLS or _exempt(agent, tool_input):
+    if agent == db.HUMAN or tool not in GUARDED_TOOLS or _exempt(agent, tool_input):
         return None
     con = db.connect()
     try:

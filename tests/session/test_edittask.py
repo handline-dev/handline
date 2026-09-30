@@ -74,6 +74,28 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
           edittask.guard("backend", "Write", call) is None)
 
 
+def test_the_human_is_exempt_and_an_unreadable_store_is_not_off(home: Path) -> None:
+    """T485: the edit gate exempts the founder's `human` like the stop gate; and `off`
+    counts only when the store reads it - an unreadable entry (an agent's sandbox) leaves
+    both gates on."""
+    _daemon_home(home, 20)
+    call = {"file_path": "/repo/some/file.py"}
+    check("the human agent is never refused", edittask.guard("human", "Write", call) is None)
+    for mod in (edittask, stopgate):
+        mod.set_enforced(False)
+        check(f"{mod.__name__.rsplit('.', 1)[1]}: a readable `off` turns it off", mod.enforced() is False)
+    entry = protected._entry("gates", "edit_task")
+    entry.chmod(0)
+    try:
+        check("an unreadable store is not off: the edit gate stays on", edittask.enforced() is True)
+        check("and the edit gate refuses", edittask.guard("backend", "Write", call) is not None)
+    finally:
+        entry.chmod(0o600)
+    check("readable again, `off` holds", edittask.enforced() is False)
+    stopgate.set_enforced(True)
+    edittask.set_enforced(True)
+
+
 def test_only_the_guarded_tools_are_looked_at(home: Path) -> None:
     _daemon_home(home, 20)
     edittask.set_enforced(True)
@@ -167,6 +189,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_no_current_task_is_a_reason_only_once_enforced(Path(td) / 'et0'))
         run(lambda: test_only_the_guarded_tools_are_looked_at(Path(td) / 'et1'))
+        run(lambda: test_the_human_is_exempt_and_an_unreadable_store_is_not_off(Path(td) / 'et5'))
         run(lambda: test_memory_and_tmpdir_are_exempt(Path(td) / 'et2'))
         run(lambda: test_the_plan_mode_folder_is_exempt_but_no_name_match_elsewhere(Path(td) / 'et2b'))
         run(lambda: test_the_edit_gate_enforce_switch_is_the_founders_to_flip(Path(td) / 'et3'))
