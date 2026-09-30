@@ -65,6 +65,12 @@ LANDING_LABELS = {
 }
 
 
+def landing_label(landing: str, why: str = "") -> str:
+    """The row under a message the agent has not answered; a message still sending says why."""
+    label = LANDING_LABELS[landing]
+    return f"{label} · {safe(why)}" if why and label == "sending" else label
+
+
 def _scope(agent: str, everyone: bool) -> tuple[str, tuple]:
     """Which requests a chat is made of: the ones between the human and `agent`,
     or, for `everyone`, every one `agent` sent or received."""
@@ -158,7 +164,7 @@ def messages_of(rows, agent: str) -> list[dict]:
             held = (part == 0 and speaker != human and r["target"] != human
                     and r["state"] == "queued" and not r["delivered_at"])
             landing = landingmod.state(r)
-            # below the queue line only what this page's agent has yet to read; what it sent
+            # last, marked unread: only what this page's agent has yet to read; what it sent
             # (or two others') sits at its own time
             waiting_to_go = held and r["target"] == agent or queued and landing != "delivered"
             if part == 0 and r["landed_at"]:
@@ -366,9 +372,9 @@ _REF = re.compile(r"(?<![\w#])#(\d+)\b")
 
 
 def wait_reason(con, agent: str, msgs: list[dict], running: bool) -> str:
-    """Why the message under the queue line waits: the human's own that is not typed yet
+    """Why the first unread message waits: the human's own that is not typed yet
     (unless the spinner already says it), else one to `agent` from another agent, which waits
-    on its recipient. Only messages below the line count; what the agent sent sits above it."""
+    on its recipient. What the agent sent is not waiting."""
     waiting = [m for m in msgs if m["queued"] and m["landing"] == "queued"]
     held = [m for m in msgs if m["held"] and m["unread"]]
     if waiting and not running:
@@ -485,15 +491,15 @@ def task_page(d: dict) -> dict:
                  for i, a, b, st, line in d["requests"]]}
 
 
-class QueueLine(Static):
-    """The line between what the agent has read and what is still queued for
-    it; a spinner sits in it while the agent is working, and what it waits on when idle."""
+class WorkLine(Static):
+    """The spare row under the last message: a spinner while the agent is working, and what
+    it waits on when idle."""
 
     SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, working: bool, rule: bool = True, why: str = "", wait: str = "") -> None:
-        super().__init__(classes="queueline")
-        self.working, self.rule, self.why, self.wait, self._frame = working, rule, why, wait, 0
+    def __init__(self, working: bool, wait: str = "") -> None:
+        super().__init__(classes="workline")
+        self.working, self.wait, self._frame = working, wait, 0
 
     def on_mount(self) -> None:
         self.set_interval(0.1, self._tick)
@@ -506,30 +512,18 @@ class QueueLine(Static):
     def render(self) -> Text:
         mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working \
             else f" {safe(self.wait)} " if self.wait else ""
-        if not self.rule:
-            return Text(mid, style="dim")
-        if self.why:
-            room = max(self.size.width - len(mid) - 12, 0)
-            why = safe(self.why)
-            mid += f"· {why if len(why) <= room else why[:max(room - 1, 0)] + '…'} "
-        side = max(self.size.width - len(mid), 0)
-        left = side // 2
-        return Text("─" * left + mid + "─" * (side - left), style="dim")
+        return Text(mid, style="dim")
 
 
 def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str = "") -> list:
-    """The messages as widgets, the queue line ahead of the first message the
-    agent has not read yet; with none unread, a spare row at the bottom that
-    only shows the spinner. `wait` (what the agent waits on) shows where the spinner does."""
+    """The messages as widgets, then a spare row that shows the spinner or what the agent waits
+    on. A message not yet read says it is sending itself; the first of them also says why."""
     out: list = []
-    line = False
+    first = True
     for m in msgs:
-        if m["unread"] and not line:
-            out.append(QueueLine(working, why=why, wait=wait))
-            line = True
-        out.append(ChatMessage(m, working))
-    if not line:
-        out.append(QueueLine(working, rule=False, wait=wait))
+        out.append(ChatMessage(m, working, why if m["unread"] and first else ""))
+        first = first and not m["unread"]
+    out.append(WorkLine(working, wait=wait))
     return out
 
 
@@ -538,7 +532,7 @@ class ChatMessage(Vertical):
     now button is shown only while the agent is `working` (mid-turn): with the agent
     idle the message goes on its own."""
 
-    def __init__(self, m: dict, working: bool = True) -> None:
+    def __init__(self, m: dict, working: bool = True, why: str = "") -> None:
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
         self._side = side
         # the human's own message tells who and when always when it is a reply, else only once picked
@@ -549,13 +543,13 @@ class ChatMessage(Vertical):
         parts = [self._text]
         self._send_now: Button | None = None
         landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
-        if m.get("queued"):
+        if m.get("queued") or m.get("held"):
             buttons = []
-            if landing == "queued":
+            if landing == "queued" and m.get("queued"):
                 self._send_now = Button("⚡ send now", classes="sendnow", compact=True)
                 buttons = [self._send_now, Button("✕ cancel", classes="cancel", compact=True)]
             parts.append(Horizontal(
-                Static(LANDING_LABELS[landing], classes="qstate"),
+                Static(landing_label(landing, why), classes="qstate"),
                 *buttons, classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}"
                          + (" card" if is_card(m) else ""))
@@ -1217,7 +1211,7 @@ class ChatPage(JobsAware, Screen):
         word, detail = self.agent_state
         return Text.assemble(
             ("Reply" if reply else "Chat", "bold blue"), (" · ", "dim"), self.agent, "  ",
-            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the queue line says it
+            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the work line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
             (f"   reply to #{mid_of(reply.m)}" if reply else "", "bold"),
@@ -1327,7 +1321,7 @@ class ChatPage(JobsAware, Screen):
         word_changed = state[0] != self.agent_state[0]
         self.agent_state = state
         if word_changed:
-            for line in self.query(QueueLine):
+            for line in self.query(WorkLine):
                 line.working = state[0] == "RUNNING"
             for msg in self.query(ChatMessage):
                 msg.set_working(state[0] == "RUNNING")
@@ -1360,7 +1354,7 @@ class ChatPage(JobsAware, Screen):
         and IDLE (`refresh_agent_state`), which happens often while it works
         and says nothing about what is on screen. So the transcript is only
         actually torn down and remounted when `_transcript_key` - what its
-        rows, their states and the queue line actually say - has changed,
+        rows, their states and the work line actually say - has changed,
         and the scroll only jumps to the bottom when the viewer was already
         there (founder #1975/T309): moving it while someone has scrolled up
         to read older messages would yank the page out from under them."""
@@ -1905,7 +1899,7 @@ class ChatPage(JobsAware, Screen):
         if not self.is_attached:
             return
         rec.widget.remove()
-        if not ok:      # a send that went says nothing: the message and its queue line show it
+        if not ok:      # a send that went says nothing: the message shows it
             self.toast(said, ok)
         if not ok:
             box = self.query_one("#compose", ChatBox)

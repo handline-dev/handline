@@ -497,9 +497,9 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
     msgs = cp.messages_of(rows, "reviewer")
     widgets = cp.transcript_widgets(msgs, False)
     texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in widgets]
-    check("chat: an undelivered message to the agent sits below the queue line; one the agent sent stays at its time (founder)",
-          texts.index("--") == texts.index("second, not read yet") - 1
-          and texts.index("hello") < texts.index("--") and texts.index("asked after") < texts.index("--"),
+    check("chat: an undelivered message to the agent sits last; one the agent sent stays at its time (founder)",
+          texts.index("second, not read yet") == len(texts) - 2 and texts[-1] == "--"
+          and texts.index("hello") < texts.index("asked after") < texts.index("second, not read yet"),
           str(texts))
     check("chat: it has no Cancel / Send now buttons", not any(
         m["queued"] for m in msgs if m["text"] == "second, not read yet"))
@@ -519,10 +519,10 @@ def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
         con.commit()
         msgs = cp.messages_of(cp.requests_page(con, "reviewer", True)[0], "reviewer")
         texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in cp.transcript_widgets(msgs, False)]
-        check("why: the sent one is above the line, the one to the agent below",
-              texts.index("reviewer's own, not delivered") < texts.index("--") < texts.index("to reviewer, not read"),
+        check("why: the one to the agent sits after the sent one",
+              texts.index("reviewer's own, not delivered") < texts.index("to reviewer, not read"),
               str(texts))
-        check("why: the reason is for the message below the line, not the one sent",
+        check("why: the reason is for the message to the agent, not the one sent",
               cp.wait_reason(con, "reviewer", msgs, False) == "reviewer: " + actions.queue_reason(con, "reviewer", below),
               cp.wait_reason(con, "reviewer", msgs, False))
     finally:
@@ -731,17 +731,14 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     check("chat: agents' messages to each other too, by when they were delivered, undelivered last",
           [m["text"] for m in between] == ["m2", "m1", "m3"], str([m["text"] for m in between]))
     kinds = [type(w).__name__ for w in cp.transcript_widgets(msgs, True)]
-    check("chat: one line sits ahead of the queued message", kinds == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"],
-          str(kinds))
-    spare = cp.transcript_widgets(msgs[:2], True)
-    check("chat: nothing queued leaves a spare row at the bottom, without a rule",
-          type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
-    waits = [type(w).__name__ for w in cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")]
-    line = [w for w in cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")
-            if type(w).__name__ == "QueueLine"][0]
-    check("chat: what the agent waits on is drawn on the queue line, where working would be",
-          waits == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"]
-          and "waiting for x's reply (#1)" in line.render().plain, str(waits))
+    check("chat: no line between the messages; one spare row ends the chat",
+          kinds == ["ChatMessage", "ChatMessage", "ChatMessage", "WorkLine"], str(kinds))
+    widgets = cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")
+    check("chat: what the agent waits on is drawn on the spare row, where working would be",
+          "waiting for x's reply (#1)" in widgets[-1].render().plain, str(widgets[-1].render().plain))
+    check("chat: a message still sending says why; a delivered one does not",
+          cp.landing_label("queued", "behind #9") == "sending · behind #9"
+          and cp.landing_label("delivered", "behind #9") == cp.LANDING_LABELS["delivered"])
 
 
 def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
