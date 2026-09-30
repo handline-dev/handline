@@ -281,13 +281,14 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     t = team.Team.load()
     con = db.connect()
     try:
-        depth, chain_id = 0, None
+        depth, chain_id, is_reply = 0, None, False
         if parent_id:
             parent = db.get_request(con, parent_id)
             if parent is None:
                 return False, f"parent request {parent_id} does not exist", None
             depth = int(parent["chain_depth"]) + 1
             chain_id = parent["chain_id"]
+            is_reply = replies_to(parent, requester, target)
             # The human's turn starts the count again, and keeps the thread.
             # The limit is there so a runaway ends up in front of a human; a
             # reply typed by that human is the limit having worked, not a hop
@@ -304,7 +305,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                 depth, parent_id, detect)
                 return False, f"{detect}\nEscalated to {ESCALATION_TARGET} as #{eid}.", None
 
-        decision = t.route(requester, target, chain_depth=depth)
+        decision = t.route(requester, target, chain_depth=depth, reply=is_reply)
         if not decision.allowed:
             if db.standing_denial(con, requester, target, body, files,
                                   int(time.time()) - team.ASK_WINDOW_S) is None:
@@ -398,6 +399,12 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
 
 SAY_TIMEBOX_S = 30 * 60
+
+
+def replies_to(parent, requester: str, target: str) -> bool:
+    """Does a request from `requester` to `target` answer `parent`: one `target` sent to
+    `requester`. Such a reply needs no edge back (`Team.route`)."""
+    return parent is not None and parent["target"] == requester and parent["requester"] == target
 
 
 def say(target: str, body: str, requester: str | None = None,

@@ -677,6 +677,61 @@ def test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors() -> None:
           not ({"collect", "vendors"} & imported), imported)
 
 
+def test_a_reply_to_a_peers_ask_needs_no_edge_back(home: Path) -> None:
+    """T582: with resolve gone, `say --parent` is the only way to answer, so a reply
+    to a request someone sent you goes back to them without an edge; a message of
+    your own still needs one, and an explicit deny still wins."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  asker: {}
+  worker: {}
+  other: {}
+edges:
+  - { from: "asker", to: "worker", relation: peer, response: async }
+  - { from: "asker", to: "other", relation: peer, response: async }
+deny:
+  - { from: "other", to: "asker", reason: "no replies" }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    for n in ("asker", "worker", "other"):
+        agents.register(n)
+    ok, msg, rid = askmod.ask("worker", "please look", requester="asker")
+    check("setup: asker asks worker", ok, msg)
+    ok, msg, plain = askmod.say("asker", "unprompted", requester="worker")
+    check("reply: a message of the worker's own to the asker is still denied without an edge",
+          not ok and "no edge declares worker -> asker" in msg, msg)
+    ok, msg, reply = askmod.say("asker", "looked, fine", requester="worker", parent_id=rid)
+    check("reply: the answer to the ask goes back without an edge", ok and reply is not None, msg)
+    con = db.connect()
+    try:
+        check("reply: it settles the ask it answers",
+              db.get_request(con, rid)["state"] == "done"
+              and db.get_request(con, rid)["verdict"] == "looked, fine")
+    finally:
+        con.close()
+    # An agent's own session cannot verify team.yaml: the daemon re-checks its request at
+    # delivery, and must let the reply through too.
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (reply,))
+        dmn_delivery.enforce_edges(con, "asker", lambda _m: None)
+        row = db.get_request(con, reply)
+        check("reply: the daemon's re-check at delivery lets it through",
+              row["state"] != "denied" and row["edge_ok"] == 1, str(dict(row)))
+    finally:
+        con.close()
+    ok, msg, rid2 = askmod.ask("other", "please look too", requester="asker")
+    ok, msg, _ = askmod.say("asker", "no thanks", requester="other", parent_id=rid2)
+    check("reply: an explicit deny still refuses it", not ok and "no replies" in msg, msg)
+    ok, msg, _ = askmod.say("other", "wrong way round", requester="worker", parent_id=rid)
+    check("reply: only the asker's own thread counts - not a third agent",
+          not ok and "no edge declares" in msg, msg)
+
+
 def test_a_wake_with_only_an_answer_waiting_still_reads_queued(home: Path) -> None:
     """An answer an agent asked for and has not been told is work waiting, the
     same as a queued request (`would_wake` counts both): the wake that reads
@@ -8220,6 +8275,7 @@ def main() -> int:
         run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))
         run(lambda: test_fold_degraded_path_also_reconciles_resolved_asks(Path(td) / 'reconderaded'))
         run(lambda: test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors())
+        run(lambda: test_a_reply_to_a_peers_ask_needs_no_edge_back(Path(td) / 'replynoedge'))
         run(lambda: test_a_wake_with_only_an_answer_waiting_still_reads_queued(
             Path(td) / 'answerwake'))
         run(lambda: test_ask_respects_terminal_state(Path(td) / 'term'))
