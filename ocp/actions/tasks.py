@@ -481,11 +481,11 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, *_free_blocked_by(con, tid, by))
-    _self_close(con, tid)
+    self_close(con, tid)
     return True, f"task T{tid} done ({mark})"
 
 
-def _self_close(con, tid: int) -> None:
+def self_close(con, tid: int) -> None:
     """A done child whose asker is an agent needs no separate sign-off (T555): close
     it as its asker. Refused while it holds an open child or blocker of its own; the
     close of whatever held it tries again (`close_task`)."""
@@ -564,7 +564,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     _deliver_unblocked(con, notices, freed_owners)
     for waiting in [row["parent_task"], *released]:     # a done child that was held by this one
         if waiting:
-            _self_close(con, waiting)
+            self_close(con, waiting)
     return True, f"task T{tid} closed by {by}"
 
 
@@ -616,6 +616,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
+        released = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
         notices, freed_owners = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
     except Exception:
@@ -627,6 +628,9 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
+    for waiting in [row["parent_task"], *released]:     # a done child that was held by this one
+        if waiting:
+            self_close(con, waiting)
     return True, f"task T{tid} discarded by {by}: {said}"
 
 

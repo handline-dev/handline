@@ -4233,6 +4233,54 @@ def test_a_done_child_held_by_its_own_child_closes_when_that_closes(home: Path) 
         con.close()
 
 
+def test_every_path_that_ends_a_hold_lets_the_held_done_child_close(home: Path) -> None:
+    """T555 re-audit #6632: a done child held by a grandchild or a blocker closes when
+    the hold ends by discard or unblock too; a founder decision closes done children."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        p = db.new_task(con, "P", "worker", "manager")
+        c = db.new_task(con, "C", "worker", "manager", p)
+        g = db.new_task(con, "G", "worker", "manager", c)
+        actions.mark_task_done(con, c, "worker", reason="done")
+        ok, msg = actions.discard_task(con, g, "manager", "not needed")
+        check("discard: the grandchild's discard closes the done child", ok and
+              db.get_task(con, c)["closed_by"] == "manager", msg)
+
+        c2 = db.new_task(con, "C2", "worker", "manager", p)
+        bl = db.new_task(con, "BL", "worker", "manager")
+        actions.add_block(con, c2, bl, "manager")
+        actions.mark_task_done(con, c2, "worker", reason="done")
+        check("unblock: setup - C2 is done and still open behind its blocker",
+              not db.get_task(con, c2)["closed_by"])
+        c3 = db.new_task(con, "C3", "worker", "manager", p)
+        bl3 = db.new_task(con, "BL3", "worker", "manager")
+        actions.add_block(con, c3, bl3, "manager")
+        actions.mark_task_done(con, c3, "worker", reason="done")
+        ok, msg = actions.discard_task(con, bl3, "manager", "not needed")
+        check("discard: a blocker's discard closes the done task it held", ok and
+              db.get_task(con, c3)["closed_by"] == "manager", msg)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "edit", f"T{c2}", "--unblock", f"T{bl}"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("unblock: `task edit --unblock` closes the done task it held",
+              rc == 0 and db.get_task(con, c2)["closed_by"] == "manager", out)
+
+        d = db.new_task(con, "which name?", actions.HUMAN, "worker")
+        kid = db.new_task(con, "kid", "worker", "manager", d)
+        ok, said = actions.decide(con, d, "the first")
+        check("decide: a not-done child refuses it, and nothing is written",
+              not ok and f"T{kid}" in said and not db.get_task(con, d)["done_evidence"], said)
+        actions.mark_task_done(con, kid, "worker", reason="done")
+        ok, said = actions.decide(con, d, "the first")
+        check("decide: with the child done, it decides and closes both", ok and
+              db.get_task(con, d)["closed_by"] and db.get_task(con, kid)["closed_by"], said)
+    finally:
+        con.close()
+
+
 def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
     """T294 (code-review, T-A #1897): the auto-block on a `--parent` child
     must not turn into a new merge refusal - before it existed, a task with
@@ -9218,6 +9266,7 @@ def main() -> int:
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_the_founder_closing_a_parent_closes_its_done_children(Path(td) / 'founderclosekids'))
         run(lambda: test_a_done_child_held_by_its_own_child_closes_when_that_closes(Path(td) / 'selfcloseheld'))
+        run(lambda: test_every_path_that_ends_a_hold_lets_the_held_done_child_close(Path(td) / 'holdends'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
