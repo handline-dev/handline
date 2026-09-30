@@ -19,7 +19,7 @@ _NAME = "stop_wait"
 
 def enforced() -> bool:
     """Whether a wait blocks the stop; only the founder's `off` makes it log."""
-    return protected.get(_NS, _NAME) != "off"
+    return not protected.is_off(_NS, _NAME)
 
 
 def set_enforced(on: bool) -> None:

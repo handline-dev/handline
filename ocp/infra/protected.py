@@ -68,6 +68,13 @@ def get(namespace: str, name: str) -> str | None:
         return None
 
 
+def is_off(namespace: str, name: str) -> bool:
+    """Whether the founder recorded `off`. A store that cannot be read (an agent's sandbox)
+    or holds no entry is not off: a gate that reads it stays on, so a sandbox can never
+    switch one off by hiding the store (T485)."""
+    return get(namespace, name) == "off"
+
+
 def in_agent_session() -> bool:
     """$OCP_AGENT names an agent - anyone but the founder's own `human`."""
     from ..team import ask
