@@ -919,9 +919,7 @@ def answer_verb(con, head) -> str:
                     f"`ocp task handoff T{task['id']} <agent> \"<note>\"`, or "
                     f"`ocp task done T{task['id']}` if you are its last step")
     if head["requester"] == db.HUMAN:
-        return (f"answer the founder with `ocp say human --parent {head['id']} \"<answer>\" "
-                f"--task T<n>` (or `--no-task \"<why nothing needs building>\"`) - "
-                f"a reply typed in your terminal reaches no one")
+        return f"if it asks something: `ocp say human --parent {head['id']} \"...\"`"
     if head["kind"] in ("report", "say"):
         return "it asks nothing"
     return f"answer with `ocp say {head['requester']} --parent {head['id']} \"<answer>\"`"
@@ -969,8 +967,8 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
             f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}"
-            + ("." if head["kind"] in ("say", "report") and head["requester"] != db.HUMAN
-               else ", or `ocp inbox` any time."))
+            + ("." if head["requester"] == db.HUMAN
+               or head["kind"] in ("say", "report") else ", or `ocp inbox` any time."))
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,

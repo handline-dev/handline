@@ -199,9 +199,15 @@ edges:
     for r in (rid, sid):
         text = dmn_delivery.tell_text(con, db.get_request(con, r), 1)
         check(f"tail: #{r} from the founder says to answer with ocp say human --parent",
-              f"`ocp say human --parent {r} " in text and "reaches no one" in text
-              and "needs no answer" not in text and "ocp resolve" not in text, text)
+              f"if it asks something: `ocp say human --parent {r} " in text
+              and "needs no answer" not in text and "ocp resolve" not in text
+              and "inbox" not in text and len(text.splitlines()) == 3, text)
     con.close()
+    from ocp.session import launch
+    team_text = launch._your_team("worker")
+    check("your team: every agent is told, in one line, to talk to people only through ocp",
+          "Talk to people only through ocp; what you write in your terminal reaches no one." in team_text
+          and "a message that only informs needs no reply" in team_text, team_text)
     rc, out = _cli(["say", "human", "fine", "--parent", str(rid)], as_agent="manager")
     check("founder reply: without --task or --no-task it is refused, saying why",
           rc == 1 and "say whether work follows it" in out and "--no-task" in out, out)
