@@ -1763,6 +1763,48 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
               "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
 
 
+async def test_a_blocked_task_says_so_where_working_would_be() -> None:
+    """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
+    working and a wait for a reply come first."""
+    import html, re
+    from ocp.ui import tui
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("blockedline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        dep = db.new_task(con, "the one it waits on", "backend", actions.HUMAN)
+        t = db.new_task(con, "blocked work", "reviewer", actions.HUMAN)
+        db.set_current_task(con, "reviewer", t)
+        db.set_agent_state(con, "reviewer", "IDLE")
+        check("blocked: not blocked, nothing to say", tui.screen_state(con, db.get_agent_state(con, "reviewer"))[1] == "")
+        db.add_block(con, t, dep)
+        con.commit()
+        state = tui.screen_state(con, db.get_agent_state(con, "reviewer"))
+        check("blocked: an idle agent whose task is blocked says by which", state == ("IDLE", f"blocked by T{dep}"), str(state))
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        page.agent_state = state
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("blocked: the work line shows it", f"blocked by T{dep}" in shown and "working" not in shown)
+        page.agent_state = ("RUNNING", "")
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("blocked: working comes first", "working" in shown and f"blocked by T{dep}" not in shown)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -1825,6 +1867,7 @@ async def _run_all() -> None:
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
+    await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 
 
