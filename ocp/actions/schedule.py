@@ -34,6 +34,15 @@ def schedule_add(agent: str, expr: str, message: str) -> None:
     _write(agent, schedules.parse(schedules.load(agent) + [{"cron": expr, "message": message}]))
 
 
+def schedule_edit(agent: str, index: int, expr: str, message: str) -> None:
+    """Replace the `index`th (1-based) schedule; ValueError when there is none or what it is given is wrong."""
+    items = schedules.load(agent)
+    if not 1 <= index <= len(items):
+        raise ValueError(f"edit needs --index 1..{len(items)}")
+    items[index - 1] = {"cron": expr, "message": message}
+    _write(agent, schedules.parse(items))
+
+
 def schedule_remove(agent: str, index: int) -> None:
     """Remove the `index`th (1-based) schedule; ValueError when there is none."""
     items = schedules.load(agent)
@@ -93,3 +102,28 @@ def schedule_words(expr: str) -> str:
     if dow.isdigit() and 0 <= int(dow) <= 6:
         return f"{WEEKDAYS[int(dow)]} {at}"
     return expr
+
+
+def schedule_fields(expr: str) -> dict | None:
+    """`expr` as the fields `schedule_cron` takes (kind, hour, minute, day, every), or None when it
+    is not one it makes."""
+    f = expr.split()
+    if len(f) != 5 or f[2] != "*" or f[3] != "*":
+        return None
+    m, h, dow = f[0], f[1], f[4]
+    if m.startswith("*/") and h == "*" and dow == "*" and m[2:].isdigit():
+        return {"kind": "every N minutes", "every": m[2:]}
+    if not m.isdigit():
+        return None
+    if h == "*" and dow == "*":
+        return {"kind": "every hour", "minute": m}
+    if not h.isdigit():
+        return None
+    at = {"hour": h, "minute": m}
+    if dow == "*":
+        return {"kind": "every day", **at}
+    if dow == "1-5":
+        return {"kind": "weekdays", **at}
+    if dow.isdigit() and 0 <= int(dow) <= 6:
+        return {"kind": "every week", "day": int(dow), **at}
+    return None

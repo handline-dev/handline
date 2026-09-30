@@ -14,8 +14,8 @@ from .section_head import SectionHead
 
 
 class SchedulesSection(Vertical):
-    """One agent's schedules on its settings page: a line each (when, next run, message) with a ✕,
-    and an Add button. Add and remove write agent.yaml at once through `actions`, not with Save."""
+    """One agent's schedules on its settings page: a line each (when, next run, message) with a ✎ and a ✕,
+    and an Add button. Add, edit and remove write agent.yaml at once through `actions`, not with Save."""
 
     DEFAULT_CSS = """
     SchedulesSection { height: auto; }
@@ -54,6 +54,7 @@ class SchedulesSection(Vertical):
             if when != it["cron"]:
                 line.append(f"   {it['cron']}", style="dim")
             box.mount(Horizontal(Static(line, classes="sc_text"),
+                                 Button("✎", id=f"sc_ed_{i}", compact=True, classes="sc_x"),
                                  Button("✕", id=f"sc_rm_{i}", variant="error", compact=True, classes="sc_x"),
                                  classes="sc_row"))
 
@@ -73,6 +74,16 @@ class SchedulesSection(Vertical):
                 self._call("added", lambda: actions.schedule_add(self.agent, *got))
         self.app.push_screen(ScheduleAdd(), answered)
 
+    def _edit(self, index: int) -> None:
+        rows = actions.schedule_rows(self.agent)
+        if not 1 <= index <= len(rows):
+            return
+
+        def answered(got: "tuple[str, str] | None") -> None:
+            if got is not None and got != (rows[index - 1]["cron"], rows[index - 1]["message"]):
+                self._call("edited", lambda: actions.schedule_edit(self.agent, index, *got))
+        self.app.push_screen(ScheduleAdd((rows[index - 1]["cron"], rows[index - 1]["message"])), answered)
+
     def _remove(self, index: int) -> None:
         def answered(yes: bool | None) -> None:
             if yes:
@@ -85,6 +96,9 @@ class SchedulesSection(Vertical):
         if bid == "sc_add":
             event.stop()
             self._add()
+        elif bid.startswith("sc_ed_") and bid[6:].isdigit():
+            event.stop()
+            self._edit(int(bid[6:]))
         elif bid.startswith("sc_rm_") and bid[6:].isdigit():
             event.stop()
             self._remove(int(bid[6:]))

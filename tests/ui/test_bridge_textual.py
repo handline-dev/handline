@@ -1980,6 +1980,20 @@ def test_schedules_are_built_read_and_written_through_actions() -> None:
         check("schedule: a bad cron is refused", False)
     except ValueError:
         check("schedule: a bad cron is refused", len(actions.schedule_rows("backend")) == 1)
+    actions.schedule_edit("backend", 1, "15 8 * * *", "  new   words ")
+    check("schedule: an edited one keeps its place with the new cron and message",
+          [(r["cron"], r["message"]) for r in actions.schedule_rows("backend")] == [("15 8 * * *", "new words")])
+    for bad in (("backend", 2, "15 8 * * *", "x"), ("backend", 1, "not a cron", "x"), ("backend", 1, "15 8 * * *", " ")):
+        try:
+            actions.schedule_edit(*bad)
+            check(f"schedule: editing with {bad[1:]} is refused", False)
+        except ValueError:
+            check(f"schedule: editing with {bad[1:]} is refused",
+                  [r["message"] for r in actions.schedule_rows("backend")] == ["new words"])
+    check("schedule: a cron the form makes maps back to its fields, any other to None",
+          actions.schedule_fields("5 18 * * 1") == {"kind": "every week", "day": 1, "hour": "18", "minute": "5"}
+          and actions.schedule_fields("*/10 * * * *") == {"kind": "every N minutes", "every": "10"}
+          and actions.schedule_fields("0 0 1 * *") is None)
     actions.schedule_remove("backend", 1)
     check("schedule: a removed one is gone", actions.schedule_rows("backend") == [])
 
@@ -2374,6 +2388,20 @@ async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pr
         await pilot.pause()
         check("schedules ui: Add dismisses with the cron built from the fields and a one-line message",
               got == [("5 18 * * 1", "weekly note")], str(got))
+        await pilot.click("#sc_ed_2")
+        await pilot.pause()
+        form = app.screen
+        check("schedules ui: editing opens the form on that schedule",
+              isinstance(form, ScheduleAdd) and form.query_one("#sa_kind", Select).value == "weekdays"
+              and form.query_one("#sa_hour", ImeInput).value == "18" and form.query_one("#sa_minute", ImeInput).value == "30"
+              and form.query_one("#sa_message", ImeInput).value == "second one")
+        form.query_one("#sa_message", ImeInput).value = "second, reworded"
+        await pilot.click("#sa_add")
+        await pilot.pause()
+        check("schedules ui: Save changes that schedule only, on disk and on screen",
+              [(r["cron"], r["message"]) for r in actions.schedule_rows("backend")]
+              == [("0 9 * * *", "first one"), ("30 18 * * 1-5", "second, reworded")]
+              and "second, reworded" in screen_text(), str(actions.schedule_rows("backend")))
         await pilot.click("#sc_rm_2")
         await pilot.pause()
         await pilot.click("#yes")
@@ -2381,7 +2409,7 @@ async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pr
         left = actions.schedule_rows("backend")
         check("schedules ui: the row pressed is the one removed, on disk and on screen",
               [r["message"] for r in left] == ["first one"] and "first one" in screen_text()
-              and "second one" not in screen_text(), str(left))
+              and "second, reworded" not in screen_text(), str(left))
 
 
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:

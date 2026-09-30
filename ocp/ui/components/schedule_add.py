@@ -32,34 +32,44 @@ class ScheduleAdd(ModalScreen["tuple[str, str] | None"]):
     ScheduleAdd #sa_buttons Button { width: auto; min-width: 0; margin-right: 2; }
     """
 
+    def __init__(self, initial: "tuple[str, str] | None" = None) -> None:
+        """`initial` is the (cron, message) of a schedule being edited; the form opens on it."""
+        super().__init__()
+        self.initial = initial
+        self.fields = (actions.schedule_fields(initial[0]) if initial else None) or {}
+
     def compose(self) -> ComposeResult:
+        f = self.fields
         with Vertical(id="dialog"):
-            yield Static(Text("add a schedule", style="bold"), id="title")
+            yield Static(Text("edit a schedule" if self.initial else "add a schedule", style="bold"), id="title")
             with Horizontal(classes="frow"):
                 yield Static("when", classes="flabel")
                 yield Select([(k, k) for k in actions.SCHEDULE_KINDS], id="sa_kind", allow_blank=False,
-                             compact=True, value="every day")
+                             compact=True, value=f.get("kind", "every day"))
             with Horizontal(classes="frow", id="sa_day_row"):
                 yield Static("day", classes="flabel")
                 yield Select([(d, i) for i, d in enumerate(actions.WEEKDAYS)], id="sa_day", allow_blank=False,
-                             compact=True, value=1)
+                             compact=True, value=f.get("day", 1))
             with Horizontal(classes="frow", id="sa_time_row"):
                 yield Static("time", classes="flabel")
-                yield ImeInput(id="sa_hour", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value="9")
+                yield ImeInput(id="sa_hour", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value=f.get("hour", "9"))
                 yield Static(":", classes="unit")
-                yield ImeInput(id="sa_minute", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value="00")
+                yield ImeInput(id="sa_minute", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value=f.get("minute", "00"))
             with Horizontal(classes="frow", id="sa_every_row"):
                 yield Static("every", classes="flabel")
-                yield ImeInput(id="sa_every", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value="15")
+                yield ImeInput(id="sa_every", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value=f.get("every", "15"))
                 yield Static("minutes", classes="unit")
             with Horizontal(classes="frow"):
                 yield Static("message", classes="flabel")
-                yield ImeInput(id="sa_message", compact=True, placeholder="one line, typed at the agent")
+                yield ImeInput(id="sa_message", compact=True, placeholder="one line, typed at the agent",
+                              value=self.initial[1] if self.initial else "")
             with Horizontal(id="sa_buttons"):
-                yield Button("Add", id="sa_add", variant="primary", compact=True)
+                yield Button("Save" if self.initial else "Add", id="sa_add", variant="primary", compact=True)
                 yield Button("Cancel", id="sa_cancel", compact=True)
 
     def on_mount(self) -> None:
+        if self.initial and not self.fields:
+            self.notify(f"{self.initial[0]} is a custom time: pick the one to change it to", timeout=8, markup=False)
         self._show()
         self.query_one("#sa_message").focus()
 

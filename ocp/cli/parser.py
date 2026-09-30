@@ -406,14 +406,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with --agent, drop its override and follow the global setting again")
     p.set_defaults(fn=cmd_ignore_cache_expiry)
 
-    p = sub.add_parser("schedule", help="show, add or remove the messages the daemon types at an agent "
-                       "on a cron schedule (T605); adding and removing are the founder's")
-    p.add_argument("action", choices=["list", "add", "remove"], nargs="?", default="list")
+    p = sub.add_parser("schedule", help="show, add, edit or remove the messages the daemon types at an agent "
+                       "on a cron schedule (T605); adding, editing and removing are the founder's")
+    p.add_argument("action", choices=["list", "add", "edit", "remove"], nargs="?", default="list")
     p.add_argument("--agent", default=None, help="the agent (list: only this one)")
-    p.add_argument("--cron", default=None, help="add: five fields, minute hour day-of-month month day-of-week, "
+    p.add_argument("--cron", default=None, help="add, edit: five fields, minute hour day-of-month month day-of-week, "
                    "local time - e.g. '*/30 * * * *'")
-    p.add_argument("--message", default=None, help="add: what is typed at the agent, one line")
-    p.add_argument("--index", type=int, default=None, help="remove: which one, as list numbers them")
+    p.add_argument("--message", default=None, help="add, edit: what is typed at the agent, one line")
+    p.add_argument("--index", type=int, default=None, help="edit, remove: which one, as list numbers them")
     p.set_defaults(fn=cmd_schedule)
 
     p = sub.add_parser("auto-accept", help="show or set whether ocp answers the dialogs a working "

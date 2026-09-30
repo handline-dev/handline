@@ -1,5 +1,5 @@
 """`ocp schedule` (T605): the messages the daemon types at an agent on a cron schedule. Reading is open;
-adding and removing write agent.yaml, which only the founder's terminal may."""
+adding, editing and removing write agent.yaml, which only the founder's terminal may."""
 from __future__ import annotations
 
 from .. import actions
@@ -29,6 +29,11 @@ def cmd_schedule(args) -> int:
                 print("add needs --cron and --message")
                 return 1
             actions.schedule_add(args.agent, args.cron, args.message)
+        elif args.action == "edit":
+            if not args.index or not args.cron or not args.message:
+                print("edit needs --index, --cron and --message")
+                return 1
+            actions.schedule_edit(args.agent, args.index, args.cron, args.message)
         else:
             if not args.index:
                 print(f"remove needs --index 1..{len(schedules.load(args.agent))}")
