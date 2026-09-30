@@ -67,8 +67,12 @@ def test_team_routing() -> None:
     check("route: unknown target denied", not t.route("backend", "nobody").allowed)
 
     d = t.route("backend", "human")
-    check("route: escalation target is routable", d.allowed and d.creates_gate, d.reason)
-    check("route: escalation kind preserved", d.kind == "escalate")
+    check("route: the founder is routable", d.allowed, d.reason)
+    check("route: a request to the founder is a task", d.kind == "task")
+    old = team.Team({"agents": {"backend": {}}, "edges": [
+        {"from": "*", "to": "human", "kind": "escalate", "creates_gate": True}]}).route("backend", "human")
+    check("route: a team.yaml that still says kind raise keeps working, as a task",
+          old.allowed and old.kind == "task", str(old))
 
     check("route: fire_and_forget preserved",
           t.route("backend", "archivist").response == "fire_and_forget")
@@ -88,8 +92,8 @@ def test_yaml_differential() -> None:
     """The fallback must never disagree with PyYAML silently.
 
     Two parsers reading the same routing policy differently is worse than
-    having no fallback: `creates_gate: no` was True under one and False under
-    the other, which decides whether an escalation needs a human.
+    having no fallback: `skip_permissions: no` was True under one and False under
+    the other, which decides whether a prompt is answered for the agent.
 
     What PyYAML reads is kept in tests/fixtures/pyyaml_expected.json, so the
     suite needs no PyYAML; where it is installed the fixture is checked too.
@@ -208,7 +212,7 @@ def test_yaml_rejects_ambiguity() -> None:
 def test_a_poisoned_proposal_field_is_refused_at_the_write_not_read_back_on_the_founders_screen(
         home: Path) -> None:
     """The real path: a CSI byte in --repo, through hr's own save/load/
-    escalation. Before the fix this wrote, reloaded, and reached the text
+    decision. Before the fix this wrote, reloaded, and reached the text
     the founder's screen draws - reproduced end to end under the bundled
     parser (no PyYAML), which has no printable-character check at all,
     unlike real PyYAML's own Reader (a side effect of PyYAML's spec
@@ -422,7 +426,7 @@ def test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(home: Path) -> N
 agents:
   marina:  {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
     real_run, real_avail = orcamod._run, orcamod.available
@@ -523,7 +527,7 @@ agents:
   oldname: {}
   marina:  {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
     agents.register("oldname")
@@ -2290,7 +2294,7 @@ def test_agent_rewrite_uses_parser(home: Path) -> None:
 
 def test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(home: Path) -> None:
     """T34: removing an exact edge is not taking the permission away while a
-    wildcard routes the pair - the result and the escalation say which edge.
+    wildcard routes the pair - the result and the decision say which edge.
     T35: an end that is registered but not in team.yaml is refused up front."""
     _daemon_home(home, 20)
     for n in ("marina", "scout", "loose"):
@@ -2302,9 +2306,9 @@ edges:
   - { from: "marina", to: "scout", response: async }
   - { from: "*", to: "scout", relation: peer, response: async }
 """)
-    esc = hr._escalation({"kind": "unlink", "agent": "marina", "to": "scout", "id": 1,
+    esc = hr._decision_text({"kind": "unlink", "agent": "marina", "to": "scout", "id": 1,
                           "requested_by": "marina", "why": "w"})
-    check("unlink: the escalation names the edge that still lets it through",
+    check("unlink: the decision names the edge that still lets it through",
           "can still ask scout" in esc and "* -> scout" in esc, esc)
     ok, said = hr.enact("unlink", "marina", to="scout", why="w")
     check("unlink: it is removed, and the result says the wildcard still allows it",
@@ -2346,7 +2350,7 @@ deny:
         check("team: the founder reads every agent, every repo and the default links",
               all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
               and "may ask each other" in body and "approve" in body, body)
-        check("team: one escalation for the whole team",
+        check("team: one decision for the whole team",
               con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 1)
         ok, said = hr.apply(pid, con)
         check("team: refused until the founder answers", not ok, said)
@@ -2404,7 +2408,7 @@ deny:
         check(f"default links: {who} -> {whom} is {'allowed' if want else 'denied'}",
               d.allowed == want, d.reason)
     d = tm.route("boat", "human")
-    check("default links: the founder is asked as an escalation", d.kind == "escalate" and d.creates_gate)
+    check("default links: the founder is asked with a task", d.kind == "task")
     check("default links: an explicit deny still wins",
           not tm.route("boat.sea", "orca.reviewer").allowed and "denied: " in tm.route("boat.sea", "orca.reviewer").reason)
     check("default links: an explicit edge still comes first",
@@ -2435,7 +2439,7 @@ agents:
   orca: {}
 edges:
   - { from: "orca", to: "orca.*", relation: supervisor, response: async }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
     agents.register("orca")
     con = db.connect()
@@ -2473,7 +2477,7 @@ agents:
   orca: {}
 edges:
   - { from: "orca", to: "orca.*", relation: supervisor, response: async }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
     agents.register("orca")
     con = db.connect()
@@ -2564,7 +2568,7 @@ agents:
   orca: {}
 edges:
   - { from: "orca", to: "orca.*", relation: supervisor, response: async }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
     agents.register("orca")
     con = db.connect()
@@ -2595,7 +2599,7 @@ edges:
             hr.KINDS = kinds
         check("stale: a process that does not know the kind refuses the answer and says to restart",
               not ok and not ok2 and "does not know" in said and "Restart" in said, said)
-        check("stale: the escalation is still queued, nothing recorded or applied",
+        check("stale: the decision is still queued, nothing recorded or applied",
               still_queued and hr.load_proposal(pid)["state"] == "proposed"
               and decisions.get("hr", pid) is None and "old" not in paths.list_agents())
         # What such a process used to do: close the row, unapplied.
@@ -2641,7 +2645,7 @@ agents:
   scout: {}
 edges:
   - { from: "scout", to: "keeper", response: async }   # scout may ask keeper
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "*", to: "scout", relation: peer, response: async }
 deny:
   - { from: "keeper", to: "scout", reason: "keeper never asks scout" }
@@ -2731,7 +2735,7 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
     says so in `ocp team` and doctor."""
     _daemon_home(home, 20)
     accounts.register("alpha")
-    hand_edit_team("teams:\n  boss: [boss]\nagents:\n  boss: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    hand_edit_team("teams:\n  boss: [boss]\nagents:\n  boss: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
     agents.register("boss", repo="/w/boss")
     rc, out = _cli(["hr", "add", "newbie", "--why", "hands"], as_agent=askmod.HUMAN)
     check("hr add: no --repo is refused, saying what to give",
@@ -2803,7 +2807,7 @@ def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
 agents:
   marina: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         agents.register("marina")
@@ -2814,7 +2818,7 @@ edges:
         check("hr add: the proposal itself records the vendor",
               prop.get("vendor") == "opencode", str(prop))
         req = db.get_request(con, prop["request"])
-        check("hr add: the escalation names the vendor to the founder",
+        check("hr add: the decision names the vendor to the founder",
               "vendor opencode" in req["body"], req["body"])
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
                    (prop["request"],))
@@ -2850,7 +2854,7 @@ edges:
         con.close()
 
 
-def test_an_answer_binds_the_escalation_the_founder_read(home: Path) -> None:
+def test_an_answer_binds_the_decisionion_the_founder_read(home: Path) -> None:
     """T182 (auditor #1043): through the founder's own resolve, a draft edited
     before the answer is not approved unseen, a reject settles whatever the
     draft says, and an unlink's live caveat is not part of the comparison."""
@@ -2860,7 +2864,7 @@ agents:
   marina: {}
   keeper: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "marina", to: "keeper", relation: peer, response: async }
 """)
     for n in ("marina", "keeper"):
@@ -2930,8 +2934,8 @@ def test_register_writes_vendor_onto_an_agent_that_already_exists(home: Path) ->
           vendors.agent_vendor("late") == "opencode")
 
 
-def test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(home: Path) -> None:
-    """Task #70: a proposal whose escalation somehow closed as a dismissal is
+def test_a_dismissed_decisionion_is_refused_by_its_state_not_as_a_quote(home: Path) -> None:
+    """Task #70: a proposal whose decision somehow closed as a dismissal is
     named as dismissed when apply refuses it, not as an empty answer."""
     _daemon_home(home, 20)
     accounts.register("beta")
@@ -2940,7 +2944,7 @@ def test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(home: Pat
 agents:
   hr: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
     con = db.connect()
     try:
@@ -2949,14 +2953,14 @@ edges:
         con.execute("UPDATE requests SET state = 'done', dismissed_by = 'ghost', "
                     "dismissed_reason = 'not now' WHERE id = ?", (rid,))
         ok, msg = hr.apply(pid)
-        check("dismissed escalation: apply names the state",
+        check("dismissed decision: apply names the state",
               not ok and "dismissed by ghost - not now" in msg, msg)
     finally:
         con.close()
 
 
 def test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(home: Path) -> None:
-    """T156: an approve on a roster proposal's escalation carries it out right
+    """T156: an approve on a roster proposal's decision carries it out right
     then, and the proposer's answer says how it went. A failed apply is put in
     front of the founder as a report and leaves the proposal open; a reject
     changes nothing but the record."""
@@ -2969,7 +2973,7 @@ def test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(home: 
 agents:
   hr: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
         pid = said.split()[1]
@@ -2992,7 +2996,7 @@ edges:
 agents:
   hr: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         rid2 = int(said.split("#")[1].split(".")[0])
         ok, said = askmod.resolve(rid2, "approve")
@@ -3026,7 +3030,7 @@ edges:
 
 def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
     """#1893 SF1, #1908, #1919, #1938, #1943: `answer()` (the bridge's key)
-    is not the only door onto a queued proposal escalation - `ocp resolve`,
+    is not the only door onto a queued proposal decision - `ocp resolve`,
     `--retires`, `ask.cancel`, `--replaces` and `ask.withdraw` each reach the
     same row, and only `answer()` had the guard. A verdict, a retirement, a
     cancel, a replace or a withdraw typed there that is not a decision used
@@ -3041,7 +3045,7 @@ def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> N
 agents:
   hr: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
         pid = said.split()[1]
@@ -3082,7 +3086,7 @@ edges:
         con.close()
 
     # #1943: a sixth door - the code review that found the chokepoint's
-    # should-fixes also found this one. The proposer owns its own escalation
+    # should-fixes also found this one. The proposer owns its own decision
     # (it is the requester), so `ocp withdraw` - not `ocp hr withdraw` - is
     # ownership-eligible too, and would close it as "withdrawn: ..." if the
     # chokepoint let it.
@@ -3117,9 +3121,9 @@ def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Pat
 
     `close_if_queued` is `answer()`, `ocp resolve` and `ask.cancel`'s write.
     `retire_queued` is `--retires`'s, and `--replaces`'s when the row being
-    replaced targets the founder - true of every proposal escalation, since
+    replaced targets the founder - true of every proposal decision, since
     only the founder decides one. `retire_if_undelivered` is `--replaces`'s
-    write for a row targeting an agent instead; no proposal escalation ever
+    write for a row targeting an agent instead; no proposal decision ever
     takes that path, but the function is part of the same family and gets
     the same guard, so it is exercised here too."""
     _daemon_home(home, 20)
@@ -3131,7 +3135,7 @@ def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Pat
 agents:
   hr: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         ok, said = hr.propose("add", "sooyoung", repo="/repo", requester="hr", why="a third pair")
         rid = int(said.split("#")[1].split(".")[0])
@@ -3616,7 +3620,7 @@ def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> Non
     agents.register("scout")
     agents.register("keeper")
     founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
-                "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+                "  - { from: \"*\", to: \"human\", kind: task }\n")
     hand_edit_team(founders)
     tampered = founders + '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
     root = protected.root()
@@ -3667,7 +3671,7 @@ def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out
     agents.register("keeper")
     founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
                 '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
-                "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+                "  - { from: \"*\", to: \"human\", kind: task }\n")
     hand_edit_team(founders)
     forged = founders.replace("relation: peer, response: async", "relation: supervisor, response: async")
     root = protected.root()
@@ -3714,23 +3718,23 @@ def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out
         con.close()
 
 
-def test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(home: Path) -> None:
+def test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(home: Path) -> None:
     """T189: what the founder reads names every field apply uses."""
     _daemon_home(home, 20)
     agents.register("marina")
     hand_edit_team("teams:\n  eng: [marina]\nagents:\n  marina: {}\nedges:\n"
-                   "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+                   "  - { from: \"*\", to: \"human\", kind: task }\n")
     ok, said = hr.propose("add", "dohyun", repo="/repo", requester="marina", why="hands", effort="high",
                           team_name="eng")
-    check("escalation: the add was raised", ok, said)
+    check("decision: the add was raised", ok, said)
     pid = said.split()[1]
-    text = hr._escalation(hr.load_proposal(pid))
-    check("escalation: an add shows its effort", ok and ", effort high" in text, text)
+    text = hr._decision_text(hr.load_proposal(pid))
+    check("decision: an add shows its effort", ok and ", effort high" in text, text)
     ok, said = hr.propose("rename", "marina", requester="marina", why="new name", to="mari",
                           team_name="eng")
-    check("escalation: the rename was raised", ok, said)
-    text = hr._escalation(hr.load_proposal(said.split()[1]))
-    check("escalation: a rename shows its team", ok and "would become mari in team eng" in text, text)
+    check("decision: the rename was raised", ok, said)
+    text = hr._decision_text(hr.load_proposal(said.split()[1]))
+    check("decision: a rename shows its team", ok and "would become mari in team eng" in text, text)
 
 
 def cliteam_seal() -> tuple[int, str]:
@@ -3747,7 +3751,7 @@ def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Pat
     _daemon_home(home, 20)
     agents.register("scout")
     hand_edit_team("agents:\n  scout: {}\nedges:\n"
-                   "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+                   "  - { from: \"*\", to: \"human\", kind: task }\n")
     saved = os.environ.get("OCP_AGENT")
     os.environ["OCP_AGENT"] = "scout"
     try:
@@ -3793,7 +3797,7 @@ def main() -> int:
         run(lambda: test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(Path(td) / 'humanedge'))
         run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
-        run(lambda: test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
+        run(lambda: test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
         run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
@@ -3849,10 +3853,10 @@ def main() -> int:
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
-        run(lambda: test_an_answer_binds_the_escalation_the_founder_read(Path(td) / 'hrbind'))
+        run(lambda: test_an_answer_binds_the_decisionion_the_founder_read(Path(td) / 'hrbind'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
-        run(lambda: test_a_dismissed_escalation_is_refused_by_its_state_not_as_a_quote(
+        run(lambda: test_a_dismissed_decisionion_is_refused_by_its_state_not_as_a_quote(
             Path(td) / 'dismissedhr'))
         run(lambda: test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(
             Path(td) / 'hrapplyonapprove'))

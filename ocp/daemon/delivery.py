@@ -140,7 +140,7 @@ def _stalled_on_dialog(con, agent: str, why: str, log) -> bool:
     raised with the founder, stops the agent: it is reported with the reason
     and left alone until a person clears it, not retried every tick."""
     since = db.get_cursor(con, f"dialog_since:{agent}")
-    if not since or int(time.time()) - since < blocked.ESCALATE_AFTER_S:
+    if not since or int(time.time()) - since < blocked.DECISION_AFTER_S:
         return False
     db.set_agent_state(con, agent, STALLED, detail=f"cannot get past a dialog: {why}")
     log(f"  {agent}: STALLED - cannot get past a dialog: {why}")
@@ -1161,7 +1161,7 @@ def deliver_answers(con, agent: str, log) -> bool:
 
     Answering wrote the verdict on the row and stopped there, so the agent that
     asked - and that may have parked waiting - was never told. The founder
-    answering an escalation on the screen, and the answer never reaching the
+    answering a decision on the screen, and the answer never reaching the
     agent it was for, is the same hole from the other end.
 
     Told once, and marked on the row rather than counted off with a cursor: two

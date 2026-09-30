@@ -356,8 +356,8 @@ def test_ask_rate_limit(home: Path) -> None:
     check("rate limit: refuses past the cap", results[3:] == [False, False], str(results))
 
 
-def test_cycle_and_escalation(home: Path) -> None:
-    """A runaway must be stopped AND escalated - a request that silently
+def test_a_runaway_is_stopped_and_raised_to_the_founder(home: Path) -> None:
+    """A runaway must be stopped AND raised to the founder - a request that silently
     vanishes leaves the team stuck with nobody knowing why."""
     use_home(home)
     hand_edit_team(DESIGN_TEAM)
@@ -370,14 +370,14 @@ def test_cycle_and_escalation(home: Path) -> None:
     ok, msg, _ = askmod.ask("backend", "here are my notes", requester="reviewer",
                             parent_id=first)
     check("chain: A->B->A is stopped", not ok and "cycle" in msg, msg)
-    check("chain: and escalated, not dropped", "Escalated to human" in msg, msg)
+    check("chain: and raised to the founder, not dropped", "Raised to the founder" in msg, msg)
 
     con = db.connect()
     try:
         esc = con.execute(
             "SELECT * FROM requests WHERE target='human' AND kind='task'"
         ).fetchall()
-        check("chain: the escalation is a real queued request", len(esc) == 1, str(len(esc)))
+        check("chain: the decision task's card is a real queued request", len(esc) == 1, str(len(esc)))
         check("chain: it carries the original body",
               "here are my notes" in esc[0]["body"], esc[0]["body"][:80])
         chain = db.chain_members(con, str(first))
@@ -923,28 +923,28 @@ def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
     t0 = int(time.time())
     try:
         blockedmod.sweep(con, lambda _m: None, t0)
-        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S)
-        esc = _escalations(con)
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.DECISION_AFTER_S)
+        esc = _decisions(con)
         check("blocked: three due in the same pass are one request", len(esc) == 1, str(esc))
         body = db.get_request(con, esc[0]["id"])["body"]
         check("blocked: naming each", all(n in body for n in ("backend", "worker", "reviewer")), body)
 
         screens["backend"] = None
         blockedmod._checked.clear()
-        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 20)
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.DECISION_AFTER_S + 20)
         check("blocked: one clearing leaves the request open for the others",
-              _escalations(con)[0]["state"] == "queued", str([dict(r) for r in _escalations(con)]))
+              _decisions(con)[0]["state"] == "queued", str([dict(r) for r in _decisions(con)]))
         screens["worker"] = screens["reviewer"] = None
         blockedmod._checked.clear()
-        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 40)
-        check("blocked: the last one closes it", _escalations(con)[0]["state"] == "done")
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.DECISION_AFTER_S + 40)
+        check("blocked: the last one closes it", _decisions(con)[0]["state"] == "done")
     finally:
         con.close()
 
 
 def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
-    """The wake escalates the trust screen and stalls the agent; the sweep then
-    sees a STALLED block with work waiting. Past ESCALATE_AFTER_S that is still
+    """The wake raises the trust screen and stalls the agent; the sweep then
+    sees a STALLED block with work waiting. Past DECISION_AFTER_S that is still
     one request - and the block row stays, for the bridge. Once the founder
     closes the trust request with the agent still stuck, the block is raised."""
     con = _blocked_world(home)
@@ -957,40 +957,40 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
                                      f"a project you created or one you trust?\n")
     trustmod.is_declared = lambda p: False
     orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, '"trust"')
-    t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
+    t0 = int(time.time()) - 2 * blockedmod.DECISION_AFTER_S - 3000
     try:
         keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
         ok, _why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("trust once: the wake escalates and stalls",
-              not ok and len(_escalations(con)) == 1
+        check("trust once: the wake raises and stalls",
+              not ok and len(_decisions(con)) == 1
               and db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED,
-              str((ok, _why, [dict(r) for r in _escalations(con)])))
-        for at in (0, blockedmod.ESCALATE_AFTER_S, blockedmod.ESCALATE_AFTER_S + 900):
+              str((ok, _why, [dict(r) for r in _decisions(con)])))
+        for at in (0, blockedmod.DECISION_AFTER_S, blockedmod.DECISION_AFTER_S + 900):
             blockedmod._checked.clear()
             blockedmod.sweep(con, lambda _m: None, t0 + at)
-        check("trust once: past ESCALATE_AFTER_S, still one founder request",
-              len(_escalations(con)) == 1, str([dict(r) for r in _escalations(con)]))
+        check("trust once: past DECISION_AFTER_S, still one founder request",
+              len(_decisions(con)) == 1, str([dict(r) for r in _decisions(con)]))
         rec = db.block_get(con, "backend")
         check("trust once: the block row stays, for the bridge",
               rec is not None and rec["kind"] == blockedmod.STALLED, str(rec and dict(rec)))
 
-        askmod.resolve(_escalations(con)[0]["id"], "looked", state="done", notify=False)
+        askmod.resolve(_decisions(con)[0]["id"], "looked", state="done", notify=False)
         blockedmod._checked.clear()
-        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.ESCALATE_AFTER_S + 1000)
+        blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.DECISION_AFTER_S + 1000)
         check("trust once: closed while it is still stuck, the block is raised",
-              len(_escalations(con)) == 2, str([dict(r) for r in _escalations(con)]))
+              len(_decisions(con)) == 2, str([dict(r) for r in _decisions(con)]))
 
         # Only a stall is taken as already said: a dialog is a different
-        # obstacle from whatever the agent's open escalation is about.
+        # obstacle from whatever the agent's open decision is about.
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.block_clear(con, "backend")
         con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
-        askmod.escalate(con, "backend", "something else", "unrelated")
+        askmod.raise_decision(con, "backend", "something else", "unrelated")
         blockedmod._checked.clear()
         blockedmod.sweep(con, lambda _m: None, t0 + 5000)
-        blockedmod.sweep(con, lambda _m: None, t0 + 5000 + blockedmod.ESCALATE_AFTER_S)
-        check("trust once: a dialog is raised beside an unrelated open escalation",
-              len(_escalations(con)) == 4, str([dict(r) for r in _escalations(con)]))
+        blockedmod.sweep(con, lambda _m: None, t0 + 5000 + blockedmod.DECISION_AFTER_S)
+        check("trust once: a dialog is raised beside an unrelated open decision",
+              len(_decisions(con)) == 4, str([dict(r) for r in _decisions(con)]))
     finally:
         (orcamod.trust_prompt_showing, orcamod.screen_text, trustmod.is_declared) = real
         con.close()
@@ -1156,7 +1156,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               not nudge(now + 10 * 3600) and len(sent) == 3, str(sent))
         check("nudge: capped counts as exhausted for the head that earned it",
               dmn_delivery.nudge_exhausted(con, "backend", head))
-        # T337: the escalation to backend's own supervisor once capped is
+        # T337: the decision to backend's own supervisor once capped is
         # `timebox.sweep_forgotten_resolve_capped`'s own test, where the
         # fixture actually has one (DESIGN_TEAM here does not).
 
@@ -1586,7 +1586,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
 def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
     """Answering wrote the verdict on the row and stopped. The agent that asked
     - which may have parked waiting for it - was never told, so a founder
-    answering an escalation on the screen and the agent never hearing it is the
+    answering a decision on the screen and the agent never hearing it is the
     same hole seen from the other end. An answer is delivered the way work is,
     once, through a cursor of its own."""
     _daemon_home(home, 20)
@@ -1910,7 +1910,7 @@ agents:
   dohyun:  {}
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
     for n in ("manager", "marina", "dohyun"):
@@ -2103,7 +2103,7 @@ agents:
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "hr", relation: peer, response: async }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         agents.register("marina")
@@ -2218,7 +2218,7 @@ edges:
     to: marina
     relation: supervisor
     response: fire_and_forget
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         ok, said = hr.enact("rename", "harbor-manager", to="boss",
@@ -2270,7 +2270,7 @@ teams:
 agents:
   marina:  {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         agents.register("marina")
@@ -2429,7 +2429,7 @@ def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) ->
 agents:
   hr: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
 
     def propose(name):
@@ -2874,9 +2874,9 @@ def test_a_stale_cached_read_does_not_hide_a_later_prompt(home: Path) -> None:
         con.close()
 
 
-def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> None:
+def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> None:
     """An hr proposal shows from the moment it is raised until it is applied or
-    refused; an escalation shows until it is answered."""
+    refused; a decision shows until it is answered."""
     _daemon_home(home, 20)
     accounts.register("beta")
     con = db.connect()
@@ -2890,7 +2890,7 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         check("hr wait: a raised proposal is waiting on the founder, in red",
               ok and len(w) == 1 and w[0]["red"] and "awaiting your decision" in w[0]["what"]
               and "backend" in w[0]["what"], str(w))
-        check("hr wait: it is not also drawn as a bare escalation", not waits("escalation"))
+        check("hr wait: it is not also drawn as a bare decision", not waits("decision"))
         check("hr wait: and the bridge pins it",
               "hr retire backend" in tui._ANSI.sub("", _snap(120, 40)))
 
@@ -2909,14 +2909,14 @@ def test_a_proposal_and_an_escalation_wait_on_the_founder_too(home: Path) -> Non
         check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
 
         askmod.ask(actions.HUMAN, "which branch do we cut?", requester="marina")
-        w = waits("escalation")
-        check("escalation: an unanswered one is waiting on the founder, in red",
+        w = waits("decision")
+        check("decision: an unanswered one is waiting on the founder, in red",
               len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
               and "which branch" in w[0]["what"], str(w))
         con.execute("UPDATE requests SET state = 'done', verdict = 'the release one' "
                     "WHERE body LIKE 'which branch%'")
         con.commit()
-        check("escalation: answered, it is gone", not waits("escalation"))
+        check("decision: answered, it is gone", not waits("decision"))
     finally:
         con.close()
 
@@ -3926,7 +3926,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -4039,10 +4039,10 @@ limits:
     con = db.connect()
     try:
         req = db.task_requests(con, tid_human)[0]
-        check("task new: a human-owned task keeps the edge's 'escalate' kind, not 'task'",
-              req["kind"] == "escalate", req["kind"])
+        check("task new: a human-owned task's request is a task",
+              req["kind"] == "task", req["kind"])
         check("task new: C3 - it shows in founder_waits as a gate",
-              any(w["kind"] == "escalation" for w in actions.founder_waits(con)),
+              any(w["kind"] == "decision" for w in actions.founder_waits(con)),
               actions.founder_waits(con))
         check("task new: the founder holds no current-task row of its own",
               askmod.HUMAN not in {r["agent"] for r in db.all_agent_states(con)},
@@ -4169,17 +4169,17 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
     con = db.connect()
     try:
         ok, said, rid = askmod.say(askmod.HUMAN, "status: step 5 is up for review", requester="worker")
-        check("say to the founder: sent, and not called an escalation", ok and "[escalation" not in said, said)
+        check("say to the founder: sent", ok, said)
         row = next(m for m in actions.mailbox_rows(con) if m["id"] == rid)
         check("say to the founder: not a gate and not waiting on them",
               not row["gate"] and not row["waiting"], str(row))
         ok, said, ask_rid = askmod.ask(askmod.HUMAN, "which colour?", requester="worker")
-        check("contrast: an ask to the founder is still an escalation that waits", "[escalation" in said, said)
+        check("contrast: an ask to the founder is queued for them", ok and "for human" in said, said)
         rows = {m["id"]: m for m in actions.mailbox_rows(con)}
         check("contrast: and it is the one waiting", rows[ask_rid]["gate"] and not rows[rid]["waiting"], str(rows))
         listed = actions.messages(con)
@@ -4191,8 +4191,8 @@ edges:
         con.close()
 
 
-def test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(home: Path) -> None:
-    """T361 step A: no row keeps the kind ask, report or escalate that is over, and
+def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(home: Path) -> None:
+    """T361 step A: no row keeps the kind ask, report or raise that is over, and
     none that is still open is lost - it is a task for its target, or a say."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -4232,7 +4232,7 @@ def test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(h
         def kind(rid):
             return db.get_request(con, rid)["kind"]
 
-        check("kinds: a finished ask, report, escalation and refusal are says",
+        check("kinds: a finished ask, report, decision and refusal are says",
               [kind(r) for r in (h_ask, h_rep, h_esc, h_rej)] == ["say"] * 4,
               str([kind(r) for r in (h_ask, h_rep, h_esc, h_rej)]))
         check("kinds: a queued fyi to the founder is a say and opens no task",
@@ -4244,7 +4244,7 @@ def test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(h
               kind(q_null_card) == "escalate")
         check("kinds: a queued ask already linked to a task is that task's delivery",
               kind(q_linked) == "task" and db.tasks_for_request(con, q_linked)[0]["id"] == linked_task)
-        check("kinds: a queued escalation already a card stays one",
+        check("kinds: a queued decision already a card stays one",
               kind(q_card) == "escalate" and db.tasks_for_request(con, q_card)[0]["id"] == card_task)
         t_ask = db.tasks_for_request(con, q_ask)
         check("kinds: a queued ask that was already delivered is left as it is - it is being answered as an ask",
@@ -4267,7 +4267,7 @@ def test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(h
               (kind(answer), kind(plain_say), kind(task_row)) == ("answer", "say", "task"))
         check("kinds: exactly two tasks were opened (the two unlinked queued asks; the card was linked already)",
               con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == tasks_before + 2)
-        check("kinds: no finished ask, report or escalation is left over, and no undelivered queued ask without a task",
+        check("kinds: no finished ask, report or decision is left over, and no undelivered queued ask without a task",
               con.execute("SELECT COUNT(*) c FROM requests WHERE state != 'queued' AND id != ? AND "
                           "(kind IS NULL OR kind IN ('report', 'escalate'))", (q_delivered,)).fetchone()["c"] == 0
               and con.execute("SELECT COUNT(*) c FROM requests WHERE state = 'queued' AND kind IS NULL "
@@ -4374,41 +4374,41 @@ def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_
         con.close()
 
 
-def test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(home: Path) -> None:
+def test_an_decisionion_is_a_decision_task_and_the_gate_is_the_open_task(home: Path) -> None:
     """T361 step B2: what the daemon raises for the founder opens a decision task,
     once per shape, with its request as the card; the founder's gate is an open
-    decision task, not a kind of row; an old queued escalation opens one on migrate."""
+    decision task, not a kind of row; an old queued decision opens one on migrate."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
     try:
-        rid = askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph")
+        rid = askmod.raise_decision(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph")
         tasks = db.tasks_for_request(con, rid)
-        check("escalate: opens one decision task of the founder's, opened by the agent it is about",
+        check("raise: opens one decision task of the founder's, opened by the agent it is about",
               len(tasks) == 1 and tasks[0]["owner"] == "human" and tasks[0]["opened_by"] == "backend"
               and tasks[0]["expects"] == "decision", str([dict(t) for t in tasks]))
-        check("escalate: its card is a task row, not an escalate one", db.get_request(con, rid)["kind"] == "task")
-        check("escalate: exactly the same text again is that decision, not a second",
-              askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph") == rid
+        check("raise: its card is a task row, not an raise one", db.get_request(con, rid)["kind"] == "task")
+        check("raise: exactly the same text again is that decision, not a second",
+              askmod.raise_decision(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph") == rid
               and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 1)
-        other = askmod.escalate(con, "backend", "[wait-for] T1 waits on T2\nother", "wait-for graph")
-        prefix = askmod.escalate(con, "backend", "[wait-for] T1 waits", "wait-for graph")
-        check("escalate: different text is its own card, kept whole - nothing an agent wrote is lost",
+        other = askmod.raise_decision(con, "backend", "[wait-for] T1 waits on T2\nother", "wait-for graph")
+        prefix = askmod.raise_decision(con, "backend", "[wait-for] T1 waits", "wait-for graph")
+        check("raise: different text is its own card, kept whole - nothing an agent wrote is lost",
               len({rid, other, prefix}) == 3 and "other" in db.get_request(con, other)["body"]
               and con.execute("SELECT COUNT(*) c FROM tasks WHERE owner = 'human'").fetchone()["c"] == 3)
-        one = askmod._escalate(con, "backend", "reviewer", "NOTES ONE", None, "c1", 2, None, "loop")
-        two = askmod._escalate(con, "backend", "reviewer", "NOTES TWO different", None, "c1", 2, None, "loop")
-        check("escalate: two different stopped requests in one chain are two cards, both bodies kept",
+        one = askmod._stop_runaway(con, "backend", "reviewer", "NOTES ONE", None, "c1", 2, None, "loop")
+        two = askmod._stop_runaway(con, "backend", "reviewer", "NOTES TWO different", None, "c1", 2, None, "loop")
+        check("raise: two different stopped requests in one chain are two cards, both bodies kept",
               one != two and "NOTES ONE" in db.get_request(con, one)["body"]
               and "NOTES TWO different" in db.get_request(con, two)["body"])
         for extra in (other, prefix, one, two):
             actions.decide(con, db.tasks_for_request(con, extra)[0]["id"], "seen")
         check("gate: the card is the founder's gate and shows in their waits",
               next(m for m in actions.mailbox_rows(con) if m["id"] == rid)["gate"]
-              and any(w["kind"] == "escalation" and w["who"] == "backend" for w in actions.founder_waits(con)))
-        check("gate: open_escalations_of counts it", db.open_escalations_of(con, "backend") == 1)
+              and any(w["kind"] == "decision" and w["who"] == "backend" for w in actions.founder_waits(con)))
+        check("gate: open_decisions_of counts it", db.open_decisions_of(con, "backend") == 1)
         ok, msg = actions.decide(con, tasks[0]["id"], "fine")
-        check("gate: decided, it is no gate", ok and not db.open_escalations_of(con, "backend"), msg)
+        check("gate: decided, it is no gate", ok and not db.open_decisions_of(con, "backend"), msg)
         loose = con.execute(
             "INSERT INTO requests(ts, requester, target, body, kind, state, fyi, chain_depth, edge_ok) "
             "VALUES(1000, 'worker', 'human', 'which name?', 'escalate', 'queued', 0, 0, 1)").lastrowid
@@ -4416,7 +4416,7 @@ def test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(home: Pa
         con.close()
         con = db.connect()
         t = db.tasks_for_request(con, loose)
-        check("migrate: a queued escalation no task carries opens one, and the row is a task row",
+        check("migrate: a queued decision no task carries opens one, and the row is a task row",
               len(t) == 1 and t[0]["owner"] == "human" and t[0]["opened_by"] == "worker"
               and db.get_request(con, loose)["kind"] == "task", str([dict(x) for x in t]))
         check("migrate: and it is a gate", loose in db.open_decision_card_ids(con))
@@ -4516,9 +4516,9 @@ limits:
 """)
         answer = db.answer_row_of(con, rids[0])
         ok, msg, _ = askmod.ask("b", "under the answer", requester="a", parent_id=answer["id"])
-        check("cycle: a follow-up under the answer row is not a cycle", ok and "Escalated" not in msg, msg)
+        check("cycle: a follow-up under the answer row is not a cycle", ok and "Raised to the founder" not in msg, msg)
         ok, msg, _ = askmod.ask("b", "under its own request", requester="a", parent_id=rids[1])
-        check("cycle: nor one under the request that was answered", ok and "Escalated" not in msg, msg)
+        check("cycle: nor one under the request that was answered", ok and "Raised to the founder" not in msg, msg)
     finally:
         con.close()
 
@@ -4663,7 +4663,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 
 limits:
@@ -4725,7 +4725,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 
 limits:
@@ -6770,7 +6770,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "manager", to: "human", kind: escalate, creates_gate: true }
+  - { from: "manager", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -7614,7 +7614,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -7898,7 +7898,7 @@ agents:
   dev.merger: {}
 edges:
   - { from: "*", to: "*", relation: peer, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
@@ -8164,7 +8164,7 @@ agents:
 
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -8243,7 +8243,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -8312,7 +8312,7 @@ def main() -> int:
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
             Path(td) / 'retirerace'))
         run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
-        run(lambda: test_cycle_and_escalation(Path(td) / 'cyc'))
+        run(lambda: test_a_runaway_is_stopped_and_raised_to_the_founder(Path(td) / 'cyc'))
         run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
         run(lambda: test_rate_limit_throttles(Path(td) / 'throt'))
         run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
@@ -8365,7 +8365,7 @@ def main() -> int:
         run(lambda: test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(
             Path(td) / 'classifyreuse'))
         run(lambda: test_a_stale_cached_read_does_not_hide_a_later_prompt(Path(td) / 'stalecache'))
-        run(lambda: test_a_proposal_and_an_escalation_wait_on_the_founder_too(Path(td) / 'founderwaits'))
+        run(lambda: test_a_proposal_and_an_decisionion_wait_on_the_founder_too(Path(td) / 'founderwaits'))
         run(lambda: test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(Path(td) / 'askwall'))
         run(lambda: test_a_move_still_records_a_session_the_wait_missed_but_a_hook_saw(
             Path(td) / 'movemissed'))
@@ -8393,8 +8393,8 @@ def main() -> int:
         run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
         run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
         run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
-        run(lambda: test_asks_reports_and_escalations_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
-        run(lambda: test_an_escalation_is_a_decision_task_and_the_gate_is_the_open_task(Path(td) / 'escgate'))
+        run(lambda: test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
+        run(lambda: test_an_decisionion_is_a_decision_task_and_the_gate_is_the_open_task(Path(td) / 'escgate'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))
         run(lambda: test_the_answer_lookups_use_the_settles_index_not_a_scan(Path(td) / 'settlesidx'))
         run(lambda: test_decide_records_the_founders_decision_and_closes_the_task(Path(td) / 'decide'))

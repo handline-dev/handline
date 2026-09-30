@@ -166,21 +166,21 @@ def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
     screen, and the world has refuted it - a standing-consent press by the
     blocked sweep, a person at the keyboard, or the vendor itself answered it,
     and a running session is not something a person needs to clear. Its
-    escalation closes with it. An unreadable screen changes nothing.
+    decision closes with it. An unreadable screen changes nothing.
     """
     with orca.driver_scope():
         if not orca.trust_prompt_gone(row["terminal"]):
             return
-    # Escalation first, row second: a lift whose close failed would strand the
-    # escalation, and a kept stall is retried on the next tick.
-    for rid in (r for prefix in lifecycle.trust_escalation_prefixes(agent)
-                for r in db.open_escalation_ids(con, agent, prefix)):
+    # Decision first, row second: a lift whose close failed would strand the
+    # decision, and a kept stall is retried on the next tick.
+    for rid in (r for prefix in lifecycle.trust_stall_prefixes(agent)
+                for r in db.open_decision_ids(con, agent, prefix)):
         try:
             askmod.resolve(rid, "cleared - its folder-trust prompt is answered", state="done", notify=False)
         except Exception as e:
-            log(f"  {agent}: could not close escalation {rid} ({e}); the stall stays")
-    if any(db.open_escalation_ids(con, agent, prefix)
-           for prefix in lifecycle.trust_escalation_prefixes(agent)):
+            log(f"  {agent}: could not close decision {rid} ({e}); the stall stays")
+    if any(db.open_decision_ids(con, agent, prefix)
+           for prefix in lifecycle.trust_stall_prefixes(agent)):
         return
     db.set_agent_state(con, agent, IDLE, detail="the folder-trust prompt is answered; the stall is lifted")
     actions.append(f"{agent}: STALLED -> IDLE (its folder-trust prompt is answered)")

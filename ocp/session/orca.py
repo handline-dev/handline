@@ -310,7 +310,7 @@ def trust_prompt_folder(handle: str) -> str | None:
     when it is not showing one, or is but the folder could not be read -
     `trust_screen`'s "" collapses into None here, since a caller of this one
     has nothing to do with "showing but unreadable" except what it already
-    does with "not showing": escalate rather than press ahead.
+    does with "not showing": stop rather than press ahead.
 
     Never the path a caller has on record for the session: the two can
     differ (a stale record, a reused terminal, a human's own `cd`), and

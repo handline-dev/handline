@@ -710,7 +710,7 @@ def _deliver_unblocked(con, notices, freed_owners) -> None:
         db.mark_send_now(con, rid)
         askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
                        team.Decision(True, "task unblocked", kind="say",
-                                     response="fire_and_forget", creates_gate=False,
+                                     response="fire_and_forget",
                                      chain_depth=0))
         askmod.push(con, owner, rid)
     for owner in freed_owners:
@@ -1262,7 +1262,7 @@ def _type_say(con, owner: str, body: str, why: str) -> None:
     db.mark_send_now(con, rid)
     askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, body, None,
                    team.Decision(True, why, kind="say", response="fire_and_forget",
-                                 creates_gate=False, chain_depth=0))
+                                 chain_depth=0))
     askmod.push(con, owner, rid)
 
 

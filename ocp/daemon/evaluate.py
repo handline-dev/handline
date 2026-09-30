@@ -166,7 +166,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             state in (PARKED, THROTTLED, DEGRADED):
         # The streak is NOT cleared here. Waking is the normal end of every
         # park, so resetting on wake pinned throttle_count at 1 and made
-        # the escalation in 8.6 unreachable. It is cleared by a handoff
+        # the decision in 8.6 unreachable. It is cleared by a handoff
         # that actually succeeds.
         # A parked agent can also be a closed one, and then this wake restores
         # the session - which is the case the gate below exists for.
@@ -410,7 +410,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 
         fresh = db.get_agent_state(con, agent)
         if fresh and fresh["throttle_count"] >= MAX_THROTTLE_STREAK:
-            # 8.6: escalate only after repeated automatic recovery failed.
+            # 8.6: raise to the founder only after repeated automatic recovery failed.
             db.set_agent_state(con, agent, STALLED,
                                detail=f"{fresh['throttle_count']} consecutive degraded handoffs"
                                + blocked.dialog_note(con, agent))

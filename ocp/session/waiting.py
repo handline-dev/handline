@@ -39,7 +39,7 @@ SHOWN_CHARS = 120
 # itself returned, and PostCompact is this session's own transcript growing,
 # neither a side effect an unrelated tool call could produce.
 MOVED_ON_KINDS = frozenset({
-    "ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw",
+    "ask", "cancel", "commit", "raise_decision", "report", "resolve", "withdraw",
     "no_task", "PostCompact",
 })
 

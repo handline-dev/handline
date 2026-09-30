@@ -1218,7 +1218,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         askmod.resolve(pids["approved"], "approve")
         askmod.resolve(pids["rejected"], "reject not now")
         got = {p["agent"]: p for p in pr.open_proposals(con)}
-        check("proposals: a queued escalation is 'decide'",
+        check("proposals: a queued decision is 'decide'",
               got.get("queued", {}).get("status") == pr.DECIDE, got)
         check("proposals: one closed with an unclear reply is 'no decision', and keeps the reply",
               got.get("unclear", {}).get("status") == pr.STRANDED

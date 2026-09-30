@@ -113,7 +113,7 @@ USAGE_REFRESH_COOLDOWN_S = 900
 USAGE_FAIL_BACKOFF_CAP_S = 1800
 
 MAX_FAILED_ATTEMPTS = 3      # 8.5: real failures only
-MAX_THROTTLE_STREAK = 5      # 8.6: then escalate to a human gate
+MAX_THROTTLE_STREAK = 5      # 8.6: then a decision task for the founder
 
 # An agent that has done nothing for this long is holding memory and nothing
 # else: a resident session costs 250-500MB and no tokens at all. Closing it

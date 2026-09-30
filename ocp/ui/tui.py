@@ -481,7 +481,7 @@ def messages_data(con) -> tuple[str, list[MessageRow], list[str]]:
     (what is waiting, counted), one row per message and the notes under them.
 
     What is waiting for the human is the one queue nothing else in this system
-    will ever clear: an agent's escalation sits here until it is answered."""
+    will ever clear: an agent's decision sits here until it is answered."""
     waiting = actions.messages(con)
     # Counted over the unfolded rows, not `waiting`: a fold shows one
     # agent's latest, and a title built from the folded list would drop

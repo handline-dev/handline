@@ -164,7 +164,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
     con = db.connect()
@@ -220,7 +220,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
     ok, msg, tid = actions.task_new("manager", "worker", "build it", "build it")
@@ -309,7 +309,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -476,7 +476,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4

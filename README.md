@@ -90,7 +90,7 @@ as `/exit` meeting background shells), a conversation moved to the background
 ocp cannot read, no terminal or session - is written to `delivery_blocks` and is not silent: `ocp ps` and the
 bridge list it under WAITING ON YOU after `blocked.SHOW_AFTER_S`, naming the
 dialog or picker from the screen, and it becomes one request to `human` after
-`blocked.ESCALATE_AFTER_S`, closed by the daemon when the agent can be given its
+`blocked.DECISION_AFTER_S`, closed by the daemon when the agent can be given its
 work again. ocp names the dialog and never answers it.
 
 ## Commands
