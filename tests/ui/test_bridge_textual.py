@@ -220,7 +220,7 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     def names(text):
         return [x.label[0] for x in cp.suggest(text, tasks, reqs)]
     check("menu: a slash lists every page command",
-          names("/") == ["/chat", "/all", "/task", "/sort", "/settings", "/back"], str(names("/")))
+          names("/") == ["/chat", "/all", "/task", "/sort", "/settings", "/back", "/help", "/exit"], str(names("/")))
     check("menu: a slash narrows by the letters typed", names("/ta") == ["/task"], str(names("/ta")))
     check("menu: /task lists the tasks, newest change first", names("/task ") == ["T84", "T85", "T7"])
     check("menu: /task narrows by a word of the title", names("/task audit") == ["T7"])
@@ -1610,6 +1610,22 @@ def test_assign_answers_from_the_task_page() -> None:
         con.close()
 
 
+def test_a_slash_line_is_a_bridge_command_and_never_a_message() -> None:
+    from ocp.ui import chat_page as cp
+    sa = cp.slash_action
+    check("slash: plain text is not a command", sa("hello /exit") is None and sa("") is None)
+    check("slash: /exit and /help are commands", sa("/exit") == ("run", "exit") and sa(" /help ") == ("run", "help"))
+    check("slash: the tab commands still run, with an argument they open or sort",
+          sa("/chat") == ("run", "chat") and sa("/task") == ("run", "task") and sa("/task #12") == ("open", 12)
+          and sa("/sort owner") == ("sort", "owner"))
+    check("slash: an agent verb keeps its rule (move takes an argument, the rest none)",
+          sa("/wake") == ("verb", "wake", "") and sa("/move beta") == ("verb", "move", "beta")
+          and sa("/wake now")[0] == "error")
+    for bad in ("/nothing", "/", "/exit now", "/task x", "/sort colour", "/nothing at all"):
+        check(f"slash: {bad!r} is an error, so it is never sent", (sa(bad) or ("",))[0] == "error", str(sa(bad)))
+    check("slash: an error says the command", "/nothing" in sa("/nothing")[1])
+
+
 def test_a_standing_answer_is_added_from_the_settings() -> None:
     home = _home("add_answer")
     folder = home / "work"
@@ -1672,6 +1688,7 @@ async def _run_all() -> None:
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
     test_assign_answers_from_the_task_page()
+    test_a_slash_line_is_a_bridge_command_and_never_a_message()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
