@@ -1,6 +1,7 @@
 """Tasks: refs, findings, done/close/discard/reopen, edit, and what blocks what."""
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -979,12 +980,15 @@ def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
         # a busy owner moves on to nothing, and an owner with no other work
         # can move on by clearing its current task to None just as well as
         # by delivering `tid`. `task_state` says which actually happened.
-        changed = advance_current_task(con, row["owner"])
+        refused: dict = {}
+        changed = advance_current_task(con, row["owner"], refused)
         if changed:
             askmod.push(con, row["owner"])
         if task_state(con, db.get_task(con, tid)) == "doing":
             return True, (f"task T{tid} is queued ({by}) - "
                           f"{row['owner']} was free, so it went out now")
+        if tid in refused:      # T333: queued, but not sent, and the approver is told why
+            return True, f"task T{tid} is queued ({by}) but was not sent to {row['owner']}: {refused[tid]}"
     return True, f"task T{tid} is {'queued' if queued else 'draft'} ({by})"
 
 
@@ -1061,7 +1065,20 @@ def _waiting_tasks(con, agent: str):
             yield row, req
 
 
-def advance_current_task(con, agent: str) -> bool:
+def _note_refusal(con, agent: str, tid: int, msg: str, refused: dict | None = None) -> None:
+    """A delivery of `tid` was refused: `refused` (the caller's, if it wants to say so) gets the text, and the
+    event log gets it once - not again while the task's latest event is this same refusal (T334), since
+    every advance for its owner retries it and a permanent refusal would otherwise fill the log."""
+    if refused is not None:
+        refused[tid] = msg
+    last = con.execute(f"SELECT kind, payload FROM events WHERE {db.EVENT_TASK} = ? ORDER BY id DESC LIMIT 1",
+                       (tid,)).fetchone()
+    if last and last["kind"] == "task_deliver_refused" and json.loads(last["payload"]).get("why") == msg:
+        return
+    db.add_event(con, agent, "task_deliver_refused", {"task_id": tid, "why": msg})
+
+
+def advance_current_task(con, agent: str, refused: dict | None = None) -> bool:
     """T318/T325: moves `agent` on to its next open task, by priority then
     age, once the current one stops being worth holding. True if anything
     changed - the caller's cue to push a delivery now. The founder (C3)
@@ -1072,7 +1089,9 @@ def advance_current_task(con, agent: str) -> bool:
     because the requester is `queued_by`, read from our own db, not whoever's
     live session this delivery happens to run in and possibly long after it
     approved this. A refusal (the edge or the owner changed since) is
-    recorded and skipped, not left to silently stall everything behind it."""
+    recorded and skipped, not left to silently stall everything behind it;
+    `refused`, if given, is filled with {task id: the refusal text} for a caller
+    that owes it to whoever queued the task (T333)."""
     if agent == HUMAN or _current_task_still_asking(con, agent):
         return False
     before = db.current_task(con, agent)
@@ -1084,7 +1103,7 @@ def advance_current_task(con, agent: str) -> bool:
         ok, msg, rid = askmod.ask(agent, row["title"], requester=row["queued_by"], kind="task",
                                   on_behalf_of=True, park=False)
         if not ok:
-            db.add_event(con, agent, "task_deliver_refused", {"task_id": row["id"], "why": msg})
+            _note_refusal(con, agent, row["id"], msg, refused)
             continue
         _link_delivery(con, row["id"], agent, rid)
         db.set_current_task(con, agent, row["id"])
@@ -1540,7 +1559,7 @@ def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
             _link_delivery(con, tid, new_owner, rid)
             askmod.push(con, new_owner)
             return
-        db.add_event(con, new_owner, "task_deliver_refused", {"task_id": tid, "why": msg})
+        _note_refusal(con, new_owner, tid, msg)
         db.set_task_queued(con, tid, taken[0]["requester"])     # the tick tries again, with the title
     if advance_current_task(con, new_owner):
         askmod.push(con, new_owner)

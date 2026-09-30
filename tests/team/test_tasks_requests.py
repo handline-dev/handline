@@ -6824,6 +6824,51 @@ limits:
         con.close()
 
 
+def test_a_refused_delivery_is_told_to_whoever_queued_it_and_logged_once(home: Path) -> None:
+    """T333: queuing a task whose delivery is refused said only "is queued" while the event log said
+    task_deliver_refused. T334: every retry added another such event; now one per refusal."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+
+deny:
+  - { from: "manager", to: "worker", reason: "no more work for worker" }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "a", "worker", "manager")
+        ok, msg = actions.set_queued(con, t, "manager", True)
+        check("refused: the approver is told it was not sent, and why",
+              ok and "was not sent to worker" in msg and "no more work for worker" in msg, msg)
+        check("refused: it is still queued, for the tick to try again", actions.task_state(con, db.get_task(con, t)) == "queued")
+        refusals = lambda: con.execute("SELECT COUNT(*) FROM events WHERE kind = 'task_deliver_refused'").fetchone()[0]
+        check("refused: recorded once", refusals() == 1, str(refusals()))
+        now = int(time.time())
+        for i in range(3):
+            taskqueue.sweep(con, lambda _m: None, now + i * (taskqueue.RETRY_S + 1))
+            actions.advance_current_task(con, "worker")
+        check("refused: retried again and again, it is still one event", refusals() == 1, str(refusals()))
+        db.add_event(con, "manager", "queue_task", {"task_id": t, "after_request": 0})
+        actions.advance_current_task(con, "worker")
+        check("refused: after something else happened to the task it is recorded afresh", refusals() == 2, str(refusals()))
+        rc, out = _cli(["task", "draft", f"T{t}"], as_agent="manager")
+        rc, out = _cli(["task", "queue", f"T{t}"], as_agent="manager")
+        check("refused: the command line says so too", "was not sent to worker" in out, out)
+    finally:
+        con.close()
+
+
 def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
     """Task #11 (founder #2298): an answer that puts work on hold leaves an
     open task owned by the holder, under the asker's task, waiting on what it
@@ -9568,6 +9613,7 @@ def main() -> int:
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
         run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(Path(td) / 'decsettle'))
         run(lambda: test_a_blocker_that_cannot_be_released_does_not_stop_the_others(Path(td) / 'relguard'))
+        run(lambda: test_a_refused_delivery_is_told_to_whoever_queued_it_and_logged_once(Path(td) / 'refuse'))
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
     return run_area(tests)
