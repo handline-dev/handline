@@ -1,7 +1,6 @@
 """Tasks: refs, findings, done/close/discard/reopen, edit, and what blocks what."""
 from __future__ import annotations
 
-import json
 import re
 import time
 from pathlib import Path
@@ -1140,21 +1139,15 @@ def task_start(con, me: str, tid: int) -> tuple[bool, str]:
         prev = db.get_task(con, held)
         if prev is not None and not prev["closed_by"] and not prev["done_evidence"]:
             back = f"; T{held} goes back to queued (your `ocp progress` note is kept)"
-    return True, f"T{tid} is now {me}'s current task{back}"
+    memos = memo_summary(con, tid)
+    return True, f"T{tid} is now {me}'s current task{back}" + (f"\n{memos}" if memos else "")
 
 
 def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
-    """T292/auditor #1655 (1a): a mid-task correction to whoever holds T<n>
-    - "the sha moved", "use branch Y" - not new work (that's `task new
-    --parent`). Only the task's opener or the founder may send one.
-
-    Delivered as a reply in this task's own open request to each target
-    (`--parent` that request, not whatever else the target's queue holds) -
-    it reaches them ahead of the queue exactly when that request is their
-    current head, and behind it, in its own thread, when it is not - until
-    T293's `say` gives notes their own non-blocking path, this still owes a
-    reply like any other ask.
-    """
+    """A mid-task correction to whoever holds T<n> - "the sha moved", "use branch Y" - is a
+    memo on the task (T521, founder #6225): the same author and time rules as `ocp task memo
+    T<n> add`, typed to the holder at once while the task is doing and silent otherwise. New
+    work is `task new --parent`, not a note."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -1163,21 +1156,19 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
         return False, f"task T{tid} is already {what} - nothing left to note"
     if row["done_evidence"]:
         return False, f"task T{tid} is already done - nothing left to note"
-    if me not in (row["opened_by"], HUMAN):
-        return False, (f"task T{tid} note can only be sent by its opener "
-                       f"({row['opened_by']}) or the founder")
-    said = textsafe.oneline(text).strip()
-    if not said:
-        return False, "a note needs text"
-    own = {r["target"]: r for r in db.task_requests(con, tid) if _asks(r)}
-    targets = set(own) or {row["owner"]}
-    sent = []
-    for target in sorted(targets):
-        ok, msg, rid = askmod.ask(target, f"T{tid} note: {said}", requester=me, kind="task_note",
-                                  parent_id=own[target]["id"] if target in own else None)
-        sent.append(f"{target}: #{rid}" if ok else f"{target}: {msg}")
-    db.add_event(con, me, "task_note", {"task_id": tid, "text": said})
-    return True, f"note sent on T{tid} - " + "; ".join(sent)
+    ok, msg, _ = memo_add(con, tid, me, textsafe.oneline(text).strip())
+    return ok, msg
+
+
+def memo_summary(con, tid: int, cap: int = 500) -> str:
+    """The task's memos in one short line - author, time, body - for a delivery or a start
+    (T521); "" when it has none. Oldest first, cut at `cap` characters."""
+    parts = [f"{m['author']} {timefmt.stamp(m['edited_at'] or m['created_at'], timefmt.SHORT)}: "
+             f"{textsafe.oneline(m['body'])[:160]}" for m in db.task_memos(con, tid)]
+    if not parts:
+        return ""
+    text = "Memos - " + " | ".join(parts)
+    return text if len(text) <= cap else text[:cap].rstrip() + "…"
 
 
 def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
@@ -1293,17 +1284,13 @@ def memos_of(con, tid: int) -> list[dict]:
 
 
 def task_timeline(con, tid: int) -> list[dict]:
-    """T501: what happened on a task as one list, oldest first, for its page: memos, handoffs and
-    notes sent to its holder, each {ts, who, kind, text, memo (a memo's id, else None), edited_at}."""
+    """T501: what happened on a task as one list, oldest first, for its page: memos and handoffs (a
+    note is a memo), each {ts, who, kind, text, memo (a memo's id, else None), edited_at}."""
     out = [{"ts": m["created_at"], "who": m["author"], "kind": "memo", "text": m["body"],
             "memo": m["id"], "edited_at": m["edited_at"]} for m in memos_of(con, tid)]
     for h in db.task_handoffs(con, tid):
         out.append({"ts": h["ts"], "who": f"{h['from']} → {h['to']}", "kind": "handoff", "text": h["note"],
                     "memo": None, "edited_at": None})
-    for r in con.execute("SELECT ts, agent, payload FROM events WHERE kind = 'task_note' "
-                         f"AND {db.EVENT_TASK} = ? ORDER BY id", (tid,)):
-        out.append({"ts": r["ts"], "who": r["agent"], "kind": "note",
-                    "text": json.loads(r["payload"]).get("text", ""), "memo": None, "edited_at": None})
     return sorted(out, key=lambda e: e["ts"])
 
 
@@ -1320,7 +1307,7 @@ def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
     row = db.get_task(con, tid)
     if row is None or row["owner"] in (HUMAN, by) or task_state(con, row) != "doing":
         return
-    body = f"T{tid} memo {what} by {by}" + (f": {' '.join(text.split())[:400]}" if text else "")
+    body = f"T{tid} memo {what} by {by}" + (f": {textsafe.oneline(text)[:400]}" if text else "")
     rid = db.add_request(con, _UNBLOCK_REQUESTER, row["owner"], body, None, None,
                          "fire_and_forget", "say", 0, None)
     db.mark_send_now(con, rid)

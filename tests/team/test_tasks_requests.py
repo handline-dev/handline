@@ -4353,27 +4353,25 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "note", f"T{tid}", "worker: refused"], as_agent="worker")
-    check("task note: refused for anyone but the opener or the founder",
-          rc == 1, out)
+    rc, out = _cli(["task", "note", f"T{tid}", "worker: a memo of its own"], as_agent="worker")
+    check("task note (T521): anyone may add one - it is a memo, not a message", rc == 0 and "memo" in out, out)
     rc, out = _cli(["task", "note", f"T{tid}", "the sha moved"], as_agent="manager")
-    check("task note: the opener may send one, delivered to the holder",
-          rc == 0 and "worker" in out, out)
-    note1_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    check("task note (T521): the opener's note is a memo too", rc == 0 and "memo" in out, out)
     rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
-    check("task note: a note on a task whose own request is not the holder's head "
-          "still delivers", rc == 0 and "worker" in out, out)
-    note2_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    check("task note (T521): so is one on a task worker holds second", rc == 0 and "memo" in out, out)
     con = db.connect()
     try:
-        check("task note: T1's note is a follow-up in T1's own request's thread - "
-              "the holder's head, since T1 is what worker holds first (auditor #1718)",
-              any(r["id"] == note1_rid for r in db.followups_pending(con, "worker", req1["id"])))
-        check("task note: T2's note threads under T2's own request, not T1's head, "
-              "even though T2's request is not currently the head (auditor #1718)",
-              any(r["id"] == note2_rid for r in db.followups_pending(con, "worker", req2["id"]))
-              and not any(r["id"] == note2_rid
-                         for r in db.followups_pending(con, "worker", req1["id"])))
+        check("task note (T521): each is a memo of its task, author recorded",
+              [(m["author"], m["body"]) for m in actions.memos_of(con, tid)]
+              == [("worker", "worker: a memo of its own"), ("manager", "the sha moved")]
+              and [m["body"] for m in actions.memos_of(con, tid2)] == ["the branch moved"])
+        told = [r["body"] for r in con.execute(
+            "SELECT body FROM requests WHERE requester = 'task-board' AND target = 'worker' AND kind = 'say'")]
+        check("task note (T521): told to the holder at once for the doing task (not for its own memo), "
+              "silent for the one that is only queued",
+              told == [f"T{tid} memo added by manager: the sha moved"], str(told))
+        check("task note (T521): no task-note request is sent any more",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'task_note'").fetchone()["c"] == 0)
     finally:
         con.close()
 
@@ -5266,6 +5264,49 @@ def test_a_memo_change_is_told_to_the_holder_only_while_doing(home: Path) -> Non
         idle = db.new_task(con, "not doing", "worker", "manager", timeout_s=5400)
         actions.memo_add(con, idle, "manager", "quiet")
         check("memo told: silent when the task is not doing", len(told()) == 4, str(told()))
+    finally:
+        con.close()
+
+
+def test_a_task_shows_its_memos_when_delivered_and_started_and_old_notes_became_memos(home: Path) -> None:
+    """T521 (founder #6225): the delivery of a task lists its memos - author, time, body - in
+    one short line, so does `task start`; and a note sent before this became a memo of its task."""
+    _board_world(home)
+    ok, msg, tid = actions.task_new("manager", "worker", "with memos", "do the thing")
+    check("setup: a task is delivered", ok, msg)
+    con = db.connect()
+    try:
+        head = db.head_of_queue(con, "worker")
+        check("delivery: a task with no memo says nothing of memos",
+              "Memos" not in dmn_delivery.tell_text(con, head, 1))
+        actions.memo_add(con, tid, "manager", "use branch y")
+        actions.memo_add(con, tid, actions.HUMAN, "the founder says: keep it small")
+        text = dmn_delivery.tell_text(con, head, 1)
+        check("delivery: every memo is listed short, author and body",
+              "Memos - manager " in text and "use branch y" in text
+              and f"{actions.HUMAN} " in text and "keep it small" in text, text)
+        check("delivery: still three lines at most", len(text.splitlines()) <= 3, text)
+        actions.memo_add(con, tid, "manager", "x" * 900)
+        check("delivery: a long memo is cut, the line stays short",
+              len(actions.memo_summary(con, tid)) <= 501)
+        actions.memo_add(con, tid, "manager", "hi\x1b]0;pwned\x07 \x1b[2J\x03 there")
+        ok, msg = actions.task_start(con, "worker", tid)
+        text = dmn_delivery.tell_text(con, head, 1)
+        check("a memo's escape, bell and ^C never reach the terminal, in a delivery or a start",
+              "hi" in text and not any(c in text + msg for c in "\x1b\x07\x03"), repr(text))
+        check("task start: prints the memos", ok and "Memos - manager " in msg and "use branch y" in msg, msg)
+        # an old note: an event from before memos existed, migrated once
+        db.add_event(con, "manager", "task_note", {"task_id": tid, "text": "an old note"})
+        db.add_event(con, "manager", "task_note", {"task_id": 9999, "text": "for a gone task"})
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:notes_are_memos'")
+        db.schema._notes_are_memos(con)
+        bodies = [m["body"] for m in actions.memos_of(con, tid)]
+        check("migration: an old note became a memo of its task, author and text kept",
+              "an old note" in bodies and not any(m["task_id"] == 9999 for m in con.execute("SELECT * FROM task_memos")),
+              str(bodies))
+        before = len(actions.memos_of(con, tid))
+        db.schema._notes_are_memos(con)
+        check("migration: ledgered, it does not run twice", len(actions.memos_of(con, tid)) == before)
     finally:
         con.close()
 
@@ -9157,6 +9198,7 @@ def main() -> int:
         run(lambda: test_promote_to_front_never_jumps_a_delivered_head(Path(td) / 'nexttaskhead'))
         run(lambda: test_task_memos_anyone_adds_author_or_founder_changes(Path(td) / 'memos'))
         run(lambda: test_a_memo_change_is_told_to_the_holder_only_while_doing(Path(td) / 'memotold'))
+        run(lambda: test_a_task_shows_its_memos_when_delivered_and_started_and_old_notes_became_memos(Path(td) / 'memoshow'))
         run(lambda: test_task_memo_verbs(Path(td) / 'memoverbs'))
         run(lambda: test_one_doing_task_per_agent(Path(td) / 'onedoing'))
         run(lambda: test_one_doing_migration(Path(td) / 'onedoingmig'))

@@ -1,6 +1,7 @@
 """The schema, `connect`, and the migrations that bring an older database up to it."""
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import time
@@ -437,6 +438,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _drop_daemon_close_notes(con)
     _escalations_are_tasks(con)
     _one_doing_task_each(con)
+    _notes_are_memos(con)
     return con
 
 
@@ -749,6 +751,36 @@ def _one_doing_task_each(con) -> None:
                     (agent, "IDLE", int(time.time()), keep))
         add_event(con, agent, "demoted_doing", {"kept": keep, "queued": [t for t in tids if t != keep]})
     set_cursor(con, "migrated:one_doing_each", 1)
+
+
+def _notes_are_memos(con) -> None:
+    """T521: a task note is a memo. Every note already sent (an event `task_note` with its
+    text) becomes a memo of that task, its sender the author, its time the event's. Tasks that
+    are gone and empty texts are skipped. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:notes_are_memos"):
+        return
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if get_cursor(con, "migrated:notes_are_memos"):     # another process got here first
+            con.execute("ROLLBACK")
+            return
+        for e in con.execute("SELECT agent, ts, payload FROM events WHERE kind = 'task_note' "
+                             "ORDER BY id").fetchall():
+            try:
+                data = json.loads(e["payload"] or "{}")
+            except ValueError:
+                continue
+            tid, text = data.get("task_id"), (data.get("text") or "").strip()
+            if not text or not isinstance(tid, int) \
+                    or con.execute("SELECT 1 FROM tasks WHERE id = ?", (tid,)).fetchone() is None:
+                continue
+            con.execute("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?,?,?,?)",
+                        (tid, e["agent"], text, e["ts"]))
+        set_cursor(con, "migrated:notes_are_memos", 1)
+        con.execute("COMMIT")
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
 
 
 def _answers_are_says(con) -> None:

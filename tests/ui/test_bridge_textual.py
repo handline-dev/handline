@@ -1615,7 +1615,7 @@ def test_assign_answers_from_the_task_page() -> None:
         con.close()
 
 
-def test_a_task_timeline_holds_memos_handoffs_and_notes_in_time_order() -> None:
+def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
     _home("timeline")
     agents.register("reviewer")
     con = db.connect()
@@ -1626,9 +1626,9 @@ def test_a_task_timeline_holds_memos_handoffs_and_notes_in_time_order() -> None:
         ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
         actions.assign_task(con, other, "reviewer", "handoff", "you take it")
         tl = actions.task_timeline(con, tid)
-        check("timeline: a memo and a sent note, in the order they happened",
-              [(e["kind"], e["text"]) for e in tl] == [("memo", "first"), ("note", "a note")]
-              and tl[0]["memo"] and tl[1]["memo"] is None, str(tl))
+        check("timeline: a memo and a sent note (itself a memo) show once each, in order",
+              [(e["kind"], e["text"]) for e in tl] == [("memo", "first"), ("memo", "a note")]
+              and all(e["memo"] for e in tl), str(tl))
         check("timeline: a handoff shows from and to",
               [(e["kind"], e["who"]) for e in actions.task_timeline(con, other)] == [("handoff", "backend → reviewer")],
               str(actions.task_timeline(con, other)))
@@ -1714,7 +1714,7 @@ async def _run_all() -> None:
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
     test_assign_answers_from_the_task_page()
-    test_a_task_timeline_holds_memos_handoffs_and_notes_in_time_order()
+    test_a_task_timeline_holds_memos_and_handoffs_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
