@@ -952,6 +952,14 @@ def _waiting_for(held: str) -> str:
 
 
 def screen_state(con, row) -> tuple[str, str]:
+    """`_screen_state`, with an idle agent whose task waits on a child of its own saying so (T443)."""
+    word, detail = _screen_state(con, row)
+    if word == "IDLE" and not detail and row:
+        detail = oneline(actions.child_wait(con, row["agent"]) or "")
+    return word, detail
+
+
+def _screen_state(con, row) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn
     here and read by `ocp ps` (ocp/cli/) alike, through this one function, so
