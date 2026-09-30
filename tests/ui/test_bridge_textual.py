@@ -683,12 +683,21 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         check("discard: with stop the request is cancelled and the task discarded",
               ok and req["state"] == "withdrawn"      # never delivered: withdrawn, nobody is told
               and cp.task_detail(con, doing)["state"] == "discarded", f"{said} / {dict(req)}")
-        other = db.new_task(con, "asked by an agent", "backend", "orcapipe")
-        _, _, rid2 = askmod.ask("reviewer", "work", requester=actions.HUMAN)
+        other = db.new_task(con, "asked by an agent", "reviewer", "orcapipe")
+        _, _, rid2 = askmod.ask("reviewer", "work", requester="orcapipe")
         db.link_request(con, other, rid2)
         ok, said = actions.discard_task(con, other, "orcapipe", "x", stop=True)
-        check("discard: stop is the founder's; an agent's discard still refuses with the request open",
-              not ok and db.get_request(con, rid2)["state"] == "queued", said)
+        check("discard: stop is the founder's; an agent asking for its own task cannot use it, the request stays",
+              not ok and db.get_request(con, rid2)["state"] == "queued" and "request open" in said, said)
+        held = db.new_task(con, "started, not delivered", "reviewer", actions.HUMAN)
+        _, _, rid3 = askmod.ask("reviewer", "start it", requester=actions.HUMAN)
+        db.link_request(con, held, rid3)
+        db.set_current_task(con, "reviewer", held)
+        ok, said = actions.discard_task(con, held, actions.HUMAN, "no", stop=True)
+        told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
+                           (f"T{held} discarded%stop work%",)).fetchall()
+        check("discard: an owner who already holds it (task start) is told to stop, though nothing was delivered",
+              ok and len(told) == 1, said)
     finally:
         con.close()
 

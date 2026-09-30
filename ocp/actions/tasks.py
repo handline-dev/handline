@@ -600,11 +600,16 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
     live = [r for r in db.task_requests(con, tid) if _asks(r)]
+    in_hand = False
     if live and stop and by == HUMAN:
+        in_hand = db.current_task(con, row["owner"]) == tid or any(r["delivered_at"] for r in live)
+        cancelled = []
         for r in live:
             ok, said_cancel = askmod.cancel(r["id"])
             if not ok:
-                return False, f"task T{tid} not discarded: {said_cancel}"
+                was = f" (already cancelled: {', '.join(f'#{c}' for c in cancelled)})" if cancelled else ""
+                return False, f"task T{tid} not discarded: {said_cancel}{was}"
+            cancelled.append(r["id"])
     elif live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
         return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
@@ -626,6 +631,9 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
     # `live` only guaranteed nothing was asking *then* - a lingering fyi
     # report could still be queued, so retire it too.
     _retire_task_requests(con, tid, f"task T{tid} discarded by {by}: {said}", state="rejected")
+    if in_hand and row["owner"] != HUMAN and not any(r["delivered_at"] for r in live):
+        # a delivered one was told to stop by the cancel; one only held (its `task start`) was not
+        _type_say(con, row["owner"], f"T{tid} discarded by {by} - stop work on it", "task discarded")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
