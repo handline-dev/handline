@@ -1807,6 +1807,56 @@ async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> 
               str(d.options))
 
 
+async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
+    """T525: a memo or a handoff made while the page is open appears on the next poll."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("livetimeline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        cp.TaskBody.POLL_S = 0.05
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause()
+        body = app.screen.query_one(cp.TaskBody)
+        con = db.connect()
+        try:
+            actions.memo_add(con, tid, "reviewer", "posted while it was open")
+        finally:
+            con.close()
+        for _ in range(60):     # the page's own timer, no poll() by hand
+            await pilot.pause(0.05)
+            if body.d and body.d["timeline"]:
+                break
+        cp.TaskBody.POLL_S = 2
+        body._poller.stop()     # what follows calls poll() by hand
+        check("task page: its own timer draws a memo an agent added while it was open",
+              [e["text"] for e in body.d["timeline"]] == ["posted while it was open"], str(body.d["timeline"]))
+        loads = []
+        real = body.load
+        body.load = lambda: (loads.append(1), real())[1]
+        body.poll()
+        check("task page: a poll with nothing new leaves the page alone", loads == [])
+        con = db.connect()
+        try:
+            actions.memo_add(con, tid, "reviewer", "found the cause")
+        finally:
+            con.close()
+        body.poll()
+        await pilot.pause()
+        check("task page: a memo added meanwhile is drawn on the next poll",
+              [e["text"] for e in body.d["timeline"]] == ["posted while it was open", "found the cause"]
+              and len(loads) == 1, str(body.d["timeline"]))
+        body.poll()
+        check("task page: and the poll after that leaves it alone again", len(loads) == 1)
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -2570,6 +2620,7 @@ async def _run_all() -> None:
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
+    await test_an_open_task_page_shows_what_an_agent_adds_without_reopening()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
