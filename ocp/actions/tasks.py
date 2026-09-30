@@ -1139,21 +1139,15 @@ def task_start(con, me: str, tid: int) -> tuple[bool, str]:
         prev = db.get_task(con, held)
         if prev is not None and not prev["closed_by"] and not prev["done_evidence"]:
             back = f"; T{held} goes back to queued (your `ocp progress` note is kept)"
-    return True, f"T{tid} is now {me}'s current task{back}"
+    memos = memo_summary(con, tid)
+    return True, f"T{tid} is now {me}'s current task{back}" + (f"\n{memos}" if memos else "")
 
 
 def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
-    """T292/auditor #1655 (1a): a mid-task correction to whoever holds T<n>
-    - "the sha moved", "use branch Y" - not new work (that's `task new
-    --parent`). Only the task's opener or the founder may send one.
-
-    Delivered as a reply in this task's own open request to each target
-    (`--parent` that request, not whatever else the target's queue holds) -
-    it reaches them ahead of the queue exactly when that request is their
-    current head, and behind it, in its own thread, when it is not - until
-    T293's `say` gives notes their own non-blocking path, this still owes a
-    reply like any other ask.
-    """
+    """A mid-task correction to whoever holds T<n> - "the sha moved", "use branch Y" - is a
+    memo on the task (T521, founder #6225): the same author and time rules as `ocp task memo
+    T<n> add`, typed to the holder at once while the task is doing and silent otherwise. New
+    work is `task new --parent`, not a note."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -1162,21 +1156,19 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
         return False, f"task T{tid} is already {what} - nothing left to note"
     if row["done_evidence"]:
         return False, f"task T{tid} is already done - nothing left to note"
-    if me not in (row["opened_by"], HUMAN):
-        return False, (f"task T{tid} note can only be sent by its opener "
-                       f"({row['opened_by']}) or the founder")
-    said = textsafe.oneline(text).strip()
-    if not said:
-        return False, "a note needs text"
-    own = {r["target"]: r for r in db.task_requests(con, tid) if _asks(r)}
-    targets = set(own) or {row["owner"]}
-    sent = []
-    for target in sorted(targets):
-        ok, msg, rid = askmod.ask(target, f"T{tid} note: {said}", requester=me, kind="task_note",
-                                  parent_id=own[target]["id"] if target in own else None)
-        sent.append(f"{target}: #{rid}" if ok else f"{target}: {msg}")
-    db.add_event(con, me, "task_note", {"task_id": tid, "text": said})
-    return True, f"note sent on T{tid} - " + "; ".join(sent)
+    ok, msg, _ = memo_add(con, tid, me, textsafe.oneline(text).strip())
+    return ok, msg
+
+
+def memo_summary(con, tid: int, cap: int = 500) -> str:
+    """The task's memos in one short line - author, time, body - for a delivery or a start
+    (T521); "" when it has none. Oldest first, cut at `cap` characters."""
+    parts = [f"{m['author']} {timefmt.stamp(m['edited_at'] or m['created_at'], timefmt.SHORT)}: "
+             f"{' '.join(m['body'].split())[:160]}" for m in db.task_memos(con, tid)]
+    if not parts:
+        return ""
+    text = "Memos - " + " | ".join(parts)
+    return text if len(text) <= cap else text[:cap].rstrip() + "…"
 
 
 def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:

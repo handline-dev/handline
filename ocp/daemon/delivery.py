@@ -956,6 +956,12 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
     else:
         body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
         shown = body if len(body) <= 400 else body[:400] + "…"
+    if head["kind"] == "task":
+        from ..actions import tasks as taskmod      # actions -> daemon
+        task = _task_of(con, head)
+        memos = taskmod.memo_summary(con, task["id"]) if task is not None else ""
+        if memos:
+            shown += f" {memos}"
     waiting = more_waiting(head["kind"], more)
     tail = f" [{waiting}]" if waiting else ""
     if parked:

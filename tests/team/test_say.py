@@ -89,7 +89,7 @@ limits:
     ok, msg, tid = actions.task_new("manager", "worker", "the board", "build the board")
     check("setup: a task for worker", ok, msg)
     rc, out = _cli(["say", "worker", "use the v2 layout", "--task", f"T{tid}"], as_agent="manager")
-    check("--task: lands as a note on that task", rc == 0 and "note" in out.lower(), out)
+    check("--task: lands as a memo on that task (T521)", rc == 0 and "memo" in out.lower(), out)
     rc, out = _cli(["say", "manager", "use the v2 layout", "--task", f"T{tid}"], as_agent="manager")
     check("--task: the task must be with the one it is said to", rc == 1 and "is with worker" in out, out)
     rc, out = _cli(["say", "worker", "x", "--task", "T99999"], as_agent="manager")
