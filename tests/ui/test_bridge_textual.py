@@ -1719,6 +1719,23 @@ def test_the_open_task_counts_read_once_and_match_the_one_agent_count() -> None:
         con.close()
 
 
+def test_agents_data_scans_the_open_tasks_once_for_all_agents() -> None:
+    _home("agents_scan")
+    for n in ("reviewer", "product"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        seen: list[str] = []
+        con.set_trace_callback(lambda q: seen.append(q) if "FROM tasks" in q else None)
+        rows, _ = tui.agents_data(con)
+        con.set_trace_callback(None)
+        scans = [q for q in seen if "discarded_by IS NULL" in q]
+        check("agents_data: the open tasks are scanned once however many agents are drawn",
+              len(rows) >= 3 and len(scans) == 1, str((len(rows), len(scans))))
+    finally:
+        con.close()
+
+
 def test_assign_offers_the_holders_team_first() -> None:
     _home("assign_team")
     everyone = ["analytics", "backend", "frontend", "marketing", "reviewer"]
@@ -2136,6 +2153,7 @@ async def _run_all() -> None:
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
     test_the_bridge_stylesheet_parses()
     test_the_open_task_counts_read_once_and_match_the_one_agent_count()
+    test_agents_data_scans_the_open_tasks_once_for_all_agents()
     test_assign_offers_the_holders_team_first()
     test_assign_answers_from_the_task_page()
     test_a_task_page_shows_every_line_of_a_multi_line_task()
