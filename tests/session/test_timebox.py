@@ -409,6 +409,24 @@ def test_background_work_is_not_asked_about(home: Path) -> None:
         con.close()
 
 
+def test_a_running_agent_with_background_work_and_nothing_queued_is_still_asked_about(home: Path) -> None:
+    """T359 (auditor #6652): no stale notice reaches a RUNNING agent now, so the unasked-running one
+    must - a hung turn, or a permission prompt (no Stop event), with background work behind it."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="active")
+        db.set_cursor(con, "bgwork:marina", 1)
+        timebox.sweep_unasked_running(con, lambda _m: None, now)
+        timebox.sweep_unasked_running(con, lambda _m: None, now + timebox.UNASKED_RUNNING_S + 1)
+        timebox.sweep_unasked_running(con, lambda _m: None, now + timebox.UNASKED_RUNNING_S + 2)
+        check("running with background work: the supervisor is told, once",
+              len(sent) == 1 and "marina" in sent[0][1], str(sent))
+    finally:
+        con.close()
+
+
 def test_the_human_is_the_supervisor_of_an_agent_with_none(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -1392,6 +1410,7 @@ def main() -> int:
             run(lambda: test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(Path(td) / 'tb11'))
             run(lambda: test_the_supervisor_is_told_once_per_stale_stretch(Path(td) / 'tb12'))
             run(lambda: test_a_running_agent_with_background_work_is_never_stale(Path(td) / 'tbrun'))
+            run(lambda: test_a_running_agent_with_background_work_and_nothing_queued_is_still_asked_about(Path(td) / 'tbrunbg'))
             run(lambda: test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(Path(td) / 'tb12a'))
             run(lambda: test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(
                 Path(td) / 'tb12b'))
