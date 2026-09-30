@@ -3707,9 +3707,9 @@ def test_an_idle_close_keeps_a_handoff_only_if_it_closed(home: Path) -> None:
         con.close()
 
 
-def test_a_second_done_or_close_loses_the_race(home: Path) -> None:
-    """done_evidence and closed_by are each written once: a call that lost
-    the race must not overwrite the winner's."""
+def test_a_second_done_loses_the_race(home: Path) -> None:
+    """done_evidence is written once: a call that lost the race must not
+    overwrite the winner's."""
     _board_world(home)
     con = db.connect()
     try:
@@ -3717,48 +3717,42 @@ def test_a_second_done_or_close_loses_the_race(home: Path) -> None:
         check("race: the first done wins", db.mark_task_done(con, t, "first"))
         check("race: the second reports it lost", not db.mark_task_done(con, t, "second"))
         check("race: the first evidence stands", db.get_task(con, t)["done_evidence"] == "first")
-        check("race: the first close wins", db.close_task(con, t, "closer-a"))
-        check("race: the second close reports it lost", not db.close_task(con, t, "closer-b"))
-        check("race: the first closer stands", db.get_task(con, t)["closed_by"] == "closer-a")
 
-        # The loser that passed the "already closed" read before the winner wrote.
+        # The loser that passed the "already done" read before the winner wrote.
         real = db.get_task
         t2 = db.new_task(con, "raced two", "worker", "manager")
-        db.mark_task_done(con, t2, "evidence")
         stale = dict(real(con, t2))
-        db.close_task(con, t2, "winner")
+        db.mark_task_done(con, t2, "winner")
         db.get_task = lambda c, i: stale
         try:
-            ok, msg = actions.close_task(con, t2, "manager")
+            ok, msg = actions.mark_task_done(con, t2, "worker", reason="loser")
         finally:
             db.get_task = real
-        check("race: a close that read the row before the winner wrote is refused",
+        check("race: a done that read the row before the winner wrote is refused",
               not ok and "someone else" in msg, msg)
-        check("race: and the winner's identity stands", real(con, t2)["closed_by"] == "winner")
+        check("race: and the winner's evidence stands", real(con, t2)["done_evidence"] == "winner")
     finally:
         con.close()
 
 
 def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
+    """T568: `ocp close` ends an agent's session; a task or a number is refused
+    with the way to end or undo a task, and nothing is closed."""
     _board_world(home)
-    rc, out = _cli(["close", "T42", "fine"])
-    check("close: a task number that is no task says no such task, and closes no session",
-          rc == 1 and "no task T42" in out, out)
     rc, out = _cli(["close", "T42"])
-    check("close: and the same with no evidence", rc == 1 and "no task T42" in out, out)
+    check("close: a task number is refused, pointing at `task done`",
+          rc == 1 and "task done" in out and "task reopen" in out, out)
     rc, out = _cli(["close", "42"])
-    check("close: a bare number is refused with both readings, closing nothing",
-          rc == 1 and "task 42 or request 42" in out, out)
+    check("close: a bare number is no agent", rc == 1 and "not an agent" in out, out)
     _cli(["task", "new", "--owner", "worker", "t", "t", "-t", "1h"])
-    rc, out = _cli(["close", "T1", "fine"])
-    check("close: a real task with evidence says why it refused "
-          "(#71: evidence belongs to `ocp task done` now)",
-          rc == 1 and "task T1" in out and "task done" in out, out)
     rc, out = _cli(["close", "T1"])
-    check("close: a real task not done yet is refused too", rc == 1 and "not done" in out, out)
-    rc, out = _cli(["close", "worker", "abc1234"])
-    check("close: evidence on a name says it read an agent, and closed nothing",
-          rc == 1 and "as an agent's name" in out and "Nothing was closed" in out, out)
+    check("close: a real task is refused too, and stays open", rc == 1 and "task done" in out, out)
+    con = db.connect()
+    try:
+        check("close: and the task is untouched",
+              actions.task_state(con, db.get_task(con, 1)) != "done")
+    finally:
+        con.close()
 
 
 def main() -> int:
@@ -3857,7 +3851,7 @@ def main() -> int:
         run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
         run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
         run(lambda: test_an_idle_close_keeps_a_handoff_only_if_it_closed(Path(td) / 'hdclose'))
-        run(lambda: test_a_second_done_or_close_loses_the_race(Path(td) / 'taskrace'))
+        run(lambda: test_a_second_done_loses_the_race(Path(td) / 'taskrace'))
         run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))
     return run_area(tests)
 

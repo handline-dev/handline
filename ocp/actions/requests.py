@@ -213,8 +213,8 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
         t = db.get_task(con, tid)
         if t is None:
             return f"no task T{tid}"
-        if t["closed_by"]:
-            return f"task T{tid} is already closed ({t['closed_by']})"
+        if db.task_ended(t):
+            return f"task T{tid} is already {'discarded' if t['discarded_by'] else 'done'}"
     if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):

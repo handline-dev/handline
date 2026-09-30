@@ -59,7 +59,7 @@ _ACCT_TIERS = (
 )
 # The keys every panel answers to, after the panel's own.
 _GLOBAL_KEYS = (Key("←→", "panel", 3, "move between the panels"), Key("↑↓", "row", 3, "move between the rows"),
-                Key("q", "quit", 2, "quit the bridge"), Key("b", "checks", 2, "done tasks waiting for your check"),
+                Key("q", "quit", 2, "quit the bridge"),
                 Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "the week left, last and next 24h"))
 _AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "task", "note")
 _MESSAGE_HEADS = ("", "", "from", "message")
@@ -138,7 +138,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._answers: list[dict] = []
         self._removing = AnswerMarks()      # answers marked for removal; Save removes them
         self._checks_shown = False      # the Tasks tab is showing a header link's view now
-        self._checks: str | None = None  # the next Tasks tab opens on "checks" (the founder's done tasks) or "delegated"
+        self._checks: str | None = None  # the next Tasks tab opens on "delegated"
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
         self._pressed: tuple | None = None      # the last row a mouse press picked, and when
@@ -230,7 +230,7 @@ class HomePage(RowActions, JobsAware, Screen):
         if which == "delegated":
             view.show_delegated()
         else:
-            view.show_checks(which == "checks")
+            view.show_open()
 
     def _go_tasks(self, which: str) -> None:
         self._checks = which
@@ -241,11 +241,6 @@ class HomePage(RowActions, JobsAware, Screen):
             self._checks_shown = True
         else:
             tabs.active = "tasks"
-
-    def action_checks(self) -> None:
-        """The founder's done tasks waiting for a sign-off: the `b` key and the header's `to check`
-        go to the Tasks tab with them filtered."""
-        self._go_tasks("checks")
 
     def action_delegated(self) -> None:
         """The header's `for you`: the Tasks tab filtered to the tasks handed to the founder."""
@@ -584,9 +579,6 @@ class HomePage(RowActions, JobsAware, Screen):
             return
         if k == "T":     # T69: every open task - free on every panel
             self.app.push_screen(TasksScreen())
-            return
-        if k == "b":     # the founder's done tasks waiting for a sign-off - free on every panel
-            self.action_checks()
             return
         if k in tui.NEXT_ROW and self._on_bottom_row():
             return      # the last row is the end: ↓ does not wrap round to the top

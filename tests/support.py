@@ -1776,21 +1776,9 @@ def _link(tid: int, rid: int, state: str | None = None) -> None:
         con.close()
 
 
-def _done_and_close(tid: int, owner: str, evidence: str = "done",
-                    closer: str | None = "manager") -> tuple[int, str]:
-    """#71: the two-step close most tests just need - mark it done as its
-    owner, then close it as `closer` (the task's opener, the default asker
-    for a task nobody linked a founder request to)."""
-    rc, out = _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
-    if rc != 0:
-        return rc, out
-    con = db.connect()
-    try:
-        if db.get_task(con, tid)["closed_by"]:      # a child an agent asked for closed itself on done
-            return 0, f"{out}\ntask T{tid} closed"
-    finally:
-        con.close()
-    return _cli(["close", f"T{tid}"], as_agent=closer)
+def _task_done(tid: int, owner: str, evidence: str = "done") -> tuple[int, str]:
+    """`ocp task done` as its owner: the one step that finishes a task (T568)."""
+    return _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
 
 
 def _two_lanes(home: Path) -> None:
@@ -2185,7 +2173,7 @@ __all__ = [
     '_request',
     '_now_line',
     '_link',
-    '_done_and_close',
+    '_task_done',
     '_two_lanes',
     'write_labels',
     '_read_labels',

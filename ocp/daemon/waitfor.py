@@ -20,7 +20,7 @@ _PREFIX = "waitfor:"
 
 
 def _open(row) -> bool:
-    return row["closed_by"] is None and row["done_evidence"] is None
+    return not db.task_ended(row)
 
 
 def _cycles(edges: dict[int, list[int]]) -> list[tuple[int, ...]]:
@@ -95,10 +95,9 @@ def stuck_waits(con) -> dict[str, tuple[int, str]]:
         waiter, blocker = tasks.get(r["task_id"]), tasks.get(r["blocks_on"])
         if waiter is None or not _open(waiter):
             continue
-        if blocker is None or (blocker["closed_by"] is not None and blocker["done_evidence"] is None):
-            gone = "does not exist" if blocker is None else (
-                f"was discarded by {blocker['discarded_by']}" if blocker["discarded_by"]
-                else f"was closed by {blocker['closed_by']} without being done")
+        if blocker is None or blocker["discarded_by"]:
+            gone = ("does not exist" if blocker is None
+                    else f"was discarded by {blocker['discarded_by']}")
             found[f"gone:{waiter['id']}>{r['blocks_on']}"] = (waiter["id"], (
                 f"T{waiter['id']} ({waiter['owner']}) waited on T{r['blocks_on']}, which {gone}. "
                 f"That wait no longer holds it back, but what it waited for never happened - "

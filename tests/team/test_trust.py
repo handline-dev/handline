@@ -64,8 +64,8 @@ def test_trust_roots(home: Path) -> None:
     ok, msg = askmod.resolve(rid, "approve")
     check("trust: an approve declares the root at once, and says so", ok and "applied" in msg, msg)
     check("trust: and its task is decided with it",
-          db.connect().execute("SELECT closed_by FROM tasks t JOIN task_requests l ON l.task_id = t.id "
-                               "WHERE l.request_id = ?", (rid,)).fetchone()["closed_by"] == "human")
+          db.connect().execute("SELECT done_evidence FROM tasks t JOIN task_requests l ON l.task_id = t.id "
+                               "WHERE l.request_id = ?", (rid,)).fetchone()["done_evidence"] == "approve")
     check("trust: it is now declared",
           trustmod.is_declared(home / "repos" / "second"))
     check("trust: and the proposer's answer carries the outcome",

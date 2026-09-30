@@ -464,12 +464,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="close a done task (ocp close T7), the asker's or "
-                                     "the founder's sign-off, or end an idle agent's session, keeping "
-                                     "its terminal")
-    p.add_argument("target", help="a task (T<n>), or an agent's name")
-    p.add_argument("evidence", nargs="?",
-                   help="refused - `ocp task done` takes the evidence now")
+    p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
+    p.add_argument("target", help="an agent's name")
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
@@ -530,13 +526,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("rest", nargs="*")
     p.set_defaults(fn=cmd_task_memo)
     p = tk.add_parser("list", help="the open tasks and their requests")
-    p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
+    p.add_argument("--all", action="store_true", help="done and discarded tasks too")
     p.add_argument("--owner", default=None, help="only this agent's tasks")
     p.add_argument("--everyone", action="store_true",
                    help="every team's tasks, not just yours and your reports'")
     p.add_argument("--state", default=None,
-                   choices=("draft", "queued", "doing", "done", "closed", "discarded", "merged"),
-                   help="only tasks in this state; a closed one shows even without --all")
+                   choices=("draft", "queued", "doing", "done", "discarded"),
+                   help="only tasks in this state; a done or discarded one shows even without --all")
     p.set_defaults(fn=cmd_task_list)
     p = tk.add_parser("queue", help="approve draft tasks to run - the founder or the owner's manager")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")

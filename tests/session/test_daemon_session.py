@@ -4143,10 +4143,9 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         f, g = (db.new_task(con, t, "backend", "manager") for t in ("f", "g"))
         db.add_block(con, f, g)
         db.mark_task_done(con, g, "sha abc", "reason")
-        db.close_task(con, g, "manager")
         before = len(escalations())
         waitfor.sweep(con, log.append, 0)
-        check("wait-for: a blocker that finished and was closed is no stuck wait",
+        check("wait-for: a blocker that finished is no stuck wait",
               len(escalations()) == before)
 
         # Ids that do not run in wait order: T-p waits on T-r, T-r on T-q, T-q on T-p. The founder is
@@ -4187,17 +4186,6 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         check("wait-for: --blocked-by refuses a loop of three, naming it, and a task waiting on itself",
               ok1 and ok1b and not ok2 and f"T{z} -> T{x} -> T{y} -> T{z}" in why2
               and not ok3 and "itself" in why3, f"{why2} {why3}")
-
-        # A blocker closed without being done releases its waiter: the founder is told.
-        h, i = (db.new_task(con, t, "backend", "manager") for t in ("h", "i"))
-        db.add_block(con, h, i)
-        db.close_task(con, i, "manager")
-        before = len(escalations())
-        waitfor.sweep(con, log.append, 0)
-        sent = escalations()[before:]
-        check("wait-for: a wait on a blocker closed without being done is told once, saying so",
-              len(sent) == 1 and f"T{i}" in sent[0]["body"] and "without being done" in sent[0]["body"],
-              str([r["body"] for r in sent]))
     finally:
         con.close()
 

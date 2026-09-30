@@ -79,48 +79,13 @@ def _timeout_arg(text: str) -> int:
 
 
 def cmd_close(args) -> int:
-    """One verb, two things it can close: a task by its reference (`ocp close
-    T7`) - the asker's or the founder's sign-off, once it is done (`ocp task done` first;
-    #71) - or an agent's session by its name, keeping its terminal. A task
-    is always T<number> and a bare number is refused (it could as well be a
-    request), so the argument decides; evidence given to either is refused
-    rather than guessed at - marking a task done, with its evidence, is `ocp
-    task done` now, not this verb.
-    """
+    """End an idle agent's session by its name, keeping its terminal. A task is
+    not closed: it ends when it is done (`ocp task done`), and its asker
+    reopens it if the result was wrong."""
     raw = args.target
-    if raw.isdigit():
-        print(_ambiguous_number(raw))
-        return 1
-    if actions.TASK_REF.fullmatch(raw):
-        tnum = actions.parse_task_ref(raw)
-        # close_task's event names whoever ran this - unlike an agent's
-        # session below, which needs no identity to close - so an identity
-        # is required here too, the same refusal cmd_resolve and cmd_dismiss
-        # already give.
-        me = askmod.asking_agent()
-        if me is None:
-            print(_who_refusal("close a task"))
-            return 1
-        con = db.connect()
-        try:
-            if db.get_task(con, tnum) is None:
-                print(f"no task T{tnum}. A T-number is a task, never an agent "
-                      "(agents are named); `ocp task list` shows the open ones.")
-                return 1
-            if args.evidence:
-                print(f"closing task T{tnum} takes no evidence any more - `ocp task done "
-                      f"T{tnum} <sha, --request N, or a reason>` marks it done, then "
-                      f"`ocp close T{tnum}` closes it.")
-                return 1
-            ok, msg = actions.close_task(con, tnum, me)
-            print(msg)
-        finally:
-            con.close()
-        return 0 if ok else 1
-    if args.evidence:
-        print(f"read '{raw}' as an agent's name, so this would end its session - but a "
-              "task closes by its T-number, and says nothing about a session. Nothing "
-              "was closed.")
+    if raw.isdigit() or actions.TASK_REF.fullmatch(raw):
+        print(f"'{raw}' is not an agent. A task has no close: `ocp task done {raw}` ends it, "
+              f"and `ocp task reopen {raw}` undoes a wrong result.")
         return 1
     args.agent = raw
     con = db.connect()
@@ -511,7 +476,6 @@ def cmd_task_edit(args) -> int:
         try:
             if actions.advance_current_task(con, unblocked_owner):
                 askmod.push(con, unblocked_owner)
-            actions.self_close(con, args.task)      # a done child held only by that blocker
         finally:
             con.close()
     return 0 if ok else 1
@@ -535,7 +499,7 @@ def cmd_task_merge(args) -> int:
 def _print_board(con, tasks: list) -> None:
     """Each task, then the requests linked to it as they stand now: state and
     date are read from the request, never held on the task. `state` (#71) is
-    one of draft, queued, doing, done, closed, discarded - doing reads live
+    one of draft, queued, doing, done, discarded - doing reads live
     off those same requests, the rest off the task's own record."""
     if not tasks:
         print("no open tasks.")
@@ -548,15 +512,13 @@ def _print_board(con, tasks: list) -> None:
         done = f"  DONE: {textsafe.oneline(t['done_evidence'])}" if t["done_evidence"] else ""
         closed = (f"  DISCARDED by {textsafe.oneline(t['discarded_by'])}: "
                   f"{textsafe.oneline(t['discard_reason'])}" if t["discarded_by"]
-                  else f"  CLOSED by {textsafe.oneline(t['closed_by'])}" if t["closed_by"]
                   else "")
-        merged = f"  MERGED into T{t['merged_into']}" if t["merged_into"] else ""
         blockers = [b["id"] for b in db.task_blockers(con, t["id"])]
         waits = f"  blocked by {', '.join(f'T{b}' for b in blockers)}" if blockers else ""
         active = timefmt.stamp(db.task_last_activity(con, t["id"]), timefmt.DATE_TIME)
         print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
-              f"{parent}{edited}{done}{closed}{merged}  "
-              f"{actions.priority_ref(t['priority'])}  may close: {actions.task_asker(con, t)}"
+              f"{parent}{edited}{done}{closed}  "
+              f"{actions.priority_ref(t['priority'])}  may reopen: {actions.task_asker(con, t)}"
               f"{waits}  active {active}")
         odd = actions.task_mismatch(con, t, state, open_requests)
         if odd:
@@ -565,20 +527,6 @@ def _print_board(con, tasks: list) -> None:
             when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
                   f"{r['state']} {when}")
-
-
-def _print_needing_close(con, tasks: list) -> None:
-    """#71's 'done - waiting for check' group: done tasks not yet closed,
-    each with the evidence its owner gave. Shared by `ocp task list` (and
-    through it, the status file status-sync.sh polls it into) and
-    `ocp task board`."""
-    if not tasks:
-        return
-    print("done - waiting for check:")
-    for t in tasks:
-        parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
-        print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['owner']}]{parent}"))
-        print(_fit100(f"      done: {textsafe.oneline(t['done_evidence'])}"))
 
 
 def _visible_owners(args) -> set[str] | None:
@@ -595,10 +543,8 @@ def cmd_task_list(args) -> int:
     con = db.connect()
     try:
         rows = actions.task_rows(con, owner=args.owner, state=args.state,
-                                 include_closed=args.all, owners=owners)
+                                 include_ended=args.all, owners=owners)
         _print_board(con, [r["row"] for r in rows])
-        _print_needing_close(con, [t for t in db.tasks_needing_close(con)
-                                   if owners is None or t["owner"] in owners])
         gaps = actions.reason_gaps(con)
         print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
               f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
@@ -634,10 +580,6 @@ def cmd_task_board(args) -> int:
     instead of either of those two - it is neither nobody's turn nor mine
     while the thing it waits on is still open.
 
-    #71's 'done - waiting for check' group follows, for tasks *I* am the
-    asker of (`actions.task_asker`) and that are done but not yet closed -
-    whether or not I own them, since owning and asking are usually two
-    different agents here.
     """
     me = askmod.asking_agent()
     if me is None:
@@ -648,9 +590,7 @@ def cmd_task_board(args) -> int:
         # The founder's board is the tasks it asked for, as before; the full view is `list`.
         owners = {me} if me == askmod.HUMAN and not args.everyone else _visible_owners(args)
         tasks = [t for t in db.open_tasks(con) if owners is None or t["owner"] in owners]
-        needing_close = [t for t in db.tasks_needing_close(con)
-                        if actions.task_asker(con, t) == me]
-        if not tasks and not needing_close:
+        if not tasks:
             print("no open tasks.")
             return 0
         open_requests = con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall()
@@ -679,7 +619,6 @@ def cmd_task_board(args) -> int:
             odd = actions.task_mismatch(con, t, actions.task_state(con, t), open_requests)
             if odd:
                 print(_fit100(f"      ! {odd}"))
-        _print_needing_close(con, needing_close)
     finally:
         con.close()
     return 0

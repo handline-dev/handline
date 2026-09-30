@@ -1288,8 +1288,8 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         card = next(r for r in db.task_requests(con, tid) if r["target"] == actions.HUMAN)["id"]
         ok, said = actions.answer_ok(con, card, "call it x")
         row = db.get_task(con, tid)
-        check("chat: the reply in a decision card decides and closes its task",
-              ok and row["done_evidence"] == "call it x" and row["closed_by"] == actions.HUMAN, said)
+        check("chat: the reply in a decision card decides and finishes its task",
+              ok and row["done_evidence"] == "call it x", said)
         check("chat: and settles the request that carried the card",
               db.get_request(con, card)["state"] == "done" and db.get_request(con, card)["verdict"] == "call it x")
         ok, said = actions.answer_ok(con, card, "again")
