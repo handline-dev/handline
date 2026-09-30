@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from ..infra import protected
+from . import cursors
 
 # The founder's name as a requester or target; team.ask re-exports it.
 HUMAN = "human"
@@ -190,6 +191,10 @@ def mark_delivered(con, rid: int) -> bool:
         "UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
         "WHERE id = ? AND state = 'queued'",
         (int(time.time()), rid))
+    if cur.rowcount:
+        # work arrived: the agent-level progress note (T366) is for an idle spell
+        row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
+        cursors.set_meta(con, cursors.agent_progress_key(row["target"]), None)
     return cur.rowcount > 0
 
 

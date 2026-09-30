@@ -18,7 +18,10 @@ def set_current_task(con, agent: str, tid: int | None) -> None:
     """T292: the one task board task `agent` is holding right now - set on
     delivery of a `task new` or by `task start`, cleared on done or release.
     Not `set_task`'s `task` column: that one is the free-text prompt a
-    spawned terminal starts on, unrelated to the task board."""
+    spawned terminal starts on, unrelated to the task board. A task in hand ends
+    the idle spell an agent-level progress note was written in (T366)."""
+    if tid is not None:
+        cursors.set_meta(con, cursors.agent_progress_key(agent), None)
     con.execute(
         "INSERT INTO agent_state(agent, state, updated, current_task) VALUES(?,?,?,?) "
         "ON CONFLICT(agent) DO UPDATE SET current_task=excluded.current_task, "

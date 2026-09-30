@@ -461,9 +461,23 @@ def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path)
               "deferred: waits on T9" in db.get_handoff(con, "backend"))
         rid = db.add_request(con, "marina", "backend", "fix it", None,
                              "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        _set_request_state(con, rid, "done", "ok")
+        check("progress: an idle note does not resurface after a request came and went (T366)",
+              handoffmod.get_progress(con, "backend") is None)
+        rid = db.add_request(con, "marina", "backend", "fix it", None,
+                             "peer", "async", None, 0, None)
         ok, said = handoffmod.set_progress(con, "backend", "x")
         check("progress: a request not yet delivered is not one in hand; the note stays on the agent",
               ok and said.startswith("you"), said)
+        t1 = db.new_task(con, "one", "backend", "marina")
+        t2 = db.new_task(con, "two", "backend", "marina")
+        db.set_current_task(con, "backend", t1)
+        ok, said = handoffmod.set_progress(con, "backend", "half of T1")
+        db.set_current_task(con, "backend", t2)
+        check("progress: with a task in hand the note is the task's, not the next task's (T366)",
+              ok and said.startswith(f"T{t1}") and handoffmod.get_progress(con, "backend") is None, said)
+        db.set_current_task(con, "backend", None)
         db.mark_delivered(con, rid)
         ok, said = handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
         check("progress: kept on the delivered request", ok and said == f"#{rid}", said)
