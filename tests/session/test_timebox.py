@@ -720,6 +720,54 @@ def test_a_turn_that_ends_before_a_check_is_written_is_not_its_answer(home: Path
         con.close()
 
 
+def test_a_check_that_was_not_typed_leaves_no_event_to_mistake_a_real_turn_for_its_answer(home: Path) -> None:
+    """The check event is written before the typing, so a check that is refused or whose
+    typing raises must take it back: else the next real turn looks like its answer and
+    counts as silence (auditor #6446, T540)."""
+    _world(home)
+    idle_close.set_bg_seconds("bg_check_s", 600)
+    con = db.connect()
+    real = dmn_delivery.type_notice
+    try:
+        now = int(time.time())
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        db.set_cursor(con, "bgwork:marina", 1)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (now - 3600,))
+
+        def checks() -> int:
+            return con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_checked'").fetchone()[0]
+
+        def real_turn(ts: int) -> None:
+            rid = db.add_event(con, "marina", "UserPromptSubmit", {})
+            con.execute("UPDATE events SET ts = ? WHERE id = ?", (ts, rid))
+
+        def refuse(*_a, **_k):
+            return False
+
+        def blow_up(*_a, **_k):
+            raise RuntimeError("orca call failed")
+
+        dmn_delivery.type_notice = refuse
+        timebox.sweep_background_check(con, lambda _m: None, now)
+        check("untyped: a refused check leaves no event", checks() == 0, str(checks()))
+        real_turn(now + 5)
+        check("untyped: and the real turn after it is shown",
+              dmn_delivery.bg_last_shown(con, "marina") == now + 5, str(dmn_delivery.bg_last_shown(con, "marina")))
+        db.set_cursor(con, "notice_try:marina", 0)
+        dmn_delivery.type_notice = blow_up
+        try:
+            timebox.sweep_background_check(con, lambda _m: None, now + 10)
+            raised = False
+        except RuntimeError:
+            raised = True
+        check("untyped: a typing that raises still raises", raised)
+        check("untyped: and leaves no event either", checks() == 0, str(checks()))
+        check("untyped: no check is recorded as asked", not db.get_cursor(con, "bg_check:marina"))
+    finally:
+        dmn_delivery.type_notice = real
+        con.close()
+
+
 def test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -1314,6 +1362,7 @@ def main() -> int:
             run(lambda: test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(Path(td) / 'tb10m'))
             run(lambda: test_answering_checks_shorter_than_the_notice_does_not_hold_the_notice_off(Path(td) / 'tb10o'))
             run(lambda: test_a_turn_that_ends_before_a_check_is_written_is_not_its_answer(Path(td) / 'tb10p'))
+            run(lambda: test_a_check_that_was_not_typed_leaves_no_event_to_mistake_a_real_turn_for_its_answer(Path(td) / 'tb10q'))
             run(lambda: test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(Path(td) / 'tb10f'))
             run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
             run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))

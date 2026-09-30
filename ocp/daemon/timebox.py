@@ -241,11 +241,15 @@ def sweep_background_check(con, log, now: int) -> None:
         # The event goes in before the typing: its id is what separates the turn that ended
         # before the check from the one that answers it (`delivery.bg_last_shown`).
         checked = db.add_event(con, agent, "background_checked", {"jobs": len(jobs), "unnamed": unnamed})
-        if _tell(con, agent, text, now):
+        told = False
+        try:
+            told = _tell(con, agent, text, now)
+        finally:
+            if not told:                    # nothing typed, or the typing raised: no check was asked
+                con.execute("DELETE FROM events WHERE id = ?", (checked,))
+        if told:
             db.set_cursor(con, key, now)
             log(f"  {agent}: background work for {timefmt.ago(now - since)} - asked which to stop")
-        else:
-            con.execute("DELETE FROM events WHERE id = ?", (checked,))
 
 
 def sweep_stop_wait_backstop(con, log, now: int) -> None:
