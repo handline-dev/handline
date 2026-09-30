@@ -721,7 +721,7 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     if closed["done_evidence"] and closed["parent_task"] != dep_tid:
         text += f": {closed['done_evidence']}"     # a child's result is told on its own, by _child_result_notice
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
-                         "fire_and_forget", "report", 0, None)
+                         "fire_and_forget", "say", 0, None)
     db.link_request(con, dep_tid, rid)
     db.add_event(con, closer, "task_unblocked",
                  {"task_id": dep_tid, "request_id": rid, "closed_task": closed_tid,
@@ -751,7 +751,7 @@ def _child_result_notice(con, dep_row, by: str, tid: int) -> tuple[int, str, str
         text = f"T{tid} closed by {child['closed_by']}"
     text = text.rstrip(": ")
     rid = db.add_request(con, _UNBLOCK_REQUESTER, dep_row["owner"], text, None, None,
-                         "fire_and_forget", "report", 0, None)
+                         "fire_and_forget", "say", 0, None)
     db.link_request(con, dep_row["id"], rid)
     db.add_event(con, by, "child_result_told", {"task_id": dep_row["id"], "child": tid, "request_id": rid})
     return rid, dep_row["owner"], text
@@ -838,10 +838,12 @@ def _deliver_unblocked(con, notices, freed_owners) -> None:
     """The half of a release that happens after the write: tell the owners, and give
     each freed owner its next task now (T325) rather than at some later tick."""
     for rid, owner, text in notices:
+        db.mark_send_now(con, rid)
         askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
-                       team.Decision(True, "task unblocked", kind="report",
+                       team.Decision(True, "task unblocked", kind="say",
                                      response="fire_and_forget", creates_gate=False,
                                      chain_depth=0))
+        askmod.push(con, owner, rid)
     for owner in freed_owners:
         if advance_current_task(con, owner):
             askmod.push(con, owner)

@@ -257,7 +257,8 @@ def owe_again(con, rid: int, counted: bool = True) -> None:
 def timeboxed_open(con):
     """Requests an agent has been shown and not closed, whose asker has not yet
     been told they ran long. Reports ask nothing, so no clock runs on them, and
-    the human's rows are "delivered" when drawn, not worked on."""
+    the human's rows are "delivered" when drawn, not worked on. (`kind = 'report'`
+    only matches rows written before reports became says.)"""
     return con.execute(
         "SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL "
         "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
