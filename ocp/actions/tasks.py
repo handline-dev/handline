@@ -481,6 +481,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, *_free_blocked_by(con, tid, by))
+    asker = task_asker(con, db.get_task(con, tid))
+    if row["parent_task"] and asker != HUMAN:
+        close_task(con, tid, asker)     # a child an agent asked for needs no separate sign-off
     return True, f"task T{tid} done ({mark})"
 
 
@@ -517,6 +520,8 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     if by not in (asker, HUMAN):
         return False, f"task T{tid} can only be closed by {asker} - whoever asked for it - or the founder"
     kids = db.open_child_tasks(con, tid)
+    if by == HUMAN and all(k["done_evidence"] for k in kids):   # the founder's close takes done children along
+        kids = [k for k in kids if not close_task(con, k["id"], HUMAN)[0]]
     if kids:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - close them first"

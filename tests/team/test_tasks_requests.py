@@ -4163,28 +4163,15 @@ def test_task_new_parent_auto_blocks(home: Path) -> None:
     check("board: the parent reads waiting on the review child",
           _now_line(out, t_parent) == f"now: waiting on T{t_child}", out)
 
-    # A re-check is `task reopen` of the same child, before it closes - not a
-    # new task - and the parent stays blocked the whole time: nothing about
-    # task_blocks changes between done and reopened, only closing clears it.
+    # An agent asked for the child, so it closes itself on its verdict (T555):
+    # the parent is unblocked at once, and a re-check is a new child.
     rc, out = _cli(["task", "done", f"T{t_child}", "FAIL: needs another pass"],
                    as_agent="manager")
     check("task done: the auditor's verdict", rc == 0, out)
-    rc, out = _cli(["task", "reopen", f"T{t_child}", "sent back for another pass"],
-                   as_agent="worker")
-    check("task reopen: the same child, sent back rather than opening a new one",
-          rc == 0, out)
     con = db.connect()
     try:
-        check("task reopen: the parent is still blocked on it",
-              [b["id"] for b in db.task_blockers(con, t_parent)] == [t_child],
-              [dict(b) for b in db.task_blockers(con, t_parent)])
-    finally:
-        con.close()
-
-    rc, out = _done_and_close(t_child, "manager", "PASS", closer="worker")
-    check("close: the review closes on its verdict", rc == 0, out)
-    con = db.connect()
-    try:
+        check("task done: the child an agent asked for closes itself",
+              db.get_task(con, t_child)["closed_by"] == "worker", str(dict(db.get_task(con, t_child))))
         check("close: the parent's block clears with the child",
               db.task_blockers(con, t_parent) == [])
     finally:
@@ -4192,6 +4179,31 @@ def test_task_new_parent_auto_blocks(home: Path) -> None:
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("board: the parent no longer reads as waiting once the review closes",
           _now_line(out, t_parent) == "now: worker", out)
+
+
+def test_the_founder_closing_a_parent_closes_its_done_children(home: Path) -> None:
+    """T555 (founder #6591): a parent's close takes its done children along; an
+    unfinished child still holds it. A child the founder asked for waits for
+    the founder, so the parent's close is what closes it."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        parent = db.new_task(con, "parent", "worker", "manager")
+        done_kid = db.new_task(con, "done kid", "worker", "manager", parent)
+        open_kid = db.new_task(con, "open kid", "worker", "manager", parent)
+        actions.mark_task_done(con, parent, "worker", reason="looks done")
+        con.execute("UPDATE tasks SET done_evidence = 'x', closed_by = NULL WHERE id = ?", (done_kid,))
+        ok, msg = actions.close_task(con, parent, actions.HUMAN)
+        check("founder close: an unfinished child still holds the parent", not ok and f"T{open_kid}" in msg, msg)
+        check("founder close: and the done child is left as it was", not db.get_task(con, done_kid)["closed_by"])
+        actions.mark_task_done(con, open_kid, "worker", reason="done")
+        con.execute("UPDATE tasks SET closed_by = NULL WHERE id = ?", (open_kid,))
+        ok, msg = actions.close_task(con, parent, actions.HUMAN)
+        check("founder close: the parent closes with every done child", ok, msg)
+        check("founder close: both children are closed by the founder",
+              all(db.get_task(con, k)["closed_by"] == actions.HUMAN for k in (done_kid, open_kid)))
+    finally:
+        con.close()
 
 
 def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
@@ -7120,13 +7132,16 @@ def test_closing_a_task_needs_no_open_child_and_only_the_asker(home: Path) -> No
         parent = db.new_task(con, "parent", "worker", "manager")
         child = db.new_task(con, "child", "worker", "manager", parent)
         actions.mark_task_done(con, parent, "worker", reason="looks done")
-        actions.mark_task_done(con, child, "worker", reason="part done")
     finally:
         con.close()
     rc, out = _cli(["close", f"T{parent}"])
     check("close: refused while a child task is open", rc == 1 and f"T{child}" in out, out)
-    rc, out = _cli(["close", f"T{child}"])
-    check("close: the child closes on its own", rc == 0, out)
+    con = db.connect()
+    try:
+        actions.mark_task_done(con, child, "worker", reason="part done")
+        check("done: a child an agent asked for closes itself", db.get_task(con, child)["closed_by"] == "manager")
+    finally:
+        con.close()
     rc, out = _cli(["close", f"T{parent}"])
     check("close: the parent then closes", rc == 0, out)
 
@@ -8685,7 +8700,7 @@ limits:
               and [b["id"] for b in db.task_blockers(con, t)] == [kid])
         ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="FAIL: retry loops; repro x")
         check("review: the child closes with the result", ok, msg)
-        ok, msg = actions.close_task(con, kid, "dev.worker")
+        ok = db.get_task(con, kid)["closed_by"] == "dev.worker"     # it closed itself on done (T555)
         told = [r["body"] for r in db.task_requests(con, t) if "unblocked" in r["body"]]
         result = [r["body"] for r in db.task_requests(con, t) if "FAIL: retry loops; repro x" in r["body"]]
         check("review: the block lifts; the result is told once, on its own, and not in the notice",
@@ -9174,6 +9189,7 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_blocks(Path(td) / 'tasknewparentblock'))
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
+        run(lambda: test_the_founder_closing_a_parent_closes_its_done_children(Path(td) / 'founderclosekids'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
