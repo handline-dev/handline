@@ -59,7 +59,7 @@ archivist → gamma      # ephemeral, 짧게 쓰고 나감
 | v1에 남는 것 | 왜 |
 |---|---|
 | 에이전트 폴더 + ROLE/base/handoff/journal + fold | 계정과 무관하게 가치 있고 복잡도가 낮다 |
-| `team.yaml` 라우팅 + `ocp ask` | 팀이 돌아가는 핵심. 계정과 직교 |
+| `team.yaml` 라우팅 + `ocp task new`/`ocp say` | 팀이 돌아가는 핵심. 계정과 직교 |
 | 상태 읽기 (D11: 세션 파일 + 엔드포인트) | 읽기 전용. 여러 계정 상태를 한눈에 |
 | 데몬 (축소판) | 트리거 → handoff(세 가지 사실 기록) → park → 리셋 시 재개 |
 | Orca orchestration | 그대로 |
@@ -666,7 +666,7 @@ handoff·세션 id·트랜스크립트 경로를 **얼마든지 같이 줘도 �
 |---|---|---|
 | **0** | `phase0/probe.sh` (로컬, 저장소에 없음) — H · I · J0~J3, 이어서 A(장시간) · D · E · F · G | 판정표 갱신. 실행 계층 확정 |
 | **1** | statusLine 수집기, `agent register`, `doctor` | 계정 2개 상태가 status.json에 정확히. fail-closed 확인 |
-| **2** | 고정 매핑, `team.yaml`, `ocp ask` | 에이전트 3개가 각자 계정에서 서로 요청을 주고받음 |
+| **2** | 고정 매핑, `team.yaml`, `ocp task new`/`ocp say` | 에이전트 3개가 각자 계정에서 서로 요청을 주고받음 |
 | **3** | 훅 이벤트, fold, 검증·롤백, 자정 롤오버 | 모델 토큰 0으로 이벤트 누락·중복 0 |
 | **4** | 데몬 — 레벨 트리거, handoff, park, 리셋 재개, THROTTLED | 데몬 SIGKILL 후 전 상태 복구. 90% 도달 시 무인으로 park·재개 |
 | **5** | TUI | — |

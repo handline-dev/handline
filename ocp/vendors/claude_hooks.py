@@ -155,7 +155,7 @@ SAFE_COMMANDS = (
     *(f"Bash(ocp {c}:*)" for c in ("inbox", "read", "status", "task list", "team check")),
     "Bash(ocp team)",
     # reporting
-    *(f"Bash(ocp {c}:*)" for c in ("ask", "say", "resolve", "progress", "task link", "task new")),
+    *(f"Bash(ocp {c}:*)" for c in ("say", "progress", "task link", "task new")),
 )
 
 
