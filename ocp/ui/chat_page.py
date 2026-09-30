@@ -251,7 +251,7 @@ def task_detail(con, tid: int) -> dict | None:
             "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued") and mine,
+            "can_discard": state in ("draft", "queued", "doing") and mine,
             "can_assign": state in ("draft", "queued", "doing")}
 
 
@@ -317,7 +317,12 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     register` uses, which keeps every other field as it is. A running session
     is not restarted."""
     new = {k: v for k, _, v in changes}
-    idle = new.pop("idle_close", None) if "idle_close" in new else None
+    idle = new.pop("idle_close", None)
+    if idle is not None:
+        try:
+            actions.parse_idle_close(idle)      # a bad one is refused before the file is written
+        except ValueError as e:
+            return False, f"not saved: {e}"
     if new:
         try:
             agents.register(agent, model=new.get("model"), effort=new.get("effort"),
@@ -326,10 +331,11 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
                             context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
         except (ValueError, agents.ConfigError, OSError) as e:
             return False, f"not saved: {e}"
-    if "idle_close" in {k for k, _, _ in changes}:
+    if idle is not None:
         ok, said = actions.set_idle_close(idle, agent)
         if not ok:
-            return False, f"not saved: {said}"
+            done = ", ".join(f"{k} {v}" for k, v in new.items())
+            return False, f"idle close not saved: {said}" + (f" ({done} was saved)" if done else "")
     return True, "saved: " + ", ".join(f"{k} {v}" for k, _, v in changes)
 
 
@@ -963,19 +969,21 @@ class TaskActions:
 
     def action_discard_task(self) -> None:
         if not (self.d and self.d["can_discard"]):
-            self.say("only a task that you asked for, with nothing running on it, can be discarded")
+            self.say("only a task that you asked for and that is not done can be discarded")
             return
+
+        doing = self.d["state"] == "doing"
 
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
                 con = db.connect()
                 try:
-                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
+                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason, stop=doing)
                 finally:
                     con.close()
                 self.report("discard", ok, said)
-        self.app.push_screen(TextPrompt("discard - why?"), answered)
+        self.app.push_screen(TextPrompt("stop it and discard - why?" if doing else "discard - why?"), answered)
 
 
 class TaskPane(TaskActions, Vertical):
