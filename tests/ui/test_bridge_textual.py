@@ -252,12 +252,16 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
     from ocp.ui import chat_page as cp
     d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
          "parent": (9, "up"), "done": None, "closed": None, "asker": "o",
-         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")]}
+         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")],
+         "memos": [{"id": 1, "task_id": 1, "author": "o", "body": "a memo", "created_at": 1, "edited_at": 2}]}
     page = cp.task_page(d)
     check("page: the badge and the parent and the sub-tasks say T<n>",
           "T1" in page["badge"].plain and "T9" in page["meta"].plain
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
     check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
+    check("page: a memo says who wrote it, when it was added and edited, then its text",
+          page["memos"][0].plain.startswith("o  added ") and "edited" in page["memos"][0].plain.splitlines()[0]
+          and page["memos"][0].plain.endswith("a memo"), page["memos"][0].plain)
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
@@ -965,9 +969,10 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
     head, body, note = cp.message_parts(m)
     d = {"id": 1, "title": evil, "state": "doing", "owner": evil, "opened_by": evil, "created_at": 1,
          "parent": (9, evil), "done": (evil, 1), "closed": (evil, 1), "asker": evil,
-         "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)]}
+         "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)],
+         "memos": [{"id": 1, "task_id": 1, "author": evil, "body": evil, "created_at": 1, "edited_at": 2}]}
     page = cp.task_page(d)
-    texts = [head, body, *page["kids"], *page["reqs"], page["title"], page["meta"],
+    texts = [head, body, *page["kids"], *page["reqs"], *page["memos"], page["title"], page["meta"],
              cp.agent_badge("FATAL", evil)]
     suggestions = (cp.suggest("/task ", [(1, "owns", "waiting", evil, evil, 1)], [])
                    + cp.suggest("#", [(1, "owns", "waiting", evil, evil, 1)], [(2, evil, evil)]))

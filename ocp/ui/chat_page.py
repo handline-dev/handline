@@ -242,7 +242,7 @@ def task_detail(con, tid: int) -> dict | None:
             "parent": (t["parent_task"], parent["title"]) if parent else None,
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
             "closed": (t["closed_by"], t["closed_at"]) if t["closed_by"] else None,
-            "children": kids, "requests": reqs, "asker": actions.task_asker(con, t),
+            "children": kids, "requests": reqs, "memos": actions.memos_of(con, tid), "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued") and mine,
@@ -451,6 +451,14 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     return head, body, note
 
 
+def memo_text(m: dict) -> Text:
+    """One memo as it is listed: who wrote it and when it was added (and edited), then its text."""
+    head = f"{m['author']}  added {timefmt.stamp(m['created_at'], timefmt.DATE_TIME)}"
+    if m["edited_at"]:
+        head += f" · edited {timefmt.stamp(m['edited_at'], timefmt.DATE_TIME)}"
+    return Text.assemble((safe(head) + "\n", "dim"), safe(m["body"]))
+
+
 def task_page(d: dict) -> dict:
     """What a task's page draws, as safe `Text`: title, badge, the facts, the
     sub-tasks (each a link that opens it) and the requests."""
@@ -482,7 +490,8 @@ def task_page(d: dict) -> dict:
         "kids": [Text.assemble(link(i, f"{actions.task_ref(i)}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
                                link(i, safe(title))) for i, title, st in d["children"]],
         "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
-                 for i, a, b, st, line in d["requests"]]}
+                 for i, a, b, st, line in d["requests"]],
+        "memos": [memo_text(m) for m in d["memos"]]}
 
 
 class QueueLine(Static):
@@ -1027,6 +1036,9 @@ class TaskDetail(TaskActions, Screen):
                 Binding("c", "close_task", "close"),
                 Binding("r", "reopen_task", "reopen"),
                 Binding("a", "assign_task", "assign"),
+                Binding("m", "memo_add", "memo"),
+                Binding("e", "memo_edit", "edit memo"),
+                Binding("x", "memo_delete", "delete memo"),
                 Binding("d", "discard_task", "discard")]
 
     def __init__(self, tid: int) -> None:
@@ -1044,8 +1056,13 @@ class TaskDetail(TaskActions, Screen):
             yield Static(id="t_meta")
             yield Static(id="t_kids", classes="section")
             yield Static(id="t_reqs", classes="section")
+            yield Static(id="t_memo_head", classes="section")
+            yield OptionList(id="t_memos")
         with ActionBar(id="t_actions"):
             yield Button("Assign  a", id="assign", variant="primary", compact=True)
+            yield Button("Memo  m", id="memo_add", compact=True)
+            yield Button("Edit memo  e", id="memo_edit", compact=True)
+            yield Button("Delete memo  x", id="memo_delete", variant="error", compact=True)
             yield Button("Close  c", id="close", variant="success", compact=True)
             yield Button("Reopen  r", id="reopen", variant="warning", compact=True)
             yield Button("Discard  d", id="discard", variant="error", compact=True)
@@ -1070,10 +1087,63 @@ class TaskDetail(TaskActions, Screen):
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
+        self.draw_memos(page["memos"])
         self.query_one("#assign", Button).disabled = not d["can_assign"]
         self.query_one("#close", Button).disabled = not d["can_close"]
         self.query_one("#reopen", Button).disabled = not d["can_reopen"]
         self.query_one("#discard", Button).disabled = not d["can_discard"]
+
+    def draw_memos(self, texts: list[Text]) -> None:
+        """The memo list, keeping the highlighted memo when it is still there."""
+        box = self.query_one("#t_memos", OptionList)
+        keep = self.memo_id()
+        self.query_one("#t_memo_head", Static).update(Text.assemble(("Memos", "bold"), (f"  {len(texts)}", "dim")))
+        box.clear_options()
+        box.add_options([Option(t, id=str(m["id"])) for t, m in zip(texts, self.d["memos"])])
+        ids = [str(m["id"]) for m in self.d["memos"]]
+        box.highlighted = ids.index(keep) if keep in ids else (len(ids) - 1 if ids else None)
+        box.display = bool(ids)
+        for verb in ("edit", "delete"):
+            self.query_one(f"#memo_{verb}", Button).disabled = not ids
+
+    def memo_id(self) -> str | None:
+        box = self.query_one("#t_memos", OptionList)
+        return box.get_option_at_index(box.highlighted).id if box.highlighted is not None and box.option_count else None
+
+    def action_memo_add(self) -> None:
+        def answered(text: str | None) -> None:
+            if text and text.strip():
+                self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
+        self.app.push_screen(TextPrompt(f"memo on {actions.task_ref(self.tid)}", multi=True), answered)
+
+    def action_memo_edit(self) -> None:
+        mid = self.memo_id()
+        if mid is None:
+            return
+        old = next(m["body"] for m in self.d["memos"] if str(m["id"]) == mid)
+
+        def answered(text: str | None) -> None:
+            if text is not None and text.strip():
+                self.memo_call("edit", lambda con: actions.memo_edit(con, int(mid), actions.HUMAN, text))
+        self.app.push_screen(TextPrompt("edit the memo", multi=True, initial=old), answered)
+
+    def action_memo_delete(self) -> None:
+        mid = self.memo_id()
+        if mid is None:
+            return
+
+        def answered(yes: bool | None) -> None:
+            if yes:
+                self.memo_call("delete", lambda con: actions.memo_delete(con, int(mid), actions.HUMAN))
+        self.app.push_screen(Confirm("Delete the memo", "It is removed from the task.", yes="Delete", danger=True), answered)
+
+    def memo_call(self, verb: str, call) -> None:
+        con = db.connect()
+        try:
+            ok, said = call(con)
+        finally:
+            con.close()
+        self.report(f"memo {verb}", ok, said)
 
     def action_open_task(self, tid: int) -> None:
         self.app.push_screen(TaskDetail(tid))
@@ -1093,7 +1163,8 @@ class TaskDetail(TaskActions, Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        {"assign": self.action_assign_task, "close": self.action_close_task,
+        {"memo_add": self.action_memo_add, "memo_edit": self.action_memo_edit,
+         "memo_delete": self.action_memo_delete, "assign": self.action_assign_task, "close": self.action_close_task,
          "reopen": self.action_reopen_task, "discard": self.action_discard_task,
          "back": self.app.pop_screen}[event.button.id]()
 
