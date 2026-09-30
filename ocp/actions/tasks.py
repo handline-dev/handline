@@ -1152,9 +1152,6 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     return None
 
 
-ASSIGN_HOWS = ("note", "handoff")
-
-
 def recent_assignees(con) -> list[str]:
     """Who the founder last handed tasks to, newest first."""
     return db.recent_handoff_targets(con, HUMAN)
@@ -1179,14 +1176,10 @@ def assign_targets(holder: str, agents: list[str], recent=()) -> tuple[list[str]
     return first, [a for a in rest if a in mine], [a for a in rest if a not in mine]
 
 
-def assign_task(con, tid: int, to: str, how: str, text: str) -> tuple[bool, str]:
-    """The founder answering from a task's page: `how` "note" sends `text` to whoever holds it
-    (`task_note`), "handoff" moves it to `to` with `text` as the note (`task_handoff`)."""
-    if how not in ASSIGN_HOWS:
-        return False, f"assign is one of {', '.join(ASSIGN_HOWS)}"
-    if how == "handoff":
-        return task_handoff(con, HUMAN, tid, to, textsafe.oneline(text).strip())
-    return task_note(con, HUMAN, tid, text)
+def assign_task(con, tid: int, to: str, text: str) -> tuple[bool, str]:
+    """The founder handing a task on from its page: it moves to `to` with `text` as the note
+    (`task_handoff`). Telling its holder something is a memo."""
+    return task_handoff(con, HUMAN, tid, to, textsafe.oneline(text).strip())
 
 
 def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]:
@@ -1275,14 +1268,22 @@ def memos_of(con, tid: int) -> list[dict]:
 
 
 def task_timeline(con, tid: int) -> list[dict]:
-    """T501: what happened on a task as one list, oldest first, for its page: memos and handoffs (a
-    note is a memo), each {ts, who, kind, text, memo (a memo's id, else None), edited_at}. Ordered by
-    the moment to the fraction of a second, so two in one second keep the order they happened in."""
+    """T501: what happened on a task as one list, oldest first, for its page: memos, handoffs (a
+    note is a memo) and the requests tied to it, each {ts, who, kind, text, memo (a memo's id, else
+    None), edited_at}. A request that carried a handoff is that handoff's entry, not a second one.
+    Ordered by the moment to the fraction of a second, so two in one second keep the order they
+    happened in."""
     out = [{"ts": int(m["created_at"]), "at": m["created_at"], "who": m["author"], "kind": "memo", "text": m["body"],
             "memo": m["id"], "edited_at": m["edited_at"]} for m in memos_of(con, tid)]
     for h in db.task_handoffs(con, tid):
         out.append({"ts": h["ts"], "at": h["at"], "who": f"{h['from']} → {h['to']}", "kind": "handoff", "text": h["note"],
                     "memo": None, "edited_at": None})
+    carried = {h["request"] for h in db.task_handoffs(con, tid)}
+    for r in db.task_requests(con, tid):
+        if r["id"] not in carried:
+            first = (r["body"] or "").strip().splitlines()
+            out.append({"ts": r["ts"], "at": r["ts"], "who": f"{r['requester']} → {r['target']}", "kind": "request",
+                        "text": f"#{r['id']}  {r['state']}  {first[0] if first else ''}", "memo": None, "edited_at": None})
     return sorted(out, key=lambda e: e["at"])
 
 

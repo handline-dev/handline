@@ -252,13 +252,15 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
     from ocp.ui import chat_page as cp
     d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
          "parent": (9, "up"), "done": None, "discarded": None, "merged_into": None, "asker": "o",
-         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")],
-         "timeline": [{"ts": 1, "who": "o", "kind": "memo", "text": "a memo\nsecond line", "memo": 1, "edited_at": 2}]}
+         "children": [(2, "kid", "waiting")],
+         "timeline": [{"ts": 1, "who": "o", "kind": "memo", "text": "a memo\nsecond line", "memo": 1, "edited_at": 2},
+                      {"ts": 2, "who": "a → b", "kind": "request", "text": "#3  queued  line", "memo": None, "edited_at": None}]}
     page = cp.task_page(d)
     check("page: the badge and the parent and the sub-tasks say T<n>",
           "T1" in page["badge"].plain and "T9" in page["meta"].plain
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
-    check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
+    check("page: a request is a timeline entry, a bare #<n>", "request  #3  queued  line" in page["timeline"][1].plain
+          and "reqs" not in page)
     line = page["timeline"][0].plain
     check("page: a timeline entry is its first line, then the rest of its text, and when it was edited",
           " o  memo  a memo" in line and line.split("\n")[1:] == ["    second line  · edited 1970-01-01 09:00"], line)
@@ -1057,10 +1059,10 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
     head, body, note = cp.message_parts(m)
     d = {"id": 1, "title": evil, "state": "doing", "owner": evil, "opened_by": evil, "created_at": 1,
          "parent": (9, evil), "done": (evil, 1), "discarded": (evil, evil, 1), "merged_into": None, "asker": evil,
-         "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)],
+         "children": [(2, evil, "waiting")],
          "timeline": [{"ts": 1, "who": evil, "kind": "note", "text": evil, "memo": None, "edited_at": 2}]}
     page = cp.task_page(d)
-    texts = [head, body, *page["kids"], *page["reqs"], *page["timeline"], page["title"], page["meta"],
+    texts = [head, body, *page["kids"], *page["timeline"], page["title"], page["meta"],
              cp.agent_badge("FATAL", evil)]
     suggestions = (cp.suggest("/task ", [(1, "owns", "waiting", evil, evil, 1)], [])
                    + cp.suggest("#", [(1, "owns", "waiting", evil, evil, 1)], [(2, evil, evil)]))
@@ -1837,7 +1839,7 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
         cp.TaskBody.POLL_S = 2
         body._poller.stop()     # what follows calls poll() by hand
         check("task page: its own timer draws a memo an agent added while it was open",
-              [e["text"] for e in body.d["timeline"]] == ["posted while it was open"], str(body.d["timeline"]))
+              [e["text"] for e in body.d["timeline"] if e["kind"] == "memo"] == ["posted while it was open"], str(body.d["timeline"]))
         loads = []
         real = body.load
         body.load = lambda: (loads.append(1), real())[1]
@@ -1851,7 +1853,7 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
         body.poll()
         await pilot.pause()
         check("task page: a memo added meanwhile is drawn on the next poll",
-              [e["text"] for e in body.d["timeline"]] == ["posted while it was open", "found the cause"]
+              [e["text"] for e in body.d["timeline"] if e["kind"] == "memo"] == ["posted while it was open", "found the cause"]
               and len(loads) == 1, str(body.d["timeline"]))
         body.poll()
         check("task page: and the poll after that leaves it alone again", len(loads) == 1)
@@ -1930,10 +1932,10 @@ def test_assign_offers_recent_targets_then_the_holders_team() -> None:
         check("assign to: nobody was handed anything yet", actions.recent_assignees(con) == [])
         ok, _, t1 = actions.task_new("product", "backend", "One", "the work and its done")
         ok, _, t2 = actions.task_new("product", "backend", "Two", "the work and its done")
-        said = [actions.assign_task(con, t1, "archivist", "handoff", "you take it"),
-                actions.assign_task(con, t2, "archivist", "handoff", "you take it"),
-                actions.assign_task(con, t2, "reviewer", "handoff", "you review it"),
-                actions.assign_task(con, t2, "archivist", "handoff", "back")]
+        said = [actions.assign_task(con, t1, "archivist", "you take it"),
+                actions.assign_task(con, t2, "archivist", "you take it"),
+                actions.assign_task(con, t2, "reviewer", "you review it"),
+                actions.assign_task(con, t2, "archivist", "back")]
         check("assign to: the handoffs used here went through", all(ok for ok, _ in said), str(said))
         check("assign to: the founder's handoffs, newest first, each target once",
               actions.recent_assignees(con) == ["archivist", "reviewer"], str(actions.recent_assignees(con)))
@@ -1989,13 +1991,9 @@ def test_assign_answers_from_the_task_page() -> None:
     try:
         ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
         check("assign: a task to answer", ok)
-        check("assign: an unknown way is refused", not actions.assign_task(con, tid, "reviewer", "shout", "x")[0])
-        check("assign: a blank note is refused", not actions.assign_task(con, tid, "reviewer", "note", " ")[0])
-        ok, said = actions.assign_task(con, tid, "reviewer", "note", "use branch Y")
-        check("assign: a note reaches the holder and it keeps the task", ok and db.get_task(con, tid)["owner"] == "reviewer", said)
         ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
-        check("assign: a handoff needs its text", not actions.assign_task(con, other, "reviewer", "handoff", "")[0])
-        ok, said = actions.assign_task(con, other, "reviewer", "handoff", "you take it")
+        check("assign: a handoff needs its text", not actions.assign_task(con, other, "reviewer", "")[0])
+        ok, said = actions.assign_task(con, other, "reviewer", "you take it")
         check("assign: a handoff moves the task to the one chosen", ok and db.get_task(con, other)["owner"] == "reviewer", said)
     finally:
         con.close()
@@ -2008,22 +2006,23 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
     try:
         ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
         actions.memo_add(con, tid, "reviewer", "first")
-        actions.assign_task(con, tid, "reviewer", "note", "a note")
+        actions.task_note(con, actions.HUMAN, tid, "a note")
         ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
-        actions.assign_task(con, other, "reviewer", "handoff", "you take it")
+        actions.assign_task(con, other, "reviewer", "you take it")
         tl = actions.task_timeline(con, tid)
-        check("timeline: a memo and a sent note (itself a memo) show once each, in order",
-              [(e["kind"], e["text"]) for e in tl] == [("memo", "first"), ("memo", "a note")]
-              and all(e["memo"] for e in tl), str(tl))
-        check("timeline: a handoff shows from and to",
-              [(e["kind"], e["who"]) for e in actions.task_timeline(con, other)] == [("handoff", "backend → reviewer")],
+        check("timeline: the request that opened the task, a memo and a sent note (itself a memo) show once each, in order",
+              [e["kind"] for e in tl] == ["request", "memo", "memo"] and [e["text"] for e in tl[1:]] == ["first", "a note"]
+              and tl[0]["text"].startswith("#") and all(e["memo"] for e in tl[1:]), str(tl))
+        check("timeline: a handoff shows from and to, and its request is not a second entry",
+              [(e["kind"], e["who"]) for e in actions.task_timeline(con, other) if e["kind"] != "request"] == [("handoff", "backend → reviewer")]
+              and [e["kind"] for e in actions.task_timeline(con, other)].count("request") == 1,
               str(actions.task_timeline(con, other)))
         actions.memo_add(con, other, "reviewer", "after the handoff")
         ok, _, third = actions.task_new("product", "backend", "Third", "the work and its done")
         actions.memo_add(con, third, "product", "before the handoff")
-        actions.assign_task(con, third, "reviewer", "handoff", "you take it")
+        actions.assign_task(con, third, "reviewer", "you take it")
         actions.memo_add(con, third, "reviewer", "after the handoff")
-        kinds = lambda t: [(e["kind"], e["text"]) for e in actions.task_timeline(con, t)]
+        kinds = lambda t: [(e["kind"], e["text"]) for e in actions.task_timeline(con, t) if e["kind"] != "request"]
         check("timeline T524: a memo made after a handoff in the same second sits after it, not before",
               [k for k, _ in kinds(other)] == ["handoff", "memo"], str(kinds(other)))
         check("timeline T524: memo, handoff, memo in one second keep the order they happened in",

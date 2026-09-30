@@ -313,11 +313,6 @@ def task_detail(con, tid: int) -> dict | None:
     mine = actions.task_asker(con, t) == actions.HUMAN
     kids = [(c["id"], c["title"], actions.task_state(con, c)) for c in
             con.execute("SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", (tid,)).fetchall()]
-    reqs = []
-    for r in db.task_requests(con, tid):
-        body = (r["body"] or "").strip()
-        reqs.append((r["id"], r["requester"], r["target"], r["state"],
-                     body.splitlines()[0] if body else ""))
     parent = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
     brief = ((db.task_requests(con, tid) or [{"body": ""}])[0]["body"] or "").strip()
     if brief.split("\n", 1)[0].strip() == t["title"].strip():
@@ -328,7 +323,7 @@ def task_detail(con, tid: int) -> dict | None:
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
             "discarded": (t["discarded_by"], t["discard_reason"], t["discarded_at"]) if t["discarded_by"] else None,
             "merged_into": t["merged_into"],
-            "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
+            "children": kids, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing")}
@@ -562,7 +557,7 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     return head, body, note
 
 
-TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note"}
+TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note", "request": "request"}
 
 
 def timeline_text(e: dict) -> Text:
@@ -581,7 +576,7 @@ def timeline_text(e: dict) -> Text:
 
 def task_page(d: dict) -> dict:
     """What a task's page draws, as safe `Text`: title, badge, the facts, the
-    sub-tasks (each a link that opens it) and the requests."""
+    sub-tasks (each a link that opens it) and the timeline."""
     def link(tid: int, label: str) -> Text:
         return Text(label, style=Style(underline=True, meta={"@click": f"open_task({tid})"}))
 
@@ -615,8 +610,6 @@ def task_page(d: dict) -> dict:
         "brief": Text(safe_block(d["brief"])) if d.get("brief") else Text(),
         "kids": [Text.assemble(link(i, f"{actions.task_ref(i)}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
                                link(i, safe(title))) for i, title, st in d["children"]],
-        "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
-                 for i, a, b, st, line in d["requests"]],
         "timeline": [timeline_text(e) for e in d["timeline"]]}
 
 
@@ -1053,14 +1046,14 @@ class TaskActions:
             self.say("a finished task has nothing left to answer or assign")
             return
 
-        def answered(got: "tuple[str, str, str] | None") -> None:
+        def answered(got: "tuple[str, str] | None") -> None:
             if got is None:
                 return
-            how, to, text = got
-            log_action(f"task {actions.task_ref(self.tid)} assign {how} to {to}")
+            to, text = got
+            log_action(f"task {actions.task_ref(self.tid)} assign to {to}")
             con = db.connect()
             try:
-                ok, said = actions.assign_task(con, self.tid, to, how, text)
+                ok, said = actions.assign_task(con, self.tid, to, text)
             finally:
                 con.close()
             self.report("assign", ok, said)
@@ -1153,7 +1146,6 @@ class TaskBody(TaskActions, Vertical):
             yield TaskText(id="t_brief")
             yield TaskText(id="t_meta")
             yield TaskText(id="t_kids", classes="section")
-            yield TaskText(id="t_reqs", classes="section")
             yield Static(id="t_memo_head", classes="section")
             yield Vertical(id="t_memos")
             with Horizontal(id="t_memo_new"):
@@ -1207,14 +1199,13 @@ class TaskBody(TaskActions, Vertical):
         brief.display = bool(page["brief"].plain)
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
-        self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
         self.draw_memos(page["timeline"])
         for name in ("assign", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = not d[f"can_{name}"]
 
     def _blank(self, said: str) -> None:
         self.query_one("#t_title", Static).update(Text(said, style="dim"))
-        for name in ("badge", "brief", "meta", "kids", "reqs", "memo_head"):
+        for name in ("badge", "brief", "meta", "kids", "memo_head"):
             self.query_one(f"#t_{name}", Static).update("")
         self.query_one("#t_brief", Static).display = False
         self.query_one("#t_memos", Vertical).remove_children()
