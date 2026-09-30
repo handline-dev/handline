@@ -421,18 +421,3 @@ def settle_decision_tasks(con, rid: int, state: str, verdict: str | None,
         discard_task(con, tid, HUMAN, f"its request was {'dismissed' if dismissed_by else state}"
                      + (f": {verdict}" if verdict and not dismissed_by else ""))
     add_event(con, HUMAN, "settle_decision_task", {"task_id": tid, "request_id": rid, "state": state})
-    _release_dependents(con, tid)
-
-
-def _release_dependents(con, tid: int) -> None:
-    """T577: the decision task `tid` ended, so a task waiting only on it comes due again. This path
-    is not `actions._clear_blocks_on`, which writes the `unblock_task` event that marks a task as due
-    afresh: without it the sweep reads its old, answered request as the task already handled
-    (T352) and never sends it, though nothing blocks it any more. Event only - the tick delivers."""
-    newest = con.execute("SELECT COALESCE(MAX(id), 0) FROM requests").fetchone()[0]
-    for dep in tasks_blocked_by(con, tid):
-        row = get_task(con, dep["task_id"])
-        if row is None or row["closed_by"] or row["done_evidence"] or task_blockers(con, dep["task_id"]):
-            continue
-        add_event(con, HUMAN, "unblock_task",
-                  {"task_id": dep["task_id"], "blocks_on": tid, "after_request": newest})

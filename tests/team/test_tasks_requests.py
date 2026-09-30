@@ -8618,15 +8618,12 @@ limits:
         con.close()
 
 
-def test_a_task_waiting_on_a_decision_that_settles_is_sent_when_it_does(home: Path) -> None:
+def test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(home: Path) -> None:
     """T577 (founder #6793): T458 waited on a decision task the founder dismissed. Settling the card
-    closed that task without the unblock event that marks a waiting task due afresh, so its old,
-    retired request read as handled and no sweep ever sent it: queued, unblocked, and never delivered."""
+    ends that task at the db layer, which ran none of the release a close does: a queued dependent was
+    read as already handled and never sent, a doing one never told, and the block row was left."""
     from ocp.daemon import taskqueue
-    for name, how in (("dismissed", lambda con, card: actions.dismiss(con, card, me=actions.HUMAN, reason="no")),
-                      ("answered", lambda con, card: askmod.resolve(card, "go ahead"))):
-        _board_world(home / name)
-        hand_edit_team("""
+    team = """
 agents:
   manager: {}
   worker:  {}
@@ -8639,36 +8636,49 @@ edges:
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50
-""")
-        con = db.connect()
-        real_push = askmod.push
-        askmod.push = lambda _con, agent, rid=None: ""
-        try:
-            t = db.new_task(con, "the work", "worker", "manager")
-            actions.set_queued(con, t, "manager", True)
-            ok, msg = actions.release_task(con, t, "manager")
-            check(f"{name}: setup: the task went out and was released back to queued",
-                  ok and db.task_requests(con, t) and actions.task_state(con, db.get_task(con, t)) == "queued", msg)
-            ok, msg, card = actions.open_decision("manager", "which way?")
-            check(f"{name}: setup: the decision task opens", ok and card, msg)
-            dec = db.tasks_for_request(con, card)[0]["id"]
-            ok, msg = actions.add_block(con, t, dec, "manager")
-            check(f"{name}: setup: it waits on the decision task", ok, msg)
-            sent = len(db.task_requests(con, t))
-            now = int(time.time())
-            taskqueue.sweep(con, lambda _m: None, now)
-            check(f"{name}: blocked, it is not sent", len(db.task_requests(con, t)) == sent)
+"""
+    settles = (("dismissed", lambda con, card: actions.dismiss(con, card, me=actions.HUMAN, reason="no")),
+               ("answered", lambda con, card: askmod.resolve(card, "go ahead")))
+    for name, how in settles:
+        for kind in ("queued", "doing"):
+            label = f"{name}/{kind}"
+            _board_world(home / label.replace("/", "-"))
+            hand_edit_team(team)
+            con = db.connect()
+            real_push = askmod.push
+            askmod.push = lambda _con, agent, rid=None: ""
+            try:
+                if kind == "queued":
+                    t = db.new_task(con, "the work", "worker", "manager")
+                    actions.set_queued(con, t, "manager", True)
+                    ok, msg = actions.release_task(con, t, "manager")     # its old request is retired
+                    check(f"{label}: setup: released back to queued", ok, msg)
+                else:
+                    ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+                    check(f"{label}: setup: doing", ok and db.current_task(con, "worker") == t, msg)
+                ok, msg, card = actions.open_decision("manager", "which way?")
+                dec = db.tasks_for_request(con, card)[0]["id"]
+                ok, msg = actions.add_block(con, t, dec, "manager")
+                check(f"{label}: setup: it waits on the decision task", ok, msg)
+                told = lambda: [r for r in db.task_requests(con, t)
+                                if r["requester"] == actions._UNBLOCK_REQUESTER and "is unblocked" in r["body"]]
+                sent = len(db.task_requests(con, t))
+                now = int(time.time())
+                taskqueue.sweep(con, lambda _m: None, now)
+                check(f"{label}: blocked, nothing is sent", len(db.task_requests(con, t)) == sent and not told())
 
-            how(con, card)
-            check(f"{name}: the decision task is over and nothing blocks it any more",
-                  db.get_task(con, dec)["closed_by"] and not db.task_blockers(con, t))
-            taskqueue.sweep(con, lambda _m: None, now + taskqueue.RETRY_S + 1)
-            check(f"{name}: the sweep sends it to its owner, and it is current",
-                  len(db.task_requests(con, t)) == sent + 1 and db.current_task(con, "worker") == t,
-                  str(db.current_task(con, "worker")))
-        finally:
-            askmod.push = real_push
-            con.close()
+                how(con, card)
+                taskqueue.sweep(con, lambda _m: None, now + taskqueue.RETRY_S + 1)
+                check(f"{label}: no block row is left", db.tasks_blocked_by(con, dec) == [])
+                check(f"{label}: its owner is told once it is unblocked", len(told()) == 1, str(len(told())))
+                if kind == "queued":
+                    check(f"{label}: and it is its owner's current task again, as after any close",
+                          db.current_task(con, "worker") == t, str(db.current_task(con, "worker")))
+                taskqueue.sweep(con, lambda _m: None, now + 2 * taskqueue.RETRY_S + 2)
+                check(f"{label}: and only once", len(told()) == 1, str(len(told())))
+            finally:
+                askmod.push = real_push
+                con.close()
 
 
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
@@ -9514,7 +9524,7 @@ def main() -> int:
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
-        run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_sent_when_it_does(Path(td) / 'decsettle'))
+        run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(Path(td) / 'decsettle'))
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
     return run_area(tests)
