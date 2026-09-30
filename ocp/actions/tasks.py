@@ -1,6 +1,7 @@
 """Tasks: refs, findings, done/close/discard/reopen, edit, and what blocks what."""
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
@@ -1255,6 +1256,21 @@ def memos_of(con, tid: int) -> list[dict]:
     """T493: a task's memos as data, oldest first: `id`, `author`, `body`, `created_at`,
     `edited_at` (None until edited). Everyone may read them."""
     return [dict(m) for m in db.task_memos(con, tid)]
+
+
+def task_timeline(con, tid: int) -> list[dict]:
+    """T501: what happened on a task as one list, oldest first, for its page: memos, handoffs and
+    notes sent to its holder, each {ts, who, kind, text, memo (a memo's id, else None), edited_at}."""
+    out = [{"ts": m["created_at"], "who": m["author"], "kind": "memo", "text": m["body"],
+            "memo": m["id"], "edited_at": m["edited_at"]} for m in memos_of(con, tid)]
+    for h in db.task_handoffs(con, tid):
+        out.append({"ts": h["ts"], "who": f"{h['from']} → {h['to']}", "kind": "handoff", "text": h["note"],
+                    "memo": None, "edited_at": None})
+    for r in con.execute("SELECT ts, agent, payload FROM events WHERE kind = 'task_note' "
+                         f"AND {db.EVENT_TASK} = ? ORDER BY id", (tid,)):
+        out.append({"ts": r["ts"], "who": r["agent"], "kind": "note",
+                    "text": json.loads(r["payload"]).get("text", ""), "memo": None, "edited_at": None})
+    return sorted(out, key=lambda e: e["ts"])
 
 
 def _memo_guard(row, by: str) -> str | None:

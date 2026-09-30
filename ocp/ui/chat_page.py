@@ -242,7 +242,7 @@ def task_detail(con, tid: int) -> dict | None:
             "parent": (t["parent_task"], parent["title"]) if parent else None,
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
             "closed": (t["closed_by"], t["closed_at"]) if t["closed_by"] else None,
-            "children": kids, "requests": reqs, "memos": actions.memos_of(con, tid), "asker": actions.task_asker(con, t),
+            "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued") and mine,
@@ -451,12 +451,19 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     return head, body, note
 
 
-def memo_text(m: dict) -> Text:
-    """One memo as it is listed: who wrote it and when it was added (and edited), then its text."""
-    head = f"{m['author']}  added {timefmt.stamp(m['created_at'], timefmt.DATE_TIME)}"
-    if m["edited_at"]:
-        head += f" · edited {timefmt.stamp(m['edited_at'], timefmt.DATE_TIME)}"
-    return Text.assemble((safe(head) + "\n", "dim"), safe(m["body"]))
+TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note"}
+
+
+def timeline_text(e: dict) -> Text:
+    """One entry of a task's timeline as a line: when, who, what kind, its text (first line);
+    a memo that was edited says when."""
+    line = safe((e["text"].strip().splitlines() or [""])[0])
+    out = Text.assemble((timefmt.stamp(e["ts"], timefmt.DATE_TIME) + "  ", "dim"), safe(e["who"]) + "  ",
+                        (TIMELINE_WORD[e["kind"]] + "  ", "dim"), line)
+    if e["edited_at"]:
+        out.append(f"  · edited {timefmt.stamp(e['edited_at'], timefmt.DATE_TIME)}", style="dim")
+    out.no_wrap, out.overflow = True, "ellipsis"
+    return out
 
 
 def task_page(d: dict) -> dict:
@@ -491,7 +498,7 @@ def task_page(d: dict) -> dict:
                                link(i, safe(title))) for i, title, st in d["children"]],
         "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
                  for i, a, b, st, line in d["requests"]],
-        "memos": [memo_text(m) for m in d["memos"]]}
+        "timeline": [timeline_text(e) for e in d["timeline"]]}
 
 
 class QueueLine(Static):
@@ -1056,7 +1063,7 @@ class TaskDetail(TaskActions, Screen):
             yield Static(id="t_memo_head", classes="section")
             yield Vertical(id="t_memos")
             with Horizontal(id="t_memo_new"):
-                yield _TextBox(id="t_memo_box")
+                yield ImeInput(id="t_memo_box", compact=True, placeholder="a memo on this task")
                 yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
             yield Button("Assign  a", id="assign", variant="primary", compact=True)
@@ -1084,38 +1091,39 @@ class TaskDetail(TaskActions, Screen):
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
-        self.draw_memos(page["memos"])
+        self.draw_memos(page["timeline"])
         self.query_one("#assign", Button).disabled = not d["can_assign"]
         self.query_one("#close", Button).disabled = not d["can_close"]
         self.query_one("#reopen", Button).disabled = not d["can_reopen"]
         self.query_one("#discard", Button).disabled = not d["can_discard"]
 
     def draw_memos(self, texts: list[Text]) -> None:
-        """The memos, each with its own Edit and Delete under it."""
-        self.query_one("#t_memo_head", Static).update(Text.assemble(("Memos", "bold"), (f"  {len(texts)}", "dim")))
+        """The timeline: a line each, and a memo's own line ends in edit and delete icons."""
+        self.query_one("#t_memo_head", Static).update(Text.assemble(("Timeline", "bold"), (f"  {len(texts)}", "dim")))
         box = self.query_one("#t_memos", Vertical)
         box.remove_children()
-        for text, m in zip(texts, self.d["memos"]):
-            box.mount(Vertical(Static(text),
-                               Horizontal(Button("Edit", id=f"me_{m['id']}", compact=True),
-                                          Button("Delete", id=f"md_{m['id']}", variant="error", compact=True),
-                                          classes="memo_buttons"),
-                               classes="memo"))
+        for text, e in zip(texts, self.d["timeline"]):
+            cells = [Static(text, classes="tl_text")]
+            if e["memo"]:
+                cells += [Button("✎", id=f"me_{e['memo']}", compact=True, classes="tl_icon"),
+                          Button("✕", id=f"md_{e['memo']}", variant="error", compact=True, classes="tl_icon")]
+            box.mount(Horizontal(*cells, classes="tl_row"))
 
     def action_memo_add(self) -> None:
-        box = self.query_one("#t_memo_box", _TextBox)
-        text = box.text
+        box = self.query_one("#t_memo_box", ImeInput)
+        text = box.value
         if not text.strip():
             return
-        box.text = ""
+        box.value = ""
         self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
 
-    def on__text_box_send(self, event: _TextBox.Send) -> None:
-        event.stop()
-        self.action_memo_add()
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "t_memo_box":
+            event.stop()
+            self.action_memo_add()
 
     def memo_edit(self, mid: int) -> None:
-        old = next((m["body"] for m in self.d["memos"] if m["id"] == mid), None)
+        old = next((e["text"] for e in self.d["timeline"] if e["memo"] == mid), None)
         if old is None:
             return
 
