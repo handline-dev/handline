@@ -1599,14 +1599,14 @@ class _board_facts:
         cur = self.tasks.get(held)
         return cur is None or bool(cur["closed_by"] or cur["done_evidence"])
 
-    def _doing(self, row) -> bool:
-        tid = row["id"]
-        return (self._holds(row) and (tid in self.begun
-                     or any(_asks(r) for r in self.links.get(tid, []))
-                     or any(_asks(r) for c in self.children.get(tid, []) for r in self.links.get(c, []))))
+    def _asked(self, tid: int) -> bool:
+        return (tid in self.begun
+                or any(_asks(r) for r in self.links.get(tid, []))
+                or any(_asks(r) for c in self.children.get(tid, []) for r in self.links.get(c, [])))
 
     def state(self, row) -> str:
-        return _state_of(row, self._doing(row))
+        asked = self._asked(row["id"])
+        return _state_of(row, asked and self._holds(row), asked)
 
     def asker(self, row) -> str:
         return _asker_of(row, (r["requester"] for r in self.links.get(row["id"], [])))

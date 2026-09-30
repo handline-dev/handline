@@ -5319,7 +5319,12 @@ def test_one_doing_task_per_agent(home: Path) -> None:
         check("one doing: the current task reads doing", actions.task_state(con, db.get_task(con, a)) == "doing")
         check("one doing: another with work out reads queued, not draft",
               actions.task_state(con, db.get_task(con, b)) == "queued")
+        check("one doing: the board says queued too, and lists it under --state queued",
+              [r["state"] for r in actions.task_rows(con) if r["id"] == b] == ["queued"]
+              and [r["id"] for r in actions.task_rows(con, state="queued")] == [b])
         ok, msg = actions.task_start(con, "worker", b)
+        check("one doing: task start puts the second's request at the head of the queue",
+              db.undelivered_for(con, "worker")[0]["id"] == db.task_requests(con, b)[0]["id"])
         check("one doing: task start makes the second current", ok and db.current_task(con, "worker") == b, msg)
         check("one doing: and says the first goes back to queued", f"T{a} goes back to queued" in msg, msg)
         check("one doing: the second now reads doing", actions.task_state(con, db.get_task(con, b)) == "doing")
@@ -5327,6 +5332,35 @@ def test_one_doing_task_per_agent(home: Path) -> None:
         db.mark_task_done(con, b, "ok")
         check("one doing: once the current one is done, the other reads doing again",
               actions.task_state(con, db.get_task(con, a)) == "doing")
+    finally:
+        con.close()
+
+
+def test_one_doing_migration(home: Path) -> None:
+    """T444: the migration makes the newest asked task current where an agent holds
+    none of several, once, and leaves an agent that holds one of them alone."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        ids = {}
+        for who in ("worker", "manager"):
+            ids[who] = [db.new_task(con, f"{who} {i}", who, "human", timeout_s=5400) for i in range(2)]
+            for t in ids[who]:
+                db.link_request(con, t, db.add_request(con, "human", who, "go", None, "supervisor",
+                                                       "fire_and_forget", None, 0, None))
+        db.set_current_task(con, "manager", ids["manager"][0])
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:one_doing_each'")
+        db.schema._one_doing_task_each(con)
+        check("migration: an agent holding none of several gets the newest",
+              db.current_task(con, "worker") == ids["worker"][1], db.current_task(con, "worker"))
+        check("migration: one already holding one of them is left alone",
+              db.current_task(con, "manager") == ids["manager"][0])
+        events = [r for r in con.execute("SELECT * FROM events WHERE kind = 'demoted_doing'")]
+        check("migration: one demoted_doing event, for the agent changed", len(events) == 1
+              and events[0]["agent"] == "worker", str([dict(e) for e in events]))
+        db.set_current_task(con, "worker", ids["worker"][0])
+        db.schema._one_doing_task_each(con)
+        check("migration: ledgered, it does not run twice", db.current_task(con, "worker") == ids["worker"][0])
     finally:
         con.close()
 
@@ -9106,6 +9140,7 @@ def main() -> int:
         run(lambda: test_a_memo_change_is_told_to_the_holder_only_while_doing(Path(td) / 'memotold'))
         run(lambda: test_task_memo_verbs(Path(td) / 'memoverbs'))
         run(lambda: test_one_doing_task_per_agent(Path(td) / 'onedoing'))
+        run(lambda: test_one_doing_migration(Path(td) / 'onedoingmig'))
         run(lambda: test_task_timeout_new_requires_it_and_edit_extends_it(Path(td) / 'tasktimeout'))
         run(lambda: test_reopening_a_timed_task_resumes_its_clock_only_if_still_doing(
             Path(td) / 'taskreopentimeout'))
