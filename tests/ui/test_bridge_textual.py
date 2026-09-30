@@ -693,6 +693,38 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         con.close()
 
 
+def test_the_founder_closes_work_handed_to_them_in_one_step() -> None:
+    """T553: a doing task the founder holds is checked and closed at once: done on 'founder OK'."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("founderok")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "handed", "reviewer", "reviewer")
+        db.set_current_task(con, "reviewer", t)
+        ok, said = actions.task_handoff(con, "reviewer", t, actions.HUMAN, "please check")
+        d = cp.task_detail(con, t)
+        check("founder ok: a doing task held by the founder offers Close", ok and d["state"] == "doing" and d["can_close"],
+              f"{said} {d['state']}")
+        ok, said = actions.founder_ok(con, t)
+        row = db.get_task(con, t)
+        check("founder ok: one step marks it done 'founder OK' and closes it",
+              ok and row["done_evidence"] == "founder OK" and row["closed_by"] == actions.HUMAN, said)
+        other = db.new_task(con, "with an agent", "reviewer", actions.HUMAN)
+        ok, said = actions.founder_ok(con, other)
+        check("founder ok: a task an agent holds is refused, nothing written",
+              not ok and not db.get_task(con, other)["done_evidence"], said)
+        held = db.new_task(con, "parent", "reviewer", "reviewer")
+        actions.task_handoff(con, "reviewer", held, actions.HUMAN, "check")
+        db.new_task(con, "child", "reviewer", "reviewer", parent_task=held)
+        ok, said = actions.founder_ok(con, held)
+        check("founder ok: an open child task refuses it before anything is marked done",
+              not ok and "child" in said and not db.get_task(con, held)["done_evidence"], said)
+    finally:
+        con.close()
+
+
 def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
     from ocp.ui import chat_page as cp
     home = _home("settings")
@@ -1770,6 +1802,7 @@ async def _run_all() -> None:
     test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
+    test_the_founder_closes_work_handed_to_them_in_one_step()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
