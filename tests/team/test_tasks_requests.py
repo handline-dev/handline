@@ -2398,7 +2398,7 @@ edges:
               "harbor-manager" in paths.list_agents() and "boss" not in paths.list_agents())
 
         # A rejection is recorded and never applied.
-        ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane", team_name="dev")
+        ok, said = hr.propose("add", "seoyun", repo="/repo", requester="hr", why="third lane", team_name="dev")
         pid3 = said.split()[1]
         rid3 = [m["id"] for m in actions.messages(con) if "seoyun" in (m["body"] or "")]
         askmod.resolve(rid3[0], "reject - one lane at a time")
@@ -2441,7 +2441,7 @@ edges:
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         agents.register("marina")
-        hire = ["hr", "add", "dohyun", "--team", "dev",
+        hire = ["hr", "add", "dohyun", "--team", "dev", "--repo", str(home / "harbor"),
                 "--model", "opus", "--effort", "high",
                 "--why", "a second pair of hands on the sea work"]
 
@@ -2483,7 +2483,7 @@ edges:
         # A change that fails halfway is recorded as having failed, and leaves
         # no agent the routing table does not know.
         hand_edit_team("teams:\n  dev: [marina]\n")
-        ok, said = hr.enact("add", "halfborn", why="w", team_name="dev")
+        ok, said = hr.enact("add", "halfborn", repo="/repo", why="w", team_name="dev")
         rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
         check("hr: a refused edit registers nobody",
               not ok and "halfborn" not in paths.list_agents(), said)
@@ -2692,7 +2692,7 @@ edges:
 """)
 
     def propose(name):
-        ok, said = hr.propose("add", name, requester="hr", why="hands")
+        ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="hands")
         return said.split()[1], int(said.split("#")[1].split(".")[0])
 
     def founder(rid, verdict, out):

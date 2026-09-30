@@ -3,6 +3,7 @@ from __future__ import annotations
 
 
 from .. import actions
+from ..team import agents
 from ..team import ask as askmod
 from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
@@ -125,6 +126,12 @@ def _in_your_words(relation: str | None, sending: bool = True) -> str:
 def _doing(con, agent: str) -> str:
     """One line on what an agent is doing, for the team list."""
     row = db.get_agent_state(con, agent)
+    try:
+        no_repo = not agents.read(agent).get("repo")
+    except Exception:  # noqa: BLE001 - an unreadable agent.yaml is doctor's to report
+        no_repo = False
+    if no_repo and not (row and row["terminal"]):
+        return f"never started - no repo (`ocp agent register {agent} --repo <path>`)"
     if not row:
         return "never started"
     word, extra = tui.screen_state(con, row)
