@@ -1855,6 +1855,51 @@ async def test_neither_tasks_tab_scrolls_sideways() -> None:
                       f"rows {table.row_count} virtual {table.virtual_size.width} shown {table.size.width}")
 
 
+def test_a_task_page_shows_every_line_of_a_multi_line_task() -> None:
+    """T600 (founder #6977): the title is the first line; the rest of what the task was given is its brief."""
+    from ocp.ui import chat_page as cp
+    _home("multiline")
+    agents.register("reviewer")
+    body = "the title\n  cd somewhere && run it\n\nA. second part\n 1. check this"
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the title", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", body, None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        con.commit()
+        d = cp.task_detail(con, t)
+    finally:
+        con.close()
+    lines = cp.task_page(d)["brief"].plain.split("\n")
+    check("brief: the lines after the title are all there, the title not twice",
+          lines == ["  cd somewhere && run it", "", "A. second part", " 1. check this"], str(lines))
+
+
+async def test_the_shared_task_view_draws_the_brief() -> None:
+    """T600: TaskBody, the one view of a task, draws the brief under the badge."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("briefview")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the title", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "the title\nsecond line\nthird line", None, None,
+                             "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        con.commit()
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(t))
+        await pilot.pause()
+        brief = app.screen.query_one("#t_brief")
+        check("brief: the task page shows the lines after the title", "second line" in str(brief.render())
+              and "third line" in str(brief.render()) and brief.display, str(brief.render()))
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -1907,6 +1952,8 @@ async def _run_all() -> None:
     test_the_bridge_stylesheet_parses()
     test_assign_offers_the_holders_team_first()
     test_assign_answers_from_the_task_page()
+    test_a_task_page_shows_every_line_of_a_multi_line_task()
+    await test_the_shared_task_view_draws_the_brief()
     test_a_task_timeline_holds_memos_and_handoffs_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
