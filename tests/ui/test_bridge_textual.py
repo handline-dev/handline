@@ -2167,6 +2167,49 @@ async def test_the_shared_task_view_draws_the_brief() -> None:
         check("brief: a task that is gone leaves no brief either", "second line" not in shown)
 
 
+def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
+    """T623 (founder #7145/#7151): a `say --parent` to an agent's message still queued for the human is
+    stored as its verdict; drawn as one, it still names the message it answers."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("replylink")
+    agents.register("reviewer")
+    ok, _, said = askmod.say(actions.HUMAN, "anything for me?", requester="reviewer")
+    con = db.connect()
+    try:
+        ok, _ = cp.send_reply(con, "reviewer", said, "yes, this")
+        rows, _ = cp.requests_page(con, "reviewer", False)
+        msgs = cp.messages_of(rows, "reviewer")
+        reply = next(m for m in msgs if m["part"] == 1)
+        check("reply link: the founder's reply is a reply to the message it answers",
+              ok and reply["text"] == "yes, this" and reply["reply_to"] == said, str(msgs))
+        check("reply link: it is drawn with the link", cp.message_text(reply, True, False, "me").plain
+              .split("\n")[1].startswith(f"↩ #{said}"), cp.message_text(reply, True, False, "me").plain)
+    finally:
+        con.close()
+
+
+def test_the_founders_reply_to_a_report_draws_its_link() -> None:
+    """T623 (founder #7738): a reply to an --fyi say, which asked nothing, names it too."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("replyreport")
+    agents.register("reviewer")
+    ok, _, said = askmod.ask(actions.HUMAN, "done, FYI", requester="reviewer", fyi=True)
+    con = db.connect()
+    try:
+        ok, sent = cp.send_reply(con, "reviewer", said, "thanks, one question")
+        rows, _ = cp.requests_page(con, "reviewer", False)
+        msgs = cp.messages_of(rows, "reviewer")
+        mine = [m for m in msgs if m["text"] == "thanks, one question"]
+        check("reply link: a reply to a report is drawn once, as a reply to it",
+              ok and len(mine) == 1 and mine[0]["reply_to"] == said, f"{sent} {msgs}")
+        check("reply link: and drawn with the link", mine and cp.message_text(mine[0], True, False, "me").plain
+              .split("\n")[1].startswith(f"↩ #{said}"), str(mine))
+    finally:
+        con.close()
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -2181,6 +2224,8 @@ async def _run_all() -> None:
     test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery()
     test_background_work_alone_is_not_working()
     test_the_chat_numbers_an_answer_by_its_own_row()
+    test_the_founders_reply_to_a_waiting_message_draws_its_link()
+    test_the_founders_reply_to_a_report_draws_its_link()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
     test_task_changes_are_set_among_the_messages_at_their_time()

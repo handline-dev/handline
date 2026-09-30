@@ -235,7 +235,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "task_title": _col(r, "task_title"), "task_state": _col(r, "task_state"),
                          "delivered": landing == "delivered",
                          "landing": landing,
-                         "reply_to": _col(r, "parent_id") if part == 0 else None,
+                         "reply_to": _col(r, "parent_id") if part == 0 else r["id"] if speaker == human else None,   # the founder's reply is linked
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
     msgs.sort(key=lambda m: m["_key"])
