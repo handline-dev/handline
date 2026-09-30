@@ -7984,6 +7984,17 @@ limits:
               actions.task_state(con, db.get_task(con, old_t)) in actions.DELEGATED_STATES
               and actions.task_state(con, db.get_task(con, mine_t)) == "draft",
               f"{actions.task_state(con, db.get_task(con, old_t))} {actions.task_state(con, db.get_task(con, mine_t))}")
+        # T684: the founder hands a decision task on: its card closes, but the task is not settled done
+        ok, _, dec = actions.task_new("manager", "human", "decide", "decide")
+        ok, msg = actions.task_handoff(con, actions.HUMAN, dec, "helper", "OK: do it")
+        dec_row = db.get_task(con, dec)
+        check("T684: a decision task handed on stays open with its new holder",
+              ok and not db.task_ended(dec_row) and dec_row["owner"] == "helper", msg)
+        open_for_helper = [r for r in db.task_requests(con, dec) if r["state"] == "queued" and r["target"] == "helper"]
+        check("T684: and its handoff request is open, so the holder can act on it", len(open_for_helper) == 1)
+        ok, msg = actions.mark_task_done(con, dec, "helper", reason="did it")
+        check("T684: the holder can finish it, which settles the handoff request",
+              ok and not [r for r in db.task_requests(con, dec) if r["state"] == "queued"], msg)
         rc, out = _cli(["task", "handoff", f"T{t}", "helper", "x"], as_agent="worker")
         check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
         # T401 item 17: --file, same as ocp ask/say/resolve, safe against a

@@ -1188,7 +1188,8 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     old = row["owner"]
     for r in db.task_requests(con, tid):
         if r["state"] == "queued" and r["target"] == old and r["id"] != rid:
-            askmod.resolve(r["id"], f"handed to {to}", notify=False)
+            # not settling: a decision card closing here would mark the task done, mid-handoff (T684)
+            askmod.resolve(r["id"], f"handed to {to}", notify=False, settle=False)
     db.edit_task(con, tid, me, owner=to)
     db.link_request(con, tid, rid)
     db.mark_send_now(con, rid)      # T596: a handoff is typed on arrival, whatever its holder is doing

@@ -757,8 +757,11 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
 def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = True,
             open_tasks=None, dismissed_by: str | None = None,
             dismissed_reason: str | None = None,
-            answered_by: int | None = None) -> tuple[bool, str]:
-    """`answered_by` is the reply row that is itself the answer (`say --parent`, T361).
+            answered_by: int | None = None, settle: bool = True) -> tuple[bool, str]:
+    """`settle=False`: close the request without settling the decision task it is the card of
+    (a handoff closes the old holder's request, T684).
+
+    `answered_by` is the reply row that is itself the answer (`say --parent`, T361).
 
     `notify=False` is `dismiss`'s case: settle the row without telling the requester.
 
@@ -793,7 +796,7 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
             closed = db.close_if_queued(con, rid, state, verdict, announced=not notify,
                                         dismissed_by=dismissed_by,
                                         dismissed_reason=dismissed_reason,
-                                        answered_by=answered_by)
+                                        answered_by=answered_by, settle=settle)
         except Exception:
             if open_tasks is not None:
                 con.execute("ROLLBACK")
