@@ -1,10 +1,8 @@
 """A Claude permission prompt an agent's terminal is showing, offered to the
 founder from its chat page (T224): the tool, its command and the reason it was
 asked, with Yes and No only - never "always", since a permission prompt has no
-standing rule to save. `answered` is `actions.answer_confirmation`'s to send;
-`seen` (the dict `actions.pending_confirmation` returned) is passed back to it
-unchanged, since what is pressed is checked against a fresh screen read, not
-against what this modal drew."""
+standing rule to save. What is pressed is sent by the chat page through
+`actions.request_block_answer`; Esc closes it with no pick, which is sent as a cancel."""
 from __future__ import annotations
 
 from rich.text import Text

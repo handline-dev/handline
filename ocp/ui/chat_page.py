@@ -294,7 +294,10 @@ def task_detail(con, tid: int) -> dict | None:
         reqs.append((r["id"], r["requester"], r["target"], r["state"],
                      body.splitlines()[0] if body else ""))
     parent = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
-    return {"id": tid, "title": t["title"], "state": state, "owner": t["owner"],
+    brief = ((db.task_requests(con, tid) or [{"body": ""}])[0]["body"] or "").strip()
+    if brief.split("\n", 1)[0].strip() == t["title"].strip():
+        brief = brief.split("\n", 1)[1].strip("\n") if "\n" in brief else ""      # the title is drawn above
+    return {"id": tid, "title": t["title"], "brief": brief, "state": state, "owner": t["owner"],
             "opened_by": t["opened_by"], "created_at": t["created_at"],
             "parent": (t["parent_task"], parent["title"]) if parent else None,
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
@@ -566,6 +569,7 @@ def task_page(d: dict) -> dict:
     badge.append(f"   {actions.task_ref(d['id'])}", style="dim")
     return {
         "title": Text(safe(d["title"]), style="bold"), "badge": badge, "meta": meta,
+        "brief": Text(safe_block(d["brief"])) if d.get("brief") else Text(),
         "kids": [Text.assemble(link(i, f"{actions.task_ref(i)}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
                                link(i, safe(title))) for i, title, st in d["children"]],
         "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
@@ -1112,6 +1116,7 @@ class TaskBody(TaskActions, Vertical):
         with VerticalScroll(id="detail_pane"):
             yield TaskText(id="t_title")
             yield TaskText(id="t_badge")
+            yield TaskText(id="t_brief")
             yield TaskText(id="t_meta")
             yield TaskText(id="t_kids", classes="section")
             yield TaskText(id="t_reqs", classes="section")
@@ -1150,6 +1155,9 @@ class TaskBody(TaskActions, Vertical):
         page = task_page(d)
         self.query_one("#t_title", Static).update(page["title"])
         self.query_one("#t_badge", Static).update(page["badge"])
+        brief = self.query_one("#t_brief", Static)
+        brief.update(page["brief"])
+        brief.display = bool(page["brief"].plain)
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
@@ -1159,8 +1167,9 @@ class TaskBody(TaskActions, Vertical):
 
     def _blank(self, said: str) -> None:
         self.query_one("#t_title", Static).update(Text(said, style="dim"))
-        for name in ("badge", "meta", "kids", "reqs", "memo_head"):
+        for name in ("badge", "brief", "meta", "kids", "reqs", "memo_head"):
             self.query_one(f"#t_{name}", Static).update("")
+        self.query_one("#t_brief", Static).display = False
         self.query_one("#t_memos", Vertical).remove_children()
         for name in ("assign", "close", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
@@ -1476,12 +1485,15 @@ class ChatPage(JobsAware, Screen):
                 bid, "dialog", picked, None if picked is None else {"number": picked[0], "always": picked[1]}))
         self._block_modal = modal
 
-    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
-        """A permission or dialog modal closed: send its pick to the daemon and say what came back."""
-        self._blocks_done.add(block_id)      # closed or answered: not offered again
-        if choice is None:
-            return
+    CANCEL = {"cancel": True}
 
+    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
+        """A permission or dialog modal closed: send its pick to the daemon and say what came back.
+        Esc closes it with no pick, and that is sent as a cancel (Esc in the terminal)."""
+        self._blocks_done.add(block_id)      # closed or answered: not offered again
+        self.send_block(block_id, kind, choice or self.CANCEL)
+
+    def send_block(self, block_id: int, kind: str, choice: dict) -> None:
         def press() -> None:
             ok, said = actions.request_block_answer(block_id, choice)
             self.app.call_from_thread(self.block_result, kind, ok, said)
@@ -1490,7 +1502,9 @@ class ChatPage(JobsAware, Screen):
     def block_asked(self, block_id: int, result: "tuple[bool, str] | None") -> None:
         self._blocks_done.add(block_id)
         self._block_pressing = False
-        if result is not None:      # None: closed by hand before anything was sent
+        if result is None:      # Esc before anything was sent: a cancel
+            self.send_block(block_id, "question", self.CANCEL)
+        else:
             self.block_result("question", *result)
 
     def block_result(self, kind: str, ok: bool, said: str) -> None:

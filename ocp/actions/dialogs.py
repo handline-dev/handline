@@ -1,12 +1,12 @@
 """A dialog on an agent's terminal, answered by the founder from the bridge (T187): what the
-screen asks and offers (`dialog_of`), the pick pressed on it (`answer_dialog`), and the standing
+screen asks and offers (`dialog_of`), the pick pressed on it (`press_choice`, T603), and the standing
 answers the founder saved with "always" - a trusted folder for the folder-trust screen, a
 `dialog_rules` rule for any other dialog."""
 from __future__ import annotations
 
 import re
 
-from ..infra import lock, textsafe
+from ..infra import textsafe
 from ..session import orca
 from ..team import agents, trust
 from .. import db
@@ -70,25 +70,14 @@ def _context(dialog) -> list[str]:
             if l.strip() not in shown and not _NUMBERED.match(l.strip())]
 
 
-def answer_dialog(con, agent: str, title: str, number: int, always: bool = False) -> tuple[bool, str]:
-    """Press option `number` of the dialog titled `title`, after reading the screen again: what
-    is pressed is what is on screen now, not what the modal showed. `always` saves the choice
-    first-class: the folder becomes a trusted root, any other dialog becomes a rule on its exact
-    title and the chosen label - remembered only once the press itself lands, never ahead of it:
-    a rule saved before a press that then fails would stand for a choice nothing confirmed was
-    ever made, and under a truncated dialog's shared placeholder title (T383) would wrongly
-    answer every other long dialog like it too.
-
-    Locked (T351) the same terminal the tick types into - a key pressed here
-    and a line the tick sends can otherwise land in the same input box."""
-    with lock.terminal(agent) as mine:
-        if not mine:
-            return False, f"{agent}: something else is using its terminal; try again"
-        return press_choice(con, agent, title, number, always)
-
-
 def press_choice(con, agent: str, title: str, number: int, always: bool = False) -> tuple[bool, str]:
-    """`answer_dialog` without taking the terminal lock: for a caller that already holds it (`prompt_blocks.answer`)."""
+    """Press option `number` of the dialog titled `title`, after reading the screen again: what is pressed is
+    what is on screen now, not what the modal showed. The caller holds the terminal lock (`prompt_blocks.answer`)
+    - a key pressed here and a line the tick sends can otherwise land in the same input box. `always` saves the
+    choice: the folder becomes a trusted root, any other dialog a rule on its exact title and the chosen label -
+    remembered only once the press itself lands, never ahead of it (T383): a rule saved before a press that then
+    fails would stand for a choice nothing confirmed, and under a truncated dialog's shared placeholder title
+    would wrongly answer every other long dialog like it."""
     now = dialog_of(con, agent)
     if now is None or now["title"] != title:
         return False, f"{agent}: the dialog is gone or changed - nothing pressed"

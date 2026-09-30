@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 # First, so OCP_TEST_ROOT is set before any ocp module reads a path.
 import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 from textual import events  # noqa: E402
+from ocp.actions import dialogs as dialogs_mod  # noqa: E402
 from ocp import actions, db
 from ocp.team import agents, hr
 from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
@@ -1573,10 +1574,10 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
             check("dialog: the panel's other lines ride along, not the title or the options",
                   actions.dialog_of(con, "reviewer")["body"] == ["Edit /tmp/x.py"])
             screen["dialog"] = dialog
-            ok, said = actions.answer_dialog(con, "reviewer", "Some other title", 1)
+            ok, said = dialogs_mod.press_choice(con, "reviewer", "Some other title", 1)
             check("dialog: a changed dialog is not pressed", not ok and not pressed, said)
             screen["dialog"] = dialog
-            ok, said = actions.answer_dialog(con, "reviewer", dialog.title, 2, always=True)
+            ok, said = dialogs_mod.press_choice(con, "reviewer", dialog.title, 2, always=True)
             check("dialog: the pick is pressed and 'always' saves a rule on the exact title and label",
                   ok and pressed == [("term_d", 2)] and rules.rules == [
                       {"vendor": "claude", "title": dialog.title, "label": "Yes, and don't ask again"}], str((said, rules.rules)))
@@ -1585,7 +1586,7 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
                 check("dialog: the trust screen's own words ride along, without its two choices or key hint",
                       actions.dialog_of(con, "reviewer")["body"] == ["Accessing workspace:", "/x/y"],
                       str(actions.dialog_of(con, "reviewer")["body"]))
-            ok, said = actions.answer_dialog(con, "reviewer", f"Trust {home}?", 1, always=True)
+            ok, said = dialogs_mod.press_choice(con, "reviewer", f"Trust {home}?", 1, always=True)
             check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
                   ok and trust.is_declared(home) and len(rules.rules) == 1, said)
             screen["folder"] = None
@@ -1662,6 +1663,22 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
     from ocp.ui.chat_page import TaskBody, TaskPane
     check("task list: the side view is the task page's component, adding no call of its own",
           issubclass(TaskPane, TaskBody) and not [n for n in vars(TaskPane) if n.startswith(("action_", "memo_"))])
+
+
+def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
+    from ocp.ui import chat_page as cp
+    page = cp.ChatPage.__new__(cp.ChatPage)
+    page._blocks_done, page._block_pressing, sent, said = set(), True, [], []
+    page.send_block = lambda bid, kind, choice: sent.append((bid, kind, choice))
+    page.block_result = lambda kind, ok, text: said.append((kind, ok, text))
+    page.block_picked(7, "permission", None, None)
+    page.block_picked(8, "dialog", (1, False), {"number": 1, "always": False})
+    page.block_asked(9, None)
+    page.block_asked(10, (True, "sent"))
+    check("block modals: Esc sends a cancel, a pick sends the pick, a finished question sends nothing more",
+          sent == [(7, "permission", {"cancel": True}), (8, "dialog", {"number": 1, "always": False}),
+                   (9, "question", {"cancel": True})] and said == [("question", True, "sent")], str((sent, said)))
+    check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
 
 
 def test_the_bridge_stylesheet_parses() -> None:
@@ -1986,6 +2003,62 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
         check("blocked: working comes first", "working" in shown and f"blocked by T{dep}" not in shown)
 
 
+def test_a_task_page_shows_every_line_of_a_multi_line_task() -> None:
+    """T600 (founder #6977): the title is the first line; the rest of what the task was given is its brief."""
+    from ocp.ui import chat_page as cp
+    _home("multiline")
+    agents.register("reviewer")
+    body = "the title\n  cd somewhere && run it\n\nA. second part\n 1. check this"
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the title", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", body, None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        con.commit()
+        d = cp.task_detail(con, t)
+    finally:
+        con.close()
+    lines = cp.task_page(d)["brief"].plain.split("\n")
+    check("brief: the lines after the title are all there, the title not twice",
+          lines == ["  cd somewhere && run it", "", "A. second part", " 1. check this"], str(lines))
+
+
+async def test_the_shared_task_view_draws_the_brief() -> None:
+    """T600: TaskBody, the one view of a task, draws the brief under the badge."""
+    import html, re
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("briefview")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the title", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "the title\nsecond line\nthird line", None, None,
+                             "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        con.commit()
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(t))
+        await pilot.pause()
+        brief = app.screen.query_one("#t_brief")
+        check("brief: the task page shows the lines after the title", "second line" in str(brief.render())
+              and "third line" in str(brief.render()) and brief.display, str(brief.render()))
+        body = app.screen.query_one(cp.TaskBody)
+        body.show(None)
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("brief: showing no task takes the last task's brief off the screen",
+              "no task" in shown and "second line" not in shown, shown[:200])
+        body.show(99999)
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("brief: a task that is gone leaves no brief either", "second line" not in shown)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -2037,9 +2110,12 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
+    test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
     test_the_bridge_stylesheet_parses()
     test_assign_offers_the_holders_team_first()
     test_assign_answers_from_the_task_page()
+    test_a_task_page_shows_every_line_of_a_multi_line_task()
+    await test_the_shared_task_view_draws_the_brief()
     test_a_task_timeline_holds_memos_and_handoffs_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()

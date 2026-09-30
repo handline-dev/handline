@@ -25,6 +25,7 @@ ChatPage { overflow: hidden; }
     #detail_pane { padding: 1 3; }
     #t_title { text-style: bold; padding-bottom: 1; }
     #t_badge { padding-bottom: 1; }
+    #t_brief { padding-bottom: 1; }
     #t_meta { padding-bottom: 1; }
     .section { padding-top: 1; border-top: solid $primary-darken-1; margin-top: 1; height: auto; }
 

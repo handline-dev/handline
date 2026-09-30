@@ -1,8 +1,8 @@
 """An agent's pending AskUserQuestion, offered to the founder from its chat page (T304) instead
 of the raw JSON its tool call shows there: each option numbered (a checkbox when multiSelect),
-and its "Type something" control opening the ordinary TextPrompt for free text. What is pressed,
-and what keys that sends to the terminal, is `actions.answer_question`'s - this only ever offers
-what `actions.pending_question` read off the real screen, never a standing rule of its own (an
+and its "Type something" control opening the ordinary TextPrompt for free text. What is pressed
+is sent through `actions.request_block_answer` - this only ever offers what the daemon's block
+holds, never a standing rule of its own (an
 AskUserQuestion prompt is a one-off Claude asked, the same reasoning PermissionModal's docstring
 gives for having no "always")."""
 from __future__ import annotations

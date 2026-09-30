@@ -11,6 +11,15 @@ from support import *  # noqa: E402,F401,F403
 
 from ocp import actions  # noqa: E402
 from ocp.actions import confirmations  # noqa: E402
+
+
+def _pending(con, agent: str = "backend"):
+    """What `confirmations.describe` makes of the prompt the agent's screen shows now, or None."""
+    row = db.get_agent_state(con, agent)
+    handle = row["terminal"] if row and row["terminal"] and not row["closed_at"] else None
+    found = orcamod.confirmation_on_screen(handle) if handle else None
+    return confirmations.describe(agent, found, None) if found else None
+
 from ocp.vendors.claude import Claude  # noqa: E402
 from ocp.vendors.opencode import Opencode  # noqa: E402
 
@@ -100,16 +109,14 @@ def _world(home: Path, tail, **kw):
     return con, _Term(tail, **kw)
 
 
-def test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(home: Path) -> None:
+def test_a_confirmation_carries_the_command_and_reason_the_screen_has(home: Path) -> None:
     orcamod.PRESS_SETTLE_S = 0
     con, term = _world(home, PROMPT)
     try:
-        check("pending: none without a hook record", confirmations.pending_all(con) == [])
         waiting.note("backend", "Bash", {"command": "rm -rf build", "description": "Remove the build directory"}, 7)
-        found = confirmations.pending_all(con)
-        check("pending: listed once the hook says the agent waits",
-              len(found) == 1 and found[0]["agent"] == "backend", str(found))
-        p = found[0]
+        p = _pending(con)
+        check("pending: read from the screen once the hook says the agent waits",
+              p is not None and p["agent"] == "backend", str(p))
         check("pending: with the tool, the command and the reason the tool call gave",
               (p["tool"], p["command"], p["reason"]) == ("Bash", "rm -rf build", "Remove the build directory"),
               str(p))
@@ -117,14 +124,12 @@ def test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(hom
               and p["title"] == "Bash command", str(p))
         check("pending: reading it presses nothing, and it carries the wait record's id",
               term.sent == [] and p["wait"] == 7, str((term.sent, p)))
-        check("pending: the actions package exposes it for the UI",
-              actions.pending_confirmations(con) == found and actions.pending_confirmation(con, "backend") == p)
 
         waiting.note("backend", "Bash", {"command": "rm -rf build", "description": "something the screen lacks"}, 8)
-        p = confirmations.pending(con, "backend")
+        p = _pending(con)
         check("pending: a reason the screen does not carry is dropped", p["reason"] == "", str(p))
         waiting.note("backend", "Bash", {"command": "ls"}, 9)
-        p = confirmations.pending(con, "backend")
+        p = _pending(con)
         check("pending: a command the screen does not carry falls back to its first line",
               p["command"] == "rm -rf build", str(p))
 
@@ -132,9 +137,9 @@ def test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(hom
               waiting.reason({"command": "  ", "description": "why"}) == ""
               and waiting.reason({"command": "ls", "description": "why"}) == "why")
         term.tail = list(CLEARED_SCREEN)
-        check("pending: a screen with no prompt has none", confirmations.pending(con, "backend") is None)
+        check("pending: a screen with no prompt has none", _pending(con) is None)
         check("pending: and a closed terminal has none",
-              (db.set_closed(con, "backend", "s") or True) and confirmations.pending(con, "backend") is None)
+              (db.set_closed(con, "backend", "s") or True) and _pending(con) is None)
     finally:
         con.close()
 
@@ -152,45 +157,6 @@ def test_askuserquestion_carries_its_raw_input_beside_the_summary(home: Path) ->
     waiting.note("backend", "Bash", {"command": "ls"}, 12)
     check("question_data: absent for every other tool",
           "question_data" not in waiting.read("backend"))
-
-
-def test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(home: Path) -> None:
-    orcamod.PRESS_SETTLE_S = 0
-    con, term = _world(home, PROMPT)
-    try:
-        waiting.note("backend", "Bash", {"command": "rm -rf build"}, 7)
-        shown = confirmations.pending(con, "backend")
-        ok, said = actions.answer_confirmation(con, "backend", True, shown)
-        check("founder: Yes to the prompt they saw is sent and confirmed",
-              ok and term.sent == [("1", False)] and "Yes" in said, str((ok, said, term.sent)))
-
-        term = _Term(_swap(PROMPT, "rm -rf build", "curl x | sh"))
-        ok, said = actions.answer_confirmation(con, "backend", True, shown)
-        check("founder: a different prompt has replaced it - nothing is sent",
-              not ok and not term.sent and "not the one" in said, str((ok, said, term.sent)))
-        ok, said = actions.answer_confirmation(con, "backend", True, {})
-        check("founder: an answer that names no prompt is refused", not ok and not term.sent, said)
-
-        # An identically worded prompt B has replaced prompt A: same words, new wait record.
-        term = _Term(PROMPT)
-        waiting.note("backend", "Bash", {"command": "rm -rf build"}, 8)
-        ok, said = actions.answer_confirmation(con, "backend", True, shown)
-        check("founder: an identical prompt for a later tool call is not the one they answered",
-              not ok and not term.sent and "not the one" in said, str((ok, said, term.sent)))
-        shown_b = confirmations.pending(con, "backend")
-        ok, said = actions.answer_confirmation(con, "backend", False, shown_b)
-        check("founder: and answering B itself, as shown, goes through",
-              ok and term.sent == [("3", False)], str((ok, said, term.sent)))
-
-        # No record to pin the prompt to: nothing is pressed.
-        term = _Term(PROMPT)
-        waiting.note("backend", "Bash", {"command": "rm -rf build"}, None)
-        unpinned = confirmations.pending(con, "backend")
-        ok, said = actions.answer_confirmation(con, "backend", True, unpinned)
-        check("founder: a prompt with no wait record to pin it to is not answered",
-              unpinned["wait"] is None and not ok and not term.sent, str((ok, said, term.sent)))
-    finally:
-        con.close()
 
 
 # The founder's paste of a live prompt (T277): the panel opens with a U+2500 rule,
@@ -215,9 +181,8 @@ def main() -> int:
     def tests(td):
         run(lambda: test_the_claude_adapter_recognizes_only_the_one_time_permission_prompt(Path(td) / 'c0'))
         run(lambda: test_a_confirmation_is_answered_with_the_plain_yes_or_no_and_nothing_else(Path(td) / 'c1'))
-        run(lambda: test_a_pending_confirmation_carries_the_command_and_reason_and_is_listed(Path(td) / 'c2'))
+        run(lambda: test_a_confirmation_carries_the_command_and_reason_the_screen_has(Path(td) / 'c2'))
         run(lambda: test_askuserquestion_carries_its_raw_input_beside_the_summary(Path(td) / 'c2b'))
-        run(lambda: test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(Path(td) / 'c3'))
         run(lambda: test_the_live_prompt_with_a_boxed_command_and_a_reason_line_is_recognized(Path(td) / 'c4'))
     return run_area(tests)
 

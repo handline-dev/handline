@@ -1,6 +1,6 @@
 """A dialog an agent's terminal is showing, offered to the founder (T187): its title and each
 option as a button (or its number key), and a box that makes the pick the standing answer.
-What is pressed, and what the box saves, is `actions.answer_dialog`'s."""
+What is pressed is sent through `actions.request_block_answer`; the box saves a standing answer."""
 from __future__ import annotations
 
 from rich.text import Text
