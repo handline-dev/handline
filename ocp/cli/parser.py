@@ -454,10 +454,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="how long it may show nothing before the notice (90s, 10m); default is its idle timeout")
     p.add_argument("--grace", type=span_arg, default=None, metavar="SPAN",
                    help="how long after the notice its work is stopped if it still shows nothing; default 5m")
+    p.add_argument("--check", type=span_arg, default=None, metavar="SPAN",
+                   help="how often an agent with background work is asked which of it to stop, "
+                        "typed at the end of its turn; default 10m (T450)")
     p.add_argument("--agent", default=None,
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
-                   help="with --agent, drop both its overrides and follow the global settings again")
+                   help="with --agent, drop its overrides and follow the global settings again")
     p.set_defaults(fn=cmd_idle_background)
 
     p = sub.add_parser("ignore-cache-expiry", help="show or set whether a resume may reuse "

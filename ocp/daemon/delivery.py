@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 from ..team import agents, ask as askmod, team as teammod
 from ..infra.yamlcompat import ConfigError
 from ..infra import paths, protected, sealed, timefmt
-from ..session import blocked, idle_close
+from ..session import bgjobs, blocked, idle_close
 from .. import db
 from ..session import events
 from ..infra import lock
@@ -583,16 +584,20 @@ def track_background_work(con, agent: str, row) -> None:
     key = f"bgwork:{agent}"
     if row and (row["closed_at"] or not row["terminal"]):
         db.clear_cursor(con, key)      # the session is gone, and so is what ran behind its prompt
+        db.clear_cursor(con, f"bgcount:{agent}")
         return
     if not row or row["state"] in (HANDOFF, STALLED) or not orca.available():
         return
     running = orca.background_work(row["terminal"])
     if running is None:
         return                # unreadable is not "ended"
+    if running:
+        db.set_cursor(con, f"bgcount:{agent}", max(1, bgjobs.footer_count(running)))
     if running and not db.get_cursor(con, key):
         db.set_cursor(con, key, 1)
     elif not running and db.get_cursor(con, key):
         db.clear_cursor(con, key)
+        db.clear_cursor(con, f"bgcount:{agent}")
         db.add_event(con, agent, "background_work_ended", {})
 
 
@@ -640,6 +645,31 @@ def bg_since(con, agent: str) -> int | None:
     return db.cursor_updated(con, f"bgwork:{agent}") if has_background_work(con, agent) else None
 
 
+def bg_last_shown(con, agent: str) -> int | None:
+    """When the agent last showed anything, not counting the turns that answered a T450
+    check: each check asks for an answer, and an agent that gives one every N minutes would
+    otherwise never be silent long enough to be told to stop, or to be stale. A check's
+    answer turn runs from its typing to the first Stop after it - that turn only."""
+    checks = sorted(int(json.loads(r["payload"] or "{}").get("at", r["ts"])) for r in con.execute(
+        "SELECT ts, payload FROM events WHERE agent = ? AND kind = 'background_checked'", (agent,)))
+    checks = [c for c in checks if c >= (bg_since(con, agent) or 0)]
+    if not checks:
+        return db.last_activity(con, agent)
+    marks = ",".join("?" * len(db.AGENT_ACTIVITY_KINDS))
+    rows = con.execute(f"SELECT ts, kind FROM events WHERE agent = ? AND ts >= ? "
+                       f"AND kind IN ({marks}) ORDER BY ts, id",
+                       (agent, checks[0], *db.AGENT_ACTIVITY_KINDS)).fetchall()
+    shown, answering, i = db.last_activity_before(con, agent, checks[0]), False, 0
+    for r in rows:
+        while i < len(checks) and checks[i] <= r["ts"]:
+            answering, i = True, i + 1
+        if not answering:
+            shown = int(r["ts"])
+        elif r["kind"] in ("Stop", "StopFailure"):
+            answering = False
+    return shown
+
+
 def bg_silent_s(con, agent: str, now: int) -> int | None:
     """How long this agent has shown nothing while its session reports
     background work, or None without any. Work that notifies the model or is
@@ -647,7 +677,7 @@ def bg_silent_s(con, agent: str, now: int) -> int | None:
     since = bg_since(con, agent)
     if since is None:
         return None
-    return max(0, now - (db.last_activity(con, agent) or since))
+    return max(0, now - (bg_last_shown(con, agent) or since))
 
 
 def bg_stale(con, agent: str, now: int) -> bool:
