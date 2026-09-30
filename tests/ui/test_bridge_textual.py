@@ -35,7 +35,6 @@ from ocp.daemon import states as dmn_states
 from ocp.ui.chat_page import ChatPage  # noqa: E402
 from ocp.ui.clipboard_app import ClipboardApp  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
-from ocp.ui.components.read_only import ReadOnly  # noqa: E402
 from textual import events  # noqa: E402
 from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
 from ocp.ui.pages.account import AccountPage  # noqa: E402

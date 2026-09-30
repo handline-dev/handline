@@ -1407,8 +1407,19 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#compose", ChatBox).focus()
         if self._scope_wait == "all":
             self.query_one("#scope", Tabs).active = "all"
+        self._mark_for_you_seen()
         self.refresh_view()
         self.set_interval(2, self.refresh_view)
+
+    def on_unmount(self) -> None:
+        self._mark_for_you_seen()       # what it said while the chat was open is seen too
+
+    def _mark_for_you_seen(self) -> None:
+        con = db.connect()
+        try:
+            actions.for_you_seen(con, self.agent)
+        finally:
+            con.close()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "leave":
@@ -1557,6 +1568,10 @@ class ChatPage(JobsAware, Screen):
             self._sig = sig
             if self.oldest is None:
                 rows, self.more = requests_page(con, self.agent, self.everyone)
+                # Opened on a message: page back until it is on screen.
+                while self._focus and self.more and rows and rows[0]["id"] > self._focus[0]:
+                    older, self.more = requests_page(con, self.agent, self.everyone, before=rows[0]["id"])
+                    rows = older + rows
             else:
                 rows, _ = requests_page(con, self.agent, self.everyone, since=self.oldest)
         finally:

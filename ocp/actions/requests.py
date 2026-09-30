@@ -305,6 +305,17 @@ def mailbox_rows(con) -> list[dict]:
     return out
 
 
+def for_you_seen(con, agent: str) -> None:
+    """The human opened `agent`'s chat: what it said to them so far is no longer new in FOR YOU.
+    Only the list forgets it; a decision still counts in the header and in what is stuck."""
+    db.set_cursor(con, f"for_you_seen:{agent}", int(time.time()))
+
+
+def unseen_rows(con) -> list[dict]:
+    """`mailbox_rows` without what its sender said before the human last opened that agent's chat."""
+    return [m for m in mailbox_rows(con) if m["ts"] > db.get_cursor(con, f"for_you_seen:{m['from']}")]
+
+
 def fold_key(agent: str) -> str:
     """The stable key a folded line for `agent` carries - see `messages`."""
     return f"agent:{agent}"
@@ -335,7 +346,7 @@ def messages(con) -> list[dict]:
     order they matter in. A folded row sorts by the latest thing in it, which
     is what a reader who has not looked in a while cares about.
     """
-    raw = mailbox_rows(con)
+    raw = unseen_rows(con)
     # A pinned row is never folded, so its id is already its stable identity -
     # the key that changes is only the one a fold can hand a new id.
     pinned = [dict(m, unread=1, key=m["id"]) for m in raw if m["gate"] or m["waiting"]]

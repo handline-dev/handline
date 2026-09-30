@@ -487,7 +487,7 @@ def messages_data(con) -> tuple[str, list[MessageRow], list[str]]:
     # Counted over the unfolded rows, not `waiting`: a fold shows one
     # agent's latest, and a title built from the folded list would drop
     # every message its line does not happen to represent.
-    raw = actions.mailbox_rows(con)
+    raw = actions.unseen_rows(con)
     gates = sum(1 for m in raw if m["gate"])
     parked = sum(1 for m in raw if m["waiting"] and not m["gate"])
     back = sum(1 for m in raw if m["answer"])
