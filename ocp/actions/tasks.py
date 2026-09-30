@@ -1218,7 +1218,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     # The delivery is the only thing that can be refused past this point (the
     # routing table), so it goes first: a refusal leaves the task where it was.
     ok, msg, rid = askmod.ask(to, f"T{tid} handed to you by {me}: {row['title']}\n\n{said}",
-                              requester=me, kind="task")
+                              requester=me, kind="task", park=False)
     if not ok:
         return False, msg
     old = row["owner"]

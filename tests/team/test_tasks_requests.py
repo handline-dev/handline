@@ -8574,6 +8574,33 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         con.close()
 
 
+def test_the_agent_handing_a_task_on_is_not_parked(home: Path) -> None:
+    """T522 (auditor T518): a handoff over an async edge waits on nothing, so the giver stays free."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: async }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
+        ok, msg = actions.task_handoff(con, "worker", t, "manager", "back to you")
+        st = db.get_agent_state(con, "worker")
+        check("handoff: the giver is not parked over an async edge",
+              ok and (st is None or st["state"] != "PARKED"), msg + str(st and dict(st)))
+    finally:
+        con.close()
+
+
 def test_a_task_is_handed_over_with_a_note(home: Path) -> None:
     """T377: its owner (or the founder) hands a task to another agent with a note; the
     note travels as the delivery and the record lists every handoff in order."""
@@ -9219,6 +9246,7 @@ def main() -> int:
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
+        run(lambda: test_the_agent_handing_a_task_on_is_not_parked(Path(td) / 'handoffpark'))
         run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
