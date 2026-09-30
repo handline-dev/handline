@@ -509,6 +509,10 @@ class WorkLine(Static):
             self._frame += 1
             self.refresh()
 
+    def show(self, working: bool, wait: str) -> None:
+        self.working, self.wait = working, wait
+        self.refresh()
+
     def render(self) -> Text:
         mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working \
             else f" {safe(self.wait)} " if self.wait else ""
@@ -1325,10 +1329,13 @@ class ChatPage(JobsAware, Screen):
         # (timefmt.ago), so comparing the whole tuple here would rebuild the
         # transcript (`_sig = None`) on almost every 2s poll for no reason.
         word_changed = state[0] != self.agent_state[0]
+        wait_changed = [d if d.startswith("waiting for") else "" for d in (state[1], self.agent_state[1])]
         self.agent_state = state
+        if wait_changed[0] != wait_changed[1]:
+            self._sig = None                # the work line's wait text follows the detail
         if word_changed:
             for line in self.query(WorkLine):
-                line.working = state[0] == "RUNNING"
+                line.show(state[0] == "RUNNING", line.wait)
             for msg in self.query(ChatMessage):
                 msg.set_working(state[0] == "RUNNING")
             self._sig = None                # the reason a message waits follows the agent's state
@@ -1393,7 +1400,7 @@ class ChatPage(JobsAware, Screen):
             if live != self._live:      # only the spinner, the wait or a reason: redraw those, not the chat
                 self._live = live
                 for line in self.query(WorkLine):
-                    line.working, line.wait = live[0], wait
+                    line.show(live[0], wait)
                 first = next((m for m in msgs if m["unread"]), None)
                 for msg in self.query(ChatMessage):
                     msg.set_working(live[0])

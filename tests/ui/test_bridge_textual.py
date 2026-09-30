@@ -1663,7 +1663,21 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
         await pilot.pause()
         check("noflash: the messages are the same widgets after the agent starts working",
               before and list(page.query(cp.ChatMessage)) == before)
-        check("noflash: and the spare row now spins", page.query(cp.WorkLine).first().working is True)
+        line = page.query(cp.WorkLine).first()
+        check("noflash: and the spare row now spins", line.working is True and "working" in line.render().plain)
+        page.agent_state = ("IDLE", "waiting for x's reply (#1)")
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        check("noflash: back to idle with a wait, the row shows the wait, not 'working'",
+              "working" not in line.render().plain and "waiting for x's reply (#1)" in line.render().plain
+              and list(page.query(cp.ChatMessage)) == before, line.render().plain)
+        page.agent_state = ("IDLE", "waiting for y's reply (#2)")
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        check("noflash: a change of the wait text alone redraws the row",
+              "waiting for y's reply (#2)" in line.render().plain and list(page.query(cp.ChatMessage)) == before)
 
 
 async def _run_all() -> None:
