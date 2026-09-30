@@ -11,6 +11,7 @@ from ..infra import paths
 from ..infra import service
 from ..infra import textsafe
 from ..session import triggers
+from ..team import ask as askmod
 
 from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server
 
@@ -77,6 +78,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         samples: dict = {}
         dev_state: dict = {"fp": None, "warned": None}
         srv = socket_server.SocketServer(log)
+        askmod.IN_DAEMON = True     # T408: before the socket takes a verb - a push here starts the session itself
         try:
             srv.start()
         except OSError as e:
@@ -133,6 +135,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     time.sleep(triggers.POLL_S)
             log(f"stopped after {ticks} tick(s)")
         finally:
+            askmod.IN_DAEMON = False
             srv.stop()
             con.close()
 

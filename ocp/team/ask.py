@@ -539,6 +539,24 @@ def _close_replied_say(parent_id: int, reply_id: int, reply_body: str) -> None:
         resolve(parent_id, reply_body, notify=False)
 
 
+# T408: True only in the daemon's own process. Every other process - an agent's sandbox has no
+# Orca and no process table - hands the start or wake to the daemon, which does it at once.
+IN_DAEMON = False
+_HAND_OFF_TIMEOUT_S = 10.0      # the verbs answer before they type, so a slow answer means no daemon
+
+
+def _hand_off(verb: str, **payload) -> str | None:
+    """What the daemon said, once it took `verb`; None when this is the daemon or it did not answer."""
+    if IN_DAEMON:
+        return None
+    from ..daemon import client
+
+    reply = client.send({"verb": verb, **payload}, timeout=_HAND_OFF_TIMEOUT_S)
+    if reply and reply.get("ok"):
+        return "  " + str(reply.get("said", "")).strip()
+    return None
+
+
 def push(con, target: str, rid: int | None = None) -> str:
     """Get the request to the agent now, rather than at the next daemon tick.
 
@@ -555,12 +573,18 @@ def push(con, target: str, rid: int | None = None) -> str:
     sender and one delivered by the tick are the same delivery. The daemon
     stays the safety net: anything this could not finish is still queued.
     """
-    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, messaging
-
     if target == HUMAN:
         return "it is on the founder's screen (`ocp bridge`)"
     if target not in paths.list_agents():
         return f"{target} is not registered with ocp - nothing can be started for it"
+    handed = _hand_off("push", target=target, rid=rid)
+    return handed if handed is not None else push_here(con, target, rid)
+
+
+def push_here(con, target: str, rid: int | None = None) -> str:
+    """`push` done in this process - the daemon's socket verb calls this, never `push`, so it cannot hand the work back to itself."""
+    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, messaging
+
     sent = db.get_request(con, rid) if rid is not None else None
     if sent is not None and sent["kind"] != "task":
         told = messaging.tell_now(con, rid, lambda _m: None)
@@ -591,12 +615,18 @@ def push_answer(con, requester: str) -> str:
     row until a daemon tick happened to read it out. Down and up are the same
     loop, so they are finished the same way.
     """
-    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
-
     if requester == HUMAN:
         return "  the founder reads it on `ocp bridge`"
     if requester not in paths.list_agents():
         return f"  {requester} is not registered with ocp - nothing to tell"
+    handed = _hand_off("push_answer", requester=requester)
+    return handed if handed is not None else push_answer_here(con, requester)
+
+
+def push_answer_here(con, requester: str) -> str:
+    """`push_answer` done in this process - see `push_here`."""
+    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
+
     row = db.get_agent_state(con, requester)
     said = []
     if row and row["closed_at"]:
