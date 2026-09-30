@@ -1912,7 +1912,6 @@ def test_agents_data_scans_the_open_tasks_once_for_all_agents() -> None:
         con.close()
 
 
-def test_assign_offers_the_holders_team_first() -> None:
 def test_assign_offers_recent_targets_then_the_holders_team() -> None:
     _home("assign_team")
     from ocp.ui import chat_page as cp
@@ -2596,7 +2595,6 @@ async def _run_all() -> None:
     test_the_bridge_stylesheet_parses()
     test_the_open_task_counts_read_once_and_match_the_one_agent_count()
     test_agents_data_scans_the_open_tasks_once_for_all_agents()
-    test_assign_offers_the_holders_team_first()
     test_schedules_are_built_read_and_written_through_actions()
     test_assign_offers_recent_targets_then_the_holders_team()
     test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole()
