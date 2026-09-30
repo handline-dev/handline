@@ -285,17 +285,20 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
           cp.load_history("backend") == ["one", "two é"] and cp.load_history("reviewer") == ["other"]
           and cp.load_history("product") == [])
     cp.history_file().write_text('["old", "shared"]')
-    check("history: the list from before rooms is read by every room",
-          cp.load_history("backend") == ["old", "shared"] == cp.load_history("reviewer"))
+    check("history: the list from before rooms is dropped",
+          cp.load_history("backend") == [] == cp.load_history("reviewer"))
     cp.save_history("backend", ["new"])
-    check("history: a room that typed leaves the old list to the others",
-          cp.load_history("backend") == ["new"] and cp.load_history("reviewer") == ["old", "shared"])
+    check("history: and the next save starts a per-room file",
+          cp.load_history("backend") == ["new"] and cp.load_history("reviewer") == [])
     cp.history_file().write_text("{not json")
     check("history: a corrupt file is an empty history, not an error", cp.load_history("backend") == [])
     cp.save_history("backend", ["again"])
     check("history: and the next save starts a good file", cp.load_history("backend") == ["again"])
-    cp.history_file().write_text('[1, "ok", null]')
+    cp.history_file().write_text('{"rooms": {"backend": [1, "ok", null]}}')
     check("history: only strings are read back", cp.load_history("backend") == ["ok"])
+    cp.history_file().write_text(json.dumps({"rooms": {"backend": [str(i) for i in range(150)]}}))
+    check("history: a room reads at most HISTORY_MAX", cp.load_history("backend")[0] == "50"
+          and len(cp.load_history("backend")) == cp.HISTORY_MAX)
 
 
 def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:

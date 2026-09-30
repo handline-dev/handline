@@ -703,15 +703,12 @@ def _strings(data) -> list[str]:
 
 
 def load_history(room: str) -> list[str]:
-    """What was typed and sent in `room` (an agent's chat), oldest first. A room that has none of
-    its own starts from the one shared list the file held before rooms were kept apart. A missing
-    or unreadable file is an empty history, never an error."""
+    """What was typed and sent in `room` (an agent's chat), oldest first, at most HISTORY_MAX. The
+    one shared list the file held before rooms were kept apart is not read. A missing or
+    unreadable file is an empty history, never an error."""
     data = _history_file_data()
-    if isinstance(data, dict):
-        rooms = data.get("rooms")
-        own = rooms.get(room) if isinstance(rooms, dict) else None
-        return _strings(own if own is not None else data.get("legacy"))
-    return _strings(data)
+    rooms = data.get("rooms") if isinstance(data, dict) else None
+    return _strings(rooms.get(room) if isinstance(rooms, dict) else None)
 
 
 def remember(history: list[str], text: str) -> list[str]:
@@ -724,17 +721,12 @@ def remember(history: list[str], text: str) -> list[str]:
 
 
 def save_history(room: str, history: list[str]) -> None:
-    """`room`'s history, keeping every other room's; the old shared list goes on being read by the
-    rooms that have not typed since."""
+    """`room`'s history, keeping every other room's."""
     data = _history_file_data()
-    old = data if isinstance(data, list) else data.get("legacy") if isinstance(data, dict) else None
     rooms = data.get("rooms") if isinstance(data, dict) and isinstance(data.get("rooms"), dict) else {}
-    doc = {"rooms": {**rooms, room: history}}
-    if isinstance(old, list):
-        doc["legacy"] = old
     try:
         history_file().parent.mkdir(parents=True, exist_ok=True)
-        history_file().write_text(json.dumps(doc, ensure_ascii=False))
+        history_file().write_text(json.dumps({"rooms": {**rooms, room: history}}, ensure_ascii=False))
     except OSError:
         pass
 
