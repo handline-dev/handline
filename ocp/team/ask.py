@@ -26,20 +26,6 @@ from ..infra import timefmt
 # its own STALLED away just by sending a request.
 TERMINAL_STATES = {"STALLED"}
 
-# How long a requester waits on an async reply before the daemon re-evaluates
-# it anyway. Not a timeout on the request - just a guarantee that a lost reply
-# cannot strand an agent.
-AWAIT_FALLBACK_S = 3600
-
-# The marker on a PARKED row's `detail` that says this park is a requester
-# waiting on its own async ask, not a usage wall - read back by the screen
-# (tui.screen_state) to draw it as IDLE, not PENDING, with what it waits for.
-AWAIT_REPLY_MARK = "reply "
-
-
-def await_reply_detail(rid: int, target: str) -> str:
-    return f"{AWAIT_REPLY_MARK}#{rid} {target}"
-
 # A review that bounces on the same file this many times is not a review
 # problem any more. Two agents that cannot agree is usually a spec question.
 REVIEW_PINGPONG_LIMIT = 3
@@ -226,7 +212,7 @@ _ENV = object()
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, fyi: bool = False,
         timebox_s: int | None = None, kind: str | None = None,
-        park: bool = True, send_now: bool = False,
+        send_now: bool = False,
         on_behalf_of: bool = False, speaker=_ENV,
         notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
@@ -236,8 +222,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `kind` overrides the routing edge's own `decision.kind` on the request
     row - T292's `task new` uses it to write 'task' regardless of what the
     edge between opener and owner happens to carry, since a task is a task
-    whichever edge assigned it. `park` False skips the requester's own async
-    park below - T293's `say` never records a wait beyond its reply window.
+    whichever edge assigned it.
     `send_now` marks the new row (`db.mark_send_now`) on this same
     connection - `say` needs that mark, and a second connection for it could
     leave it unmarked, and unreachable, if one crashed between the two.
@@ -348,7 +333,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                              chain_id=chain_id, fyi=fyi, timebox_s=timebox_s)
         if send_now:
             db.mark_send_now(con, rid)
-        if card and target == HUMAN and not fyi and (kind or decision.kind) == "task":
+        if card and target == HUMAN and not fyi and kind is None and decision.kind == "task":
             # What is asked of the founder is a decision task, and this row its card;
             # `task new` opens its own task and says `card=False`.
             tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
@@ -367,21 +352,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             "request_id": rid, "target": target, "relation": decision.relation,
             "response": decision.response, "chain_depth": depth,
         })
-
-        # async: the requester parks rather than hold an account while it
-        # waits. The fallback wake_at is there so a reply that never arrives
-        # cannot strand it (the permanent stop section 8.4 warns about).
-        #
-        # The human is not one of them. They hold no account, there is no
-        # session to park and nothing will ever wake them, so a state row in
-        # their name is bookkeeping about nobody - and it is drawn: `ocp ps`
-        # listed the founder among the agents, parked, for as long as it sat
-        # there.
-        if park and decision.response == "async" and requester != HUMAN \
-                and not _terminal(con, requester):
-            db.set_agent_state(con, requester, "PARKED",
-                               wake_at=int(time.time()) + AWAIT_FALLBACK_S,
-                               detail=await_reply_detail(rid, target))
 
         note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
         if notify:
@@ -404,14 +374,14 @@ def say(target: str, body: str, requester: str | None = None,
         parent_id: int | None = None, speaker=_ENV,
         notify: bool = True) -> tuple[bool, str, int | None]:
     """T293 (#1655/#1657): a question answered from a look-up, not new work
-    - always ahead of the queue, never a head, no park beyond the fixed
-    30-minute reply window (none to the founder). `parent_id` replies to and
+    - always ahead of the queue, never a head, and the sender is never parked
+    on it (T628: nobody parks waiting on a peer). `parent_id` replies to and
     settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
     """
     timebox = None if target == HUMAN else SAY_TIMEBOX_S
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
-                      kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True,
+                      kind=SAY_KIND, timebox_s=timebox, send_now=True,
                       speaker=speaker, notify=notify)
     if ok and parent_id is not None and rid is not None:
         _close_replied(parent_id, rid, body)

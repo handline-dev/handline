@@ -1,8 +1,6 @@
 """The states an agent is in, what wakes each, and the timing constants the daemon runs on."""
 from __future__ import annotations
 
-
-from ..team import ask as askmod
 from ..infra import timefmt
 
 
@@ -45,23 +43,15 @@ MOVING_MARK = "moving"
 BY_HAND_MARK = "by hand"
 
 
-def awaiting_reply(row) -> bool:
-    """Is this PARKED row the one an async request writes while its asker waits for the answer? The
-    session is live: it is not a usage park, whatever handoff the agent last had."""
-    return (row["detail"] or "").startswith(askmod.AWAIT_REPLY_MARK)
-
-
 def park_wakeable(row) -> tuple[bool, str]:
     """Whether `w` on this PARKED, THROTTLED or DEGRADED row does anything,
     and why not when it does not (founder #1620/#1625/#1633: only a park a
     person started by hand is worth forcing early - a usage wall, a move's
-    own short retry, an async reply and a degraded handoff's own retry all
-    clear themselves, and forcing one wakes the agent into an account, an
-    account switch, or a reply that still is not there).
+    own short retry and a degraded handoff's own retry all
+    clear themselves, and forcing one wakes the agent into an account or an
+    account switch).
     """
     detail = row["detail"] or ""
-    if awaiting_reply(row):
-        return False, f"{row['agent']} is waiting on a reply, not parked - it wakes when the reply lands"
     if detail.startswith(MOVING_MARK):
         return False, f"{row['agent']} is moving accounts - it retries on its own shortly"
     if detail.startswith(BY_HAND_MARK):

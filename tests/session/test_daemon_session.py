@@ -798,74 +798,6 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
         con.close()
 
 
-def test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(home: Path) -> None:
-    """An async `ocp ask` parks its asker with a "reply #N" detail while a live session waits for the
-    answer. The agent's last handoff having been a usage move does not make that a usage park:
-    typing at it must not be refused as "parked until its usage window rolls over" (the bridge
-    then only queued the founder's message), and the usage-recovered wake must not move or wake it."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (orcamod.available, orcamod.alive)
-    try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_account(con, "backend", "alpha")
-        _park_via_handoff(con, "backend", "usage_7d")
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
-                           detail="usage_7d; wakes at tomorrow")
-        check("usage park: typing is refused as a wall",
-              "usage window" in (dmn_delivery.wall_reason(con, "backend") or ""),
-              str(dmn_delivery.wall_reason(con, "backend")))
-        waiting_detail = askmod.await_reply_detail(9, "marina")
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
-                           detail=waiting_detail)
-        check("reply wait: the same agent, parked to await a reply, is not at a wall",
-              dmn_delivery.wall_reason(con, "backend") is None,
-              str(dmn_delivery.wall_reason(con, "backend")))
-        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5, reset_5h=int(time.time()) + 1800)
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("reply wait: the usage-recovered wake leaves it waiting for its reply",
-              row["state"] == dmn_states.PARKED and row["detail"] == waiting_detail, str(dict(row)))
-    finally:
-        orcamod.available, orcamod.alive = real
-        con.close()
-
-
-def test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(home: Path) -> None:
-    """T456 (founder #5770): a resolve un-parks its asker only when nothing else it asked is
-    outstanding, so an agent with a second ask open stayed "waiting for" an answer that had come,
-    with what was told to it queued behind. The tick reads the park against its request."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (orcamod.available, orcamod.alive)
-    try:
-        orcamod.available = lambda: False
-        db.set_terminal(con, "backend", "term_x", "wt")
-        first = db.add_request(con, "backend", "marina", "the first ask", None, "peer", "async", None, 0, None)
-        second = db.add_request(con, "backend", "marina", "the second ask", None, "peer", "async", None, 0, None)
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
-                           detail=askmod.await_reply_detail(first, "marina"))
-        lines: list[str] = []
-        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("park: while its reply is still awaited it stays parked",
-              row["state"] == dmn_states.PARKED and not lines, str((dict(row), lines)))
-        askmod.resolve(first, "answered")             # the second ask is still open, so nothing un-parks it
-        row = db.get_agent_state(con, "backend")
-        check("park: setup - the resolve left it parked on the answered ask", row["state"] == dmn_states.PARKED,
-              str(dict(row)))
-        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("park: the next tick drops it, and says so",
-              row["state"] != dmn_states.PARKED and any(f"#{first}" in m and "settled" in m for m in lines),
-              str((dict(row), lines)))
-    finally:
-        orcamod.available, orcamod.alive = real
-        con.close()
-
-
 def test_an_owed_clear_that_holds_everything_says_why_once(home: Path) -> None:
     """T456: settle_owed_clear returns True while a clear is owed and the tick then does nothing else
     for the agent - it must not do so silently."""
@@ -5093,8 +5025,6 @@ def main() -> int:
             Path(td) / 'stalewake'))
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
-        run(lambda: test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(Path(td) / 'awaitwall'))
-        run(lambda: test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(Path(td) / 'settledpark'))
         run(lambda: test_an_owed_clear_that_holds_everything_says_why_once(Path(td) / 'owedsaid'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))

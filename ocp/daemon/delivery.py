@@ -19,8 +19,7 @@ from ..usage import status
 from ..infra import textsafe
 
 from . import handoff, screensamples
-from .states import (HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S,
-                     awaiting_reply)
+from .states import HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S
 
 
 # ---------------------------------------------------------------- sending
@@ -261,7 +260,7 @@ def wall_reason(con, agent: str, row=None) -> str | None:
     if events.at_limit(con, agent):
         return f"{agent} is at its usage limit"
     row = row if row is not None else db.get_agent_state(con, agent)
-    if row and row["state"] == PARKED and not row["closed_at"] and not awaiting_reply(row):
+    if row and row["state"] == PARKED and not row["closed_at"]:
         last = db.last_handoff(con, agent)
         if last and last["trigger_kind"] in handoff.MOVABLE_TRIGGERS:
             return f"{agent} is parked until its usage window rolls over"

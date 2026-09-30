@@ -2972,12 +2972,6 @@ def test_wake_on_a_self_clearing_park_refuses_and_says_when(home: Path) -> None:
               "not the usage-wall's window-rollover sentence beside it",
               not ok and "moving accounts" in why and "window rolls over" not in why, why)
 
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=wake,
-                           detail=askmod.await_reply_detail(99, "keeper"))
-        ok, why = actions.can(con, "backend", "wake")
-        check("wake: a park awaiting its own reply refuses, naming the reply",
-              not ok and "reply" in why, why)
-
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=wake, detail="by hand; wakes at x")
         ok, why = actions.can(con, "backend", "wake")
         check("wake: a park started by hand is the one that stays wakeable", ok, why)

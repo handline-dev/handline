@@ -114,9 +114,8 @@ def test_ask_flow(home: Path) -> None:
         denied = con.execute("SELECT COUNT(*) c FROM requests WHERE state='denied'").fetchone()["c"]
         check("ask: denials are recorded, not silent", denied == 2, str(denied))
         st = db.get_agent_state(con, "backend")
-        check("ask: async requester parks", st["state"] == "PARKED", str(dict(st)))
-        check("ask: parking a requester sets a fallback wake_at so a lost "
-              "reply cannot strand it", st["wake_at"] is not None, str(dict(st)))
+        check("ask: an async requester is never parked on the reply (T628)",
+              st is None or st["state"] != "PARKED", str(dict(st) if st else None))
     finally:
         con.close()
 
@@ -7940,6 +7939,9 @@ limits:
         check("T509: the note travels to the founder as the delivery",
               len(sent) == 1 and "your call" in sent[0]["body"] and sent[0]["requester"] == "worker",
               str([dict(r) for r in sent]))
+        check("T509: the founder holds exactly one open task after it - no second decision task (T628)",
+              [r["id"] for r in db.open_tasks(con) if r["owner"] == actions.HUMAN] == [t],
+              str([(r["id"], r["title"]) for r in db.open_tasks(con) if r["owner"] == actions.HUMAN]))
         check("T509: worker no longer holds it, and the founder holds no current task",
               db.current_task(con, "worker") is None and db.current_task(con, actions.HUMAN) is None)
         ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "back to you")
