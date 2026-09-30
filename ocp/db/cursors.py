@@ -10,6 +10,13 @@ def get_meta(con, name: str) -> str | None:
     return row["value"] if row else None
 
 
+def agent_progress_key(agent: str) -> str:
+    """The progress note of an agent with no request in hand and no current task
+    (T366). Whatever gives the agent work - a delivery, a current task - clears
+    it, so it cannot outlive the idle spell it was written in."""
+    return f"progress-agent:{agent}"
+
+
 def set_meta(con, name: str, value: str | None) -> None:
     con.execute(
         "INSERT INTO meta(name, value, updated) VALUES(?,?,?) "

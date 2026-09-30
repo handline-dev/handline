@@ -872,9 +872,9 @@ def test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(home: Path)
 def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agents_after_a_wait(home: Path) -> None:
     con, term = _decline_world(home)
     con.execute("UPDATE requests SET state = 'done', announced_at = 1")
-    now = int(time.time())
     try:
         blockedmod.note_close_failure(con, "backend", lambda _m: None)
+        now = int(time.time())      # after the note: it stamps its own second, and a sweep before it presses nothing
         blockedmod.sweep(con, lambda _m: None, now)
         check("own exit: its own dialog is pressed on the first sweep, no person being in it",
               term.sent == [("\x1b", False)] and db.block_get(con, "backend") is None, str(term.sent))

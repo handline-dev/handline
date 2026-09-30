@@ -82,7 +82,7 @@ def test_fold(home: Path) -> None:
     # read, hours earlier. The header is ours to write, so the model's version
     # of it is discarded - hence the wrong values here.
     good = digest.render(digest.Digest(
-        date="1999-01-01", agent="somebody-else", updated="20:12", folded_through=top,
+        date="1999-01-01", agent="somebody-else", updated="99:99", folded_through=top,
         sections={"done": ["work 0", "work 1"], "in_progress": ["work 2"], "decided": [],
                   "blocked": [], "next": ["work 3"], "base_candidates": []}))
 
@@ -102,7 +102,7 @@ def test_fold(home: Path) -> None:
         published = digest.parse(foldmod.journal_path("backend", day).read_text())
         check("fold: digest is published", published.items("done") == ["work 0", "work 1"])
         check("fold: the header is stamped, not taken from the model",
-              published.updated != "20:12" and published.date == day
+              published.updated != "99:99" and published.date == day
               and published.agent == "backend",
               f"{published.date} {published.agent} {published.updated}")
         check("fold: deterministic block is attached", "events folded" in published.facts)
@@ -453,15 +453,36 @@ def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path)
         db.set_terminal(con, "backend", "term_x", str(_worktree_with_a_dirty_file(home / "wt-backend")))
         write_agent_status("backend", "alpha", session_id="sess-1",
                            transcript_path="/tmp/sess-1.jsonl")
-        ok, said = handoffmod.set_progress(con, "backend", "x")
-        check("progress: no request in hand, nothing to note", not ok, said)
+        ok, said = handoffmod.set_progress(con, "backend", "deferred: waits on T9")
+        check("progress: no request in hand, the note is kept on the agent (T366)",
+              ok and handoffmod.get_progress(con, "backend") == "deferred: waits on T9", said)
+        handoffmod.record(con, "backend")
+        check("progress: the handoff of an agent with no request carries it",
+              "deferred: waits on T9" in db.get_handoff(con, "backend"))
+        rid = db.add_request(con, "marina", "backend", "fix it", None,
+                             "peer", "async", None, 0, None)
+        db.mark_delivered(con, rid)
+        _set_request_state(con, rid, "done", "ok")
+        check("progress: an idle note does not resurface after a request came and went (T366)",
+              handoffmod.get_progress(con, "backend") is None)
         rid = db.add_request(con, "marina", "backend", "fix it", None,
                              "peer", "async", None, 0, None)
         ok, said = handoffmod.set_progress(con, "backend", "x")
-        check("progress: a request not yet delivered is not one in hand", not ok, said)
+        check("progress: a request not yet delivered is not one in hand; the note stays on the agent",
+              ok and said.startswith("you"), said)
+        t1 = db.new_task(con, "one", "backend", "marina")
+        t2 = db.new_task(con, "two", "backend", "marina")
+        db.set_current_task(con, "backend", t1)
+        ok, said = handoffmod.set_progress(con, "backend", "half of T1")
+        db.set_current_task(con, "backend", t2)
+        check("progress: with a task in hand the note is the task's, not the next task's (T366)",
+              ok and said.startswith(f"T{t1}") and handoffmod.get_progress(con, "backend") is None, said)
+        db.set_current_task(con, "backend", None)
         db.mark_delivered(con, rid)
         ok, said = handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
         check("progress: kept on the delivered request", ok and said == f"#{rid}", said)
+        check("progress: the agent's own note is dropped once a request has one",
+              db.get_meta(con, "progress-agent:backend") is None)
         handoffmod.record(con, "backend")
         text = db.get_handoff(con, "backend")
         check("progress: the handoff carries both lines, right after the request",
