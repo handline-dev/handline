@@ -123,8 +123,9 @@ def sweep_task_timeouts(con, log, now: int) -> None:
 def _unasked_running(con, agent: str, row) -> bool:
     if not row or row["closed_at"] or not row["terminal"] or db.queued_for(con, agent):
         return False
-    # Background work with nothing owed is not asked about: `sweep_forgotten_background` settles it.
-    if row["state"] != RUNNING or delivery.has_background_work(con, agent):
+    # Background work does not exempt a RUNNING agent (T359): the sweeps that settle it - the stale
+    # notice and `sweep_forgotten_background` - leave an agent mid-turn alone, so this is its one report.
+    if row["state"] != RUNNING:
         return False
     from .. import actions
     return actions.child_wait(con, agent) is None      # T443: waiting on a child of its own is a reason
