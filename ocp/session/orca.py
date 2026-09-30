@@ -864,16 +864,20 @@ def _press_dialog(handle: str, pick, key_name: str, allow_truncated: bool = True
     return STILL_OPEN, dialog.title, f"the dialog is still on screen after {key_name}"
 
 
+def _digit_key(dialog: Dialog, number: int) -> tuple[str | None, str]:
+    """(key, why not) - the one key that presses option `number` of `dialog`: a digit, and only for
+    an option the dialog shows. The one digit-press path (`press_option`, `answer_dialog`)."""
+    if not 1 <= number <= 9:      # `10` would be sent as the keys "1", "0": the dialog takes the 1
+        return None, f"option {number} cannot be pressed by one key"
+    if any(n == number for n, _ in dialog.options):
+        return str(number), ""
+    return None, f"the dialog has no option {number}"
+
+
 def press_option(handle: str, number: int) -> tuple[str, str, str]:
     """Press option `number` of the dialog on screen now, if it has one, and check that the
     dialog went (`_press_dialog`)."""
-    def pick(dialog: Dialog) -> tuple[str | None, str]:
-        if not 1 <= number <= 9:      # `10` would be sent as the keys "1", "0": the dialog takes the 1
-            return None, f"option {number} cannot be pressed by one key"
-        if any(n == number for n, _ in dialog.options):
-            return str(number), ""
-        return None, f"the dialog has no option {number}"
-    return _press_dialog(handle, pick, f"option {number}")
+    return _press_dialog(handle, lambda dialog: _digit_key(dialog, number), f"option {number}")
 
 
 def decline_dialog(handle: str) -> tuple[str, str, str]:
@@ -961,21 +965,27 @@ def answer_dialog(handle: str, choose) -> tuple[str, str, str]:
         number = choose(driver.name, dialog)
         if number is None:
             return None, "no standing answer for this dialog"
-        if not 1 <= number <= 9:
-            return None, f"option {number} is not a single key"
-        pressed.append(number)
-        return str(number), ""
+        key, why = _digit_key(dialog, number)
+        if key is not None:
+            pressed.append(number)
+        return key, why
     outcome, title, why = _press_dialog(handle, pick, "the option's number")
     if outcome != STILL_OPEN:
         return outcome, title, why
+    replaced: list[bool] = []
 
     def confirm(dialog: Dialog) -> tuple[str | None, str]:
-        if dialog.title != title or _highlighted(dialog) != pressed[0]:
+        if dialog.title != title:
+            replaced.append(True)         # the ruled dialog is gone, another stands where it was
+            return None, "another dialog is on screen now"
+        if _highlighted(dialog) != pressed[0]:
             return None, "the chosen option is not the highlighted one"
         if "Enter to confirm" not in dialog.footer:
             return None, "its footer does not say Enter confirms"
         return ENTER, ""
     again = _press_dialog(handle, confirm, "Enter")
+    if replaced:
+        return CLEARED, title, ""         # as `_press_dialog` reads a replaced dialog
     if again[0] != NOT_PRESSED:
         return again
     # It closed between the two reads, or the screen is not one to press on.
@@ -1184,6 +1194,22 @@ def last_tail(handle: str) -> list[str] | None:
     return _last_tail.get(handle)
 
 
+def footer_background(tail: list) -> str | None:
+    """`background_work`'s reading of rows already read: what the hint row under the composer
+    counts, "" when it counts nothing, None when no composer is drawn."""
+    box = _composer_box(tail)
+    if box is None:
+        return None
+    for row in tail[box[1] + 1:]:
+        row = str(row)
+        if _BG_HINT not in row:
+            continue
+        parts = [p.strip() for p in row.split("·")]
+        found = [p for p in parts if _BG_COUNT.match(p)]
+        return ", ".join(found) or "background tasks"
+    return ""
+
+
 def background_work(handle: str) -> str | None:
     """What the session itself says is still running behind its prompt - "2
     monitors", "1 shell" - or "" when it says nothing, or None when its screen
@@ -1196,17 +1222,20 @@ def background_work(handle: str) -> str | None:
     if not isinstance(tail, list) or term.get("source") != "screen":
         return None
     _last_tail[handle] = [str(r) for r in tail]
-    box = _composer_box(tail)
-    if box is None:
-        return None
-    for row in tail[box[1] + 1:]:
-        row = str(row)
-        if _BG_HINT not in row:
-            continue
-        parts = [p.strip() for p in row.split("·")]
-        found = [p for p in parts if _BG_COUNT.match(p)]
-        return ", ".join(found) or "background tasks"
-    return ""
+    return footer_background(tail)
+
+
+def idle_with_background(handle: str) -> bool:
+    """Does the screen show a session idle at its prompt with work running behind it (T458)?
+
+    Orca's own idle answer reads such a session as mid-turn, and a task is never typed at it.
+    The screen is the second witness, and only on the busy side's absence: the driver says
+    what a turn in progress draws."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return False
+    return _driver_for(handle).idle_with_background(tail)
 
 
 def usage_limit_open(handle: str) -> bool:
@@ -1232,7 +1261,7 @@ def typeable_now(handle: str) -> bool:
     # Nothing at all is asked with one read, not one per kind, so a dialog
     # that opens between two separate reads cannot be read as neither.
     with driver_scope():
-        return idle_now(handle) and screen_blocker(handle) is None
+        return (idle_now(handle) or idle_with_background(handle)) and screen_blocker(handle) is None
 
 
 def clear_context(handle: str, wait: bool = True,
@@ -1285,6 +1314,24 @@ def close_session(handle: str, wait: bool = True,
     return ok, f"{cmd} typed" if ok else f"could not send {cmd}: {out[:200]}"
 
 
+# Between a launch line and the Enter that runs it.
+LAUNCH_ENTER_DELAY_S = 0.5
+
+
+def _terminal_note(handle: str) -> str:
+    """What a launch that started nothing should say about the terminal it was typed into: that it is
+    gone, or that it is alive and what its last rows show. One line and cut short - it is text an
+    agent's shell drew."""
+    if not alive(handle):
+        return "; the terminal is gone"
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return "; the terminal is alive but its screen could not be read"
+    rows = [textsafe.oneline(str(r).strip()) for r in tail if str(r).strip()][-3:]
+    return f"; the terminal is alive (screen: {' | '.join(rows)[:240]})" if rows else "; the terminal is alive"
+
+
 def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
              started=None) -> tuple[bool, str]:
     """Start an agent again in the shell its session left behind.
@@ -1300,11 +1347,16 @@ def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
-    ok, out = send(handle, command)
+    # The line and its Enter go as two sends, in case an Enter that arrives with the line is swallowed
+    # by a shell taking it as a paste (T663: a hypothesis, not an observed cause).
+    ok, out = send(handle, command, enter=False)
+    if ok:
+        time.sleep(LAUNCH_ENTER_DELAY_S)
+        ok, out = send(handle, "")
     if not ok:
         return False, f"could not send the launch command: {out[:200]}"
     if started is not None and not started():
-        return False, "the launch command was typed but no session started"
+        return False, f"the launch command was typed but no session started{_terminal_note(handle)}"
     # Typing into a TUI that is still booting loses the opening characters, so
     # nothing may be sent to the agent until it has finished starting.
     wait_idle(handle, timeout_ms)

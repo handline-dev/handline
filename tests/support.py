@@ -117,7 +117,9 @@ claudemeter.refresh_credential = lambda acct, timeout=0: False
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
     "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
-    "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal")}
+    "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal",
+    "typeable_now", "idle_with_background")}
+orcamod.LAUNCH_ENTER_DELAY_S = 0
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -303,6 +305,8 @@ def relaunching_send(sent: list, table: dict[str, int]) -> object:
     changes is a fixture where waking does not work.
     """
     def send(handle: str, text: str, enter: bool = True):
+        if not text and enter:
+            return True, ""      # a launch's Enter, sent on its own (T663): the line is what these record
         sent.append(text)
         if " launch " in text:
             table[text.split(" launch ")[1].split()[0]] = 4242
@@ -1260,6 +1264,8 @@ class SecondVendor:
     idle_from_screen = False
     def idle_on_screen(self, tail):
         return True
+    def idle_with_background(self, tail):
+        return False
     def screen_blocker(self, tail):
         return None
     def trust_screen(self, tail):

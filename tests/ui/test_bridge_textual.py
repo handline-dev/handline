@@ -1506,12 +1506,16 @@ def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
               "- the blocker cleared without anything having delivered it yet",
               r.state == "IDLE" and r.tasks == 1 and r.ready, r)
 
+        actions.set_queued(con, blocker, actions.HUMAN, True)
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: an approved task is in the count", r.tasks == 2, r)
         db.mark_task_done(con, blocker, "done, T317", via="reason")
         con.commit()
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: a done task drops out of the count",
-              r.tasks == 1 and r.ready, r)
+        check("agents_data: a done task drops out of the count", r.tasks == 1, r)
     finally:
         con.close()
 
@@ -1559,6 +1563,7 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}), \
             mock.patch.object(orcamod, "dialog_on_screen", lambda h: screen["dialog"]), \
             mock.patch.object(orcamod, "trust_prompt_folder", lambda h: screen["folder"]), \
+            mock.patch.object(orcamod, "trust_prompt_showing", lambda h: screen.get("trust_unreadable", False)), \
             mock.patch.object(orcamod, "confirm_trust", lambda h: (True, "trusted")), \
             mock.patch.object(orcamod, "press_option", press):
         import ocp.team as teampkg
@@ -1589,6 +1594,12 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
             check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
                   ok and trust.is_declared(home) and len(rules.rules) == 1, said)
             screen["folder"] = None
+            screen["dialog"] = dialog
+            check("dialog: a numbered dialog with no trust screen is offered", actions.dialog_of(con, "reviewer") is not None)
+            screen["trust_unreadable"] = True
+            check("dialog: a trust screen whose folder cannot be read offers nothing (T211)",
+                  actions.dialog_of(con, "reviewer") is None, str(actions.dialog_of(con, "reviewer")))
+            screen["trust_unreadable"] = False
             answers = actions.standing_answers()
             check("dialog: the standing answers list the rule", any(a["kind"] == "dialog" for a in answers), str(answers))
             ok, _ = actions.remove_answer("dialog", ("claude", dialog.title, "Yes, and don't ask again"))
@@ -1678,6 +1689,52 @@ def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
           sent == [(7, "permission", {"cancel": True}), (8, "dialog", {"number": 1, "always": False}),
                    (9, "question", {"cancel": True})] and said == [("question", True, "sent")], str((sent, said)))
     check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
+
+
+def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
+    """T309: `_sync_cursor` runs every tick; a cursor already on the selected row is left alone,
+    so the table's scroll is not dragged back each time."""
+    from types import SimpleNamespace
+    from ocp.ui.pages.home import HomePage
+    moves, classes = [], []
+    table = SimpleNamespace(show_cursor=False, cursor_row=1, move_cursor=lambda row: moves.append(row))
+    page = SimpleNamespace(panel=0, sel={0: "b"},
+                           query_one=lambda box: SimpleNamespace(set_class=lambda on, name: classes.append(on)))
+    sync = lambda panel=0, sel="b": (setattr(page, "panel", panel), setattr(page, "sel", {0: sel}),
+                                     HomePage._sync_cursor(page, table, "#box", 0, ["a", "b", "c"]))
+    sync()
+    check("home cursor: already on the selected row, it is not moved", moves == [] and table.show_cursor)
+    sync(sel="c")
+    check("home cursor: on another row, it moves there once", moves == [2], str(moves))
+    sync(panel=1, sel="a")
+    check("home cursor: a panel the keys are not on shows no cursor and is not moved",
+          moves == [2] and not table.show_cursor and classes[-1] is False, str((moves, classes)))
+    sync(sel="gone")
+    check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
+
+
+async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> None:
+    """T355: a press that raises (db, orca) must not leave the modal disabled with esc blocked."""
+    from ocp.ui.bridge_textual import BridgeApp
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("questionraises")
+    found = {"agent": "reviewer", "header": "h", "question": "which?", "multi_select": False, "other_number": None,
+             "other_text": None, "options": [{"label": "a"}, {"label": "b"}]}
+
+    def press(choices, text):
+        raise OSError("orca is gone")
+    started, got = [], []
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        modal = QuestionModal(found, press, lambda: started.append(1))
+        app.push_screen(modal, got.append)
+        await pilot.pause()
+        await modal._submit((0,), None)
+        await pilot.pause()
+        check("question: a press that raises dismisses the modal with (False, the reason)",
+              started == [1] and len(got) == 1 and got[0][0] is False and "orca is gone" in got[0][1], str(got))
+        check("question: and the modal is off the stack", modal not in app.screen_stack)
 
 
 def test_the_bridge_stylesheet_parses() -> None:
@@ -1780,6 +1837,17 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
         check("timeline: a handoff shows from and to",
               [(e["kind"], e["who"]) for e in actions.task_timeline(con, other)] == [("handoff", "backend → reviewer")],
               str(actions.task_timeline(con, other)))
+        actions.memo_add(con, other, "reviewer", "after the handoff")
+        ok, _, third = actions.task_new("product", "backend", "Third", "the work and its done")
+        actions.memo_add(con, third, "product", "before the handoff")
+        actions.assign_task(con, third, "reviewer", "handoff", "you take it")
+        actions.memo_add(con, third, "reviewer", "after the handoff")
+        kinds = lambda t: [(e["kind"], e["text"]) for e in actions.task_timeline(con, t)]
+        check("timeline T524: a memo made after a handoff in the same second sits after it, not before",
+              [k for k, _ in kinds(other)] == ["handoff", "memo"], str(kinds(other)))
+        check("timeline T524: memo, handoff, memo in one second keep the order they happened in",
+              [k for k, _ in kinds(third)] == ["memo", "handoff", "memo"]
+              and kinds(third)[0][1] == "before the handoff", str(kinds(third)))
     finally:
         con.close()
 
@@ -2198,6 +2266,7 @@ async def _run_all() -> None:
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
+    test_the_home_cursor_moves_only_when_the_row_is_not_already_there()
     test_the_bridge_stylesheet_parses()
     test_the_open_task_counts_read_once_and_match_the_one_agent_count()
     test_agents_data_scans_the_open_tasks_once_for_all_agents()
@@ -2220,6 +2289,7 @@ async def _run_all() -> None:
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
+    await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 

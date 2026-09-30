@@ -128,6 +128,65 @@ def test_answer_dialog_never_remembers_a_press_that_failed(home: Path) -> None:
         con.close()
 
 
+class _ScriptedTerm:
+    """A terminal whose successive reads show `screens` in turn (the last one for good), and that
+    records every key sent."""
+
+    def __init__(self, screens):
+        self.screens, self.sent = [list(x) for x in screens], []
+        orcamod._screen = self.read
+        orcamod.send = self.send
+
+    def read(self, handle, limit=40):
+        tail = self.screens.pop(0) if len(self.screens) > 1 else self.screens[0]
+        return support._screen_of(tail)
+
+    def send(self, handle, text, enter=True):
+        self.sent.append((text, enter))
+        return True, ""
+
+
+def test_answer_dialog_and_press_option_share_one_digit_path(home: Path) -> None:
+    """T209: both press an option by its number, through `_digit_key` - one digit only, and only
+    for an option the dialog shows."""
+    orcamod.PRESS_SETTLE_S = 0
+    for number, label in ((5, "an option the dialog does not show"), (10, "option 10")):
+        term = _KeyTerm(TEN if number == 10 else DIALOG)
+        out = orcamod.answer_dialog("term_x", lambda vendor, dialog, n=number: n)
+        check(f"answer: {label} is refused and nothing is sent", not term.sent and out[0] == orcamod.NOT_PRESSED, str((term.sent, out)))
+    term = _KeyTerm(DIALOG)
+    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    check("answer: a listed option is pressed as press_option presses it",
+          term.sent == [("2", False)] and out[0] == orcamod.CLEARED, str((term.sent, out)))
+
+
+def test_a_dialog_replaced_before_the_confirm_is_cleared_not_still_open(home: Path) -> None:
+    """T212: a digit that leaves the ruled dialog open is followed by an Enter on a fresh read. When
+    a different dialog has taken its place by then the ruled one is gone: CLEARED, as `_press_dialog`
+    reads a replaced dialog, not STILL_OPEN with a hold against an answer that landed."""
+    orcamod.PRESS_SETTLE_S = 0
+    confirmable = [ln.replace("Esc to cancel", "Enter to confirm \u00b7 Esc to cancel") for ln in DIALOG]
+    confirmable = [ln.replace("\u276f 1. Yes", "  1. Yes").replace("2. Yes, and", "\u276f 2. Yes, and") for ln in confirmable]
+    other = [ln.replace("Do you want to proceed?", "Do you want to overwrite it?") for ln in confirmable]
+    same_after_digit = [confirmable] * (orcamod.PRESS_SETTLE_READS + 1)
+
+    term = _ScriptedTerm(same_after_digit + [other])
+    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    check("confirm: another dialog in the ruled one's place reads as cleared",
+          out[0] == orcamod.CLEARED and out[1].startswith("Do you want to proceed"), str(out))
+    check("confirm: and Enter is not pressed on the stranger", term.sent == [("2", False)], str(term.sent))
+
+    term = _ScriptedTerm(same_after_digit + [confirmable, CLEARED_SCREEN])
+    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    check("confirm: the same dialog, its choice highlighted, is confirmed with one Enter",
+          term.sent == [("2", False), ("", True)] and out[0] == orcamod.CLEARED, str((term.sent, out)))
+
+    term = _ScriptedTerm(same_after_digit + [DIALOG])
+    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    check("confirm: the same dialog that offers no Enter stays still-open",
+          out[0] == orcamod.STILL_OPEN and term.sent == [("2", False)], str((term.sent, out)))
+
+
 def test_a_long_heredoc_dialog_can_actually_be_pressed(home: Path) -> None:
     """dialog_on_screen widening to find a long command's dialog is only
     half the fix - _press_dialog (press_option, decline_dialog,
@@ -238,6 +297,8 @@ def main() -> int:
     def tests(td):
         run(lambda: test_press_option_sends_one_digit_and_refuses_what_it_cannot_send(Path(td) / 'po0'))
         run(lambda: test_answer_dialog_never_remembers_a_press_that_failed(Path(td) / 'po0a'))
+        run(lambda: test_answer_dialog_and_press_option_share_one_digit_path(Path(td) / 'po0d'))
+        run(lambda: test_a_dialog_replaced_before_the_confirm_is_cleared_not_still_open(Path(td) / 'po0e'))
         run(lambda: test_a_long_heredoc_dialog_can_actually_be_pressed(Path(td) / 'po0b'))
         run(lambda: test_always_on_a_truncated_dialog_presses_but_saves_no_rule(Path(td) / 'po0c'))
         run(lambda: test_a_long_heredoc_commands_dialog_is_found_by_widening_the_read(Path(td) / 'po1'))
