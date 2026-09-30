@@ -1444,6 +1444,14 @@ def _brief_of(con, row):
     return first if first is not None and first["requester"] == row["opened_by"] else None
 
 
+def task_brief(con, tid: int) -> str | None:
+    """The text `edit_task(body=)` would replace - the brief its opener sent - or None when the
+    task has none to edit."""
+    row = db.get_task(con, tid)
+    first = _brief_of(con, row) if row is not None else None
+    return (first["body"] or "") if first is not None else None
+
+
 def tell_body_edited(con, tid: int, by: str) -> None:
     """T689: after `edit_task` changed a task's body and its write committed - the holder is told at
     once, typed like a say, when the task is being worked; the change itself is in its record."""

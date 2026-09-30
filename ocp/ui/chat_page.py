@@ -323,6 +323,7 @@ def task_detail(con, tid: int) -> dict | None:
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
             "discarded": (t["discarded_by"], t["discard_reason"], t["discarded_at"]) if t["discarded_by"] else None,
             "merged_into": t["merged_into"],
+            "brief_text": actions.task_brief(con, tid),
             "children": kids, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing"),
@@ -1121,6 +1122,7 @@ class TaskBody(TaskActions, Vertical):
     TaskBody #t_memo_new { height: 1; margin-top: 1; }
     TaskBody #t_memo_box { width: 1fr; }
     TaskBody #t_memo_new Button { width: auto; min-width: 0; margin-left: 1; }
+    TaskBody #t_brief_edit { width: auto; min-width: 0; margin-bottom: 1; }
     TaskBody #t_title { text-style: bold; padding-bottom: 1; }
     TaskBody #t_badge, TaskBody #t_meta { padding-bottom: 1; }
     TaskBody .section { padding-top: 1; border-top: solid $primary-darken-1; margin-top: 1; height: auto; }
@@ -1144,6 +1146,7 @@ class TaskBody(TaskActions, Vertical):
             yield TaskText(id="t_title")
             yield TaskText(id="t_badge")
             yield TaskText(id="t_brief")
+            yield Button("✎ edit text", id="t_brief_edit", compact=True)
             yield TaskText(id="t_meta")
             yield TaskText(id="t_kids", classes="section")
             yield Static(id="t_memo_head", classes="section")
@@ -1197,6 +1200,7 @@ class TaskBody(TaskActions, Vertical):
         brief = self.query_one("#t_brief", Static)
         brief.update(page["brief"])
         brief.display = bool(page["brief"].plain)
+        self.query_one("#t_brief_edit", Button).display = d["brief_text"] is not None
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.draw_memos(page["timeline"])
@@ -1208,6 +1212,7 @@ class TaskBody(TaskActions, Vertical):
         for name in ("badge", "brief", "meta", "kids", "memo_head"):
             self.query_one(f"#t_{name}", Static).update("")
         self.query_one("#t_brief", Static).display = False
+        self.query_one("#t_brief_edit", Button).display = False
         self.query_one("#t_memos", Vertical).remove_children()
         for name in ("assign", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
@@ -1253,6 +1258,23 @@ class TaskBody(TaskActions, Vertical):
                 self.memo_call("delete", lambda con: actions.memo_delete(con, mid, actions.HUMAN))
         self.app.push_screen(Confirm("Delete the memo", "It is removed from the task.", yes="Delete", danger=True), answered)
 
+    def action_edit_brief(self) -> None:
+        if not (self.d and self.d["brief_text"] is not None):
+            return
+
+        def answered(text: str | None) -> None:
+            if text is None:
+                return
+            con = db.connect()
+            try:
+                ok, said = actions.edit_task(con, self.tid, actions.HUMAN, body=text)
+                if ok:
+                    actions.tell_body_edited(con, self.tid, actions.HUMAN)
+            finally:
+                con.close()
+            self.report("edit text", ok, said)
+        self.app.push_screen(TextPrompt("edit the task's text", multi=True, initial=self.d["brief_text"]), answered)
+
     def memo_call(self, verb: str, call) -> None:
         con = db.connect()
         try:
@@ -1281,7 +1303,7 @@ class TaskBody(TaskActions, Vertical):
             event.stop()
             (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
             return
-        call = {"memo_add": self.action_memo_add, "assign": self.action_assign_task,
+        call = {"memo_add": self.action_memo_add, "t_brief_edit": self.action_edit_brief, "assign": self.action_assign_task,
                 "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
         if call:
             event.stop()

@@ -1809,6 +1809,57 @@ async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> 
               str(d.options))
 
 
+async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
+    """T703: the page's edit-text button rewrites the brief its opener sent, the change is on the
+    timeline, and a refusal (nothing changed, nothing written) is shown, not swallowed."""
+    from textual.widgets import Button
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("editbrief")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+        check("edit text: a task's brief is the text its opener sent", actions.task_brief(con, tid).endswith("the work and its done"))
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause()
+        body = app.screen.query_one(cp.TaskBody)
+        button = body.query_one("#t_brief_edit", Button)
+        check("edit text: the page offers it", button.display)
+        seen: list = []
+        body.notify = lambda said, **kw: seen.append((said, kw.get("severity")))
+        await pilot.click("#t_brief_edit")
+        await pilot.pause()
+        box = app.screen.query_one("#box")
+        check("edit text: the prompt opens on the whole text", "the work and its done" in box.text)
+        box.text = "the work, reworded"
+        await pilot.press("enter")
+        await pilot.pause()
+        con = db.connect()
+        try:
+            check("edit text: the brief is rewritten", actions.task_brief(con, tid) == "the work, reworded", str(actions.task_brief(con, tid)))
+            check("edit text: and the timeline says so", [e["text"] for e in actions.task_timeline(con, tid) if e["kind"] == "edit"] == ["the work, reworded"])
+        finally:
+            con.close()
+        await pilot.click("#t_brief_edit")
+        await pilot.pause()
+        await pilot.press("enter")          # the same text again
+        await pilot.pause()
+        check("edit text: nothing changed is refused and the refusal is shown",
+              seen and seen[-1][1] == "error" and "nothing to edit" in seen[-1][0], str(seen))
+        await pilot.click("#t_brief_edit")
+        await pilot.pause()
+        app.screen.query_one("#box").text = "  "
+        await pilot.press("enter")
+        await pilot.pause()
+        check("edit text: a blank text is refused and shown", seen[-1][1] == "error" and "needs a body" in seen[-1][0], str(seen))
+
+
 async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
     """T525: a memo or a handoff made while the page is open appears on the next poll."""
     from ocp.ui import chat_page as cp
@@ -2664,6 +2715,7 @@ async def _run_all() -> None:
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
+    await test_the_task_page_edits_the_task_text_and_shows_a_refusal()
     await test_an_open_task_page_shows_what_an_agent_adds_without_reopening()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
