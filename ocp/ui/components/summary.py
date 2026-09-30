@@ -16,19 +16,21 @@ class Summary(NamedTuple):
     running: int                    # agents working now
     to_decide: int                  # gates: decisions only the founder makes
     to_check: int                   # tasks done and waiting for the founder's check
+    for_you: int = 0                # tasks delegated to the founder that are not done yet
 
 
 def summarize(con) -> Summary:
     return Summary(
         sum(1 for r in db.all_agent_states(con) if loadmod.is_running(r)),
         sum(1 for m in actions.mailbox_rows(con) if m["gate"]),
-        sum(1 for t in db.tasks_needing_close(con) if actions.task_asker(con, t) == actions.HUMAN))
+        sum(1 for t in db.tasks_needing_close(con) if actions.task_asker(con, t) == actions.HUMAN),
+        len(actions.task_rows(con, owner=actions.HUMAN, state=list(actions.DELEGATED_STATES))))
 
 
 def summary_text(daemon_running: bool, clock: str, s: Summary) -> Text:
     """`daemon running · 1 working · 2 to decide · 3 to check · 16:05:22`:
-    each part after the daemon appears only when it is not zero; `to check` is a link
-    that runs the screen's `checks` action."""
+    each part after the daemon appears only when it is not zero; `to check` and `for you` (tasks
+    delegated to the founder) are links that run the screen's `checks` and `delegated` actions."""
     out = Text()
     out.append("daemon ", "dim")
     out.append(*(("running", "green") if daemon_running else ("NOT RUNNING", "red")))
@@ -39,6 +41,9 @@ def summary_text(daemon_running: bool, clock: str, s: Summary) -> Text:
     if s.to_check:
         out.append(" · ", "dim")
         out.append(f"{s.to_check} to check", Style(color="yellow", underline=True, meta={"@click": "screen.checks"}))
+    if s.for_you:
+        out.append(" · ", "dim")
+        out.append(f"{s.for_you} for you", Style(color="yellow", underline=True, meta={"@click": "screen.delegated"}))
     out.append(f" · {clock}", "dim")
     return out
 

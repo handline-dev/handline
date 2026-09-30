@@ -28,6 +28,7 @@ from ..actions.prompt_blocks import PERMISSION, QUESTION
 from ..daemon import landing as landingmod
 from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
+from ..session import idle_close
 from ..usage import status
 from . import tui
 from .clipboard_app import ClipboardApp
@@ -245,7 +246,7 @@ def task_detail(con, tid: int) -> dict | None:
             "can_discard": state in ("draft", "queued") and mine}
 
 
-EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "context_k")
+EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "context_k", "idle_close")
 WEIGHTS = ("light", "heavy")
 
 
@@ -261,7 +262,9 @@ def settings_of(agent: str) -> dict:
             "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
             "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
             "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
-            "context_k": str(agents.context_tokens(cfg) // 1000)}
+            "context_k": str(agents.context_tokens(cfg) // 1000),
+            "idle_close": actions.idle_close_minutes(cfg["park_timeout_s"])
+            if isinstance(cfg.get("park_timeout_s"), int) and not isinstance(cfg.get("park_timeout_s"), bool) else ""}
 
 
 def settings_problem(form: dict) -> str | None:
@@ -280,6 +283,8 @@ def settings_problem(form: dict) -> str | None:
         return "skip permissions must be on or off"
     if not form["context_k"].strip().isdigit() or int(form["context_k"]) < 1:
         return "context must be a whole number of thousands of tokens, at least 1"
+    if form["idle_close"].strip() and not form["idle_close"].strip().isdigit():
+        return "idle close must be a whole number of minutes (0 = never), or blank to follow the global time"
     if repo and (textsafe.has_unsafe(repo) or not Path(repo).expanduser().is_dir()):
         return f"repo {repo!r} is not a folder"
     return None
@@ -303,6 +308,12 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     register` uses, which keeps every other field as it is. A running session
     is not restarted."""
     new = {k: v for k, _, v in changes}
+    if "idle_close" in new:
+        ok, said = actions.set_idle_close(new.pop("idle_close"), agent)
+        if not ok:
+            return False, f"not saved: {said}"
+        if not new:
+            return True, "saved: " + said
     try:
         agents.register(agent, model=new.get("model"), effort=new.get("effort"),
                         weight=new.get("weight"), repo=new.get("repo"),
@@ -1134,6 +1145,10 @@ class ChatPage(JobsAware, Screen):
                     yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
                     yield Static("k tokens", classes="unit")
                     yield Static(id="s_context_share", classes="fvalue")
+                with Horizontal(classes="frow"):
+                    yield Static("idle close", classes="flabel")
+                    yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
+                    yield Static(id="s_idle_global", classes="fvalue")
             with ActionBar(id="s_buttons"):
                 yield Button("Save", id="s_save", variant="primary", compact=True)
                 yield Button("Reset", id="s_reset", compact=True)
@@ -1590,6 +1605,9 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#s_repo", Input).value = safe(cfg["repo"])
         self.query_one("#s_context_k", Input).value = cfg["context_k"]
         self.query_one("#s_skip", Switch).value = cfg["skip_permissions"] == "on"
+        self.query_one("#s_idle_close", Input).value = cfg["idle_close"]
+        self.query_one("#s_idle_global", Static).update(
+            f"min, blank = the global {actions.idle_close_minutes(idle_close.default_close_timeout_s())} (0 = never)")
         self.show_context_share()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
@@ -1600,7 +1618,8 @@ class ChatPage(JobsAware, Screen):
                 "weight": str(self.query_one("#s_weight", Select).value),
                 "repo": self.query_one("#s_repo", Input).value,
                 "skip_permissions": "on" if self.query_one("#s_skip", Switch).value else "off",
-                "context_k": self.query_one("#s_context_k", Input).value}
+                "context_k": self.query_one("#s_context_k", Input).value,
+                "idle_close": self.query_one("#s_idle_close", Input).value}
 
     def show_context_share(self) -> None:
         self.query_one("#s_context_share", Static).update(

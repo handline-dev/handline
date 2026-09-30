@@ -477,6 +477,13 @@ class TasksView(Vertical):
         self.owner = None
         self.refresh_rows()
 
+    def show_delegated(self) -> None:
+        """The tasks handed to the founder that are not done: the header's `for you`."""
+        self.closer = None
+        self.states = set(actions.DELEGATED_STATES)
+        self.owner = actions.HUMAN
+        self.refresh_rows()
+
     def sort_named(self, column: str) -> None:
         """Sort by `column`, or reverse the order when it already is."""
         if column == self.by:

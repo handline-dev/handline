@@ -10,7 +10,7 @@ from ..team import agents
 from ..usage import collect
 from .. import db
 from ..usage import load as loadmod
-from ..session import orca
+from ..session import idle_close, orca
 from ..infra import paths
 from ..team import spawn as spawnmod
 from ..usage import status
@@ -223,6 +223,38 @@ def set_default_cap(text: str) -> tuple[bool, str]:
     except ConfigError as e:
         return False, str(e)
     return True, f"default cap {n}"
+
+
+def idle_close_minutes(seconds: int) -> str:
+    """The idle close time as the settings show it: whole minutes, "0" for never."""
+    return str(-(-seconds // 60))
+
+
+def parse_idle_close(text: str) -> int | None:
+    """Seconds from the minutes typed: 0 is never; blank is None (an agent's: use the global)."""
+    text = text.strip()
+    if not text:
+        return None
+    if not text.isdigit():
+        raise ValueError("the idle close time is a whole number of minutes, 0 for never")
+    return int(text) * 60
+
+
+def set_idle_close(text: str, agent: str | None = None) -> tuple[bool, str]:
+    """The idle close time, from the minutes typed: the global one, or `agent`'s own (blank drops it)."""
+    try:
+        seconds = parse_idle_close(text)
+        if agent:
+            idle_close.set_agent_close_timeout(agent, seconds)
+        elif seconds is None:
+            return False, "the idle close time is a whole number of minutes, 0 for never"
+        else:
+            idle_close.set_close_timeout(seconds)
+    except (ValueError, ConfigError, OSError) as e:
+        return False, str(e)
+    if seconds is None:
+        return True, f"{agent}: idle close follows the global time"
+    return True, f"idle close {'never' if seconds == idle_close.NEVER else idle_close_minutes(seconds) + ' min'}"
 
 
 def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:

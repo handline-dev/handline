@@ -1238,6 +1238,8 @@ def test_summary_line() -> None:
     check("summary: the daemon word comes first, and a quiet team says only that",
           text(True, sm.Summary(0, 0, 0)) == "daemon running · 12:00:00")
     check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0)))
+    check("summary: for you is a link to the screen's delegated action",
+          any(not isinstance(sp.style, str) and "delegated" in str(sp.style.meta) for sp in sm.summary_text(True, "12:00:00", sm.Summary(0, 0, 0, 2)).spans))
     check("summary: working, to decide and to check follow, in that order, each only when not zero",
           text(True, sm.Summary(1, 2, 3)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
           and "working" not in text(True, sm.Summary(0, 2, 0)))
@@ -1249,6 +1251,9 @@ def test_summary_line() -> None:
               sm.summarize(con) == sm.Summary(0, 0, 0), sm.summarize(con))
         db.set_agent_state(con, "backend", "RUNNING")
         check("summary: a running agent counts", sm.summarize(con).running == 1)
+        ok, _, tid = actions.task_new("product", actions.HUMAN, "for the founder", "the work and its done")
+        check("summary: a task handed to the founder counts as for you, once queued",
+              ok and sm.summarize(con).for_you == 1, sm.summarize(con))
     finally:
         con.close()
 
@@ -1531,6 +1536,23 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
             con.close()
     del teampkg.dialog_rules
 
+def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
+    from ocp.session import idle_close
+    _home("idle_close_form")
+    check("idle close: minutes become seconds, blank is none", (actions.parse_idle_close("10"), actions.parse_idle_close(" ")) == (600, None))
+    ok, _ = actions.set_idle_close("20")
+    check("idle close: the global one is saved", ok and idle_close.default_close_timeout_s() == 1200)
+    check("idle close: blank is refused globally", not actions.set_idle_close("")[0] and not actions.set_idle_close("x")[0])
+    check("idle close: an agent's own wins, and blank drops it",
+          actions.set_idle_close("5", "backend")[0] and idle_close.close_timeout_s("backend") == 300
+          and actions.set_idle_close("", "backend")[0] and idle_close.close_timeout_s("backend") == 1200)
+    from ocp.ui import chat_page as cp
+    cfg = cp.settings_of("backend")
+    form = {k: cfg[k] for k in cp.EDITABLE}
+    ok, said = cp.save_settings("backend", cp.settings_changes(cfg, {**form, "idle_close": "0"}))
+    check("idle close: the agent form saves it, 0 is never", ok and idle_close.close_timeout_s("backend") == idle_close.NEVER, said)
+    check("idle close: a word is refused", cp.settings_problem({**form, "repo": "", "idle_close": "soon"}) is not None)
+
 
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
@@ -1578,6 +1600,7 @@ async def _run_all() -> None:
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
+    test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
@@ -1601,3 +1624,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
