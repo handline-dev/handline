@@ -9,7 +9,7 @@ import time
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.errors import NoWidget
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Input, Static, Tabs
@@ -21,11 +21,13 @@ from ...session import idle_close
 from ...usage import load as loadmod, status
 from .. import tui
 from ..components import agent_rows, gauge
+from ..components.action_bar import ActionBar
 from ..components.ime import ImeInput
 from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
+from ..components.section_head import SectionHead
 from ..components.table_sync import sync_rows
 from ..components.key_guide import Key, KeyGuide, KeyHelp
 from ..components.outlook_view import OutlookView
@@ -88,12 +90,16 @@ class HomePage(RowActions, JobsAware, Screen):
     HomePage DataTable { overflow-x: hidden; }
     HomePage #settings_view { height: 1fr; padding: 1 3; }
     HomePage #answers { height: auto; max-height: 12; margin-top: 1; }
+    HomePage #settings_pane { height: 1fr; }
     HomePage #answer_remove { margin-top: 1; }
+    HomePage #answer_add_head { margin-top: 1; }
+    HomePage #add_folder { width: 1fr; }
+    HomePage #add_vendor { width: 14; margin-right: 1; }
+    HomePage #add_title, HomePage #add_label { width: 1fr; margin-right: 1; }
     HomePage .frow { height: 1; margin-bottom: 1; }
     HomePage .flabel { width: 16; color: $text-muted; }
     HomePage .fhint { color: $text-muted; }
     HomePage #default_cap, HomePage #idle_close { width: 8; }
-    HomePage #settings_save { margin-top: 1; }
     """
     # What is stuck is said on the agent's row, on the account's mark and in the header's
     # daemon word, so there is no STUCK panel.
@@ -136,22 +142,34 @@ class HomePage(RowActions, JobsAware, Screen):
         yield OutlookView(id="stats_view")
         yield ProposalsView(id="hr_view")
         with Vertical(id="settings_view"):
-            with Horizontal(classes="frow"):
-                yield Static("default cap", classes="flabel")
-                yield ImeInput(id="default_cap", compact=True, restrict=r"[0-9]*")
-                yield Static("  most agents mid-turn at once on an account with no cap of its own",
-                             classes="fhint")
-            with Horizontal(classes="frow"):
-                yield Static("idle close", classes="flabel")
-                yield ImeInput(id="idle_close", compact=True, restrict=r"[0-9]*")
-                yield Static("  min idle before the window closes, 0 = never (background work gets 5 more)",
-                             classes="fhint")
-            yield Static(Text("auto-answers", style="bold"), id="answers_head")
-            yield Static("what ocp answers by itself on an agent's terminal; the modal's \"always\" adds one",
-                         classes="fhint")
-            yield DataTable(id="answers", cursor_type="row")
-            yield Button("Remove selected", id="answer_remove", compact=True)
-            yield Button("Save", id="settings_save", variant="primary", compact=True)
+            with VerticalScroll(id="settings_pane"):
+                yield SectionHead("limits")
+                with Horizontal(classes="frow"):
+                    yield Static("default cap", classes="flabel")
+                    yield ImeInput(id="default_cap", compact=True, restrict=r"[0-9]*")
+                    yield Static("  most agents mid-turn at once on an account with no cap of its own",
+                                 classes="fhint")
+                with Horizontal(classes="frow"):
+                    yield Static("idle close", classes="flabel")
+                    yield ImeInput(id="idle_close", compact=True, restrict=r"[0-9]*")
+                    yield Static("  min idle before the window closes, 0 = never (background work gets 5 more)",
+                                 classes="fhint")
+                yield SectionHead("auto-answers", "what ocp answers by itself on an agent's terminal; "
+                                  "the modal's \"always\" adds one too")
+                yield DataTable(id="answers", cursor_type="row")
+                yield Button("Remove selected", id="answer_remove", compact=True)
+                yield Static("add one - filled in and saved with Save", classes="fhint", id="answer_add_head")
+                with Horizontal(classes="frow"):
+                    yield Static("trust folder", classes="flabel")
+                    yield ImeInput(id="add_folder", compact=True, placeholder="/path/to/folder")
+                with Horizontal(classes="frow"):
+                    yield Static("dialog rule", classes="flabel")
+                    yield ImeInput(id="add_vendor", compact=True, placeholder="vendor")
+                    yield ImeInput(id="add_title", compact=True, placeholder="the prompt's title")
+                    yield ImeInput(id="add_label", compact=True, placeholder="the option to choose")
+            with ActionBar(id="settings_buttons"):
+                yield Button("Save", id="settings_save", variant="primary", compact=True)
+                yield Button("Reset", id="settings_reset", compact=True)
 
     def on_mount(self) -> None:
         self.sub_title = "home"
@@ -182,10 +200,16 @@ class HomePage(RowActions, JobsAware, Screen):
         if self.tab == "stats":
             self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
-            self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
-            self.query_one("#idle_close", Input).value = actions.idle_close_minutes(idle_close.default_close_timeout_s())
-            self._removing = set()
-            self._draw_answers()
+            self._load_settings()
+
+    def _load_settings(self) -> None:
+        """Fill the settings form from what is saved, dropping what was typed or marked."""
+        self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
+        self.query_one("#idle_close", Input).value = actions.idle_close_minutes(idle_close.default_close_timeout_s())
+        for box in ("add_folder", "add_vendor", "add_title", "add_label"):
+            self.query_one(f"#{box}", Input).value = ""
+        self._removing = set()
+        self._draw_answers()
 
     @staticmethod
     def _show_tasks(view: TasksView, which: str | None) -> None:
@@ -239,7 +263,8 @@ class HomePage(RowActions, JobsAware, Screen):
         self.query_one("#answers", DataTable).move_cursor(row=row)
 
     def _save_settings(self) -> None:
-        """Everything on the settings tab at once: the cap, the idle close time and the marked answers."""
+        """Everything on the settings tab at once: the cap, the idle close time, the marked answers
+        to remove and the answer typed to add."""
         problems, saved = [], []
         for ok, said in (actions.set_default_cap(self.query_one("#default_cap", Input).value),
                          actions.set_idle_close(self.query_one("#idle_close", Input).value)):
@@ -248,6 +273,13 @@ class HomePage(RowActions, JobsAware, Screen):
             picked = self._answers[i]
             ok, said = actions.remove_answer(picked["kind"], picked["key"])
             (saved if ok else problems).append(said)
+        typed = {k: self.query_one(f"#add_{k}", Input).value for k in ("folder", "vendor", "title", "label")}
+        if any(v.strip() for v in typed.values()):
+            ok, said = actions.add_answer(**typed)
+            (saved if ok else problems).append(said)
+            if ok:
+                for k in typed:
+                    self.query_one(f"#add_{k}", Input).value = ""
         self._removing = set()
         self._draw_answers()
         if problems:
@@ -256,7 +288,7 @@ class HomePage(RowActions, JobsAware, Screen):
             self.toast("saved: " + ", ".join(saved), True)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id in ("default_cap", "idle_close"):
+        if event.input.id in ("default_cap", "idle_close", "add_folder", "add_label"):
             event.stop()
             self._save_settings()
 
@@ -264,6 +296,9 @@ class HomePage(RowActions, JobsAware, Screen):
         if event.button.id == "settings_save":
             event.stop()
             self._save_settings()
+        elif event.button.id == "settings_reset":
+            event.stop()
+            self._load_settings()
         elif event.button.id == "answer_remove":
             event.stop()
             self._remove_answer()

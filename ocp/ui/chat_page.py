@@ -1148,7 +1148,7 @@ class ChatPage(JobsAware, Screen):
                 with Horizontal(classes="frow"):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
-                    yield Static(id="s_idle_global", classes="fvalue")
+                    yield Static("min, 0 = never", classes="unit")
             with ActionBar(id="s_buttons"):
                 yield Button("Save", id="s_save", variant="primary", compact=True)
                 yield Button("Reset", id="s_reset", compact=True)
@@ -1606,8 +1606,7 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#s_context_k", Input).value = cfg["context_k"]
         self.query_one("#s_skip", Switch).value = cfg["skip_permissions"] == "on"
         self.query_one("#s_idle_close", Input).value = cfg["idle_close"]
-        self.query_one("#s_idle_global", Static).update(
-            f"min, blank = the global {actions.idle_close_minutes(idle_close.default_close_timeout_s())} (0 = never)")
+        self.query_one("#s_idle_close", Input).placeholder = actions.idle_close_minutes(idle_close.default_close_timeout_s())
         self.show_context_share()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"

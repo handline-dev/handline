@@ -19,7 +19,7 @@ over.
 """
 
 from .routing import (HUMAN, _TEAM, routing, supervisor_of, listing_refusal, listable_agents, reach, agent_tree)  # noqa: F401
-from .dialogs import dialog_of, answer_dialog, standing_answers, remove_answer  # noqa: F401
+from .dialogs import add_answer, dialog_of, answer_dialog, standing_answers, remove_answer  # noqa: F401
 from .confirmations import pending as pending_confirmation, pending_all as pending_confirmations, answer as answer_confirmation  # noqa: F401
 from .ask_question import pending as pending_question, pending_all as pending_questions, answer as answer_question  # noqa: F401
 from .prompt_blocks import open_blocks, open_block_of, headline as block_headline, request_answer as request_block_answer, answer as answer_block  # noqa: F401

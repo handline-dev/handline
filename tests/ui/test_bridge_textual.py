@@ -1554,6 +1554,18 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
     check("idle close: a word is refused", cp.settings_problem({**form, "repo": "", "idle_close": "soon"}) is not None)
 
 
+def test_a_standing_answer_is_added_from_the_settings() -> None:
+    home = _home("add_answer")
+    folder = home / "work"
+    folder.mkdir()
+    check("add answer: a folder that is not one is refused", not actions.add_answer(folder="/no/such/folder")[0])
+    check("add answer: a half-filled rule is refused", not actions.add_answer(vendor="claude", title="Run it?")[0])
+    check("add answer: a rule is kept", actions.add_answer(vendor="claude", title="Run it?", label="Yes")[0]
+          and any(a["text"] == 'claude: "Run it?" -> Yes' for a in actions.standing_answers()))
+    check("add answer: a folder is trusted", actions.add_answer(folder=str(folder))[0]
+          and any(a["kind"] == "trust" for a in actions.standing_answers()))
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -1601,6 +1613,7 @@ async def _run_all() -> None:
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
+    test_a_standing_answer_is_added_from_the_settings()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
