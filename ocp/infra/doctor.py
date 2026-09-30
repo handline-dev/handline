@@ -254,15 +254,23 @@ def _check_seals(r: Report) -> None:
     files = [("team.yaml", sealed.TEAM, paths.team_file())]
     files += [(f"agent {n}: agent.yaml", sealed.agent_key(n), paths.agent_dir(n) / "agent.yaml")
               for n in paths.list_agents()]
+    legacy = []
     for label, key, p in files:
         try:
             st = sealed.state(key, p.read_text())
         except OSError:
             continue
+        if st == "legacy":
+            legacy.append(label)
         if st in ("changed", "unsealed"):
             said = "changed outside the founder's path" if st == "changed" else "never sealed"
             r.add(FAIL, f"{label} was {said}",
                   "it is not trusted until the founder reviews it and runs `ocp team seal`")
+    if legacy:
+        # Before seals begin nothing is refused, so nothing else says the files are unprotected.
+        r.add(WARN, f"seals have not begun: {len(legacy)} file(s) are not sealed",
+              "the first founder-side read seals them; or review them and run `ocp team seal` "
+              f"({', '.join(legacy[:5])}{', ...' if len(legacy) > 5 else ''})")
 
 
 def _check_agents(r: Report) -> None:
