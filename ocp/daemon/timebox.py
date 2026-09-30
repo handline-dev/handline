@@ -123,8 +123,9 @@ def sweep_task_timeouts(con, log, now: int) -> None:
 def _unasked_running(con, agent: str, row) -> bool:
     if not row or row["closed_at"] or not row["terminal"] or db.queued_for(con, agent):
         return False
-    # Background work with nothing owed is not asked about: `sweep_forgotten_background` settles it.
-    if row["state"] != RUNNING or delivery.has_background_work(con, agent):
+    # Background work does not exempt a RUNNING agent (T359): the sweeps that settle it - the stale
+    # notice and `sweep_forgotten_background` - leave an agent mid-turn alone, so this is its one report.
+    if row["state"] != RUNNING:
         return False
     from .. import actions
     return actions.child_wait(con, agent) is None      # T443: waiting on a child of its own is a reason
@@ -255,18 +256,26 @@ def sweep_background_check(con, log, now: int) -> None:
 def sweep_stop_wait_backstop(con, log, now: int) -> None:
     """T288's own backstop: the clock (`since_key`) starts the moment the
     task-level wait goes missing and only clears once it is recorded or the
-    task moves on - a RUNNING turn in between does not buy a fresh 15
-    minutes. It only tells while IDLE now, once, past the limit."""
+    task moves on - even to another with no recorded wait in between (T323); a
+    RUNNING turn in between does not buy a fresh 15 minutes. It only tells while
+    IDLE now, once, past the limit."""
     from .. import actions
     limit = idle_close.config_seconds("stop_wait_backstop_s", STOP_WAIT_BACKSTOP_S)
     for agent in paths.list_agents():
         since_key, told_key = f"stop_wait_since:{agent}", f"stop_wait_told:{agent}"
+        task_key = f"stop_wait_task:{agent}"
         row = db.get_agent_state(con, agent)
         why = actions.stop_wait_reason(con, agent) if row and not row["closed_at"] else None
         if why is None:
             db.clear_cursor(con, since_key)
             db.clear_cursor(con, told_key)
+            db.clear_cursor(con, task_key)
             continue
+        tid = db.current_task(con, agent)
+        if db.get_cursor(con, task_key) != tid:      # the clock is the task's, not the agent's
+            db.set_cursor(con, task_key, tid)
+            db.clear_cursor(con, since_key)
+            db.clear_cursor(con, told_key)
         since = db.get_cursor(con, since_key)
         if not since:
             db.set_cursor(con, since_key, now)

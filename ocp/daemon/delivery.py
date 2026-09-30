@@ -682,6 +682,12 @@ def bg_silent_s(con, agent: str, now: int) -> int | None:
 
 
 def bg_stale(con, agent: str, now: int) -> bool:
+    """Forgotten background work: shown nothing beside it for STALE_BG_S. Never while the agent is
+    RUNNING (T359) - one foreground step can run that long with no hook event, and a turn under
+    way is not forgotten work; a turn stuck that long is `unasked_running`'s to report."""
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == RUNNING:
+        return False
     silent = bg_silent_s(con, agent, now)
     return silent is not None and silent >= idle_close.config_seconds("stale_background_s", STALE_BG_S)
 
