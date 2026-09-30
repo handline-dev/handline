@@ -71,7 +71,13 @@ def _context(dialog) -> list[str]:
 
 
 def press_choice(con, agent: str, title: str, number: int, always: bool = False) -> tuple[bool, str]:
-    """`answer_dialog` without taking the terminal lock: for a caller that already holds it (`prompt_blocks.answer`)."""
+    """Press option `number` of the dialog titled `title`, after reading the screen again: what is pressed is
+    what is on screen now, not what the modal showed. The caller holds the terminal lock (`prompt_blocks.answer`)
+    - a key pressed here and a line the tick sends can otherwise land in the same input box. `always` saves the
+    choice: the folder becomes a trusted root, any other dialog a rule on its exact title and the chosen label -
+    remembered only once the press itself lands, never ahead of it (T383): a rule saved before a press that then
+    fails would stand for a choice nothing confirmed, and under a truncated dialog's shared placeholder title
+    would wrongly answer every other long dialog like it."""
     now = dialog_of(con, agent)
     if now is None or now["title"] != title:
         return False, f"{agent}: the dialog is gone or changed - nothing pressed"

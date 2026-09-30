@@ -179,7 +179,7 @@ def test_an_ordinary_short_dialog_costs_only_the_one_read(home: Path) -> None:
 
 
 def test_a_truncated_dialogs_title_is_stable_across_reads(home: Path) -> None:
-    """dialogs.answer_dialog refuses a press when a re-read's title differs
+    """dialogs.press_choice refuses a press when a re-read's title differs
     from what was shown (T383's concern about the title recheck): a
     truncated dialog's title is the fixed TRUNCATED_TITLE both times, from
     the same still-long command, so a real answer is not refused as 'the
