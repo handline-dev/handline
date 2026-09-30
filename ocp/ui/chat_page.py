@@ -1036,9 +1036,6 @@ class TaskDetail(TaskActions, Screen):
                 Binding("c", "close_task", "close"),
                 Binding("r", "reopen_task", "reopen"),
                 Binding("a", "assign_task", "assign"),
-                Binding("m", "memo_add", "memo"),
-                Binding("e", "memo_edit", "edit memo"),
-                Binding("x", "memo_delete", "delete memo"),
                 Binding("d", "discard_task", "discard")]
 
     def __init__(self, tid: int) -> None:
@@ -1057,12 +1054,12 @@ class TaskDetail(TaskActions, Screen):
             yield Static(id="t_kids", classes="section")
             yield Static(id="t_reqs", classes="section")
             yield Static(id="t_memo_head", classes="section")
-            yield OptionList(id="t_memos")
+            yield Vertical(id="t_memos")
+            with Horizontal(id="t_memo_new"):
+                yield _TextBox(id="t_memo_box")
+                yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
             yield Button("Assign  a", id="assign", variant="primary", compact=True)
-            yield Button("Memo  m", id="memo_add", compact=True)
-            yield Button("Edit memo  e", id="memo_edit", compact=True)
-            yield Button("Delete memo  x", id="memo_delete", variant="error", compact=True)
             yield Button("Close  c", id="close", variant="success", compact=True)
             yield Button("Reopen  r", id="reopen", variant="warning", compact=True)
             yield Button("Discard  d", id="discard", variant="error", compact=True)
@@ -1094,47 +1091,43 @@ class TaskDetail(TaskActions, Screen):
         self.query_one("#discard", Button).disabled = not d["can_discard"]
 
     def draw_memos(self, texts: list[Text]) -> None:
-        """The memo list, keeping the highlighted memo when it is still there."""
-        box = self.query_one("#t_memos", OptionList)
-        keep = self.memo_id()
+        """The memos, each with its own Edit and Delete under it."""
         self.query_one("#t_memo_head", Static).update(Text.assemble(("Memos", "bold"), (f"  {len(texts)}", "dim")))
-        box.clear_options()
-        box.add_options([Option(t, id=str(m["id"])) for t, m in zip(texts, self.d["memos"])])
-        ids = [str(m["id"]) for m in self.d["memos"]]
-        box.highlighted = ids.index(keep) if keep in ids else (len(ids) - 1 if ids else None)
-        box.display = bool(ids)
-        for verb in ("edit", "delete"):
-            self.query_one(f"#memo_{verb}", Button).disabled = not ids
-
-    def memo_id(self) -> str | None:
-        box = self.query_one("#t_memos", OptionList)
-        return box.get_option_at_index(box.highlighted).id if box.highlighted is not None and box.option_count else None
+        box = self.query_one("#t_memos", Vertical)
+        box.remove_children()
+        for text, m in zip(texts, self.d["memos"]):
+            box.mount(Vertical(Static(text),
+                               Horizontal(Button("Edit", id=f"me_{m['id']}", compact=True),
+                                          Button("Delete", id=f"md_{m['id']}", variant="error", compact=True),
+                                          classes="memo_buttons"),
+                               classes="memo"))
 
     def action_memo_add(self) -> None:
-        def answered(text: str | None) -> None:
-            if text and text.strip():
-                self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
-        self.app.push_screen(TextPrompt(f"memo on {actions.task_ref(self.tid)}", multi=True), answered)
-
-    def action_memo_edit(self) -> None:
-        mid = self.memo_id()
-        if mid is None:
+        box = self.query_one("#t_memo_box", _TextBox)
+        text = box.text
+        if not text.strip():
             return
-        old = next(m["body"] for m in self.d["memos"] if str(m["id"]) == mid)
+        box.text = ""
+        self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
+
+    def on__text_box_send(self, event: _TextBox.Send) -> None:
+        event.stop()
+        self.action_memo_add()
+
+    def memo_edit(self, mid: int) -> None:
+        old = next((m["body"] for m in self.d["memos"] if m["id"] == mid), None)
+        if old is None:
+            return
 
         def answered(text: str | None) -> None:
             if text is not None and text.strip():
-                self.memo_call("edit", lambda con: actions.memo_edit(con, int(mid), actions.HUMAN, text))
+                self.memo_call("edit", lambda con: actions.memo_edit(con, mid, actions.HUMAN, text))
         self.app.push_screen(TextPrompt("edit the memo", multi=True, initial=old), answered)
 
-    def action_memo_delete(self) -> None:
-        mid = self.memo_id()
-        if mid is None:
-            return
-
+    def memo_delete(self, mid: int) -> None:
         def answered(yes: bool | None) -> None:
             if yes:
-                self.memo_call("delete", lambda con: actions.memo_delete(con, int(mid), actions.HUMAN))
+                self.memo_call("delete", lambda con: actions.memo_delete(con, mid, actions.HUMAN))
         self.app.push_screen(Confirm("Delete the memo", "It is removed from the task.", yes="Delete", danger=True), answered)
 
     def memo_call(self, verb: str, call) -> None:
@@ -1163,8 +1156,11 @@ class TaskDetail(TaskActions, Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        {"memo_add": self.action_memo_add, "memo_edit": self.action_memo_edit,
-         "memo_delete": self.action_memo_delete, "assign": self.action_assign_task, "close": self.action_close_task,
+        bid = event.button.id or ""
+        if bid[:3] in ("me_", "md_") and bid[3:].isdigit():
+            (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
+            return
+        {"memo_add": self.action_memo_add, "assign": self.action_assign_task, "close": self.action_close_task,
          "reopen": self.action_reopen_task, "discard": self.action_discard_task,
          "back": self.app.pop_screen}[event.button.id]()
 
