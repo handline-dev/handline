@@ -2218,8 +2218,8 @@ def test_the_agent_head_is_trimmed_and_slash_commands_are_derived_not_kept(home:
 
 def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> None:
     """Founder #1372: opening a FOR YOU row lands in that agent's conversation,
-    on that message, not on a copy of it drawn alone. `message_place` says where
-    a message sits, and None where it cannot be shown there."""
+    on that message, not on a copy of it drawn alone (T665: however old it is).
+    `message_place` says where a message sits, and None only when it is gone."""
     _daemon_home(home, 20)
     agents.register("reviewer")
     con = db.connect()
@@ -2263,8 +2263,18 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
         old = say("OLDEST chain", "old")
         for i in range(actions.CHAT_CHAINS + 1):
             say(f"newer chain {i}", f"n{i}")
-        check("for-you: a message in a chain the conversation no longer draws has no place",
-              actions.message_place(con, old) is None)
+        check("for-you: a message in an old chain still has its agent's chat as its place",
+              actions.message_place(con, old) == ("reviewer", 0))
+
+        # Opening the agent's chat clears what it said from FOR YOU.
+        top = con.execute("SELECT MAX(id) AS m FROM requests").fetchone()["m"]
+        actions.for_you_seen(con, "reviewer", top)
+        check("for-you: opening the agent's chat empties what it said from the list",
+              not [m for m in actions.messages(con) if m["from"] == "reviewer"],
+              str(actions.messages(con)))
+        again = say("in the same second as the mark", "z1")
+        check("for-you: what it says after that is new again, even within the same second",
+              [m["id"] for m in actions.messages(con) if m["from"] == "reviewer"] == [again])
     finally:
         con.close()
 

@@ -9,7 +9,6 @@ from .. import tui
 from .account_actions import AccountActions
 from .text_prompt import TextPrompt
 from .jobs_aware import dispatch_agent_verb
-from .read_only import ReadOnly
 
 
 class RowActions(AccountActions):
@@ -120,15 +119,10 @@ class RowActions(AccountActions):
         if key in ("\r", "\n"):
             actions.opened_by_human(con, rid)
             place = actions.message_place(con, rid)
-            if place is not None:
-                self.open_chat(place[0], (rid, place[1]))
-                return
-            detail = actions.message_detail(con, rid)
-            if detail is None:
+            if place is None:
                 self.toast(f"#{rid} is gone", False)
                 return
-            title, sections = detail
-            await self.app.push_screen_wait(ReadOnly(title, sections))
+            self.open_chat(place[0], (rid, place[1]))
             return
         if key == "x":
             self.toast(self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),

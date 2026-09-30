@@ -174,19 +174,14 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
 
 def message_place(con, rid: int) -> tuple[str, int] | None:
     """Where a message of the mailbox sits in a conversation: the agent it is
-    with, and whether it is the ask (0) or the verdict (1) of its row. None when
-    the row is gone or the conversation does not draw it - it is in a chain older
-    than the ones drawn, or it says nothing to draw."""
+    with, and whether it is the ask (0) or the verdict (1) of its row. None only
+    when the row is gone - the chat pages back to any message, so no message is
+    too old to have a place."""
     row = db.get_request(con, rid)
     if row is None:
         return None
     answer = _is_answer_to_human(row)
-    agent = row["target"] if answer else row["requester"]
-    part = 1 if answer else 0
-    rows, _ = conversation_and_drawn(con, agent)
-    if any(getattr(r, "rid", None) == rid and r.part == part for r in rows):
-        return agent, part
-    return None
+    return (row["target"] if answer else row["requester"]), int(answer)
 
 
 def chat_parent(con, agent: str) -> int | None:
