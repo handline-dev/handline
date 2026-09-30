@@ -285,6 +285,13 @@ def _check_agents(r: Report) -> None:
         else:
             r.add(OK, f"agent {n}")
         try:
+            if not agents.read(n).get("repo"):
+                r.add(WARN, f"agent {n}: no repo",
+                      f"the daemon cannot start it, Orca has nowhere to make its worktree; "
+                      f"`ocp agent register {n} --repo <path>`")
+        except (FileNotFoundError, agents.ConfigError):
+            pass  # reported above as an agent.yaml error
+        try:
             if agents.skip_permissions(agents.read(n)) and not agents.skip_permissions_granted(n):
                 r.add(WARN, f"agent {n}: skip_permissions in agent.yaml was never granted",
                       "a launch ignores it; the founder turns it on with "

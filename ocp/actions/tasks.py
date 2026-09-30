@@ -1,7 +1,6 @@
 """Tasks: refs, findings, done/close/discard/reopen, edit, and what blocks what."""
 from __future__ import annotations
 
-import json
 import re
 import time
 from pathlib import Path
@@ -391,7 +390,7 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
     if row["closed_by"] or row["done_evidence"]:
         return False, f"task T{tid} is already decided"
     kids = db.open_child_tasks(con, tid)
-    if kids:
+    if kids and not _closes_whole(con, tid):
         # What `close_task` would refuse, said before anything is written: a
         # decision that settled the card and then could not close the task
         # would leave it done but open, and nothing could retry it.
@@ -482,7 +481,25 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, *_free_blocked_by(con, tid, by))
+    self_close(con, tid)
     return True, f"task T{tid} done ({mark})"
+
+
+def self_close(con, tid: int) -> None:
+    """A done child whose asker is an agent needs no separate sign-off (T555): close
+    it as its asker. Refused while it holds an open child or blocker of its own; the
+    close of whatever held it tries again (`close_task`)."""
+    row = db.get_task(con, tid)
+    if row is None or not row["parent_task"] or not row["done_evidence"] or row["closed_by"]:
+        return
+    asker = task_asker(con, row)
+    if asker != HUMAN:
+        close_task(con, tid, asker)
+
+
+def _closes_whole(con, tid: int) -> bool:
+    """Would the founder's close of `tid` go through: every open child done, and so on down."""
+    return all(k["done_evidence"] and _closes_whole(con, k["id"]) for k in db.open_child_tasks(con, tid))
 
 
 def close_task(con, tid: int, by: str) -> tuple[bool, str]:
@@ -518,6 +535,8 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     if by not in (asker, HUMAN):
         return False, f"task T{tid} can only be closed by {asker} - whoever asked for it - or the founder"
     kids = db.open_child_tasks(con, tid)
+    if by == HUMAN and _closes_whole(con, tid):     # the founder's close takes done children along
+        kids = [k for k in kids if not close_task(con, k["id"], HUMAN)[0]]
     if kids:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
@@ -533,6 +552,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
         db.add_event(con, by, "close_task", {"task_id": tid, "closed_by": by})
         for b in blockers:  # only the founder gets here with any
             db.remove_block(con, tid, b["id"])
+        released = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
         notices, freed_owners = _clear_blocks_on(con, tid, by)
         con.execute("COMMIT")
     except Exception:
@@ -542,6 +562,9 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
+    for waiting in [row["parent_task"], *released]:     # a done child that was held by this one
+        if waiting:
+            self_close(con, waiting)
     return True, f"task T{tid} closed by {by}"
 
 
@@ -593,6 +616,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
+        released = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
         notices, freed_owners = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
     except Exception:
@@ -604,6 +628,9 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
+    for waiting in [row["parent_task"], *released]:     # a done child that was held by this one
+        if waiting:
+            self_close(con, waiting)
     return True, f"task T{tid} discarded by {by}: {said}"
 
 
@@ -705,7 +732,7 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     if closed["done_evidence"] and closed["parent_task"] != dep_tid:
         text += f": {closed['done_evidence']}"     # a child's result is told on its own, by _child_result_notice
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
-                         "fire_and_forget", "report", 0, None)
+                         "fire_and_forget", "say", 0, None)
     db.link_request(con, dep_tid, rid)
     db.add_event(con, closer, "task_unblocked",
                  {"task_id": dep_tid, "request_id": rid, "closed_task": closed_tid,
@@ -735,7 +762,7 @@ def _child_result_notice(con, dep_row, by: str, tid: int) -> tuple[int, str, str
         text = f"T{tid} closed by {child['closed_by']}"
     text = text.rstrip(": ")
     rid = db.add_request(con, _UNBLOCK_REQUESTER, dep_row["owner"], text, None, None,
-                         "fire_and_forget", "report", 0, None)
+                         "fire_and_forget", "say", 0, None)
     db.link_request(con, dep_row["id"], rid)
     db.add_event(con, by, "child_result_told", {"task_id": dep_row["id"], "child": tid, "request_id": rid})
     return rid, dep_row["owner"], text
@@ -822,13 +849,45 @@ def _deliver_unblocked(con, notices, freed_owners) -> None:
     """The half of a release that happens after the write: tell the owners, and give
     each freed owner its next task now (T325) rather than at some later tick."""
     for rid, owner, text in notices:
+        db.mark_send_now(con, rid)
         askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
-                       team.Decision(True, "task unblocked", kind="report",
+                       team.Decision(True, "task unblocked", kind="say",
                                      response="fire_and_forget", creates_gate=False,
                                      chain_depth=0))
+        askmod.push(con, owner, rid)
     for owner in freed_owners:
         if advance_current_task(con, owner):
             askmod.push(con, owner)
+
+
+def release_closed_blockers(con, log=lambda _m: None) -> list[int]:
+    """T577: the tasks a closed or discarded task was still blocking are released, the way a close
+    releases them. A decision task settles with its card (`db.settle_decision_tasks`), at the db
+    layer, which cannot run the release: its dependents were left with a block row, no notice and
+    no next turn - a doing one never told, a queued one never sent. A level, read from the block
+    rows left behind, so it also frees what an earlier settle left. One blocker that fails is
+    logged and left for the next tick, and the others are still released (T588): its rows are
+    the same next time, so it must not stop the sweep that delivers every agent's tasks.
+    Returns the tasks released."""
+    freed: list[int] = []
+    for (tid,) in con.execute("SELECT DISTINCT b.blocks_on FROM task_blocks b JOIN tasks t "
+                              "ON t.id = b.blocks_on WHERE t.closed_by IS NOT NULL").fetchall():
+        try:
+            row = db.get_task(con, tid)
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                waiting = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
+                notices, freed_owners = _clear_blocks_on(con, tid, row["closed_by"],
+                                                         "discarded" if row["discarded_by"] else "closed")
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+            freed += waiting
+            _deliver_unblocked(con, notices, freed_owners)
+        except Exception as e:  # noqa: BLE001 - one blocker's failure is not the queue's
+            log(f"  T{tid}: releasing the tasks it blocked failed: {type(e).__name__}: {e}")
+    return freed
 
 
 def _task_edit_guard(row, tid: int, by: str) -> str | None:
@@ -1140,21 +1199,15 @@ def task_start(con, me: str, tid: int) -> tuple[bool, str]:
         prev = db.get_task(con, held)
         if prev is not None and not prev["closed_by"] and not prev["done_evidence"]:
             back = f"; T{held} goes back to queued (your `ocp progress` note is kept)"
-    return True, f"T{tid} is now {me}'s current task{back}"
+    memos = memo_summary(con, tid)
+    return True, f"T{tid} is now {me}'s current task{back}" + (f"\n{memos}" if memos else "")
 
 
 def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
-    """T292/auditor #1655 (1a): a mid-task correction to whoever holds T<n>
-    - "the sha moved", "use branch Y" - not new work (that's `task new
-    --parent`). Only the task's opener or the founder may send one.
-
-    Delivered as a reply in this task's own open request to each target
-    (`--parent` that request, not whatever else the target's queue holds) -
-    it reaches them ahead of the queue exactly when that request is their
-    current head, and behind it, in its own thread, when it is not - until
-    T293's `say` gives notes their own non-blocking path, this still owes a
-    reply like any other ask.
-    """
+    """A mid-task correction to whoever holds T<n> - "the sha moved", "use branch Y" - is a
+    memo on the task (T521, founder #6225): the same author and time rules as `ocp task memo
+    T<n> add`, typed to the holder at once while the task is doing and silent otherwise. New
+    work is `task new --parent`, not a note."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -1163,21 +1216,19 @@ def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
         return False, f"task T{tid} is already {what} - nothing left to note"
     if row["done_evidence"]:
         return False, f"task T{tid} is already done - nothing left to note"
-    if me not in (row["opened_by"], HUMAN):
-        return False, (f"task T{tid} note can only be sent by its opener "
-                       f"({row['opened_by']}) or the founder")
-    said = textsafe.oneline(text).strip()
-    if not said:
-        return False, "a note needs text"
-    own = {r["target"]: r for r in db.task_requests(con, tid) if _asks(r)}
-    targets = set(own) or {row["owner"]}
-    sent = []
-    for target in sorted(targets):
-        ok, msg, rid = askmod.ask(target, f"T{tid} note: {said}", requester=me, kind="task_note",
-                                  parent_id=own[target]["id"] if target in own else None)
-        sent.append(f"{target}: #{rid}" if ok else f"{target}: {msg}")
-    db.add_event(con, me, "task_note", {"task_id": tid, "text": said})
-    return True, f"note sent on T{tid} - " + "; ".join(sent)
+    ok, msg, _ = memo_add(con, tid, me, textsafe.oneline(text).strip())
+    return ok, msg
+
+
+def memo_summary(con, tid: int, cap: int = 500) -> str:
+    """The task's memos in one short line - author, time, body - for a delivery or a start
+    (T521); "" when it has none. Oldest first, cut at `cap` characters."""
+    parts = [f"{m['author']} {timefmt.stamp(m['edited_at'] or m['created_at'], timefmt.SHORT)}: "
+             f"{textsafe.oneline(m['body'])[:160]}" for m in db.task_memos(con, tid)]
+    if not parts:
+        return ""
+    text = "Memos - " + " | ".join(parts)
+    return text if len(text) <= cap else text[:cap].rstrip() + "…"
 
 
 def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
@@ -1237,7 +1288,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     # The delivery is the only thing that can be refused past this point (the
     # routing table), so it goes first: a refusal leaves the task where it was.
     ok, msg, rid = askmod.ask(to, f"T{tid} handed to you by {me}: {row['title']}\n\n{said}",
-                              requester=me, kind="task")
+                              requester=me, kind="task", park=False)
     if not ok:
         return False, msg
     old = row["owner"]
@@ -1303,17 +1354,13 @@ def memos_of(con, tid: int) -> list[dict]:
 
 
 def task_timeline(con, tid: int) -> list[dict]:
-    """T501: what happened on a task as one list, oldest first, for its page: memos, handoffs and
-    notes sent to its holder, each {ts, who, kind, text, memo (a memo's id, else None), edited_at}."""
+    """T501: what happened on a task as one list, oldest first, for its page: memos and handoffs (a
+    note is a memo), each {ts, who, kind, text, memo (a memo's id, else None), edited_at}."""
     out = [{"ts": m["created_at"], "who": m["author"], "kind": "memo", "text": m["body"],
             "memo": m["id"], "edited_at": m["edited_at"]} for m in memos_of(con, tid)]
     for h in db.task_handoffs(con, tid):
         out.append({"ts": h["ts"], "who": f"{h['from']} → {h['to']}", "kind": "handoff", "text": h["note"],
                     "memo": None, "edited_at": None})
-    for r in con.execute("SELECT ts, agent, payload FROM events WHERE kind = 'task_note' "
-                         f"AND {db.EVENT_TASK} = ? ORDER BY id", (tid,)):
-        out.append({"ts": r["ts"], "who": r["agent"], "kind": "note",
-                    "text": json.loads(r["payload"]).get("text", ""), "memo": None, "edited_at": None})
     return sorted(out, key=lambda e: e["ts"])
 
 
@@ -1330,14 +1377,19 @@ def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
     row = db.get_task(con, tid)
     if row is None or row["owner"] in (HUMAN, by) or task_state(con, row) != "doing":
         return
-    body = f"T{tid} memo {what} by {by}" + (f": {' '.join(text.split())[:400]}" if text else "")
-    rid = db.add_request(con, _UNBLOCK_REQUESTER, row["owner"], body, None, None,
+    _type_say(con, row["owner"], f"T{tid} memo {what} by {by}"
+              + (f": {textsafe.oneline(text)[:400]}" if text else ""), "task memo")
+
+
+def _type_say(con, owner: str, body: str, why: str) -> None:
+    """A say from the task board to `owner`, typed at once."""
+    rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, body, None, None,
                          "fire_and_forget", "say", 0, None)
     db.mark_send_now(con, rid)
-    askmod.deliver(rid, _UNBLOCK_REQUESTER, row["owner"], body, None,
-                   team.Decision(True, "task memo", kind="say", response="fire_and_forget",
+    askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, body, None,
+                   team.Decision(True, why, kind="say", response="fire_and_forget",
                                  creates_gate=False, chain_depth=0))
-    askmod.push(con, row["owner"], rid)
+    askmod.push(con, owner, rid)
 
 
 def memo_add(con, tid: int, by: str, body: str) -> tuple[bool, str, int | None]:
@@ -1384,7 +1436,8 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
               timeout_s: int | None = None) -> tuple[bool, str]:
     """Change a task's owner, title, priority and/or timeout; opener or founder only
-    (an owner change fixes a wrong name, it is not a handoff - #1914). Refused when
+    (an owner change fixes a wrong name, it is not a handoff - #1914; a caller that changes
+    the owner follows it, once committed, with `send_moved_task`). Refused when
     nothing changes, except --timeout, which always restarts the deadline (only while
     doing) so extending by the same length works."""
     row = db.get_task(con, tid)
@@ -1438,6 +1491,40 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
     said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
     return True, f"task T{tid} edited by {by}: {said}"
+
+
+def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
+    """T545: after `edit_task` gave `tid` to a new owner - once its write has committed, since
+    `resolve` and the delivery write through their own connections. The old owner's request for it
+    is taken back and the new owner is asked the same brief now, as `task_new` would (the task row
+    keeps a title only, so the body is the request's); an old owner that had the task in hand is told
+    to stop. Left as it was, the request stayed queued for the old owner and the new one saw a task
+    already being asked. No-op if the owner did not change."""
+    row = db.get_task(con, tid)
+    if row is None or row["owner"] == old_owner:
+        return
+    new_owner = row["owner"]
+    taken = [r for r in db.task_requests(con, tid) if r["state"] == "queued" and r["target"] == old_owner]
+    in_hand = db.current_task(con, old_owner) == tid or any(r["delivered_at"] for r in taken)
+    for r in taken:
+        askmod.resolve(r["id"], f"moved to {new_owner}", state="withdrawn", notify=False)
+    if db.current_task(con, old_owner) == tid:
+        db.set_current_task(con, old_owner, None)
+        if advance_current_task(con, old_owner):
+            askmod.push(con, old_owner)
+    if in_hand and old_owner != HUMAN:
+        _type_say(con, old_owner, f"T{tid} moved to {new_owner} by {by} - stop work on it", "task moved")
+    if taken and new_owner != HUMAN:
+        ok, msg, rid = askmod.ask(new_owner, taken[0]["body"], requester=taken[0]["requester"],
+                                  kind="task", on_behalf_of=True, park=False)
+        if ok:
+            _link_delivery(con, tid, new_owner, rid)
+            askmod.push(con, new_owner)
+            return
+        db.add_event(con, new_owner, "task_deliver_refused", {"task_id": tid, "why": msg})
+        db.set_task_queued(con, tid, taken[0]["requester"])     # the tick tries again, with the title
+    if advance_current_task(con, new_owner):
+        askmod.push(con, new_owner)
 
 
 def _under(con, tid: int, ancestor: int) -> bool:
@@ -1709,7 +1796,10 @@ def batch_task(con, verb: str, tids: list[int], by: str, arg: str = "") -> list[
         elif verb == "discard":
             ok, msg = discard_task(con, tid, by, arg)
         elif verb == "owner":
+            was = (db.get_task(con, tid) or {"owner": None})["owner"]
             ok, msg = edit_task(con, tid, by, owner=arg.strip())
+            if ok:
+                send_moved_task(con, tid, was, by)
         else:
             ok, msg = edit_task(con, tid, by, priority=prio)
         out.append((tid, ok, msg))

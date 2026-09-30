@@ -33,7 +33,7 @@ ChatPage { overflow: hidden; }
     #menu > .option-list--option-highlighted { background: $primary 30%; }
 
     .msg.pending { opacity: 60%; }
-    .queueline { height: 1; margin: 1 0 0 0; }
+    .workline { height: 1; margin: 1 0 0 0; }
 
     .qrow { height: 1; margin-top: 1; }
     .qstate { width: 1fr; color: $text-muted; }

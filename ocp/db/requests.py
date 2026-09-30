@@ -257,7 +257,8 @@ def owe_again(con, rid: int, counted: bool = True) -> None:
 def timeboxed_open(con):
     """Requests an agent has been shown and not closed, whose asker has not yet
     been told they ran long. Reports ask nothing, so no clock runs on them, and
-    the human's rows are "delivered" when drawn, not worked on."""
+    the human's rows are "delivered" when drawn, not worked on. (`kind = 'report'`
+    only matches rows written before reports became says.)"""
     return con.execute(
         "SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL "
         "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
@@ -400,14 +401,17 @@ def shown_verdict(row) -> str | None:
 
 def close_if_queued(con, rid: int, state: str, verdict: str | None,
                     announced: bool = False, dismissed_by: str | None = None,
-                    dismissed_reason: str | None = None) -> bool:
+                    dismissed_reason: str | None = None, answered_by: int | None = None) -> bool:
     """Close a request that is still open, atomically. True only if this call
     was the one that closed it: an agent resolving it in the same instant wins,
     and its answer is not overwritten. `announced=True` is `resolve`'s
     `notify=False` case: stamped in this same write rather than a follow-up
     call - a row that is briefly 'done' with `announced_at` still NULL is
     exactly what `unannounced_answers()` looks for, and a sweep landing in
-    that window would announce it anyway."""
+    that window would announce it anyway.
+
+    `answered_by` names a reply row that is itself the answer (T361: a `say --parent`): it is
+    marked as settling this request, and no second answer row is written for the same words."""
     if _would_strand_a_proposal(con, rid, state, verdict):
         return False
     now = int(time.time())
@@ -417,7 +421,9 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
         "WHERE id = ? AND state = 'queued'",
         (state, verdict, now, now if announced else None, dismissed_by, dismissed_reason, rid))
     if cur.rowcount > 0:
-        if state == "done" and verdict and dismissed_by is None:
+        if answered_by is not None:
+            con.execute("UPDATE requests SET settles = ? WHERE id = ?", (rid, answered_by))
+        elif state == "done" and verdict and dismissed_by is None:
             add_answer(con, rid, verdict)
         _settle(con, rid, state, verdict, dismissed_by)
     return cur.rowcount > 0

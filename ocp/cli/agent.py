@@ -46,6 +46,15 @@ def cmd_agent_register(args) -> int:
         print("skipping permission prompts is the founder's to turn on or off, from a "
               "terminal or the bridge, not an agent's", file=sys.stderr)
         return 1
+    try:
+        has_repo = bool(agents.read(args.name).get("repo"))
+    except Exception:  # noqa: BLE001 - a new agent has no agent.yaml yet
+        has_repo = False
+    if not args.repo and not has_repo:
+        print(f"{args.name} needs a repo: `ocp agent register {args.name} --repo <path>`. Orca "
+              f"makes its worktree there, and the daemon cannot start it without one.",
+              file=sys.stderr)
+        return 1
     d = agents.register(args.name, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo, vendor=args.vendor,

@@ -14,7 +14,7 @@ import sys
 
 from ..usage import collect
 from .. import db
-from . import memoryguard, shellguard, waiting
+from . import bgjobs, memoryguard, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
 CAPTURED = {
@@ -32,7 +32,8 @@ CAPTURED = {
 
 # Hooks that say a permission prompt was answered. They are installed but
 # never recorded - PostToolUse fires on every tool call - and all they do is
-# take away the wait a PermissionRequest raised (`waiting.clear`).
+# take away the wait a PermissionRequest raised (`waiting.clear`), and note a
+# background command (`bgjobs.note`).
 ANSWERS = {"PostToolUse", "PostToolUseFailure"}
 
 # Hooks that can refuse a tool call: the memory budget (`memoryguard.guard`)
@@ -149,6 +150,10 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         if event == "PostToolUse":
             try:
                 memoryguard.note_use(agent, raw.get("tool_name"), raw.get("tool_input"))
+            except Exception:  # noqa: BLE001 - same
+                pass
+            try:
+                bgjobs.note(agent, raw)
             except Exception:  # noqa: BLE001 - same
                 pass
         print("{}")

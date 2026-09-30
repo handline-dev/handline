@@ -288,9 +288,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the body from this file instead of the inline argument")
     p.add_argument("--parent", type=int, default=None,
-                   help="the say this replies to, for its thread - a reply to a say is a say")
+                   help="the message this replies to: the reply settles it (T361)")
     p.add_argument("--task", type=_task_arg, default=None, metavar="T",
-                   help="a say to your report about this task: it lands as a note on T<n>")
+                   help="a say to your report about this task: it lands as a note on T<n>; "
+                        "replying to the founder's request, the task it becomes")
+    p.add_argument("--no-task", default=None, metavar="REASON",
+                   help="replying to the founder's request: nothing needs building, and why")
     p.add_argument("--fyi", default=None, metavar="WHY",
                    help="a say to your report that is not work: say why (the reason is a check, not stored)")
     p.set_defaults(fn=cmd_say)
@@ -451,10 +454,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="how long it may show nothing before the notice (90s, 10m); default is its idle timeout")
     p.add_argument("--grace", type=span_arg, default=None, metavar="SPAN",
                    help="how long after the notice its work is stopped if it still shows nothing; default 5m")
+    p.add_argument("--check", type=span_arg, default=None, metavar="SPAN",
+                   help="how often an agent with background work is asked which of it to stop, "
+                        "typed at the end of its turn; default 10m (T450)")
     p.add_argument("--agent", default=None,
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
-                   help="with --agent, drop both its overrides and follow the global settings again")
+                   help="with --agent, drop its overrides and follow the global settings again")
     p.set_defaults(fn=cmd_idle_background)
 
     p = sub.add_parser("ignore-cache-expiry", help="show or set whether a resume may reuse "

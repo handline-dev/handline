@@ -9,7 +9,7 @@ from pathlib import Path
 from ..team import agents, ask as askmod, team as teammod
 from ..infra.yamlcompat import ConfigError
 from ..infra import paths, protected, sealed, timefmt
-from ..session import blocked, idle_close
+from ..session import bgjobs, blocked, idle_close
 from .. import db
 from ..session import events
 from ..infra import lock
@@ -583,16 +583,20 @@ def track_background_work(con, agent: str, row) -> None:
     key = f"bgwork:{agent}"
     if row and (row["closed_at"] or not row["terminal"]):
         db.clear_cursor(con, key)      # the session is gone, and so is what ran behind its prompt
+        db.clear_cursor(con, f"bgcount:{agent}")
         return
     if not row or row["state"] in (HANDOFF, STALLED) or not orca.available():
         return
     running = orca.background_work(row["terminal"])
     if running is None:
         return                # unreadable is not "ended"
+    if running:
+        db.set_cursor(con, f"bgcount:{agent}", max(1, bgjobs.footer_count(running)))
     if running and not db.get_cursor(con, key):
         db.set_cursor(con, key, 1)
     elif not running and db.get_cursor(con, key):
         db.clear_cursor(con, key)
+        db.clear_cursor(con, f"bgcount:{agent}")
         db.add_event(con, agent, "background_work_ended", {})
 
 
@@ -640,6 +644,33 @@ def bg_since(con, agent: str) -> int | None:
     return db.cursor_updated(con, f"bgwork:{agent}") if has_background_work(con, agent) else None
 
 
+def bg_last_shown(con, agent: str) -> int | None:
+    """When the agent last showed anything, not counting the turns that answered a T450
+    check: each check asks for an answer, and an agent that gives one every N minutes would
+    otherwise never be silent long enough to be told to stop, or to be stale. A check's
+    answer turn runs from its typing to the first Stop after it - that turn only."""
+    since = bg_since(con, agent) or 0
+    checks = [r["id"] for r in con.execute(
+        "SELECT id FROM events WHERE agent = ? AND kind = 'background_checked' AND ts >= ? ORDER BY id",
+        (agent, since))]
+    if not checks:
+        return db.last_activity(con, agent)
+    marks = ",".join("?" * len(db.AGENT_ACTIVITY_KINDS))
+    rows = con.execute(f"SELECT id, ts, kind FROM events WHERE agent = ? AND id > ? "
+                       f"AND kind IN ({marks}) ORDER BY id", (agent, checks[0], *db.AGENT_ACTIVITY_KINDS)).fetchall()
+    first = con.execute(f"SELECT MAX(ts) AS t FROM events WHERE agent = ? AND id < ? AND kind IN ({marks})",
+                        (agent, checks[0], *db.AGENT_ACTIVITY_KINDS)).fetchone()["t"]
+    shown, answering, i = (int(first) if first is not None else None), False, 0
+    for r in rows:
+        while i < len(checks) and checks[i] < r["id"]:      # by event order, not by clock
+            answering, i = True, i + 1
+        if not answering:
+            shown = int(r["ts"])
+        elif r["kind"] in ("Stop", "StopFailure"):
+            answering = False
+    return shown
+
+
 def bg_silent_s(con, agent: str, now: int) -> int | None:
     """How long this agent has shown nothing while its session reports
     background work, or None without any. Work that notifies the model or is
@@ -647,10 +678,16 @@ def bg_silent_s(con, agent: str, now: int) -> int | None:
     since = bg_since(con, agent)
     if since is None:
         return None
-    return max(0, now - (db.last_activity(con, agent) or since))
+    return max(0, now - (bg_last_shown(con, agent) or since))
 
 
 def bg_stale(con, agent: str, now: int) -> bool:
+    """Forgotten background work: shown nothing beside it for STALE_BG_S. Never while the agent is
+    RUNNING (T359) - one foreground step can run that long with no hook event, and a turn under
+    way is not forgotten work; a turn stuck that long is `unasked_running`'s to report."""
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == RUNNING:
+        return False
     silent = bg_silent_s(con, agent, now)
     return silent is not None and silent >= idle_close.config_seconds("stale_background_s", STALE_BG_S)
 
@@ -831,10 +868,8 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
                 f"Waiting on something: record it - `ocp task edit T{tid} --blocked-by T<m>`, "
                 f"or a child or decision task.")
     else:
-        what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
-                if head["kind"] == "report" else
-                f"If the work is done, `ocp resolve {head['id']} \"<verdict>\"`; if it is "
-                f"not, say what you are waiting on.")
+        what = (f"If the work is done, {answer_verb(con, head)}; if it is not, say what you are "
+                f"waiting on.")
         text = (f"#{head['id']} was delivered to you and is still open, and you have been "
                 f"idle {idle}{after}. {what}")
     ok = type_notice(con, agent, text)
@@ -909,20 +944,21 @@ def _task_of(con, req):
 
 
 def answer_verb(con, head) -> str:
-    """How the agent closes what it was just told: a report is dismissed, a say
-    needs nothing, a task handed on or finished (resolving it would leave the
-    task owned by whoever resolved it), and everything else resolved."""
-    if head["kind"] == "report":
-        return f"it asks nothing - `ocp dismiss {head['id']}` when read"
-    if head["kind"] == "say":
-        return "it needs no answer"
+    """How the agent answers what it was just told (T361). Everything is a message or a task:
+    a task is handed on or finished; the founder is always answered through ocp, since a reply
+    typed in the terminal reaches no one (T361, founder #6166); another agent's request is
+    answered by a reply that names it; a say or a report asks nothing."""
     if head["kind"] == "task":
         task = _task_of(con, head)
         if task is not None:
             return (f"you own T{task['id']} now: hand it on with "
                     f"`ocp task handoff T{task['id']} <agent> \"<note>\"`, or "
                     f"`ocp task done T{task['id']}` if you are its last step")
-    return f"answer with `ocp resolve {head['id']} \"<verdict>\"`"
+    if head["requester"] == db.HUMAN:
+        return f"if it asks something: `ocp say human --parent {head['id']} \"...\"`"
+    if head["kind"] == "say":
+        return "it asks nothing"
+    return f"answer with `ocp say {head['requester']} --parent {head['id']} \"<answer>\"`"
 
 
 def more_waiting(kind: str, more: int) -> str | None:
@@ -933,7 +969,7 @@ def more_waiting(kind: str, more: int) -> str | None:
         return None
     if kind == "task":
         return f"{more} more waiting - the next comes when you hand this on or finish it."
-    return f"{more} more waiting - the next comes when you resolve or dismiss this one."
+    return f"{more} more waiting - the next comes when you answer this one."
 
 
 def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str:
@@ -956,6 +992,12 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
     else:
         body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
         shown = body if len(body) <= 400 else body[:400] + "…"
+    if head["kind"] == "task":
+        from ..actions import tasks as taskmod      # actions -> daemon
+        task = _task_of(con, head)
+        memos = taskmod.memo_summary(con, task["id"]) if task is not None else ""
+        if memos:
+            shown += f" {memos}"
     waiting = more_waiting(head["kind"], more)
     tail = f" [{waiting}]" if waiting else ""
     if parked:
@@ -967,7 +1009,8 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
             f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}"
-            + ("." if head["kind"] == "say" else ", or `ocp inbox` any time."))
+            + ("." if head["requester"] == db.HUMAN or head["kind"] == "say"
+               else ", or `ocp inbox` any time."))
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,

@@ -468,6 +468,7 @@ def cmd_task_edit(args) -> int:
         ok = True
         msgs: list[str] = []
         unblocked_owner = None
+        was_owner = (db.get_task(con, args.task) or {"owner": None})["owner"]
         try:
             if (args.owner is not None or args.title is not None or args.priority is not None
                     or args.timeout is not None):
@@ -494,6 +495,13 @@ def cmd_task_edit(args) -> int:
     # after a ROLLBACK, so only it is shown.
     for msg in (msgs if ok else msgs[-1:]):
         print(msg)
+    if ok and args.owner is not None:
+        # T545: the task goes to its new owner now, not at some later tick - and not inside the transaction.
+        con = db.connect()
+        try:
+            actions.send_moved_task(con, args.task, was_owner, me)
+        finally:
+            con.close()
     if unblocked_owner is not None:
         # T325: clearing the last blocker is the task's turn to be
         # reconsidered, same as a blocker closing - once this transaction has
@@ -503,6 +511,7 @@ def cmd_task_edit(args) -> int:
         try:
             if actions.advance_current_task(con, unblocked_owner):
                 askmod.push(con, unblocked_owner)
+            actions.self_close(con, args.task)      # a done child held only by that blocker
         finally:
             con.close()
     return 0 if ok else 1

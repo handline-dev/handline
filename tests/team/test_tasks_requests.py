@@ -1163,7 +1163,8 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         check("nudge: names the request and how long it has been idle",
               f"#{head}" in text and "idle" in text, text)
         check("nudge: says what to do, and how many are behind it",
-              "ocp resolve" in text and "2 more waiting" in text, text)
+              "ocp say" in text and "--parent" in text and "ocp resolve" not in text
+              and "2 more waiting" in text, text)
         check("nudge: does not resolve it for the agent",
               db.get_request(con, head)["state"] == "queued")
         check("nudge: is logged", any("nudged" in m and f"#{head}" in m for m in said), str(said))
@@ -1512,63 +1513,22 @@ def test_withdraw_too_late_points_at_a_message_and_a_task_release(home: Path) ->
         con.close()
 
 
-def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
-    """T57: a report (the unblock notice) asks nothing, so the line typed at its
-    target says to dismiss it; any other request says to resolve it."""
+def test_a_request_is_answered_by_a_reply_that_names_it(home: Path) -> None:
+    """T57: any request handed to an agent says to answer it with a reply that names it."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
     real = orcamod.send
     try:
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
-                              "fire_and_forget", "report", 0, None)
-        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
-        check("report notice: told to dismiss it", f"`ocp dismiss {note}`" in sent[-1]
-              and "ocp resolve" not in sent[-1], sent[-1])
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (note,))
         rid = db.add_request(con, "reviewer", "backend", "look at this", None,
                              "peer", "async", None, 0, None)
         dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
-        check("report notice: any other request is told to resolve it",
-              f"`ocp resolve {rid} " in sent[-1] and "ocp dismiss" not in sent[-1], sent[-1])
+        check("report notice: any other request is answered by a reply that names it",
+              f"`ocp say reviewer --parent {rid} " in sent[-1] and "ocp resolve" not in sent[-1]
+              and "ocp dismiss" not in sent[-1], sent[-1])
     finally:
         orcamod.send = real
-        con.close()
-
-
-def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) -> None:
-    """T57 review #2405: the reminder for a told report head says the same
-    thing the delivery did."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now)
-    try:
-        orca_seen()
-        orcamod.typeable_now = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        sessions_are("backend")
-        agents.register("backend")
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
-        now = int(time.time())
-        note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
-                              "fire_and_forget", "report", 0, None)
-        db.mark_delivered(con, note)
-        db.set_cursor(con, "notify:backend", note)
-        db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
-                    (now - dmn_delivery.NUDGE_AFTER_S - 60, note))
-        check("report nudge: it goes", dmn_delivery.nudge_forgotten_resolve(
-            con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
-            and len(sent) == 1, str(sent))
-        check("report nudge: and says dismiss, not resolve",
-              f"`ocp dismiss {note}`" in sent[0] and "ocp resolve" not in sent[0], sent[0])
-    finally:
-        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now) = real
         con.close()
 
 
@@ -2394,7 +2354,7 @@ edges:
               "harbor-manager" in paths.list_agents() and "boss" not in paths.list_agents())
 
         # A rejection is recorded and never applied.
-        ok, said = hr.propose("add", "seoyun", requester="hr", why="third lane", team_name="dev")
+        ok, said = hr.propose("add", "seoyun", repo="/repo", requester="hr", why="third lane", team_name="dev")
         pid3 = said.split()[1]
         rid3 = [m["id"] for m in actions.messages(con) if "seoyun" in (m["body"] or "")]
         askmod.resolve(rid3[0], "reject - one lane at a time")
@@ -2437,7 +2397,7 @@ edges:
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         agents.register("marina")
-        hire = ["hr", "add", "dohyun", "--team", "dev",
+        hire = ["hr", "add", "dohyun", "--team", "dev", "--repo", str(home / "harbor"),
                 "--model", "opus", "--effort", "high",
                 "--why", "a second pair of hands on the sea work"]
 
@@ -2479,7 +2439,7 @@ edges:
         # A change that fails halfway is recorded as having failed, and leaves
         # no agent the routing table does not know.
         hand_edit_team("teams:\n  dev: [marina]\n")
-        ok, said = hr.enact("add", "halfborn", why="w", team_name="dev")
+        ok, said = hr.enact("add", "halfborn", repo="/repo", why="w", team_name="dev")
         rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
         check("hr: a refused edit registers nobody",
               not ok and "halfborn" not in paths.list_agents(), said)
@@ -2688,7 +2648,7 @@ edges:
 """)
 
     def propose(name):
-        ok, said = hr.propose("add", name, requester="hr", why="hands")
+        ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="hands")
         return said.split()[1], int(said.split("#")[1].split(".")[0])
 
     def founder(rid, verdict, out):
@@ -4203,28 +4163,15 @@ def test_task_new_parent_auto_blocks(home: Path) -> None:
     check("board: the parent reads waiting on the review child",
           _now_line(out, t_parent) == f"now: waiting on T{t_child}", out)
 
-    # A re-check is `task reopen` of the same child, before it closes - not a
-    # new task - and the parent stays blocked the whole time: nothing about
-    # task_blocks changes between done and reopened, only closing clears it.
+    # An agent asked for the child, so it closes itself on its verdict (T555):
+    # the parent is unblocked at once, and a re-check is a new child.
     rc, out = _cli(["task", "done", f"T{t_child}", "FAIL: needs another pass"],
                    as_agent="manager")
     check("task done: the auditor's verdict", rc == 0, out)
-    rc, out = _cli(["task", "reopen", f"T{t_child}", "sent back for another pass"],
-                   as_agent="worker")
-    check("task reopen: the same child, sent back rather than opening a new one",
-          rc == 0, out)
     con = db.connect()
     try:
-        check("task reopen: the parent is still blocked on it",
-              [b["id"] for b in db.task_blockers(con, t_parent)] == [t_child],
-              [dict(b) for b in db.task_blockers(con, t_parent)])
-    finally:
-        con.close()
-
-    rc, out = _done_and_close(t_child, "manager", "PASS", closer="worker")
-    check("close: the review closes on its verdict", rc == 0, out)
-    con = db.connect()
-    try:
+        check("task done: the child an agent asked for closes itself",
+              db.get_task(con, t_child)["closed_by"] == "worker", str(dict(db.get_task(con, t_child))))
         check("close: the parent's block clears with the child",
               db.task_blockers(con, t_parent) == [])
     finally:
@@ -4232,6 +4179,109 @@ def test_task_new_parent_auto_blocks(home: Path) -> None:
     rc, out = _cli(["task", "board"], as_agent="worker")
     check("board: the parent no longer reads as waiting once the review closes",
           _now_line(out, t_parent) == "now: worker", out)
+
+
+def test_the_founder_closing_a_parent_closes_its_done_children(home: Path) -> None:
+    """T555 (founder #6591): a parent's close takes its done children along; an
+    unfinished child still holds it. A child the founder asked for waits for
+    the founder, so the parent's close is what closes it."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        parent = db.new_task(con, "parent", "worker", "manager")
+        done_kid = db.new_task(con, "done kid", "worker", "manager", parent)
+        open_kid = db.new_task(con, "open kid", "worker", "manager", parent)
+        actions.mark_task_done(con, parent, "worker", reason="looks done")
+        con.execute("UPDATE tasks SET done_evidence = 'x', closed_by = NULL WHERE id = ?", (done_kid,))
+        ok, msg = actions.close_task(con, parent, actions.HUMAN)
+        check("founder close: an unfinished child still holds the parent", not ok and f"T{open_kid}" in msg, msg)
+        check("founder close: and the done child is left as it was", not db.get_task(con, done_kid)["closed_by"])
+        actions.mark_task_done(con, open_kid, "worker", reason="done")
+        con.execute("UPDATE tasks SET closed_by = NULL WHERE id = ?", (open_kid,))
+        ok, msg = actions.close_task(con, parent, actions.HUMAN)
+        check("founder close: the parent closes with every done child", ok, msg)
+        check("founder close: both children are closed by the founder",
+              all(db.get_task(con, k)["closed_by"] == actions.HUMAN for k in (done_kid, open_kid)))
+    finally:
+        con.close()
+
+
+def test_a_done_child_held_by_its_own_child_closes_when_that_closes(home: Path) -> None:
+    """T555 audit #6615: P <- C <- G, all asked for by the manager. C done while G is
+    open stays open, and closes when G does, whichever order they finish; the founder's
+    close of a parent that cannot close whole leaves its done children as they were."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        p = db.new_task(con, "P", "worker", "manager")
+        c = db.new_task(con, "C", "worker", "manager", p)
+        g = db.new_task(con, "G", "worker", "manager", c)
+        actions.mark_task_done(con, c, "worker", reason="done")
+        check("self-close: C waits while G is open", not db.get_task(con, c)["closed_by"])
+        actions.mark_task_done(con, g, "worker", reason="done")
+        check("self-close: G closes itself, and C with it",
+              db.get_task(con, g)["closed_by"] and db.get_task(con, c)["closed_by"] == "manager",
+              str(dict(db.get_task(con, c))))
+        a = db.new_task(con, "A", "worker", "manager", p)
+        b = db.new_task(con, "B", "worker", "manager", p)
+        bg = db.new_task(con, "BG", "worker", "manager", b)
+        con.execute("UPDATE tasks SET done_evidence = 'x' WHERE id IN (?, ?, ?)", (p, a, b))
+        ok, msg = actions.close_task(con, p, actions.HUMAN)
+        check("founder close: refused with an open grandchild, and A is not closed on the way",
+              not ok and not db.get_task(con, a)["closed_by"], msg)
+    finally:
+        con.close()
+
+
+def test_every_path_that_ends_a_hold_lets_the_held_done_child_close(home: Path) -> None:
+    """T555 re-audit #6632: a done child held by a grandchild or a blocker closes when
+    the hold ends by discard or unblock too; a founder decision closes done children."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        p = db.new_task(con, "P", "worker", "manager")
+        c = db.new_task(con, "C", "worker", "manager", p)
+        g = db.new_task(con, "G", "worker", "manager", c)
+        actions.mark_task_done(con, c, "worker", reason="done")
+        ok, msg = actions.discard_task(con, g, "manager", "not needed")
+        check("discard: the grandchild's discard closes the done child", ok and
+              db.get_task(con, c)["closed_by"] == "manager", msg)
+
+        c2 = db.new_task(con, "C2", "worker", "manager", p)
+        bl = db.new_task(con, "BL", "worker", "manager")
+        actions.add_block(con, c2, bl, "manager")
+        actions.mark_task_done(con, c2, "worker", reason="done")
+        check("unblock: setup - C2 is done and still open behind its blocker",
+              not db.get_task(con, c2)["closed_by"])
+        c3 = db.new_task(con, "C3", "worker", "manager", p)
+        bl3 = db.new_task(con, "BL3", "worker", "manager")
+        actions.add_block(con, c3, bl3, "manager")
+        actions.mark_task_done(con, c3, "worker", reason="done")
+        ok, msg = actions.discard_task(con, bl3, "manager", "not needed")
+        check("discard: a blocker's discard closes the done task it held", ok and
+              db.get_task(con, c3)["closed_by"] == "manager", msg)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "edit", f"T{c2}", "--unblock", f"T{bl}"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("unblock: `task edit --unblock` closes the done task it held",
+              rc == 0 and db.get_task(con, c2)["closed_by"] == "manager", out)
+
+        d = db.new_task(con, "which name?", actions.HUMAN, "worker")
+        kid = db.new_task(con, "kid", "worker", "manager", d)
+        db.link_request(con, kid, db.add_request(       # the founder asked for it: done, it stays open
+            con, actions.HUMAN, "worker", "the kid", None, "supervisor", "fire_and_forget", None, 0, None))
+        ok, said = actions.decide(con, d, "the first")
+        check("decide: a not-done child refuses it, and nothing is written",
+              not ok and f"T{kid}" in said and not db.get_task(con, d)["done_evidence"], said)
+        actions.mark_task_done(con, kid, "worker", reason="done")
+        check("decide: setup - the founder's child is done but open", not db.get_task(con, kid)["closed_by"])
+        ok, said = actions.decide(con, d, "the first")
+        check("decide: with the child done, it decides and closes both", ok and
+              db.get_task(con, d)["closed_by"] and db.get_task(con, kid)["closed_by"], said)
+    finally:
+        con.close()
 
 
 def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
@@ -4349,27 +4399,25 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "note", f"T{tid}", "worker: refused"], as_agent="worker")
-    check("task note: refused for anyone but the opener or the founder",
-          rc == 1, out)
+    rc, out = _cli(["task", "note", f"T{tid}", "worker: a memo of its own"], as_agent="worker")
+    check("task note (T521): anyone may add one - it is a memo, not a message", rc == 0 and "memo" in out, out)
     rc, out = _cli(["task", "note", f"T{tid}", "the sha moved"], as_agent="manager")
-    check("task note: the opener may send one, delivered to the holder",
-          rc == 0 and "worker" in out, out)
-    note1_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    check("task note (T521): the opener's note is a memo too", rc == 0 and "memo" in out, out)
     rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
-    check("task note: a note on a task whose own request is not the holder's head "
-          "still delivers", rc == 0 and "worker" in out, out)
-    note2_rid = int(out.split("worker: #", 1)[1].split(";")[0].split()[0])
+    check("task note (T521): so is one on a task worker holds second", rc == 0 and "memo" in out, out)
     con = db.connect()
     try:
-        check("task note: T1's note is a follow-up in T1's own request's thread - "
-              "the holder's head, since T1 is what worker holds first (auditor #1718)",
-              any(r["id"] == note1_rid for r in db.followups_pending(con, "worker", req1["id"])))
-        check("task note: T2's note threads under T2's own request, not T1's head, "
-              "even though T2's request is not currently the head (auditor #1718)",
-              any(r["id"] == note2_rid for r in db.followups_pending(con, "worker", req2["id"]))
-              and not any(r["id"] == note2_rid
-                         for r in db.followups_pending(con, "worker", req1["id"])))
+        check("task note (T521): each is a memo of its task, author recorded",
+              [(m["author"], m["body"]) for m in actions.memos_of(con, tid)]
+              == [("worker", "worker: a memo of its own"), ("manager", "the sha moved")]
+              and [m["body"] for m in actions.memos_of(con, tid2)] == ["the branch moved"])
+        told = [r["body"] for r in con.execute(
+            "SELECT body FROM requests WHERE requester = 'task-board' AND target = 'worker' AND kind = 'say'")]
+        check("task note (T521): told to the holder at once for the doing task (not for its own memo), "
+              "silent for the one that is only queued",
+              told == [f"T{tid} memo added by manager: the sha moved"], str(told))
+        check("task note (T521): no task-note request is sent any more",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'task_note'").fetchone()["c"] == 0)
     finally:
         con.close()
 
@@ -5262,6 +5310,49 @@ def test_a_memo_change_is_told_to_the_holder_only_while_doing(home: Path) -> Non
         idle = db.new_task(con, "not doing", "worker", "manager", timeout_s=5400)
         actions.memo_add(con, idle, "manager", "quiet")
         check("memo told: silent when the task is not doing", len(told()) == 4, str(told()))
+    finally:
+        con.close()
+
+
+def test_a_task_shows_its_memos_when_delivered_and_started_and_old_notes_became_memos(home: Path) -> None:
+    """T521 (founder #6225): the delivery of a task lists its memos - author, time, body - in
+    one short line, so does `task start`; and a note sent before this became a memo of its task."""
+    _board_world(home)
+    ok, msg, tid = actions.task_new("manager", "worker", "with memos", "do the thing")
+    check("setup: a task is delivered", ok, msg)
+    con = db.connect()
+    try:
+        head = db.head_of_queue(con, "worker")
+        check("delivery: a task with no memo says nothing of memos",
+              "Memos" not in dmn_delivery.tell_text(con, head, 1))
+        actions.memo_add(con, tid, "manager", "use branch y")
+        actions.memo_add(con, tid, actions.HUMAN, "the founder says: keep it small")
+        text = dmn_delivery.tell_text(con, head, 1)
+        check("delivery: every memo is listed short, author and body",
+              "Memos - manager " in text and "use branch y" in text
+              and f"{actions.HUMAN} " in text and "keep it small" in text, text)
+        check("delivery: still three lines at most", len(text.splitlines()) <= 3, text)
+        actions.memo_add(con, tid, "manager", "x" * 900)
+        check("delivery: a long memo is cut, the line stays short",
+              len(actions.memo_summary(con, tid)) <= 501)
+        actions.memo_add(con, tid, "manager", "hi\x1b]0;pwned\x07 \x1b[2J\x03 there")
+        ok, msg = actions.task_start(con, "worker", tid)
+        text = dmn_delivery.tell_text(con, head, 1)
+        check("a memo's escape, bell and ^C never reach the terminal, in a delivery or a start",
+              "hi" in text and not any(c in text + msg for c in "\x1b\x07\x03"), repr(text))
+        check("task start: prints the memos", ok and "Memos - manager " in msg and "use branch y" in msg, msg)
+        # an old note: an event from before memos existed, migrated once
+        db.add_event(con, "manager", "task_note", {"task_id": tid, "text": "an old note"})
+        db.add_event(con, "manager", "task_note", {"task_id": 9999, "text": "for a gone task"})
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:notes_are_memos'")
+        db.schema._notes_are_memos(con)
+        bodies = [m["body"] for m in actions.memos_of(con, tid)]
+        check("migration: an old note became a memo of its task, author and text kept",
+              "an old note" in bodies and not any(m["task_id"] == 9999 for m in con.execute("SELECT * FROM task_memos")),
+              str(bodies))
+        before = len(actions.memos_of(con, tid))
+        db.schema._notes_are_memos(con)
+        check("migration: ledgered, it does not run twice", len(actions.memos_of(con, tid)) == before)
     finally:
         con.close()
 
@@ -7119,13 +7210,16 @@ def test_closing_a_task_needs_no_open_child_and_only_the_asker(home: Path) -> No
         parent = db.new_task(con, "parent", "worker", "manager")
         child = db.new_task(con, "child", "worker", "manager", parent)
         actions.mark_task_done(con, parent, "worker", reason="looks done")
-        actions.mark_task_done(con, child, "worker", reason="part done")
     finally:
         con.close()
     rc, out = _cli(["close", f"T{parent}"])
     check("close: refused while a child task is open", rc == 1 and f"T{child}" in out, out)
-    rc, out = _cli(["close", f"T{child}"])
-    check("close: the child closes on its own", rc == 0, out)
+    con = db.connect()
+    try:
+        actions.mark_task_done(con, child, "worker", reason="part done")
+        check("done: a child an agent asked for closes itself", db.get_task(con, child)["closed_by"] == "manager")
+    finally:
+        con.close()
     rc, out = _cli(["close", f"T{parent}"])
     check("close: the parent then closes", rc == 0, out)
 
@@ -7743,6 +7837,10 @@ limits:
 """)
         ok, msg1, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
         check("reason gaps: setup - the fyi actually lands", ok, msg1)
+        r1 = db.get_request(con, f1)
+        check("ask --fyi writes a say, marked send-now, never a report row",
+              r1["kind"] == "say" and r1["fyi"] == 1 and db.send_now_pending(con, askmod.HUMAN),
+              str(dict(r1)))
         ok, msg2, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
         check("reason gaps: setup - the second fyi lands and supersedes the first", ok, msg2)
         check("reason gaps: setup - the loop actually retired the first fyi",
@@ -8342,6 +8440,12 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
         check("wake: the unblocked notice comes when the last blocker goes, without the result",
               len(told) == 2 and told[1].startswith("task T%d is unblocked" % t) and "PASS" not in told[1],
               str(told))
+        notes = [r for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: each notice is a say - a durable row marked send-now, still queued until typed, "
+              "so a parked or crashed holder loses nothing",
+              len(notes) == 2 and all(r["kind"] == "say" and r["send_now"] and r["state"] == "queued"
+                                      and not r["delivered_at"] for r in notes),
+              str([dict(r) for r in notes]))
         actions.close_task(con, child, "worker")
         told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
         check("wake: closing the child after its done tells nothing twice", len(told) == 2, str(told))
@@ -8407,6 +8511,214 @@ def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited
               db.current_task(con, "worker") == mine and len(db.task_requests(con, mine)) == 1,
               str(db.current_task(con, "worker")))
     finally:
+        askmod.push = real_push
+        con.close()
+
+
+def test_a_queued_task_for_an_agent_with_no_terminal_starts_it(home: Path) -> None:
+    """T545 (founder: "all agents are idle"): a queued task whose owner has no terminal is
+    delivered and its owner started - by queuing it, and by the tick when no edge did."""
+    from ocp.daemon import lifecycle as dmn_lifecycle, taskqueue
+    _board_world(home)
+    con = db.connect()
+    started: list[str] = []
+    real_start, real_daemon = dmn_lifecycle._start_for_work, askmod.IN_DAEMON
+    dmn_lifecycle._start_for_work = lambda _con, agent, log: started.append(agent) or "started"
+    askmod.IN_DAEMON = True
+    try:
+        t = db.new_task(con, "queued for a downed worker", "worker", "manager")
+        actions.set_queued(con, t, "manager", True)
+        check("queue: the task went out and its owner was started",
+              len(db.task_requests(con, t)) == 1 and "worker" in started, str(started))
+
+        t2 = db.new_task(con, "waits behind it", "worker", "manager")
+        actions.set_queued(con, t2, "manager", True)
+        started.clear()
+        req = db.task_requests(con, t)[0]
+        askmod.resolve(req["id"], "done")
+        db.set_current_task(con, "worker", None)
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("tick: the next waiting task goes out and starts the owner still without a terminal",
+              len(db.task_requests(con, t2)) == 1 and "worker" in started, str(started))
+    finally:
+        dmn_lifecycle._start_for_work, askmod.IN_DAEMON = real_start, real_daemon
+        con.close()
+
+
+def test_moving_a_task_to_another_owner_sends_it_there(home: Path) -> None:
+    """T545: `ocp task edit --owner` moved a queued task and nothing delivered it - its request
+    stayed queued for the old owner, and the new one saw a task already being asked."""
+    from ocp.daemon import lifecycle as dmn_lifecycle, taskqueue
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+  other:   {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "manager", to: "other", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "other", to: "manager", relation: subordinate, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    agents.register("other")
+    con = db.connect()
+    started: list[str] = []
+    real_start, real_daemon = dmn_lifecycle._start_for_work, askmod.IN_DAEMON
+    dmn_lifecycle._start_for_work = lambda _con, agent, log: started.append(agent) or "started"
+    askmod.IN_DAEMON = True
+    try:
+        ok, msg, first = actions.task_new("manager", "worker", "busy the worker", "busy")
+        ok, msg, t = actions.task_new("manager", "worker", "the moved one", "the moved one: full brief")
+        (old,) = db.task_requests(con, t)
+        check("setup: the moved task is asked of the worker, who is busy with the first",
+              old["target"] == "worker" and old["state"] == "queued")
+        started.clear()
+
+        rc, msg = _cli(["task", "edit", f"T{t}", "--owner", "other"])
+        ok = rc == 0
+        old = db.get_request(con, old["id"])
+        sent = [r for r in db.task_requests(con, t) if r["target"] == "other" and r["state"] == "queued"]
+        check("edit: the old owner's request is taken back, not left to be worked",
+              ok and old["state"] == "withdrawn", str((msg, dict(old))))
+        check("edit: the new owner is sent the task now, and started",
+              len(sent) == 1 and db.current_task(con, "other") == t and "other" in started,
+              str((sent, started)))
+        check("edit: the old owner is told nothing more, and its current task is still its own",
+              db.current_task(con, "worker") == first and not
+              [r for r in db.queued_for(con, "worker") if r["kind"] == "say"])
+        check("edit: the new owner gets the whole brief, not the title", sent and sent[0]["body"] == "the moved one: full brief",
+              str([r["body"] for r in sent]))
+
+        rc, msg = _cli(["task", "edit", f"T{first}", "--owner", "other"])
+        told = [r["body"] for r in con.execute("SELECT body FROM requests WHERE target = 'worker' AND kind = 'say'")]
+        check("edit: an old owner that held the task is told to stop, and no longer holds it",
+              rc == 0 and told == [f"T{first} moved to other by manager - stop work on it"]
+              and db.current_task(con, "worker") != first, str((rc, msg, told)))
+
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("edit: the tick sends it once", len([r for r in db.task_requests(con, t)
+                                                    if r["target"] == "other"]) == 1)
+
+        ok, msg, t2 = actions.task_new("manager", "worker", "moved from the board", "moved from the board")
+        started.clear()
+        (res,) = actions.batch_task(con, "owner", [t2], "manager", "other")
+        mine = [r["state"] for r in db.task_requests(con, t2) if r["target"] == "worker"]
+        check("board: a batch owner change takes the old request back and keeps the task approved, waiting behind "
+              "the new owner's busy one",
+              res[1] and mine == ["withdrawn"] and actions.task_state(con, db.get_task(con, t2)) == "queued",
+              str((res, mine)))
+    finally:
+        dmn_lifecycle._start_for_work, askmod.IN_DAEMON = real_start, real_daemon
+        con.close()
+
+
+def test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(home: Path) -> None:
+    """T577 (founder #6793): T458 waited on a decision task the founder dismissed. Settling the card
+    ends that task at the db layer, which ran none of the release a close does: a queued dependent was
+    read as already handled and never sent, a doing one never told, and the block row was left."""
+    from ocp.daemon import taskqueue
+    team = """
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+"""
+    settles = (("dismissed", lambda con, card: actions.dismiss(con, card, me=actions.HUMAN, reason="no")),
+               ("answered", lambda con, card: askmod.resolve(card, "go ahead")))
+    for name, how in settles:
+        for kind in ("queued", "doing"):
+            label = f"{name}/{kind}"
+            _board_world(home / label.replace("/", "-"))
+            hand_edit_team(team)
+            con = db.connect()
+            real_push = askmod.push
+            askmod.push = lambda _con, agent, rid=None: ""
+            try:
+                if kind == "queued":
+                    t = db.new_task(con, "the work", "worker", "manager")
+                    actions.set_queued(con, t, "manager", True)
+                    ok, msg = actions.release_task(con, t, "manager")     # its old request is retired
+                    check(f"{label}: setup: released back to queued", ok, msg)
+                else:
+                    ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+                    check(f"{label}: setup: doing", ok and db.current_task(con, "worker") == t, msg)
+                ok, msg, card = actions.open_decision("manager", "which way?")
+                dec = db.tasks_for_request(con, card)[0]["id"]
+                ok, msg = actions.add_block(con, t, dec, "manager")
+                check(f"{label}: setup: it waits on the decision task", ok, msg)
+                told = lambda: [r for r in db.task_requests(con, t)
+                                if r["requester"] == actions._UNBLOCK_REQUESTER and "is unblocked" in r["body"]]
+                sent = len(db.task_requests(con, t))
+                now = int(time.time())
+                taskqueue.sweep(con, lambda _m: None, now)
+                check(f"{label}: blocked, nothing is sent", len(db.task_requests(con, t)) == sent and not told())
+
+                how(con, card)
+                taskqueue.sweep(con, lambda _m: None, now + taskqueue.RETRY_S + 1)
+                check(f"{label}: no block row is left", db.tasks_blocked_by(con, dec) == [])
+                check(f"{label}: its owner is told once it is unblocked", len(told()) == 1, str(len(told())))
+                if kind == "queued":
+                    check(f"{label}: and it is its owner's current task again, as after any close",
+                          db.current_task(con, "worker") == t, str(db.current_task(con, "worker")))
+                taskqueue.sweep(con, lambda _m: None, now + 2 * taskqueue.RETRY_S + 2)
+                check(f"{label}: and only once", len(told()) == 1, str(len(told())))
+            finally:
+                askmod.push = real_push
+                con.close()
+
+
+def test_a_blocker_that_cannot_be_released_does_not_stop_the_others(home: Path) -> None:
+    """T588 (auditor #6841): one bad blocker's transaction re-raised every tick and would have halted
+    the queue sweep for every agent. It is logged and left for the next tick; the rest are released."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    real_push, real_clear = askmod.push, actions.tasks._clear_blocks_on
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        bad = db.new_task(con, "bad blocker", "manager", "manager")
+        good = db.new_task(con, "good blocker", "manager", "manager")
+        d_bad = db.new_task(con, "waits on bad", "worker", "manager")
+        d_good = db.new_task(con, "waits on good", "worker", "manager")
+        db.add_block(con, d_bad, bad)
+        db.add_block(con, d_good, good)
+        db.discard_task(con, bad, "manager", "gone")           # the db layer leaves the rows
+        db.discard_task(con, good, "manager", "gone")
+
+        def flaky(con_, tid, *a, **k):
+            if tid == bad:
+                raise RuntimeError("boom")
+            return real_clear(con_, tid, *a, **k)
+        actions.tasks._clear_blocks_on = flaky
+        said: list[str] = []
+        taskqueue.sweep(con, said.append, int(time.time()))     # must not raise
+        check("a failing blocker: the other is still released",
+              db.tasks_blocked_by(con, good) == [] and any("released" in r["body"] or "unblocked" in r["body"]
+                                                             for r in db.task_requests(con, d_good)))
+        check("a failing blocker: its own rows are left, rolled back, for the next tick",
+              [r["task_id"] for r in db.tasks_blocked_by(con, bad)] == [d_bad])
+        check("a failing blocker: and it is logged, naming the task",
+              any(f"T{bad}" in m and "boom" in m for m in said), str(said))
+
+        actions.tasks._clear_blocks_on = real_clear
+        taskqueue.sweep(con, said.append, int(time.time()) + taskqueue.RETRY_S + 1)
+        check("a failing blocker: once it works the next tick releases it", db.tasks_blocked_by(con, bad) == [])
+    finally:
+        actions.tasks._clear_blocks_on = real_clear
         askmod.push = real_push
         con.close()
 
@@ -8529,6 +8841,33 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         con.close()
 
 
+def test_the_agent_handing_a_task_on_is_not_parked(home: Path) -> None:
+    """T522 (auditor T518): a handoff over an async edge waits on nothing, so the giver stays free."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: async }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, _, t = actions.task_new("manager", "worker", "the change", "the change")
+        ok, msg = actions.task_handoff(con, "worker", t, "manager", "back to you")
+        st = db.get_agent_state(con, "worker")
+        check("handoff: the giver is not parked over an async edge",
+              ok and (st is None or st["state"] != "PARKED"), msg + str(st and dict(st)))
+    finally:
+        con.close()
+
+
 def test_a_task_is_handed_over_with_a_note(home: Path) -> None:
     """T377: its owner (or the founder) hands a task to another agent with a note; the
     note travels as the delivery and the record lists every handoff in order."""
@@ -8647,7 +8986,7 @@ limits:
               and [b["id"] for b in db.task_blockers(con, t)] == [kid])
         ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="FAIL: retry loops; repro x")
         check("review: the child closes with the result", ok, msg)
-        ok, msg = actions.close_task(con, kid, "dev.worker")
+        ok = db.get_task(con, kid)["closed_by"] == "dev.worker"     # it closed itself on done (T555)
         told = [r["body"] for r in db.task_requests(con, t) if "unblocked" in r["body"]]
         result = [r["body"] for r in db.task_requests(con, t) if "FAIL: retry loops; repro x" in r["body"]]
         check("review: the block lifts; the result is told once, on its own, and not in the notice",
@@ -9082,8 +9421,7 @@ def main() -> int:
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_withdraw_too_late_points_at_a_message_and_a_task_release(Path(td) / 'withdrawtoolate'))
-        run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))
-        run(lambda: test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(Path(td) / 'reportnudge'))
+        run(lambda: test_a_request_is_answered_by_a_reply_that_names_it(Path(td) / 'reportnotice'))
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
@@ -9137,6 +9475,9 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_blocks(Path(td) / 'tasknewparentblock'))
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
+        run(lambda: test_the_founder_closing_a_parent_closes_its_done_children(Path(td) / 'founderclosekids'))
+        run(lambda: test_a_done_child_held_by_its_own_child_closes_when_that_closes(Path(td) / 'selfcloseheld'))
+        run(lambda: test_every_path_that_ends_a_hold_lets_the_held_done_child_close(Path(td) / 'holdends'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
@@ -9153,6 +9494,7 @@ def main() -> int:
         run(lambda: test_promote_to_front_never_jumps_a_delivered_head(Path(td) / 'nexttaskhead'))
         run(lambda: test_task_memos_anyone_adds_author_or_founder_changes(Path(td) / 'memos'))
         run(lambda: test_a_memo_change_is_told_to_the_holder_only_while_doing(Path(td) / 'memotold'))
+        run(lambda: test_a_task_shows_its_memos_when_delivered_and_started_and_old_notes_became_memos(Path(td) / 'memoshow'))
         run(lambda: test_task_memo_verbs(Path(td) / 'memoverbs'))
         run(lambda: test_one_doing_task_per_agent(Path(td) / 'onedoing'))
         run(lambda: test_one_doing_migration(Path(td) / 'onedoingmig'))
@@ -9173,6 +9515,7 @@ def main() -> int:
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
+        run(lambda: test_the_agent_handing_a_task_on_is_not_parked(Path(td) / 'handoffpark'))
         run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
         run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
@@ -9223,6 +9566,10 @@ def main() -> int:
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
+        run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(Path(td) / 'decsettle'))
+        run(lambda: test_a_blocker_that_cannot_be_released_does_not_stop_the_others(Path(td) / 'relguard'))
+        run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
+        run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
     return run_area(tests)
 
 

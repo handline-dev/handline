@@ -27,7 +27,7 @@ from __future__ import annotations
 from ..infra import paths
 from ..infra import timefmt
 from ..session import handoff as progressmod
-from ..session import idle_close
+from ..session import bgjobs, idle_close
 from .. import db
 from . import delivery
 from .states import IDLE, RUNNING
@@ -123,8 +123,9 @@ def sweep_task_timeouts(con, log, now: int) -> None:
 def _unasked_running(con, agent: str, row) -> bool:
     if not row or row["closed_at"] or not row["terminal"] or db.queued_for(con, agent):
         return False
-    # Background work with nothing owed is not asked about: `sweep_forgotten_background` settles it.
-    if row["state"] != RUNNING or delivery.has_background_work(con, agent):
+    # Background work does not exempt a RUNNING agent (T359): the sweeps that settle it - the stale
+    # notice and `sweep_forgotten_background` - leave an agent mid-turn alone, so this is its one report.
+    if row["state"] != RUNNING:
         return False
     from .. import actions
     return actions.child_wait(con, agent) is None      # T443: waiting on a child of its own is a reason
@@ -212,21 +213,69 @@ def sweep_forgotten_background(con, log, now: int) -> None:
                 log(f"  {agent}: background work with nothing owed, silent {timefmt.ago(silent)} - told to finish or stop it")
 
 
+def sweep_background_check(con, log, now: int) -> None:
+    """T450: every `idle_close.bg_check_s` while an agent has background work, at a turn's
+    end, it is told what is running and asked to stop what it no longer needs - a shell
+    nobody stops holds off the context rollover. Not the idle close: busy or idle, owing
+    or not, a "never close" agent too. It waits out a T424 notice already in flight."""
+    for agent in paths.list_agents():
+        key = f"bg_check:{agent}"
+        row = db.get_agent_state(con, agent)
+        if not row or not delivery.has_background_work(con, agent):
+            db.clear_cursor(con, key)
+            continue
+        if row["state"] != IDLE or delivery.bg_prompted_at(con, agent):
+            continue
+        every = idle_close.bg_check_s(agent)
+        since = delivery.bg_since(con, agent) or now
+        if now - max(db.get_cursor(con, key), since) < every:
+            continue
+        count = db.get_cursor(con, f"bgcount:{agent}") or None
+        jobs = bgjobs.running(con, agent, count)
+        unnamed = max(0, (count or len(jobs)) - len(jobs))
+        listing = "; ".join(f"{i}. {bgjobs.line(j, now, timefmt.ago)}" for i, j in enumerate(jobs, 1))
+        if unnamed:
+            listing += ("; " if listing else "") + f"{unnamed} that ocp cannot name"
+        text = (f"Background work has been running for {timefmt.ago(now - since)}: {listing or 'something ocp cannot name'}. "
+                f"Stop what you no longer need, and for each one you keep say in a line why. "
+                f"You are asked again in {timefmt.ago(every)} while any runs.")
+        # The event goes in before the typing: its id is what separates the turn that ended
+        # before the check from the one that answers it (`delivery.bg_last_shown`).
+        checked = db.add_event(con, agent, "background_checked", {"jobs": len(jobs), "unnamed": unnamed})
+        told = False
+        try:
+            told = _tell(con, agent, text, now)
+        finally:
+            if not told:                    # nothing typed, or the typing raised: no check was asked
+                con.execute("DELETE FROM events WHERE id = ?", (checked,))
+        if told:
+            db.set_cursor(con, key, now)
+            log(f"  {agent}: background work for {timefmt.ago(now - since)} - asked which to stop")
+
+
 def sweep_stop_wait_backstop(con, log, now: int) -> None:
     """T288's own backstop: the clock (`since_key`) starts the moment the
     task-level wait goes missing and only clears once it is recorded or the
-    task moves on - a RUNNING turn in between does not buy a fresh 15
-    minutes. It only tells while IDLE now, once, past the limit."""
+    task moves on - even to another with no recorded wait in between (T323); a
+    RUNNING turn in between does not buy a fresh 15 minutes. It only tells while
+    IDLE now, once, past the limit."""
     from .. import actions
     limit = idle_close.config_seconds("stop_wait_backstop_s", STOP_WAIT_BACKSTOP_S)
     for agent in paths.list_agents():
         since_key, told_key = f"stop_wait_since:{agent}", f"stop_wait_told:{agent}"
+        task_key = f"stop_wait_task:{agent}"
         row = db.get_agent_state(con, agent)
         why = actions.stop_wait_reason(con, agent) if row and not row["closed_at"] else None
         if why is None:
             db.clear_cursor(con, since_key)
             db.clear_cursor(con, told_key)
+            db.clear_cursor(con, task_key)
             continue
+        tid = db.current_task(con, agent)
+        if db.get_cursor(con, task_key) != tid:      # the clock is the task's, not the agent's
+            db.set_cursor(con, task_key, tid)
+            db.clear_cursor(con, since_key)
+            db.clear_cursor(con, told_key)
         since = db.get_cursor(con, since_key)
         if not since:
             db.set_cursor(con, since_key, now)
@@ -288,5 +337,6 @@ def sweep(con, log, now: int) -> None:
     sweep_unasked_running(con, log, now)
     sweep_stale_background(con, log, now)
     sweep_forgotten_background(con, log, now)
+    sweep_background_check(con, log, now)
     sweep_stop_wait_backstop(con, log, now)
     sweep_forgotten_resolve_capped(con, log, now)

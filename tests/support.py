@@ -905,7 +905,7 @@ def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
 
 def _reports(con) -> list:
     return con.execute("SELECT id, kind, fyi, state, body FROM requests WHERE target = 'human' "
-                       "AND kind = 'report' ORDER BY id").fetchall()
+                       "AND kind = 'say' AND fyi = 1 ORDER BY id").fetchall()
 
 
 # ---------------------------------------------------------------- drift
@@ -1773,6 +1773,12 @@ def _done_and_close(tid: int, owner: str, evidence: str = "done",
     rc, out = _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
     if rc != 0:
         return rc, out
+    con = db.connect()
+    try:
+        if db.get_task(con, tid)["closed_by"]:      # a child an agent asked for closed itself on done
+            return 0, f"{out}\ntask T{tid} closed"
+    finally:
+        con.close()
     return _cli(["close", f"T{tid}"], as_agent=closer)
 
 

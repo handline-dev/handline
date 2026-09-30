@@ -160,9 +160,9 @@ def report(con, agent: str, text: str, reason: str) -> int:
     back at `agent` and nothing waits on the human.
     """
     rid = db.add_request(con, agent, ESCALATION_TARGET, text, None, None, "fire_and_forget",
-                         "report", 0, None, fyi=True)
+                         "say", 0, None, fyi=True)
     deliver(rid, agent, ESCALATION_TARGET, text, None,
-            team.Decision(True, reason, kind="report", response="fire_and_forget",
+            team.Decision(True, reason, kind="say", response="fire_and_forget",
                           creates_gate=False, chain_depth=0))
     db.add_event(con, agent, "report", {"request_id": rid, "reason": reason})
     return rid
@@ -290,6 +290,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     notice itself once this has returned the row (T351).
     """
     requester = requester or asking_agent()
+    if fyi and kind is None:            # a report asks nothing: it is a say to the founder (T361)
+        kind, send_now = SAY_KIND, True
     if timebox_s is not None and (fyi or target == HUMAN):
         return False, "--timebox does not apply to a report or to a request to the human", None
     if fyi and target != HUMAN:
@@ -339,7 +341,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             if old["delivered_at"] and old["target"] != HUMAN:
                 return False, (f"#{replaces} was already delivered to {old['target']} - "
                                f"it is too late to replace; send a reply in its thread "
-                               f"instead (`ocp ask {old['target']} \"...\" --parent "
+                               f"instead (`ocp say {old['target']} \"...\" --parent "
                                f"{replaces}`)"), None
 
         # A correction of a reply is still that reply: without its thread it is
@@ -439,10 +441,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                     return False, f"#{replaces} was answered just now - nothing to replace", None
                 return False, (f"#{replaces} was delivered to {old['target']} just now - "
                                f"too late to replace; send a reply in its thread instead "
-                               f"(`ocp ask {old['target']} \"...\" --parent {replaces}`)"), None
+                               f"(`ocp say {old['target']} \"...\" --parent {replaces}`)"), None
 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
-                             decision.response, kind or ("report" if fyi else decision.kind),
+                             decision.response, kind or decision.kind,
                              depth, parent_id,
                              chain_id=chain_id, first=first, fyi=fyi, timebox_s=timebox_s,
                              queue_order=(old["queue_order"]
@@ -514,7 +516,7 @@ def say(target: str, body: str, requester: str | None = None,
     """T293 (#1655/#1657): a question answered from a look-up, not new work
     - always ahead of the queue, never a head, no park beyond the fixed
     30-minute reply window (none to the founder). `parent_id` replies to and
-    closes the say it answers (`_close_replied_say`) - otherwise the table
+    settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
     """
     timebox = None if target == HUMAN else SAY_TIMEBOX_S
@@ -522,21 +524,27 @@ def say(target: str, body: str, requester: str | None = None,
                       kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True,
                       speaker=speaker, notify=notify)
     if ok and parent_id is not None and rid is not None:
-        _close_replied_say(parent_id, rid, body)
+        _close_replied(parent_id, rid, body)
     return ok, msg, rid
 
 
-def _close_replied_say(parent_id: int, reply_id: int, reply_body: str) -> None:
-    """Close the say this replies to, silently, only if the reply comes from
-    that say's own target."""
+def _close_replied(parent_id: int, reply_id: int, reply_body: str) -> None:
+    """A reply settles the request it answers (T361), silently - the reply is what the asker
+    is told, and it is marked as the answer, so there is one message. Only when it comes from
+    the request's own target, to its requester, and the request is no roster proposal (those
+    are decided with approve or reject) and no task (that is handed on or finished)."""
+    from . import hr, trust
     con = db.connect()
     try:
         parent, reply = db.get_request(con, parent_id), db.get_request(con, reply_id)
+        proposal = parent is not None and (hr.open_proposal_of(parent_id) or trust.open_proposal_of(parent_id))
     finally:
         con.close()
-    if (parent is not None and parent["kind"] == SAY_KIND and parent["state"] == "queued"
-            and reply is not None and reply["requester"] == parent["target"]):
-        resolve(parent_id, reply_body, notify=False)
+    if (parent is not None and parent["state"] == "queued" and not proposal
+            and parent["kind"] != "task"        # a task ends by handoff or done, never by a reply
+            and reply is not None and reply["requester"] == parent["target"]
+            and reply["target"] == parent["requester"]):
+        resolve(parent_id, reply_body, notify=False, answered_by=reply_id)
 
 
 # T408: True only in the daemon's own process. Every other process - an agent's sandbox has no
@@ -887,8 +895,11 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
 
 def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = True,
             open_tasks=None, dismissed_by: str | None = None,
-            dismissed_reason: str | None = None) -> tuple[bool, str]:
-    """`notify=False` is `dismiss`'s case: settle the row without telling the requester.
+            dismissed_reason: str | None = None,
+            answered_by: int | None = None) -> tuple[bool, str]:
+    """`answered_by` is the reply row that is itself the answer (`say --parent`, T361).
+
+    `notify=False` is `dismiss`'s case: settle the row without telling the requester.
 
     `open_tasks(con) -> list[int]` opens tasks in the same transaction as the
     close, and their numbers are appended to the verdict: a close that loses
@@ -920,7 +931,8 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
             # the first, whichever path either comes through.
             closed = db.close_if_queued(con, rid, state, verdict, announced=not notify,
                                         dismissed_by=dismissed_by,
-                                        dismissed_reason=dismissed_reason)
+                                        dismissed_reason=dismissed_reason,
+                                        answered_by=answered_by)
         except Exception:
             if open_tasks is not None:
                 con.execute("ROLLBACK")

@@ -89,7 +89,7 @@ limits:
     ok, msg, tid = actions.task_new("manager", "worker", "the board", "build the board")
     check("setup: a task for worker", ok, msg)
     rc, out = _cli(["say", "worker", "use the v2 layout", "--task", f"T{tid}"], as_agent="manager")
-    check("--task: lands as a note on that task", rc == 0 and "note" in out.lower(), out)
+    check("--task: lands as a memo on that task (T521)", rc == 0 and "memo" in out.lower(), out)
     rc, out = _cli(["say", "manager", "use the v2 layout", "--task", f"T{tid}"], as_agent="manager")
     check("--task: the task must be with the one it is said to", rc == 1 and "is with worker" in out, out)
     rc, out = _cli(["say", "worker", "x", "--task", "T99999"], as_agent="manager")
@@ -142,6 +142,143 @@ def test_resolving_a_human_ask_leaves_one_message(home: Path) -> None:
               said and said[0]["settles"] == rid, str(rows))
     finally:
         con.close()
+
+
+def test_a_reply_settles_the_request_it_answers_as_one_message(home: Path) -> None:
+    """T361 step 1: `say --parent N` settles any open request addressed to the replier, and the
+    reply row is itself the answer (`settles`) - one message, no second answer row. A reply
+    from anyone else, or to a roster proposal, settles nothing."""
+    _say_world(home)
+    con = db.connect()
+    ok, msg, rid = askmod.ask("worker", "please look at the migration", requester="manager")
+    check("setup: an ask to worker", ok, msg)
+    con.close()
+    rc, out = _cli(["say", "manager", "third party", "--parent", str(rid)], as_agent="reviewer")
+    con = db.connect()
+    check("reply: from someone the ask was not addressed to settles nothing",
+          db.get_request(con, rid)["state"] == "queued", out)
+    con.close()
+    rc, out = _cli(["say", "manager", "looked: fine", "--parent", str(rid)], as_agent="worker")
+    check("reply: the target's reply is sent", rc == 0, out)
+    con = db.connect()
+    try:
+        ask_row = db.get_request(con, rid)
+        rows = [dict(r) for r in con.execute(
+            "SELECT id, requester, target, kind, settles, parent_id FROM requests WHERE id > ?", (rid,))]
+        said = [r for r in rows if r["requester"] == "worker" and r["target"] == "manager"]
+        check("reply: the ask is settled, with the reply as its verdict",
+              ask_row["state"] == "done" and ask_row["verdict"] == "looked: fine", str(dict(ask_row)))
+        check("reply: exactly one row from the answerer, and it is the settling answer",
+              len(said) == 1 and said[0]["settles"] == rid and said[0]["kind"] == "say", str(rows))
+    finally:
+        con.close()
+
+
+def test_a_reply_to_the_founder_says_what_it_becomes_and_the_tail_says_how(home: Path) -> None:
+    """T361 step 1 (founder #6166): a message from the founder is answered through ocp - its
+    delivery tail says so, never that it needs no answer - and the reply names the tasks it
+    became or says nothing needs building, as `resolve` did."""
+    _say_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    con = db.connect()
+    rid = db.add_request(con, "human", "manager", "how is the migration?", None, "supervisor",
+                         "fire_and_forget", None, 0, None)
+    sid = db.add_request(con, "human", "manager", "fyi: the board is live", None, "supervisor",
+                         "fire_and_forget", "say", 0, None)
+    con.commit()
+    for r in (rid, sid):
+        text = dmn_delivery.tell_text(con, db.get_request(con, r), 1)
+        check(f"tail: #{r} from the founder says to answer with ocp say human --parent",
+              f"if it asks something: `ocp say human --parent {r} " in text
+              and "needs no answer" not in text and "ocp resolve" not in text
+              and "inbox" not in text and len(text.splitlines()) == 3, text)
+    con.close()
+    from ocp.session import launch
+    team_text = launch._your_team("worker")
+    check("your team: every agent is told, in one line, to talk to people only through ocp",
+          "Talk to people only through ocp; what you write in your terminal reaches no one." in team_text
+          and "a message that only informs needs no reply" in team_text, team_text)
+    rc, out = _cli(["say", "human", "fine", "--parent", str(rid)], as_agent="manager")
+    check("founder reply: without --task or --no-task it is refused, saying why",
+          rc == 1 and "say whether work follows it" in out and "--no-task" in out, out)
+    con = db.connect()
+    check("founder reply: and nothing was settled", db.get_request(con, rid)["state"] == "queued")
+    con.close()
+    rc, out = _cli(["say", "human", "fine, done", "--parent", str(rid), "--no-task", "a status question"],
+                   as_agent="manager")
+    check("founder reply: --no-task with a reason sends it", rc == 0, out)
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        answer = con.execute("SELECT * FROM requests WHERE settles = ?", (rid,)).fetchone()
+        check("founder reply: the ask is settled and the reply is its one answer",
+              row["state"] == "done" and answer is not None and answer["target"] == "human"
+              and con.execute("SELECT COUNT(*) c FROM requests WHERE settles = ?", (rid,)).fetchone()["c"] == 1)
+        check("founder reply: the reason is recorded", con.execute(
+            "SELECT 1 FROM events WHERE kind = 'no_task'").fetchone() is not None)
+    finally:
+        con.close()
+
+
+def test_a_reply_never_settles_a_task_and_the_founder_guard_follows_the_target(home: Path) -> None:
+    """T361 step 1 (auditor #6216): a reply in a task's thread leaves the task's request queued
+    and the task doing; the founder guard runs only for a reply that goes to the founder;
+    --no-task means nothing on any other reply."""
+    _say_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    ok, msg, tid = actions.task_new("manager", "worker", "build it", "build it")
+    check("setup: a task is delivered to worker", ok, msg)
+    con = db.connect()
+    trid = [r["id"] for r in db.task_requests(con, tid) if r["target"] == "worker"][0]
+    con.close()
+    rc, out = _cli(["say", "manager", "done I think?", "--parent", str(trid)], as_agent="worker")
+    con = db.connect()
+    try:
+        check("task reply: sent", rc == 0, out)
+        check("task reply: the task's request stays queued and the task keeps doing",
+              db.get_request(con, trid)["state"] == "queued"
+              and actions.task_state(con, db.get_task(con, tid)) == "doing")
+        check("task reply: nothing is marked as settling it",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE settles = ?", (trid,)).fetchone()["c"] == 0)
+        frid = db.add_request(con, "human", "manager", "how is it?", None, "supervisor",
+                              "fire_and_forget", None, 0, None)
+        con.commit()
+    finally:
+        con.close()
+    rc, out = _cli(["say", "worker", "fyi", "--parent", str(frid), "--no-task", "x"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("wrong target: a reply to someone else runs no founder guard and records nothing",
+              rc == 1 and con.execute("SELECT 1 FROM events WHERE kind = 'no_task'").fetchone() is None
+              and db.get_request(con, frid)["state"] == "queued", out)
+    finally:
+        con.close()
+    rc, out = _cli(["say", "worker", "plain", "--no-task", "x"], as_agent="manager")
+    check("--no-task on a say that is not a founder reply is refused, not dropped",
+          rc == 1 and "--no-task is for replying to the founder" in out, out)
+    rc, out = _cli(["say", "human", "hm", "--parent", str(frid)], as_agent="manager")
+    check("founder reply refusal names the single --task form", rc == 1 and "--task T<n> names" in out
+          and "[T<n> ...]" not in out, out)
 
 
 def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
@@ -239,7 +376,7 @@ def test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(home: Path) -> No
     finally:
         con.close()
     check("tell_text: a say is not told to `ocp resolve`", "ocp resolve" not in text, text)
-    check("tell_text: it says it needs no answer instead", "needs no answer" in text
+    check("tell_text: it says it asks nothing instead", "asks nothing" in text
           and "ocp say" not in text and "--needs-task" not in text, text)
 
 
@@ -432,6 +569,9 @@ def main() -> int:
         run(lambda: test_a_manager_says_to_a_report_only_with_a_task_or_a_reason(Path(td) / 'sayrule'))
         run(lambda: test_say_survives_enforce_edges_own_kind_recheck(Path(td) / 'sayedges'))
         run(lambda: test_resolving_a_human_ask_leaves_one_message(Path(td) / 'sayone'))
+        run(lambda: test_a_reply_settles_the_request_it_answers_as_one_message(Path(td) / 'saysettle'))
+        run(lambda: test_a_reply_to_the_founder_says_what_it_becomes_and_the_tail_says_how(Path(td) / 'sayfounder'))
+        run(lambda: test_a_reply_never_settles_a_task_and_the_founder_guard_follows_the_target(Path(td) / 'saytask'))
         run(lambda: test_a_reply_to_a_say_is_a_say_in_its_own_thread(Path(td) / 'sayreply'))
         run(lambda: test_only_the_says_own_target_can_close_it_by_replying(
             Path(td) / 'sayclosetarget'))

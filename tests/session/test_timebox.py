@@ -14,6 +14,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from ocp.cli import parser as cliparser  # noqa: E402
 from ocp.daemon import timebox  # noqa: E402
+from ocp.session import bgjobs  # noqa: E402
 
 TEAM = """
 teams:
@@ -37,6 +38,7 @@ def _world(home: Path) -> list[str]:
     """Three agents with open sessions, and a `send` that records what is typed."""
     _daemon_home(home, 20)
     hand_edit_team(TEAM)
+    idle_close.set_bg_seconds("bg_check_s", 10**6)   # T450's check is tested on its own
     sent: list[tuple[str, str]] = []
     orca_seen()
     dmn_delivery.session_present = lambda a: True
@@ -407,6 +409,24 @@ def test_background_work_is_not_asked_about(home: Path) -> None:
         con.close()
 
 
+def test_a_running_agent_with_background_work_and_nothing_queued_is_still_asked_about(home: Path) -> None:
+    """T359 (auditor #6652): no stale notice reaches a RUNNING agent now, so the unasked-running one
+    must - a hung turn, or a permission prompt (no Stop event), with background work behind it."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="active")
+        db.set_cursor(con, "bgwork:marina", 1)
+        timebox.sweep_unasked_running(con, lambda _m: None, now)
+        timebox.sweep_unasked_running(con, lambda _m: None, now + timebox.UNASKED_RUNNING_S + 1)
+        timebox.sweep_unasked_running(con, lambda _m: None, now + timebox.UNASKED_RUNNING_S + 2)
+        check("running with background work: the supervisor is told, once",
+              len(sent) == 1 and "marina" in sent[0][1], str(sent))
+    finally:
+        con.close()
+
+
 def test_the_human_is_the_supervisor_of_an_agent_with_none(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -565,6 +585,207 @@ def test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(home
         con.close()
 
 
+def test_background_work_is_checked_every_n_minutes_naming_each_command(home: Path) -> None:
+    """T450: the agent is told which commands run and for how long, whatever it owes and
+    whether it closes, again every N minutes - not the T424 idle close."""
+    sent = _world(home)
+    idle_close.set_bg_seconds("bg_check_s", 600)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        _owe(con, "marina")                     # T424 leaves it alone: it owes something
+        idle_close.set_agent_close_timeout("marina", idle_close.NEVER)   # and it never closes
+        done = home / "b1.output"
+        done.write_text("tests ok\n\n[exited with code 0]\n")
+        raw = lambda cmd, out, bg=True: {"tool_name": "Bash", "tool_use_id": "t", "session_id": "s",  # noqa: E731
+                                         "tool_input": {"command": cmd, "run_in_background": bg},
+                                         "tool_response": f"Command running in background with ID: x. Output is being written to: {out}"}
+        bgjobs.note("marina", raw("pytest -x tests/", "/x/tasks/a0.output"))
+        bgjobs.note("marina", raw("npm run watch", "/x/tasks/w2.output"))
+        bgjobs.note("marina", raw("make all", "/x/tasks/d3.output", bg=False))
+        check("check: only a call made in the background is recorded",
+              con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_started'").fetchone()[0] == 2)
+        con.execute("UPDATE events SET payload = REPLACE(payload, '/x/tasks/w2.output', ?) WHERE kind = 'background_started' "
+                    "AND payload LIKE '%w2%'", (str(done),))
+        db.set_cursor(con, "bgwork:marina", 1)
+        db.set_cursor(con, "bgcount:marina", 2)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (now - 3600,))
+        con.commit()
+        timebox.sweep(con, lambda _m: None, now)
+        check("check: told once, naming the command still running and not the one that ended",
+              len(sent) == 1 and "pytest -x tests/" in sent[0][1] and "npm run watch" not in sent[0][1]
+              and "Stop what you no longer need" in sent[0][1], str(sent))
+        timebox.sweep(con, lambda _m: None, now + 5)
+        check("check: not again before N minutes", len(sent) == 1, str(sent))
+        every = idle_close.bg_check_s("marina")
+        check("check: N defaults to 10 minutes", every == 600, str(every))
+        timebox.sweep(con, lambda _m: None, now + every)
+        check("check: and again after N minutes while it runs", len(sent) == 2, str(sent))
+        db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="active")
+        timebox.sweep(con, lambda _m: None, now + 2 * every)
+        check("check: mid-turn it waits for the turn's end", len(sent) == 2, str(sent))
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        idle_close.set_bg_seconds("bg_check_s", 120, "marina")
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5)
+        check("check: told at once when it was due while busy; its own N is read", len(sent) == 3, str(sent))
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 119)
+        check("check: its own N of 2 minutes holds", len(sent) == 3, str(sent))
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 120)
+        check("check: and then asks", len(sent) == 4, str(sent))
+        # dohyun owes nothing, so T424's own notice comes first, and this one waits behind it
+        db.set_agent_state(con, "dohyun", dmn_states.IDLE, detail="finished its turn")
+        db.set_terminal(con, "dohyun", "term_dohyun", None)
+        db.set_cursor(con, "bgwork:dohyun", 1)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:dohyun'", (now - 3600,))
+        con.commit()
+        before = len(sent)
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 240)
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 240 + timebox.NOTICE_RETRY_S + 1)
+        told = [t for h, t in sent[before:] if h == "term_dohyun"]
+        check("check: behind a T424 notice in flight it says nothing of its own",
+              len(told) == 1 and "Finish it or stop it" in told[0], str(sent[before:]))
+        check("check: the footer's count is what caps the list, killed jobs and all",
+              bgjobs.footer_count("2 shells, 1 monitor") == 3 and bgjobs.footer_count(None) == 0
+              and [j["command"] for j in bgjobs.running(con, "marina", 1)] == ["pytest -x tests/"]
+              and len(bgjobs.running(con, "marina")) == 1)
+    finally:
+        con.close()
+
+
+def _answers_every_check(home: Path, every: int) -> None:
+    sent = _world(home)
+    idle_close.set_bg_seconds("bg_check_s", every)
+    con = db.connect()
+    try:
+        t0 = int(time.time())
+
+        def event(kind: str, ts: int) -> None:
+            rid = db.add_event(con, "marina", kind, {})
+            con.execute("UPDATE events SET ts = ? WHERE id = ?", (ts, rid))
+
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        db.set_cursor(con, "bgwork:marina", 1)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (t0,))
+        event("Stop", t0 + 300)                           # it worked five minutes, then idled
+        answers: list[int] = []
+        seen = 0
+        for t in range(t0 + 300, t0 + 3600, 30):
+            for a in [a for a in answers if a <= t]:
+                event("UserPromptSubmit", a)
+                event("Stop", a + 5)
+                answers.remove(a)
+            timebox.sweep(con, lambda _m: None, t)
+            for _h, text in sent[seen:]:
+                if text.startswith("Background work has been running"):
+                    answers.append(t + 20)                # it answers the check 20s after
+            seen = len(sent)
+        checks = [x for _h, x in sent if x.startswith("Background work has been running")]
+        prompted = con.execute("SELECT ts FROM events WHERE kind = 'background_prompted'").fetchall()
+        check("answering: it was checked, and answered",
+              len(checks) >= 1 and (every > 300 or len(checks) >= 5), str(sent))
+        check("answering: yet T424 still told it to finish or stop, once",
+              len(prompted) == 1, str(sent))
+        at = db.get_cursor(con, "bg_prompt:marina")
+        check("answering: on schedule - its own five minutes of work, then the ten of silence",
+              t0 + 900 <= at <= t0 + 900 + 60, f"{at - t0}")
+        check("answering: and with nothing more shown the grace ends and it may be stopped",
+              dmn_delivery.bg_may_stop(con, "marina", at + idle_close.bg_grace_s("marina") + 60))
+    finally:
+        con.close()
+
+
+def test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(home: Path) -> None:
+    """The check and T424 both default to 10 minutes on different clocks: answering the
+    check must not keep resetting the silence T424 measures (auditor, T450)."""
+    _answers_every_check(home, 600)
+
+
+def test_answering_checks_shorter_than_the_notice_does_not_hold_the_notice_off(home: Path) -> None:
+    """Every answer turn is excused, not only the latest: with a check of 2 minutes the earlier
+    answers must not count as activity either (auditor re-audit, T450)."""
+    _answers_every_check(home, 120)
+
+
+def test_a_turn_that_ends_before_a_check_is_written_is_not_its_answer(home: Path) -> None:
+    """Checks and activity are paired by event order, not by clock: a tick's check is
+    written seconds after the tick began, and a Stop in that gap still came before it
+    (auditor #6383, #6430, T540)."""
+    _world(home)
+    con = db.connect()
+    try:
+        t0 = int(time.time())
+        db.set_cursor(con, "bgwork:marina", 1)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (t0,))
+
+        def event(kind: str, ts: int) -> None:
+            rid = db.add_event(con, "marina", kind, {})
+            con.execute("UPDATE events SET ts = ? WHERE id = ?", (ts, rid))
+
+        T = t0 + 300
+        for gap in (0, 5, 10):
+            con.execute("DELETE FROM events WHERE agent = 'marina'")
+            event("Stop", T + gap)                        # its real turn ends ...
+            event("background_checked", T)                # ... before the check, stamped as the tick began
+            event("UserPromptSubmit", T + 20)
+            event("Stop", T + 25)                         # the answer turn
+            shown = dmn_delivery.bg_last_shown(con, "marina")
+            check(f"order: a Stop {gap}s into the tick is shown, its answer turn is not",
+                  shown == T + gap, str(shown))
+        event("UserPromptSubmit", T + 60)                 # real work after the answer
+        check("order: work after the answer turn is shown", dmn_delivery.bg_last_shown(con, "marina") == T + 60)
+    finally:
+        con.close()
+
+
+def test_a_check_that_was_not_typed_leaves_no_event_to_mistake_a_real_turn_for_its_answer(home: Path) -> None:
+    """The check event is written before the typing, so a check that is refused or whose
+    typing raises must take it back: else the next real turn looks like its answer and
+    counts as silence (auditor #6446, T540)."""
+    _world(home)
+    idle_close.set_bg_seconds("bg_check_s", 600)
+    con = db.connect()
+    real = dmn_delivery.type_notice
+    try:
+        now = int(time.time())
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        db.set_cursor(con, "bgwork:marina", 1)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (now - 3600,))
+
+        def checks() -> int:
+            return con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_checked'").fetchone()[0]
+
+        def real_turn(ts: int) -> None:
+            rid = db.add_event(con, "marina", "UserPromptSubmit", {})
+            con.execute("UPDATE events SET ts = ? WHERE id = ?", (ts, rid))
+
+        def refuse(*_a, **_k):
+            return False
+
+        def blow_up(*_a, **_k):
+            raise RuntimeError("orca call failed")
+
+        dmn_delivery.type_notice = refuse
+        timebox.sweep_background_check(con, lambda _m: None, now)
+        check("untyped: a refused check leaves no event", checks() == 0, str(checks()))
+        real_turn(now + 5)
+        check("untyped: and the real turn after it is shown",
+              dmn_delivery.bg_last_shown(con, "marina") == now + 5, str(dmn_delivery.bg_last_shown(con, "marina")))
+        db.set_cursor(con, "notice_try:marina", 0)
+        dmn_delivery.type_notice = blow_up
+        try:
+            timebox.sweep_background_check(con, lambda _m: None, now + 10)
+            raised = False
+        except RuntimeError:
+            raised = True
+        check("untyped: a typing that raises still raises", raised)
+        check("untyped: and leaves no event either", checks() == 0, str(checks()))
+        check("untyped: no check is recorded as asked", not db.get_cursor(con, "bg_check:marina"))
+    finally:
+        dmn_delivery.type_notice = real
+        con.close()
+
+
 def test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -700,6 +921,28 @@ def test_the_supervisor_is_told_once_per_stale_stretch(home: Path) -> None:
         con.close()
 
 
+def test_a_running_agent_with_background_work_is_never_stale(home: Path) -> None:
+    """T359: one foreground step can run 50 minutes with no hook event; an agent mid-turn is not
+    told to its supervisor as one whose background work is forgotten, nor may its session be stopped."""
+    sent = _world(home)
+    con = db.connect()
+    try:
+        _owe(con, "marina")
+        S, V = dmn_delivery.STALE_BG_S, dmn_delivery.STALE_BG_VETO_S
+        db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="working")
+        now = _stale_bg(con, "marina", S + 10, V + 5)
+        timebox.sweep_stale_background(con, lambda _m: None, now)
+        check("running: silent past the limit it is not stale, not told, and may not be stopped",
+              not dmn_delivery.bg_stale(con, "marina", now) and not dmn_delivery.bg_may_stop(con, "marina", now)
+              and not sent, str(sent))
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        timebox.sweep_stale_background(con, lambda _m: None, now)
+        check("running: the same silence once its turn has ended is stale, and the supervisor is told",
+              dmn_delivery.bg_stale(con, "marina", now) and len(sent) == 1, str(sent))
+    finally:
+        con.close()
+
+
 def test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(home: Path) -> None:
     """T337 (founder #2002/#2003): `nudge_forgotten_resolve` stops climbing
     `NUDGE_SCHEDULE_S` rather than typing at the agent forever - an agent that
@@ -742,6 +985,38 @@ def test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(home: Path) -
         timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, later)
         check("cap notice: a later head that is also used up is told again",
               len(sent) == 2, str(sent))
+    finally:
+        con.close()
+
+
+def test_the_backstop_clock_is_the_tasks_not_the_agents(home: Path) -> None:
+    """T323: moving on from a task to another with no recorded wait in between must not carry the
+    first one's clock, or its told mark, over to the second."""
+    _world(home)
+    con = db.connect()
+    try:
+        ok, msg, t1 = actions.task_new("manager", "marina", "first", "first")
+        t2 = db.new_task(con, "second", "marina", "manager")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = int(time.time())
+        S = timebox.STOP_WAIT_BACKSTOP_S
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now)
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + S + 1)
+        check("task clock: the first task is told after its limit",
+              db.get_cursor(con, "stop_wait_told:marina") == 1)
+
+        db.set_current_task(con, "marina", t2)        # moved on: no wait was ever recorded in between
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + S + 2)
+        check("task clock: the second task starts its own clock and is not yet told",
+              db.get_cursor(con, "stop_wait_since:marina") == now + S + 2
+              and not db.get_cursor(con, "stop_wait_told:marina"))
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + 2 * S + 1)
+        check("task clock: and is not told at the first one's deadline",
+              not db.get_cursor(con, "stop_wait_told:marina"))
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + 2 * S + 3)
+        check("task clock: it is told once its own limit has passed",
+              db.get_cursor(con, "stop_wait_told:marina") == 1
+              and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'stop_wait_stuck'").fetchone()[0] == 2)
     finally:
         con.close()
 
@@ -1155,15 +1430,23 @@ def main() -> int:
             run(lambda: test_the_human_is_the_supervisor_of_an_agent_with_none(Path(td) / 'tb9'))
             run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
             run(lambda: test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(Path(td) / 'tb10a'))
+            run(lambda: test_background_work_is_checked_every_n_minutes_naming_each_command(Path(td) / 'tb10n'))
+            run(lambda: test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(Path(td) / 'tb10m'))
+            run(lambda: test_answering_checks_shorter_than_the_notice_does_not_hold_the_notice_off(Path(td) / 'tb10o'))
+            run(lambda: test_a_turn_that_ends_before_a_check_is_written_is_not_its_answer(Path(td) / 'tb10p'))
+            run(lambda: test_a_check_that_was_not_typed_leaves_no_event_to_mistake_a_real_turn_for_its_answer(Path(td) / 'tb10q'))
             run(lambda: test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(Path(td) / 'tb10f'))
             run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
             run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))
             run(lambda: test_a_forgotten_agent_is_stopped_past_its_window_when_its_own_times_are_shorter(Path(td) / 'tb10e'))
             run(lambda: test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(Path(td) / 'tb11'))
             run(lambda: test_the_supervisor_is_told_once_per_stale_stretch(Path(td) / 'tb12'))
+            run(lambda: test_a_running_agent_with_background_work_is_never_stale(Path(td) / 'tbrun'))
+            run(lambda: test_a_running_agent_with_background_work_and_nothing_queued_is_still_asked_about(Path(td) / 'tbrunbg'))
             run(lambda: test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(Path(td) / 'tb12a'))
             run(lambda: test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(
                 Path(td) / 'tb12b'))
+            run(lambda: test_the_backstop_clock_is_the_tasks_not_the_agents(Path(td) / 'tbclock'))
             run(lambda: test_the_row_says_how_long_and_when_stale(Path(td) / 'tb13'))
             run(lambda: test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_read(Path(td) / 'tb14'))
             run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb15'))
