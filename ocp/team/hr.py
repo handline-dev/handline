@@ -149,6 +149,18 @@ def _draft(kind: str, name: str, requester: str, why: str,
         except vendors.UnknownVendor as e:
             return {}, str(e)
 
+    if kind == "add":
+        repo = repo or _team_repo(team_name)
+        if not repo:
+            return {}, (f"{name} needs a repo: --repo <path> (or --team of a manager that has "
+                        f"one). Orca makes its worktree there; without one it never starts.")
+    if kind == "team":
+        if not repo:
+            return {}, (f"team {name} needs --repo <path> for its manager; a member without "
+                        f"its own --member SUFFIX=REPO works there too. Orca makes each "
+                        f"worktree in it.")
+        repos = {n: (repos or {}).get(n) or repo for n in full}     # written into every agent.yaml
+
     prop = {
         "id": uuid.uuid4().hex[:8],
         "kind": kind,
@@ -169,6 +181,17 @@ def _draft(kind: str, name: str, requester: str, why: str,
             if (repos or {}).get(n):
                 prop[f"repo.{n}"] = repos[n]
     return prop, ""
+
+
+def _team_repo(team_name: str | None) -> str | None:
+    """The repo the team's manager works in, which a new member may default to; it is
+    written into the member's own agent.yaml, never read through the team later."""
+    if not team_name:
+        return None
+    try:
+        return agents.read(team_name).get("repo") or None
+    except Exception:  # noqa: BLE001 - no such manager, or an unreadable file: no default
+        return None
 
 
 def _team_names(name: str, members: list[str], repos: dict[str, str],

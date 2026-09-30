@@ -1166,7 +1166,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
     try:
         pids = {}
         for name in ("queued", "unclear", "approved", "rejected"):
-            ok, said = hr.propose("add", name, requester="hr", why=f"why {name}")
+            ok, said = hr.propose("add", name, repo="/repo", requester="hr", why=f"why {name}")
             check(f"proposals: {name} was raised", ok, said)
             pids[name] = int(said.split("#")[1].split(".")[0])
         # `resolve` refuses a non-decision on a proposal now; one closed that way by an
@@ -1189,7 +1189,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
               == sorted(p["asked"] for p in pr.open_proposals(con)))
         ids = []
         for name in ("tie1", "tie2", "tie3", "tie4"):
-            ok, said = hr.propose("add", name, requester="hr", why="w")
+            ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="w")
             ids.append(int(said.split("#")[1].split(".")[0]))
         con.execute("UPDATE requests SET ts = 1000 WHERE id IN (%s)" % ",".join(map(str, ids)))
         tied = [p["rid"] for p in pr.open_proposals(con) if p["rid"] in ids]

@@ -503,7 +503,7 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
         check("skip: turning it off removes the key and the flag",
               "skip_permissions" not in agents.read("backend")
               and flag not in launch.build("backend")[0])
-        out = _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "on"]))
+        out = _capture(lambda: climod.main(["agent", "register", "backend", "--repo", "/repo", "--skip-permissions", "on"]))
         check("skip: the CLI sets it and says when it applies",
               agents.read("backend").get("skip_permissions") is True and "next launch" in out, out)
         _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))

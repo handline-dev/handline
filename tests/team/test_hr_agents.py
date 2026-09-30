@@ -310,7 +310,7 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
     con = db.connect()
     try:
         before = len(actions.messages(con))
-        ok, said = hr.propose("add", "no", requester="harbor", why="w")
+        ok, said = hr.propose("add", "no", repo="/repo", requester="harbor", why="w")
         check("names: hr.propose of one queues nothing for the founder",
               not ok and len(actions.messages(con)) == before, said)
     finally:
@@ -440,8 +440,9 @@ edges:
               and f"Orca now has {real}" in said, str(fake.calls) + said)
 
         ok, said = hr.enact("add", "bare", why="no repo")
-        check("repo: an agent with no repo makes no Orca call",
-              ok and len(fake.calls) == 2 and "Orca" not in said, said)
+        check("repo (T531): an agent with no repo is refused, saying what to give, and makes no Orca call",
+              not ok and "bare needs a repo: --repo <path>" in said and len(fake.calls) == 2
+              and "bare" not in paths.list_agents(), said)
 
         n = len(fake.calls)
         ok, said = hr.enact("add", "again", repo=repo, why="the repo is already there")
@@ -2375,7 +2376,7 @@ deny:
           all(n in paths.list_agents() for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer"))
           and agents.read("boat.sea").get("repo") == "/w/sea"
           and agents.read("boat").get("repo") == "/w/boat"
-          and agents.read("boat.shore").get("repo") in (None, ""))
+          and agents.read("boat.shore").get("repo") == "/w/boat")     # T531: no member goes without one
     check("team: the manager is boat's supervisor",
           actions.supervisor_of(t, "boat.sea") == "boat")
     ok, said = hr.enact("team", "boat", why="again", members=["x"])
@@ -2414,7 +2415,7 @@ deny:
     check("team: the founder's `hr team` creates it directly, suffix or full names, repo after '='",
           rc == 0 and team.Team.load().teams.get("reef") == ["reef", "reef.dive", "reef.map"]
           and agents.read("reef.dive").get("repo") == "/w/dive", out)
-    rc, out = _cli(["hr", "team", "reef2", "--member", "a", "--why", "w"], as_agent="orca")
+    rc, out = _cli(["hr", "team", "reef2", "--member", "a", "--repo", "/w/reef2", "--why", "w"], as_agent="orca")
     check("team: an agent's `hr team` is a proposal", rc == 0 and "raised as" in out
           and "reef2" not in paths.list_agents(), out)
     from ocp.team import guide
@@ -2439,7 +2440,7 @@ edges:
     agents.register("orca")
     con = db.connect()
     try:
-        ok, said = hr.propose("add", "newbie", requester="orca", why="more hands")
+        ok, said = hr.propose("add", "newbie", repo="/repo", requester="orca", why="more hands")
         check("proposal: raised", ok, said)
         prop = hr.load_proposal(said.split()[1])
         card = db.get_request(con, prop["request"])
@@ -2478,7 +2479,7 @@ edges:
     con = db.connect()
     try:
         def raised(name: str):
-            ok, said = hr.propose("add", name, requester="orca", why="w")
+            ok, said = hr.propose("add", name, repo="/repo", requester="orca", why="w")
             prop = hr.load_proposal(said.split()[1])
             tid = con.execute("SELECT task_id FROM task_requests WHERE request_id = ?",
                               (prop["request"],)).fetchone()["task_id"]
@@ -2568,7 +2569,7 @@ edges:
     agents.register("orca")
     con = db.connect()
     try:
-        ok, said = hr.propose("team", "crew", requester="orca", why="a crew",
+        ok, said = hr.propose("team", "crew", requester="orca", why="a crew", repo="/w",
                               members=["a", "b"], repos={"crew.a": "/w/a"})
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
@@ -2581,7 +2582,7 @@ edges:
               and "crew.b" in paths.list_agents())
 
         ok, said = hr.propose("team", "old", requester="orca", why="an older process answers",
-                              members=["x"])
+                              repo="/w", members=["x"])
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
         kinds = hr.KINDS
@@ -2619,7 +2620,7 @@ edges:
         check("stale: the founder's own session records and applies it",
               rc == 0 and hr.load_proposal(pid)["state"] == "applied"
               and "old.x" in paths.list_agents(), out)
-        ok, said = hr.propose("team", "open", requester="orca", why="not answered", members=["y"])
+        ok, said = hr.propose("team", "open", requester="orca", why="not answered", repo="/w", members=["y"])
         ok, said = hr.confirm_answer(said.split()[1], con)
         check("stale: a proposal the founder has not answered cannot be confirmed",
               not ok and "not answered" in said, said)
@@ -2723,6 +2724,57 @@ deny:
         con.close()
 
 
+def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
+    """T531 (founder #6306): Orca needs a repo to make a worktree, so hr add, hr team and
+    `agent register` refuse without one, saying what to give; a manager's repo may fill in a
+    team member's but is written into the member's own agent.yaml; an agent that has none
+    says so in `ocp team` and doctor."""
+    _daemon_home(home, 20)
+    accounts.register("alpha")
+    hand_edit_team("teams:\n  boss: [boss]\nagents:\n  boss: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
+    agents.register("boss", repo="/w/boss")
+    rc, out = _cli(["hr", "add", "newbie", "--why", "hands"], as_agent=askmod.HUMAN)
+    check("hr add: no --repo is refused, saying what to give",
+          rc != 0 and "newbie needs a repo: --repo <path>" in out and "newbie" not in paths.list_agents(), out)
+    rc, out = _cli(["hr", "add", "newbie", "--why", "hands", "--repo", "/w/n"], as_agent=askmod.HUMAN)
+    check("hr add: with --repo it goes through", rc == 0 and agents.read("newbie").get("repo") == "/w/n", out)
+    ok, said = hr.enact("add", "kid", team_name="boss", why="hands")
+    check("hr add: a team's manager's repo fills it in, written into the agent's own agent.yaml",
+          ok and agents.read("kid").get("repo") == "/w/boss", said)
+    rc, out = _cli(["hr", "team", "crew", "--member", "a", "--why", "w"], as_agent=askmod.HUMAN)
+    check("hr team: no --repo is refused", rc != 0 and "team crew needs --repo" in out
+          and "crew" not in paths.list_agents(), out)
+    rc, out = _cli(["hr", "team", "crew", "--member", "a", "--member", "b=/w/b", "--repo", "/w/crew",
+                    "--why", "w"], as_agent=askmod.HUMAN)
+    check("hr team: with --repo every member has one - its own, else the manager's",
+          rc == 0 and agents.read("crew.a").get("repo") == "/w/crew"
+          and agents.read("crew.b").get("repo") == "/w/b" and agents.read("crew").get("repo") == "/w/crew", out)
+    rc, out = _cli(["agent", "register", "loner"], as_agent=askmod.HUMAN)
+    check("agent register: a new agent without --repo is refused", rc != 0
+          and "loner" not in paths.list_agents(), out)
+    agents.register("legacy")       # an agent from before this rule, with no repo
+    rc, out = _cli(["agent", "register", "legacy", "--effort", "high"], as_agent=askmod.HUMAN)
+    check("agent register: nor may an existing agent without one be re-registered without", rc != 0, out)
+    rc, out = _cli(["agent", "register", "boss", "--effort", "high"], as_agent=askmod.HUMAN)
+    check("agent register: one that has a repo keeps it on re-registration", rc == 0
+          and agents.read("boss").get("repo") == "/w/boss", out)
+    from ocp.cli import team as teamcli
+    con = db.connect()
+    try:
+        check("ocp team: an agent with no repo says why it never starts",
+              "no repo" in teamcli._doing(con, "legacy") and "--repo <path>" in teamcli._doing(con, "legacy"),
+              teamcli._doing(con, "legacy"))
+        check("ocp team: one with a repo does not", "no repo" not in teamcli._doing(con, "boss"))
+    finally:
+        con.close()
+    from ocp.infra import doctor
+    r = doctor.Report()
+    doctor._check_agents(r)
+    check("doctor: warns of the agent with no repo, naming the fix",
+          any(name == "agent legacy: no repo" and "--repo <path>" in detail for _, name, detail in r.rows),
+          str(r.rows)[:400])
+
+
 def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
     """`hr add` writes `vendor:` into agent.yaml only when --vendor names a
     non-default one, both when the founder adds and when a proposal is applied."""
@@ -2731,7 +2783,7 @@ def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
     accounts.register("zai", vendor="opencode")
     con = db.connect()
     try:
-        ok, said = hr.enact("add", "claudey", why="w")
+        ok, said = hr.enact("add", "claudey", repo="/repo", why="w")
         check("hr add: succeeds with no vendor", ok, said)
         cfg = yamlcompat.load(agents.agent_file("claudey").read_text())
         check("hr add: no vendor key for the default vendor, same as every "
@@ -2739,7 +2791,7 @@ def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
         check("hr add: agent_vendor reads it as claude",
               vendors.agent_vendor("claudey") == "claude")
 
-        ok, said = hr.enact("add", "glm", why="w", vendor="opencode")
+        ok, said = hr.enact("add", "glm", repo="/repo", why="w", vendor="opencode")
         check("hr add: succeeds with --vendor opencode", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm").read_text())
         check("hr add: the vendor is written", cfg.get("vendor") == "opencode", str(cfg))
@@ -2755,7 +2807,7 @@ edges:
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
         agents.register("marina")
-        ok, said = hr.propose("add", "glm2", requester="marina", why="w", vendor="opencode")
+        ok, said = hr.propose("add", "glm2", repo="/repo", requester="marina", why="w", vendor="opencode")
         check("hr add: a proposal with a vendor raises", ok, said)
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
@@ -2777,7 +2829,7 @@ edges:
         # An approve whose first apply did not go through leaves the proposal
         # open, and a draft an agent edits before the retry is not what was
         # approved.
-        ok, said = hr.propose("add", "glm3", requester="marina", why="w", vendor="opencode")
+        ok, said = hr.propose("add", "glm3", repo="/repo", requester="marina", why="w", vendor="opencode")
         pid3 = said.split()[1]
         rid3 = hr.load_proposal(pid3)["request"]
         con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (rid3,))
@@ -2789,8 +2841,7 @@ edges:
         ok, said = hr.apply(pid3, con)
         check("hr bind: a draft edited after the answer is refused, not applied",
               not ok and "changed after the founder answered" in said, said)
-        edited["repo"] = None
-        edited.pop("repo")
+        edited["repo"] = "/repo"        # as it was approved
         hr.save(edited)
         ok, said = hr.apply(pid3, con)
         check("hr bind: put back as approved, it gets past the answer check to its own",
@@ -2817,7 +2868,7 @@ edges:
     con = db.connect()
     try:
         def raise_add(name, **kw):
-            ok, said = hr.propose("add", name, requester="marina", why="w", **kw)
+            ok, said = hr.propose("add", name, requester="marina", why="w", **{"repo": "/repo", **kw})
             return said.split()[1]
 
         pid = raise_add("x1", repo="/repoA")
@@ -2893,7 +2944,7 @@ edges:
 """)
     con = db.connect()
     try:
-        ok, said = hr.propose("add", "zed", requester="hr", why="hands")
+        ok, said = hr.propose("add", "zed", repo="/repo", requester="hr", why="hands")
         pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
         con.execute("UPDATE requests SET state = 'done', dismissed_by = 'ghost', "
                     "dismissed_reason = 'not now' WHERE id = ?", (rid,))
@@ -2920,7 +2971,7 @@ agents:
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands")
+        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
         pid = said.split()[1]
         rid = int(said.split("#")[1].split(".")[0])
         ok, said = askmod.resolve(rid, "approve")
@@ -2954,7 +3005,7 @@ edges:
               con.execute("SELECT COUNT(*) c FROM requests WHERE fyi = 1 AND body LIKE ?",
                           (f"%{pid2}%could not be applied%",)).fetchone()["c"] == 1)
 
-        ok, said = hr.propose("add", "yerin", requester="hr", why="two")
+        ok, said = hr.propose("add", "yerin", repo="/repo", requester="hr", why="two")
         pid3 = said.split()[1]
         rid3 = int(said.split("#")[1].split(".")[0])
         askmod.resolve(rid3, "reject - no")
@@ -2962,7 +3013,7 @@ edges:
               and db.get_request(con, rid3)["verdict"] == "reject - no")
         check("reject: and the proposal's file records it", hr.load_proposal(pid3)["state"] == "rejected")
 
-        ok, said = hr.propose("add", "mira", requester="hr", why="three")
+        ok, said = hr.propose("add", "mira", repo="/repo", requester="hr", why="three")
         pid4 = said.split()[1]
         rid4 = int(said.split("#")[1].split(".")[0])
         ok, said = askmod.resolve(rid4, "reject - not yet\nask again next week")
@@ -2992,7 +3043,7 @@ agents:
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands")
+        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
         pid = said.split()[1]
         rid = int(said.split("#")[1].split(".")[0])
     finally:
@@ -3014,7 +3065,7 @@ edges:
     # #1908 should-fix: the same escalation can be closed a third way, through
     # --retires on an unrelated resolve - "replaced by #N" is not a decision
     # either.
-    ok, said = hr.propose("add", "yerin", requester="hr", why="a second pair")
+    ok, said = hr.propose("add", "yerin", repo="/repo", requester="hr", why="a second pair")
     pid2 = said.split()[1]
     rid2 = int(said.split("#")[1].split(".")[0])
     ok, _, rid3 = askmod.ask(askmod.HUMAN, "unrelated question", requester="hr")
@@ -3111,7 +3162,7 @@ agents:
 edges:
   - { from: "*", to: "human", kind: escalate, creates_gate: true }
 """)
-        ok, said = hr.propose("add", "sooyoung", requester="hr", why="a third pair")
+        ok, said = hr.propose("add", "sooyoung", repo="/repo", requester="hr", why="a third pair")
         rid = int(said.split("#")[1].split(".")[0])
 
         check("close_if_queued: refuses a non-decision verdict on an open proposal",
@@ -3698,7 +3749,7 @@ def test_the_escalation_shows_the_effort_of_an_add_and_the_team_of_a_rename(home
     agents.register("marina")
     hand_edit_team("teams:\n  eng: [marina]\nagents:\n  marina: {}\nedges:\n"
                    "  - { from: \"*\", to: \"human\", kind: escalate, creates_gate: true }\n")
-    ok, said = hr.propose("add", "dohyun", requester="marina", why="hands", effort="high",
+    ok, said = hr.propose("add", "dohyun", repo="/repo", requester="marina", why="hands", effort="high",
                           team_name="eng")
     check("escalation: the add was raised", ok, said)
     pid = said.split()[1]
@@ -3825,6 +3876,7 @@ def main() -> int:
         run(lambda: test_an_approve_on_a_team_proposal_is_recorded_and_applied(Path(td) / 'teamanswer'))
         run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
+        run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_an_answer_binds_the_escalation_the_founder_read(Path(td) / 'hrbind'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(

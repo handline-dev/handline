@@ -947,7 +947,7 @@ edges:
 """)
         def rows():
             return [w for w in actions.founder_waits(con) if w["kind"] == "proposal"]
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="more hands")
+        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
         pid = said.split()[1]
         rid = db.get_request(con, int(said.split("#")[1].split(".")[0]))["id"]
         ok, msg = actions.dismiss(con, rid, me=actions.HUMAN)
@@ -972,7 +972,7 @@ edges:
         check("withdraw: and cannot be withdrawn twice", not ok, said)
 
         # Withdrawn while still unanswered: the escalation closes with it.
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="again")
+        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="again")
         pid2 = said.split()[1]
         rid2 = int(said.split("#")[1].split(".")[0])
         ok, said = hr.withdraw(pid2, "hr")
@@ -982,7 +982,7 @@ edges:
 
         # Answered first, withdrawn after: the founder's answer stands and the
         # withdraw refuses, leaving apply to read it (task #32).
-        ok, said = hr.propose("add", "dohyun", requester="hr", why="third")
+        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="third")
         pid3 = said.split()[1]
         rid3 = int(said.split("#")[1].split(".")[0])
         check("answer: an open proposal refuses a non-decision",
