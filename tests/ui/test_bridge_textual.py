@@ -1681,6 +1681,28 @@ def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
     check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
 
 
+def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
+    """T309: `_sync_cursor` runs every tick; a cursor already on the selected row is left alone,
+    so the table's scroll is not dragged back each time."""
+    from types import SimpleNamespace
+    from ocp.ui.pages.home import HomePage
+    moves, classes = [], []
+    table = SimpleNamespace(show_cursor=False, cursor_row=1, move_cursor=lambda row: moves.append(row))
+    page = SimpleNamespace(panel=0, sel={0: "b"},
+                           query_one=lambda box: SimpleNamespace(set_class=lambda on, name: classes.append(on)))
+    sync = lambda panel=0, sel="b": (setattr(page, "panel", panel), setattr(page, "sel", {0: sel}),
+                                     HomePage._sync_cursor(page, table, "#box", 0, ["a", "b", "c"]))
+    sync()
+    check("home cursor: already on the selected row, it is not moved", moves == [] and table.show_cursor)
+    sync(sel="c")
+    check("home cursor: on another row, it moves there once", moves == [2], str(moves))
+    sync(panel=1, sel="a")
+    check("home cursor: a panel the keys are not on shows no cursor and is not moved",
+          moves == [2] and not table.show_cursor and classes[-1] is False, str((moves, classes)))
+    sync(sel="gone")
+    check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -2151,6 +2173,7 @@ async def _run_all() -> None:
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
+    test_the_home_cursor_moves_only_when_the_row_is_not_already_there()
     test_the_bridge_stylesheet_parses()
     test_the_open_task_counts_read_once_and_match_the_one_agent_count()
     test_agents_data_scans_the_open_tasks_once_for_all_agents()
