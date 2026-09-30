@@ -431,6 +431,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _escalations_are_tasks(con)
     _one_doing_task_each(con)
     _notes_are_memos(con)
+    _handed_to_founder_are_queued(con)
     return con
 
 
@@ -713,6 +714,24 @@ def _escalations_are_tasks(con) -> None:
         dbtasks.link_request(con, tid, r["id"])
     con.execute("UPDATE requests SET kind = 'task' WHERE kind = 'escalate'")
     set_cursor(con, "migrated:escalations_are_tasks", 1)
+
+
+def _handed_to_founder_are_queued(con) -> None:
+    """T681: a task handed to the founder read as a draft, which is outside "for you". An open task
+    the founder holds by a handoff and that nobody approved is queued by whoever handed it over.
+    Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:handed_to_founder_queued"):
+        return
+    from .requests import HUMAN
+    for r in con.execute(
+            "SELECT t.id, (SELECT json_extract(e.payload, '$.from') FROM events e WHERE e.kind = 'task_handoff' "
+            f"AND {EVENT_TASK.replace('payload', 'e.payload')} = t.id AND json_extract(e.payload, '$.to') = ? "
+            "ORDER BY e.id DESC LIMIT 1) AS frm FROM tasks t WHERE t.owner = ? AND t.queued_by IS NULL "
+            "AND t.discarded_by IS NULL AND t.done_evidence IS NULL", (HUMAN, HUMAN)).fetchall():
+        if r["frm"]:
+            con.execute("UPDATE tasks SET queued_by = ?, queued_at = ? WHERE id = ?",
+                        (r["frm"], int(time.time()), r["id"]))
+    set_cursor(con, "migrated:handed_to_founder_queued", 1)
 
 
 def _one_doing_task_each(con) -> None:
