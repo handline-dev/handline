@@ -1,5 +1,5 @@
 """The weekly headroom graph (founder #824), so the stats screen and a home tab share it: the
-week left of all accounts together, the last 24h as recorded and the next 24h as a guess.
+week left of all accounts together, the range before now as recorded and the same after it as a guess.
 What is measured and what is guessed is `usage.outlook`'s; this draws it."""
 from __future__ import annotations
 
@@ -23,14 +23,16 @@ RANGES = (("12h", 12), ("24h", 24), ("3d", 72), ("7d", 168), ("14d", 336))
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
 
+AXIS_W = 6
+HEIGHT = 12
+
+
 def short_tokens(n: int) -> str:
     """12345678 as 12.3M, 1400 as 1.4k."""
     for div, unit in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "k")):
         if n >= div:
             return f"{n / div:.1f}{unit}"
     return str(n)
-AXIS_W = 6
-HEIGHT = 12
 
 
 def _grid(vals: list[float | None], fut: list[bool], over: list[float], ylabels: tuple[str, str, str],

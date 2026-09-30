@@ -357,10 +357,17 @@ def _usage_samples_locked(con, since: int) -> list:
     return rows[bisect_left(have["ts"], since):]
 
 
+def _outlook_rows(con, now: int, hours: int) -> list:
+    """The samples the graph, what each agent used and the curve under it all read: the same window,
+    from just before the range starts so the first rise into it is counted (T163)."""
+    from ..usage import outlook
+    return _usage_samples(con, now - hours * 3600 - outlook.MAX_AGE_S)
+
+
 def weekly_outlook(con, now: int, hours: int = 24):
     """The weekly headroom of all accounts together, the last `hours` and a guess at the next."""
     from ..usage import outlook
-    return outlook.weekly_outlook(_usage_samples(con, now - hours * 3600 - 7200), now, hours)
+    return outlook.weekly_outlook(_outlook_rows(con, now, hours), now, hours)
 
 
 def agent_use(con, now: int, hours: int) -> list:
@@ -368,7 +375,7 @@ def agent_use(con, now: int, hours: int) -> list:
     last `hours`, largest first."""
     from ..usage import outlook, prices, stats
     lo = now - hours * 3600
-    used = outlook.week_consumed(_usage_samples(con, lo), lo, now)
+    used = outlook.week_consumed(_outlook_rows(con, now, hours), lo, now)
     return stats.agent_use(con, lo, now, prices.table_from_config(loadmod._config()), used)
 
 
@@ -376,6 +383,6 @@ def agent_overlay(con, use, now: int, hours: int, times: list[int]) -> list[floa
     """Points of the combined week `use` (an `agent_use` row) had eaten by each of `times`: its
     cost share of each account times what that account used so far, averaged over the accounts."""
     from ..usage import outlook
-    curves = outlook.consumed_curve(_usage_samples(con, now - hours * 3600 - 7200), times)
+    curves = outlook.consumed_curve(_outlook_rows(con, now, hours), times)
     n = len(curves) or 1
     return [sum(use.fracs.get(a, 0.0) * c[k] for a, c in curves.items()) / n for k in range(len(times))]

@@ -952,10 +952,11 @@ def _waiting_for(held: str) -> str:
 
 
 def screen_state(con, row) -> tuple[str, str]:
-    """`_screen_state`, with an idle agent whose task waits on a child of its own saying so (T443)."""
+    """`_screen_state`, with an idle agent whose task waits on a child of its own (T443) or is
+    blocked (T563) saying so."""
     word, detail = _screen_state(con, row)
     if word == "IDLE" and not detail and row:
-        detail = oneline(actions.child_wait(con, row["agent"]) or "")
+        detail = oneline(actions.child_wait(con, row["agent"]) or actions.block_wait(con, row["agent"]) or "")
     return word, detail
 
 
