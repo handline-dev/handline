@@ -160,9 +160,9 @@ def report(con, agent: str, text: str, reason: str) -> int:
     back at `agent` and nothing waits on the human.
     """
     rid = db.add_request(con, agent, ESCALATION_TARGET, text, None, None, "fire_and_forget",
-                         "report", 0, None, fyi=True)
+                         "say", 0, None, fyi=True)
     deliver(rid, agent, ESCALATION_TARGET, text, None,
-            team.Decision(True, reason, kind="report", response="fire_and_forget",
+            team.Decision(True, reason, kind="say", response="fire_and_forget",
                           creates_gate=False, chain_depth=0))
     db.add_event(con, agent, "report", {"request_id": rid, "reason": reason})
     return rid

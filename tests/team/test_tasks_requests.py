@@ -1513,22 +1513,14 @@ def test_withdraw_too_late_points_at_a_message_and_a_task_release(home: Path) ->
         con.close()
 
 
-def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
-    """T57: a report (the unblock notice) asks nothing, so the line typed at its
-    target says to dismiss it; any other request says to resolve it."""
+def test_a_request_is_answered_by_a_reply_that_names_it(home: Path) -> None:
+    """T57: any request handed to an agent says to answer it with a reply that names it."""
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
     real = orcamod.send
     try:
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
-                              "fire_and_forget", "report", 0, None)
-        dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
-        check("report notice: told it asks nothing and to dismiss it (until step 2 gives it another close)",
-              "it asks nothing" in sent[-1] and f"`ocp dismiss {note}`" in sent[-1]
-              and "ocp resolve" not in sent[-1], sent[-1])
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (note,))
         rid = db.add_request(con, "reviewer", "backend", "look at this", None,
                              "peer", "async", None, 0, None)
         dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
@@ -1537,42 +1529,6 @@ def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
               and "ocp dismiss" not in sent[-1], sent[-1])
     finally:
         orcamod.send = real
-        con.close()
-
-
-def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) -> None:
-    """T57 review #2405: the reminder for a told report head says the same
-    thing the delivery did."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now)
-    try:
-        orca_seen()
-        orcamod.typeable_now = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        sessions_are("backend")
-        agents.register("backend")
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
-        now = int(time.time())
-        note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
-                              "fire_and_forget", "report", 0, None)
-        db.mark_delivered(con, note)
-        db.set_cursor(con, "notify:backend", note)
-        db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_delivery.NUDGE_AFTER_S - 60,))
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
-                    (now - dmn_delivery.NUDGE_AFTER_S - 60, note))
-        check("report nudge: it goes", dmn_delivery.nudge_forgotten_resolve(
-            con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
-            and len(sent) == 1, str(sent))
-        check("report nudge: and says it asks nothing and to dismiss it, not resolve",
-              "It asks nothing" in sent[0] and f"`ocp dismiss {note}`" in sent[0]
-              and "ocp resolve" not in sent[0], sent[0])
-    finally:
-        (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now) = real
         con.close()
 
 
@@ -8387,6 +8343,12 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
         check("wake: the unblocked notice comes when the last blocker goes, without the result",
               len(told) == 2 and told[1].startswith("task T%d is unblocked" % t) and "PASS" not in told[1],
               str(told))
+        notes = [r for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("wake: each notice is a say - a durable row marked send-now, still queued until typed, "
+              "so a parked or crashed holder loses nothing",
+              len(notes) == 2 and all(r["kind"] == "say" and r["send_now"] and r["state"] == "queued"
+                                      and not r["delivered_at"] for r in notes),
+              str([dict(r) for r in notes]))
         actions.close_task(con, child, "worker")
         told = [r["body"] for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
         check("wake: closing the child after its done tells nothing twice", len(told) == 2, str(told))
@@ -9154,8 +9116,7 @@ def main() -> int:
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_a_withdraw_landing_before_the_send_stops_the_send(Path(td) / 'withdrawrace'))
         run(lambda: test_withdraw_too_late_points_at_a_message_and_a_task_release(Path(td) / 'withdrawtoolate'))
-        run(lambda: test_a_report_notice_is_told_as_something_to_dismiss(Path(td) / 'reportnotice'))
-        run(lambda: test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(Path(td) / 'reportnudge'))
+        run(lambda: test_a_request_is_answered_by_a_reply_that_names_it(Path(td) / 'reportnotice'))
         run(lambda: test_spawn_confirms_the_task_landed(Path(td) / 'spawnland'))
         run(lambda: test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_request(Path(td) / 'coldnone2'))
         run(lambda: test_an_answer_reaches_the_agent_that_asked(Path(td) / 'answered'))
