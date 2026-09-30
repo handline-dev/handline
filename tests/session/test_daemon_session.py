@@ -2339,6 +2339,73 @@ def test_a_wake_does_not_call_a_fresh_start_a_park(home: Path) -> None:
           "You were parked" in told and "routing fix" in told, told[:200])
 
 
+def test_a_move_prompt_says_nothing_of_a_request_or_a_missing_transcript(home: Path) -> None:
+    """T169: a move's handoff is already in the new session's system prompt, so the wake prompt
+    names neither the request in hand nor a transcript it could not find - only a transcript that
+    was found, and only where a fresh start would say all three."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        moved = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, moved_to="beta", con=con)
+        fresh = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con)
+        check("move prompt: no request line", "request:" not in moved, moved)
+        check("move prompt: no transcript-not-found line", "could not be found" not in moved, moved)
+        check("move prompt: only the move itself is said", moved.startswith("Your account was at its 5h limit")
+              and "\n\n" not in moved, moved)
+        check("fresh start with no record: the same two lines are said (so the move's silence is chosen)",
+              "request:" in fresh and "could not be found" in fresh, fresh)
+
+        db.add_event(con, "backend", "UserPromptSubmit",
+                     {"session_id": "sess-9", "transcript_path": "/tmp/sess-9.jsonl"})
+        moved = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, moved_to="beta", con=con)
+        check("move prompt: a transcript that is found is still named",
+              "sess-9" in moved and "/tmp/sess-9.jsonl" in moved, moved)
+        check("move prompt: and still no request line", "request:" not in moved, moved)
+    finally:
+        con.close()
+
+
+def test_the_previous_sessions_transcript_path_can_come_from_its_own_hook_event(home: Path) -> None:
+    """T169: when the status snapshot names no path, the newest hook event of a session that was
+    talked to supplies it - but only for the very session that is being restarted."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    f = paths.agent_status_file("backend")
+    f.parent.mkdir(parents=True, exist_ok=True)
+
+    def snapshot(**fields) -> None:
+        f.write_text(json.dumps({"account": "beta", "collected_at": int(time.time()), **fields}))
+
+    try:
+        db.add_event(con, "backend", "SessionStart",
+                     {"session_id": "sess-0", "transcript_path": "/tmp/sess-0.jsonl"})
+        check("previous session: a session that was never talked to is not the one restarted from",
+              handoffmod.previous_session(con, "backend", "beta") == (None, None),
+              str(handoffmod.previous_session(con, "backend", "beta")))
+
+        db.add_event(con, "backend", "Stop", {"session_id": "sess-1", "transcript_path": "/tmp/sess-1.jsonl"})
+        check("previous session: with no snapshot, id and path both come from the event",
+              handoffmod.previous_session(con, "backend", "beta") == ("sess-1", "/tmp/sess-1.jsonl"),
+              str(handoffmod.previous_session(con, "backend", "beta")))
+
+        snapshot(session_id="sess-1")
+        check("previous session: a snapshot with the id but no path takes the event's path for that id",
+              handoffmod.previous_session(con, "backend", "beta") == ("sess-1", "/tmp/sess-1.jsonl"),
+              str(handoffmod.previous_session(con, "backend", "beta")))
+
+        snapshot(session_id="sess-2")
+        got = handoffmod.previous_session(con, "backend", "beta")
+        check("previous session: the event's path is never lent to a different session",
+              got[0] == "sess-2" and got[1] != "/tmp/sess-1.jsonl", str(got))
+
+        snapshot(session_id="sess-2", transcript_path="/tmp/sess-2.jsonl")
+        check("previous session: a snapshot that names both is used as it is",
+              handoffmod.previous_session(con, "backend", "beta") == ("sess-2", "/tmp/sess-2.jsonl"),
+              str(handoffmod.previous_session(con, "backend", "beta")))
+    finally:
+        con.close()
+
+
 def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
     """Every other decision reads a row we wrote ourselves, which is how a state
     that went wrong stayed wrong. This is the half that asks the world instead,
@@ -5059,6 +5126,8 @@ def main() -> int:
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
         run(lambda: test_a_cold_wake_that_fails_leaves_no_handoff_behind(Path(td) / 'a_cold_wak'))
         run(lambda: test_a_wake_does_not_call_a_fresh_start_a_park(Path(td) / 'freshstart'))
+        run(lambda: test_a_move_prompt_says_nothing_of_a_request_or_a_missing_transcript(Path(td) / 'movepr'))
+        run(lambda: test_the_previous_sessions_transcript_path_can_come_from_its_own_hook_event(Path(td) / 'prevsess'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
         run(lambda: test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(Path(td) / 'sweepflaky'))
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))

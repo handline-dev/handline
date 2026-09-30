@@ -1192,7 +1192,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     db.link_request(con, tid, rid)
     db.mark_send_now(con, rid)      # T596: a handoff is typed on arrival, whatever its holder is doing
     db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
-                                            "request_id": rid})
+                                            "request_id": rid, "at": time.time()})
     if db.current_task(con, old) == tid:
         db.set_current_task(con, old, None)
         if advance_current_task(con, old):
@@ -1249,13 +1249,14 @@ def memos_of(con, tid: int) -> list[dict]:
 
 def task_timeline(con, tid: int) -> list[dict]:
     """T501: what happened on a task as one list, oldest first, for its page: memos and handoffs (a
-    note is a memo), each {ts, who, kind, text, memo (a memo's id, else None), edited_at}."""
-    out = [{"ts": m["created_at"], "who": m["author"], "kind": "memo", "text": m["body"],
+    note is a memo), each {ts, who, kind, text, memo (a memo's id, else None), edited_at}. Ordered by
+    the moment to the fraction of a second, so two in one second keep the order they happened in."""
+    out = [{"ts": int(m["created_at"]), "at": m["created_at"], "who": m["author"], "kind": "memo", "text": m["body"],
             "memo": m["id"], "edited_at": m["edited_at"]} for m in memos_of(con, tid)]
     for h in db.task_handoffs(con, tid):
-        out.append({"ts": h["ts"], "who": f"{h['from']} → {h['to']}", "kind": "handoff", "text": h["note"],
+        out.append({"ts": h["ts"], "at": h["at"], "who": f"{h['from']} → {h['to']}", "kind": "handoff", "text": h["note"],
                     "memo": None, "edited_at": None})
-    return sorted(out, key=lambda e: e["ts"])
+    return sorted(out, key=lambda e: e["at"])
 
 
 def _memo_guard(row, by: str) -> str | None:

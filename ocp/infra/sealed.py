@@ -67,20 +67,27 @@ def _migrated() -> bool:
     return protected.get(NS, MIGRATED) is not None
 
 
-def seal_everything() -> int:
+def seal_everything() -> list[tuple[str, str]]:
     """Seal team.yaml and every agent.yaml as they are now, and mark the seals
     as begun. The founder's act, by `ocp team seal` or the first founder-side
-    read of an installation from before seals."""
-    n = 0
+    read of an installation from before seals. Returns what this took on that
+    was not already sealed as it is: (label, "new" | "changed"), so the founder
+    sees exactly what they are trusting."""
+    adopted: list[tuple[str, str]] = []
+
+    def take(label: str, key: str, text: str) -> None:
+        digest, had = _digest(text), protected.get(NS, key)
+        if had is None or had.strip() != digest:
+            adopted.append((label, "new" if had is None else "changed"))
+        protected.put(NS, key, digest)
+
     p = paths.team_file()
     if p.exists():
-        protected.put(NS, TEAM, _digest(p.read_text()))
-        n += 1
+        take("team.yaml", TEAM, p.read_text())
     for name in paths.list_agents():
-        protected.put(NS, agent_key(name), _digest((paths.agent_dir(name) / "agent.yaml").read_text()))
-        n += 1
+        take(f"agent {name}", agent_key(name), (paths.agent_dir(name) / "agent.yaml").read_text())
     protected.put(NS, MIGRATED, "1")
-    return n
+    return adopted
 
 
 def state(key: str, text: str) -> str:

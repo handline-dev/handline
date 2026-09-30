@@ -138,7 +138,10 @@ class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
             w.disabled = True
         for w in self.query(Checkbox):
             w.disabled = True
-        result = await asyncio.to_thread(self._press, choices, text)
+        try:
+            result = await asyncio.to_thread(self._press, choices, text)
+        except Exception as e:  # noqa: BLE001 - a press that raised must still let the modal go
+            result = (False, f"{type(e).__name__}: {e}")
         self.dismiss(result)
 
     async def action_dismiss(self, result=None) -> None:

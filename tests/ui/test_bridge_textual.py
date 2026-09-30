@@ -1703,6 +1703,30 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
     check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
 
 
+async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> None:
+    """T355: a press that raises (db, orca) must not leave the modal disabled with esc blocked."""
+    from ocp.ui.bridge_textual import BridgeApp
+    from ocp.ui.components.question_modal import QuestionModal
+    _home("questionraises")
+    found = {"agent": "reviewer", "header": "h", "question": "which?", "multi_select": False, "other_number": None,
+             "other_text": None, "options": [{"label": "a"}, {"label": "b"}]}
+
+    def press(choices, text):
+        raise OSError("orca is gone")
+    started, got = [], []
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        modal = QuestionModal(found, press, lambda: started.append(1))
+        app.push_screen(modal, got.append)
+        await pilot.pause()
+        await modal._submit((0,), None)
+        await pilot.pause()
+        check("question: a press that raises dismisses the modal with (False, the reason)",
+              started == [1] and len(got) == 1 and got[0][0] is False and "orca is gone" in got[0][1], str(got))
+        check("question: and the modal is off the stack", modal not in app.screen_stack)
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -1803,6 +1827,17 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
         check("timeline: a handoff shows from and to",
               [(e["kind"], e["who"]) for e in actions.task_timeline(con, other)] == [("handoff", "backend → reviewer")],
               str(actions.task_timeline(con, other)))
+        actions.memo_add(con, other, "reviewer", "after the handoff")
+        ok, _, third = actions.task_new("product", "backend", "Third", "the work and its done")
+        actions.memo_add(con, third, "product", "before the handoff")
+        actions.assign_task(con, third, "reviewer", "handoff", "you take it")
+        actions.memo_add(con, third, "reviewer", "after the handoff")
+        kinds = lambda t: [(e["kind"], e["text"]) for e in actions.task_timeline(con, t)]
+        check("timeline T524: a memo made after a handoff in the same second sits after it, not before",
+              [k for k, _ in kinds(other)] == ["handoff", "memo"], str(kinds(other)))
+        check("timeline T524: memo, handoff, memo in one second keep the order they happened in",
+              [k for k, _ in kinds(third)] == ["memo", "handoff", "memo"]
+              and kinds(third)[0][1] == "before the handoff", str(kinds(third)))
     finally:
         con.close()
 
@@ -2195,6 +2230,7 @@ async def _run_all() -> None:
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
+    await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 

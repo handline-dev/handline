@@ -3451,6 +3451,8 @@ def test_team_and_agent_yaml_are_sealed_against_an_agents_hand(home: Path) -> No
     rc, out = cliteam_seal()
     check("sealed: the founder's `team seal` accepts both again",
           rc == 0 and "sealed 2" in out and "backend" in team.Team.load().agents
+          and "sealed team.yaml (it did not match its seal)" in out
+          and "sealed agent backend (it did not match its seal)" in out
           and agents.read("backend")["repo"] == "/elsewhere", out)
 
     saved = os.environ.get("OCP_AGENT")
@@ -3566,12 +3568,16 @@ def test_seals_begin_once_and_only_from_a_founder_read(home: Path) -> None:
             os.environ["OCP_AGENT"] = saved
     check("legacy: and begins nothing", marker() is None and protected.get(sealed.NS, key) is None)
 
-    doctor.run()
+    row = _doctor_row(doctor.run(), "seals have not begun")
+    check("legacy: doctor says seals have not begun, and names how they begin (T190)",
+          row is not None and row[0] == doctor.WARN and "team seal" in row[2], str(row))
     check("legacy: doctor sets no marker and seals nothing",
           marker() is None and protected.get(sealed.NS, key) is None
           and protected.get(sealed.NS, sealed.TEAM) is None)
 
     agents.read("old")
+    check("legacy: once seals begin doctor no longer says so",
+          _doctor_row(doctor.run(), "seals have not begun") is None)
     check("legacy: the first founder-side read seals every file and sets the marker",
           marker() is not None and protected.get(sealed.NS, key) is not None
           and protected.get(sealed.NS, sealed.TEAM) is not None)
