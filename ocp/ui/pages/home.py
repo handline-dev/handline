@@ -36,7 +36,6 @@ from ..components.tasks_view import TasksView
 from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
 from .stats import StatsScreen
-from .tasks import TasksScreen
 
 DOUBLE_PRESS_S = 0.5     # two presses on one row this close are a double press
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": tui.MESSAGES}
@@ -582,8 +581,8 @@ class HomePage(RowActions, JobsAware, Screen):
         if k == "S":     # T65b: token use per agent and account
             self.app.push_screen(StatsScreen())
             return
-        if k == "T":     # T69: every open task - free on every panel
-            self.app.push_screen(TasksScreen())
+        if k == "T":     # every open task: the Tasks tab, free on every panel
+            self.query_one("#scope", Tabs).active = "tasks"
             return
         if k == "b":     # the founder's done tasks waiting for a sign-off - free on every panel
             self.action_checks()
