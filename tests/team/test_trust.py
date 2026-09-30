@@ -52,11 +52,11 @@ def test_trust_roots(home: Path) -> None:
     check("trust: the proposal is on record", len(props) == 1, str(props))
     pid, rid = props[0]["id"], props[0]["request"]
     card = db.connect().execute(
-        "SELECT t.owner, t.opened_by, t.expects, t.closed_by FROM tasks t JOIN task_requests l "
+        "SELECT t.owner, t.opened_by, t.expects, t.done_evidence, t.discarded_by FROM tasks t JOIN task_requests l "
         "ON l.task_id = t.id WHERE l.request_id = ?", (rid,)).fetchone()
     check("trust: the proposal reaches the founder as a decision task of theirs",
           card is not None and card["owner"] == "human" and card["opened_by"] == "backend"
-          and card["expects"] == "decision" and not card["closed_by"], str(dict(card) if card else None))
+          and card["expects"] == "decision" and not (card["done_evidence"] or card["discarded_by"]), str(dict(card) if card else None))
 
     ok, msg = trustmod.apply(pid)
     check("trust: applying before the founder answers is refused", not ok, msg)

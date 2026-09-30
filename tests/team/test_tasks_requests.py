@@ -7552,7 +7552,8 @@ limits:
 
                 how(con, card)
                 taskqueue.sweep(con, lambda _m: None, now + taskqueue.RETRY_S + 1)
-                check(f"{label}: no block row is left", db.tasks_blocked_by(con, dec) == [])
+                check(f"{label}: it no longer reads blocked (a done blocker's row stays for a reopen)",
+                      db.task_blockers(con, t) == [])
                 check(f"{label}: its owner is told once it is unblocked", len(told()) == 1, str(len(told())))
                 if kind == "queued":
                     check(f"{label}: and it is its owner's current task again, as after any close",
@@ -7562,6 +7563,40 @@ limits:
             finally:
                 askmod.push = real_push
                 con.close()
+
+
+def test_a_done_blocker_releases_its_dependent_once_per_finish(home: Path) -> None:
+    """T568 (auditor #7022): a done blocker keeps its rows for a reopen, so the sweep that
+    catches a done written below the actions layer must release once per finish - not tell
+    the dependent again every tick, and again after a reopen and a new finish."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    real_push = askmod.push
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        blocker = db.new_task(con, "blocker", "manager", "manager")
+        dep = db.new_task(con, "dep", "worker", "manager")
+        db.add_block(con, dep, blocker)
+        told = lambda: [r for r in db.task_requests(con, dep)
+                        if r["requester"] == actions._UNBLOCK_REQUESTER and "is unblocked" in r["body"]]
+        ok, msg = actions.mark_task_done(con, blocker, "manager", reason="merged")
+        check("finish: done releases the dependent inline, and tells it", ok and len(told()) == 1, msg)
+        now = int(time.time())
+        taskqueue.sweep(con, lambda _m: None, now)
+        taskqueue.sweep(con, lambda _m: None, now + taskqueue.RETRY_S + 1)
+        check("finish: the sweep does not release it again", len(told()) == 1 and db.task_blockers(con, dep) == [])
+        ok, msg = actions.reopen_task(con, blocker, "manager", "not really")
+        check("finish: a reopen blocks it again", ok and [b["id"] for b in db.task_blockers(con, dep)] == [blocker], msg)
+        db.mark_task_done(con, blocker, "merged for real")         # written below the actions layer
+        taskqueue.sweep(con, lambda _m: None, now + 2 * taskqueue.RETRY_S + 2)
+        taskqueue.sweep(con, lambda _m: None, now + 3 * taskqueue.RETRY_S + 3)
+        events = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'released_at_done'").fetchone()[0]
+        check("finish: the second finish is released by the sweep, once",
+              events == 2 and len(told()) == 2 and db.task_blockers(con, dep) == [], f"{events} {len(told())}")
+    finally:
+        askmod.push = real_push
+        con.close()
 
 
 def test_a_blocker_that_cannot_be_released_does_not_stop_the_others(home: Path) -> None:
@@ -8333,6 +8368,7 @@ def main() -> int:
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
         run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(Path(td) / 'decsettle'))
+        run(lambda: test_a_done_blocker_releases_its_dependent_once_per_finish(Path(td) / 'oncefinish'))
         run(lambda: test_a_blocker_that_cannot_be_released_does_not_stop_the_others(Path(td) / 'relguard'))
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))

@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at   INTEGER NOT NULL,
   -- Unused since T568 dropped the close step: a done task is final. Kept
   -- because older databases carry them and earlier migrations still read
-  -- them; nothing writes or reads them now.
+  -- them; only migrations read them, and nothing writes them.
   closed_by    TEXT,
   closed_at    INTEGER,
   -- A discard (task #85): the asker throwing the task away before it is

@@ -2524,14 +2524,14 @@ edges:
         askmod.resolve(side[1], "no idea")
         row_w, row_d = db.get_task(con, work), db.get_task(con, decision)
         check("side ask: answering a question linked to a founder task does not finish that task",
-              not row_w["done_evidence"] and not row_w["closed_by"], str(dict(row_w)))
+              not db.task_ended(row_w), str(dict(row_w)))
         check("side ask: nor does one linked to a decision task decide it",
-              not row_d["done_evidence"] and not row_d["closed_by"], str(dict(row_d)))
+              not db.task_ended(row_d), str(dict(row_d)))
         ok, msg, more = askmod.ask(actions.HUMAN, "another side question", requester="orca")
         db.link_request(con, work, more)
         db.retire_queued(con, more, "replaced", "replaced by a newer one")
         check("side ask: retiring one leaves the founder's task open too",
-              db.get_request(con, more)["state"] != "queued" and not db.get_task(con, work)["closed_by"],
+              db.get_request(con, more)["state"] != "queued" and not db.task_ended(db.get_task(con, work)),
               str(dict(db.get_request(con, more))))
         ok, said = actions.answer_ok(con, side[0], "again")
         check("side ask: and a reply to a linked question is no decision", not db.get_task(con, work)["done_evidence"],
