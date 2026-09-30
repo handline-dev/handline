@@ -137,6 +137,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._answers: list[dict] = []
         self._removing = AnswerMarks()      # answers marked for removal; Save removes them
         self._checks_shown = False      # the Tasks tab is showing a header link's view now
+        self._focus_tab = False         # the tab being opened takes the focus into its content
         self._checks: str | None = None  # the next Tasks tab opens on "checks" (the founder's done tasks) or "delegated"
         self._hr_dot = False            # whether the HR tab wears its dot
         self._on = True                 # the blink phase
@@ -212,6 +213,9 @@ class HomePage(RowActions, JobsAware, Screen):
             else:
                 view.refresh_rows()
             self._checks_shown, self._checks = bool(self._checks), None
+            if self._focus_tab:
+                self._enter_tab()
+            self._focus_tab = False
         if self.tab == "stats":
             self.query_one("#stats_view", OutlookView).refresh_rows()
         if self.tab == "settings":
@@ -582,7 +586,12 @@ class HomePage(RowActions, JobsAware, Screen):
             self.app.push_screen(StatsScreen())
             return
         if k == "T":     # every open task: the Tasks tab, free on every panel
-            self.query_one("#scope", Tabs).active = "tasks"
+            tabs = self.query_one("#scope", Tabs)
+            if tabs.active == "tasks":
+                self._enter_tab()
+            else:
+                self._focus_tab = True      # the table takes the keys once the tab is shown, as the tasks screen did
+                tabs.active = "tasks"
             return
         if k == "b":     # the founder's done tasks waiting for a sign-off - free on every panel
             self.action_checks()

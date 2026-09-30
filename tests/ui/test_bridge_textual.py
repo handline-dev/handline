@@ -1747,6 +1747,11 @@ async def test_neither_tasks_tab_scrolls_sideways() -> None:
         check("tasks: T on the home page opens the Tasks tab, no screen of its own",
               app.screen.query_one("#scope", Tabs).active == "tasks" and type(app.screen).__name__ == "HomePage",
               type(app.screen).__name__)
+        table = app.screen.query_one("#tasks_table", DataTable)
+        await pilot.press("down")
+        await pilot.pause()
+        check("tasks: after T the table has the focus and ↓ moves its cursor",
+              app.focused is table and table.cursor_row == 1, f"focused {app.focused} row {table.cursor_row}")
     for width in (80, 100, 140):
         for name in ("home", "chat"):
             app = BridgeApp()
