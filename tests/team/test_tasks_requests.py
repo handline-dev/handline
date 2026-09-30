@@ -7958,6 +7958,32 @@ limits:
         cli_t = db.new_task(con, "to the founder via cli", "worker", "manager")
         rc, out = _cli(["task", "handoff", f"T{cli_t}", "human", "T509: needs your decision"], as_agent="worker")
         check("T509: the cli hands a task to human", rc == 0 and db.get_task(con, cli_t)["owner"] == "human", out)
+        for r in db.task_requests(con, cli_t):      # the founder's request answered or retired: the task is still theirs
+            if r["state"] == "queued":
+                con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (r["id"],))
+        check("T681: a task handed to the founder is delegated to them (for you), not a draft",
+              actions.task_state(con, db.get_task(con, cli_t)) in actions.DELEGATED_STATES,
+              actions.task_state(con, db.get_task(con, cli_t)))
+        cli_row = db.get_task(con, cli_t)
+        check("T681: a queued task of the founder with its request retired is not 'approved, but no request is out'",
+              actions.task_mismatch(con, cli_row, actions.task_state(con, cli_row),
+                                    [r for r in db.task_requests(con, cli_t) if r["state"] == "queued"]) is None)
+        # the ones handed before the fix read draft: the migration queues them
+        old_t = db.new_task(con, "handed long ago", "human", "manager")
+        db.add_event(con, "worker", "task_handoff", {"task_id": old_t, "from": "worker", "to": "human",
+                                                     "note": "x", "request_id": 0, "at": time.time()})
+        mine_t = db.new_task(con, "the founder's own draft", "human", "human")
+        check("T681: before the migration it is a draft", actions.task_state(con, db.get_task(con, old_t)) == "draft")
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:handed_to_founder_queued'")
+        from ocp.db import schema as dbschema
+        dbschema._handed_to_founder_are_queued(con)
+        old_row = db.get_task(con, old_t)
+        check("T681: and the migrated task shows no such warning either",
+              actions.task_mismatch(con, old_row, actions.task_state(con, old_row), []) is None)
+        check("T681: the migration queues a handed-over task and leaves the founder's own draft",
+              actions.task_state(con, db.get_task(con, old_t)) in actions.DELEGATED_STATES
+              and actions.task_state(con, db.get_task(con, mine_t)) == "draft",
+              f"{actions.task_state(con, db.get_task(con, old_t))} {actions.task_state(con, db.get_task(con, mine_t))}")
         rc, out = _cli(["task", "handoff", f"T{t}", "helper", "x"], as_agent="worker")
         check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
         # T401 item 17: --file, same as ocp ask/say/resolve, safe against a
