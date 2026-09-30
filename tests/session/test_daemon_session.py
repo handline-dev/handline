@@ -2670,7 +2670,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         orcamod.wait_idle = lambda h, timeout_ms=0: (waits.append(timeout_ms), True)[1]
         orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
         table = sessions_are()          # the launch types, and nothing comes up
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod.send = lambda h, text, enter=True: (sent.append(text) if text or not enter else None, (True, ""))[1]
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-8")
         support.something_waiting(con, "backend")
@@ -2845,6 +2845,8 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         table = sessions_are()
 
         def refused_while_someone_else_launches(h, text, enter=True):
+            if not text and enter:
+                return True, ""        # a launch's Enter on its own (T663)
             sent.append(text)
             if " launch " in text:
                 table["backend"] = 4300     # the hand-typed launch, no prompt file
