@@ -2267,13 +2267,13 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
               actions.message_place(con, old) == ("reviewer", 0))
 
         # Opening the agent's chat clears what it said from FOR YOU.
-        actions.for_you_seen(con, "reviewer")
+        top = con.execute("SELECT MAX(id) AS m FROM requests").fetchone()["m"]
+        actions.for_you_seen(con, "reviewer", top)
         check("for-you: opening the agent's chat empties what it said from the list",
               not [m for m in actions.messages(con) if m["from"] == "reviewer"],
               str(actions.messages(con)))
-        time.sleep(1.1)
-        again = say("after the chat was opened", "z1")
-        check("for-you: what it says after that is new again",
+        again = say("in the same second as the mark", "z1")
+        check("for-you: what it says after that is new again, even within the same second",
               [m["id"] for m in actions.messages(con) if m["from"] == "reviewer"] == [again])
     finally:
         con.close()

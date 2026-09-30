@@ -1407,19 +1407,8 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#compose", ChatBox).focus()
         if self._scope_wait == "all":
             self.query_one("#scope", Tabs).active = "all"
-        self._mark_for_you_seen()
         self.refresh_view()
         self.set_interval(2, self.refresh_view)
-
-    def on_unmount(self) -> None:
-        self._mark_for_you_seen()       # what it said while the chat was open is seen too
-
-    def _mark_for_you_seen(self) -> None:
-        con = db.connect()
-        try:
-            actions.for_you_seen(con, self.agent)
-        finally:
-            con.close()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "leave":
@@ -1580,6 +1569,8 @@ class ChatPage(JobsAware, Screen):
         msgs = messages_of(rows, self.agent)
         con = db.connect()
         try:
+            # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
+            actions.for_you_seen(con, self.agent, max((max(r["id"], r["answer_id"] or 0) for r in rows), default=0))
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
             changes = task_changes(con, msgs)
         finally:
