@@ -8618,6 +8618,59 @@ limits:
         con.close()
 
 
+def test_a_task_waiting_on_a_decision_that_settles_is_sent_when_it_does(home: Path) -> None:
+    """T577 (founder #6793): T458 waited on a decision task the founder dismissed. Settling the card
+    closed that task without the unblock event that marks a waiting task due afresh, so its old,
+    retired request read as handled and no sweep ever sent it: queued, unblocked, and never delivered."""
+    from ocp.daemon import taskqueue
+    for name, how in (("dismissed", lambda con, card: actions.dismiss(con, card, me=actions.HUMAN, reason="no")),
+                      ("answered", lambda con, card: askmod.resolve(card, "go ahead"))):
+        _board_world(home / name)
+        hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+        con = db.connect()
+        real_push = askmod.push
+        askmod.push = lambda _con, agent, rid=None: ""
+        try:
+            t = db.new_task(con, "the work", "worker", "manager")
+            actions.set_queued(con, t, "manager", True)
+            ok, msg = actions.release_task(con, t, "manager")
+            check(f"{name}: setup: the task went out and was released back to queued",
+                  ok and db.task_requests(con, t) and actions.task_state(con, db.get_task(con, t)) == "queued", msg)
+            ok, msg, card = actions.open_decision("manager", "which way?")
+            check(f"{name}: setup: the decision task opens", ok and card, msg)
+            dec = db.tasks_for_request(con, card)[0]["id"]
+            ok, msg = actions.add_block(con, t, dec, "manager")
+            check(f"{name}: setup: it waits on the decision task", ok, msg)
+            sent = len(db.task_requests(con, t))
+            now = int(time.time())
+            taskqueue.sweep(con, lambda _m: None, now)
+            check(f"{name}: blocked, it is not sent", len(db.task_requests(con, t)) == sent)
+
+            how(con, card)
+            check(f"{name}: the decision task is over and nothing blocks it any more",
+                  db.get_task(con, dec)["closed_by"] and not db.task_blockers(con, t))
+            taskqueue.sweep(con, lambda _m: None, now + taskqueue.RETRY_S + 1)
+            check(f"{name}: the sweep sends it to its owner, and it is current",
+                  len(db.task_requests(con, t)) == sent + 1 and db.current_task(con, "worker") == t,
+                  str(db.current_task(con, "worker")))
+        finally:
+            askmod.push = real_push
+            con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -9461,6 +9514,7 @@ def main() -> int:
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
+        run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_sent_when_it_does(Path(td) / 'decsettle'))
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
     return run_area(tests)
