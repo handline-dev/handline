@@ -220,6 +220,17 @@ def task_handoffs(con, tid: int) -> list[dict]:
     return out
 
 
+def recent_handoff_targets(con, by: str, scan: int = 200) -> list[str]:
+    """Who `by` last handed tasks to, newest first, each once (from its last `scan` handoffs)."""
+    out: list[str] = []
+    for r in con.execute("SELECT payload FROM events WHERE kind = 'task_handoff' AND agent = ? "
+                         "ORDER BY id DESC LIMIT ?", (by, scan)):
+        to = json.loads(r["payload"] or "{}").get("to")
+        if to and to not in out:
+            out.append(to)
+    return out
+
+
 def link_request(con, tid: int, rid: int) -> None:
     con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) VALUES (?, ?)",
                 (tid, rid))

@@ -260,8 +260,8 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
     check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
     line = page["timeline"][0].plain
-    check("page: a timeline entry is one line - when, who, kind, first line of text, when edited",
-          "\n" not in line and " o  memo  a memo" in line and "second" not in line and "edited" in line, line)
+    check("page: a timeline entry is its first line, then the rest of its text, and when it was edited",
+          " o  memo  a memo" in line and line.split("\n")[1:] == ["    second line  · edited 1970-01-01 09:00"], line)
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
@@ -419,10 +419,10 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     """T438: a message is one Static, not one widget per part; this is what it says."""
     from ocp.ui import chat_page as cp
     m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
-         "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3}
+         "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3, "to": "reviewer"}
     t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
-    check("text: a task card is the one line, time TASK T<n> : title, and nothing else",
-          len(t) == 1 and t[0].endswith("TASK T418 : Fix it"), str(t))
+    check("text: a task card is TASK T<n> : title, then what happened; who and when are above it, not in it",
+          t == ["TASK T418 : Fix it", "assigned to reviewer"], str(t))
     reply = {**m, "kind": None, "tasks": [], "task_title": None, "task_state": None, "who": "you", "side": "you",
              "rid": 5934, "mid": 5934, "text": "반영됨?", "reply_to": 5928}
     check("text: a reply not picked is one line, the link and the text",
@@ -684,8 +684,8 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         db.link_request(con, doing, rid)
         con.commit()
         can = {tid: cp.task_detail(con, tid)["can_discard"] for tid in (mine, theirs, done, doing)}
-        check("discard: offered on a waiting or doing task the founder asked for, not one done or another's",
-              can == {mine: True, theirs: False, done: False, doing: True}, str(can))
+        check("discard: offered on any waiting or doing task, whoever asked for it, not on one done",
+              can == {mine: True, theirs: True, done: False, doing: True}, str(can))
         check("discard: the doing task is the one with a request queued",
               ok and cp.task_detail(con, doing)["state"] == "doing")
         ok, said = actions.discard_task(con, mine, actions.HUMAN, "not needed")
@@ -724,6 +724,25 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
                            (f"T{begun} discarded%stop work%",)).fetchall()
         check("discard: and discarding it with stop tells its owner exactly once", ok and len(told) == 1,
               f"{said} {len(told)}")
+        given = db.new_task(con, "handed to the founder", actions.HUMAN, "reviewer")
+        other_given = db.new_task(con, "someone else's, an agent's", "backend", "reviewer")
+        check("discard T660: offered on a task assigned to the founder and on an agent's own",
+              cp.task_detail(con, given)["can_discard"] and cp.task_detail(con, other_given)["can_discard"])
+        ok, said = actions.discard_task(con, given, actions.HUMAN, "not needed")
+        told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
+                           (f"T{given} discarded by the founder: not needed",)).fetchall()
+        check("discard T660: the opener is told once, by the founder, with the reason", ok and len(told) == 1,
+              f"{said} {len(told)}")
+        ok, said = actions.discard_task(con, other_given, actions.HUMAN, "not needed either")
+        told = {tgt: con.execute("SELECT COUNT(*) FROM requests WHERE target = ? AND body LIKE ?",
+                                 (tgt, f"T{other_given} discarded by the founder: not needed either")).fetchone()[0]
+                for tgt in ("backend", "reviewer")}
+        check("discard T660: the founder discarding an agent-to-agent task tells its owner and its opener once each",
+              ok and told == {"backend": 1, "reviewer": 1}, f"{said} {told}")
+        own = db.new_task(con, "its own", "reviewer", "reviewer")
+        ok, said = actions.discard_task(con, own, "reviewer", "mine, gone")
+        check("discard T660: an opener discarding its own task is told nothing", ok and not con.execute(
+            "SELECT 1 FROM requests WHERE target = 'reviewer' AND body LIKE ?", (f"T{own} discarded%",)).fetchone(), said)
     finally:
         con.close()
 
@@ -1010,7 +1029,20 @@ def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
     card = cp.message_parts({**m, "task_title": "T", "task_state": "queued"})[0].plain
     check("card: a task delivery keeps its kind and T number for the card, not the head", "T418" not in card)
     line = cp.card_lines({**m, "task_title": "Fix it", "change": "queued -> doing"}).plain
-    check("card: a change is a second line, the change alone", line.endswith("TASK T418 : Fix it\n  queued -> doing"), line)
+    check("card: a change is a second line, the change alone, with no who or time in it",
+          line == "TASK T418 : Fix it\nqueued -> doing", line)
+    new = {**m, "task_title": "Fix it", "to": "orcapipe.core"}
+    check("card: a new task says whom it was assigned to", cp.card_lines(new).plain.endswith("\nassigned to orcapipe.core"))
+    check("card: above it, who and when, and NEW for a delivery",
+          cp.card_head({**new, "who": "a → b", "when": 100}).plain.split("  ")[0] == "a → b"
+          and cp.card_head({**new, "who": "a → b"}).plain.endswith("NEW"))
+    check("card: the founder is shown as you, as in a message head",
+          cp.card_head({**new, "who": actions.HUMAN, "change": "title changed"}).plain.startswith("you  "))
+    check("card: CHANGED for a change to a task",
+          cp.card_head({**new, "who": "reviewer", "change": "queued -> doing"}).plain.endswith("CHANGED"))
+    check("head: a say carries no kind label, another kind still does",
+          "say" not in cp.message_parts({**m, "kind": "say", "tasks": []})[0].plain
+          and "ask" in cp.message_parts({**m, "kind": "ask"})[0].plain)
     check("card: a task note stays a row labelled task note T406",
           cp.message_parts({**m, "kind": "task_note", "tasks": [406]})[0].plain.endswith("task note  T406"))
     check("head: a reply part shows neither", "task" not in cp.message_parts({**m, "part": 1})[0].plain)
@@ -1737,6 +1769,94 @@ async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> N
         check("question: and the modal is off the stack", modal not in app.screen_stack)
 
 
+async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> None:
+    import html, re
+    from textual.app import App
+    from ocp.ui import chat_page as cp
+    _home("timeline_ui")
+    from ocp.ui.components.task_assign import TaskAssign
+    ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
+    con = db.connect()
+    try:
+        actions.memo_add(con, tid, "backend", "a short one")
+        actions.memo_add(con, tid, "backend", "top line\nsecond of three\nthird of three")
+        actions.memo_add(con, tid, "backend", " ".join(f"word{i}" for i in range(1, 41)))
+    finally:
+        con.close()
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield cp.TaskBody(tid)
+
+    app = Host()
+    async with app.run_test(size=(80, 45)) as pilot:
+        await pilot.pause(0.5)
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        lines = shown.split("\n")
+        check("timeline ui: a several-line memo shows its later lines",
+              "second of three" in shown and "third of three" in shown)
+        check("timeline ui: a memo longer than the row shows its last word, not an ellipsis",
+              "word40" in shown and "…" not in shown)
+        check("timeline ui: the icons sit on the first line of an entry, and a short one stays one line",
+              any("top line" in ln and "✎" in ln for ln in lines) and any("a short one" in ln and "✎" in ln for ln in lines))
+        d = TaskAssign("T1", "backend", ["analytics", "backend", "frontend", "reviewer"], ["frontend"])
+        check("assign to: with the holder's whole team recent, the other teams are still labelled",
+              [label for label, _ in d.options] == ["frontend  (recent)", "analytics  (other team)", "reviewer  (other team)"],
+              str(d.options))
+
+
+async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
+    """T525: a memo or a handoff made while the page is open appears on the next poll."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("livetimeline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        cp.TaskBody.POLL_S = 0.05
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause()
+        body = app.screen.query_one(cp.TaskBody)
+        con = db.connect()
+        try:
+            actions.memo_add(con, tid, "reviewer", "posted while it was open")
+        finally:
+            con.close()
+        for _ in range(60):     # the page's own timer, no poll() by hand
+            await pilot.pause(0.05)
+            if body.d and body.d["timeline"]:
+                break
+        cp.TaskBody.POLL_S = 2
+        body._poller.stop()     # what follows calls poll() by hand
+        check("task page: its own timer draws a memo an agent added while it was open",
+              [e["text"] for e in body.d["timeline"]] == ["posted while it was open"], str(body.d["timeline"]))
+        loads = []
+        real = body.load
+        body.load = lambda: (loads.append(1), real())[1]
+        body.poll()
+        check("task page: a poll with nothing new leaves the page alone", loads == [])
+        con = db.connect()
+        try:
+            actions.memo_add(con, tid, "reviewer", "found the cause")
+        finally:
+            con.close()
+        body.poll()
+        await pilot.pause()
+        check("task page: a memo added meanwhile is drawn on the next poll",
+              [e["text"] for e in body.d["timeline"]] == ["posted while it was open", "found the cause"]
+              and len(loads) == 1, str(body.d["timeline"]))
+        body.poll()
+        check("task page: and the poll after that leaves it alone again", len(loads) == 1)
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -1792,13 +1912,74 @@ def test_agents_data_scans_the_open_tasks_once_for_all_agents() -> None:
         con.close()
 
 
-def test_assign_offers_the_holders_team_first() -> None:
+def test_assign_offers_recent_targets_then_the_holders_team() -> None:
     _home("assign_team")
+    from ocp.ui import chat_page as cp
     everyone = ["analytics", "backend", "frontend", "marketing", "reviewer"]
     check("assign to: the holder's own team, then the rest, without the holder",
-          actions.assign_targets("backend", everyone) == (["frontend"], ["analytics", "marketing", "reviewer"]))
+          actions.assign_targets("backend", everyone) == ([], ["frontend"], ["analytics", "marketing", "reviewer"]))
     check("assign to: a holder in no team has no own team, and everyone is offered",
-          actions.assign_targets("human", everyone) == ([], everyone))
+          actions.assign_targets("human", everyone) == ([], [], everyone))
+    check("assign to: recent targets come first, newest first, and are not listed twice; the holder and strangers are dropped",
+          actions.assign_targets("backend", everyone, ["marketing", "backend", "nobody", "frontend", "marketing"])
+          == (["marketing", "frontend"], [], ["analytics", "reviewer"]))
+    agents.register("archivist")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        check("assign to: nobody was handed anything yet", actions.recent_assignees(con) == [])
+        ok, _, t1 = actions.task_new("product", "backend", "One", "the work and its done")
+        ok, _, t2 = actions.task_new("product", "backend", "Two", "the work and its done")
+        said = [actions.assign_task(con, t1, "archivist", "handoff", "you take it"),
+                actions.assign_task(con, t2, "archivist", "handoff", "you take it"),
+                actions.assign_task(con, t2, "reviewer", "handoff", "you review it"),
+                actions.assign_task(con, t2, "archivist", "handoff", "back")]
+        check("assign to: the handoffs used here went through", all(ok for ok, _ in said), str(said))
+        check("assign to: the founder's handoffs, newest first, each target once",
+              actions.recent_assignees(con) == ["archivist", "reviewer"], str(actions.recent_assignees(con)))
+    finally:
+        con.close()
+
+
+def test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole() -> None:
+    from ocp.ui import chat_page as cp
+    entry = {"ts": 1_700_000_000, "who": "reviewer", "kind": "memo", "text": "short", "memo": 1, "edited_at": None}
+    one = cp.timeline_text(entry).plain
+    many = cp.timeline_text({**entry, "text": "first line\nsecond line\n  third\n"}).plain
+    check("timeline: a one-line entry is one line", "\n" not in one and one.endswith("short"), one)
+    check("timeline: a several-line entry keeps every line, the later ones indented under the first",
+          many.split("\n")[1:] == ["    second line", "      third"] and many.split("\n")[0].endswith("first line"), many)
+
+
+def test_schedules_are_built_read_and_written_through_actions() -> None:
+    _home("schedules")
+    cron = actions.schedule_cron
+    check("schedule: each kind builds its cron",
+          [cron("every day", "9", "30"), cron("weekdays", "9", "0"), cron("every week", "18", "5", 1),
+           cron("every hour", minute="15"), cron("every N minutes", every="10")]
+          == ["30 9 * * *", "0 9 * * 1-5", "5 18 * * 1", "15 * * * *", "*/10 * * * *"])
+    for bad in (("every day", "24", "0"), ("every day", "9", "60"), ("every N minutes", "9", "0", 1, "0"),
+                ("sometimes", "9", "0")):
+        try:
+            cron(*bad)
+            check(f"schedule: {bad} is refused", False)
+        except ValueError:
+            check(f"schedule: {bad} is refused", True)
+    check("schedule: what it builds reads back in words, and anything else stays as written",
+          [actions.schedule_words(c) for c in ("30 9 * * *", "0 9 * * 1-5", "5 18 * * 1", "15 * * * *", "*/10 * * * *", "0 0 1 * *")]
+          == ["every day 09:30", "weekdays 09:00", "Mon 18:05", "every hour at :15", "every 10 minutes", "0 0 1 * *"])
+    check("schedule: an agent starts with none", actions.schedule_rows("backend") == [])
+    actions.schedule_add("backend", cron("weekdays", "9", "0"), "  check   the board ")
+    rows = actions.schedule_rows("backend")
+    check("schedule: an added one is listed with its next run and a one-line message",
+          [(r["cron"], r["message"]) for r in rows] == [("0 9 * * 1-5", "check the board")] and rows[0]["next"] != "never")
+    try:
+        actions.schedule_add("backend", "not a cron", "x")
+        check("schedule: a bad cron is refused", False)
+    except ValueError:
+        check("schedule: a bad cron is refused", len(actions.schedule_rows("backend")) == 1)
+    actions.schedule_remove("backend", 1)
+    check("schedule: a removed one is gone", actions.schedule_rows("backend") == [])
 
 
 def test_assign_answers_from_the_task_page() -> None:
@@ -2011,6 +2192,40 @@ def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
           str([m.get("change") or m["rid"] for m in merged]))
 
 
+def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
+    """Founder #7364: above the card, who changed it; inside, what happened - each written by
+    the real action, not a hand-made event."""
+    from ocp.ui import chat_page as cp
+    _home("changewho")
+    agents.register("reviewer")
+    agents.register("backend")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        con.commit()
+        steps = (lambda: actions.edit_task(con, t, actions.HUMAN, title="the new work"),
+                 lambda: actions.edit_task(con, t, actions.HUMAN, priority=1),
+                 lambda: actions.task_handoff(con, "reviewer", t, "backend", "yours now"),
+                 lambda: actions.edit_task(con, t, actions.HUMAN, owner="reviewer"))
+        for at, step in enumerate(steps, 300):
+            ok, said = step()
+            check(f"changes: the action itself worked ({at})", ok, said)
+            con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (at,))
+        con.commit()
+        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+        for m in msgs:
+            m["when"] = 100
+        changes = [c for c in cp.task_changes(con, msgs) if c["when"] >= 300]
+    finally:
+        con.close()
+    got = [(c["who"], c["change"]) for c in changes]
+    check("changes: each names who made it and says what changed, a handoff and an owner edit say to whom",
+          got == [(actions.HUMAN, "title changed"), (actions.HUMAN, "priority P2 -> P1"),
+                  ("reviewer", "handed to backend"), (actions.HUMAN, "assigned to reviewer")], str(got))
+
+
 def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
     """T601: `task new`, a handoff and the queue sweep log no start; the delivery's landing says when."""
     from ocp.ui import chat_page as cp
@@ -2054,8 +2269,11 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
         page = cp.ChatPage("reviewer")
         await app.push_screen(page)
         await pilot.pause()
-        cards = [w.render().plain if hasattr(w, "render") else "" for w in page.query(cp.TaskChange)]
-        check("chat: a task's change is a card of its own", len(cards) == 1 and "queued -> doing" in cards[0], str(cards))
+        cards = [(w.query_one(".cardhead").content.plain, w.query_one(".cardbox").content.plain)
+                 for w in page.query(cp.TaskChange)]
+        check("chat: a task's change is a card of its own, who and CHANGED above, the change inside",
+              len(cards) == 1 and "queued -> doing" in cards[0][1] and "CHANGED" in cards[0][0]
+              and "reviewer" not in cards[0][1], str(cards))
 
 
 async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() -> None:
@@ -2104,6 +2322,67 @@ async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() ->
             con.close()
         drawn = [w.m["rid"] for w in page.query(cp.ChatMessage)]
         check("for-you chat: a message older than one page is drawn", old in drawn, str(drawn[:3]))
+
+
+async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed() -> None:
+    import html, re
+    from textual.app import App
+    from textual.widgets import Select
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components.ime import ImeInput
+    from ocp.ui.components.schedule_add import ScheduleAdd
+    from ocp.ui.components.schedules_section import SchedulesSection
+    _home("schedules_ui")
+    actions.schedule_add("backend", "0 9 * * *", "first one")
+    actions.schedule_add("backend", "30 18 * * 1-5", "second one")
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield SchedulesSection("backend")
+
+    app = Host()
+
+    def screen_text() -> str:
+        return html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        check("schedules ui: both schedules are listed, in words", "every day 09:00" in screen_text()
+              and "weekdays 18:30" in screen_text() and "first one" in screen_text() and "second one" in screen_text())
+        got: list = []
+        form = ScheduleAdd()
+        await app.push_screen(form, got.append)
+        await pilot.pause()
+        form.query_one("#sa_kind", Select).value = "every week"
+        await pilot.pause()
+        form.query_one("#sa_hour", ImeInput).value = "18"
+        form.query_one("#sa_minute", ImeInput).value = "05"
+        form.query_one("#sa_message", ImeInput).value = "  weekly   note "
+        check("schedules ui: 'every week' shows the day", form.query_one("#sa_day_row").display)
+        form.query_one("#sa_kind", Select).value = "every N minutes"
+        await pilot.pause()
+        check("schedules ui: 'every N minutes' hides the time and shows the interval",
+              not form.query_one("#sa_time_row").display and form.query_one("#sa_every_row").display)
+        form.query_one("#sa_kind", Select).value = "every hour"
+        await pilot.pause()
+        check("schedules ui: 'every hour' keeps the minute and hides the hour",
+              form.query_one("#sa_time_row").display and not form.query_one("#sa_hour").display)
+        form.query_one("#sa_kind", Select).value = "every week"
+        await pilot.pause()
+        await pilot.click("#sa_add")
+        await pilot.pause()
+        check("schedules ui: Add dismisses with the cron built from the fields and a one-line message",
+              got == [("5 18 * * 1", "weekly note")], str(got))
+        await pilot.click("#sc_rm_2")
+        await pilot.pause()
+        await pilot.click("#yes")
+        await pilot.pause()
+        left = actions.schedule_rows("backend")
+        check("schedules ui: the row pressed is the one removed, on disk and on screen",
+              [r["message"] for r in left] == ["first one"] and "first one" in screen_text()
+              and "second one" not in screen_text(), str(left))
 
 
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
@@ -2214,6 +2493,49 @@ async def test_the_shared_task_view_draws_the_brief() -> None:
         check("brief: a task that is gone leaves no brief either", "second line" not in shown)
 
 
+def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
+    """T623 (founder #7145/#7151): a `say --parent` to an agent's message still queued for the human is
+    stored as its verdict; drawn as one, it still names the message it answers."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("replylink")
+    agents.register("reviewer")
+    ok, _, said = askmod.say(actions.HUMAN, "anything for me?", requester="reviewer")
+    con = db.connect()
+    try:
+        ok, _ = cp.send_reply(con, "reviewer", said, "yes, this")
+        rows, _ = cp.requests_page(con, "reviewer", False)
+        msgs = cp.messages_of(rows, "reviewer")
+        reply = next(m for m in msgs if m["part"] == 1)
+        check("reply link: the founder's reply is a reply to the message it answers",
+              ok and reply["text"] == "yes, this" and reply["reply_to"] == said, str(msgs))
+        check("reply link: it is drawn with the link", cp.message_text(reply, True, False, "me").plain
+              .split("\n")[1].startswith(f"↩ #{said}"), cp.message_text(reply, True, False, "me").plain)
+    finally:
+        con.close()
+
+
+def test_the_founders_reply_to_a_report_draws_its_link() -> None:
+    """T623 (founder #7738): a reply to an --fyi say, which asked nothing, names it too."""
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("replyreport")
+    agents.register("reviewer")
+    ok, _, said = askmod.ask(actions.HUMAN, "done, FYI", requester="reviewer", fyi=True)
+    con = db.connect()
+    try:
+        ok, sent = cp.send_reply(con, "reviewer", said, "thanks, one question")
+        rows, _ = cp.requests_page(con, "reviewer", False)
+        msgs = cp.messages_of(rows, "reviewer")
+        mine = [m for m in msgs if m["text"] == "thanks, one question"]
+        check("reply link: a reply to a report is drawn once, as a reply to it",
+              ok and len(mine) == 1 and mine[0]["reply_to"] == said, f"{sent} {msgs}")
+        check("reply link: and drawn with the link", mine and cp.message_text(mine[0], True, False, "me").plain
+              .split("\n")[1].startswith(f"↩ #{said}"), str(mine))
+    finally:
+        con.close()
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -2228,9 +2550,12 @@ async def _run_all() -> None:
     test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery()
     test_background_work_alone_is_not_working()
     test_the_chat_numbers_an_answer_by_its_own_row()
+    test_the_founders_reply_to_a_waiting_message_draws_its_link()
+    test_the_founders_reply_to_a_report_draws_its_link()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
     test_task_changes_are_set_among_the_messages_at_their_time()
+    test_a_change_names_who_made_it_and_an_assignment_says_to_whom()
     test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event()
     test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
@@ -2270,7 +2595,9 @@ async def _run_all() -> None:
     test_the_bridge_stylesheet_parses()
     test_the_open_task_counts_read_once_and_match_the_one_agent_count()
     test_agents_data_scans_the_open_tasks_once_for_all_agents()
-    test_assign_offers_the_holders_team_first()
+    test_schedules_are_built_read_and_written_through_actions()
+    test_assign_offers_recent_targets_then_the_holders_team()
+    test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole()
     test_assign_answers_from_the_task_page()
     test_a_task_page_shows_every_line_of_a_multi_line_task()
     await test_the_shared_task_view_draws_the_brief()
@@ -2290,7 +2617,10 @@ async def _run_all() -> None:
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
+    await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
+    await test_an_open_task_page_shows_what_an_agent_adds_without_reopening()
     await test_a_blocked_task_says_so_where_working_would_be()
+    await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
 
 

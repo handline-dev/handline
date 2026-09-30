@@ -31,11 +31,12 @@ class TaskAssign(ModalScreen["tuple[str, str, str] | None"]):
     TaskAssign #ta_buttons Button { width: auto; min-width: 0; margin-right: 2; }
     """
 
-    def __init__(self, ref: str, holder: str, agents: list[str]) -> None:
+    def __init__(self, ref: str, holder: str, agents: list[str], recent=()) -> None:
         super().__init__()
         self.ref, self.holder = ref, holder
-        team, rest = actions.assign_targets(holder, agents)
-        self.options = [(a, a) for a in team] + [(f"{a}  (other team)" if team else a, a) for a in rest]
+        first, team, rest = actions.assign_targets(holder, agents, recent)
+        self.options = ([(f"{a}  (recent)", a) for a in first] + [(a, a) for a in team]
+                        + [(f"{a}  (other team)" if actions.has_team(holder) else a, a) for a in rest])
         self.others = [a for _, a in self.options]
 
     def compose(self) -> ComposeResult:

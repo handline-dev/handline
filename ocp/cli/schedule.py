@@ -2,35 +2,17 @@
 adding and removing write agent.yaml, which only the founder's terminal may."""
 from __future__ import annotations
 
-import json
-import time
-
+from .. import actions
 from ..daemon import schedules
-from ..infra import cron
-from ..team import agents
-
-
-def _next(item: dict) -> str:
-    n = cron.next_after(cron.parse(item["cron"]), int(time.time()))
-    return time.strftime("%m-%d %H:%M", time.localtime(n)) if n else "never"
 
 
 def _show(agent: str) -> None:
-    items = schedules.load(agent)
-    if not items:
+    rows = actions.schedule_rows(agent)
+    if not rows:
         print(f"{agent}: no schedules")
         return
-    for i, it in enumerate(items, 1):
-        print(f"{agent} {i}. {it['cron']}  next {_next(it)}  - {it['message']}")
-
-
-def _write(agent: str, items: list[dict]) -> None:
-    cfg = agents.read(agent)
-    if items:
-        cfg["schedules"] = json.dumps(items)
-    else:
-        cfg.pop("schedules", None)
-    agents.write(agent, cfg)
+    for i, it in enumerate(rows, 1):
+        print(f"{agent} {i}. {it['cron']}  next {it['next']}  - {it['message']}")
 
 
 def cmd_schedule(args) -> int:
@@ -42,18 +24,16 @@ def cmd_schedule(args) -> int:
         if not args.agent:
             print("--agent is needed")
             return 1
-        items = schedules.load(args.agent)
         if args.action == "add":
             if not args.cron or not args.message:
                 print("add needs --cron and --message")
                 return 1
-            items = schedules.parse(items + [{"cron": args.cron, "message": args.message}])
+            actions.schedule_add(args.agent, args.cron, args.message)
         else:
-            if not args.index or not 1 <= args.index <= len(items):
-                print(f"remove needs --index 1..{len(items)}")
+            if not args.index:
+                print(f"remove needs --index 1..{len(schedules.load(args.agent))}")
                 return 1
-            del items[args.index - 1]
-        _write(args.agent, items)
+            actions.schedule_remove(args.agent, args.index)
         _show(args.agent)
         return 0
     except (ValueError, FileNotFoundError, PermissionError) as e:

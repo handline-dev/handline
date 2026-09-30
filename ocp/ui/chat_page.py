@@ -44,6 +44,7 @@ from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.section_head import SectionHead
+from .components.schedules_section import SchedulesSection
 from .components.task_assign import TaskAssign
 from .components.switch_row import SwitchRow
 
@@ -128,29 +129,53 @@ _STATE_AFTER = {"draft_task": "draft", "queue_task": "queued", "task_begin": "do
                 "reopen_task": "queued"}
 
 
+def _edit_notes(payload: dict) -> list[str]:
+    """What an `edit_task` event says, one note per field the chat shows."""
+    notes = []
+    if "owner" in payload:
+        notes.append(f"assigned to {payload['owner']['new']}")
+    if "title" in payload:
+        notes.append("title changed")
+    if "priority" in payload:
+        notes.append(f"priority {payload['priority']['old']} -> {payload['priority']['new']}")
+    return notes
+
+
 def task_changes(con, msgs: list[dict]) -> list[dict]:
-    """The state changes, since the first of `msgs`, of the tasks delivered in them, as entries for
-    the chat: {change: "queued -> doing", tasks, task_title, when}. A task starts as queued."""
+    """The changes, since the first of `msgs`, of the tasks delivered in them, as entries for the
+    chat: {change: "queued -> doing", who, tasks, task_title, when}. A task starts as queued."""
     cards = {m["tasks"][0]: m["task_title"] for m in msgs if is_card(m)}
     if not cards:
         return []
     since = min((m["when"] for m in msgs if m["when"]), default=0)
     marks = ",".join("?" * len(cards))
-    kinds = tuple(_STATE_AFTER)
+    kinds = (*_STATE_AFTER, "task_handoff", "edit_task")
     events = con.execute(
-        f"SELECT ts, kind, {db.EVENT_TASK} AS tid FROM events WHERE kind IN ({','.join('?' * len(kinds))}) "
+        f"SELECT ts, agent, kind, payload, {db.EVENT_TASK} AS tid FROM events "
+        f"WHERE kind IN ({','.join('?' * len(kinds))}) "
         f"AND {db.EVENT_TASK} IN ({marks}) ORDER BY id", (*kinds, *cards)).fetchall()
-    steps = [(e["ts"], e["tid"], _STATE_AFTER[e["kind"]]) for e in events]
+    steps = []      # (time, task, who, the state it reaches or None, what to say instead)
+    for e in events:
+        if e["kind"] in _STATE_AFTER:
+            steps.append((e["ts"], e["tid"], e["agent"], _STATE_AFTER[e["kind"]], None))
+            continue
+        payload = json.loads(e["payload"])
+        notes = [f"handed to {payload['to']}"] if e["kind"] == "task_handoff" else _edit_notes(payload)
+        steps += [(e["ts"], e["tid"], e["agent"], None, note) for note in notes]
     for m in msgs:      # every delivery leaves when the task reached its owner, which is when it became doing
         if is_card(m) and m["landing"] == "delivered" and m["when"]:
-            steps.append((m["when"], m["tasks"][0], "doing"))
+            steps.append((m["when"], m["tasks"][0], m["to"], "doing", None))
     state: dict[int, str] = {}
     out = []
-    for ts, tid, after in sorted(steps, key=lambda step: step[0]):
-        before = state.get(tid, "queued")
-        state[tid] = after
-        if before != after and ts >= since:
-            out.append({"change": f"{before} -> {after}", "tasks": [tid], "task_title": cards[tid], "when": ts})
+    for ts, tid, who, after, note in sorted(steps, key=lambda step: step[0]):
+        if after is not None:
+            before = state.get(tid, "queued")
+            state[tid] = after
+            if before == after:
+                continue
+            note = f"{before} -> {after}"
+        if ts >= since:
+            out.append({"change": note, "who": who, "tasks": [tid], "task_title": cards[tid], "when": ts})
     return out
 
 
@@ -235,7 +260,7 @@ def messages_of(rows, agent: str) -> list[dict]:
                          "task_title": _col(r, "task_title"), "task_state": _col(r, "task_state"),
                          "delivered": landing == "delivered",
                          "landing": landing,
-                         "reply_to": _col(r, "parent_id") if part == 0 else None,
+                         "reply_to": _col(r, "parent_id") if part == 0 else r["id"] if speaker == human else None,   # the founder's reply is linked
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
     msgs.sort(key=lambda m: m["_key"])
@@ -305,7 +330,7 @@ def task_detail(con, tid: int) -> dict | None:
             "merged_into": t["merged_into"],
             "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued", "doing") and mine,
+            "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing")}
 
 
@@ -468,18 +493,29 @@ def is_card(m: dict) -> bool:
     return m.get("part") == 0 and m.get("kind") == "task" and bool(m.get("tasks"))
 
 
+def card_head(m: dict) -> Text:
+    """Above a task card, as over a message: who made the change and when, and whether the card
+    is a new task or a change to one."""
+    stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m.get("when") else ""
+    new = "change" not in m
+    who = "you" if m["who"] == actions.HUMAN else safe(m["who"])
+    out = Text(f"{who}  {stamp}  ", style="bold")
+    out.append("NEW" if new else "CHANGED", style="bold green" if new else "bold yellow")
+    return out
+
+
 def card_lines(m: dict) -> Text:
-    """A task in the chat, as little as it takes: the time, TASK T<n> and the title on one line (cut
-    to the room, and a click opens the task), then, for a change of state, the change alone."""
+    """A task in the chat, inside its box: TASK T<n> and the title on one line (cut to the room, and a
+    click opens the task), then what happened - a new task says whom it went to, a change says
+    what changed."""
     tid = m["tasks"][0]
     go = {"@click": f"screen.open_task({tid})"}
-    stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m.get("when") else ""
-    out = Text(f"{stamp} TASK ", style="dim", no_wrap=True, overflow="ellipsis")
+    out = Text("TASK ", style="dim", no_wrap=True, overflow="ellipsis")
     out.append(actions.task_ref(tid), style=Style(bold=True, underline=True, meta=go))
     out.append(" : ", style="dim")
     out.append(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go))
-    if m.get("change"):
-        out.append("\n  " + m["change"], style=STATE_STYLE.get(m["change"].rsplit(" ", 1)[-1], ""))
+    said = m.get("change") or f"assigned to {safe(m['to'])}"
+    out.append("\n" + said, style=STATE_STYLE.get(said.rsplit(" ", 1)[-1], ""))
     return out
 
 
@@ -516,7 +552,7 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     body = link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else ""))
     stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
     head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
-    if m.get("part") == 0 and m.get("kind") and not is_card(m):
+    if m.get("part") == 0 and m.get("kind") not in (None, "say") and not is_card(m):
         head.append("  " + safe(m["kind"]).replace("_", " "), style="dim")
         for t in m.get("tasks", ()):
             head.append(f"  {actions.task_ref(t)}", style="bold cyan")
@@ -530,14 +566,16 @@ TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note"}
 
 
 def timeline_text(e: dict) -> Text:
-    """One entry of a task's timeline as a line: when, who, what kind, its text (first line);
-    a memo that was edited says when."""
-    line = safe((e["text"].strip().splitlines() or [""])[0])
+    """One entry of a task's timeline: when, who, what kind and its text. A text that fits the line
+    stays on it; one of several lines (or too long for one) shows whole, each line indented under
+    the first. A memo that was edited says when."""
+    lines = safe_block(e["text"].strip()).split("\n") or [""]
     out = Text.assemble((timefmt.stamp(e["ts"], timefmt.DATE_TIME) + "  ", "dim"), safe(e["who"]) + "  ",
-                        (TIMELINE_WORD[e["kind"]] + "  ", "dim"), line)
+                        (TIMELINE_WORD[e["kind"]] + "  ", "dim"), lines[0])
+    for more in lines[1:]:
+        out.append("\n    " + more)
     if e["edited_at"]:
         out.append(f"  · edited {timefmt.stamp(e['edited_at'], timefmt.DATE_TIME)}", style="dim")
-    out.no_wrap, out.overflow = True, "ellipsis"
     return out
 
 
@@ -582,11 +620,12 @@ def task_page(d: dict) -> dict:
         "timeline": [timeline_text(e) for e in d["timeline"]]}
 
 
-class TaskChange(Static):
-    """A task's change of state, set among the messages at the time it happened."""
+class TaskChange(Vertical):
+    """A change to a task, set among the messages at the time it happened."""
 
     def __init__(self, m: dict) -> None:
-        super().__init__(card_lines(m), classes="msg card change")
+        super().__init__(Static(card_head(m), classes="cardhead"), Static(card_lines(m), classes="cardbox"),
+                         classes="msg card change")
         self.m = m
 
 
@@ -645,8 +684,9 @@ class ChatMessage(Vertical):
         self._always = m["side"] != "you"
         self._picked = False
         self._colors: dict[str, str] = {}
-        self._text = Static(message_text(m, self._always, False, side), classes="body")
-        parts = [self._text]
+        card = is_card(m)
+        self._text = Static(message_text(m, self._always, False, side), classes="body cardbox" if card else "body")
+        parts = [Static(card_head(m), classes="cardhead"), self._text] if card else [self._text]
         self._send_now: Button | None = None
         landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
         self._qstate = Static(landing_label(landing, why), classes="qstate")
@@ -1024,7 +1064,12 @@ class TaskActions:
             finally:
                 con.close()
             self.report("assign", ok, said)
-        self.app.push_screen(TaskAssign(actions.task_ref(self.tid), self.d["owner"], paths.list_agents()), answered)
+        con = db.connect()
+        try:
+            recent = actions.recent_assignees(con)
+        finally:
+            con.close()
+        self.app.push_screen(TaskAssign(actions.task_ref(self.tid), self.d["owner"], paths.list_agents(), recent), answered)
 
     def action_reopen_task(self) -> None:
         if not (self.d and self.d["can_reopen"]):
@@ -1044,7 +1089,7 @@ class TaskActions:
 
     def action_discard_task(self) -> None:
         if not (self.d and self.d["can_discard"]):
-            self.say("only a task that you asked for and that is not done can be discarded")
+            self.say("only a task that is not done can be discarded")
             return
 
         doing = self.d["state"] == "doing"
@@ -1077,8 +1122,8 @@ class TaskBody(TaskActions, Vertical):
     DEFAULT_CSS = """
     TaskBody { height: 1fr; }
     TaskBody #detail_pane { height: 1fr; padding: 1 3; }
-    TaskBody .tl_row { height: 1; }
-    TaskBody .tl_text { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    TaskBody .tl_row { height: auto; }
+    TaskBody .tl_text { width: 1fr; height: auto; }
     TaskBody .tl_icon { width: 3; min-width: 0; margin-left: 1; }
     TaskBody #t_memo_new { height: 1; margin-top: 1; }
     TaskBody #t_memo_box { width: 1fr; }
@@ -1087,6 +1132,8 @@ class TaskBody(TaskActions, Vertical):
     TaskBody #t_badge, TaskBody #t_meta { padding-bottom: 1; }
     TaskBody .section { padding-top: 1; border-top: solid $primary-darken-1; margin-top: 1; height: auto; }
     """
+
+    POLL_S = 2      # how often an open page looks for what an agent added
 
     class Changed(Message):
         """An action changed the task: the host redraws what it lists."""
@@ -1119,10 +1166,24 @@ class TaskBody(TaskActions, Vertical):
 
     def on_mount(self) -> None:
         self.load()
+        self._poller = self.set_interval(self.POLL_S, self.poll)
 
     def show(self, tid: int | None) -> None:
         self.tid = tid or 0
         self.load()
+
+    def poll(self) -> None:
+        """What an agent adds while the page is open (a memo, a handoff, a state change) shows
+        without reopening it; a page whose task has not changed is left as it is."""
+        if not self.tid or not self.display:
+            return
+        con = db.connect()
+        try:
+            now = task_detail(con, self.tid)
+        finally:
+            con.close()
+        if now != self.d:
+            self.load()
 
     def load(self) -> None:
         self.d = None
@@ -1379,6 +1440,7 @@ class ChatPage(JobsAware, Screen):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
                     yield Static("min, 0 = never", classes="unit")
+                yield SchedulesSection(self.agent, id="s_schedules")
             with ActionBar(id="s_buttons"):
                 yield Button("Save", id="s_save", variant="primary", compact=True)
                 yield Button("Reset", id="s_reset", compact=True)
@@ -1894,6 +1956,7 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#s_idle_close", Input).value = cfg["idle_close"]
         self.query_one("#s_idle_close", Input).placeholder = actions.idle_close_minutes(idle_close.default_close_timeout_s())
         self.show_context_share()
+        self.query_one("#s_schedules", SchedulesSection).load()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
 

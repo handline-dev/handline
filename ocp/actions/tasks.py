@@ -509,6 +509,10 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
     if in_hand and row["owner"] != HUMAN and not any(r["delivered_at"] for r in live):
         # a delivered one was told to stop by the cancel; one only held (its `task start`) was not
         _type_say(con, row["owner"], f"T{tid} discarded by {by} - stop work on it", "task discarded")
+    by_word = "the founder" if by == HUMAN else by
+    for who in dict.fromkeys((row["owner"], asker)):      # the holder and whoever asked hear it went, once each,
+        if who not in (by, HUMAN) and not (in_hand and who == row["owner"]):     # unless told to stop already
+            _type_say(con, who, f"T{tid} discarded by {by_word}: {said}", "task discarded")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
@@ -1151,14 +1155,28 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
 ASSIGN_HOWS = ("note", "handoff")
 
 
-def assign_targets(holder: str, agents: list[str]) -> tuple[list[str], list[str]]:
-    """Who a task can be handed to, out of `agents`, as (the holder's own team, everyone else),
-    each in a stable order and without the holder. The team is the one team.yaml puts the
-    holder in; a holder in no team has no own team."""
+def recent_assignees(con) -> list[str]:
+    """Who the founder last handed tasks to, newest first."""
+    return db.recent_handoff_targets(con, HUMAN)
+
+
+def has_team(holder: str) -> bool:
+    """Does team.yaml put `holder` in a team?"""
+    t = routing()
+    return t is not None and t.team_of(holder) is not None
+
+
+def assign_targets(holder: str, agents: list[str], recent=()) -> tuple[list[str], list[str], list[str]]:
+    """Who a task can be handed to, out of `agents`, as (recent, the holder's own team, everyone
+    else), without the holder and each agent once. `recent` is who was handed tasks lately, newest
+    first, and comes first; the rest keep the order of `agents`. The team is the one team.yaml puts
+    the holder in; a holder in no team has no own team."""
     t = routing()
     mine = set(t.members(t.team_of(holder))) if t is not None and t.team_of(holder) else set()
     others = [a for a in agents if a != holder]
-    return [a for a in others if a in mine], [a for a in others if a not in mine]
+    first = [a for a in dict.fromkeys(recent) if a in others]
+    rest = [a for a in others if a not in first]
+    return first, [a for a in rest if a in mine], [a for a in rest if a not in mine]
 
 
 def assign_task(con, tid: int, to: str, how: str, text: str) -> tuple[bool, str]:
