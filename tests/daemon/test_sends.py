@@ -621,6 +621,46 @@ def test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(home: Path) 
         con.close()
 
 
+def test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(home: Path) -> None:
+    """T408: `ocp task new`, `resolve` and the rest push in their own process, which in an agent's
+    sandbox cannot start a session - the work waited for the next tick. Outside the daemon the push
+    goes over its socket; the daemon (and a caller it cannot reach) does the start itself."""
+    from ocp.daemon import client
+    from ocp.team import ask as askmod
+    _world(home)
+    con = db.connect()
+    sent, started = [], []
+    real_send, real_start = client.send, dmn_lifecycle._start_for_work
+    client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "handed"})[1]
+    dmn_lifecycle._start_for_work = lambda c, a, log: (started.append(a), "started")[1]
+    try:
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        db.add_request(con, "product", "backend", "do the sea", None, "peer", "async", "task", 0, None)
+        said = askmod.push(con, "backend")
+        check("outside the daemon: the push is sent as the socket's verb, and starts nothing here",
+              sent == [{"verb": "push", "target": "backend", "rid": None}] and not started and "handed" in said,
+              f"{sent} {started} {said}")
+        said = askmod.push_answer(con, "backend")
+        check("outside the daemon: an answer's push goes the same way",
+              sent[-1] == {"verb": "push_answer", "requester": "backend"} and not started, str(sent))
+        client.send = lambda payload, timeout=None: None
+        askmod.push(con, "backend")
+        check("the daemon not answering: the push is done in this process, as before", started == ["backend"], str(started))
+        started.clear()
+        sent.clear()
+        client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "x"})[1]
+        askmod.IN_DAEMON = True
+        try:
+            askmod.push(con, "backend")
+        finally:
+            askmod.IN_DAEMON = False
+        check("in the daemon: it starts the agent itself and does not ask itself over the socket",
+              started == ["backend"] and not sent, f"{started} {sent}")
+    finally:
+        client.send, dmn_lifecycle._start_for_work = real_send, real_start
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(Path(td) / "s1"))
@@ -643,6 +683,7 @@ def main() -> int:
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))
         run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
         run(lambda: test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(Path(td) / "s16"))
+        run(lambda: test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(Path(td) / "s17"))
     return run_area(tests)
 
 

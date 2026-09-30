@@ -539,6 +539,24 @@ def _close_replied_say(parent_id: int, reply_id: int, reply_body: str) -> None:
         resolve(parent_id, reply_body, notify=False)
 
 
+# T408: True only in the daemon's own process. Every other process - an agent's sandbox has no
+# Orca and no process table - hands the start or wake to the daemon, which does it at once.
+IN_DAEMON = False
+_HAND_OFF_TIMEOUT_S = 10.0      # the verbs answer before they type, so a slow answer means no daemon
+
+
+def _hand_off(verb: str, **payload) -> str | None:
+    """What the daemon said, once it took `verb`; None when this is the daemon or it did not answer."""
+    if IN_DAEMON:
+        return None
+    from ..daemon import client
+
+    reply = client.send({"verb": verb, **payload}, timeout=_HAND_OFF_TIMEOUT_S)
+    if reply and reply.get("ok"):
+        return "  " + str(reply.get("said", "")).strip()
+    return None
+
+
 def push(con, target: str, rid: int | None = None) -> str:
     """Get the request to the agent now, rather than at the next daemon tick.
 
@@ -561,6 +579,9 @@ def push(con, target: str, rid: int | None = None) -> str:
         return "it is on the founder's screen (`ocp bridge`)"
     if target not in paths.list_agents():
         return f"{target} is not registered with ocp - nothing can be started for it"
+    handed = _hand_off("push", target=target, rid=rid)
+    if handed is not None:
+        return handed
     sent = db.get_request(con, rid) if rid is not None else None
     if sent is not None and sent["kind"] != "task":
         told = messaging.tell_now(con, rid, lambda _m: None)
@@ -597,6 +618,9 @@ def push_answer(con, requester: str) -> str:
         return "  the founder reads it on `ocp bridge`"
     if requester not in paths.list_agents():
         return f"  {requester} is not registered with ocp - nothing to tell"
+    handed = _hand_off("push_answer", requester=requester)
+    if handed is not None:
+        return handed
     row = db.get_agent_state(con, requester)
     said = []
     if row and row["closed_at"]:

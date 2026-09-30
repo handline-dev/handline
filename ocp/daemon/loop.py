@@ -11,6 +11,7 @@ from ..infra import paths
 from ..infra import service
 from ..infra import textsafe
 from ..session import triggers
+from ..team import ask as askmod
 
 from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server
 
@@ -86,6 +87,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             # that runs with no one able to reach it over the socket.
             log(f"daemon socket: could not start ({e}) - continuing without it")
         try:
+            askmod.IN_DAEMON = True     # T408: a push here starts the session itself, not by asking the daemon
             if not once and not max_ticks:      # a bounded run (a test, --once) has no screens to watch
                 prompts.start(stopping, log)
             log("daemon starting - reconciling")
@@ -133,6 +135,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     time.sleep(triggers.POLL_S)
             log(f"stopped after {ticks} tick(s)")
         finally:
+            askmod.IN_DAEMON = False
             srv.stop()
             con.close()
 
