@@ -44,6 +44,7 @@ from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.section_head import SectionHead
+from .components.schedules_section import SchedulesSection
 from .components.task_assign import TaskAssign
 from .components.switch_row import SwitchRow
 
@@ -1301,6 +1302,7 @@ class ChatPage(JobsAware, Screen):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
                     yield Static("min, 0 = never", classes="unit")
+                yield SchedulesSection(self.agent, id="s_schedules")
             with ActionBar(id="s_buttons"):
                 yield Button("Save", id="s_save", variant="primary", compact=True)
                 yield Button("Reset", id="s_reset", compact=True)
@@ -1804,6 +1806,7 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#s_idle_close", Input).value = cfg["idle_close"]
         self.query_one("#s_idle_close", Input).placeholder = actions.idle_close_minutes(idle_close.default_close_timeout_s())
         self.show_context_share()
+        self.query_one("#s_schedules", SchedulesSection).load()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
 

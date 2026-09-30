@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+from rich.text import Text
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import Button, Select, Static
+
+from ... import actions
+from .ime import ImeInput
+
+
+class ScheduleAdd(ModalScreen["tuple[str, str] | None"]):
+    """The form for one new schedule: when (every day, weekdays, a weekday, every hour, every N
+    minutes), the time it needs, and a one-line message. It builds the cron with
+    `actions.schedule_cron` and dismisses with (cron, message), or None."""
+
+    BINDINGS = [Binding("escape", "dismiss(None)", "cancel")]
+    DEFAULT_CSS = """
+    ScheduleAdd { align: center middle; background: $background 60%; }
+    ScheduleAdd #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2;
+                          border: thick $primary; background: $panel; }
+    ScheduleAdd #title { margin-bottom: 1; }
+    ScheduleAdd .frow { height: 1; margin-bottom: 1; }
+    ScheduleAdd .flabel { width: 10; color: $text-muted; }
+    ScheduleAdd .frow Select { width: 1fr; }
+    ScheduleAdd .frow ImeInput { width: 1fr; }
+    ScheduleAdd .num { width: 6; }
+    ScheduleAdd .unit { width: auto; padding: 0 1; }
+    ScheduleAdd #sa_buttons { height: 1; margin-top: 1; }
+    ScheduleAdd #sa_buttons Button { width: auto; min-width: 0; margin-right: 2; }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static(Text("add a schedule", style="bold"), id="title")
+            with Horizontal(classes="frow"):
+                yield Static("when", classes="flabel")
+                yield Select([(k, k) for k in actions.SCHEDULE_KINDS], id="sa_kind", allow_blank=False,
+                             compact=True, value="every day")
+            with Horizontal(classes="frow", id="sa_day_row"):
+                yield Static("day", classes="flabel")
+                yield Select([(d, i) for i, d in enumerate(actions.WEEKDAYS)], id="sa_day", allow_blank=False,
+                             compact=True, value=1)
+            with Horizontal(classes="frow", id="sa_time_row"):
+                yield Static("time", classes="flabel")
+                yield ImeInput(id="sa_hour", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value="9")
+                yield Static(":", classes="unit")
+                yield ImeInput(id="sa_minute", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value="00")
+            with Horizontal(classes="frow", id="sa_every_row"):
+                yield Static("every", classes="flabel")
+                yield ImeInput(id="sa_every", classes="num", compact=True, restrict=r"[0-9]*", max_length=2, value="15")
+                yield Static("minutes", classes="unit")
+            with Horizontal(classes="frow"):
+                yield Static("message", classes="flabel")
+                yield ImeInput(id="sa_message", compact=True, placeholder="one line, typed at the agent")
+            with Horizontal(id="sa_buttons"):
+                yield Button("Add", id="sa_add", variant="primary", compact=True)
+                yield Button("Cancel", id="sa_cancel", compact=True)
+
+    def on_mount(self) -> None:
+        self._show()
+        self.query_one("#sa_message").focus()
+
+    def _kind(self) -> str:
+        return str(self.query_one("#sa_kind", Select).value)
+
+    def _show(self) -> None:
+        kind = self._kind()
+        self.query_one("#sa_day_row").display = kind == "every week"
+        self.query_one("#sa_every_row").display = kind == "every N minutes"
+        self.query_one("#sa_time_row").display = kind != "every N minutes"
+        self.query_one("#sa_hour").display = kind != "every hour"
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        event.stop()
+        self._show()
+
+    def result(self) -> "tuple[str, str]":
+        """(cron, message); ValueError when a field is wrong, saying which."""
+        value = lambda i: self.query_one(f"#sa_{i}", ImeInput).value      # noqa: E731
+        cron = actions.schedule_cron(self._kind(), value("hour"), value("minute"),
+                                     int(self.query_one("#sa_day", Select).value), value("every"))
+        message = " ".join(value("message").split())
+        if not message:
+            raise ValueError("write the message to send")
+        return cron, message
+
+    def _add(self) -> None:
+        try:
+            self.dismiss(self.result())
+        except ValueError as e:
+            self.notify(str(e), severity="error", timeout=8, markup=False)
+
+    def on_input_submitted(self, event) -> None:
+        event.stop()
+        self._add()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        if event.button.id == "sa_add":
+            self._add()
+        else:
+            self.dismiss(None)

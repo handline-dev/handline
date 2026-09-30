@@ -1645,6 +1645,37 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
           (view.owner, view.states, view.closer) == (None, set(actions.OPEN_STATES), None))
 
 
+def test_schedules_are_built_read_and_written_through_actions() -> None:
+    _home("schedules")
+    cron = actions.schedule_cron
+    check("schedule: each kind builds its cron",
+          [cron("every day", "9", "30"), cron("weekdays", "9", "0"), cron("every week", "18", "5", 1),
+           cron("every hour", minute="15"), cron("every N minutes", every="10")]
+          == ["30 9 * * *", "0 9 * * 1-5", "5 18 * * 1", "15 * * * *", "*/10 * * * *"])
+    for bad in (("every day", "24", "0"), ("every day", "9", "60"), ("every N minutes", "9", "0", 1, "0"),
+                ("sometimes", "9", "0")):
+        try:
+            cron(*bad)
+            check(f"schedule: {bad} is refused", False)
+        except ValueError:
+            check(f"schedule: {bad} is refused", True)
+    check("schedule: what it builds reads back in words, and anything else stays as written",
+          [actions.schedule_words(c) for c in ("30 9 * * *", "0 9 * * 1-5", "5 18 * * 1", "15 * * * *", "*/10 * * * *", "0 0 1 * *")]
+          == ["every day 09:30", "weekdays 09:00", "Mon 18:05", "every hour at :15", "every 10 minutes", "0 0 1 * *"])
+    check("schedule: an agent starts with none", actions.schedule_rows("backend") == [])
+    actions.schedule_add("backend", cron("weekdays", "9", "0"), "  check   the board ")
+    rows = actions.schedule_rows("backend")
+    check("schedule: an added one is listed with its next run and a one-line message",
+          [(r["cron"], r["message"]) for r in rows] == [("0 9 * * 1-5", "check the board")] and rows[0]["next"] != "never")
+    try:
+        actions.schedule_add("backend", "not a cron", "x")
+        check("schedule: a bad cron is refused", False)
+    except ValueError:
+        check("schedule: a bad cron is refused", len(actions.schedule_rows("backend")) == 1)
+    actions.schedule_remove("backend", 1)
+    check("schedule: a removed one is gone", actions.schedule_rows("backend") == [])
+
+
 def test_assign_answers_from_the_task_page() -> None:
     _home("assign")
     agents.register("reviewer")
@@ -1864,6 +1895,7 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
+    test_schedules_are_built_read_and_written_through_actions()
     test_assign_answers_from_the_task_page()
     test_a_task_timeline_holds_memos_and_handoffs_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()
