@@ -1119,10 +1119,24 @@ class TaskBody(TaskActions, Vertical):
 
     def on_mount(self) -> None:
         self.load()
+        self.set_interval(2, self.poll)
 
     def show(self, tid: int | None) -> None:
         self.tid = tid or 0
         self.load()
+
+    def poll(self) -> None:
+        """What an agent adds while the page is open (a memo, a handoff, a state change) shows
+        without reopening it; a page whose task has not changed is left as it is."""
+        if not self.tid or not self.display:
+            return
+        con = db.connect()
+        try:
+            now = task_detail(con, self.tid)
+        finally:
+            con.close()
+        if now != self.d:
+            self.load()
 
     def load(self) -> None:
         self.d = None

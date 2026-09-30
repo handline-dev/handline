@@ -1738,6 +1738,41 @@ async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> N
         check("question: and the modal is off the stack", modal not in app.screen_stack)
 
 
+async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
+    """T525: a memo or a handoff made while the page is open appears on the next poll."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("livetimeline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause()
+        body = app.screen.query_one(cp.TaskBody)
+        loads = []
+        real = body.load
+        body.load = lambda: (loads.append(1), real())[1]
+        body.poll()
+        check("task page: a poll with nothing new leaves the page alone", loads == [])
+        con = db.connect()
+        try:
+            actions.memo_add(con, tid, "reviewer", "found the cause")
+        finally:
+            con.close()
+        body.poll()
+        await pilot.pause()
+        check("task page: a memo added meanwhile is drawn on the next poll",
+              loads == [1] and [e["text"] for e in body.d["timeline"]] == ["found the cause"], str(body.d["timeline"]))
+        body.poll()
+        check("task page: and the poll after that leaves it alone again", loads == [1])
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -2242,6 +2277,7 @@ async def _run_all() -> None:
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
+    await test_an_open_task_page_shows_what_an_agent_adds_without_reopening()
     await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 
