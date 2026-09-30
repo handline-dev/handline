@@ -1554,6 +1554,43 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
     check("idle close: a word is refused", cp.settings_problem({**form, "repo": "", "idle_close": "soon"}) is not None)
 
 
+def test_home_settings_marks_and_the_delegated_view() -> None:
+    from ocp.ui.pages.home import AnswerMarks
+    from ocp.ui.components.tasks_view import TasksView
+    _home("home_marks")
+    for title in ("Run A?", "Run B?"):
+        actions.add_answer(vendor="claude", title=title, label="Yes")
+    marks = AnswerMarks()
+    a, b = actions.standing_answers()
+    marks.toggle(a)
+    actions.add_answer(folder=str(Path(tempfile.mkdtemp(dir=t.TEST_ROOT))))      # trusted folders list first
+    now = actions.standing_answers()
+    marks.keep_only(now)
+    check("home marks: a mark stays on its answer when another is added before Save",
+          [x["text"] for x in now if marks.marks(x)] == [a["text"]], str(marks.marked))
+    for kind, key in marks.marked:
+        actions.remove_answer(kind, key)
+    left = [x["text"] for x in actions.standing_answers()]
+    check("home marks: Save removes the marked answer and only that one",
+          a["text"] not in left and b["text"] in left and any(x.startswith("trust") for x in left), str(left))
+    marks.toggle(b)
+    marks.clear()
+    check("home marks: Reset drops the marks", not marks.marked)
+    marks.toggle(b)
+    marks.keep_only([])
+    check("home marks: a mark whose answer is gone is forgotten", not marks.marked)
+
+    view = TasksView.__new__(TasksView)
+    view.refresh_rows = lambda: None
+    view.show_delegated()
+    check("delegated view: owner human, queued and doing, nothing to check",
+          (view.owner, view.states, view.closer) == (actions.HUMAN, {"queued", "doing"}, None),
+          str((view.owner, view.states, view.closer)))
+    view.show_checks(False)
+    check("delegated view: a plain visit afterwards is the default view again",
+          (view.owner, view.states, view.closer) == (None, set(actions.OPEN_STATES), None))
+
+
 def test_a_standing_answer_is_added_from_the_settings() -> None:
     home = _home("add_answer")
     folder = home / "work"
@@ -1614,6 +1651,7 @@ async def _run_all() -> None:
     test_summary_line()
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_a_standing_answer_is_added_from_the_settings()
+    test_home_settings_marks_and_the_delegated_view()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()

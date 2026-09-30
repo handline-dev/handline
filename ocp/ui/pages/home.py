@@ -73,6 +73,31 @@ def _set_columns(table: DataTable, heads: tuple) -> None:
         table._heads = heads
 
 
+class AnswerMarks:
+    """The auto-answers marked for removal, each by what it is - the (kind, key) `remove_answer`
+    takes - not by its row, which moves when one is added or removed before Save."""
+
+    def __init__(self) -> None:
+        self.marked: set[tuple] = set()
+
+    @staticmethod
+    def of(answer: dict) -> tuple:
+        return (answer["kind"], answer["key"])
+
+    def toggle(self, answer: dict) -> None:
+        self.marked ^= {self.of(answer)}
+
+    def marks(self, answer: dict) -> bool:
+        return self.of(answer) in self.marked
+
+    def keep_only(self, answers: list[dict]) -> None:
+        """Forget a mark whose answer is gone."""
+        self.marked &= {self.of(a) for a in answers}
+
+    def clear(self) -> None:
+        self.marked = set()
+
+
 class HomePage(RowActions, JobsAware, Screen):
     AUTO_FOCUS = ""     # the keys act on the panels until the tab bar takes the focus
     # The row cursor is the selection. DataTable's hover highlight restarts at row 0
@@ -111,7 +136,7 @@ class HomePage(RowActions, JobsAware, Screen):
         tui._enter(self.panel, self.sel)
         self.tab = "home"
         self._answers: list[dict] = []
-        self._removing: set[int] = set()    # answers marked for removal; Save removes them
+        self._removing = AnswerMarks()      # answers marked for removal; Save removes them
         self._checks_shown = False      # the Tasks tab is showing a header link's view now
         self._checks: str | None = None  # the next Tasks tab opens on "checks" (the founder's done tasks) or "delegated"
         self._hr_dot = False            # whether the HR tab wears its dot
@@ -197,7 +222,7 @@ class HomePage(RowActions, JobsAware, Screen):
         """Fill the settings form from what is saved, dropping what was typed or marked."""
         self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
         self.query_one("#idle_close", Input).value = actions.idle_close_minutes(idle_close.default_close_timeout_s())
-        self._removing = set()
+        self._removing.clear()
         self._draw_answers()
 
     @staticmethod
@@ -235,9 +260,9 @@ class HomePage(RowActions, JobsAware, Screen):
         except (OSError, ImportError) as e:
             self._answers = []
             self.toast(f"cannot read the auto-answers: {e}", False)
-        self._removing &= set(range(len(self._answers)))
+        self._removing.keep_only(self._answers)
         for i, a in enumerate(self._answers):
-            table.add_row(Text(textsafe.oneline(a["text"]), style="strike dim" if i in self._removing else ""),
+            table.add_row(Text(textsafe.oneline(a["text"]), style="strike dim" if self._removing.marks(a) else ""),
                           key=str(i))
         if not self._answers:
             table.add_row(Text("none - ocp asks you when a dialog shows", style="dim"), key="none")
@@ -254,7 +279,7 @@ class HomePage(RowActions, JobsAware, Screen):
         row = self.query_one("#answers", DataTable).cursor_row
         if not self._answers or row >= len(self._answers):
             return
-        self._removing ^= {row}
+        self._removing.toggle(self._answers[row])
         self._draw_answers()
         self.query_one("#answers", DataTable).move_cursor(row=row)
 
@@ -265,11 +290,10 @@ class HomePage(RowActions, JobsAware, Screen):
         for ok, said in (actions.set_default_cap(self.query_one("#default_cap", Input).value),
                          actions.set_idle_close(self.query_one("#idle_close", Input).value)):
             (saved if ok else problems).append(said)
-        for i in sorted(self._removing):
-            picked = self._answers[i]
-            ok, said = actions.remove_answer(picked["kind"], picked["key"])
+        for kind, key in sorted(self._removing.marked, key=repr):
+            ok, said = actions.remove_answer(kind, key)
             (saved if ok else problems).append(said)
-        self._removing = set()
+        self._removing.clear()
         self._draw_answers()
         if problems:
             self.toast("not saved: " + "; ".join(problems) + (f" (saved: {', '.join(saved)})" if saved else ""), False)

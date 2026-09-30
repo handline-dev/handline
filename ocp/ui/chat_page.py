@@ -309,19 +309,19 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     register` uses, which keeps every other field as it is. A running session
     is not restarted."""
     new = {k: v for k, _, v in changes}
-    if "idle_close" in new:
-        ok, said = actions.set_idle_close(new.pop("idle_close"), agent)
+    idle = new.pop("idle_close", None) if "idle_close" in new else None
+    if new:
+        try:
+            agents.register(agent, model=new.get("model"), effort=new.get("effort"),
+                            weight=new.get("weight"), repo=new.get("repo"),
+                            skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
+                            context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
+        except (ValueError, agents.ConfigError, OSError) as e:
+            return False, f"not saved: {e}"
+    if "idle_close" in {k for k, _, _ in changes}:
+        ok, said = actions.set_idle_close(idle, agent)
         if not ok:
             return False, f"not saved: {said}"
-        if not new:
-            return True, "saved: " + said
-    try:
-        agents.register(agent, model=new.get("model"), effort=new.get("effort"),
-                        weight=new.get("weight"), repo=new.get("repo"),
-                        skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
-                        context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
-    except (ValueError, agents.ConfigError, OSError) as e:
-        return False, f"not saved: {e}"
     return True, "saved: " + ", ".join(f"{k} {v}" for k, _, v in changes)
 
 
