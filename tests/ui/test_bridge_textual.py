@@ -1763,6 +1763,54 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
               "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
 
 
+async def test_neither_tasks_tab_scrolls_sideways() -> None:
+    """T376: the Tasks tab of the home page and of a chat page draw the same table, cut to the room."""
+    from textual.widgets import DataTable, Tabs
+    from ocp.ui import chat_page as cp
+    _home("tabsnoscroll")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        for i in range(4):
+            db.new_task(con, "a task with a rather long title that would run off the right edge " * 2,
+                        "reviewer", actions.HUMAN)
+        con.commit()
+    finally:
+        con.close()
+
+    from ocp.ui.bridge_textual import BridgeApp
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("T")
+        await pilot.pause()
+        check("tasks: T on the home page opens the Tasks tab, no screen of its own",
+              app.screen.query_one("#scope", Tabs).active == "tasks" and type(app.screen).__name__ == "HomePage",
+              type(app.screen).__name__)
+        table = app.screen.query_one("#tasks_table", DataTable)
+        await pilot.press("down")
+        await pilot.pause()
+        check("tasks: after T the table has the focus and ↓ moves its cursor",
+              app.focused is table and table.cursor_row == 1, f"focused {app.focused} row {table.cursor_row}")
+    for width in (80, 100, 140):
+        for name in ("home", "chat"):
+            app = BridgeApp()
+            async with app.run_test(size=(width, 30)) as pilot:
+                await pilot.pause()
+                page = app.screen
+                if name == "chat":
+                    page = cp.ChatPage("reviewer")
+                    await app.push_screen(page)
+                    await pilot.pause()
+                page.query_one("#scope", Tabs).active = "tasks"
+                await pilot.pause()
+                await pilot.pause()
+                table = page.query_one("#tasks_table", DataTable)
+                check(f"tasks tab ({name}, {width} wide): the table has rows and no sideways scroll",
+                      table.row_count > 0 and table.virtual_size.width <= table.size.width,
+                      f"rows {table.row_count} virtual {table.virtual_size.width} shown {table.size.width}")
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -1825,6 +1873,7 @@ async def _run_all() -> None:
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
+    await test_neither_tasks_tab_scrolls_sideways()
     test_account_settings_alias_and_default_cap()
 
 

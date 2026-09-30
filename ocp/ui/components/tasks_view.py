@@ -1,4 +1,4 @@
-"""The tasks table (T69) as a widget, so the tasks screen and a home tab share it: every
+"""The tasks table (T69) as a widget, so the home tab and a chat page's tab share it: every
 open task with its priority, owner, state, idle time, who may close it and what blocks
 it. What a row says and what an action does or refuses is `actions`'s (`task_rows`,
 `batch_task`, `merge_tasks`); this draws it and asks for the one thing an action needs
@@ -180,13 +180,12 @@ class TasksView(Vertical):
     HEADS = (("", "mark"), ("#", "number"), ("P", "priority"), ("state", "state"), ("title", "title"),
              ("owner", "owner"), ("idle", "idle"), ("may close", "closer"), ("blocked by", "blocked"))
 
-    def __init__(self, mine: bool = False, back: bool = False, states: set[str] | None = None,
+    def __init__(self, mine: bool = False, states: set[str] | None = None,
                  closer: str | None = None, agent: str | None = None, **kw) -> None:
         super().__init__(**kw)
         self.agent = agent
         self.mine = mine
         self.closer = closer
-        self.back = back
         self.checked: set[int] = set()
         self.by = "priority"
         self.rev = False
@@ -439,8 +438,7 @@ class TasksView(Vertical):
         self.refresh_rows()
 
     def _keys(self) -> list[Key]:
-        keys = [k for k in self.KEYS if not (self.agent and k.key == "f")]
-        return [*keys, *([Key("esc", "back", 1, "back")] if self.back else [])]
+        return [k for k in self.KEYS if not (self.agent and k.key == "f")]
 
     def action_key_help(self) -> None:
         self.app.push_screen(KeyHelp("MY TASKS keys" if self.mine else "TASKS keys", self._keys()))
