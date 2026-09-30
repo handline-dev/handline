@@ -55,6 +55,8 @@ _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 # chat is scrolled to within a screen of its top. Small, because drawing what is not in
 # view is most of what a page costs (founder #5425).
 PAGE = 10
+WAITS = ("waiting for", "blocked by")      # what the work line says of an agent that waits on something
+
 # T418: what the row under a message the agent has not answered says. Only a line
 # its transcript shows is delivered; queued and typed both read sending (founder #5299).
 LANDING_LABELS = {
@@ -251,7 +253,7 @@ def task_detail(con, tid: int) -> dict | None:
             "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued") and mine,
+            "can_discard": state in ("draft", "queued", "doing") and mine,
             "can_assign": state in ("draft", "queued", "doing")}
 
 
@@ -317,7 +319,12 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     register` uses, which keeps every other field as it is. A running session
     is not restarted."""
     new = {k: v for k, _, v in changes}
-    idle = new.pop("idle_close", None) if "idle_close" in new else None
+    idle = new.pop("idle_close", None)
+    if idle is not None:
+        try:
+            actions.parse_idle_close(idle)      # a bad one is refused before the file is written
+        except ValueError as e:
+            return False, f"not saved: {e}"
     if new:
         try:
             agents.register(agent, model=new.get("model"), effort=new.get("effort"),
@@ -326,10 +333,11 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
                             context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
         except (ValueError, agents.ConfigError, OSError) as e:
             return False, f"not saved: {e}"
-    if "idle_close" in {k for k, _, _ in changes}:
+    if idle is not None:
         ok, said = actions.set_idle_close(idle, agent)
         if not ok:
-            return False, f"not saved: {said}"
+            done = ", ".join(f"{k} {v}" for k, v in new.items())
+            return False, f"idle close not saved: {said}" + (f" ({done} was saved)" if done else "")
     return True, "saved: " + ", ".join(f"{k} {v}" for k, _, v in changes)
 
 
@@ -390,6 +398,16 @@ def link_refs(text: Text) -> Text:
     for hit in _REF.finditer(text.plain):
         text.stylize(Style(underline=True, bold=True, meta={"@click": f"screen.show_message({hit[1]})"}),
                      hit.start(), hit.end())
+    return text
+
+
+_TASK_REF = re.compile(r"(?<![\w#])T(\d+)\b")
+
+
+def link_task_refs(text: Text) -> Text:
+    """Every `T<n>` in `text` becomes a link that opens that task (a click runs `open_task`)."""
+    for hit in _TASK_REF.finditer(text.plain):
+        text.stylize(Style(underline=True, meta={"@click": f"screen.open_task({hit[1]})"}), hit.start(), hit.end())
     return text
 
 
@@ -532,7 +550,7 @@ class WorkLine(Static):
     def render(self) -> Text:
         mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working \
             else f" {safe(self.wait)} " if self.wait else ""
-        return Text(mid, style="dim")
+        return link_task_refs(Text(mid, style="dim"))
 
 
 def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str = "") -> list:
@@ -963,19 +981,21 @@ class TaskActions:
 
     def action_discard_task(self) -> None:
         if not (self.d and self.d["can_discard"]):
-            self.say("only a task that you asked for, with nothing running on it, can be discarded")
+            self.say("only a task that you asked for and that is not done can be discarded")
             return
+
+        doing = self.d["state"] == "doing"
 
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
                 con = db.connect()
                 try:
-                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
+                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason, stop=doing)
                 finally:
                     con.close()
                 self.report("discard", ok, said)
-        self.app.push_screen(TextPrompt("discard - why?"), answered)
+        self.app.push_screen(TextPrompt("stop it and discard - why?" if doing else "discard - why?"), answered)
 
 
 class TaskPane(TaskActions, Vertical):
@@ -1296,7 +1316,7 @@ class ChatPage(JobsAware, Screen):
         word, detail = self.agent_state
         return Text.assemble(
             ("Reply" if reply else "Chat", "bold blue"), (" · ", "dim"), self.agent, "  ",
-            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the work line says it
+            agent_badge(word, "" if detail.startswith(WAITS) else detail),   # the work line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
             (f"   reply to #{mid_of(reply.m)}" if reply else "", "bold"),
@@ -1404,7 +1424,7 @@ class ChatPage(JobsAware, Screen):
         # (timefmt.ago), so comparing the whole tuple here would rebuild the
         # transcript (`_sig = None`) on almost every 2s poll for no reason.
         word_changed = state[0] != self.agent_state[0]
-        wait_changed = [d if d.startswith("waiting for") else "" for d in (state[1], self.agent_state[1])]
+        wait_changed = [d if d.startswith(WAITS) else "" for d in (state[1], self.agent_state[1])]
         self.agent_state = state
         if wait_changed[0] != wait_changed[1]:
             self._sig = None                # the work line's wait text follows the detail
@@ -1466,7 +1486,7 @@ class ChatPage(JobsAware, Screen):
         finally:
             con.close()
         state, detail = self.agent_state
-        wait = detail if detail.startswith("waiting for") else ""
+        wait = detail if detail.startswith(WAITS) else ""
         key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
                       r["landing_tries"], r["dismissed_by"])
                      for r in rows))

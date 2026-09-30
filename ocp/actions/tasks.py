@@ -248,6 +248,17 @@ def child_wait(con, agent: str) -> str | None:
     return f"waiting for T{child['id']} ({child['owner']})" if child else None
 
 
+def block_wait(con, agent: str) -> str | None:
+    """T563: what `agent` is held up by when its current task is blocked (`--blocked-by`), as the
+    sentence a screen shows: `blocked by T12 (orcapipe.auditor), T14 (orcapipe)`; None when it is not blocked."""
+    tid = db.current_task(con, agent)
+    row = db.get_task(con, tid) if tid is not None else None
+    if row is None or row["closed_by"] or row["done_evidence"]:
+        return None
+    blockers = db.task_blockers(con, tid)
+    return "blocked by " + ", ".join(f"T{b['id']} ({b['owner']})" for b in blockers) if blockers else None
+
+
 def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
     """Where a task's state and its requests disagree, or None (T250). A draft
     with a request out was never approved, and a queued one has nobody working on
@@ -495,7 +506,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     return True, f"task T{tid} closed by {by}"
 
 
-def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
+def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tuple[bool, str]:
     """Throw a task away before it is done (task #85) - the asker's or the founder's call
     (see `task_asker`), in one step with a one-line reason. It is recorded as
     discarded (who, why, and when in closed_at), never as finished work: no
@@ -506,7 +517,11 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     closed. A request still queued against it also refuses: discarding
     leaves nothing on the board pointing at that request, so its target
     would keep working on it. Every block naming it clears in the same transaction, and a task
-    left with no open blocker is told, as close does."""
+    left with no open blocker is told, as close does.
+
+    `stop` (the founder's, on a doing task): the open requests are cancelled
+    (`ask.cancel`, which tells their target to stop) instead of refusing, once
+    every other guard has passed."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -530,7 +545,17 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
     live = [r for r in db.task_requests(con, tid) if _asks(r)]
-    if live:
+    in_hand = stop and by == HUMAN and (db.current_task(con, row["owner"]) == tid
+                                        or any(r["delivered_at"] for r in live))
+    if live and stop and by == HUMAN:
+        cancelled = []
+        for r in live:
+            ok, said_cancel = askmod.cancel(r["id"])
+            if not ok:
+                was = f" (already cancelled: {', '.join(f'#{c}' for c in cancelled)})" if cancelled else ""
+                return False, f"task T{tid} not discarded: {said_cancel}{was}"
+            cancelled.append(r["id"])
+    elif live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
         return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
                        "first (the founder's `ocp cancel <id>`), or its target keeps working "
@@ -552,6 +577,9 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     # `live` only guaranteed nothing was asking *then* - a lingering fyi
     # report could still be queued, so retire it too.
     _retire_task_requests(con, tid, f"task T{tid} discarded by {by}: {said}", state="rejected")
+    if in_hand and row["owner"] != HUMAN and not any(r["delivered_at"] for r in live):
+        # a delivered one was told to stop by the cancel; one only held (its `task start`) was not
+        _type_say(con, row["owner"], f"T{tid} discarded by {by} - stop work on it", "task discarded")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
@@ -785,6 +813,36 @@ def _deliver_unblocked(con, notices, freed_owners) -> None:
     for owner in freed_owners:
         if advance_current_task(con, owner):
             askmod.push(con, owner)
+
+
+def release_closed_blockers(con, log=lambda _m: None) -> list[int]:
+    """T577: the tasks a closed or discarded task was still blocking are released, the way a close
+    releases them. A decision task settles with its card (`db.settle_decision_tasks`), at the db
+    layer, which cannot run the release: its dependents were left with a block row, no notice and
+    no next turn - a doing one never told, a queued one never sent. A level, read from the block
+    rows left behind, so it also frees what an earlier settle left. One blocker that fails is
+    logged and left for the next tick, and the others are still released (T588): its rows are
+    the same next time, so it must not stop the sweep that delivers every agent's tasks.
+    Returns the tasks released."""
+    freed: list[int] = []
+    for (tid,) in con.execute("SELECT DISTINCT b.blocks_on FROM task_blocks b JOIN tasks t "
+                              "ON t.id = b.blocks_on WHERE t.closed_by IS NOT NULL").fetchall():
+        try:
+            row = db.get_task(con, tid)
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                waiting = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
+                notices, freed_owners = _clear_blocks_on(con, tid, row["closed_by"],
+                                                         "discarded" if row["discarded_by"] else "closed")
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+            freed += waiting
+            _deliver_unblocked(con, notices, freed_owners)
+        except Exception as e:  # noqa: BLE001 - one blocker's failure is not the queue's
+            log(f"  T{tid}: releasing the tasks it blocked failed: {type(e).__name__}: {e}")
+    return freed
 
 
 def _task_edit_guard(row, tid: int, by: str) -> str | None:
@@ -1184,6 +1242,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
             askmod.resolve(r["id"], f"handed to {to}", notify=False)
     db.edit_task(con, tid, me, owner=to)
     db.link_request(con, tid, rid)
+    db.mark_send_now(con, rid)      # T596: a handoff is typed on arrival, whatever its holder is doing
     db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
                                             "request_id": rid})
     if db.current_task(con, old) == tid:
@@ -1193,7 +1252,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     if to != HUMAN:                 # the founder holds no current task and is not typed at
         if db.current_task(con, to) is None:
             db.set_current_task(con, to, tid)
-        askmod.push(con, to)
+        askmod.push(con, to, rid)
     return True, f"T{tid} handed to {to}: {msg}"
 
 

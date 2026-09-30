@@ -466,7 +466,8 @@ def push(con, target: str, rid: int | None = None) -> str:
     """Get the request to the agent now, rather than at the next daemon tick.
 
     `rid`, when it names a message (anything but a task), is typed at once
-    (`messaging.tell_now`, T398); a task still waits for a free agent, one at a time.
+    (`messaging.tell_now`, T398), and so is a task marked send-now - a handoff (T596), or one the
+    founder pressed send now on; any other task still waits for a free agent, one at a time.
 
     One command has to do the whole job. An agent that asks a subordinate for
     something and is told "queued" has not dispatched anything - it has left a
@@ -491,7 +492,7 @@ def push_here(con, target: str, rid: int | None = None) -> str:
     from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, messaging
 
     sent = db.get_request(con, rid) if rid is not None else None
-    if sent is not None and sent["kind"] != "task":
+    if sent is not None and (sent["kind"] != "task" or sent["send_now"]):      # T596: a marked task is a handoff
         told = messaging.tell_now(con, rid, lambda _m: None)
         return f"  delivered to {target}" if told == "typed" else f"  {target}: {told}"
     said = []
