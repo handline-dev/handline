@@ -240,6 +240,50 @@ def test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_sc
         orcamod._screen, orcamod.wait_idle, orcamod.screen_blocker = real, real_wait, real_blocker
 
 
+def test_a_launch_line_and_its_enter_are_sent_apart(home: Path) -> None:
+    """T663: a launch line that ran nothing was never explained. The line goes without an Enter and the
+    Enter follows on its own, in case a shell taking the line as a paste swallows one that comes with
+    it; and a launch that starts nothing says whether its terminal is gone or alive, and what it shows."""
+    restore_world()
+    real = (orcamod.alive, orcamod.send, orcamod.wait_idle, orcamod._screen)
+    sent: list[tuple[str, bool]] = []
+    try:
+        orcamod.alive = lambda h: True
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = lambda h, text, enter=True: (sent.append((text, enter)), (True, ""))[1]
+        ok, why = orcamod.relaunch("term_x", "ocp launch a --prompt-file /w/a.txt -- --resume s1", started=lambda: True)
+        check("launch: the line goes without an Enter, then the Enter alone",
+              ok and sent == [("ocp launch a --prompt-file /w/a.txt -- --resume s1", False), ("", True)], str(sent))
+
+        sent.clear()
+        orcamod._screen = lambda h, limit=40: support._screen_of(
+            ["", "ron@host wt % ocp launch a --prompt-file /w/a.txt -- --resume s1", ""])
+        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: False)
+        check("launch: one that starts nothing says so, that the terminal is alive, and what it shows",
+              not ok and "no session started" in why
+              and "; the terminal is alive (screen: ron@host wt % ocp launch a --prompt-file /w/a.txt -- --resume s1)"
+              in why, why)
+
+        orcamod._screen = lambda h, limit=40: None
+        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: False)
+        check("launch: a live terminal whose screen cannot be read says that",
+              not ok and why.endswith("; the terminal is alive but its screen could not be read"), why)
+
+        gone = iter([True, False])           # alive when the line is typed, gone when it did not start
+        orcamod.alive = lambda h: next(gone)
+        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: False)
+        check("launch: a terminal that died under it says it is gone, not what it last showed",
+              not ok and why.endswith("no session started; the terminal is gone") and "screen" not in why, why)
+        orcamod.alive = lambda h: True
+
+        orcamod.send = lambda h, text, enter=True: (True, "") if enter is False else (False, "no such terminal")
+        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: True)
+        check("launch: an Enter that could not be sent is a launch that was not sent",
+              not ok and "could not send the launch command" in why, why)
+    finally:
+        orcamod.alive, orcamod.send, orcamod.wait_idle, orcamod._screen = real
+
+
 def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
     """A dialog is quoted from the screen - title and options - never matched
     against a list of the dialogs somebody has seen."""
@@ -1974,11 +2018,14 @@ def test_a_wake_types_nothing_at_a_shell_when_the_session_dies(home: Path) -> No
         table = sessions_are()
 
         def send(h, text, enter=True):
+            if not text and enter:
+                # The launch's own Enter (T663), after which anything sent is the wake's doing.
+                orcamod.send = lambda *a, **k: (sent.append(a[1]), (True, ""))[1]
+                return True, ""
             sent.append(text)
             if " launch " in text:
                 take_launched_prompt(text)
                 table["backend"] = 4242        # the session starts ...
-                orcamod.send = lambda *a, **k: (sent.append(a[1]), (True, ""))[1]
             return True, ""
         orcamod.send = send
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -3804,6 +3851,7 @@ def main() -> int:
         run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
         run(lambda: test_the_screen_names_what_is_in_the_way(Path(td) / 'blk1'))
         run(lambda: test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_screen(Path(td) / 'idlebg'))
+        run(lambda: test_a_launch_line_and_its_enter_are_sent_apart(Path(td) / 'launch1'))
         run(lambda: test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(Path(td) / 'blk2'))
         run(lambda: test_what_is_not_a_block(Path(td) / 'blk3'))
         run(lambda: test_a_reminder_a_dialog_blocks_is_said(Path(td) / 'blk9'))

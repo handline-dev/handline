@@ -1314,6 +1314,24 @@ def close_session(handle: str, wait: bool = True,
     return ok, f"{cmd} typed" if ok else f"could not send {cmd}: {out[:200]}"
 
 
+# Between a launch line and the Enter that runs it.
+LAUNCH_ENTER_DELAY_S = 0.5
+
+
+def _terminal_note(handle: str) -> str:
+    """What a launch that started nothing should say about the terminal it was typed into: that it is
+    gone, or that it is alive and what its last rows show. One line and cut short - it is text an
+    agent's shell drew."""
+    if not alive(handle):
+        return "; the terminal is gone"
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return "; the terminal is alive but its screen could not be read"
+    rows = [textsafe.oneline(str(r).strip()) for r in tail if str(r).strip()][-3:]
+    return f"; the terminal is alive (screen: {' | '.join(rows)[:240]})" if rows else "; the terminal is alive"
+
+
 def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
              started=None) -> tuple[bool, str]:
     """Start an agent again in the shell its session left behind.
@@ -1329,11 +1347,16 @@ def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
-    ok, out = send(handle, command)
+    # The line and its Enter go as two sends, in case an Enter that arrives with the line is swallowed
+    # by a shell taking it as a paste (T663: a hypothesis, not an observed cause).
+    ok, out = send(handle, command, enter=False)
+    if ok:
+        time.sleep(LAUNCH_ENTER_DELAY_S)
+        ok, out = send(handle, "")
     if not ok:
         return False, f"could not send the launch command: {out[:200]}"
     if started is not None and not started():
-        return False, "the launch command was typed but no session started"
+        return False, f"the launch command was typed but no session started{_terminal_note(handle)}"
     # Typing into a TUI that is still booting loses the opening characters, so
     # nothing may be sent to the agent until it has finished starting.
     wait_idle(handle, timeout_ms)
