@@ -174,20 +174,6 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         check("answer: reading it leaves the verdict alone",
               db.get_request(con, asked)["verdict"] == "yes, merged")
 
-        # A correction reaches an escalation the bridge already showed.
-        db.mark_delivered(con, q)
-        ok, msg, new = askmod.ask(actions.HUMAN, "merge keeper-3 - now with tests",
-                                  requester="backend", replaces=q)
-        check("replaces: an escalation already shown to the founder is retired",
-              ok and db.get_request(con, q)["state"] == "replaced", msg)
-        check("replaces: and only the replacement waits", [w["what"].startswith(f"#{new}")
-              for w in esc()] == [True], str(esc()))
-        # An agent's delivered request still cannot be replaced.
-        rid = db.add_request(con, "backend", "frontend", "do it", None, "peer",
-                             "async", None, 0, None)
-        db.mark_delivered(con, rid)
-        ok, msg, _ = askmod.ask("frontend", "do it better", requester="backend", replaces=rid)
-        check("replaces: an agent's delivered request still cannot be", not ok, msg)
     finally:
         con.close()
 

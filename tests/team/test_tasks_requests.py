@@ -193,48 +193,8 @@ def test_one_request_at_a_time(home: Path) -> None:
         check("one-at-a-time: two are queued for reviewer",
               db.queue_depth(con, "reviewer") == 2, db.queue_depth(con, "reviewer"))
 
-        # --first jumps a third request ahead of the (undelivered) second one,
-        # but never ahead of the first, which is already delivered.
-        ok, msg, third = askmod.ask("reviewer", "task three - urgent", requester="backend",
-                                    first=True)
-        check("one-at-a-time: --first is accepted", ok, msg)
-        order = [r["id"] for r in db.queued_for(con, "reviewer")]
-        check("one-at-a-time: --first jumps ahead of what was not yet delivered",
-              order == [first, third, second], str(order))
-
-        # A second --first must not compute its ceiling from the first
-        # --first's row and walk straight past the delivered floor - the
-        # exact repro of the bug the review found: two --first asks in a row.
-        ok, msg, fourth = askmod.ask("reviewer", "task four - even more urgent",
-                                     requester="backend", first=True)
-        check("one-at-a-time: a second --first is accepted", ok, msg)
-        order = [r["id"] for r in db.queued_for(con, "reviewer")]
-        check("one-at-a-time: a second --first still never crosses the delivered head",
-              order == [first, fourth, third, second], str(order))
-        ok, msg = askmod.withdraw(fourth, requester="backend")
-        check("one-at-a-time: cleaning up the extra probe", ok, msg)
-
-        # A requester may replace its own undelivered request; a foreign
-        # requester, or a delivered one, may not.
-        ok, msg = askmod.ask("reviewer", "not yours", requester="reviewer",
-                             replaces=second)[:2]
-        check("one-at-a-time: only the original requester may replace a request",
-              not ok and "not yours" in msg, msg)
-
-        ok, msg, replacement = askmod.ask("reviewer", "task two, corrected",
-                                          requester="backend", replaces=second)
-        check("one-at-a-time: replacing an undelivered request is allowed", ok, msg)
-        check("one-at-a-time: the old one is retired", db.get_request(con, second)["state"],
-              db.get_request(con, second)["state"])
-        check("one-at-a-time: as 'replaced'",
-              db.get_request(con, second)["state"] == "replaced")
-        order = [r["id"] for r in db.queued_for(con, "reviewer")]
-        check("one-at-a-time: the replacement keeps the same place in line",
-              order == [first, third, replacement], str(order))
-
-        ok, msg = askmod.ask("reviewer", "too late", requester="backend", replaces=first)[:2]
-        check("one-at-a-time: a delivered request cannot be replaced",
-              not ok and "already delivered" in msg, msg)
+        ok, msg, third = askmod.ask("reviewer", "task three", requester="backend")
+        check("one-at-a-time: a third is accepted", ok, msg)
 
         ok, msg = askmod.withdraw(third, requester="backend")
         check("one-at-a-time: withdrawing an undelivered request is allowed", ok, msg)
@@ -246,15 +206,14 @@ def test_one_request_at_a_time(home: Path) -> None:
         check("one-at-a-time: a delivered request cannot be withdrawn",
               not ok and "already delivered" in msg, msg)
 
-        # Resolving the head hands delivery to the next one - the replacement,
-        # not the request it replaced.
+        # Resolving the head hands delivery to the next one, never a withdrawn row.
         ok, msg = askmod.resolve(first, "done")
         check("one-at-a-time: resolving the head succeeds", ok, msg)
         new_head = db.head_of_queue(con, "reviewer")
-        check("one-at-a-time: the replacement becomes the head",
-              new_head["id"] == replacement, new_head["id"])
-        check("one-at-a-time: withdrawn/replaced rows never become the head",
-              new_head["body"] == "task two, corrected", new_head["body"])
+        check("one-at-a-time: the next queued row becomes the head",
+              new_head["id"] == second, new_head["id"])
+        check("one-at-a-time: withdrawn rows never become the head",
+              new_head["state"] == "queued", new_head["state"])
     finally:
         con.close()
 
@@ -360,60 +319,6 @@ def test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(home: Path) -
               db.get_request(con, 1)["told_out_of_turn"] == 1
               and con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
                               ).fetchone() is None)
-    finally:
-        con.close()
-
-
-def test_replace_and_merge_respect_delivered_at(home: Path) -> None:
-    """Review of buddyron/one-task-at-a-time: --mergeable folded into an
-    already-delivered row (changing what the target was already reading, with
-    nobody told), and --replaces --mergeable together returned before the
-    replaced row was retired."""
-    use_home(home)
-    hand_edit_team(DESIGN_TEAM)
-    for name in ("backend", "reviewer"):
-        agents.register(name)
-    con = db.connect()
-    try:
-        ok, msg, rid = askmod.ask("reviewer", "please look", requester="backend",
-                                  files="a.py")
-        db.mark_delivered(con, rid)
-        ok, msg, merged = askmod.ask("reviewer", "also this", requester="backend",
-                                     files="a.py", mergeable=True)
-        check("mergeable: does not fold into an already-delivered row",
-              merged != rid, str((rid, merged)))
-        check("mergeable: a separate request queues instead",
-              db.get_request(con, merged)["body"] == "also this",
-              db.get_request(con, merged)["body"])
-
-        # --replaces --mergeable: the replaced row must be retired, not left
-        # 'queued' because a merge path returned first.
-        ok, msg, third = askmod.ask("reviewer", "another one", requester="backend")
-        ok, msg, fourth = askmod.ask("reviewer", "another one, corrected",
-                                     requester="backend", replaces=third, mergeable=True)
-        check("replaces+mergeable: the ask succeeds", ok, msg)
-        check("replaces+mergeable: the replaced row is retired, not left queued",
-              db.get_request(con, third)["state"] == "replaced",
-              db.get_request(con, third)["state"])
-    finally:
-        con.close()
-
-
-def test_chain_members_excludes_a_row_about_to_be_replaced(home: Path) -> None:
-    """Review note: a replace's cycle/ping-pong check ran while the row it is
-    about to retire was still 'queued', counting a round that, from the
-    target's side, never happened."""
-    use_home(home)
-    con = db.connect()
-    try:
-        a = db.add_request(con, "x", "y", "one", None, "peer", "async", None, 0, None)
-        b = db.add_request(con, "y", "x", "two", None, "peer", "async", None, 0, None,
-                           chain_id=db.get_request(con, a)["chain_id"])
-        chain_id = db.get_request(con, a)["chain_id"]
-        check("chain_members: both rows count without exclusion",
-              len(db.chain_members(con, chain_id)) == 2)
-        check("chain_members: exclude_id drops just that one row",
-              [r["id"] for r in db.chain_members(con, chain_id, exclude_id=b)] == [a])
     finally:
         con.close()
 
@@ -3638,12 +3543,8 @@ def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Pat
     _two_agents_one_slot(home, cap=10)
     ok, _, a = askmod.ask("b", "first", requester="a")
     askmod.withdraw(a, requester="a", reason="typo")
-    ok, first, c = askmod.ask("b", "spec", requester="a")
-    check("read: setup - the row to replace lands", ok, first)
-    ok, msg, d = askmod.ask("b", "spec v2", requester="a", replaces=c)
-    check("read: setup - the replace lands", ok, msg)
 
-    for rid, label in ((a, "withdrawn"), (c, "replaced")):
+    for rid, label in ((a, "withdrawn"),):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             cliask.cmd_read(climod.build_parser().parse_args(["read", str(rid)]))
@@ -6684,17 +6585,7 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
     _board_world(home)
     con = db.connect()
     try:
-        ok, _, a = askmod.ask("worker", "first", requester="manager")
-        ok, _, b = askmod.ask("worker", "first, corrected", requester="manager",
-                              replaces=a, reason="wrong repo")
-        check("reason: a replace stores the reason after the id that replaced it",
-              db.get_request(con, a)["verdict"] == f"replaced by #{b}: wrong repo",
-              str(dict(db.get_request(con, a))))
-        ok, _, c = askmod.ask("worker", "second", requester="manager")
-        ok, _, d = askmod.ask("worker", "second again", requester="manager", replaces=c)
-        check("reason: a replace with none keeps the old verdict",
-              db.get_request(con, c)["verdict"] == f"replaced by #{d}")
-        ok, _, e = askmod.ask("worker", "third", requester="manager", mergeable=False)
+        ok, _, e = askmod.ask("worker", "third", requester="manager")
         ok, msg = askmod.withdraw(e, requester="manager", reason="not needed after all")
         row = db.get_request(con, e)
         check("reason: a withdraw stores it, labelled like the other two", ok
@@ -6875,29 +6766,6 @@ def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
     finally:
         con.close()
 
-
-
-def test_a_corrected_reply_stays_in_its_thread(home: Path) -> None:
-    """T117: `--replaces` on a reply without saying `--parent` again sent the
-    correction as a new request, which waits behind the head it followed."""
-    _board_world(home)
-    con = db.connect()
-    try:
-        ok, _, head = askmod.ask("worker", "the task", requester="manager")
-        ok, _, reply = askmod.ask("worker", "do it this way", requester="manager", parent_id=head)
-        ok, _, fixed = askmod.ask("worker", "do it that way", requester="manager", replaces=reply)
-        row = db.get_request(con, fixed)
-        check("replaces: a corrected reply keeps its parent",
-              ok and row["parent_id"] == head and row["chain_depth"] == 1, str(dict(row)))
-        ok, _, other = askmod.ask("worker", "an aside", requester="manager", parent_id=fixed)
-        check("replaces: a request under the corrected reply is its child",
-              ok and db.get_request(con, other)["parent_id"] == fixed)
-        ok, _, plain = askmod.ask("worker", "first", requester="manager")
-        ok, _, plain2 = askmod.ask("worker", "first, again", requester="manager", replaces=plain)
-        check("replaces: a top-level request stays top-level",
-              db.get_request(con, plain2)["parent_id"] is None)
-    finally:
-        con.close()
 
 
 def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
@@ -8325,8 +8193,6 @@ def main() -> int:
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
         run(lambda: test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(Path(td) / 'oldmig2'))
-        run(lambda: test_replace_and_merge_respect_delivered_at(Path(td) / 'mergedeliv'))
-        run(lambda: test_chain_members_excludes_a_row_about_to_be_replaced(Path(td) / 'chainexc'))
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
             Path(td) / 'retirerace'))
         run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
@@ -8483,7 +8349,6 @@ def main() -> int:
         run(lambda: test_reopening_a_done_task_needs_a_reason_and_only_the_asker(Path(td) / 'taskreopen'))
         run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
-        run(lambda: test_a_corrected_reply_stays_in_its_thread(Path(td) / 'replythread'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))

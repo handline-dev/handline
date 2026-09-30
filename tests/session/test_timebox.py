@@ -98,30 +98,6 @@ def test_ask_keeps_its_timebox(home: Path) -> None:
         con.close()
 
 
-def test_a_folded_ask_keeps_its_timebox(home: Path) -> None:
-    """T95: `--mergeable` folds an ask into one already queued; its `--timebox`
-    used to vanish with it."""
-    _world(home)
-    # Only a task waits for a free agent (a message is typed at once), so a task edge is
-    # what leaves the first ask undelivered and foldable.
-    hand_edit_team(TEAM.replace('- { from: "manager", to: "dev.*", relation: supervisor, response: async }',
-                                '- { from: "manager", to: "dev.*", relation: supervisor, response: async, kind: task }'))
-    orcamod.typeable_now = lambda h: False
-    ok, _, first = askmod.ask("marina", "review the branch", requester="manager", mergeable=True)
-    ok2, msg, merged = askmod.ask("marina", "and its new commit", requester="manager",
-                                  mergeable=True, timebox_s=900)
-    con = db.connect()
-    try:
-        check("timebox: the second ask folded into the first", ok and ok2 and merged == first, msg)
-        check("timebox: and its timebox is the merged row's",
-              db.get_request(con, first)["timebox_s"] == 900, str(dict(db.get_request(con, first))))
-        ok3, _, again = askmod.ask("marina", "one more", requester="manager", mergeable=True)
-        check("timebox: a fold with none leaves the row's own",
-              ok3 and again == first and db.get_request(con, first)["timebox_s"] == 900)
-    finally:
-        con.close()
-
-
 def test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -1411,7 +1387,6 @@ def main() -> int:
             run(lambda: test_a_stand_in_behind_an_ask_blocked_head_is_nudged_and_capped(Path(td) / 'tb20'))
             run(lambda: test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(Path(td) / 'tb21'))
             run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
-            run(lambda: test_a_folded_ask_keeps_its_timebox(Path(td) / 'tb1b'))
             run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))
             run(lambda: test_a_doing_tasks_timeout_starts_silently_then_repeats(Path(td) / 'tb2b'))
             run(lambda: test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(Path(td) / 'tb2c'))

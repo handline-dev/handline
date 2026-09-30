@@ -3081,21 +3081,6 @@ edges:
     finally:
         con.close()
 
-    # #1938 should-fix: a fifth door - the proposer's own `--replaces` passes
-    # the ownership check (old["requester"] == requester) and would close the
-    # escalation with "replaced by #N", a row the founder cannot tell apart
-    # from the original and that approving does not enact.
-    ok, said, rid4 = askmod.ask(askmod.HUMAN, "corrected: add yerin on gamma",
-                                requester="hr", replaces=rid2)
-    check("replaces: an open proposal refuses to be replaced away",
-          not ok and "withdraw" in said, said)
-    check("replaces: no new row was queued for it", rid4 is None, rid4)
-    con = db.connect()
-    try:
-        check("replaces: and stays queued", db.get_request(con, rid2)["state"] == "queued")
-    finally:
-        con.close()
-
     # #1943: a sixth door - the code review that found the chokepoint's
     # should-fixes also found this one. The proposer owns its own escalation
     # (it is the requester), so `ocp withdraw` - not `ocp hr withdraw` - is
