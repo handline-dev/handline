@@ -530,7 +530,7 @@ def _close_replied(parent_id: int, reply_id: int, reply_body: str) -> None:
     """A reply settles the request it answers (T361), silently - the reply is what the asker
     is told, and it is marked as the answer, so there is one message. Only when it comes from
     the request's own target, to its requester, and the request is no roster proposal (those
-    are decided with approve or reject)."""
+    are decided with approve or reject) and no task (that is handed on or finished)."""
     from . import hr, trust
     con = db.connect()
     try:
@@ -539,6 +539,7 @@ def _close_replied(parent_id: int, reply_id: int, reply_body: str) -> None:
     finally:
         con.close()
     if (parent is not None and parent["state"] == "queued" and not proposal
+            and parent["kind"] != "task"        # a task ends by handoff or done, never by a reply
             and reply is not None and reply["requester"] == parent["target"]
             and reply["target"] == parent["requester"]):
         resolve(parent_id, reply_body, notify=False, answered_by=reply_id)

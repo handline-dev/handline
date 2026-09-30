@@ -120,20 +120,25 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
     parent = db.get_request(con, kw["parent"]) if kw.get("parent") is not None else None
     # A reply to the founder's own open request says what it becomes, as `resolve` did (T361).
     founders = (parent is not None and parent["requester"] == actions.HUMAN
-                and parent["state"] == "queued" and parent["target"] == me)
+                and parent["state"] == "queued" and parent["target"] == me
+                and target == actions.HUMAN and parent["kind"] != "task")
     if founders:
-        refusal = actions.check_human_resolve(con, parent, [task] if task else None, no_task, me)
+        refusal = actions.check_human_resolve(con, parent, [task] if task else None, no_task, me,
+                                              one_task=True)
         if refusal:
-            return False, refusal.replace("--task T<n> [T<n> ...]", "--task T<n>").replace(
-                "`ocp task new", "`ocp task new")
+            return False, refusal
         if fyi is not None and not str(fyi).strip():
             return False, "--fyi says why this is not work: give the reason"
         ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw["parent"],
                                   speaker=speaker, notify=False)
         if ok:
-            actions.record_human_resolve(con, kw["parent"], [task] if task else None, no_task, me)
+            if db.get_request(con, kw["parent"])["state"] != "queued":     # it settled, not lost a race
+                actions.record_human_resolve(con, kw["parent"], [task] if task else None, no_task, me)
             _after(rid, kw["target"], log)
         return ok, msg
+    if no_task is not None:
+        return False, ("--no-task is for replying to the founder's request (--parent <its id>): "
+                       "say what it becomes there")
     if fyi is not None and not str(fyi).strip():
         return False, "--fyi says why this is not work: give the reason"
     if task is not None and fyi:

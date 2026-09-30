@@ -831,7 +831,8 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
                 f"Waiting on something: record it - `ocp task edit T{tid} --blocked-by T<m>`, "
                 f"or a child or decision task.")
     else:
-        what = ("It asks nothing." if head["kind"] == "report" and head["requester"] != db.HUMAN else
+        what = (f"It asks nothing - `ocp dismiss {head['id']}` when read."
+                if head["kind"] == "report" and head["requester"] != db.HUMAN else
                 f"If the work is done, {answer_verb(con, head)}; if it is not, say what you are "
                 f"waiting on.")
         text = (f"#{head['id']} was delivered to you and is still open, and you have been "
@@ -920,7 +921,9 @@ def answer_verb(con, head) -> str:
                     f"`ocp task done T{task['id']}` if you are its last step")
     if head["requester"] == db.HUMAN:
         return f"if it asks something: `ocp say human --parent {head['id']} \"...\"`"
-    if head["kind"] in ("report", "say"):
+    if head["kind"] == "report":
+        return f"it asks nothing - `ocp dismiss {head['id']}` when read"    # until step 2 gives it another close
+    if head["kind"] == "say":
         return "it asks nothing"
     return f"answer with `ocp say {head['requester']} --parent {head['id']} \"<answer>\"`"
 
@@ -967,8 +970,8 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
             f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}"
-            + ("." if head["requester"] == db.HUMAN
-               or head["kind"] in ("say", "report") else ", or `ocp inbox` any time."))
+            + ("." if head["requester"] == db.HUMAN or head["kind"] == "say"
+               else ", or `ocp inbox` any time."))
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,

@@ -230,6 +230,57 @@ edges:
         con.close()
 
 
+def test_a_reply_never_settles_a_task_and_the_founder_guard_follows_the_target(home: Path) -> None:
+    """T361 step 1 (auditor #6216): a reply in a task's thread leaves the task's request queued
+    and the task doing; the founder guard runs only for a reply that goes to the founder;
+    --no-task means nothing on any other reply."""
+    _say_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    ok, msg, tid = actions.task_new("manager", "worker", "build it", "build it")
+    check("setup: a task is delivered to worker", ok, msg)
+    con = db.connect()
+    trid = [r["id"] for r in db.task_requests(con, tid) if r["target"] == "worker"][0]
+    con.close()
+    rc, out = _cli(["say", "manager", "done I think?", "--parent", str(trid)], as_agent="worker")
+    con = db.connect()
+    try:
+        check("task reply: sent", rc == 0, out)
+        check("task reply: the task's request stays queued and the task keeps doing",
+              db.get_request(con, trid)["state"] == "queued"
+              and actions.task_state(con, db.get_task(con, tid)) == "doing")
+        check("task reply: nothing is marked as settling it",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE settles = ?", (trid,)).fetchone()["c"] == 0)
+        frid = db.add_request(con, "human", "manager", "how is it?", None, "supervisor",
+                              "fire_and_forget", None, 0, None)
+        con.commit()
+    finally:
+        con.close()
+    rc, out = _cli(["say", "worker", "fyi", "--parent", str(frid), "--no-task", "x"], as_agent="manager")
+    con = db.connect()
+    try:
+        check("wrong target: a reply to someone else runs no founder guard and records nothing",
+              rc == 1 and con.execute("SELECT 1 FROM events WHERE kind = 'no_task'").fetchone() is None
+              and db.get_request(con, frid)["state"] == "queued", out)
+    finally:
+        con.close()
+    rc, out = _cli(["say", "worker", "plain", "--no-task", "x"], as_agent="manager")
+    check("--no-task on a say that is not a founder reply is refused, not dropped",
+          rc == 1 and "--no-task is for replying to the founder" in out, out)
+    rc, out = _cli(["say", "human", "hm", "--parent", str(frid)], as_agent="manager")
+    check("founder reply refusal names the single --task form", rc == 1 and "--task T<n> names" in out
+          and "[T<n> ...]" not in out, out)
+
+
 def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
     """T293/#1655 (1b): a reply to a say is a say, threaded with --parent -
     the same chain, not a fresh one, and still never a head."""
@@ -520,6 +571,7 @@ def main() -> int:
         run(lambda: test_resolving_a_human_ask_leaves_one_message(Path(td) / 'sayone'))
         run(lambda: test_a_reply_settles_the_request_it_answers_as_one_message(Path(td) / 'saysettle'))
         run(lambda: test_a_reply_to_the_founder_says_what_it_becomes_and_the_tail_says_how(Path(td) / 'sayfounder'))
+        run(lambda: test_a_reply_never_settles_a_task_and_the_founder_guard_follows_the_target(Path(td) / 'saytask'))
         run(lambda: test_a_reply_to_a_say_is_a_say_in_its_own_thread(Path(td) / 'sayreply'))
         run(lambda: test_only_the_says_own_target_can_close_it_by_replying(
             Path(td) / 'sayclosetarget'))

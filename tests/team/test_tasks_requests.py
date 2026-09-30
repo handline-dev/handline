@@ -1525,8 +1525,8 @@ def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
         note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
                               "fire_and_forget", "report", 0, None)
         dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
-        check("report notice: told it asks nothing, no dismiss or resolve",
-              "it asks nothing" in sent[-1] and "ocp dismiss" not in sent[-1]
+        check("report notice: told it asks nothing and to dismiss it (until step 2 gives it another close)",
+              "it asks nothing" in sent[-1] and f"`ocp dismiss {note}`" in sent[-1]
               and "ocp resolve" not in sent[-1], sent[-1])
         con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (note,))
         rid = db.add_request(con, "reviewer", "backend", "look at this", None,
@@ -1568,8 +1568,8 @@ def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) 
         check("report nudge: it goes", dmn_delivery.nudge_forgotten_resolve(
             con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
             and len(sent) == 1, str(sent))
-        check("report nudge: and says it asks nothing, not dismiss or resolve",
-              "It asks nothing" in sent[0] and "ocp dismiss" not in sent[0]
+        check("report nudge: and says it asks nothing and to dismiss it, not resolve",
+              "It asks nothing" in sent[0] and f"`ocp dismiss {note}`" in sent[0]
               and "ocp resolve" not in sent[0], sent[0])
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now) = real
