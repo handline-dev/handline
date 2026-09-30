@@ -1616,6 +1616,21 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
           issubclass(TaskPane, TaskBody) and not [n for n in vars(TaskPane) if n.startswith(("action_", "memo_"))])
 
 
+def test_the_bridge_stylesheet_parses() -> None:
+    """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
+    from textual.app import App
+    from textual.css.stylesheet import Stylesheet
+    from ocp.ui.bridge_textual import BridgeApp
+    sheet = Stylesheet(variables=App().get_css_variables())
+    sheet.read(BridgeApp.CSS_PATH)
+    try:
+        sheet.parse()
+        ok, why = True, ""
+    except Exception as e:  # noqa: BLE001
+        ok, why = False, str(e)[:200]
+    check("bridge: chat_page.tcss parses", ok, why)
+
+
 def test_assign_answers_from_the_task_page() -> None:
     _home("assign")
     agents.register("reviewer")
@@ -1733,6 +1748,7 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
+    test_the_bridge_stylesheet_parses()
     test_assign_answers_from_the_task_page()
     test_a_task_timeline_holds_memos_handoffs_and_notes_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()

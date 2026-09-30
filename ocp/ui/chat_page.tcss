@@ -53,4 +53,3 @@ ChatPage { overflow: hidden; }
     .frow .unit { width: auto; padding-left: 1; }
     .fhint { color: $text-muted; }
 }
-}
