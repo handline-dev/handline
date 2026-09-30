@@ -388,6 +388,10 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if row["discarded_by"]:
         return False, f"task T{tid} is already discarded ({row['discarded_by']})"
     if row["done_evidence"]:
+        # T706: a delivery left queued when the task ended some other way is settled here
+        if by in (row["owner"], HUMAN) and any(r["state"] == "queued" for r in db.task_requests(con, tid)):
+            _retire_task_requests(con, tid, f"task T{tid} done ({row['done_evidence']})")
+            return True, f"task T{tid} is already done ({row['done_evidence']}); its leftover request is settled"
         return False, f"task T{tid} is already done ({row['done_evidence']})"
     # T292 (#1655 section 4): a sha-expecting task's opener or the founder
     # may close it another way when the sha is never going to land - the

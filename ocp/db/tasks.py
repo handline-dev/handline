@@ -425,6 +425,16 @@ def decision_card_of(con, tid: int):
         "WHERE task_id = ?)", (tid,)).fetchone()
 
 
+def close_task_requests(con, tid: int, verdict: str) -> list[int]:
+    """Close every request still queued on a task that has just ended (T706), without
+    settling a card or telling anyone: a handoff's delivery must not outlive its task
+    and sit at the holder's head. The ids closed."""
+    from .requests import close_if_queued
+    return [r["id"] for r in task_requests(con, tid)
+            if r["state"] == "queued" and close_if_queued(con, r["id"], "done", verdict,
+                                                          announced=True, settle=False)]
+
+
 def settle_decision_tasks(con, rid: int, state: str, verdict: str | None,
                           dismissed_by: str | None = None) -> None:
     """A request that is the card of a decision task has left 'queued': the task
@@ -438,7 +448,8 @@ def settle_decision_tasks(con, rid: int, state: str, verdict: str | None,
     if tid is None:
         return
     if state == "done" and verdict and dismissed_by is None:
-        mark_task_done(con, tid, verdict, "reason")
+        if mark_task_done(con, tid, verdict, "reason"):
+            close_task_requests(con, tid, f"task T{tid} done ({verdict})")
     else:
         discard_task(con, tid, HUMAN, f"its request was {'dismissed' if dismissed_by else state}"
                      + (f": {verdict}" if verdict and not dismissed_by else ""))
