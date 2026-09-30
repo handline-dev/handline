@@ -470,7 +470,7 @@ def task_page(d: dict) -> dict:
     """What a task's page draws, as safe `Text`: title, badge, the facts, the
     sub-tasks (each a link that opens it) and the requests."""
     def link(tid: int, label: str) -> Text:
-        return Text(label, style=Style(underline=True, meta={"@click": f"screen.open_task({tid})"}))
+        return Text(label, style=Style(underline=True, meta={"@click": f"open_task({tid})"}))
 
     def when(ts) -> Text:
         return Text(timefmt.stamp(ts, timefmt.DATE_TIME) if ts else "", style="dim")
@@ -988,132 +988,74 @@ class TaskActions:
         self.app.push_screen(TextPrompt("discard - why?"), answered)
 
 
-class TaskPane(TaskActions, Vertical):
-    """The task under the cursor, beside a table when the terminal is wide: what its page
-    (`chat_page.task_page`) says, the sub-tasks without links."""
+class TaskText(Static):
+    """A `Static` on a task's page whose links open another task's page, wherever the page is."""
 
-    WIDE = 130
-    WIDTH = 50
-    DEFAULT_CSS = f"""
-    TaskPane {{ width: {WIDTH}; height: 100%; padding: 0 1; border-left: solid $primary; }}
-    TaskPane #pane_scroll {{ height: 1fr; }}
-    TaskPane #pane_foot {{ dock: bottom; height: auto; }}
-    TaskPane #pane_buttons {{ height: 1; }}
+    def action_open_task(self, tid: int) -> None:
+        self.app.push_screen(TaskDetail(tid))
+
+
+class TaskBody(TaskActions, Vertical):
+    """One task as the human sees it: title, state, the facts, sub-tasks, requests, the timeline
+    with a memo box, and the calls on it. The task page and the side view of the task list are
+    both this, so what one can do the other can. `show(tid)` draws a task; the host redraws
+    its own lists when `Changed` arrives."""
+
+    DEFAULT_CSS = """
+    TaskBody { height: 1fr; }
+    TaskBody #detail_pane { height: 1fr; padding: 1 3; }
+    TaskBody .tl_row { height: 1; }
+    TaskBody .tl_text { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    TaskBody .tl_icon { width: 3; min-width: 0; margin-left: 1; }
+    TaskBody #t_memo_new { height: 1; margin-top: 1; }
+    TaskBody #t_memo_box { width: 1fr; }
+    TaskBody #t_memo_new Button { width: auto; min-width: 0; margin-left: 1; }
+    TaskBody #t_title { text-style: bold; padding-bottom: 1; }
+    TaskBody #t_badge, TaskBody #t_meta { padding-bottom: 1; }
+    TaskBody .section { padding-top: 1; border-top: solid $primary-darken-1; margin-top: 1; height: auto; }
     """
 
     class Changed(Message):
-        """An action changed the task: the host redraws its table."""
+        """An action changed the task: the host redraws what it lists."""
 
-    def __init__(self, **kw) -> None:
+    def __init__(self, tid: int = 0, keys: bool = False, **kw) -> None:
         super().__init__(**kw)
-        self.tid = 0
-        self.d = None
-
-    def fit(self, width: int, table: "TaskTable") -> bool:
-        """Show beside `table` when `width` allows; then a click on a row only moves the
-        cursor, and the pane says what is under it."""
-        wide = width >= self.WIDE
-        self.display = wide
-        table.click_selects = not wide
-        return wide
-
-    def compose(self) -> ComposeResult:
-        with VerticalScroll(id="pane_scroll"):
-            yield Static(id="pane_text")
-        with Vertical(id="pane_foot"):
-            with Horizontal(id="pane_buttons"):
-                yield Button("Close", id="pane_close", variant="success", compact=True)
-                yield Button("Reopen", id="pane_reopen", variant="warning", compact=True)
-                yield Button("Discard", id="pane_discard", variant="error", compact=True)
-
-    def redraw(self) -> None:
-        self.show(self.tid)
-        self.post_message(self.Changed())
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        event.stop()
-        {"pane_close": self.action_close_task, "pane_reopen": self.action_reopen_task,
-         "pane_discard": self.action_discard_task}[event.button.id]()
-
-    def show(self, tid: int | None) -> None:
-        text = self.query_one("#pane_text", Static)
-        self.tid = tid or 0
-        self.d = None
-        for name in ("close", "reopen", "discard"):
-            self.query_one(f"#pane_{name}", Button).disabled = True
-        if tid is None:
-            text.update(Text("no task", style="dim"))
-            return
-        con = db.connect()
-        try:
-            d = task_detail(con, tid)
-        finally:
-            con.close()
-        if d is None:
-            text.update(Text(f"task {actions.task_ref(tid)} is gone", style="dim"))
-            return
-        self.d = d
-        for name in ("close", "reopen", "discard"):
-            self.query_one(f"#pane_{name}", Button).disabled = not d[f"can_{name}"]
-        page = task_page(d)
-        out = Text()
-        for part in (page["title"], page["badge"]):
-            out.append_text(part)
-            out.append("\n")
-        out.append("\n")
-        out.append_text(page["meta"])
-        for title, lines in (("Sub-tasks", [Text(f"{actions.task_ref(i)}  {st}  {t}")
-                                            for i, t, st in d["children"]]), ("Requests", page["reqs"])):
-            out.append(f"\n{title}", style="bold")
-            out.append(f"  {len(lines)}\n", style="dim")
-            for line in lines or [Text("none", style="dim")]:
-                out.append("  ")
-                out.append_text(line)
-                out.append("\n")
-        text.update(out)
-
-
-class TaskDetail(TaskActions, Screen):
-    """One task: its title and state, who has it, what it grew out of, its
-    sub-tasks and requests, and the calls the human may make on it - close
-    a done task, send it back with a reason, or discard one nothing is running on."""
-    BINDINGS = [Binding("escape", "app.pop_screen", "back"),
-                Binding("c", "close_task", "close"),
-                Binding("r", "reopen_task", "reopen"),
-                Binding("a", "assign_task", "assign"),
-                Binding("d", "discard_task", "discard")]
-
-    def __init__(self, tid: int) -> None:
-        super().__init__(classes="chat_page")
         self.tid = tid
         self.d: dict | None = None
+        self.keys = keys          # the buttons name their keys: the host binds them
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with Horizontal(id="t_top"):
-            yield Button("‹ Back", id="back", compact=True)
+        def label(word: str, key: str) -> str:
+            return f"{word}  {key}" if self.keys else word
         with VerticalScroll(id="detail_pane"):
-            yield Static(id="t_title")
-            yield Static(id="t_badge")
-            yield Static(id="t_meta")
-            yield Static(id="t_kids", classes="section")
-            yield Static(id="t_reqs", classes="section")
+            yield TaskText(id="t_title")
+            yield TaskText(id="t_badge")
+            yield TaskText(id="t_meta")
+            yield TaskText(id="t_kids", classes="section")
+            yield TaskText(id="t_reqs", classes="section")
             yield Static(id="t_memo_head", classes="section")
             yield Vertical(id="t_memos")
             with Horizontal(id="t_memo_new"):
                 yield ImeInput(id="t_memo_box", compact=True, placeholder="a memo on this task")
                 yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
-            yield Button("Assign  a", id="assign", variant="primary", compact=True)
-            yield Button("Close  c", id="close", variant="success", compact=True)
-            yield Button("Reopen  r", id="reopen", variant="warning", compact=True)
-            yield Button("Discard  d", id="discard", variant="error", compact=True)
+            yield Button(label("Assign", "a"), id="assign", variant="primary", compact=True)
+            yield Button(label("Close", "c"), id="close", variant="success", compact=True)
+            yield Button(label("Reopen", "r"), id="reopen", variant="warning", compact=True)
+            yield Button(label("Discard", "d"), id="discard", variant="error", compact=True)
 
     def on_mount(self) -> None:
-        self.sub_title = f"task {actions.task_ref(self.tid)}"
+        self.load()
+
+    def show(self, tid: int | None) -> None:
+        self.tid = tid or 0
         self.load()
 
     def load(self) -> None:
+        self.d = None
+        if not self.tid:
+            self._blank("no task")
+            return
         con = db.connect()
         try:
             self.d = task_detail(con, self.tid)
@@ -1121,7 +1063,7 @@ class TaskDetail(TaskActions, Screen):
             con.close()
         d = self.d
         if d is None:
-            self.query_one("#t_title", Static).update(f"task {actions.task_ref(self.tid)} is gone")
+            self._blank(f"task {actions.task_ref(self.tid)} is gone")
             return
         page = task_page(d)
         self.query_one("#t_title", Static).update(page["title"])
@@ -1130,10 +1072,16 @@ class TaskDetail(TaskActions, Screen):
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
         self.draw_memos(page["timeline"])
-        self.query_one("#assign", Button).disabled = not d["can_assign"]
-        self.query_one("#close", Button).disabled = not d["can_close"]
-        self.query_one("#reopen", Button).disabled = not d["can_reopen"]
-        self.query_one("#discard", Button).disabled = not d["can_discard"]
+        for name in ("assign", "close", "reopen", "discard"):
+            self.query_one(f"#{name}", Button).disabled = not d[f"can_{name}"]
+
+    def _blank(self, said: str) -> None:
+        self.query_one("#t_title", Static).update(Text(said, style="dim"))
+        for name in ("badge", "meta", "kids", "reqs", "memo_head"):
+            self.query_one(f"#t_{name}", Static).update("")
+        self.query_one("#t_memos", Vertical).remove_children()
+        for name in ("assign", "close", "reopen", "discard"):
+            self.query_one(f"#{name}", Button).disabled = True
 
     def draw_memos(self, texts: list[Text]) -> None:
         """The timeline: a line each, and a memo's own line ends in edit and delete icons."""
@@ -1184,9 +1132,6 @@ class TaskDetail(TaskActions, Screen):
             con.close()
         self.report(f"memo {verb}", ok, said)
 
-    def action_open_task(self, tid: int) -> None:
-        self.app.push_screen(TaskDetail(tid))
-
     @staticmethod
     def _section(title: str, lines: list[Text]) -> Text:
         out = Text(title, style="bold")
@@ -1199,16 +1144,87 @@ class TaskDetail(TaskActions, Screen):
 
     def redraw(self) -> None:
         self.load()
+        self.post_message(self.Changed())
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        event.stop()
         bid = event.button.id or ""
         if bid[:3] in ("me_", "md_") and bid[3:].isdigit():
+            event.stop()
             (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
             return
-        {"memo_add": self.action_memo_add, "assign": self.action_assign_task, "close": self.action_close_task,
-         "reopen": self.action_reopen_task, "discard": self.action_discard_task,
-         "back": self.app.pop_screen}[event.button.id]()
+        call = {"memo_add": self.action_memo_add, "assign": self.action_assign_task,
+                "close": self.action_close_task, "reopen": self.action_reopen_task,
+                "discard": self.action_discard_task}.get(bid)
+        if call:
+            event.stop()
+            call()
+
+
+class TaskPane(TaskBody):
+    """The task under the cursor, beside a table when the terminal is wide."""
+
+    WIDE = 130
+    WIDTH = 50
+    DEFAULT_CSS = f"""
+    TaskPane {{ width: {WIDTH}; height: 100%; border-left: solid $primary; }}
+    TaskPane #detail_pane {{ padding: 0 1; }}
+    TaskPane #t_actions {{ padding: 0 1; margin-bottom: 0; }}
+    TaskPane #t_actions Button {{ margin-right: 1; }}
+    """
+
+    def fit(self, width: int, table: "TaskTable") -> bool:
+        """Show beside `table` when `width` allows; then a click on a row only moves the
+        cursor, and the pane says what is under it."""
+        wide = width >= self.WIDE
+        self.display = wide
+        table.click_selects = not wide
+        return wide
+
+
+class TaskDetail(Screen):
+    """One task's page: the shared `TaskBody` under a Back button, with a key for each call the
+    human may make on it."""
+    BINDINGS = [Binding("escape", "app.pop_screen", "back"),
+                Binding("c", "close_task", "close"),
+                Binding("r", "reopen_task", "reopen"),
+                Binding("a", "assign_task", "assign"),
+                Binding("d", "discard_task", "discard")]
+
+    def __init__(self, tid: int) -> None:
+        super().__init__(classes="chat_page")
+        self.tid = tid
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Horizontal(id="t_top"):
+            yield Button("‹ Back", id="back", compact=True)
+        yield TaskBody(self.tid, keys=True, id="task_body")
+
+    def on_mount(self) -> None:
+        self.sub_title = f"task {actions.task_ref(self.tid)}"
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "back":
+            event.stop()
+            self.app.pop_screen()
+
+    def action_open_task(self, tid: int) -> None:
+        self.app.push_screen(TaskDetail(tid))
+
+    def _body(self) -> TaskBody:
+        return self.query_one(TaskBody)
+
+    def action_close_task(self) -> None:
+        self._body().action_close_task()
+
+    def action_reopen_task(self) -> None:
+        self._body().action_reopen_task()
+
+    def action_assign_task(self) -> None:
+        self._body().action_assign_task()
+
+    def action_discard_task(self) -> None:
+        self._body().action_discard_task()
 
 
 class ChatPage(JobsAware, Screen):

@@ -18,7 +18,7 @@ from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
 from ...infra import paths, textsafe
-from ..chat_page import TaskPane, TaskTable
+from ..chat_page import TaskBody, TaskPane, TaskTable
 from .action_bar import ActionBar
 from .table_sync import sync_rows
 from .confirm import Confirm
@@ -100,6 +100,10 @@ def title_room(width: int, others: list[int]) -> int:
     """How many cells the title column may take of a table `width` wide beside columns of
     these widths (each with its two cells of padding), so no row runs off the right edge."""
     return max(width - sum(w + 2 for w in others) - 4, MIN_TITLE)
+
+
+# What a list shows when it opens: done tasks are out of the way until asked for.
+LISTED = tuple(st for st in actions.OPEN_STATES if st != "done")
 
 
 class _StateList(SelectionList):
@@ -191,7 +195,7 @@ class TasksView(Vertical):
         self.by = "priority"
         self.rev = False
         self.as_tree = load_view()
-        self.states: set[str] = set(states or actions.OPEN_STATES)
+        self.states: set[str] = set(states or LISTED)
         self.owner: str | None = None
         self.owners: list[str] = []
         self.rows: list[dict] = []
@@ -224,7 +228,7 @@ class TasksView(Vertical):
         if pane.fit(self.size.width, self.table):
             pane.show(self.rows[self.cur]["id"] if self.cur < len(self.rows) else None)
 
-    def on_task_pane_changed(self, event: TaskPane.Changed) -> None:
+    def on_task_body_changed(self, event: TaskBody.Changed) -> None:
         event.stop()
         self.refresh_rows()
 
@@ -356,8 +360,8 @@ class TasksView(Vertical):
     def _state_label(self) -> str:
         if self.states == set(actions.TASK_STATES):
             return "all states"
-        if self.states == set(actions.OPEN_STATES):
-            return "open"
+        if self.states == set(LISTED):
+            return "not done"
         return ",".join(st for st in actions.TASK_STATES if st in self.states) or "no state"
 
     def _sync_filters(self) -> None:
@@ -473,7 +477,7 @@ class TasksView(Vertical):
     def show_checks(self, on: bool) -> None:
         """The founder's done tasks waiting for a sign-off (`on`), or the view as it opens."""
         self.closer = actions.HUMAN if on else None
-        self.states = {"done"} if on else set(actions.OPEN_STATES)
+        self.states = {"done"} if on else set(LISTED)
         self.owner = None
         self.refresh_rows()
 

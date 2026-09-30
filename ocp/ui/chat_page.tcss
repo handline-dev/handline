@@ -52,10 +52,5 @@ ChatPage { overflow: hidden; }
     .frow #s_idle_close { width: 10; }
     .frow .unit { width: auto; padding-left: 1; }
     .fhint { color: $text-muted; }
-    .tl_row { height: 1; }
-    .tl_text { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
-    .tl_icon { width: 3; min-width: 0; margin-left: 1; }
-    #t_memo_new { height: 1; margin-top: 1; }
-    #t_memo_box { width: 1fr; }
-    #t_memo_new Button { width: auto; min-width: 0; margin-left: 1; }
+}
 }

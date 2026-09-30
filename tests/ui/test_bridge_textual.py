@@ -1576,7 +1576,7 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
 
 def test_home_settings_marks_and_the_delegated_view() -> None:
     from ocp.ui.pages.home import AnswerMarks
-    from ocp.ui.components.tasks_view import TasksView
+    from ocp.ui.components.tasks_view import LISTED, TasksView
     _home("home_marks")
     for title in ("Run A?", "Run B?"):
         actions.add_answer(vendor="claude", title=title, label="Yes")
@@ -1608,7 +1608,12 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
           str((view.owner, view.states, view.closer)))
     view.show_checks(False)
     check("delegated view: a plain visit afterwards is the default view again",
-          (view.owner, view.states, view.closer) == (None, set(actions.OPEN_STATES), None))
+          (view.owner, view.states, view.closer) == (None, set(LISTED), None))
+    check("task list: it opens with done out of the way, the other open states in",
+          set(LISTED) == {"draft", "queued", "doing"} and "done" in actions.OPEN_STATES)
+    from ocp.ui.chat_page import TaskBody, TaskPane
+    check("task list: the side view is the task page's component, adding no call of its own",
+          issubclass(TaskPane, TaskBody) and not [n for n in vars(TaskPane) if n.startswith(("action_", "memo_"))])
 
 
 def test_assign_answers_from_the_task_page() -> None:
