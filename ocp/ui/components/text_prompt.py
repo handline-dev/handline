@@ -70,9 +70,9 @@ class TextPrompt(ModalScreen[str | None]):
     TextPrompt #hint { margin-top: 1; color: $text-muted; }
     """
 
-    def __init__(self, prompt: str, multi: bool = False) -> None:
+    def __init__(self, prompt: str, multi: bool = False, initial: str = "") -> None:
         super().__init__()
-        self.prompt, self.multi = prompt, multi
+        self.prompt, self.multi, self.initial = prompt, multi, initial
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
@@ -82,7 +82,13 @@ class TextPrompt(ModalScreen[str | None]):
                          + " · esc cancels", id="hint")
 
     def on_mount(self) -> None:
-        self.query_one("#box").focus()
+        box = self.query_one("#box")
+        if self.initial and self.multi:
+            box.text = self.initial
+            box.move_cursor(box.document.end)
+        elif self.initial:
+            box.value = self.initial
+        box.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()

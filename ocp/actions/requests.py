@@ -195,7 +195,7 @@ def send_now(con, rid: int) -> str:
 
 
 def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
-                        me: str | None = None) -> str | None:
+                        me: str | None = None, one_task: bool = False) -> str | None:
     """The refusal for resolving a request the human made without saying what
     it becomes; None when it may go ahead. Any --task id is checked on every
     row, before anything is written, so a bad id never follows an answer that
@@ -218,8 +218,9 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):
-        return (f"#{row['id']} is the founder's: say whether work follows it. --task T<n> "
-                "[T<n> ...] names the tasks it opened (one per deliverable promised), "
+        return (f"#{row['id']} is the founder's: say whether work follows it. "
+                f"{'--task T<n>' if one_task else '--task T<n> [T<n> ...]'} "
+                "names the tasks it opened (one per deliverable promised), "
                 "--no-task 'reason' says nothing needs building. "
                 "`ocp task new --owner NAME 'title' -t 2h` makes a task.")
     return None

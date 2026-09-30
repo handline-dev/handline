@@ -1163,7 +1163,8 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         check("nudge: names the request and how long it has been idle",
               f"#{head}" in text and "idle" in text, text)
         check("nudge: says what to do, and how many are behind it",
-              "ocp resolve" in text and "2 more waiting" in text, text)
+              "ocp say" in text and "--parent" in text and "ocp resolve" not in text
+              and "2 more waiting" in text, text)
         check("nudge: does not resolve it for the agent",
               db.get_request(con, head)["state"] == "queued")
         check("nudge: is logged", any("nudged" in m and f"#{head}" in m for m in said), str(said))
@@ -1524,14 +1525,16 @@ def test_a_report_notice_is_told_as_something_to_dismiss(home: Path) -> None:
         note = db.add_request(con, "ocp", "backend", "T5 is unblocked", None, None,
                               "fire_and_forget", "report", 0, None)
         dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
-        check("report notice: told to dismiss it", f"`ocp dismiss {note}`" in sent[-1]
+        check("report notice: told it asks nothing and to dismiss it (until step 2 gives it another close)",
+              "it asks nothing" in sent[-1] and f"`ocp dismiss {note}`" in sent[-1]
               and "ocp resolve" not in sent[-1], sent[-1])
         con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (note,))
         rid = db.add_request(con, "reviewer", "backend", "look at this", None,
                              "peer", "async", None, 0, None)
         dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
-        check("report notice: any other request is told to resolve it",
-              f"`ocp resolve {rid} " in sent[-1] and "ocp dismiss" not in sent[-1], sent[-1])
+        check("report notice: any other request is answered by a reply that names it",
+              f"`ocp say reviewer --parent {rid} " in sent[-1] and "ocp resolve" not in sent[-1]
+              and "ocp dismiss" not in sent[-1], sent[-1])
     finally:
         orcamod.send = real
         con.close()
@@ -1565,8 +1568,9 @@ def test_a_forgotten_report_notice_is_nudged_to_dismiss_not_resolve(home: Path) 
         check("report nudge: it goes", dmn_delivery.nudge_forgotten_resolve(
             con, "backend", db.get_agent_state(con, "backend"), now, lambda _m: None)
             and len(sent) == 1, str(sent))
-        check("report nudge: and says dismiss, not resolve",
-              f"`ocp dismiss {note}`" in sent[0] and "ocp resolve" not in sent[0], sent[0])
+        check("report nudge: and says it asks nothing and to dismiss it, not resolve",
+              "It asks nothing" in sent[0] and f"`ocp dismiss {note}`" in sent[0]
+              and "ocp resolve" not in sent[0], sent[0])
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now) = real
         con.close()
@@ -5285,7 +5289,11 @@ def test_a_task_shows_its_memos_when_delivered_and_started_and_old_notes_became_
         actions.memo_add(con, tid, "manager", "x" * 900)
         check("delivery: a long memo is cut, the line stays short",
               len(actions.memo_summary(con, tid)) <= 501)
+        actions.memo_add(con, tid, "manager", "hi\x1b]0;pwned\x07 \x1b[2J\x03 there")
         ok, msg = actions.task_start(con, "worker", tid)
+        text = dmn_delivery.tell_text(con, head, 1)
+        check("a memo's escape, bell and ^C never reach the terminal, in a delivery or a start",
+              "hi" in text and not any(c in text + msg for c in "\x1b\x07\x03"), repr(text))
         check("task start: prints the memos", ok and "Memos - manager " in msg and "use branch y" in msg, msg)
         # an old note: an event from before memos existed, migrated once
         db.add_event(con, "manager", "task_note", {"task_id": tid, "text": "an old note"})

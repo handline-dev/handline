@@ -1164,7 +1164,7 @@ def memo_summary(con, tid: int, cap: int = 500) -> str:
     """The task's memos in one short line - author, time, body - for a delivery or a start
     (T521); "" when it has none. Oldest first, cut at `cap` characters."""
     parts = [f"{m['author']} {timefmt.stamp(m['edited_at'] or m['created_at'], timefmt.SHORT)}: "
-             f"{' '.join(m['body'].split())[:160]}" for m in db.task_memos(con, tid)]
+             f"{textsafe.oneline(m['body'])[:160]}" for m in db.task_memos(con, tid)]
     if not parts:
         return ""
     text = "Memos - " + " | ".join(parts)
@@ -1283,6 +1283,17 @@ def memos_of(con, tid: int) -> list[dict]:
     return [dict(m) for m in db.task_memos(con, tid)]
 
 
+def task_timeline(con, tid: int) -> list[dict]:
+    """T501: what happened on a task as one list, oldest first, for its page: memos and handoffs (a
+    note is a memo), each {ts, who, kind, text, memo (a memo's id, else None), edited_at}."""
+    out = [{"ts": m["created_at"], "who": m["author"], "kind": "memo", "text": m["body"],
+            "memo": m["id"], "edited_at": m["edited_at"]} for m in memos_of(con, tid)]
+    for h in db.task_handoffs(con, tid):
+        out.append({"ts": h["ts"], "who": f"{h['from']} → {h['to']}", "kind": "handoff", "text": h["note"],
+                    "memo": None, "edited_at": None})
+    return sorted(out, key=lambda e: e["ts"])
+
+
 def _memo_guard(row, by: str) -> str | None:
     """A memo is anyone's to add; only its author or the founder edits or deletes it."""
     if by == HUMAN or by == row["author"]:
@@ -1296,7 +1307,7 @@ def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
     row = db.get_task(con, tid)
     if row is None or row["owner"] in (HUMAN, by) or task_state(con, row) != "doing":
         return
-    body = f"T{tid} memo {what} by {by}" + (f": {' '.join(text.split())[:400]}" if text else "")
+    body = f"T{tid} memo {what} by {by}" + (f": {textsafe.oneline(text)[:400]}" if text else "")
     rid = db.add_request(con, _UNBLOCK_REQUESTER, row["owner"], body, None, None,
                          "fire_and_forget", "say", 0, None)
     db.mark_send_now(con, rid)

@@ -759,18 +759,28 @@ def _notes_are_memos(con) -> None:
     are gone and empty texts are skipped. Ledgered, so it runs once."""
     if get_cursor(con, "migrated:notes_are_memos"):
         return
-    for e in con.execute("SELECT agent, ts, payload FROM events WHERE kind = 'task_note' ORDER BY id").fetchall():
-        try:
-            data = json.loads(e["payload"] or "{}")
-        except ValueError:
-            continue
-        tid, text = data.get("task_id"), (data.get("text") or "").strip()
-        if not text or not isinstance(tid, int) \
-                or con.execute("SELECT 1 FROM tasks WHERE id = ?", (tid,)).fetchone() is None:
-            continue
-        con.execute("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?,?,?,?)",
-                    (tid, e["agent"], text, e["ts"]))
-    set_cursor(con, "migrated:notes_are_memos", 1)
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if get_cursor(con, "migrated:notes_are_memos"):     # another process got here first
+            con.execute("ROLLBACK")
+            return
+        for e in con.execute("SELECT agent, ts, payload FROM events WHERE kind = 'task_note' "
+                             "ORDER BY id").fetchall():
+            try:
+                data = json.loads(e["payload"] or "{}")
+            except ValueError:
+                continue
+            tid, text = data.get("task_id"), (data.get("text") or "").strip()
+            if not text or not isinstance(tid, int) \
+                    or con.execute("SELECT 1 FROM tasks WHERE id = ?", (tid,)).fetchone() is None:
+                continue
+            con.execute("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?,?,?,?)",
+                        (tid, e["agent"], text, e["ts"]))
+        set_cursor(con, "migrated:notes_are_memos", 1)
+        con.execute("COMMIT")
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
 
 
 def _answers_are_says(con) -> None:

@@ -242,7 +242,7 @@ def task_detail(con, tid: int) -> dict | None:
             "parent": (t["parent_task"], parent["title"]) if parent else None,
             "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
             "closed": (t["closed_by"], t["closed_at"]) if t["closed_by"] else None,
-            "children": kids, "requests": reqs, "asker": actions.task_asker(con, t),
+            "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued") and mine,
@@ -451,6 +451,21 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     return head, body, note
 
 
+TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note"}
+
+
+def timeline_text(e: dict) -> Text:
+    """One entry of a task's timeline as a line: when, who, what kind, its text (first line);
+    a memo that was edited says when."""
+    line = safe((e["text"].strip().splitlines() or [""])[0])
+    out = Text.assemble((timefmt.stamp(e["ts"], timefmt.DATE_TIME) + "  ", "dim"), safe(e["who"]) + "  ",
+                        (TIMELINE_WORD[e["kind"]] + "  ", "dim"), line)
+    if e["edited_at"]:
+        out.append(f"  · edited {timefmt.stamp(e['edited_at'], timefmt.DATE_TIME)}", style="dim")
+    out.no_wrap, out.overflow = True, "ellipsis"
+    return out
+
+
 def task_page(d: dict) -> dict:
     """What a task's page draws, as safe `Text`: title, badge, the facts, the
     sub-tasks (each a link that opens it) and the requests."""
@@ -482,7 +497,8 @@ def task_page(d: dict) -> dict:
         "kids": [Text.assemble(link(i, f"{actions.task_ref(i)}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
                                link(i, safe(title))) for i, title, st in d["children"]],
         "reqs": [Text.assemble((f"#{i}  ", "dim"), f"{safe(a)} → {safe(b)}  ", (f"{st}  ", "dim"), safe(line))
-                 for i, a, b, st, line in d["requests"]]}
+                 for i, a, b, st, line in d["requests"]],
+        "timeline": [timeline_text(e) for e in d["timeline"]]}
 
 
 class QueueLine(Static):
@@ -1069,6 +1085,11 @@ class TaskDetail(TaskActions, Screen):
             yield Static(id="t_meta")
             yield Static(id="t_kids", classes="section")
             yield Static(id="t_reqs", classes="section")
+            yield Static(id="t_memo_head", classes="section")
+            yield Vertical(id="t_memos")
+            with Horizontal(id="t_memo_new"):
+                yield ImeInput(id="t_memo_box", compact=True, placeholder="a memo on this task")
+                yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
             yield Button("Assign  a", id="assign", variant="primary", compact=True)
             yield Button("Close  c", id="close", variant="success", compact=True)
@@ -1095,10 +1116,60 @@ class TaskDetail(TaskActions, Screen):
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
+        self.draw_memos(page["timeline"])
         self.query_one("#assign", Button).disabled = not d["can_assign"]
         self.query_one("#close", Button).disabled = not d["can_close"]
         self.query_one("#reopen", Button).disabled = not d["can_reopen"]
         self.query_one("#discard", Button).disabled = not d["can_discard"]
+
+    def draw_memos(self, texts: list[Text]) -> None:
+        """The timeline: a line each, and a memo's own line ends in edit and delete icons."""
+        self.query_one("#t_memo_head", Static).update(Text.assemble(("Timeline", "bold"), (f"  {len(texts)}", "dim")))
+        box = self.query_one("#t_memos", Vertical)
+        box.remove_children()
+        for text, e in zip(texts, self.d["timeline"]):
+            cells = [Static(text, classes="tl_text")]
+            if e["memo"]:
+                cells += [Button("✎", id=f"me_{e['memo']}", compact=True, classes="tl_icon"),
+                          Button("✕", id=f"md_{e['memo']}", variant="error", compact=True, classes="tl_icon")]
+            box.mount(Horizontal(*cells, classes="tl_row"))
+
+    def action_memo_add(self) -> None:
+        box = self.query_one("#t_memo_box", ImeInput)
+        text = box.value
+        if not text.strip():
+            return
+        box.value = ""
+        self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "t_memo_box":
+            event.stop()
+            self.action_memo_add()
+
+    def memo_edit(self, mid: int) -> None:
+        old = next((e["text"] for e in self.d["timeline"] if e["memo"] == mid), None)
+        if old is None:
+            return
+
+        def answered(text: str | None) -> None:
+            if text is not None and text.strip():
+                self.memo_call("edit", lambda con: actions.memo_edit(con, mid, actions.HUMAN, text))
+        self.app.push_screen(TextPrompt("edit the memo", multi=True, initial=old), answered)
+
+    def memo_delete(self, mid: int) -> None:
+        def answered(yes: bool | None) -> None:
+            if yes:
+                self.memo_call("delete", lambda con: actions.memo_delete(con, mid, actions.HUMAN))
+        self.app.push_screen(Confirm("Delete the memo", "It is removed from the task.", yes="Delete", danger=True), answered)
+
+    def memo_call(self, verb: str, call) -> None:
+        con = db.connect()
+        try:
+            ok, said = call(con)
+        finally:
+            con.close()
+        self.report(f"memo {verb}", ok, said)
 
     def action_open_task(self, tid: int) -> None:
         self.app.push_screen(TaskDetail(tid))
@@ -1118,7 +1189,11 @@ class TaskDetail(TaskActions, Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        {"assign": self.action_assign_task, "close": self.action_close_task,
+        bid = event.button.id or ""
+        if bid[:3] in ("me_", "md_") and bid[3:].isdigit():
+            (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
+            return
+        {"memo_add": self.action_memo_add, "assign": self.action_assign_task, "close": self.action_close_task,
          "reopen": self.action_reopen_task, "discard": self.action_discard_task,
          "back": self.app.pop_screen}[event.button.id]()
 

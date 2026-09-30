@@ -252,12 +252,16 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
     from ocp.ui import chat_page as cp
     d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
          "parent": (9, "up"), "done": None, "closed": None, "asker": "o",
-         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")]}
+         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")],
+         "timeline": [{"ts": 1, "who": "o", "kind": "memo", "text": "a memo\nsecond line", "memo": 1, "edited_at": 2}]}
     page = cp.task_page(d)
     check("page: the badge and the parent and the sub-tasks say T<n>",
           "T1" in page["badge"].plain and "T9" in page["meta"].plain
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
     check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
+    line = page["timeline"][0].plain
+    check("page: a timeline entry is one line - when, who, kind, first line of text, when edited",
+          "\n" not in line and " o  memo  a memo" in line and "second" not in line and "edited" in line, line)
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
@@ -965,9 +969,10 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
     head, body, note = cp.message_parts(m)
     d = {"id": 1, "title": evil, "state": "doing", "owner": evil, "opened_by": evil, "created_at": 1,
          "parent": (9, evil), "done": (evil, 1), "closed": (evil, 1), "asker": evil,
-         "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)]}
+         "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)],
+         "timeline": [{"ts": 1, "who": evil, "kind": "note", "text": evil, "memo": None, "edited_at": 2}]}
     page = cp.task_page(d)
-    texts = [head, body, *page["kids"], *page["reqs"], page["title"], page["meta"],
+    texts = [head, body, *page["kids"], *page["reqs"], *page["timeline"], page["title"], page["meta"],
              cp.agent_badge("FATAL", evil)]
     suggestions = (cp.suggest("/task ", [(1, "owns", "waiting", evil, evil, 1)], [])
                    + cp.suggest("#", [(1, "owns", "waiting", evil, evil, 1)], [(2, evil, evil)]))
@@ -1610,6 +1615,27 @@ def test_assign_answers_from_the_task_page() -> None:
         con.close()
 
 
+def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
+    _home("timeline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+        actions.memo_add(con, tid, "reviewer", "first")
+        actions.assign_task(con, tid, "reviewer", "note", "a note")
+        ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
+        actions.assign_task(con, other, "reviewer", "handoff", "you take it")
+        tl = actions.task_timeline(con, tid)
+        check("timeline: a memo and a sent note (itself a memo) show once each, in order",
+              [(e["kind"], e["text"]) for e in tl] == [("memo", "first"), ("memo", "a note")]
+              and all(e["memo"] for e in tl), str(tl))
+        check("timeline: a handoff shows from and to",
+              [(e["kind"], e["who"]) for e in actions.task_timeline(con, other)] == [("handoff", "backend → reviewer")],
+              str(actions.task_timeline(con, other)))
+    finally:
+        con.close()
+
+
 def test_a_slash_line_is_a_bridge_command_and_never_a_message() -> None:
     from ocp.ui import chat_page as cp
     sa = cp.slash_action
@@ -1688,6 +1714,7 @@ async def _run_all() -> None:
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
     test_assign_answers_from_the_task_page()
+    test_a_task_timeline_holds_memos_and_handoffs_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()

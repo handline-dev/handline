@@ -72,8 +72,9 @@ def test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(home: Path) -> Non
         check("queue: a message carries no 'more waiting' line at all", "more waiting" not in say_text, say_text)
         ok, _, rid = askmod.ask("worker", "please look", requester="manager")
         ask_text = dmn_delivery.tell_text(con, db.get_request(con, rid), 3)
-        check("queue: an ask still says it moves on when resolved or dismissed",
-              "resolve or dismiss" in ask_text, ask_text)
+        check("queue: an ask says its queue moves on when it is answered, naming neither resolve nor dismiss",
+              "when you answer this one" in ask_text and "resolve" not in ask_text
+              and "dismiss" not in ask_text, ask_text)
         rc, out = support._cli(["inbox"], as_agent="x.helper")
         check("inbox: the same task verb and queue wording, no resolve",
               f"you own T{tid} now" in out and "ocp resolve" not in out, out)

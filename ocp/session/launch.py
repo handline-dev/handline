@@ -539,7 +539,10 @@ def _your_team(agent: str) -> str:
         report += (f" `ocp say {boss} \"...\"` is a message that needs no answer. Being "
                    f"blocked, a decision only they can make, or work nobody handed you is a task "
                    f"for them: `ocp task new --owner {boss} -t <time> \"<title>\" \"<body>\"`.")
-    lines = ["# Your team", report]
+    lines = ["# Your team", report,
+             "Talk to people only through ocp; what you write in your terminal reaches no one. "
+             "Keep it short. Reply when a message asks you something or you owe a result; a "
+             "message that only informs needs no reply."]
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
                      "You do not implement - give one work with `ocp task new --owner <name> "
