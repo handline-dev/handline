@@ -689,10 +689,10 @@ def test_answering_checks_shorter_than_the_notice_does_not_hold_the_notice_off(h
     _answers_every_check(home, 120)
 
 
-def test_a_turn_that_ends_in_the_second_a_check_is_typed_is_not_its_answer(home: Path) -> None:
-    """The check is typed at the first idle tick, often the second the last real turn ended:
-    that Stop came first, so it is shown, and only the turn after the check answers it
-    (auditor #6383, T540)."""
+def test_a_turn_that_ends_before_a_check_is_written_is_not_its_answer(home: Path) -> None:
+    """Checks and activity are paired by event order, not by clock: a tick's check is
+    written seconds after the tick began, and a Stop in that gap still came before it
+    (auditor #6383, #6430, T540)."""
     _world(home)
     con = db.connect()
     try:
@@ -700,19 +700,22 @@ def test_a_turn_that_ends_in_the_second_a_check_is_typed_is_not_its_answer(home:
         db.set_cursor(con, "bgwork:marina", 1)
         con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (t0,))
 
-        def event(kind: str, ts: int, payload: dict | None = None) -> None:
-            rid = db.add_event(con, "marina", kind, payload or {})
+        def event(kind: str, ts: int) -> None:
+            rid = db.add_event(con, "marina", kind, {})
             con.execute("UPDATE events SET ts = ? WHERE id = ?", (ts, rid))
 
         T = t0 + 300
-        event("Stop", T)                                  # its real turn ends ...
-        event("background_checked", T, {"at": T})         # ... and the check is typed that second
-        event("UserPromptSubmit", T + 20)
-        event("Stop", T + 25)                             # the answer turn
-        check("tie: the Stop in the check's second is shown, its answer turn is not",
-              dmn_delivery.bg_last_shown(con, "marina") == T, str(dmn_delivery.bg_last_shown(con, "marina")))
+        for gap in (0, 5, 10):
+            con.execute("DELETE FROM events WHERE agent = 'marina'")
+            event("Stop", T + gap)                        # its real turn ends ...
+            event("background_checked", T)                # ... before the check, stamped as the tick began
+            event("UserPromptSubmit", T + 20)
+            event("Stop", T + 25)                         # the answer turn
+            shown = dmn_delivery.bg_last_shown(con, "marina")
+            check(f"order: a Stop {gap}s into the tick is shown, its answer turn is not",
+                  shown == T + gap, str(shown))
         event("UserPromptSubmit", T + 60)                 # real work after the answer
-        check("tie: work after the answer turn is shown", dmn_delivery.bg_last_shown(con, "marina") == T + 60)
+        check("order: work after the answer turn is shown", dmn_delivery.bg_last_shown(con, "marina") == T + 60)
     finally:
         con.close()
 
@@ -1310,7 +1313,7 @@ def main() -> int:
             run(lambda: test_background_work_is_checked_every_n_minutes_naming_each_command(Path(td) / 'tb10n'))
             run(lambda: test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(Path(td) / 'tb10m'))
             run(lambda: test_answering_checks_shorter_than_the_notice_does_not_hold_the_notice_off(Path(td) / 'tb10o'))
-            run(lambda: test_a_turn_that_ends_in_the_second_a_check_is_typed_is_not_its_answer(Path(td) / 'tb10p'))
+            run(lambda: test_a_turn_that_ends_before_a_check_is_written_is_not_its_answer(Path(td) / 'tb10p'))
             run(lambda: test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(Path(td) / 'tb10f'))
             run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
             run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))
