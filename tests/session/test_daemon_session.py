@@ -657,12 +657,12 @@ def test_daemon_handoff_timeout(home: Path) -> None:
         con.close()
 
 
-def test_daemon_stall_escalation(home: Path) -> None:
+def test_daemon_stall_decision(home: Path) -> None:
     """STALLED must be reachable by the path the daemon actually takes.
 
     Driving real park -> wake -> degrade cycles, rather than hand-setting the
     counter, is the point: resetting the streak on every wake pinned it at 1
-    and made this escalation unreachable while a hand-bumped test still passed.
+    and made this decision unreachable while a hand-bumped test still passed.
     """
     _daemon_home(home, 100)
     con = db.connect()
@@ -690,7 +690,7 @@ def test_daemon_stall_escalation(home: Path) -> None:
             check("daemon: the throttle streak accumulates across park/wake cycles",
                   max(t for _, t in seen) > 1, str(seen))
             final = db.get_agent_state(con, "backend")
-            check("daemon: repeated degradation escalates to STALLED",
+            check("daemon: repeated degradation raises to STALLED",
                   final["state"] == dmn_states.STALLED, str(seen))
 
             dmn_evaluate.tick(con, lambda _m: None)
@@ -793,74 +793,6 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
             row = db.get_agent_state(con, "backend")
             check(f"usage recovered: queued={queued} reads {want}",
                   row["state"] == want and row["wake_at"] is None, str(dict(row)))
-    finally:
-        orcamod.available, orcamod.alive = real
-        con.close()
-
-
-def test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(home: Path) -> None:
-    """An async `ocp ask` parks its asker with a "reply #N" detail while a live session waits for the
-    answer. The agent's last handoff having been a usage move does not make that a usage park:
-    typing at it must not be refused as "parked until its usage window rolls over" (the bridge
-    then only queued the founder's message), and the usage-recovered wake must not move or wake it."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (orcamod.available, orcamod.alive)
-    try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_account(con, "backend", "alpha")
-        _park_via_handoff(con, "backend", "usage_7d")
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
-                           detail="usage_7d; wakes at tomorrow")
-        check("usage park: typing is refused as a wall",
-              "usage window" in (dmn_delivery.wall_reason(con, "backend") or ""),
-              str(dmn_delivery.wall_reason(con, "backend")))
-        waiting_detail = askmod.await_reply_detail(9, "marina")
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
-                           detail=waiting_detail)
-        check("reply wait: the same agent, parked to await a reply, is not at a wall",
-              dmn_delivery.wall_reason(con, "backend") is None,
-              str(dmn_delivery.wall_reason(con, "backend")))
-        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5, reset_5h=int(time.time()) + 1800)
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("reply wait: the usage-recovered wake leaves it waiting for its reply",
-              row["state"] == dmn_states.PARKED and row["detail"] == waiting_detail, str(dict(row)))
-    finally:
-        orcamod.available, orcamod.alive = real
-        con.close()
-
-
-def test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(home: Path) -> None:
-    """T456 (founder #5770): a resolve un-parks its asker only when nothing else it asked is
-    outstanding, so an agent with a second ask open stayed "waiting for" an answer that had come,
-    with what was told to it queued behind. The tick reads the park against its request."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (orcamod.available, orcamod.alive)
-    try:
-        orcamod.available = lambda: False
-        db.set_terminal(con, "backend", "term_x", "wt")
-        first = db.add_request(con, "backend", "marina", "the first ask", None, "peer", "async", None, 0, None)
-        second = db.add_request(con, "backend", "marina", "the second ask", None, "peer", "async", None, 0, None)
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 3600,
-                           detail=askmod.await_reply_detail(first, "marina"))
-        lines: list[str] = []
-        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("park: while its reply is still awaited it stays parked",
-              row["state"] == dmn_states.PARKED and not lines, str((dict(row), lines)))
-        askmod.resolve(first, "answered")             # the second ask is still open, so nothing un-parks it
-        row = db.get_agent_state(con, "backend")
-        check("park: setup - the resolve left it parked on the answered ask", row["state"] == dmn_states.PARKED,
-              str(dict(row)))
-        dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("park: the next tick drops it, and says so",
-              row["state"] != dmn_states.PARKED and any(f"#{first}" in m and "settled" in m for m in lines),
-              str((dict(row), lines)))
     finally:
         orcamod.available, orcamod.alive = real
         con.close()
@@ -1387,7 +1319,7 @@ def test_the_live_trust_screen_is_never_pressed(home: Path) -> None:
     con, term = _decline_world(home, tail)
     t0 = int(time.time()) - 5000
     try:
-        for step in (0, blockedmod.PRESS_AFTER_S, blockedmod.ESCALATE_AFTER_S):
+        for step in (0, blockedmod.PRESS_AFTER_S, blockedmod.DECISION_AFTER_S):
             blockedmod._checked.clear()
             blockedmod.sweep(con, lambda _m: None, t0 + step)
         check("live trust: the sweep presses nothing either, past PRESS_AFTER_S",
@@ -3673,7 +3605,7 @@ agents:
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "dev.*", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         agents.register("manager")
         agents.register("marina", repo=str(home / "harbor"))
@@ -4152,7 +4084,7 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
     con = db.connect()
     log: list[str] = []
 
-    def escalations() -> list:
+    def raised() -> list:
         return con.execute("SELECT body FROM requests WHERE kind = 'task' AND target = 'human' AND body LIKE '[wait-for]%'"
                            ).fetchall()
 
@@ -4161,16 +4093,16 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         db.add_block(con, a, b)
         db.add_block(con, b, c)
         waitfor.sweep(con, log.append, 0)
-        check("wait-for: a chain is no cycle and nothing is told", not escalations(), str(log))
+        check("wait-for: a chain is no cycle and nothing is told", not raised(), str(log))
 
         db.add_block(con, c, a)
         waitfor.sweep(con, log.append, 0)
-        sent = escalations()
+        sent = raised()
         check("wait-for: a loop of three is told to the founder, naming all three",
               len(sent) == 1 and all(f"T{t}" in sent[0]["body"] for t in (a, b, c)), str([r["body"] for r in sent]))
         waitfor.sweep(con, log.append, 0)
         waitfor.sweep(con, log.append, 0)
-        check("wait-for: and once, however many ticks it lasts", len(escalations()) == 1)
+        check("wait-for: and once, however many ticks it lasts", len(raised()) == 1)
 
         db.remove_block(con, c, a)
         waitfor.sweep(con, log.append, 0)
@@ -4179,34 +4111,34 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         db.add_block(con, c, a)
         waitfor.sweep(con, log.append, 0)
         check("wait-for: back while the first is still undecided, it is that decision, not a second",
-              len(escalations()) == 1)
+              len(raised()) == 1)
         con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
         con.execute("UPDATE tasks SET done_evidence = 'seen' WHERE owner = 'human'")
         db.clear_cursor(con, next(r["name"] for r in con.execute("SELECT name FROM cursors WHERE name LIKE 'waitfor:%'")))
         waitfor.sweep(con, log.append, 0)
-        check("wait-for: and told again once that was decided", len(escalations()) == 2)
+        check("wait-for: and told again once that was decided", len(raised()) == 2)
         db.remove_block(con, c, a)
 
         d = db.new_task(con, "waits on a task that goes away", "backend", "manager")
         e = db.new_task(con, "to be discarded", "backend", "manager")
         db.add_block(con, d, e)
         db.discard_task(con, e, "manager", "not needed")
-        before = len(escalations())
+        before = len(raised())
         waitfor.sweep(con, log.append, 0)
-        sent = escalations()[before:]
+        sent = raised()[before:]
         check("wait-for: a wait on a discarded blocker is told once, saying so",
               len(sent) == 1 and f"T{e}" in sent[0]["body"] and "discarded" in sent[0]["body"],
               str([r["body"] for r in sent]))
         waitfor.sweep(con, log.append, 0)
-        check("wait-for: and not again", len(escalations()) == before + 1)
+        check("wait-for: and not again", len(raised()) == before + 1)
 
         f, g = (db.new_task(con, t, "backend", "manager") for t in ("f", "g"))
         db.add_block(con, f, g)
         db.mark_task_done(con, g, "sha abc", "reason")
-        before = len(escalations())
+        before = len(raised())
         waitfor.sweep(con, log.append, 0)
         check("wait-for: a blocker that finished is no stuck wait",
-              len(escalations()) == before)
+              len(raised()) == before)
 
         # Ids that do not run in wait order: T-p waits on T-r, T-r on T-q, T-q on T-p. The founder is
         # told the real order, or the `--unblock` he is pointed at names a wait that is not there.
@@ -4214,9 +4146,9 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         db.add_block(con, p_, r_)
         db.add_block(con, r_, q_)
         db.add_block(con, q_, p_)
-        before = len(escalations())
+        before = len(raised())
         waitfor.sweep(con, log.append, 0)
-        sent = escalations()[before:]
+        sent = raised()[before:]
         check("wait-for: a loop is named in the order its waits go, not in id order",
               len(sent) == 1 and f"T{p_} (backend) -> T{r_} (backend) -> T{q_} (backend) -> T{p_}" in sent[0]["body"],
               str([r["body"] for r in sent]))
@@ -4227,11 +4159,11 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         m_, n_ = (db.new_task(con, t, db.HUMAN, db.HUMAN) for t in ("m", "n"))
         db.add_block(con, m_, n_)
         db.add_block(con, n_, m_)
-        before = len(escalations())
+        before = len(raised())
         waitfor.sweep(con, log.append, 0)
         row = con.execute("SELECT requester FROM requests WHERE kind = 'task' AND target = 'human' ORDER BY id DESC LIMIT 1").fetchone()
         check("wait-for: a loop only the founder owns is filed under him, not under an agent that may not exist",
-              len(escalations()) == before + 1 and row["requester"] == db.HUMAN, str(dict(row)))
+              len(raised()) == before + 1 and row["requester"] == db.HUMAN, str(dict(row)))
         for w, b_ in ((m_, n_), (n_, m_)):
             db.remove_block(con, w, b_)
 
@@ -4387,7 +4319,7 @@ def test_wake_over_a_stall_asks_first_same_as_unstall_did(home: Path) -> None:
 
 def test_who_is_asking_is_not_guessed(home: Path) -> None:
     """A human at their own prompt is the human; a process that merely
-    lost OCP_AGENT is not. Conflating them hands the escalation target and the
+    lost OCP_AGENT is not. Conflating them hands the decision target and the
     most privileged node in the routing table to whatever dropped the variable."""
     use_home(home)
     hand_edit_team(DESIGN_TEAM)
@@ -5087,14 +5019,12 @@ def main() -> int:
         run(lambda: test_reconcile_still_propagates_a_fault_that_is_not_one_agents(Path(td) / 'reconsys'))
         run(lambda: test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(Path(td) / 'reconwake'))
         run(lambda: test_daemon_handoff_timeout(Path(td) / 'd4'))
-        run(lambda: test_daemon_stall_escalation(Path(td) / 'd5'))
+        run(lambda: test_daemon_stall_decision(Path(td) / 'd5'))
         run(lambda: test_daemon_degraded_recovers(Path(td) / 'd5c'))
         run(lambda: test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(
             Path(td) / 'stalewake'))
         run(lambda: test_the_other_wake_writers_also_read_the_queue(
             Path(td) / 'otherwake'))
-        run(lambda: test_an_agent_waiting_on_a_reply_is_not_at_a_usage_wall(Path(td) / 'awaitwall'))
-        run(lambda: test_a_park_on_a_reply_that_is_settled_is_dropped_on_the_next_tick(Path(td) / 'settledpark'))
         run(lambda: test_an_owed_clear_that_holds_everything_says_why_once(Path(td) / 'owedsaid'))
         run(lambda: test_daemon_tick_expires_handoff(Path(td) / 'd5d'))
         run(lambda: test_daemon_ignores_stale_status(Path(td) / 'd5e'))

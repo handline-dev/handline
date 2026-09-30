@@ -365,12 +365,12 @@ def open_decision_card_ids(con, agent: str | None = None, prefix: str | None = N
     return [r[0] for r in con.execute(sql + " ORDER BY id", args)]
 
 
-def open_escalations_of(con, agent: str) -> int:
+def open_decisions_of(con, agent: str) -> int:
     """Decisions raised about this agent that are still waiting on the founder."""
     return len(open_decision_card_ids(con, agent))
 
 
-def open_escalation_ids(con, agent: str, prefix: str) -> list[int]:
+def open_decision_ids(con, agent: str, prefix: str) -> list[int]:
     """The still-waiting decision cards about this agent whose body starts with `prefix`."""
     return open_decision_card_ids(con, agent, prefix)
 

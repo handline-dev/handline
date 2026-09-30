@@ -432,6 +432,6 @@ def _screen_blocker(orca, tail: list) -> "orca.Blocker | None":
         return None
     # Not the composer's shape either - a screen mid-scroll, a different
     # layout, a read that landed somewhere else. UNREADABLE goes through the
-    # same escalation as any other block and clears the moment a read
+    # same decision as any other block and clears the moment a read
     # recognises the shape again.
     return orca.Blocker(orca.UNREADABLE)

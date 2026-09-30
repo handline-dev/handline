@@ -26,25 +26,6 @@ from ..infra import timefmt
 # its own STALLED away just by sending a request.
 TERMINAL_STATES = {"STALLED"}
 
-# How long a requester waits on an async reply before the daemon re-evaluates
-# it anyway. Not a timeout on the request - just a guarantee that a lost reply
-# cannot strand an agent.
-AWAIT_FALLBACK_S = 3600
-
-# The marker on a PARKED row's `detail` that says this park is a requester
-# waiting on its own async ask, not a usage wall - read back by the screen
-# (tui.screen_state) to draw it as IDLE, not PENDING, with what it waits for.
-AWAIT_REPLY_MARK = "reply "
-
-
-def await_reply_detail(rid: int, target: str) -> str:
-    return f"{AWAIT_REPLY_MARK}#{rid} {target}"
-
-# Where a runaway goes. Exceeding a limit is not a reason to silently drop the
-# request on the floor - a human has to see that the team got stuck in a loop
-# (team model section 6).
-ESCALATION_TARGET = "human"
-
 # A review that bounces on the same file this many times is not a review
 # problem any more. Two agents that cannot agree is usually a spec question.
 REVIEW_PINGPONG_LIMIT = 3
@@ -66,7 +47,7 @@ def asking_agent() -> str | None:
 
     Only the commands a human types may make that assumption. "I cannot tell
     who you are" and "you are the human" are not the same answer - the human is
-    the escalation target and the most privileged node in the
+    the founder and the most privileged node in the
     routing table, so handing it to any process that merely lost the variable
     is a fail-open. A human has a terminal; a script that dropped its
     environment does not, and it gets the refusal it used to get.
@@ -110,17 +91,17 @@ def deliver(rid: int, requester: str, target: str, body: str,
     return p
 
 
-def _escalate(con, requester: str, target: str, body: str, files: str | None,
+def _stop_runaway(con, requester: str, target: str, body: str, files: str | None,
               chain_id: str | None, depth: int, parent_id: int | None,
               reason: str) -> int:
     """Raise a runaway to a human instead of dropping it silently."""
-    text = (f"[escalation] {requester} -> {target} was stopped: {reason}\n\n"
+    text = (f"[stopped] {requester} -> {target} was stopped: {reason}\n\n"
             f"Original request:\n{body}")
-    return escalate(con, requester, text, reason, files, chain_id=chain_id, depth=depth,
+    return raise_decision(con, requester, text, reason, files, chain_id=chain_id, depth=depth,
                     parent_id=parent_id, event_extra={"blocked_target": target})
 
 
-def escalate(con, agent: str, text: str, reason: str, files: str | None = None, *,
+def raise_decision(con, agent: str, text: str, reason: str, files: str | None = None, *,
              chain_id: str | None = None, depth: int = 0, parent_id: int | None = None,
              event_extra: dict | None = None) -> int:
     """Put something only a human can act on in front of them: a decision task of
@@ -137,16 +118,16 @@ def escalate(con, agent: str, text: str, reason: str, files: str | None = None, 
     same = db.open_decision_card_ids(con, agent, body=text)
     if same:
         return same[0]
-    rid = db.add_request(con, agent, ESCALATION_TARGET, text, files,
+    rid = db.add_request(con, agent, HUMAN, text, files,
                          None, "fire_and_forget", "task", depth, parent_id,
                          chain_id=chain_id)
-    tid = db.new_task(con, title, ESCALATION_TARGET, agent, expects="decision")
-    db.set_task_queued(con, tid, ESCALATION_TARGET)
+    tid = db.new_task(con, title, HUMAN, agent, expects="decision")
+    db.set_task_queued(con, tid, HUMAN)
     db.link_request(con, tid, rid)
-    deliver(rid, agent, ESCALATION_TARGET, text, files,
+    deliver(rid, agent, HUMAN, text, files,
             team.Decision(True, reason, kind="task", response="fire_and_forget",
-                          creates_gate=True, chain_depth=depth))
-    db.add_event(con, agent, "escalate",
+                          chain_depth=depth))
+    db.add_event(con, agent, "raise_decision",
                  {"request_id": rid, "task_id": tid, "reason": reason, **(event_extra or {})})
     return rid
 
@@ -157,11 +138,11 @@ def report(con, agent: str, text: str, reason: str) -> int:
     `agent` is who it is about. Fire and forget and `fyi`, so nothing is typed
     back at `agent` and nothing waits on the human.
     """
-    rid = db.add_request(con, agent, ESCALATION_TARGET, text, None, None, "fire_and_forget",
+    rid = db.add_request(con, agent, HUMAN, text, None, None, "fire_and_forget",
                          "say", 0, None, fyi=True)
-    deliver(rid, agent, ESCALATION_TARGET, text, None,
+    deliver(rid, agent, HUMAN, text, None,
             team.Decision(True, reason, kind="say", response="fire_and_forget",
-                          creates_gate=False, chain_depth=0))
+                          chain_depth=0))
     db.add_event(con, agent, "report", {"request_id": rid, "reason": reason})
     return rid
 
@@ -174,9 +155,9 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
     forth well inside the depth limit and never finish.
 
     A chain with the human at one end is exempt. What this stops is a loop no
-    one is watching, and the human is who a loop is escalated *to* - refusing
+    one is watching, and the human is who a stopped loop is raised *to* - refusing
     "you replied to my reply" would make a threaded conversation illegal from
-    its second turn, and the escalation it raised would be addressed to the
+    its second turn, and the decision it raised would be addressed to the
     same human who is typing.
 
     T293: a say is exempt too - #1655's "a reply to a say is a say" makes
@@ -231,7 +212,7 @@ _ENV = object()
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, fyi: bool = False,
         timebox_s: int | None = None, kind: str | None = None,
-        park: bool = True, send_now: bool = False,
+        send_now: bool = False,
         on_behalf_of: bool = False, speaker=_ENV,
         notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
@@ -241,8 +222,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     `kind` overrides the routing edge's own `decision.kind` on the request
     row - T292's `task new` uses it to write 'task' regardless of what the
     edge between opener and owner happens to carry, since a task is a task
-    whichever edge assigned it. `park` False skips the requester's own async
-    park below - T293's `say` never records a wait beyond its reply window.
+    whichever edge assigned it.
     `send_now` marks the new row (`db.mark_send_now`) on this same
     connection - `say` needs that mark, and a second connection for it could
     leave it unmarked, and unreachable, if one crashed between the two.
@@ -296,14 +276,14 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             if requester == HUMAN:
                 depth = 0
 
-        # A loop is stopped and escalated, never silently dropped: a request
+        # A loop is stopped and raised to the founder, never silently dropped: a request
         # that vanishes leaves the team stuck with nobody knowing why.
         for detect in (_cycle_in_chain(con, chain_id, requester, target, kind=kind),
                        _review_pingpong(con, chain_id, target, files)):
             if detect:
-                eid = _escalate(con, requester, target, body, files, chain_id,
+                eid = _stop_runaway(con, requester, target, body, files, chain_id,
                                 depth, parent_id, detect)
-                return False, f"{detect}\nEscalated to {ESCALATION_TARGET} as #{eid}.", None
+                return False, f"{detect}\nRaised to the founder as #{eid}.", None
 
         decision = t.route(requester, target, chain_depth=depth, reply=is_reply)
         if not decision.allowed:
@@ -313,10 +293,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                depth, parent_id, state="denied", verdict=decision.reason,
                                chain_id=chain_id)
             # Hitting the depth limit is a runaway, not an ordinary refusal.
-            if "chain depth" in decision.reason and target != ESCALATION_TARGET:
-                eid = _escalate(con, requester, target, body, files, chain_id,
+            if "chain depth" in decision.reason and target != HUMAN:
+                eid = _stop_runaway(con, requester, target, body, files, chain_id,
                                 depth, parent_id, decision.reason)
-                return False, (f"{decision.reason}\nEscalated to {ESCALATION_TARGET} "
+                return False, (f"{decision.reason}\nRaised to the founder "
                                f"as #{eid}."), None
             return False, decision.reason, None
 
@@ -353,7 +333,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                              chain_id=chain_id, fyi=fyi, timebox_s=timebox_s)
         if send_now:
             db.mark_send_now(con, rid)
-        if card and target == HUMAN and not fyi and (kind or decision.kind) == "escalate":
+        if card and target == HUMAN and not fyi and kind is None and decision.kind == "task":
             # What is asked of the founder is a decision task, and this row its card;
             # `task new` opens its own task and says `card=False`.
             tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
@@ -373,25 +353,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             "response": decision.response, "chain_depth": depth,
         })
 
-        # async: the requester parks rather than hold an account while it
-        # waits. The fallback wake_at is there so a reply that never arrives
-        # cannot strand it (the permanent stop section 8.4 warns about).
-        #
-        # The human is not one of them. They hold no account, there is no
-        # session to park and nothing will ever wake them, so a state row in
-        # their name is bookkeeping about nobody - and it is drawn: `ocp ps`
-        # listed the founder among the agents, parked, for as long as it sat
-        # there.
-        if park and decision.response == "async" and requester != HUMAN \
-                and not _terminal(con, requester):
-            db.set_agent_state(con, requester, "PARKED",
-                               wake_at=int(time.time()) + AWAIT_FALLBACK_S,
-                               detail=await_reply_detail(rid, target))
-
         note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
-        if decision.creates_gate and not fyi and kind != SAY_KIND:
-            note += " [escalation: needs a human gate]"
-        elif notify:
+        if notify:
             note += "\n" + push(con, target, rid)
         return True, note, rid
     finally:
@@ -411,14 +374,14 @@ def say(target: str, body: str, requester: str | None = None,
         parent_id: int | None = None, speaker=_ENV,
         notify: bool = True) -> tuple[bool, str, int | None]:
     """T293 (#1655/#1657): a question answered from a look-up, not new work
-    - always ahead of the queue, never a head, no park beyond the fixed
-    30-minute reply window (none to the founder). `parent_id` replies to and
+    - always ahead of the queue, never a head, and the sender is never parked
+    on it (T628: nobody parks waiting on a peer). `parent_id` replies to and
     settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
     """
     timebox = None if target == HUMAN else SAY_TIMEBOX_S
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
-                      kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True,
+                      kind=SAY_KIND, timebox_s=timebox, send_now=True,
                       speaker=speaker, notify=notify)
     if ok and parent_id is not None and rid is not None:
         _close_replied(parent_id, rid, body)
@@ -613,7 +576,7 @@ def withdraw(rid: int, requester: str | None = None,
             # `hr.is_open_proposal` is what actually happened.
             from . import hr
             if hr.is_open_proposal(rid):
-                # #1943: a roster proposal's own escalation is `requester`'s
+                # #1943: a roster proposal's own decision task is `requester`'s
                 # to withdraw here too - ordinary ownership, since it is
                 # `requester`'s own row - but the ocp/db/requests.py chokepoint refuses
                 # this generic verdict on it the same way it refuses every
@@ -692,7 +655,7 @@ def cancel(rid: int) -> tuple[bool, str]:
             return withdraw(rid, requester=HUMAN)
         if hr.is_open_proposal(rid):
             # Same family as #1908/#1919: CANCEL_VERDICT is not approve or
-            # reject either, so cancelling a proposal escalation would strand
+            # reject either, so cancelling a roster proposal would strand
             # it exactly as an unguarded resolve or dismiss would.
             return False, (f"#{rid} is a roster proposal - answer `approve` or "
                            f"`reject`, it cannot be cancelled")

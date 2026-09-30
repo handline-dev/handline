@@ -196,7 +196,7 @@ def cmd_inbox(args) -> int:
     if agent == actions.HUMAN:
         # The human's mailbox is a place you read *and answer* things, and that
         # is the screen: two places to do it is two places to keep in step, and
-        # the one you are not looking at is the one holding the escalation. A
+        # the one you are not looking at is the one holding the decision. A
         # pipe still gets text - a script asking for the list is not a human
         # asking for somewhere to sit. It opens on the same screen `cmd_bridge`
         # does.

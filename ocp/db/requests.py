@@ -293,7 +293,7 @@ def mark_told_out_of_turn(con, rid: int) -> None:
 
 def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> bool:
     """True when closing `rid` into `state` with `verdict` would answer a
-    queued roster-proposal escalation with something that is not approve or
+    queued roster-proposal decision with something that is not approve or
     reject - the one way `hr.apply` is ever left with a row it can no longer
     check (#1770, #1893 SF1).
 
@@ -309,8 +309,8 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     Every request this system closes runs through one of these functions, so
     `hr.is_open_proposal` - a glob and a YAML parse of the whole `hr/`
     directory - would otherwise run on every one of them, not just the
-    founder-targeted rows a proposal escalation could ever be. A proposal
-    escalation is always an ask to the human (`hr.propose`), so a row aimed
+    founder-targeted rows a proposal decision could ever be. A proposal
+    decision is always an ask to the human (`hr.propose`), so a row aimed
     anywhere else is checked here for free, off a column already in hand,
     and the directory is never touched for it.
     """

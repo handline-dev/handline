@@ -710,7 +710,7 @@ def _deliver_unblocked(con, notices, freed_owners) -> None:
         db.mark_send_now(con, rid)
         askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
                        team.Decision(True, "task unblocked", kind="say",
-                                     response="fire_and_forget", creates_gate=False,
+                                     response="fire_and_forget",
                                      chain_depth=0))
         askmod.push(con, owner, rid)
     for owner in freed_owners:
@@ -939,7 +939,7 @@ def advance_current_task(con, agent: str, refused: dict | None = None) -> bool:
             db.promote_to_front(con, req["id"])
             return True
         ok, msg, rid = askmod.ask(agent, row["title"], requester=row["queued_by"], kind="task",
-                                  on_behalf_of=True, park=False)
+                                  on_behalf_of=True)
         if not ok:
             _note_refusal(con, agent, row["id"], msg, refused)
             continue
@@ -1161,7 +1161,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     # The delivery is the only thing that can be refused past this point (the
     # routing table), so it goes first: a refusal leaves the task where it was.
     ok, msg, rid = askmod.ask(to, f"T{tid} handed to you by {me}: {row['title']}\n\n{said}",
-                              requester=me, kind="task", park=False)
+                              requester=me, kind="task")
     if not ok:
         return False, msg
     old = row["owner"]
@@ -1262,7 +1262,7 @@ def _type_say(con, owner: str, body: str, why: str) -> None:
     db.mark_send_now(con, rid)
     askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, body, None,
                    team.Decision(True, why, kind="say", response="fire_and_forget",
-                                 creates_gate=False, chain_depth=0))
+                                 chain_depth=0))
     askmod.push(con, owner, rid)
 
 
@@ -1390,7 +1390,7 @@ def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
         _type_say(con, old_owner, f"T{tid} moved to {new_owner} by {by} - stop work on it", "task moved")
     if taken and new_owner != HUMAN:
         ok, msg, rid = askmod.ask(new_owner, taken[0]["body"], requester=taken[0]["requester"],
-                                  kind="task", on_behalf_of=True, park=False)
+                                  kind="task", on_behalf_of=True)
         if ok:
             _link_delivery(con, tid, new_owner, rid)
             askmod.push(con, new_owner)

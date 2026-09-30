@@ -112,7 +112,7 @@ def _agent(con, agent: str, items: list[dict], log, now: int) -> None:
         db.mark_send_now(con, rid)
         askmod.deliver(rid, REQUESTER, agent, body, None,
                        team.Decision(True, "schedule", kind="say", response="fire_and_forget",
-                                     creates_gate=False, chain_depth=0))
+                                     chain_depth=0))
         db.set_cursor(con, at, minute)
         db.set_cursor(con, rid_key, rid)
         db.add_event(con, agent, "schedule_fired", {"cron": item["cron"], "request_id": rid})

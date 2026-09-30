@@ -197,7 +197,7 @@ def test_the_founders_answer_reaches_the_terminal_only_for_the_prompt_they_saw(h
 # the command is boxed with "│", a description and a reason line follow.
 LIVE_PROMPT = ["─" * 120, " Bash command", "",
                " │ ocp ask human 'T239 (#1328) is blocked. Need one of: (a) approve that edit'",
-               " │ 2>&1 | tail -3", "   Escalate the block to the founder", "",
+               " │ 2>&1 | tail -3", "   Raise the block to the founder", "",
                " │ ocp names a path that is computed at run time, which cannot be checked against "
                "the read block (permissions.blockReadsOutsideWorkingDirectories)", "",
                " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "",

@@ -11,10 +11,10 @@ and the proposal is applied by the same command that raised it, from the file
 it wrote. Three properties fall out of that:
 
   - It is a file. `hr/<id>.yaml` holds what was asked for, who asked, the
-    escalation it was raised as, and what happened to it. A crash between the
+    decision it was raised as, and what happened to it. A crash between the
     approval and the change leaves the proposal there to be applied again.
   - The approval is read, not interpreted. The verdict's first word decides,
-    out of a vocabulary the escalation itself prints. A model reading "maybe
+    out of a vocabulary the decision itself prints. A model reading "maybe
     next week" as approval is the failure this exists to prevent.
   - Applying is the same two writes a human would make: `agent register`, and
     the agent's name in team.yaml. Nothing bypasses the routing table; the
@@ -38,7 +38,7 @@ from ..infra import atomic, paths, sealed, textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
-# What the founder types to decide. Printed in the escalation, so the words are
+# What the founder types to decide. Printed in the decision, so the words are
 # in front of whoever answers rather than in a document they have not read.
 # 승인 and 반려 are approve and reject: the founder answers in Korean.
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
@@ -244,7 +244,7 @@ def propose(kind: str, name: str, requester: str, why: str,
     except ConfigError as e:
         return False, f"could not write the proposal down, so nothing was raised: {e}"
     from .. import actions      # a decision is a task of the founder's
-    ok, said, rid = actions.open_decision(requester, _escalation(prop))
+    ok, said, rid = actions.open_decision(requester, _decision_text(prop))
     if not ok:
         return False, f"could not raise it: {said}"
     prop["request"] = rid
@@ -302,7 +302,7 @@ def enact(kind: str, name: str, why: str,
             con.close()
 
 
-def _escalation(prop: dict, caveat: bool = True) -> str:
+def _decision_text(prop: dict, caveat: bool = True) -> str:
     """What the founder reads. It says what will happen and how to decide.
     `caveat=False` leaves out the unlink caveat, which reads the live team.yaml
     and so differs from one moment to the next (see `answered`)."""
@@ -379,13 +379,13 @@ def subject_of(prop: dict) -> str:
 
 def answered(prop: dict, row) -> tuple[str | None, str | None]:
     """(subject, refusal) for the answer given on `row`: what was decided on,
-    or why this draft is not what the founder was asked. The escalation the
+    or why this draft is not what the founder was asked. The decision the
     founder read must be the one this draft renders to - every field of the
     change, its reason and its asker - so a draft edited before the answer
     is refused rather than approved unseen. An unlink's caveat is the one
     part that is read live, and is left out of the comparison."""
     body = row["body"] or ""
-    want = _escalation(prop, caveat=False)
+    want = _decision_text(prop, caveat=False)
     marker = "Requests already queued on it stay queued."
     if prop.get("kind") == "unlink" and marker in want:
         head, tail = want.split(marker, 1)
@@ -430,7 +430,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     try:
         row = db.get_request(con, int(prop.get("request") or 0))
         if row is None:
-            return False, f"proposal {pid} has no escalation to check - raise it again"
+            return False, f"proposal {pid} has no decision to check - raise it again"
         if row["state"] == "queued":
             return False, (f"the founder has not answered #{row['id']} yet. It is on "
                            f"`ocp bridge`, top panel.")
@@ -472,11 +472,11 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
 def confirm_answer(pid: str, con=None) -> tuple[bool, str]:
     """The founder records, from their own session, an answer that was given but
     never recorded (a running daemon or bridge on older code did not know the
-    proposal, so it closed the escalation without applying it), then applies it.
+    proposal, so it closed the decision without applying it), then applies it.
 
     The recorded answer is what makes an approve believable, and a verdict in the
     db alone is no proof, so only the founder's session may do this, and only for
-    an escalation that is closed with a decision and still shows the draft the
+    a card closed with a decision that still shows the draft the
     founder was asked. An agent's session is refused by the protected store."""
     try:
         prop = load_proposal(pid)
@@ -515,13 +515,13 @@ class _Unwound(Exception):
 def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
     """The proposal's own author, or the founder, takes it back.
 
-    The way out of a proposal that will get no decision: an escalation closed
+    The way out of a proposal that will get no decision: a card closed
     without approve or reject leaves `apply` refusing it and nothing else able
-    to end it. A still-queued escalation is closed with it and marked told:
+    to end it. A still-queued card is closed with it and marked told:
     the proposer is not messaged, whoever withdrew.
 
     A withdraw and the founder's answer settle to exactly one outcome, decided
-    under one write lock. The escalation is read there: an approve or reject
+    under one write lock. The decision is read there: an approve or reject
     already on it is the founder's answer and stands, so the withdraw refuses
     and `apply` reads that answer; still queued, the withdraw wins and the
     founder's answer then finds the row closed and refuses. Anything else on
@@ -582,7 +582,7 @@ def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
 
 
 def open_proposal_of(rid: int) -> str | None:
-    """The id of the proposal still waiting on approve or reject whose escalation is request `rid`."""
+    """The id of the proposal still waiting on approve or reject whose decision is request `rid`."""
     for p in listing():
         if p.get("state") == "proposed" and int(p.get("request") or 0) == rid:
             return p["id"]
@@ -592,7 +592,7 @@ def open_proposal_of(rid: int) -> str | None:
 def unknown_kind_of(rid: int) -> str | None:
     """The kind of a proposal file waiting on request `rid` that this process does
     not know, else None. `listing` skips such a file, so without this a process
-    older than the kind would close the escalation and throw the answer away."""
+    older than the kind would close the decision and throw the answer away."""
     for f in dir_().glob("*.yaml"):
         try:
             data = load(f.read_text())
@@ -606,7 +606,7 @@ def unknown_kind_of(rid: int) -> str | None:
 
 
 def is_open_proposal(rid: int) -> bool:
-    """Is request `rid` the escalation of a proposal still waiting on approve or reject?"""
+    """Is request `rid` the decision of a proposal still waiting on approve or reject?"""
     return open_proposal_of(rid) is not None
 
 

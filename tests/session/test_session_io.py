@@ -369,7 +369,7 @@ def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) 
     orcamod.screen_blocker = lambda h: (reads.append(h), seen["screen"])[1]
     # In the past by more than the longest wait, so the synthetic times below
     # are all no later than the clock the list itself reads.
-    t0 = int(time.time()) - 2 * blockedmod.ESCALATE_AFTER_S - 3000
+    t0 = int(time.time()) - 2 * blockedmod.DECISION_AFTER_S - 3000
     try:
         blockedmod.sweep(con, lines.append, t0)
         rec = db.block_get(con, "backend")
@@ -394,13 +394,13 @@ def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) 
         check("blocked: ps and the bridge read that list",
               any(w["kind"] == "blocked" and w["who"] == "backend" for w in actions.founder_waits(con)),
               str(actions.founder_waits(con)))
-        check("blocked: no request before T2", not _escalations(con), str(_escalations(con)))
+        check("blocked: no request before T2", not _decisions(con), str(_decisions(con)))
 
-        at = t0 + blockedmod.ESCALATE_AFTER_S - 1
+        at = t0 + blockedmod.DECISION_AFTER_S - 1
         blockedmod.sweep(con, lines.append, at)
-        check("blocked: nor one second short of T2", not _escalations(con))
-        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S)
-        esc = _escalations(con)
+        check("blocked: nor one second short of T2", not _decisions(con))
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.DECISION_AFTER_S)
+        esc = _decisions(con)
         check("blocked: one request at T2", len(esc) == 1, str(esc))
         body = db.get_request(con, esc[0]["id"])["body"]
         check("blocked: it says what is in the way, what waits, and what to do",
@@ -409,13 +409,13 @@ def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) 
         check("blocked: the record holds its number", db.block_get(con, "backend")["request_id"] == esc[0]["id"])
 
         for extra in (30, 200, 900):
-            blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + extra)
+            blockedmod.sweep(con, lines.append, t0 + blockedmod.DECISION_AFTER_S + extra)
         blockedmod._checked.clear()      # a restart forgets when it last looked
-        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + 1000)
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.DECISION_AFTER_S + 1000)
         check("blocked: however long it lasts, across ticks and a restart, still one",
-              len(_escalations(con)) == 1, str(_escalations(con)))
+              len(_decisions(con)) == 1, str(_decisions(con)))
         check("blocked: the request is not listed a second time beside its own row",
-              sum(1 for w in actions.founder_waits(con) if w["kind"] in ("blocked", "escalation")) == 1,
+              sum(1 for w in actions.founder_waits(con) if w["kind"] in ("blocked", "decision")) == 1,
               str([w["kind"] for w in actions.founder_waits(con)]))
         check("blocked: STUCK gives the dialog, not the state's guess",
               any("cannot be given its work" in r["what"] and "Background work is running" in r["why"]
@@ -428,20 +428,20 @@ def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) 
 
         seen["screen"] = None                 # the founder answered it
         blockedmod._checked.clear()
-        blockedmod.sweep(con, lines.append, t0 + blockedmod.ESCALATE_AFTER_S + 1100)
+        blockedmod.sweep(con, lines.append, t0 + blockedmod.DECISION_AFTER_S + 1100)
         check("blocked: the record goes the tick it can be given its work", db.block_get(con, "backend") is None)
         check("blocked: the request closes itself",
-              _escalations(con)[0]["state"] == "done" and "cleared" in _escalations(con)[0]["verdict"],
-              str([dict(r) for r in _escalations(con)]))
+              _decisions(con)[0]["state"] == "done" and "cleared" in _decisions(con)[0]["verdict"],
+              str([dict(r) for r in _decisions(con)]))
         check("blocked: nothing is left on the list",
-              not any(w["kind"] in ("blocked", "escalation") for w in actions.founder_waits(con)))
+              not any(w["kind"] in ("blocked", "decision") for w in actions.founder_waits(con)))
 
         seen["screen"] = orcamod.Blocker(orcamod.MODAL, '"Another"')
         blockedmod._checked.clear()
         blockedmod.sweep(con, lines.append, t0 + 2000)
-        blockedmod.sweep(con, lines.append, t0 + 2000 + blockedmod.ESCALATE_AFTER_S)
+        blockedmod.sweep(con, lines.append, t0 + 2000 + blockedmod.DECISION_AFTER_S)
         check("blocked: a second episode is a second request",
-              len(_escalations(con)) == 2, str(_escalations(con)))
+              len(_decisions(con)) == 2, str(_decisions(con)))
     finally:
         con.close()
 
@@ -926,7 +926,7 @@ def test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(home: Path) -> None
         check("cannot: the block stands", db.block_get(con, "backend") is not None)
         check("cannot: the reason is logged once, not every sweep",
               sum("did not press" in m for m in lines) == 1, str(lines))
-        esc = _escalations(con)
+        esc = _decisions(con)
         check("cannot: it reaches the founder at T2 saying why ocp did not press",
               len(esc) == 1 and "did not press it: none of its options only declines"
               in db.get_request(con, esc[0]["id"])["body"], str([dict(r) for r in esc]))
@@ -937,7 +937,7 @@ def test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(home: Path) -> None
         con.close()
 
 
-def test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(home: Path) -> None:
+def test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_decisioned(home: Path) -> None:
     """A dialog that returns after ocp cleared it is a loop: pressed
     MAX_PRESSES times, then the founder is told at once, not at T2."""
     con, term = _decline_world(home)
@@ -961,7 +961,7 @@ def test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(ho
             blockedmod.sweep(con, lambda _m: None, at + step)
         check("loop: the dialog that comes back again is NOT pressed", len(term.sent) == blockedmod.MAX_PRESSES,
               str(term.sent))
-        esc = _escalations(con)
+        esc = _decisions(con)
         body = db.get_request(con, esc[0]["id"])["body"] if esc else ""
         check("loop: the founder is told at once, well before T2, and why",
               len(esc) == 1 and "has stopped pressing" in body and "came back each time" in body,
@@ -992,8 +992,8 @@ def test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(home: P
             blockedmod._checked.clear()
             blockedmod.sweep(con, lambda _m: None, t0 + step)
         check("ignored: pressed MAX_IGNORED times and no more", len(term.sent) == blockedmod.MAX_IGNORED, str(term.sent))
-        check("ignored: the founder is told at once", len(_escalations(con)) == 1
-              and "Esc did not close it" in db.get_request(con, _escalations(con)[0]["id"])["body"])
+        check("ignored: the founder is told at once", len(_decisions(con)) == 1
+              and "Esc did not close it" in db.get_request(con, _decisions(con)[0]["id"])["body"])
     finally:
         con.close()
 
@@ -1016,7 +1016,7 @@ def test_nothing_is_pressed_for_what_is_not_a_dialog(home: Path) -> None:
 def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -> None:
     """Auditor's #1026 blocking finding, driven end to end: three different
     dialogs, each cleared once over five hours, must never read as one dialog
-    looping - and a brand-new, unrelated block must never escalate on sight
+    looping - and a brand-new, unrelated block must never raise on sight
     because of that history. Scoped by the block's own `title` column (raw,
     from parse_dialog), never reconstructed from `detail` - auditor's second
     finding on the first fix: a title with a quote in it, or one over
@@ -1077,15 +1077,15 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
           f"cleared it {blockedmod.MAX_PRESSES_AGENT} times" in stopped and "came back each time" in stopped
           and "different titles" not in stopped, stopped)
 
-    # The escalation gate: a brand-new UNREADABLE block on the same agent must
-    # not jump SHOW_AFTER_S/ESCALATE_AFTER_S because of that stale MODAL history.
+    # The decision gate: a brand-new UNREADABLE block on the same agent must
+    # not jump SHOW_AFTER_S/DECISION_AFTER_S because of that stale MODAL history.
     orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNREADABLE)
     lines: list[str] = []
     try:
         blockedmod.sweep(con, lines.append, now)
         esc = con.execute("SELECT id FROM requests WHERE target = 'human' "
                           "AND kind = 'task'").fetchall()
-        check("press history: a fresh, unrelated block is not escalated on sight",
+        check("press history: a fresh, unrelated block is not raised on sight",
               not esc, str(esc))
         rec = db.block_get(con, "backend")
         check("press history: it is only tracked, not yet raised",
@@ -2839,7 +2839,7 @@ def test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(home: Pat
         check("unpassable: at first it waits, and says a dialog is why, not a turn",
               row["state"] != dmn_states.STALLED and any("a dialog is in the way" in m for m in lines)
               and not any("mid-turn" in m for m in lines), str(lines))
-        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.ESCALATE_AFTER_S - 1)
+        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.DECISION_AFTER_S - 1)
         dmn_handoff.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lines.append)
         row = db.get_agent_state(con, "keeper")
         check("unpassable: past the wait it is STALLED, with the dialog in the reason",
@@ -2877,7 +2877,7 @@ def test_each_dialog_that_cannot_be_passed_starts_its_own_clock(home: Path) -> N
     try:
         term.tail = list(first)
         check("clock: an unpassable dialog is a reason", dmn_delivery._past_dialog(con, "keeper", lambda _m: None))
-        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.ESCALATE_AFTER_S - 1)
+        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.DECISION_AFTER_S - 1)
         check("clock: standing that long, it stalls",
               dmn_delivery._stalled_on_dialog(con, "keeper", "x", lambda _m: None))
         db.set_agent_state(con, "keeper", dmn_states.IDLE)
@@ -2897,7 +2897,7 @@ def test_dialogs_whose_titles_did_not_parse_do_not_share_a_clock(home: Path) -> 
     blockedmod.past_dialog = lambda *_a, **_k: ("its title or options could not be parsed", "")
     try:
         dmn_delivery._past_dialog(con, "keeper", lambda _m: None)
-        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.ESCALATE_AFTER_S - 1)
+        db.set_cursor(con, "dialog_since:keeper", int(time.time()) - blockedmod.DECISION_AFTER_S - 1)
         dmn_delivery._past_dialog(con, "keeper", lambda _m: None)
         check("clock: an unparsed dialog never inherits the last one's clock",
               not dmn_delivery._stalled_on_dialog(con, "keeper", "z", lambda _m: None))
@@ -2971,12 +2971,6 @@ def test_wake_on_a_self_clearing_park_refuses_and_says_when(home: Path) -> None:
         check("wake: a moving (short-retry) park refuses with its own reason, "
               "not the usage-wall's window-rollover sentence beside it",
               not ok and "moving accounts" in why and "window rolls over" not in why, why)
-
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=wake,
-                           detail=askmod.await_reply_detail(99, "keeper"))
-        ok, why = actions.can(con, "backend", "wake")
-        check("wake: a park awaiting its own reply refuses, naming the reply",
-              not ok and "reply" in why, why)
 
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=wake, detail="by hand; wakes at x")
         ok, why = actions.can(con, "backend", "wake")
@@ -3115,7 +3109,7 @@ def test_a_context_handoff_backs_off_when_the_clear_keeps_failing(home: Path) ->
 def test_repeated_failed_clears_reach_the_throttle_cap(home: Path) -> None:
     """#1975: a good record used to reset the streak by itself, so a clear
     that kept failing right after it never accumulated - throttle_count sat
-    pinned at 1 and 8.6's STALLED escalation was unreachable for this case.
+    pinned at 1 and 8.6's STALLED decision was unreachable for this case.
     Driving MAX_THROTTLE_STREAK failed-clear handoffs is the test #1975 asked
     for: it must fail if `_record_handoff` goes back to resetting on its own.
     """
@@ -3134,7 +3128,7 @@ def test_repeated_failed_clears_reach_the_throttle_cap(home: Path) -> None:
         t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
         for _ in range(dmn_states.MAX_THROTTLE_STREAK):
             # Hours apart in reality; backdate so the too-soon guard does not
-            # skip a handoff that just fired (same as test_daemon_stall_escalation).
+            # skip a handoff that just fired (same as test_daemon_stall_decision).
             con.execute("UPDATE handoff SET updated = updated - ? WHERE agent = 'backend'",
                         (dmn_states.MIN_HANDOFF_INTERVAL_S * 2,))
             dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
@@ -3174,7 +3168,7 @@ def test_a_queued_agents_blocked_reminder_surfaces_like_an_idle_ones(home: Path)
     reads `forgotten_resolve` through `work_waiting` - so once that admits
     QUEUED, a QUEUED agent whose reminder is blocked by a dialog gets the
     same `delivery_blocks` row, the same bridge line, and the same
-    escalation at `ESCALATE_AFTER_S` that an IDLE one already does."""
+    decision at `DECISION_AFTER_S` that an IDLE one already does."""
     _daemon_home(home, 20)
     orcamod.available = lambda: True
     orcamod.alive = lambda h: True
@@ -3401,7 +3395,7 @@ def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
     carries its prompt in --prompt-file, and a relaunch - on a moved agent, a
     config dir that has never trusted the folder - is where the trust screen
     appears. The wake is not done while claude sits at it: under standing
-    consent it is pressed, otherwise it escalates naming the folder, and the
+    consent it is pressed, otherwise it raises naming the folder, and the
     agent stays closed with its handoff kept."""
     _daemon_home(home, 20)
     con = db.connect()
@@ -3444,7 +3438,7 @@ def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("closed wake: an undeclared trust screen is not recorded as woken",
               not ok and str(wt) in why, why)
-        check("closed wake: it is escalated to the founder, naming the folder",
+        check("closed wake: it is raised to the founder, naming the folder",
               con.execute("SELECT COUNT(*) c FROM requests WHERE target = ? AND kind = "
                           "'task' AND body LIKE ?", (askmod.HUMAN, f"%{wt}%")
                           ).fetchone()["c"] == 1)
@@ -3776,7 +3770,7 @@ def main() -> int:
         run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agents_after_a_wait(Path(td) / 'dcl2'))
         run(lambda: test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(Path(td) / 'dcl2b'))
         run(lambda: test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(Path(td) / 'dcl3'))
-        run(lambda: test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_escalated(Path(td) / 'dcl4'))
+        run(lambda: test_a_dialog_that_keeps_coming_back_stops_being_pressed_and_is_decisioned(Path(td) / 'dcl4'))
         run(lambda: test_esc_that_does_not_close_a_dialog_is_not_pressed_again_and_again(Path(td) / 'dcl5'))
         run(lambda: test_nothing_is_pressed_for_what_is_not_a_dialog(Path(td) / 'dcl6'))
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))

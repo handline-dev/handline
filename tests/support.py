@@ -564,7 +564,7 @@ edges:
   - { from: "product",   to: "growth.*",     relation: peer,  response: async }
   - { from: "analytics", to: "product",      relation: peer,  response: async }
   - { from: "*",         to: "archivist",    relation: peer,  response: fire_and_forget }
-  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
+  - { from: "*",         to: "human", kind: task }
 
 deny:
   - { from: "eng.*",    to: "growth.*",  reason: "go through product" }
@@ -764,7 +764,7 @@ def _blocked_world(home: Path):
     return con
 
 
-def _escalations(con) -> list:
+def _decisions(con) -> list:
     return con.execute("SELECT id, state, verdict FROM requests WHERE target = 'human' "
                        "AND kind = 'task' ORDER BY id").fetchall()
 
@@ -2100,7 +2100,7 @@ __all__ = [
     'BANNER_AND_HINT_QUOTED_ABOVE_BOX',
     '_screen_of',
     '_blocked_world',
-    '_escalations',
+    '_decisions',
     '_RULE_ROW',
     'TRUST_DIALOG',
     'PERMISSION_PROMPT',

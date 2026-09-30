@@ -920,7 +920,7 @@ def _same_path(a: str, b: str) -> bool:
 
 def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     """The wake paths' gate before the wake prompt: a no-op when nothing is
-    showing, else standing consent (156 1b) or an escalation. It runs ahead
+    showing, else standing consent (156 1b) or a decision. It runs ahead
     of `typeable_now`, which refuses this screen as a dialog and would leave
     it unanswered. The deliver paths only check `typeable_now`, so they wait
     and the blocked sweep reports it.
@@ -941,11 +941,11 @@ def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     names, only when that folder is both a declared root and the one on
     record for this agent, and only while `ocp auto-accept` is on. Anything
     else - unreadable, undeclared, a mismatch with the recorded worktree, or
-    the setting off - escalates, as does a press whose keys did not land.
+    the setting off - raises a decision task, as does a press whose keys did not land.
     """
     shown, recorded, consented = _trust_consent(con, agent, handle)
     if not consented:
-        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
+        return _raise_trust_prompt(con, agent, handle, log, shown, recorded)
     return _press_trust(con, agent, handle, log, shown, recorded)
 
 
@@ -978,11 +978,11 @@ def auto_trust(con, agent: str, log) -> bool:
 def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -> tuple[bool, str]:
     ok, why = orca.confirm_trust(handle)
     # The redraw is not instant; checking on the very next line risks reading
-    # the screen the vendor was still drawing, and escalating a trust that
+    # the screen the vendor was still drawing, and raising a decision for a trust that
     # actually went through.
     orca.wait_for_trust_prompt(handle, showing=False)
     if not ok or orca.trust_prompt_showing(handle):
-        return _escalate_trust_prompt(con, agent, handle, log, shown, recorded)
+        return _raise_trust_prompt(con, agent, handle, log, shown, recorded)
     db.add_event(con, agent, "trust_confirmed", {"path": shown})
     log(f"  {agent}: trusted {shown} (standing consent)")
     # The screen just changed under us; typing the wake prompt before the
@@ -992,25 +992,25 @@ def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -
 
 
 TRUST_STALL = "folder-trust prompt"
-# What opens the escalation a trust stall raises, which `sweep` finds it by when the stall
+# What opens the decision a trust stall raises, which `sweep` finds it by when the stall
 # is lifted. Not "[trust]" alone: a standing-consent proposal (`team/trust.py`) opens with
 # that too. Stalls raised before this marker began with "[trust] <agent>'s terminal ...".
-TRUST_ESCALATION = "[trust stall]"
+TRUST_DECISION = "[trust stall]"
 
 
-def trust_escalation_prefixes(agent: str) -> tuple[str, str]:
-    return TRUST_ESCALATION, f"[trust] {agent}'s terminal is showing"
+def trust_stall_prefixes(agent: str) -> tuple[str, str]:
+    return TRUST_DECISION, f"[trust] {agent}'s terminal is showing"
 
 
-def _escalate_trust_prompt(con, agent: str, handle: str, log,
+def _raise_trust_prompt(con, agent: str, handle: str, log,
                           shown: str | None = None, recorded: str | None = None
                           ) -> tuple[bool, str]:
     """The agent's vendor is sitting at its folder-trust screen - nothing is
     typed, since typed text is not a choice there, it is a coin flip landing
     on whatever the vendor's own default is (claude's: "No, exit"). STALLED
-    and escalated rather than retried: the screen does not resolve itself.
+    and raised to the founder rather than retried: the screen does not resolve itself.
     """
-    # Already escalated: a later wake - the next tick, an ask, a key on the
+    # Already raised: a later wake - the next tick, an ask, a key on the
     # bridge - meets the same screen and would raise the same request again.
     row = db.get_agent_state(con, agent)
     if row and row["state"] == STALLED and TRUST_STALL in (row["detail"] or ""):
@@ -1020,7 +1020,7 @@ def _escalate_trust_prompt(con, agent: str, handle: str, log,
     why = (f"{agent}'s terminal is showing {vendor}'s {TRUST_STALL} for "
            f"{shown or 'an unreadable folder'} (account {acct or 'none'}, recorded "
            f"worktree {recorded or 'unknown'}) - nothing was typed into it")
-    askmod.escalate(con, agent, f"{TRUST_ESCALATION} {why}", why)
+    askmod.raise_decision(con, agent, f"{TRUST_DECISION} {why}", why)
     db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
     log(f"  {agent}: {why}")
     return False, why

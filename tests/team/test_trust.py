@@ -22,7 +22,7 @@ def test_trust_roots(home: Path) -> None:
     use_home(home)
     hand_edit_team(
         "agents:\n  backend: {}\n"
-        'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
+        'edges:\n  - { from: "*", to: "human", kind: task }\n')
     agents.register("backend")
     root = home / "repos" / "widget"
     root.mkdir(parents=True, exist_ok=True)
@@ -168,7 +168,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     use_home(home)
     hand_edit_team(
         "agents:\n  backend: {}\n"
-        'edges:\n  - { from: "*", to: "human", kind: escalate, creates_gate: true }\n')
+        'edges:\n  - { from: "*", to: "human", kind: task }\n')
     agents.register("backend")
     from ocp.infra import protected
     legacy = trustmod.legacy_path()
@@ -268,7 +268,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     finally:
         con.close()
     ok, msg = askmod.resolve(sixth["request"], "approve")
-    check("bind: an escalation that names no root approves nothing",
+    check("bind: a decision that names no root approves nothing",
           "does not name the root" in msg and not trustmod.is_declared(home / "sixth")
           and decisions.get("trust", sixth["id"]) is None, msg)
 
@@ -438,7 +438,7 @@ def test_trust_prompt_folder_parses_a_live_capture() -> None:
     """auditor's #339 should-fix 3: claude's `trust_screen` is what blocker
     2's whole fix rests on, and nothing pinned its join-bare, wrapped-path
     behaviour against a real screen - only a synthetic one-liner. A parse
-    that silently comes out wrong fails closed (escalate + STALLED), so a
+    that silently comes out wrong fails closed (raise + STALLED), so a
     quiet regression here stalls every agent in a declared root (design/04
     §4.3: the parse itself is claude's driver's now, not orca's)."""
     from ocp.vendors import claude as claudemod
@@ -492,7 +492,7 @@ def test_trust_prompt_showing_stays_true_when_the_folder_cannot_be_read(home: Pa
     shown, no workspace line yet - a mid-redraw, or a layout drift) must
     still read as showing, or the wake path calls it clear and types its
     wake line and Enter into the dialog - picking the default "No, exit"
-    where main escalates and stalls."""
+    where main raises and stalls."""
     os.environ["OCP_HOME"] = str(home)
     real_text = orcamod.screen_text
     try:
@@ -511,7 +511,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
     """Standing consent, and blocker 2 (auditor's #304): pressed only for the
     folder the dialog itself names, checked against both the declared roots
     and the recorded worktree, and only once the keys actually land.
-    Anything else escalates, the same as with no standing consent at all."""
+    Anything else raises, the same as with no standing consent at all."""
     _daemon_home(home, 50)
     con = db.connect()
     wt = home / "worktree"
@@ -553,12 +553,12 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", str(wt))
         keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
 
-        # 1. Not a declared root at all: escalates, nothing pressed.
+        # 1. Not a declared root at all: raises, nothing pressed.
         orcamod.screen_text = lambda h: screen_for(wt)
         trustmod.is_declared = lambda p: False
         orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("wake: an undeclared root escalates, nothing confirmed or typed",
+        check("wake: an undeclared root raises, nothing confirmed or typed",
               not ok and not sent and not trusted, str((ok, sent, trusted)))
         check("wake: ...and the agent is stalled",
               db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
@@ -568,14 +568,14 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         orcamod.screen_text = lambda h: screen_for(other)
         trustmod.is_declared = lambda p: True
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("wake: a recorded path that differs from the dialog's folder escalates",
+        check("wake: a recorded path that differs from the dialog's folder raises",
               not ok and not sent and not trusted, str((ok, sent, trusted)))
 
         # 3. Declared and matching, but the keys never land.
         reset()
         orcamod.screen_text = lambda h: screen_for(wt)
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("wake: keys that did not land escalate rather than typing blind",
+        check("wake: keys that did not land raise rather than typing blind",
               not ok and not sent, str((ok, sent, trusted)))
 
         # 4. Declared, matching, and the keys land: pressed, then typed.
@@ -612,7 +612,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         orcamod.confirm_trust = confirm_landing
         orcamod.time.sleep = lambda s: None
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("wake: a redraw that outlasts the press is waited out, not escalated",
+        check("wake: a redraw that outlasts the press is waited out, not raised",
               ok and sent and reads["n"] >= 3
               and db.get_agent_state(con, "backend")["state"] != dmn_states.STALLED,
               str((ok, why, reads, sent)))
@@ -649,7 +649,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
     """founder #1212: the trust prompt was accepted (standing consent from the
     blocked sweep, a person, or the vendor) and the agent works, but the row
     stayed FATAL - STALLED is left for a person, and nothing looked again. The
-    sweep reads the screen: gone means lifted and the escalation closed; still
+    sweep reads the screen: gone means lifted and the decision closed; still
     up, unreadable, or a stall for another reason means untouched."""
     _daemon_home(home, 50)
     con = db.connect()
@@ -661,12 +661,12 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
 
     def stalled_on_the_trust_screen() -> int:
         db.set_agent_state(con, "backend", dmn_states.QUEUED, detail="reset")
-        dmn_lifecycle._escalate_trust_prompt(con, "backend", "term_x", lambda _m: None, "wt", "wt")
-        return db.open_escalation_ids(con, "backend", dmn_lifecycle.TRUST_ESCALATION)[0]
+        dmn_lifecycle._raise_trust_prompt(con, "backend", "term_x", lambda _m: None, "wt", "wt")
+        return db.open_decision_ids(con, "backend", dmn_lifecycle.TRUST_DECISION)[0]
 
-    def open_trust_escalations() -> list[int]:
-        return [r for p in dmn_lifecycle.trust_escalation_prefixes("backend")
-                for r in db.open_escalation_ids(con, "backend", p)]
+    def open_trust_decisions() -> list[int]:
+        return [r for p in dmn_lifecycle.trust_stall_prefixes("backend")
+                for r in db.open_decision_ids(con, "backend", p)]
 
     def sweep() -> list[str]:
         said: list[str] = []
@@ -680,7 +680,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         obsmod.live_sessions = lambda: {"backend": 4242}
         orcamod.screen_text = lambda h: screen["v"]
         rid = stalled_on_the_trust_screen()
-        check("trust stall: the prompt raised a stall and one escalation",
+        check("trust stall: the prompt raised a stall and one decision",
               db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED, rid)
 
         sweep()
@@ -704,28 +704,28 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         check("trust stall: the prompt gone and a session running lifts it",
               row["state"] == dmn_states.IDLE, str(dict(row)))
         check("trust stall: ...says so", any("STALLED -> IDLE" in a for a in said), str(said))
-        check("trust stall: ...and closes the escalation",
+        check("trust stall: ...and closes the decision",
               db.get_request(con, rid)["state"] == "done"
-              and not open_trust_escalations())
+              and not open_trust_decisions())
 
         # A pending standing-consent proposal (team/trust.py) opens with "[trust]" too and is the
-        # founder's to decide: lifting a stall must leave it, and it is not a stall escalation.
-        proposal = askmod.escalate(con, "backend", "[trust] add /some/root - asked by backend\n\nwhy\n\n"
+        # founder's to decide: lifting a stall must leave it, and it is not a stall decision.
+        proposal = askmod.raise_decision(con, "backend", "[trust] add /some/root - asked by backend\n\nwhy\n\n"
                                    "Answer `approve` or `reject` (proposal 1).", "trust proposal")
         rid = stalled_on_the_trust_screen()
         sweep()
-        check("trust stall: a pending trust proposal survives the lift, the stall's own escalation closes",
+        check("trust stall: a pending trust proposal survives the lift, the stall's own decision closes",
               db.get_request(con, proposal)["state"] == "queued" and db.get_request(con, rid)["state"] == "done",
               str((db.get_request(con, proposal)["state"], db.get_request(con, rid)["state"])))
         askmod.resolve(proposal, "test cleanup", state="done", notify=False)
 
-        # An escalation raised before the marker began "[trust] <agent>'s terminal is showing ...".
+        # A decision raised before the marker began "[trust] <agent>'s terminal is showing ...".
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="folder-trust prompt")
-        legacy = askmod.escalate(con, "backend", "[trust] backend's terminal is showing claude's folder-trust "
+        legacy = askmod.raise_decision(con, "backend", "[trust] backend's terminal is showing claude's folder-trust "
                                  "prompt for wt", "old")
         sweep()
-        check("trust stall: an escalation raised under the old marker closes with the lift",
-              db.get_request(con, legacy)["state"] == "done")
+        check("trust stall: a decision raised under the old marker closes with the lift",
+              db.get_request(con, legacy)["state"] == "done", str(dict(db.get_request(con, legacy))) + str(db.open_decision_ids(con, "backend", "[trust] backend")))
 
         # A closed agent whose session is running, stalled by the trust prompt with the wake
         # streak at its cap, is lifted once and said once: the wake-stall branch below the lift
@@ -755,13 +755,13 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         row = db.get_agent_state(con, "backend")
         check("trust stall: a running session at the unanswered prompt keeps the stall and its detail",
               row["state"] == dmn_states.STALLED and dmn_lifecycle.TRUST_STALL in row["detail"], str(dict(row)))
-        check("trust stall: ...and its escalation stays open, nothing said of a wake stall",
+        check("trust stall: ...and its decision stays open, nothing said of a wake stall",
               db.get_request(con, rid)["state"] == "queued"
               and not any("STALLED -> IDLE" in a for a in said), str(said))
         check("trust stall: ...while the closed mark it refutes is still cleared",
               not db.get_agent_state(con, "backend")["closed_at"])
 
-        # An escalation that will not close keeps the stall: the row moves only after it.
+        # A decision that will not close keeps the stall: the row moves only after it.
         real_resolve = askmod.resolve
         def refuse(*_a, **_k):
             raise RuntimeError("db locked")
@@ -771,7 +771,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
             sweep()
         finally:
             askmod.resolve = real_resolve
-        check("trust stall: a failed close of the escalation leaves the stall in place",
+        check("trust stall: a failed close of the decision leaves the stall in place",
               db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED
               and db.get_request(con, rid)["state"] == "queued")
         sweep()

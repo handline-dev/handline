@@ -17,7 +17,7 @@ outside `ocp/vendors/`, what interface it needs, and the order to move it.
 |---|---|---|
 | Config dir name | `paths.account_claude`, `paths.shared_claude` (10 call sites), `accounts.py` bootstrap | the `.claude` directory name; `shared/.claude/settings.json` created and edited by ocp |
 | Headless runs | `fold.py:201` | `claude --model M -p prompt`; "claude not on PATH"; `status` reasons about `claude -p` spending quota with no statusLine |
-| Folder-trust dialog | `orca.py:196-260` (`TRUST_PROMPT_MARKER`, `trust_prompt_showing`, `wait_for_trust_prompt`, `trust_prompt_folder`), `daemon/lifecycle.py` (`_handle_trust_prompt`, `_escalate_trust_prompt`) | the screen's wording and where the cursor sits. The *policy* (`trust.py`, `trust_roots.json`, founder approval) is generic |
+| Folder-trust dialog | `orca.py:196-260` (`TRUST_PROMPT_MARKER`, `trust_prompt_showing`, `wait_for_trust_prompt`, `trust_prompt_folder`), `daemon/lifecycle.py` (`_handle_trust_prompt`, `_raise_trust_prompt`) | the screen's wording and where the cursor sits. The *policy* (`trust.py`, `trust_roots.json`, founder approval) is generic |
 | Other dialogs | `orca.py:408-560` (`claude_screen_blocker`, exit-dialog and session-limit wording) | already reached through `Driver.screen_blocker`, but the ~150 lines of claude markers sit in `orca.py`, not `claude.py` |
 | Hooks | `hooks.py`, `cli/hooks.py`, `doctor.py:108-175`, `accounts.py` | Orca's hook block in `~/.claude/settings.json` mirrored into each account's `settings.json`; RUNNING/IDLE arrive through hooks. opencode has none (`tui.py:875`) |
 | Usage meter | `usage_api.py` (oauth endpoint, `User-Agent: claude-code/2.1.0`, `claude auth status`, keychain read via `security find-generic-password`), `recover.py` (`refresh_credential`) | the endpoint, the credential store, the renewal trick. `recover.py` already refuses non-claude accounts by hand |
@@ -117,7 +117,7 @@ audited before it is merged, as the four file splits were.
    `claude_screen_blocker` with the picker markers only it uses
    (`_has_picker_hint`, `_picker_box`, `_hint_below_box`, `_describe_backgrounded`,
    `_BACKGROUNDED_HINTS`, `_BACKGROUND_BANNER`) move to `claude.py`;
-   `daemon/lifecycle`'s escalation names the vendor instead of "claude's".
+   `daemon/lifecycle`'s decision task names the vendor instead of "claude's".
    `_composer_box`/`_composer_shape` stay in `orca.py`, reached from `claude.py`
    the same late way: `background_work` (claude-specific in fact, generic in
    name) still calls them directly, unconverted. `MODAL_MARKERS`, `Dialog`/

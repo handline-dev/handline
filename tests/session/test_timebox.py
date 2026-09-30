@@ -25,7 +25,7 @@ agents:
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: async }
   - { from: "dev.*", to: "manager", relation: peer, response: async }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """
 

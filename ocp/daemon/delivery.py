@@ -19,8 +19,7 @@ from ..usage import status
 from ..infra import textsafe
 
 from . import handoff, screensamples
-from .states import (HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S,
-                     awaiting_reply)
+from .states import HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S
 
 
 # ---------------------------------------------------------------- sending
@@ -140,7 +139,7 @@ def _stalled_on_dialog(con, agent: str, why: str, log) -> bool:
     raised with the founder, stops the agent: it is reported with the reason
     and left alone until a person clears it, not retried every tick."""
     since = db.get_cursor(con, f"dialog_since:{agent}")
-    if not since or int(time.time()) - since < blocked.ESCALATE_AFTER_S:
+    if not since or int(time.time()) - since < blocked.DECISION_AFTER_S:
         return False
     db.set_agent_state(con, agent, STALLED, detail=f"cannot get past a dialog: {why}")
     log(f"  {agent}: STALLED - cannot get past a dialog: {why}")
@@ -261,7 +260,7 @@ def wall_reason(con, agent: str, row=None) -> str | None:
     if events.at_limit(con, agent):
         return f"{agent} is at its usage limit"
     row = row if row is not None else db.get_agent_state(con, agent)
-    if row and row["state"] == PARKED and not row["closed_at"] and not awaiting_reply(row):
+    if row and row["state"] == PARKED and not row["closed_at"]:
         last = db.last_handoff(con, agent)
         if last and last["trigger_kind"] in handoff.MOVABLE_TRIGGERS:
             return f"{agent} is parked until its usage window rolls over"
@@ -1161,7 +1160,7 @@ def deliver_answers(con, agent: str, log) -> bool:
 
     Answering wrote the verdict on the row and stopped there, so the agent that
     asked - and that may have parked waiting - was never told. The founder
-    answering an escalation on the screen, and the answer never reaching the
+    answering a decision on the screen, and the answer never reaching the
     agent it was for, is the same hole from the other end.
 
     Told once, and marked on the row rather than counted off with a cursor: two
