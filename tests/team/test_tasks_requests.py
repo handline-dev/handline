@@ -8479,6 +8479,7 @@ agents:
   dev.merger: {}
 edges:
   - { from: "*", to: "*", relation: peer, response: fire_and_forget }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 500
@@ -8513,10 +8514,24 @@ limits:
               and hist[0]["note"] == "branch@abc123: fixed the retry", str(hist))
         ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "the founder may")
         check("handoff: the founder may hand it to anyone", ok and db.get_task(con, t)["owner"] == "worker", msg)
+        ok, msg = H("worker", actions.HUMAN, "T509: your call - the numbers are in the note")
+        sent = [r for r in db.task_requests(con, t) if r["target"] == actions.HUMAN]
+        check("T509: an agent hands a task to the founder, and it is theirs",
+              ok and db.get_task(con, t)["owner"] == actions.HUMAN, msg)
+        check("T509: the note travels to the founder as the delivery",
+              len(sent) == 1 and "your call" in sent[0]["body"] and sent[0]["requester"] == "worker",
+              str([dict(r) for r in sent]))
+        check("T509: worker no longer holds it, and the founder holds no current task",
+              db.current_task(con, "worker") is None and db.current_task(con, actions.HUMAN) is None)
+        ok, msg = actions.task_handoff(con, actions.HUMAN, t, "worker", "back to you")
+        check("T509: the founder hands it back", ok and db.get_task(con, t)["owner"] == "worker", msg)
         actions.mark_task_done(con, t, "worker", reason="done")
         ok, msg = H("worker", "helper", "too late")
         check("handoff: a finished task is not handed over", not ok and "finished" in msg, msg)
 
+        cli_t = db.new_task(con, "to the founder via cli", "worker", "manager")
+        rc, out = _cli(["task", "handoff", f"T{cli_t}", "human", "T509: needs your decision"], as_agent="worker")
+        check("T509: the cli hands a task to human", rc == 0 and db.get_task(con, cli_t)["owner"] == "human", out)
         rc, out = _cli(["task", "handoff", f"T{t}", "helper", "x"], as_agent="worker")
         check("handoff: the cli reports the refusal and exits 1", rc == 1 and "finished" in out, out)
         # T401 item 17: --file, same as ocp ask/say/resolve, safe against a

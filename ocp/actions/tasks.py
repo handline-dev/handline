@@ -1156,7 +1156,7 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
         return f"task T{tid} is already finished - nothing to hand over"
     if not note:
         return "a handoff needs a note: what changed, and what the receiver should know"
-    if to not in paths.list_agents():
+    if to != HUMAN and to not in paths.list_agents():
         return f"no agent named {to}"
     if to == row["owner"]:
         return f"T{tid} is already {to}'s"
@@ -1208,9 +1208,10 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
         db.set_current_task(con, old, None)
         if advance_current_task(con, old):
             askmod.push(con, old)
-    if db.current_task(con, to) is None:
-        db.set_current_task(con, to, tid)
-    askmod.push(con, to)
+    if to != HUMAN:                 # the founder holds no current task and is not typed at
+        if db.current_task(con, to) is None:
+            db.set_current_task(con, to, tid)
+        askmod.push(con, to)
     return True, f"T{tid} handed to {to}: {msg}"
 
 
