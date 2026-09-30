@@ -1591,6 +1591,25 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
           (view.owner, view.states, view.closer) == (None, set(actions.OPEN_STATES), None))
 
 
+def test_assign_answers_from_the_task_page() -> None:
+    _home("assign")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+        check("assign: a task to answer", ok)
+        check("assign: an unknown way is refused", not actions.assign_task(con, tid, "reviewer", "shout", "x")[0])
+        check("assign: a blank note is refused", not actions.assign_task(con, tid, "reviewer", "note", " ")[0])
+        ok, said = actions.assign_task(con, tid, "reviewer", "note", "use branch Y")
+        check("assign: a note reaches the holder and it keeps the task", ok and db.get_task(con, tid)["owner"] == "reviewer", said)
+        ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
+        check("assign: a handoff needs its text", not actions.assign_task(con, other, "reviewer", "handoff", "")[0])
+        ok, said = actions.assign_task(con, other, "reviewer", "handoff", "you take it")
+        check("assign: a handoff moves the task to the one chosen", ok and db.get_task(con, other)["owner"] == "reviewer", said)
+    finally:
+        con.close()
+
+
 def test_a_standing_answer_is_added_from_the_settings() -> None:
     home = _home("add_answer")
     folder = home / "work"
@@ -1652,6 +1671,7 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
+    test_assign_answers_from_the_task_page()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
