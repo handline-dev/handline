@@ -3454,6 +3454,39 @@ def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: 
         con.close()
 
 
+def test_starts_for_waiting_work_that_keep_failing_stall_the_agent(home: Path) -> None:
+    """T483: legacy sat IDLE for three days with work waiting - three failed starts
+    latched the streak with nothing to show for it, and `ocp unstall` takes only
+    STALLED. The third failure stalls it, with the reason, and unstall lifts it."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    real_spawn = spawnmod.spawn
+    try:
+        spawnmod.spawn = lambda *a, **k: (False, "worktree create failed: invalid reference: main")
+        agents.register("marina", repo=str(home / "checkout"))
+        db.add_request(con, "reviewer", "marina", "look at this", None, "peer", "async", None, 0, None)
+
+        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS - 1):
+            dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
+        row = db.get_agent_state(con, "marina")
+        check("start stall: short of the limit it is still tried again",
+              row["state"] != dmn_states.STALLED and row["wake_failures"] == dmn_states.MAX_FAILED_ATTEMPTS - 1, dict(row))
+
+        dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
+        row = db.get_agent_state(con, "marina")
+        check("start stall: the last failure stalls it and keeps the reason",
+              row["state"] == dmn_states.STALLED and "invalid reference: main" in row["detail"], dict(row))
+
+        actions.unstall(con, "marina")
+        row = db.get_agent_state(con, "marina")
+        check("start stall: unstall clears the streak so the next tick tries again",
+              row["wake_failures"] == 0 and row["state"] != dmn_states.STALLED, dict(row))
+    finally:
+        spawnmod.spawn = real_spawn
+        con.close()
+
+
 def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
         home: Path) -> None:
     """Founder's decision #254: an account at 5h 9% / 7d 99% is spendable to
@@ -5807,6 +5840,7 @@ def main() -> int:
         run(lambda: test_a_park_against_an_assumed_account_gets_a_short_recheck(Path(td) / 'acctrecheck'))
         run(lambda: test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(Path(td) / 'acctrecheck2'))
         run(lambda: test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(Path(td) / 'acctspawn'))
+        run(lambda: test_starts_for_waiting_work_that_keep_failing_stall_the_agent(Path(td) / 'startstall'))
         run(lambda: test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
             Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_is_judged_on_the_account_its_process_is_on(Path(td) / 'procacct'))

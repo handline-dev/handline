@@ -551,8 +551,15 @@ def _start_for_work(con, agent: str, log) -> str:
         log(f"  {agent}: started in {repo} - work was waiting for it")
         return f"{agent}: started for work waiting - {said.splitlines()[0]}"
     db.bump_counter(con, agent, "wake_failures")
-    log(f"  {agent}: could not start for waiting work: {said.splitlines()[0]}")
-    return f"{agent}: could not be started - {said.splitlines()[0]}"
+    why = said.splitlines()[0]
+    log(f"  {agent}: could not start for waiting work: {why}")
+    fresh = db.get_agent_state(con, agent)
+    if fresh and fresh["wake_failures"] >= MAX_FAILED_ATTEMPTS:
+        # The docstring's promise (T483): a latched streak on an IDLE agent left `ocp unstall` nothing to clear.
+        db.set_agent_state(con, agent, STALLED,
+                           detail=f"{fresh['wake_failures']} starts for waiting work failed: {why}")
+        log(f"  {agent}: STALLED after {fresh['wake_failures']} failed starts")
+    return f"{agent}: could not be started - {why}"
 
 
 def _write_wake_prompt(agent: str, text: str, suffix: str = "txt") -> Path:

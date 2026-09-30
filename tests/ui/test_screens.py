@@ -799,8 +799,10 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         started: list[list[str]] = []
         real_run = spawnmod._run
         try:
+            # git finds `main` (T483 asks it); Orca is the one that is missing
             spawnmod._run = lambda argv, **kw: (started.append(argv),
-                                                (1, "", "no orca here"))[1]
+                                                (0, "", "") if argv[:2] == ["git", "rev-parse"]
+                                                else (1, "", "no orca here"))[1]
             actions.start(con, "backend", repo=str(home))
             check("start: an agent with a worktree is started in it, not given another",
                   [a[1] for a in started] == ["terminal"], str(started))
@@ -856,7 +858,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         finally:
             spawnmod._run = real_run
         check("top: and starting it says why when it cannot",
-              "orca" in said or "worktree" in said or "base" in said, said)
+              "orca" in said or "worktree" in said or "base" in said or "commit" in said, said)
         db.set_terminal(con, "backend", "term_x", "wt")
 
         # Answering closes the request and tells the agent, which is what
