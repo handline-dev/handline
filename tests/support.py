@@ -117,7 +117,8 @@ claudemeter.refresh_credential = lambda acct, timeout=0: False
 REAL_ORCA = {n: getattr(orcamod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
     "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
-    "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal")}
+    "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal",
+    "typeable_now", "idle_with_background")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -1260,6 +1261,8 @@ class SecondVendor:
     idle_from_screen = False
     def idle_on_screen(self, tail):
         return True
+    def idle_with_background(self, tail):
+        return False
     def screen_blocker(self, tail):
         return None
     def trust_screen(self, tail):

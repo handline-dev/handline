@@ -193,6 +193,53 @@ def test_daemon_success_clears_streak(home: Path) -> None:
         con.close()
 
 
+def test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_screen(home: Path) -> None:
+    """T458: Orca reads a session with work running behind its prompt as mid-turn, so no task
+    was ever typed at it. The screen tells them apart on what a turn draws - the spinner row above
+    the composer and "esc to interrupt" in its hints (six real samples, T592) - and only a screen
+    that shows the composer, the background count and neither of those is idle."""
+    restore_world()
+    bg_hint = "  \u23f5\u23f5 auto mode on \u00b7 1 shell \u00b7 \u2190 for agents \u00b7 \u2193 to manage"
+    busy_hint = bg_hint.replace("1 shell \u00b7", "1 shell \u00b7 esc to interrupt \u00b7")
+    box = [_COMPOSER_RULE_ROW, "\u276f", _COMPOSER_RULE_ROW]
+    said = ["\u23fa I passed T620 at 4d04d15d. The verdict went to orcapipe.ui as #7249.",
+            "\u273b Saut\u00e9ed for 1m 26s \u00b7 done 10:20 PM \u00b7 1 shell still running"]
+    spinner = ["\u00b7 Puttering\u2026 (running PreToolUse hooks\u2026 1/2 \u00b7 1m 43s \u00b7 \u2193 5.3k tokens)",
+               "  \u23bf  Tip: Use /btw to ask a quick side question without interrupting Claude's current work"]
+    real, real_wait, real_blocker = orcamod._screen, orcamod.wait_idle, orcamod.screen_blocker
+    idle = lambda rows: orcamod.idle_with_background("term_x")       # noqa: E731
+    try:
+        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        for label, rows, want in (
+            ("nothing drawn but the finished turn's line and the count", said + box + [bg_hint], True),
+            ("a spinner row above the composer", said + spinner + box + [bg_hint], False),
+            ("a spinner that has only just started, with no timing yet", said + ["\u2733 Thinking\u2026"] + box + [bg_hint], False),
+            ("'esc to interrupt' among the hints", said + box + [busy_hint], False),
+            ("no background work to speak of: Orca's own answer stands", said + box + ["  \u23f5\u23f5 auto mode on"], False),
+            ("a dialog in the composer's place", said + ["Enter to confirm \u00b7 Esc to cancel"], False),
+            ("nothing recognizable", ["$ "], False)):
+            orcamod._screen = lambda h, rows=rows: _screen_of(rows)
+            check(f"idle over background: {label} -> {want}", idle(rows) is want)
+        orcamod._screen = lambda h: _screen_of(said + box + [bg_hint], source="stream")
+        check("idle over background: a stream, not the screen, is never read", idle(None) is False)
+        orcamod._screen = lambda h: None
+        check("idle over background: an unreadable screen is not idle", idle(None) is False)
+
+        # What a task is typed on: Orca says busy, the screen says idle over background work.
+        orcamod.wait_idle = lambda h, timeout_ms=0: False
+        orcamod._screen = lambda h: _screen_of(said + box + [bg_hint])
+        check("typeable: Orca busy, screen idle over background work -> typed", orcamod.typeable_now("term_x") is True)
+        orcamod._screen = lambda h: _screen_of(said + spinner + box + [bg_hint])
+        check("typeable: Orca busy, the spinner drawn -> held", orcamod.typeable_now("term_x") is False)
+        orcamod._screen = lambda h: _screen_of(said + box + [busy_hint])
+        check("typeable: Orca busy, 'esc to interrupt' drawn -> held", orcamod.typeable_now("term_x") is False)
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod._screen = lambda h: _screen_of(said + box + ["  \u23f5\u23f5 auto mode on"])
+        check("typeable: Orca idle is still enough", orcamod.typeable_now("term_x") is True)
+    finally:
+        orcamod._screen, orcamod.wait_idle, orcamod.screen_blocker = real, real_wait, real_blocker
+
+
 def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
     """A dialog is quoted from the screen - title and options - never matched
     against a list of the dialogs somebody has seen."""
@@ -3756,6 +3803,7 @@ def main() -> int:
         run(lambda: test_failclosed(home))
         run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
         run(lambda: test_the_screen_names_what_is_in_the_way(Path(td) / 'blk1'))
+        run(lambda: test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_screen(Path(td) / 'idlebg'))
         run(lambda: test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(Path(td) / 'blk2'))
         run(lambda: test_what_is_not_a_block(Path(td) / 'blk3'))
         run(lambda: test_a_reminder_a_dialog_blocks_is_said(Path(td) / 'blk9'))

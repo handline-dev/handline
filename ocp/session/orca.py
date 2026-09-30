@@ -1184,6 +1184,22 @@ def last_tail(handle: str) -> list[str] | None:
     return _last_tail.get(handle)
 
 
+def footer_background(tail: list) -> str | None:
+    """`background_work`'s reading of rows already read: what the hint row under the composer
+    counts, "" when it counts nothing, None when no composer is drawn."""
+    box = _composer_box(tail)
+    if box is None:
+        return None
+    for row in tail[box[1] + 1:]:
+        row = str(row)
+        if _BG_HINT not in row:
+            continue
+        parts = [p.strip() for p in row.split("·")]
+        found = [p for p in parts if _BG_COUNT.match(p)]
+        return ", ".join(found) or "background tasks"
+    return ""
+
+
 def background_work(handle: str) -> str | None:
     """What the session itself says is still running behind its prompt - "2
     monitors", "1 shell" - or "" when it says nothing, or None when its screen
@@ -1196,17 +1212,20 @@ def background_work(handle: str) -> str | None:
     if not isinstance(tail, list) or term.get("source") != "screen":
         return None
     _last_tail[handle] = [str(r) for r in tail]
-    box = _composer_box(tail)
-    if box is None:
-        return None
-    for row in tail[box[1] + 1:]:
-        row = str(row)
-        if _BG_HINT not in row:
-            continue
-        parts = [p.strip() for p in row.split("·")]
-        found = [p for p in parts if _BG_COUNT.match(p)]
-        return ", ".join(found) or "background tasks"
-    return ""
+    return footer_background(tail)
+
+
+def idle_with_background(handle: str) -> bool:
+    """Does the screen show a session idle at its prompt with work running behind it (T458)?
+
+    Orca's own idle answer reads such a session as mid-turn, and a task is never typed at it.
+    The screen is the second witness, and only on the busy side's absence: the driver says
+    what a turn in progress draws."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return False
+    return _driver_for(handle).idle_with_background(tail)
 
 
 def usage_limit_open(handle: str) -> bool:
@@ -1232,7 +1251,7 @@ def typeable_now(handle: str) -> bool:
     # Nothing at all is asked with one read, not one per kind, so a dialog
     # that opens between two separate reads cannot be read as neither.
     with driver_scope():
-        return idle_now(handle) and screen_blocker(handle) is None
+        return (idle_now(handle) or idle_with_background(handle)) and screen_blocker(handle) is None
 
 
 def clear_context(handle: str, wait: bool = True,

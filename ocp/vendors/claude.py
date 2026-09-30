@@ -157,6 +157,10 @@ class Claude:
         # marker ocp reads, so it is never the witness.
         return None
 
+    def idle_with_background(self, tail: list[str]) -> bool:
+        from ..session import orca  # late: orca looks drivers up
+        return _idle_with_background(orca, tail)
+
     def screen_blocker(self, tail: list[str]):
         from ..session import orca  # late: orca looks drivers up
         return _screen_blocker(orca, tail)
@@ -405,6 +409,24 @@ def _describe_backgrounded(orca, tail: list, top: int) -> str:
     lines = [orca.textsafe.oneline(str(x).strip()) for x in tail[:top]]
     shown = [ln for ln in lines if ln and not orca._COMPOSER_RULE.match(ln) and ln != "❯"]
     return " / ".join(shown[:3])[:orca.DETAIL_CHARS]
+
+
+# A turn in progress draws a spinner row just above the composer ("✻ Honking… (2m 0s · ↓ 6.2k
+# tokens)") and "esc to interrupt" among the hints under it; a finished turn's line reads
+# "✻ Sautéed for 1m 26s", with no ellipsis (six samples, T592). Rows checked above the composer.
+_SPINNER_ROW = re.compile(r"^\S\s+\S+…(\s|$)")
+_SPINNER_ROWS = 6
+
+
+def _idle_with_background(orca, tail: list) -> bool:
+    """`Driver.idle_with_background` on Claude Code's layout: the hint row counts background
+    work, and neither the spinner nor "esc to interrupt" is drawn (T458)."""
+    box = orca._composer_box(tail)
+    if box is None or not orca.footer_background(tail):
+        return False
+    if any("esc to interrupt" in str(r) for r in tail[box[1] + 1:]):
+        return False
+    return not any(_SPINNER_ROW.match(str(r).strip()) for r in tail[max(0, box[0] - _SPINNER_ROWS):box[0]])
 
 
 def _screen_blocker(orca, tail: list) -> "orca.Blocker | None":

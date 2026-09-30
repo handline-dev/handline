@@ -300,6 +300,9 @@ class Opencode:
             return None
         return any("interrupt" in r for r in footer)
 
+    def idle_with_background(self, tail: list[str]) -> bool:
+        return False        # opencode's screen carries no background count
+
     def screen_blocker(self, tail: list[str]):
         """A permission request replaces the prompt box with its choices, the
         first already selected, so Enter answers it. Anything without the box
