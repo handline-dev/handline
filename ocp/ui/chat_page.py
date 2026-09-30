@@ -531,14 +531,16 @@ TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note"}
 
 
 def timeline_text(e: dict) -> Text:
-    """One entry of a task's timeline as a line: when, who, what kind, its text (first line);
-    a memo that was edited says when."""
-    line = safe((e["text"].strip().splitlines() or [""])[0])
+    """One entry of a task's timeline: when, who, what kind and its text. A text that fits the line
+    stays on it; one of several lines (or too long for one) shows whole, each line indented under
+    the first. A memo that was edited says when."""
+    lines = safe_block(e["text"].strip()).split("\n") or [""]
     out = Text.assemble((timefmt.stamp(e["ts"], timefmt.DATE_TIME) + "  ", "dim"), safe(e["who"]) + "  ",
-                        (TIMELINE_WORD[e["kind"]] + "  ", "dim"), line)
+                        (TIMELINE_WORD[e["kind"]] + "  ", "dim"), lines[0])
+    for more in lines[1:]:
+        out.append("\n    " + more)
     if e["edited_at"]:
         out.append(f"  · edited {timefmt.stamp(e['edited_at'], timefmt.DATE_TIME)}", style="dim")
-    out.no_wrap, out.overflow = True, "ellipsis"
     return out
 
 
@@ -1025,7 +1027,12 @@ class TaskActions:
             finally:
                 con.close()
             self.report("assign", ok, said)
-        self.app.push_screen(TaskAssign(actions.task_ref(self.tid), self.d["owner"], paths.list_agents()), answered)
+        con = db.connect()
+        try:
+            recent = actions.recent_assignees(con)
+        finally:
+            con.close()
+        self.app.push_screen(TaskAssign(actions.task_ref(self.tid), self.d["owner"], paths.list_agents(), recent), answered)
 
     def action_reopen_task(self) -> None:
         if not (self.d and self.d["can_reopen"]):
@@ -1078,8 +1085,8 @@ class TaskBody(TaskActions, Vertical):
     DEFAULT_CSS = """
     TaskBody { height: 1fr; }
     TaskBody #detail_pane { height: 1fr; padding: 1 3; }
-    TaskBody .tl_row { height: 1; }
-    TaskBody .tl_text { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    TaskBody .tl_row { height: auto; }
+    TaskBody .tl_text { width: 1fr; height: auto; }
     TaskBody .tl_icon { width: 3; min-width: 0; margin-left: 1; }
     TaskBody #t_memo_new { height: 1; margin-top: 1; }
     TaskBody #t_memo_box { width: 1fr; }

@@ -1146,14 +1146,28 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
 ASSIGN_HOWS = ("note", "handoff")
 
 
-def assign_targets(holder: str, agents: list[str]) -> tuple[list[str], list[str]]:
-    """Who a task can be handed to, out of `agents`, as (the holder's own team, everyone else),
-    each in a stable order and without the holder. The team is the one team.yaml puts the
-    holder in; a holder in no team has no own team."""
+def recent_assignees(con) -> list[str]:
+    """Who the founder last handed tasks to, newest first."""
+    return db.recent_handoff_targets(con, HUMAN)
+
+
+def has_team(holder: str) -> bool:
+    """Does team.yaml put `holder` in a team?"""
+    t = routing()
+    return t is not None and t.team_of(holder) is not None
+
+
+def assign_targets(holder: str, agents: list[str], recent=()) -> tuple[list[str], list[str], list[str]]:
+    """Who a task can be handed to, out of `agents`, as (recent, the holder's own team, everyone
+    else), without the holder and each agent once. `recent` is who was handed tasks lately, newest
+    first, and comes first; the rest keep the order of `agents`. The team is the one team.yaml puts
+    the holder in; a holder in no team has no own team."""
     t = routing()
     mine = set(t.members(t.team_of(holder))) if t is not None and t.team_of(holder) else set()
     others = [a for a in agents if a != holder]
-    return [a for a in others if a in mine], [a for a in others if a not in mine]
+    first = [a for a in dict.fromkeys(recent) if a in others]
+    rest = [a for a in others if a not in first]
+    return first, [a for a in rest if a in mine], [a for a in rest if a not in mine]
 
 
 def assign_task(con, tid: int, to: str, how: str, text: str) -> tuple[bool, str]:

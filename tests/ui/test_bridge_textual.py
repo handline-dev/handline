@@ -260,8 +260,8 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
     check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
     line = page["timeline"][0].plain
-    check("page: a timeline entry is one line - when, who, kind, first line of text, when edited",
-          "\n" not in line and " o  memo  a memo" in line and "second" not in line and "edited" in line, line)
+    check("page: a timeline entry is its first line, then the rest of its text, and when it was edited",
+          " o  memo  a memo" in line and line.split("\n")[1:] == ["    second line  · edited 1970-01-01 09:00"], line)
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
@@ -1737,6 +1737,44 @@ async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> N
         check("question: and the modal is off the stack", modal not in app.screen_stack)
 
 
+async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> None:
+    import html, re
+    from textual.app import App
+    from ocp.ui import chat_page as cp
+    _home("timeline_ui")
+    from ocp.ui.components.task_assign import TaskAssign
+    ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
+    con = db.connect()
+    try:
+        actions.memo_add(con, tid, "backend", "a short one")
+        actions.memo_add(con, tid, "backend", "top line\nsecond of three\nthird of three")
+        actions.memo_add(con, tid, "backend", " ".join(f"word{i}" for i in range(1, 41)))
+    finally:
+        con.close()
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield cp.TaskBody(tid)
+
+    app = Host()
+    async with app.run_test(size=(80, 45)) as pilot:
+        await pilot.pause(0.5)
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        lines = shown.split("\n")
+        check("timeline ui: a several-line memo shows its later lines",
+              "second of three" in shown and "third of three" in shown)
+        check("timeline ui: a memo longer than the row shows its last word, not an ellipsis",
+              "word40" in shown and "…" not in shown)
+        check("timeline ui: the icons sit on the first line of an entry, and a short one stays one line",
+              any("top line" in ln and "✎" in ln for ln in lines) and any("a short one" in ln and "✎" in ln for ln in lines))
+        d = TaskAssign("T1", "backend", ["analytics", "backend", "frontend", "reviewer"], ["frontend"])
+        check("assign to: with the holder's whole team recent, the other teams are still labelled",
+              [label for label, _ in d.options] == ["frontend  (recent)", "analytics  (other team)", "reviewer  (other team)"],
+              str(d.options))
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -1793,12 +1831,43 @@ def test_agents_data_scans_the_open_tasks_once_for_all_agents() -> None:
 
 
 def test_assign_offers_the_holders_team_first() -> None:
+def test_assign_offers_recent_targets_then_the_holders_team() -> None:
     _home("assign_team")
+    from ocp.ui import chat_page as cp
     everyone = ["analytics", "backend", "frontend", "marketing", "reviewer"]
     check("assign to: the holder's own team, then the rest, without the holder",
-          actions.assign_targets("backend", everyone) == (["frontend"], ["analytics", "marketing", "reviewer"]))
+          actions.assign_targets("backend", everyone) == ([], ["frontend"], ["analytics", "marketing", "reviewer"]))
     check("assign to: a holder in no team has no own team, and everyone is offered",
-          actions.assign_targets("human", everyone) == ([], everyone))
+          actions.assign_targets("human", everyone) == ([], [], everyone))
+    check("assign to: recent targets come first, newest first, and are not listed twice; the holder and strangers are dropped",
+          actions.assign_targets("backend", everyone, ["marketing", "backend", "nobody", "frontend", "marketing"])
+          == (["marketing", "frontend"], [], ["analytics", "reviewer"]))
+    agents.register("archivist")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        check("assign to: nobody was handed anything yet", actions.recent_assignees(con) == [])
+        ok, _, t1 = actions.task_new("product", "backend", "One", "the work and its done")
+        ok, _, t2 = actions.task_new("product", "backend", "Two", "the work and its done")
+        said = [actions.assign_task(con, t1, "archivist", "handoff", "you take it"),
+                actions.assign_task(con, t2, "archivist", "handoff", "you take it"),
+                actions.assign_task(con, t2, "reviewer", "handoff", "you review it"),
+                actions.assign_task(con, t2, "archivist", "handoff", "back")]
+        check("assign to: the handoffs used here went through", all(ok for ok, _ in said), str(said))
+        check("assign to: the founder's handoffs, newest first, each target once",
+              actions.recent_assignees(con) == ["archivist", "reviewer"], str(actions.recent_assignees(con)))
+    finally:
+        con.close()
+
+
+def test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole() -> None:
+    from ocp.ui import chat_page as cp
+    entry = {"ts": 1_700_000_000, "who": "reviewer", "kind": "memo", "text": "short", "memo": 1, "edited_at": None}
+    one = cp.timeline_text(entry).plain
+    many = cp.timeline_text({**entry, "text": "first line\nsecond line\n  third\n"}).plain
+    check("timeline: a one-line entry is one line", "\n" not in one and one.endswith("short"), one)
+    check("timeline: a several-line entry keeps every line, the later ones indented under the first",
+          many.split("\n")[1:] == ["    second line", "      third"] and many.split("\n")[0].endswith("first line"), many)
 
 
 def test_schedules_are_built_read_and_written_through_actions() -> None:
@@ -2409,6 +2478,8 @@ async def _run_all() -> None:
     test_agents_data_scans_the_open_tasks_once_for_all_agents()
     test_assign_offers_the_holders_team_first()
     test_schedules_are_built_read_and_written_through_actions()
+    test_assign_offers_recent_targets_then_the_holders_team()
+    test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole()
     test_assign_answers_from_the_task_page()
     test_a_task_page_shows_every_line_of_a_multi_line_task()
     await test_the_shared_task_view_draws_the_brief()
@@ -2430,6 +2501,7 @@ async def _run_all() -> None:
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
     await test_a_blocked_task_says_so_where_working_would_be()
+    await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
 
 
