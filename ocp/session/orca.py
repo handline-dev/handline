@@ -1174,6 +1174,16 @@ _BG_COUNT = re.compile(r"^\d+\s+[A-Za-z][A-Za-z ]*$")
 _BG_HINT = "to manage"
 
 
+# The rows `background_work` last read for each terminal, so a caller that wants to keep a sample of
+# the screen it was read from does not read it twice (T592).
+_last_tail: dict[str, list[str]] = {}
+
+
+def last_tail(handle: str) -> list[str] | None:
+    """The screen rows `background_work` last read for this terminal, or None."""
+    return _last_tail.get(handle)
+
+
 def background_work(handle: str) -> str | None:
     """What the session itself says is still running behind its prompt - "2
     monitors", "1 shell" - or "" when it says nothing, or None when its screen
@@ -1185,6 +1195,7 @@ def background_work(handle: str) -> str | None:
     tail = term.get("tail") if term else None
     if not isinstance(tail, list) or term.get("source") != "screen":
         return None
+    _last_tail[handle] = [str(r) for r in tail]
     box = _composer_box(tail)
     if box is None:
         return None

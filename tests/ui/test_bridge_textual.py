@@ -669,13 +669,46 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         db.link_request(con, doing, rid)
         con.commit()
         can = {tid: cp.task_detail(con, tid)["can_discard"] for tid in (mine, theirs, done, doing)}
-        check("discard: offered on a waiting task the founder asked for, not one done, doing or another's",
-              can == {mine: True, theirs: False, done: False, doing: False}, str(can))
+        check("discard: offered on a waiting or doing task the founder asked for, not one done or another's",
+              can == {mine: True, theirs: False, done: False, doing: True}, str(can))
         check("discard: the doing task is the one with a request queued",
               ok and cp.task_detail(con, doing)["state"] == "doing")
         ok, said = actions.discard_task(con, mine, actions.HUMAN, "not needed")
         check("discard: the button's action discards it", ok, said)
         check("discard: and a discarded task is not offered again", not cp.task_detail(con, mine)["can_discard"])
+        ok, said = actions.discard_task(con, doing, actions.HUMAN, "stop")
+        check("discard: a doing task is refused without stop, its request still open", not ok and "request open" in said, said)
+        ok, said = actions.discard_task(con, doing, actions.HUMAN, "changed my mind", stop=True)
+        req = db.get_request(con, rid)
+        check("discard: with stop the request is cancelled and the task discarded",
+              ok and req["state"] == "withdrawn"      # never delivered: withdrawn, nobody is told
+              and cp.task_detail(con, doing)["state"] == "discarded", f"{said} / {dict(req)}")
+        other = db.new_task(con, "asked by an agent", "reviewer", "orcapipe")
+        _, _, rid2 = askmod.ask("reviewer", "work", requester="orcapipe")
+        db.link_request(con, other, rid2)
+        ok, said = actions.discard_task(con, other, "orcapipe", "x", stop=True)
+        check("discard: stop is the founder's; an agent asking for its own task cannot use it, the request stays",
+              not ok and db.get_request(con, rid2)["state"] == "queued" and "request open" in said, said)
+        held = db.new_task(con, "started, not delivered", "reviewer", actions.HUMAN)
+        _, _, rid3 = askmod.ask("reviewer", "start it", requester=actions.HUMAN)
+        db.link_request(con, held, rid3)
+        db.set_current_task(con, "reviewer", held)
+        ok, said = actions.discard_task(con, held, actions.HUMAN, "no", stop=True)
+        told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
+                           (f"T{held} discarded%stop work%",)).fetchall()
+        check("discard: an owner who already holds it (task start) is told to stop, though nothing was delivered",
+              ok and len(told) == 1, said)
+        _, _, chat = askmod.ask("reviewer", "look into the retry", requester=actions.HUMAN)
+        askmod.resolve(chat, "on it")
+        db.set_current_task(con, "reviewer", None)      # the earlier tasks of this test held it
+        ok, said, begun = actions.task_begin(con, "reviewer", "retry", chat, "the founder asked")
+        check("discard: a task begun on a founder message is doing with no request open", ok and
+              cp.task_detail(con, begun)["state"] == "doing", said)
+        ok, said = actions.discard_task(con, begun, actions.HUMAN, "no", stop=True)
+        told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
+                           (f"T{begun} discarded%stop work%",)).fetchall()
+        check("discard: and discarding it with stop tells its owner exactly once", ok and len(told) == 1,
+              f"{said} {len(told)}")
     finally:
         con.close()
 
@@ -1566,6 +1599,13 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
     ok, said = cp.save_settings("backend", cp.settings_changes(cfg, {**form, "idle_close": "0"}))
     check("idle close: the agent form saves it, 0 is never", ok and idle_close.close_timeout_s("backend") == idle_close.NEVER, said)
     check("idle close: a word is refused", cp.settings_problem({**form, "repo": "", "idle_close": "soon"}) is not None)
+    before = (cp.settings_of("backend")["effort"], idle_close.close_timeout_s("backend"))
+    ok, said = cp.save_settings("backend", [("effort", before[0], "low"), ("idle_close", "", "soon")])
+    check("idle close: a bad one saves nothing, not even the rest of the form",
+          not ok and (cp.settings_of("backend")["effort"], idle_close.close_timeout_s("backend")) == before, said)
+    ok, said = cp.save_settings("backend", [("context_k", "200", "abc"), ("idle_close", "", "7")])
+    check("idle close: when the rest fails it is not saved either",
+          not ok and idle_close.close_timeout_s("backend") == before[1], said)
 
 
 def test_home_settings_marks_and_the_delegated_view() -> None:
@@ -1723,6 +1763,58 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
               "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
 
 
+async def test_a_blocked_task_says_so_where_working_would_be() -> None:
+    """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
+    working and a wait for a reply come first."""
+    import html, re
+    from ocp.ui import tui
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("blockedline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        dep = db.new_task(con, "the one it waits on", "backend", actions.HUMAN)
+        t = db.new_task(con, "blocked work", "reviewer", actions.HUMAN)
+        db.set_current_task(con, "reviewer", t)
+        db.set_agent_state(con, "reviewer", "IDLE")
+        check("blocked: not blocked, nothing to say", tui.screen_state(con, db.get_agent_state(con, "reviewer"))[1] == "")
+        db.add_block(con, t, dep)
+        con.commit()
+        state = tui.screen_state(con, db.get_agent_state(con, "reviewer"))
+        check("blocked: an idle agent whose task is blocked says by which", state == ("IDLE", f"blocked by T{dep} (backend)"), str(state))
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        page.agent_state = state
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("blocked: the work line shows it", f"blocked by T{dep} (backend)" in shown and "working" not in shown)
+        line = page.query_one(cp.WorkLine)
+        links = [sp.style.meta["@click"] for sp in line.render().spans if getattr(sp.style, "meta", None)]
+        check("blocked: the T<n> on the work line is a link that opens that task",
+              links == [f"screen.open_task({dep})"], str(links))
+        await pilot.click(cp.WorkLine, offset=(f" blocked by T{dep}".index(f"T{dep}") + 1, 0))
+        await pilot.pause()
+        check("blocked: clicking it opens the task page", type(app.screen).__name__ == "TaskDetail",
+              type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause()
+        page.agent_state = ("RUNNING", "")
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("blocked: working comes first", "working" in shown and f"blocked by T{dep}" not in shown)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -1785,6 +1877,7 @@ async def _run_all() -> None:
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
+    await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 
 

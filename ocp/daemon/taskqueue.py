@@ -18,6 +18,7 @@ def sweep(con, log, now: int) -> None:
     from ..actions import tasks as taskmod
     from ..team import ask as askmod
 
+    taskmod.release_ended_blockers(con, log)
     owners = sorted({r["owner"] for r in db.open_tasks(con)
                      if r["queued_by"] and not r["done_evidence"] and r["owner"] != db.HUMAN})
     for agent in owners:

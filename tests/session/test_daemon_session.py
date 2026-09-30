@@ -1217,6 +1217,66 @@ def test_background_work_is_tracked_while_running_too(home: Path) -> None:
         con.close()
 
 
+def test_a_screen_with_background_work_is_kept_as_a_sample(home: Path) -> None:
+    """T592: what tells an idle agent with background work from one mid-turn is on its screen, which
+    only the daemon can read. The rows the tick just read are kept - labelled with the db's state -
+    once per interval, and only the newest few files stay."""
+    from ocp.daemon import screensamples
+    _daemon_home(home, 20)
+    con = db.connect()
+    names = ("available", "alive", "background_work", "last_tail", "live_terminals")
+    real = {n: getattr(orcamod, n) for n in names}
+    bg = ["1 shell"]
+    rows = ["Some output", "\u256d" + "\u2500" * 20, "\u2570" + "\u2500" * 20, "  1 shell \u00b7 to manage"]
+    try:
+        orca_seen()
+        orcamod.background_work = lambda h: bg[0]
+        orcamod.last_tail = lambda h: rows
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
+        row = db.get_agent_state(con, "backend")
+        dmn_delivery.track_background_work(con, "backend", row)
+        files = sorted(screensamples.dir_().glob("backend-*.txt"))
+        text = files[0].read_text() if files else ""
+        check("sample: a screen with background work is written", len(files) == 1, str(files))
+        check("sample: labelled with the db's state and what the session says",
+              "db state: IDLE" in text and "session says: 1 shell" in text and "agent: backend" in text, text)
+        check("sample: and the rows themselves follow, top first", text.rstrip().endswith("to manage"), text)
+        check("sample: private to its owner", oct(files[0].stat().st_mode & 0o777) == "0o600")
+
+        dmn_delivery.track_background_work(con, "backend", row)
+        check("sample: one per interval, not one per tick",
+              len(list(screensamples.dir_().glob("backend-*.txt"))) == 1)
+
+        bg[0] = ""
+        db.clear_cursor(con, "screen_sample:backend")
+        dmn_delivery.track_background_work(con, "backend", row)
+        check("sample: none when the session reports no background work",
+              len(list(screensamples.dir_().glob("backend-*.txt"))) == 1)
+
+        bg[0] = "1 shell"
+        for i in range(screensamples.KEEP + 5):
+            screensamples.record(con, "backend", row, "1 shell", rows, now=int(time.time()) + (i + 1) * 1000)
+        check("sample: only the newest few are kept",
+              len(list(screensamples.dir_().glob("*.txt"))) == screensamples.KEEP)
+        real_screen, real_last = orcamod._screen, real["last_tail"]
+        orcamod.background_work = real["background_work"]
+        orcamod._screen = lambda h, limit=40: {"source": "screen", "tail": rows}
+        try:
+            orcamod.background_work("term_y")
+            check("sample: the real read keeps the rows it took, for the sample", real_last("term_y") == rows)
+        finally:
+            orcamod._screen = real_screen
+        orcamod.last_tail = lambda h: None
+        db.clear_cursor(con, "screen_sample:backend")
+        check("sample: no rows read, nothing written and no failure",
+              screensamples.record(con, "backend", row, "1 shell", None) is False)
+    finally:
+        for n, f in real.items():
+            setattr(orcamod, n, f)
+        con.close()
+
+
 def test_a_closed_session_shows_no_background_work(home: Path) -> None:
     """T405: the founder closed a session that had background work; its `bgwork`
     cursor stayed, so `ocp team` kept saying 'RUNNING background 8h, stale'. A
@@ -5041,6 +5101,7 @@ def main() -> int:
         run(lambda: test_ocp_presses_only_the_key_that_declines(Path(td) / 'dcl0'))
         run(lambda: test_an_agent_with_background_work_is_not_idle_until_it_ends(Path(td) / 'bgw0'))
         run(lambda: test_background_work_is_tracked_while_running_too(Path(td) / 'bgw1'))
+        run(lambda: test_a_screen_with_background_work_is_kept_as_a_sample(Path(td) / 'bgsample'))
         run(lambda: test_a_closed_session_shows_no_background_work(Path(td) / 'bgw2'))
         run(lambda: test_t52_idle_timeout_and_cache_expiry_overrides(Path(td) / 'idletimeout'))
         run(lambda: test_the_live_trust_screen_is_never_pressed(Path(td) / 'livetrust'))
