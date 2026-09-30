@@ -194,7 +194,7 @@ def messages_of(rows, agent: str) -> list[dict]:
 
 
 def reply_link(parent: int) -> Text:
-    """The line over a reply: a reply icon and the number of what it answers; a click goes there."""
+    """A reply icon and the number of what it answers, ahead of the reply's text; a click goes there."""
     return Text(f"↩ #{parent}", style=Style(dim=True, underline=True, meta={"@click": f"screen.show_message({parent})"}))
 
 
@@ -416,9 +416,6 @@ def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dic
     when it is shown (with the #id when picked), the body and the note."""
     head, body, note = message_parts(m)
     out = Text()
-    if m.get("reply_to"):
-        out.append_text(reply_link(m["reply_to"]))
-        out.append("\n")
     if is_card(m):
         top, title = card_top(m)
         out.append_text(top)
@@ -433,7 +430,11 @@ def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dic
         if picked:
             head.append(f"  #{mid_of(m)}", style="bold")
         out.append_text(head)
-        out.append("\n")
+        # the reply link sits on the head line, else it opens the body's first line
+        out.append("  " if m.get("reply_to") else "\n")
+    if m.get("reply_to"):
+        out.append_text(reply_link(m["reply_to"]))
+        out.append(" ")
     out.append_text(body)
     if note is not None:
         out.append("\n")
@@ -539,8 +540,8 @@ class ChatMessage(Vertical):
     def __init__(self, m: dict, working: bool = True, why: str = "") -> None:
         side = {"you": "me", "agent": "them"}.get(m["side"], "other")
         self._side = side
-        # the human's own message tells who and when always when it is a reply, else only once picked
-        self._always = m["side"] != "you" or bool(m.get("reply_to"))
+        # the human's own message tells who and when only once picked
+        self._always = m["side"] != "you"
         self._picked = False
         self._colors: dict[str, str] = {}
         self._text = Static(message_text(m, self._always, False, side), classes="body")

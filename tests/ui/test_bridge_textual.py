@@ -402,12 +402,19 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
          "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3}
     t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
-    check("text: reply link, card top and title, head, body, in that order",
-          t[0] == "↩ #3" and t[1].startswith("TASK T418") and t[2] == "Fix it" and t[3].startswith("backend")
-          and t[4] == "the body", str(t))
+    check("text: card top and title, then the head with the reply link and the body on one line",
+          t[0].startswith("TASK T418") and t[1] == "Fix it" and t[2].startswith("backend")
+          and t[2].endswith("↩ #3 the body") and len(t) == 3, str(t))
+    reply = {**m, "kind": None, "tasks": [], "task_title": None, "task_state": None, "who": "you", "side": "you",
+             "rid": 5934, "mid": 5934, "text": "반영됨?", "reply_to": 5928}
+    check("text: a reply not picked is one line, the link and the text",
+          cp.message_text(reply, False, False, "me").plain == "↩ #5928 반영됨?")
+    picked = cp.message_text(reply, True, True, "me").plain
+    check("text: a reply picked joins who, when and #id, the link and the text on one line",
+          picked.startswith("you") and picked.endswith("#5934  ↩ #5928 반영됨?") and "\n" not in picked, picked)
     check("text: the head is left out until it is shown, and #id joins it when picked",
           "backend" not in cp.message_text(m, False, False, "them").plain
-          and "#7" in cp.message_text(m, True, True, "them").plain.split("\n")[3])
+          and "#7" in cp.message_text(m, True, True, "them").plain.split("\n")[2])
     check("text: a note follows the body", cp.message_text({**m, "cancelled": True, "kind": None, "reply_to": None},
                                                             False, False, "me").plain.split("\n")[-1].startswith("cancelled"))
 
