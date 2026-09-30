@@ -133,17 +133,27 @@ def _begun(con, tid: int) -> bool:
         "LIMIT 1", (tid,)).fetchone() is not None
 
 
+def open_task_counts(con, agent: str | None = None) -> dict[str, int]:
+    """`open_task_count` for every owner (or just `agent`), from one read of the open tasks and one
+    of the current tasks: {owner: how many tasks it has to do}. An owner with none is not in it."""
+    currents = {r["agent"]: r["current_task"] for r in con.execute(
+        "SELECT agent, current_task FROM agent_state WHERE current_task IS NOT NULL")}
+    rows = con.execute(f"SELECT * FROM tasks WHERE {db.OPEN_SQL}" + (" AND owner = ?" if agent else ""),
+                       (agent,) if agent else ()).fetchall()
+    out: dict[str, int] = {}
+    for r in rows:
+        if r["id"] == currents.get(r["owner"]) or task_state(con, r) != "draft":
+            out[r["owner"]] = out.get(r["owner"], 0) + 1
+    return out
+
+
 def open_task_count(con, agent: str) -> int:
     """How many tasks `agent` has to do: queued plus doing, plus its current
     task whatever its state - one it picked up with `task start` is being
     worked even while still a draft (T317). A draft that is not current is not
     approved yet and does not count; a done or discarded task is over. The state
     comes from `task_state`, so this cannot disagree with the board."""
-    current = db.current_task(con, agent)
-    rows = con.execute(
-        f"SELECT * FROM tasks WHERE owner = ? AND {db.OPEN_SQL}",
-        (agent,)).fetchall()
-    return sum(1 for r in rows if r["id"] == current or task_state(con, r) != "draft")
+    return open_task_counts(con, agent).get(agent, 0)
 
 
 def reads_doing(con, tid: int) -> bool:
