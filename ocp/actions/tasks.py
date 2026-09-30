@@ -544,7 +544,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     return True, f"task T{tid} closed by {by}"
 
 
-def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
+def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tuple[bool, str]:
     """Throw a task away before it is done (task #85) - the asker's or the founder's call
     (see `task_asker`), in one step with a one-line reason. It is recorded as
     discarded (who, why, and when in closed_at), never as finished work: no
@@ -555,7 +555,11 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     closed. A request still queued against it also refuses: discarding
     leaves nothing on the board pointing at that request, so its target
     would keep working on it. Every block naming it clears in the same transaction, and a task
-    left with no open blocker is told, as close does."""
+    left with no open blocker is told, as close does.
+
+    `stop` (the founder's, on a doing task): the open requests are cancelled
+    (`ask.cancel`, which tells their target to stop) instead of refusing, once
+    every other guard has passed."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -579,7 +583,12 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
     live = [r for r in db.task_requests(con, tid) if _asks(r)]
-    if live:
+    if live and stop and by == HUMAN:
+        for r in live:
+            ok, said_cancel = askmod.cancel(r["id"])
+            if not ok:
+                return False, f"task T{tid} not discarded: {said_cancel}"
+    elif live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
         return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
                        "first (the founder's `ocp cancel <id>`), or its target keeps working "

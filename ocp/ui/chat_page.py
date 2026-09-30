@@ -251,7 +251,7 @@ def task_detail(con, tid: int) -> dict | None:
             "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued") and mine,
+            "can_discard": state in ("draft", "queued", "doing") and mine,
             "can_assign": state in ("draft", "queued", "doing")}
 
 
@@ -969,19 +969,21 @@ class TaskActions:
 
     def action_discard_task(self) -> None:
         if not (self.d and self.d["can_discard"]):
-            self.say("only a task that you asked for, with nothing running on it, can be discarded")
+            self.say("only a task that you asked for and that is not done can be discarded")
             return
+
+        doing = self.d["state"] == "doing"
 
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
                 con = db.connect()
                 try:
-                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason)
+                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason, stop=doing)
                 finally:
                     con.close()
                 self.report("discard", ok, said)
-        self.app.push_screen(TextPrompt("discard - why?"), answered)
+        self.app.push_screen(TextPrompt("stop it and discard - why?" if doing else "discard - why?"), answered)
 
 
 class TaskPane(TaskActions, Vertical):
