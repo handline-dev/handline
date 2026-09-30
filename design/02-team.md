@@ -159,7 +159,7 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 
 ### 작업 (task)
 
-요청 위에 작업이 있다: `ocp task new|list|queue|draft|link|edit|merge|done|reopen|discard|board`. 작업은 draft(기록만) → queued(창업자나 소유자의 매니저가 승인) → doing(요청이 나가 있음) → done → closed 로 간다. 작업은 제목·소유자·연 사람·부모를 갖고, 요청을 연결해 두면 누가 지금 들고 있는지 보인다. `done` 은 근거 하나를 요구한다 (main 에 있는 merge sha, 결과가 이미 보고된 요청 id, 또는 커밋이 남지 않는 일의 사실 한 줄). 닫는 건 소유자나 연결된 요청의 대상, 재개·폐기는 연 사람이다.
+요청 위에 작업이 있다: `ocp task new|list|queue|draft|link|edit|merge|done|reopen|discard|board`. 작업은 draft(기록만) → queued(창업자나 소유자의 매니저가 승인) → doing(요청이 나가 있음) → done 으로 간다. done 은 최종이고, 결과가 틀리면 연 사람이 reopen 한다. 열린 하위 작업이나 열린 blocker 가 있으면 done 이 되지 않는다. 끝나는 길은 done 과 discard 둘뿐이고, `task merge` 로 합쳐진 작업은 'merged into T<n>' 이유의 discard 다. 작업은 제목·소유자·연 사람·부모를 갖고, 요청을 연결해 두면 누가 지금 들고 있는지 보인다. `done` 은 근거 하나를 요구한다 (main 에 있는 merge sha, 결과가 이미 보고된 요청 id, 또는 커밋이 남지 않는 일의 사실 한 줄). 닫는 건 소유자나 연결된 요청의 대상, 재개·폐기는 연 사람이다.
 
 ---
 
