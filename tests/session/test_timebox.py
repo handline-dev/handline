@@ -12,7 +12,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.cli import parser as cliparser  # noqa: E402
 from ocp.daemon import timebox  # noqa: E402
 from ocp.session import bgjobs  # noqa: E402
 
@@ -75,8 +74,6 @@ def test_a_duration_needs_its_unit(home: Path) -> None:
             continue
         bad.append(t)
     check("timebox: no unit, no number, zero, negative or fractional is refused", not bad, str(bad))
-    args = cliparser.build_parser().parse_args(["ask", "marina", "hi", "--timebox", "90m"])
-    check("timebox: ocp ask --timebox 90m reaches the command in seconds", args.timebox == 5400)
 
 
 def test_ask_keeps_its_timebox(home: Path) -> None:

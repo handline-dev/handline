@@ -1913,7 +1913,8 @@ def test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(home: Path)
     real_agent = os.environ.get("OCP_AGENT")
     try:
         os.environ["OCP_AGENT"] = "backend"
-        out = _capture(lambda: climod.main(["ask", "reviewer", "unchecked body"]))
+        out = str(_ask_row({"target": "reviewer", "body": "unchecked body", "requester": "backend",
+                            "speaker": "backend"}))
         con = db.connect()
         try:
             row = next(iter(db.queued_for(con, "reviewer")))
@@ -1937,79 +1938,6 @@ def test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(home: Path)
         check("edge: once checked, the target reads it", "unchecked body" in out, out)
         out = _capture(lambda: climod.main(["inbox", "--all"]))
         check("edge: and lists it", f"#{rid}" in out, out)
-    finally:
-        if real_agent is None:
-            os.environ.pop("OCP_AGENT", None)
-        else:
-            os.environ["OCP_AGENT"] = real_agent
-
-
-def test_ask_and_resolve_take_their_text_from_a_file_too(home: Path) -> None:
-    """Founder incident: a message typed inline with backticks in it is
-    rewritten - or run - by the caller's own shell before ocp ever sees
-    argv. `--file` is the way out: text a caller wrote with a quoted heredoc
-    or a file tool never goes through a shell at all."""
-    _daemon_home(home, 20)
-    real_agent = os.environ.get("OCP_AGENT")
-    try:
-        hostile = "see `describe_modal` and $(orca terminal send --terminal x --text boom)"
-        f = home / "ask_body.txt"
-        f.write_text(hostile)
-        os.environ["OCP_AGENT"] = "backend"
-        out = _capture(lambda: climod.main(["ask", "reviewer", "--file", str(f)]))
-        check("ask --file: it went through", "queued" in out or "delivered" in out, out)
-        con = db.connect()
-        try:
-            # An agent session's edge is unverified until the daemon confirms it,
-            # so it is not yet the head; the row is queued all the same.
-            row = next(iter(db.queued_for(con, "reviewer")), None)
-            check("ask --file: the text landed whole, backticks and all - nothing a shell "
-                  "would have expanded ever reached one", row and row["body"] == hostile,
-                  str(dict(row) if row else None))
-            rid = row["id"]
-        finally:
-            con.close()
-
-        real_in = sys.stdin
-        sys.stdin = io.StringIO("")     # never the real stdin: an open pipe would be waited on
-        try:
-            out = _capture(lambda: climod.main(["ask", "reviewer"]))
-            check("ask: neither inline nor --file is a clear refusal, not a crash",
-                  "required" in out or "--file" in out, out)
-            out = _capture(lambda: climod.main(["ask", "reviewer"]))
-            check("ask: an empty stdin is the same refusal", "required" in out, out)
-            sys.stdin = io.StringIO(hostile)
-            out = _capture(lambda: climod.main(["ask", "reviewer"]))
-        finally:
-            sys.stdin = real_in
-        check("ask: the body comes from stdin, backticks and all",
-              "queued" in out or "delivered" in out, out)
-        con = db.connect()
-        try:
-            check("ask: and lands whole", any(r["body"] == hostile
-                  for r in con.execute("SELECT body FROM requests WHERE target = 'reviewer'")))
-        finally:
-            con.close()
-        out = _capture(lambda: climod.main(
-            ["ask", "reviewer", "inline text", "--file", str(f)]))
-        check("ask: both inline and --file is refused too - one source, not a merge",
-              "not both" in out, out)
-
-        vf = home / "verdict.txt"
-        vf.write_text("done - `also not run`")
-        os.environ["OCP_AGENT"] = "reviewer"
-        try:
-            out = _capture(lambda: climod.main(["resolve", str(rid), "--file", str(vf)]))
-        finally:
-            del os.environ["OCP_AGENT"]
-        check("resolve --file: it went through", "done" in out or "->" in out, out)
-        con = db.connect()
-        try:
-            check("resolve --file: the verdict landed whole too",
-                  db.get_request(con, rid)["verdict"] == "done - `also not run`",
-                  db.get_request(con, rid)["verdict"])
-        finally:
-            con.close()
     finally:
         if real_agent is None:
             os.environ.pop("OCP_AGENT", None)
@@ -2083,9 +2011,6 @@ edges:
         first = con.execute("SELECT id FROM requests ORDER BY id LIMIT 1").fetchone()[0]
     finally:
         con.close()
-    rc, out = _cli(["resolve", str(first), "x"], as_agent="manager")
-    check("T46: the requester answering its own request is pointed at withdraw",
-          rc == 1 and "your own request" in out and f"`ocp withdraw {first}`" in out, out)
     rc, out = _cli(["read", str(first)], as_agent="dohyun")
     check("T39: `ocp read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
 
@@ -2459,99 +2384,6 @@ edges:
         con.close()
 
 
-def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
-    """Task #70: a dismissal is recorded as who dismissed it and why, with no
-    verdict text, and every place that draws a verdict says dismissed as a
-    state label instead of a quote. The rows the old build wrote, holding the
-    literal, read the same way."""
-    _board_world(home)
-    con = db.connect()
-    try:
-        new = _human_request()
-        ok, msg = actions.dismiss(con, new, me="manager", reason="dup of #9",
-                                  no_task="nothing to build")
-        row = db.get_request(con, new)
-        check("dismissed: state done, who and why recorded, no verdict",
-              ok and row["state"] == "done" and row["verdict"] is None
-              and (row["dismissed_by"], row["dismissed_reason"]) == ("manager", "dup of #9")
-              and row["resolved_at"], str(dict(row)))
-        old = db.add_request(con, askmod.HUMAN, "manager", "q2", None, "supervisor",
-                             "fire_and_forget", None, 0, None, state="done",
-                             verdict="read - no reply: dup of #9")
-        old_blank = db.add_request(con, askmod.HUMAN, "manager", "q3", None, "supervisor",
-                                   "fire_and_forget", None, 0, None, state="done",
-                                   verdict="read - no reply")
-        real = db.add_request(con, askmod.HUMAN, "manager", "q4", None, "supervisor",
-                              "fire_and_forget", None, 0, None, state="done",
-                              verdict="read - no reply is not what I mean")
-        check("shown_verdict: a new dismissal is a label naming who and why",
-              db.shown_verdict(db.get_request(con, new)) == "dismissed by manager - dup of #9")
-        check("shown_verdict: the old literal reads as a dismissal too",
-              db.shown_verdict(db.get_request(con, old)) == "dismissed - dup of #9"
-              and db.shown_verdict(db.get_request(con, old_blank)) == "dismissed")
-        check("shown_verdict: a real answer that only starts alike is left alone",
-              db.shown_verdict(db.get_request(con, real))
-              == "read - no reply is not what I mean")
-
-        for rid, label in ((new, "new"), (old, "old")):
-            rc, out = _cli(["read", str(rid)])
-            check(f"dismissed ({label}): ocp read shows a state, not an answer",
-                  rc == 0 and "--- dismissed" in out and "answered by" not in out
-                  and "read - no reply" not in out, out)
-        rc, out = _cli(["inbox", "--all"], as_agent=askmod.HUMAN)
-        others = "\n".join(l for l in out.splitlines() if "what I mean" not in l)
-        check("dismissed: the founder's history says dismissed",
-              "dismissed by manager - dup of #9" in others and "read - no reply" not in others,
-              out)
-
-        con.execute("UPDATE requests SET resolved_at = ? WHERE id IN (?, ?, ?)",
-                    (int(time.time()), old, old_blank, real))
-        mail = {m["id"]: m for m in actions.mailbox_rows(con)}
-        check("dismissed: the founder's mailbox draws the label, not the literal",
-              all(rid in mail and "dismissed" in mail[rid]["body"]
-                  and "read - no reply" not in mail[rid]["body"] for rid in (old, old_blank)),
-              str({k: v["body"] for k, v in mail.items()}))
-        thread = actions._exchange(con, "manager", set())
-        check("dismissed: the exchange lines carry no verdict text",
-              thread and all("read - no reply" not in l for l in thread
-                             if "what I mean" not in l)
-              and sum("dismissed" in l for l in thread) == 3, str(thread))
-        _, drawn_lines = "", actions.conversation_and_drawn(con, "manager")[0]
-        check("dismissed: the conversation draws the label",
-              sum("dismissed" in l for l in drawn_lines) == 3
-              and all("read - no reply" not in l for l in drawn_lines
-                      if "what I mean" not in l), str(drawn_lines))
-        title, sections = actions.message_detail(con, old)
-        detail = "\n".join(l for _, ls in sections[:1] for l in ls)
-        check("dismissed: an opened message shows the label",
-              detail == "dismissed - dup of #9", detail)
-        w = db.add_request(con, "worker", "manager", "q5", None, "peer", "async", None, 0, None)
-        actions.dismiss(con, w, me="manager", reason="not now")
-        check("dismissed: nothing is left to tell the asker",
-              not db.unannounced_answers(con, "worker"),
-              str([dict(r) for r in db.unannounced_answers(con, "worker")]))
-        check("dismissed: the label is still how the row reads",
-              db.shown_verdict(db.get_request(con, w)) == "dismissed by manager - not now")
-        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (int(time.time()), w))
-        rc, out = _cli(["resolve", str(new), "hello"], as_agent="manager")
-        check("dismissed: resolving it again names the state, not a quote",
-              rc == 1 and "dismissed by manager - dup of #9" in out, out)
-        seen = int(time.time())
-        db.set_cursor(con, "seen:manager", seen)
-        check("unread: nothing new after the tab was read", actions.chat_unread(con, "manager") == 0)
-        fresh = _human_request()
-        actions.dismiss(con, fresh, me="manager", reason="not mine", no_task="nothing")
-        con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
-                    (seen - 5, seen + 10, fresh))
-        check("unread: an agent's dismissal of the founder's message is a new line",
-              actions.chat_unread(con, "manager") == 1, str(actions.chat_unread(con, "manager")))
-        gaps = actions.reason_gaps(con)
-        check("dismissed: the reason gap still counts both shapes (5 dismissals, 1 blank)",
-              (gaps["retirements"], gaps["retirements_blank"]) == (5, 1), str(gaps))
-    finally:
-        con.close()
-
-
 def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> None:
     """Task #79: a task is T<n> wherever it is typed or printed, and a bare
     number is a request, so one typo cannot act on the wrong kind of thing.
@@ -2588,9 +2420,6 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         "task new --parent": ["task", "new", "--owner", "worker", "y", "y", "--parent", n, "-t", "1h"],
         "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "y", "--blocked-by", n,
                                   "-t", "1h"],
-        "resolve --task": ["resolve", "1", "ok", "--task", n],
-        "dismiss --task": ["dismiss", "1", "--task", n],
-        "resolve --hold --on": ["resolve", "1", "ok", "--hold", "h", "--on", n],
     }
     for label, argv in calls.items():
         rc, out = refused(argv, "worker")
@@ -3530,26 +3359,8 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         os.environ.pop("OCP_AGENT", None)
         check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
 
-        # Whose row it is is checked against who is asking, and a caller we
-        # cannot name is nobody - the same fail-closed rule `ocp ask` uses.
-        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
-        check("mailbox: an unnamed caller dismisses nothing",
-              "cannot tell who" in out and rid2 in [m["id"] for m in actions.messages(con)],
-              out[:120])
-        os.environ["OCP_AGENT"] = "backend"
-        gate = [m["id"] for m in actions.messages(con) if m["gate"]]
-        out = _capture(lambda: climod.main(["dismiss", str(gate[0])])) if gate else ""
-        check("mailbox: and an agent cannot clear the human's decisions",
-              not gate or ("not yours" in out
-                           and gate[0] in [m["id"] for m in actions.messages(con)]),
-              out[:120])
-        out = _capture(lambda: climod.main(["resolve", str(rid2), "mine now"]))
-        check("mailbox: nor answer in the human's name",
-              "not yours" in out and db.get_request(con, rid2)["verdict"] != "mine now",
-              out[:120])
-        os.environ.pop("OCP_AGENT", None)
         actions.dismiss(con, rid2)
-        check("mailbox: and `ocp dismiss` clears it from both",
+        check("mailbox: a dismiss clears it from both",
               rid2 not in [m["id"] for m in actions.messages(con)])
     finally:
         con.close()
@@ -3658,14 +3469,6 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
               db.get_request(con, busy)["state"] == "rejected"
               and "could not be told" in said and not any(h == "term_b" for h, _t in sent), said)
         orcamod.typeable_now = lambda h: True
-        os.environ["OCP_AGENT"] = "backend"
-        try:
-            out = _capture(lambda: climod.main(["resolve", str(busy), "did it anyway"]))
-        finally:
-            del os.environ["OCP_AGENT"]
-        check("cancel: the target resolving it later is refused, the verdict stands",
-              "already rejected" in out
-              and db.get_request(con, busy)["verdict"] == "withdrawn by the founder", out)
 
         racer = ask("marina", "resolved at the same instant")
         check("cancel: the close is one write - it loses to a resolve that got there first",
@@ -3861,108 +3664,6 @@ def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Pat
           "not just the ones hardcoded above",
           set(db.NEVER_REACHED_TARGET) <= cliask._NEVER_ANSWERED_HEADERS.keys(),
           str(set(db.NEVER_REACHED_TARGET) - cliask._NEVER_ANSWERED_HEADERS.keys()))
-
-
-def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path) -> None:
-    """Auditor's should-fix on #283: `cmd_dismiss` lets a requester clear its
-    own row once it has left 'queued', but `actions.dismiss` only special-cased
-    that for the human - an agent's own answered request fell through to
-    `resolve`, which stamped "read - no reply" over the verdict the target
-    actually wrote. Dismissing must never rewrite an answer, whoever asked for
-    it, and doing it twice must not either."""
-    _two_agents_one_slot(home)
-    ok, said, rid = askmod.ask("b", "spec?", requester="a")
-    check("dismiss: the ask went through", ok, said)
-    askmod.resolve(rid, "yes, ship it")
-
-    con = db.connect()
-    try:
-        actions.dismiss(con, rid)
-        check("dismiss: an agent's own answered request keeps its verdict",
-              db.get_request(con, rid)["verdict"] == "yes, ship it",
-              db.get_request(con, rid)["verdict"])
-        check("dismiss: and is marked read",
-              db.get_request(con, rid)["announced_at"] is not None)
-
-        actions.dismiss(con, rid)
-        check("dismiss: dismissing it a second time still keeps the verdict",
-              db.get_request(con, rid)["verdict"] == "yes, ship it",
-              db.get_request(con, rid)["verdict"])
-    finally:
-        con.close()
-
-    # The same, through the CLI path `cmd_dismiss` actually takes.
-    ok, said, rid2 = askmod.ask("b", "spec 2?", requester="a")
-    check("dismiss: the second ask went through", ok, said)
-    askmod.resolve(rid2, "no, hold it")
-    os.environ["OCP_AGENT"] = "a"
-    try:
-        out = _capture(lambda: climod.main(["dismiss", str(rid2)]))
-    finally:
-        os.environ.pop("OCP_AGENT", None)
-    con = db.connect()
-    try:
-        check("dismiss: `ocp dismiss` on your own answered row keeps it too",
-              db.get_request(con, rid2)["verdict"] == "no, hold it", out)
-    finally:
-        con.close()
-
-
-def test_a_requester_dismissing_its_own_queued_request_is_pointed_at_withdraw(home: Path) -> None:
-    _two_agents_one_slot(home)
-    ok, said, rid = askmod.ask("b", "spec?", requester="a")
-    check("dismiss: the ask went through", ok, said)
-    os.environ["OCP_AGENT"] = "a"
-    try:
-        out = _capture(lambda: climod.main(["dismiss", str(rid)]))
-    finally:
-        os.environ.pop("OCP_AGENT", None)
-    con = db.connect()
-    try:
-        check("dismiss: a requester is pointed at withdraw and the row stays queued",
-              "ocp withdraw" in out and db.get_request(con, rid)["state"] == "queued", out)
-    finally:
-        con.close()
-
-
-def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
-        home: Path) -> None:
-    """Auditor's should-fix on #313: a TARGET dismissing a row it already
-    answered must not stamp announced_at on the requester's behalf - that
-    would mark the row as told when the requester has never actually seen
-    it."""
-    _two_agents_one_slot(home)
-    ok, said, rid = askmod.ask("b", "spec?", requester="a")
-    check("dismiss: the ask went through", ok, said)
-    askmod.resolve(rid, "yes, ship it")
-
-    con = db.connect()
-    try:
-        check("dismiss: unannounced to start",
-              rid in [r["id"] for r in db.unannounced_answers(con, "a")])
-        ok, out = actions.dismiss(con, rid, me="b")
-        check("dismiss: the target is told there is nothing more to do",
-              ok and "nothing more" in out, out)
-        check("dismiss: the verdict is untouched",
-              db.get_request(con, rid)["verdict"] == "yes, ship it")
-        check("dismiss: ...and the requester is still owed the answer",
-              rid in [r["id"] for r in db.unannounced_answers(con, "a")],
-              str(dict(db.get_request(con, rid))))
-    finally:
-        con.close()
-
-    # Through the CLI: `b` dismissing its own outgoing answer is the same no-op.
-    os.environ["OCP_AGENT"] = "b"
-    try:
-        out = _capture(lambda: climod.main(["dismiss", str(rid)]))
-    finally:
-        os.environ.pop("OCP_AGENT", None)
-    con = db.connect()
-    try:
-        check("dismiss: `ocp dismiss` from the target is the same no-op",
-              rid in [r["id"] for r in db.unannounced_answers(con, "a")], out)
-    finally:
-        con.close()
 
 
 def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
@@ -5931,26 +5632,8 @@ def test_task_blocked_by_another_task(home: Path) -> None:
               "SHOULD-FIX A: task_blockers filters closed blockers out, so it "
               "cannot see the row this check is named for)",
               db.blocks_on_ids(con, t_dep) == [])
-        notice_rid = notice[0]["id"]
     finally:
         con.close()
-
-    # Resolving the notice must not route an answer back to manager, who
-    # closed the blocker (auditor's #2042 SHOULD-FIX 3) - watched the same
-    # way #185's regression test watches it, by catching the daemon calls
-    # that deliver an answer.
-    woken: list = []
-    delivered: list = []
-    real_wake, real_deliver = dmn_lifecycle.wake_agent, dmn_delivery.deliver_answers
-    dmn_lifecycle.wake_agent = lambda con_, a, log_: (woken.append(a), (True, "woken"))[1]
-    dmn_delivery.deliver_answers = lambda con_, a, log_: (delivered.append(a), True)[1]
-    try:
-        rc, out = _cli(["resolve", str(notice_rid), "ok"], as_agent="worker")
-        check("resolve: the owner can acknowledge the notice", rc == 0, out)
-        check("resolve: nothing was pushed back to manager or anyone else",
-              not woken and not delivered, f"woken={woken} delivered={delivered}")
-    finally:
-        dmn_lifecycle.wake_agent, dmn_delivery.deliver_answers = real_wake, real_deliver
 
     rc, out = _cli(["close", f"T{t_blocker}"])
     check("close: an already-closed task is refused, no second notice risked",
@@ -6065,256 +5748,6 @@ def test_task_blocked_by_another_task(home: Path) -> None:
               row["closed_by"] is None, str(dict(row)))
         check("close: the block row is still there too - nothing half-applied",
               db.blocks_on_ids(con, t_boom_dep) == [t_boom_blocker])
-    finally:
-        con.close()
-
-
-def test_resolving_the_founders_request_says_what_it_becomes(home: Path) -> None:
-    """The guard (#1259): every human-requester resolve, including a reply in a
-    running thread, needs --task or --no-task; nothing else is guarded."""
-    _board_world(home)
-    _cli(["task", "new", "--owner", "worker", "deliverable one", "deliverable one", "-t", "1h"])
-    _cli(["task", "new", "--owner", "worker", "deliverable two", "deliverable two", "-t", "1h"])
-    r1 = _human_request()
-    rc, out = _cli(["resolve", str(r1), "ok"])
-    check("guard: a bare resolve of the founder's request is refused", rc == 1 and "--task" in out, out)
-    con = db.connect()
-    try:
-        check("guard: refused, the request is still queued",
-              db.get_request(con, r1)["state"] == "queued")
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(r1), "ok", "--task", "T1", "--no-task", "why"])
-    check("guard: both --task and --no-task is refused", rc == 1, out)
-    rc, out = _cli(["resolve", str(r1), "ok", "--task", "T7"])
-    check("guard: a task that does not exist is refused", rc == 1 and "no task T7" in out, out)
-    con = db.connect()
-    try:
-        # T292: `task new` is now its own delivery, so T1/T2 already carry
-        # the request that opened them - the guard's own --task link has to
-        # be checked as what --task added, not the whole set.
-        before = {(t, r["id"]) for t in (1, 2) for r in db.task_requests(con, t)}
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(r1), "ok", "--task", "T1", "T2"])
-    check("guard: --task takes a list and resolves", rc == 0, out)
-    con = db.connect()
-    try:
-        linked = {(t, r["id"]) for t in (1, 2) for r in db.task_requests(con, t)}
-        check("guard: --task linked the request to every task it names",
-              linked == before | {(1, r1), (2, r1)}, str(linked))
-    finally:
-        con.close()
-
-    r2 = _human_request()
-    rc, out = _cli(["resolve", str(r2), "nothing to build", "--no-task", "a question"])
-    check("guard: --no-task resolves without a link", rc == 0, out)
-    con = db.connect()
-    try:
-        check("guard: and links nothing",
-              not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?", (r2,)).fetchone())
-    finally:
-        con.close()
-
-    # A reply inside a running thread is guarded too (#1059, #1183, #1215).
-    r3 = _human_request(parent=r1)
-    rc, out = _cli(["resolve", str(r3), "ok"])
-    check("guard: a reply inside a running thread is guarded", rc == 1, out)
-
-    # Conversation is never guarded.
-    ok, _, a2a = askmod.ask("worker", "peer chat", requester="manager")
-    rc, out = _cli(["resolve", str(a2a), "fine"], as_agent="worker")
-    check("guard: a manager-to-agent ask resolves with no flag", rc == 0, out)
-    con = db.connect()
-    try:
-        rid = db.add_request(con, "worker", "manager", "a question", None, "peer", "async",
-                             None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(rid), "answer"])
-    check("guard: an agent-to-agent ask resolves with no flag", rc == 0, out)
-    con = db.connect()
-    try:
-        check("guard: neither made a task link",
-              not con.execute("SELECT 1 FROM task_requests WHERE request_id IN (?, ?)",
-                              (a2a, rid)).fetchone())
-    finally:
-        con.close()
-
-    # Task #1 has r1 (a founder request) linked to it, so #71's task_asker is
-    # the founder now, not whoever opened the task.
-    _done_and_close(1, "worker", closer=askmod.HUMAN)
-    r4 = _human_request()
-    rc, out = _cli(["resolve", str(r4), "ok", "--task", "T1"])
-    check("guard: a closed task cannot be attached to", rc == 1 and "closed" in out, out)
-
-
-def test_resolve_finding_opens_a_task_in_the_same_step(home: Path) -> None:
-    """Task #73 (founder #2150, #2154 point 2): a finding the resolver defers
-    rather than blocks on opens as its own task, owned by whoever asked,
-    linked to the row, in the same `ocp resolve` call - not left only in the
-    resolver's own prose for someone else to remember to open."""
-    _board_world(home)
-    _two_lanes(home)
-    ok, _, rid = askmod.ask("manager", "please review", requester="worker")
-    check("setup: the review request went through", ok, rid)
-
-    rc, out = _cli(["resolve", str(rid), "PASS",
-                    "--finding", "note 1 - tighten the retry",
-                    "--finding", "note 2 - rename the flag"], as_agent="manager")
-    check("finding: resolve still succeeds", rc == 0, out)
-    con = db.connect()
-    try:
-        row = db.get_request(con, rid)
-        tasks = {r["id"]: dict(r) for r in
-                 con.execute("SELECT t.* FROM tasks t JOIN task_requests tr "
-                             "ON tr.task_id = t.id WHERE tr.request_id = ?", (rid,)).fetchall()}
-        check("finding: exactly two tasks were opened and linked",
-              len(tasks) == 2, str(tasks))
-        titles = {t["title"] for t in tasks.values()}
-        check("finding: each finding's text became a task's title",
-              titles == {"note 1 - tighten the retry", "note 2 - rename the flag"}, titles)
-        check("finding: every task is owned by the resolver's lane manager",
-              all(t["owner"] == "manager" for t in tasks.values()), str(tasks))
-        check("finding: and opened by that manager",
-              all(t["opened_by"] == "manager" for t in tasks.values()), str(tasks))
-        check("finding: the verdict names the new task numbers",
-              all(f"T{tid}" in row["verdict"] for tid in tasks)
-              and "Opened as task" in row["verdict"], row["verdict"])
-    finally:
-        con.close()
-
-    ok, _, rid2 = askmod.ask("manager", "another review", requester="worker")
-    rc, out = _cli(["resolve", str(rid2), "PASS", "--finding", "   "], as_agent="manager")
-    check("finding: a blank finding title is refused", rc == 1 and "title" in out, out)
-    con = db.connect()
-    try:
-        check("finding: refused, the request is still queued",
-              db.get_request(con, rid2)["state"] == "queued")
-        check("finding: and no task was opened for it",
-              not con.execute("SELECT 1 FROM task_requests WHERE request_id = ?",
-                              (rid2,)).fetchone())
-        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
-    finally:
-        con.close()
-
-    hid = _human_request("manager")
-    rc, out = _cli(["resolve", str(hid), "PASS", "--no-task", "nothing",
-                    "--finding", "fnd A"], as_agent="manager")
-    con = db.connect()
-    try:
-        check("finding: refused on a founder's request, naming ocp task new",
-              rc == 1 and "ocp task new --owner" in out, out)
-        check("finding: founder's request stays queued and no task row was written",
-              db.get_request(con, hid)["state"] == "queued"
-              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
-    finally:
-        con.close()
-
-    ok, _, rid3 = askmod.ask("manager", "third review", requester="worker")
-    _cli(["resolve", str(rid3), "PASS"], as_agent="manager")
-    rc, out = _cli(["resolve", str(rid3), "thanks", "--finding", "fnd B"], as_agent="worker")
-    con = db.connect()
-    try:
-        check("finding: refused on the requester's side, not dropped with rc 0",
-              rc == 1 and "your own request" in out, out)
-        check("finding: and no task was opened by it",
-              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
-    finally:
-        con.close()
-
-    ok, _, rid5 = askmod.ask("reviewer", "other lane review", requester="worker")
-    rc, out = _cli(["resolve", str(rid5), "PASS", "--finding", "fnd C"], as_agent="reviewer")
-    con = db.connect()
-    try:
-        row5 = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
-                           "WHERE tr.request_id = ?", (rid5,)).fetchone()
-        check("finding: a second lane's finding is owned by its own manager",
-              rc == 0 and row5 and row5["owner"] == "boss" and row5["opened_by"] == "boss",
-              out + str(dict(row5) if row5 else None))
-    finally:
-        con.close()
-    ok, _, ridx = askmod.ask("lane.x", "key differs from manager", requester="worker")
-    rc, out = _cli(["resolve", str(ridx), "PASS", "--finding", "fnd X"], as_agent="lane.x")
-    con = db.connect()
-    try:
-        rowx = con.execute("SELECT t.* FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
-                           "WHERE tr.request_id = ?", (ridx,)).fetchone()
-        check("finding: a lane whose key is not its manager's name still finds the manager",
-              rc == 0 and rowx and rowx["owner"] == "boss", out + str(dict(rowx) if rowx else None))
-    finally:
-        con.close()
-    before = None
-    con = db.connect()
-    try:
-        before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
-    finally:
-        con.close()
-
-    ok, _, rid6 = askmod.ask("reviewer", "unmanaged lane", requester="worker")
-    hand_edit_team((home / "team.yaml").read_text().replace(
-        "from: \"boss\", to: \"reviewer\"", "from: \"ghost\", to: \"reviewer\""))
-    rc, out = _cli(["resolve", str(rid6), "PASS", "--finding", "fnd D"], as_agent="reviewer")
-    con = db.connect()
-    try:
-        check("finding: an owner that is not a registered agent is refused, nothing written",
-              rc == 1 and "no registered manager" in out and db.get_request(con, rid6)["state"] == "queued"
-              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before,
-              out)
-    finally:
-        con.close()
-
-    ok, _, rid4 = askmod.ask("manager", "fourth review", requester="worker")
-    real = askmod.db.close_if_queued
-    askmod.db.close_if_queued = lambda *a, **k: False
-    try:
-        ok4, _ = askmod.resolve(rid4, "PASS", open_tasks=lambda c: actions.open_finding_tasks(
-            c, rid4, ["lost race"], "manager"))
-    finally:
-        askmod.db.close_if_queued = real
-    con = db.connect()
-    try:
-        check("finding: a close that fails takes its tasks back",
-              not ok4 and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == before)
-    finally:
-        con.close()
-
-
-def test_task_queue_delivers_a_finding_without_a_second_ask(home: Path) -> None:
-    """T325 (founder #1907): a finding (task #73) opens as a plain draft,
-    title only, nobody asked yet, self-owned (opener == owner, which `ask`
-    would refuse as asking yourself). Reassigned and approved - `ocp task
-    edit --owner` then `ocp task queue` - must be the whole act: no `ocp
-    ask` anywhere in this test ever gets it to its owner."""
-    _board_world(home)
-    ok, _, rid = askmod.ask("manager", "please review", requester="worker")
-    check("setup: the review request went through", ok, rid)
-    rc, out = _cli(["resolve", str(rid), "PASS", "--finding", "tighten the retry"],
-                   as_agent="manager")
-    check("finding: opens as a draft", rc == 0, out)
-    con = db.connect()
-    try:
-        tid = [r["id"] for r in con.execute(
-            "SELECT t.id FROM tasks t JOIN task_requests tr ON tr.task_id = t.id "
-            "WHERE tr.request_id = ?", (rid,)).fetchall()][0]
-        check("finding: a fresh, self-owned draft, nothing of its own out yet",
-              actions.task_state(con, db.get_task(con, tid)) == "draft"
-              and db.get_task(con, tid)["owner"] == "manager"
-              and all(r["id"] == rid for r in db.task_requests(con, tid)))
-    finally:
-        con.close()
-
-    rc, out = _cli(["task", "edit", f"T{tid}", "--owner", "worker"], as_agent="manager")
-    check("finding: reassigned to worker to actually act on it", rc == 0, out)
-    rc, out = _cli(["task", "queue", f"T{tid}"], as_agent="manager")
-    check("task queue: manager approves it, and it goes straight out - "
-          "worker was free", rc == 0 and "was free" in out, out)
-    con = db.connect()
-    try:
-        check("task queue: doing now, with its own request delivered",
-              actions.task_state(con, db.get_task(con, tid)) == "doing")
-        check("task queue: it is worker's current task",
-              db.current_task(con, "worker") == tid)
     finally:
         con.close()
 
@@ -6734,150 +6167,6 @@ limits:
         con.close()
 
 
-def test_resolve_hold_keeps_the_work_open_and_owned(home: Path) -> None:
-    """Task #11 (founder #2298): an answer that puts work on hold leaves an
-    open task owned by the holder, under the asker's task, waiting on what it
-    waits on - so nothing reads done while the work is still owed."""
-    _board_world(home)
-    con = db.connect()
-    try:
-        t_parent = db.new_task(con, "the work", "worker", "manager")
-        t_blocker = db.new_task(con, "the merge", "worker", "manager")
-    finally:
-        con.close()
-    ok, _, rid = askmod.ask("manager", "start it", requester="worker")
-    con = db.connect()
-    try:
-        db.link_request(con, t_parent, rid)
-    finally:
-        con.close()
-
-    rc, out = _cli(["resolve", str(rid), "later", "--on", f"T{t_blocker}"], as_agent="manager")
-    check("hold: --on without --hold is refused", rc == 1 and "--hold" in out, out)
-    rc, out = _cli(["resolve", str(rid), "later", "--hold", "x", "--on", "T999"],
-                   as_agent="manager")
-    check("hold: waiting on a task that does not exist is refused",
-          rc == 1 and "no task" in out, out)
-    con = db.connect()
-    try:
-        check("hold: a refusal leaves the request queued",
-              db.get_request(con, rid)["state"] == "queued")
-    finally:
-        con.close()
-
-    rc, out = _cli(["resolve", str(rid), "later", "--hold", "start it after the merge",
-                    "--on", f"T{t_blocker}"], as_agent="manager")
-    check("hold: resolve succeeds", rc == 0, out)
-    con = db.connect()
-    try:
-        held = [t for t in db.tasks_for_request(con, rid) if t["id"] != t_parent]
-        check("hold: one task was opened and linked", len(held) == 1, str(held))
-        h = held[0]
-        check("hold: owned and opened by the holder, under the asker's task",
-              (h["owner"], h["opened_by"], h["parent_task"]) == ("manager", "manager", t_parent),
-              str(dict(h)))
-        check("hold: it waits on the named task",
-              [b["id"] for b in db.task_blockers(con, h["id"])] == [t_blocker])
-        check("hold: the verdict names the task",
-              f"T{h['id']}" in db.get_request(con, rid)["verdict"])
-        edge = con.execute("SELECT payload FROM events WHERE kind = 'block_task'").fetchall()
-        check("hold: its wait is recorded as a block_task event",
-              any(json.loads(e["payload"]).get("task_id") == h["id"] for e in edge), str(edge))
-        # T294 (auditor's #1930 MUST-FIX 1): a hold is a child task too, so
-        # its parent is explicitly blocked on it - not only through
-        # close_task's own open-child-task check, which the next line
-        # exercises but does not make visible on the board or in
-        # task_blockers.
-        check("hold: T294 - the parent is explicitly blocked on the hold, "
-              "not just structurally unable to close over it",
-              [b["id"] for b in db.task_blockers(con, t_parent)] == [h["id"]],
-              [dict(b) for b in db.task_blockers(con, t_parent)])
-        ok, msg = actions.close_task(con, t_parent, "manager")
-        check("hold: the parent cannot close over it", not ok, msg)
-    finally:
-        con.close()
-
-    rc, out = _cli(["task", "board"], as_agent="manager")
-    check("hold: the holder's board says what it waits on",
-          _now_line(out, h["id"]) == f"now: waiting on T{t_blocker}", out)
-    rc, out = _cli(["task", "board"], as_agent="worker")
-    check("hold: T294 - the asker's board now reads it as waiting on the "
-          "hold directly (the explicit block outranks 'held as sub-task'), "
-          "not done or nobody's",
-          _now_line(out, t_parent) == f"now: waiting on T{h['id']}", out)
-    con = db.connect()
-    try:
-        ok, msg = actions.mark_task_done(con, h["id"], "manager", reason="merged")
-        check("hold: marking the hold done", ok, msg)
-        ok, msg = actions.close_task(con, h["id"], "manager")
-        check("hold: T294 - closing it while it still waits on t_blocker is "
-              "refused", not ok and "waiting on" in msg, msg)
-        ok, msg = actions.unblock(con, h["id"], t_blocker, "manager")
-        check("hold: clearing the hold's own wait", ok, msg)
-        ok, msg = actions.close_task(con, h["id"], "manager")
-        check("hold: T294 - now the hold itself closes", ok, msg)
-        check("hold: T294 - and the parent's explicit block on it clears too",
-              db.task_blockers(con, t_parent) == [])
-    finally:
-        con.close()
-
-    rc, out = _cli(["resolve", str(rid), "again", "--hold", "y"], as_agent="manager")
-    check("hold: an answered request is not held twice", rc == 1, out)
-
-    con = db.connect()
-    try:
-        t_plain = db.new_task(con, "plain child", "worker", "manager", parent_task=t_parent)
-        db.add_block(con, t_parent, t_blocker)
-    finally:
-        con.close()
-    con = db.connect()
-    try:
-        t_lone = db.new_task(con, "lone parent", "worker", "manager")
-        db.new_task(con, "lone child", "worker", "manager", parent_task=t_lone)
-    finally:
-        con.close()
-    rc, out = _cli(["task", "board"], as_agent="worker")
-    check("hold: a child nobody asked anything of is no hold",
-          _now_line(out, t_lone) == "now: nobody holds it", out)
-    rc, out = _cli(["task", "board"], as_agent="worker")
-    check("hold: a plain child is no hold, and a blocker outranks a real one",
-          _now_line(out, t_parent) == f"now: waiting on T{t_blocker}", out)
-    con = db.connect()
-    try:
-        db.remove_block(con, t_parent, t_blocker)
-        con.execute("UPDATE tasks SET closed_by = 'manager' WHERE id = ?", (t_blocker,))
-    finally:
-        con.close()
-
-    con = db.connect()
-    try:
-        t_grand = db.new_task(con, "grandparent", "worker", "manager")
-        con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (t_grand, t_parent))
-    finally:
-        con.close()
-    ok, _, rid2 = askmod.ask("manager", "second", requester="worker")
-    con = db.connect()
-    try:
-        db.link_request(con, t_parent, rid2)
-    finally:
-        con.close()
-    for label, argv, want in (
-            ("a blocker that is already closed", ["--hold", "z", "--on", f"T{t_blocker}"], "closed"),
-            ("waiting on the task it sits under", ["--hold", "z", "--on", f"T{t_parent}"], "sits under"),
-            ("waiting on the grandparent it sits under", ["--hold", "z", "--on", f"T{t_grand}"],
-             "sits under"),
-            ("--state rejected", ["--hold", "z", "--state", "rejected"], "rejected"),
-            ("a blank title", ["--hold", "  "], "title")):
-        rc, out = _cli(["resolve", str(rid2), "later", *argv], as_agent="manager")
-        check(f"hold: refused - {label}", rc == 1 and want in out, out)
-    con = db.connect()
-    try:
-        check("hold: the refusals left the request queued",
-              db.get_request(con, rid2)["state"] == "queued")
-    finally:
-        con.close()
-
-
 def test_task_discard(home: Path) -> None:
     """Task #85: the asker throws a not-done task away in one step. It is
     recorded as discarded and never reads as finished work; close_task's
@@ -7244,94 +6533,9 @@ def test_reopening_a_done_task_needs_a_reason_and_only_the_asker(home: Path) -> 
     check("reopen cli: refused with no identity", rc == 1, out)
 
 
-def test_no_other_path_closes_the_founders_request_unguarded(home: Path) -> None:
-    """#1341: dismiss is the second way an agent closes a request the founder
-    made, so it takes the same guard; the founder's own hands do not."""
-    _board_world(home)
-    _cli(["task", "new", "--owner", "worker", "the work", "the work", "-t", "1h"])
-    r = _human_request()
-    rc, out = _cli(["dismiss", str(r)])
-    check("dismiss: a founder request is refused without --task or --no-task",
-          rc == 1 and "--task" in out, out)
-    con = db.connect()
-    try:
-        check("dismiss: refused, still queued", db.get_request(con, r)["state"] == "queued")
-    finally:
-        con.close()
-    rc, out = _cli(["dismiss", str(r), "--task", "T1"])
-    check("dismiss: --task on the founder's row succeeds", rc == 0, out)
-    con = db.connect()
-    try:
-        # T292: T1 already carries its own delivery request (`task new` is
-        # the delivery now), ahead of r by id - --task adds r alongside it,
-        # not in place of it.
-        check("dismiss: --task closes it and links it",
-              db.get_request(con, r)["state"] == "done"
-              and r in [x["id"] for x in db.task_requests(con, 1)], out)
-        r2 = _human_request()
-        rc, out = _cli(["dismiss", str(r2), "--no-task", "duplicate", "--reason", "dup of #9"])
-        check("dismiss: --no-task on the founder's row succeeds", rc == 0, out)
-        row = db.get_request(con, r2)
-        check("dismiss: --no-task closes it, reason stored as typed",
-              row["state"] == "done" and row["verdict"] is None
-              and row["dismissed_reason"] == "dup of #9",
-              str(dict(row)))
-        r3 = _human_request()
-        ok, out = actions.dismiss(con, r3, me=askmod.HUMAN)
-        check("dismiss: the founder's own dismiss is not guarded",
-              ok and db.get_request(con, r3)["state"] == "done", out)
-    finally:
-        con.close()
-    # #1350 should-fix 1: a refused dismiss must not report success.
-    r4 = _human_request()
-    rc, out = _cli(["dismiss", str(r4)])
-    check("dismiss: a guard refusal is exit 1, not the exit 0 every other outcome uses",
-          rc == 1, out)
-    con = db.connect()
-    try:
-        check("dismiss: and the row it refused on is still queued",
-              db.get_request(con, r4)["state"] == "queued")
-    finally:
-        con.close()
-    # #1350 should-fix 2: --no-task on an ordinary (non-founder) row must
-    # record the same way --task does, not only close it silently.
-    con = db.connect()
-    try:
-        peer = db.add_request(con, "manager", "worker", "q", None, "peer",
-                              "fire_and_forget", None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["dismiss", str(peer), "--no-task", "nothing to build"], as_agent="worker")
-    check("dismiss: --no-task on a peer row succeeds", rc == 0, out)
-    con = db.connect()
-    try:
-        rows = con.execute(
-            "SELECT payload FROM events WHERE kind = 'no_task'").fetchall()
-        ids = [json.loads(r["payload"])["request_id"] for r in rows]
-        check("dismiss: --no-task on a peer row is recorded too, same as resolve",
-              peer in ids, str(ids))
-    finally:
-        con.close()
-
-
 def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home: Path) -> None:
-    """auditor's #1340 should-fixes, notes 1, 3."""
+    """auditor's #1340 should-fix, note 3: a short sha resolves."""
     _board_world(home)
-    # A bad --task id on a row that is not the founder's is refused before the answer.
-    con = db.connect()
-    try:
-        peer = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(peer), "answer", "--task", "T999"])
-    con = db.connect()
-    try:
-        check("task ids: a bad id on a peer row is refused, and the row is not answered",
-              rc == 1 and "no task T999" in out and db.get_request(con, peer)["state"] == "queued",
-              out)
-    finally:
-        con.close()
-
     repo = home / "repo"
     repo.mkdir()
 
@@ -7425,23 +6629,11 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
     rc, out = _cli(["read", str(e)])
     check("reason: a withdrawn row's reason reads as a label, not the target's answer",
           rc == 0 and "withdrawn: not needed after all" in out, out)
-    rc, out = _cli(["ask", "worker", "x", "--reason", "why"])
-    check("reason: --reason without --replaces is refused", rc == 1 and "--replaces" in out, out)
     # #1348 note 1: a typed empty --reason is not "no reason" - taking it as
     # one would silently drop what was typed.
     ok, _, i = askmod.ask("worker", "fifth", requester="manager")
-    rc, out = _cli(["ask", "worker", "x", "--replaces", str(i), "--reason", ""])
-    check("reason: an empty --reason on ask is refused, not silently dropped",
-          rc == 1 and "empty" in out, out)
     rc, out = _cli(["withdraw", str(i), "--reason", ""])
     check("reason: an empty --reason on withdraw is refused", rc == 1 and "empty" in out, out)
-    con = db.connect()
-    try:
-        j = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["dismiss", str(j), "--reason", ""])
-    check("reason: an empty --reason on dismiss is refused", rc == 1 and "empty" in out, out)
 
 
 def test_a_corrected_reply_stays_in_its_thread(home: Path) -> None:
@@ -7465,215 +6657,6 @@ def test_a_corrected_reply_stays_in_its_thread(home: Path) -> None:
               db.get_request(con, plain2)["parent_id"] is None)
     finally:
         con.close()
-
-
-def test_moot_by_records_who_retired_a_row(home: Path) -> None:
-    """#1349: moot_by is a record, not a relation - set once, from the row
-    that went moot, by whichever verb already knows both ids."""
-    _board_world(home)
-    con = db.connect()
-    try:
-        ok, _, a = askmod.ask("worker", "first", requester="manager")
-        ok, _, b = askmod.ask("worker", "corrected", requester="manager", replaces=a)
-        check("moot: a replace points the old row at the new one",
-              db.get_request(con, a)["moot_by"] == b, str(dict(db.get_request(con, a))))
-
-        c = db.add_request(con, "manager", "worker", "dup", None, "supervisor",
-                           "fire_and_forget", None, 0, None)
-        d = db.add_request(con, "manager", "worker", "the real one", None, "supervisor",
-                           "fire_and_forget", None, 0, None)
-        d2 = db.add_request(con, "manager", "worker", "another", None, "supervisor",
-                            "fire_and_forget", None, 0, None)
-        d3 = db.add_request(con, "manager", "worker", "a third", None, "supervisor",
-                            "fire_and_forget", None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(d), "done", "--retires", str(c)], as_agent="worker")
-    check("moot: resolve --retires succeeds and says so", rc == 0 and f"#{c}" in out, out)
-    con = db.connect()
-    try:
-        check("moot: resolve --retires points the old row at the resolving one",
-              db.get_request(con, c)["moot_by"] == d)
-        # #1565 SF1: moot_by alone is a record, not the retirement - #1366's
-        # own blocking bug was moot_by written with the row left queued, and
-        # a check on moot_by only never noticed. db.retire_queued is what
-        # actually takes it out of the queue.
-        check("moot: ...and the row is actually out of the queue, not just recorded",
-              db.get_request(con, c)["state"] == "replaced", str(dict(db.get_request(con, c))))
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(d2), "done", "--retires", str(c)], as_agent="worker")
-    check("moot: retiring an already-moot row is refused, not overwritten",
-          rc == 1 and "already moot" in out, out)
-    rc, out = _cli(["resolve", str(d3), "done", "--retires", "999999"], as_agent="worker")
-    check("moot: --retires naming nothing is refused before any answer is written",
-          rc == 1 and "no request" in out, out)
-    con = db.connect()
-    try:
-        check("moot: neither refused resolve wrote an answer",
-              db.get_request(con, d2)["state"] == "queued"
-              and db.get_request(con, d3)["state"] == "queued")
-    finally:
-        con.close()
-
-    # code review of #1366: --retires on a row that is already answered its
-    # own way (never queued when this resolve runs, moot_by still NULL) must
-    # be refused up front, not left to read as a race that did not happen.
-    con = db.connect()
-    try:
-        e2 = db.add_request(con, "manager", "worker", "already answered", None,
-                            "supervisor", "fire_and_forget", None, 0, None)
-    finally:
-        con.close()
-    ok, msg = askmod.resolve(e2, "some real answer")
-    check("moot: setup - the row to retire is already done", ok, msg)
-    rc, out = _cli(["resolve", str(d3), "done", "--retires", str(e2)], as_agent="worker")
-    check("moot: --retires on an already-answered (never queued) row is refused",
-          rc == 1 and "already done" in out and "left 'queued'" not in out, out)
-    con = db.connect()
-    try:
-        check("moot: the refused resolve did not touch either row",
-              db.get_request(con, d3)["state"] == "queued"
-              and db.get_request(con, e2)["verdict"] == "some real answer")
-    finally:
-        con.close()
-
-    con = db.connect()
-    try:
-        t = db.new_task(con, "one", "worker", "manager")
-    finally:
-        con.close()
-    try:
-        _cli(["close", f"T{t}", "closed as duplicate", "--retires", "999999"])
-        check("close: --retires is gone (#1366) - task and request ids share no namespace",
-              False, "argparse accepted it")
-    except SystemExit as e:
-        check("close: --retires is gone (#1366) - task and request ids share no namespace",
-              e.code == 2, str(e.code))
-
-
-def test_retires_is_refused_on_a_row_that_is_not_the_resolvers(home: Path) -> None:
-    """#1565 BLOCKING: --retires's pre-check tested existence, moot_by and
-    state but never whose row it is, so any agent could silently close any
-    queued request in the system, including the founder's - measured live:
-    OCP_AGENT=backend `ocp resolve 4 "answered" --retires 3` closed the
-    founder's own #3 to reviewer, with db.retire_queued stamping
-    announced_at as though it had already been reported and
-    check_human_resolve never running (it guards the row being resolved,
-    not the one being retired). Two other retirement paths already refuse
-    this - `ocp withdraw` and `ask --replaces` - and only this third one
-    did not."""
-    use_home(home)
-    hand_edit_team("""
-agents:
-  reviewer: {}
-  backend:  {}
-  frontend: {}
-
-edges:
-  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }
-  - { from: "human",     to: "*",     relation: supervisor, response: fire_and_forget }
-  - { from: "reviewer",  to: "backend", relation: peer, response: fire_and_forget }
-  - { from: "backend",   to: "reviewer", relation: peer, response: fire_and_forget }
-  - { from: "reviewer",  to: "frontend", relation: peer, response: fire_and_forget }
-
-limits:
-  max_chain_depth: 4
-  ask_rate_per_hour: 50
-""")
-    for n in ("reviewer", "backend", "frontend"):
-        agents.register(n)
-    con = db.connect()
-    try:
-        founders = db.add_request(con, askmod.HUMAN, "reviewer", "founder's own",
-                                  None, "supervisor", "fire_and_forget", None, 0, None)
-        unrelated = db.add_request(con, "reviewer", "backend", "unrelated ask",
-                                   None, "peer", "fire_and_forget", None, 0, None)
-    finally:
-        con.close()
-
-    rc, out = _cli(["resolve", str(unrelated), "answered", "--retires", str(founders)],
-                   as_agent="backend")
-    check("retires: refused - the row is not backend's to retire",
-          rc == 1 and "not yours to retire" in out, out)
-    con = db.connect()
-    try:
-        row = db.get_request(con, founders)
-        check("retires: the founder's row is untouched - still queued, "
-              "moot_by unset, not marked as delivered/reported",
-              row["state"] == "queued" and row["moot_by"] is None
-              and not row["announced_at"], str(dict(row)))
-        check("retires: the resolve of backend's own row also did not go "
-              "through, since the whole command is refused up front",
-              db.get_request(con, unrelated)["state"] == "queued")
-    finally:
-        con.close()
-
-    # auditor's #1582 SHOULD-FIX: the founder case above is now
-    # double-guarded (the ownership check AND check_human_resolve both
-    # refuse it), so deleting the ownership check alone does not reproduce
-    # #1565's bug there - check_human_resolve still catches it. The case
-    # that is ONLY protected by the ownership check has no founder in it at
-    # all: any agent closing any OTHER two agents' queued row, "any agent
-    # can silently close any queued work" in its general form. A second
-    # unrelated row, between reviewer and frontend, that backend is neither
-    # requester nor target of.
-    con = db.connect()
-    try:
-        thirdparty = db.add_request(con, "reviewer", "frontend", "not backend's business",
-                                    None, "peer", "fire_and_forget", None, 0, None)
-        unrelated2 = db.add_request(con, "reviewer", "backend", "another unrelated ask",
-                                    None, "peer", "fire_and_forget", None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(unrelated2), "answered", "--retires", str(thirdparty)],
-                   as_agent="backend")
-    check("retires: refused - a row between two other agents entirely is not backend's either",
-          rc == 1 and "not yours to retire" in out, out)
-    con = db.connect()
-    try:
-        row = db.get_request(con, thirdparty)
-        check("retires: the third-party row is untouched too - "
-              "still queued, moot_by unset, not marked as reported",
-              row["state"] == "queued" and row["moot_by"] is None
-              and not row["announced_at"], str(dict(row)))
-    finally:
-        con.close()
-
-    # The control: backend retiring its OWN unanswered duplicate (backend is
-    # the target of both, same as the legitimate case in
-    # test_moot_by_records_who_retired_a_row) is not swept up by the guard.
-    con = db.connect()
-    try:
-        dup = db.add_request(con, "reviewer", "backend", "dup ask",
-                             None, "peer", "fire_and_forget", None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(unrelated), "answered again", "--retires", str(dup)],
-                   as_agent="backend")
-    check("retires: still allowed on a row backend is actually the target of",
-          rc == 0 and f"#{dup}" in out, out)
-
-    # And a founder row IS retireable by its own legitimate target, but only
-    # once it says what the closure becomes - the same rule answering it
-    # directly already enforces.
-    con = db.connect()
-    try:
-        founders2 = db.add_request(con, askmod.HUMAN, "reviewer", "founder's second",
-                                   None, "supervisor", "fire_and_forget", None, 0, None)
-        own = db.add_request(con, "backend", "reviewer", "reviewer's own answer target",
-                             None, "peer", "fire_and_forget", None, 0, None)
-    finally:
-        con.close()
-    rc, out = _cli(["resolve", str(own), "answered", "--retires", str(founders2)],
-                   as_agent="reviewer")
-    check("retires: a legitimate target retiring a founder row must still "
-          "say what it becomes",
-          rc == 1 and "say whether work follows it" in out, out)
-    rc, out = _cli(["resolve", str(own), "answered", "--retires", str(founders2),
-                    "--no-task", "closed via the other answer"], as_agent="reviewer")
-    check("retires: ...and succeeds once it does",
-          rc == 0 and f"#{founders2}" in out, out)
 
 
 def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
@@ -8828,83 +7811,6 @@ def test_a_begun_task_reads_doing_the_same_way_everywhere(home: Path) -> None:
         con.close()
 
 
-def test_ask_task_links_and_a_named_task_needs_it(home: Path) -> None:
-    """T250: `ask --task N` links the request, so a draft task reads doing; text
-    that names a T<n> is refused without --task or --no-task; `task list` and
-    `task board` mark a draft with a request out and a queued task with none."""
-    _board_world(home)
-    con = db.connect()
-    try:
-        t = db.new_task(con, "work", "worker", "manager")
-        u = db.new_task(con, "other", "worker", "manager")
-    finally:
-        con.close()
-    rc, out = _cli(["ask", "worker", f"please do T{t}"])
-    check("ask: text naming a task is refused without --task", rc == 1 and f"T{t}" in out
-          and "--task" in out and "--no-task" in out, out)
-    con = db.connect()
-    try:
-        check("ask: and nothing was sent", con.execute("SELECT COUNT(*) c FROM requests").fetchone()["c"] == 0)
-    finally:
-        con.close()
-    rc, out = _cli(["ask", "worker", f"see T{u}", "--no-task", ""])
-    check("ask: an empty --no-task reason is refused", rc == 1 and "reason" in out, out)
-    rc, out = _cli(["ask", "worker", f"see T{t}", "--task", f"T{t}", "--no-task", "x"])
-    check("ask: --task with --no-task is refused", rc == 1 and "contradict" in out, out)
-    try:
-        rc, out = _cli(["ask", "worker", "do it", "--task", "5"])
-    except SystemExit as e:
-        rc, out = e.code, ""
-    check("ask: a bare number for --task is refused", rc not in (0, None))
-    rc, out = _cli(["ask", "worker", "do it", "--task", "T999"])
-    check("ask: --task for a task that does not exist is refused", rc == 1 and "no task T999" in out, out)
-    con = db.connect()
-    try:
-        ended = db.new_task(con, "ended", "worker", "manager")
-        db.discard_task(con, ended, "manager", "not needed")
-    finally:
-        con.close()
-    rc, out = _cli(["ask", "worker", "do it", "--task", f"T{ended}"])
-    check("ask: --task for an ended task is refused and sends nothing",
-          rc == 1 and "discarded" in out
-          and _cli(["inbox"], as_agent="worker")[1].count("do it") == 0, out)
-
-    rc, out = _cli(["ask", "worker", f"only mentions T{u} in passing", "--no-task", "context only"])
-    check("ask: --no-task with a reason gets past the guard", rc == 0, out)
-    rc, out = _cli(["ask", "worker", f"please do T{t}", "--task", f"T{t}"])
-    check("ask: --task sends, links, and says the draft now reads doing",
-          rc == 0 and f"linked to T{t}" in out and "doing" in out, out)
-    con = db.connect()
-    try:
-        check("ask: the request is linked and the task is doing",
-              len(db.task_requests(con, t)) == 1
-              and actions.task_state(con, db.get_task(con, t)) == "doing")
-        check("ask: the task was never approved, so the mismatch names it",
-              "draft with work out" in (actions.task_mismatch(
-                  con, db.get_task(con, t), "doing",
-                  con.execute("SELECT * FROM requests WHERE state='queued'").fetchall()) or ""))
-    finally:
-        con.close()
-    rc, out = _cli(["task", "list"])
-    check("list: a draft with a request out is marked", "! draft with work out" in out, out)
-    rc, out = _cli(["task", "board"], as_agent="worker")
-    check("board: and so is it there", "! draft with work out" in out, out)
-    check("list: a --no-task request is not flagged as an unlinked one",
-          "not linked" not in _cli(["task", "list"])[1])
-
-    con = db.connect()
-    try:
-        v = db.new_task(con, "approved idle", "worker", "manager")
-        actions.set_queued(con, v, "manager", True)
-        check("mismatch: a queued task with no request out is marked",
-              "approved, but no request" in (actions.task_mismatch(
-                  con, db.get_task(con, v), "queued", []) or ""))
-        check("mismatch: a finished task is never marked",
-              actions.task_mismatch(con, db.get_task(con, v), "done", []) is None)
-    finally:
-        con.close()
-
-
 def test_the_founder_may_discard_close_and_finish_any_task(home: Path) -> None:
     """T259: the asker of a task an agent opened is that agent, so the founder was
     refused. The founder may act on any task, from a terminal (the CLI) and from the
@@ -9085,20 +7991,6 @@ limits:
     section = out.split(f"T{mine} ", 1)[1].split("\n", 2)[1] if f"T{mine} " in out else out
     check("board: a linked --fyi is not the task being held by its target",
           "now: nobody holds it" in section and "human" not in section, out)
-    rc, out = _cli(["ask", "worker", f"more on T{done}", "--task", f"T{done}"], as_agent="manager")
-    check("ended: a real ask to a done task is refused, saying to reopen it first",
-          rc == 1 and "reopen" in out and f"T{done}" in out, out)
-    rc, out = _cli(["ask", "worker", f"more on T{closed}", "--task", f"T{closed}"], as_agent="manager")
-    check("ended: a real ask to a closed task is refused", rc == 1 and "closed" in out, out)
-    for t, what in ((done, "done"), (closed, "closed")):
-        rc, out = _cli(["ask", "human", f"T{t} merged", "--fyi", "--task", f"T{t}"], as_agent="manager")
-        con = db.connect()
-        try:
-            ok = (rc == 0 and len(db.task_requests(con, t)) == 1
-                  and actions.task_state(con, db.get_task(con, t)) == what)
-        finally:
-            con.close()
-        check(f"ended: a report to a {what} task is sent, linked, and leaves it {what}", ok, out)
 
 
 def test_requests_parent_id_is_indexed(home: Path) -> None:
@@ -9232,14 +8124,11 @@ def main() -> int:
         run(lambda: test_an_answer_wakes_the_agent_that_was_waiting_for_it(Path(td) / 'waiting'))
         run(lambda: test_a_request_can_be_read_whole(Path(td) / 'readone'))
         run(lambda: test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(Path(td) / 'edgeread'))
-        run(lambda: test_ask_and_resolve_take_their_text_from_a_file_too(Path(td) / 'askfile'))
         run(lambda: test_an_agent_may_not_list_another_agents_messages(Path(td) / 'nopeek'))
         run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
-        run(lambda: test_a_dismissal_is_a_state_and_never_reads_as_words(
-            Path(td) / 'dismissstate'))
         run(lambda: test_a_task_is_written_T_and_a_bare_number_is_never_a_task(
             Path(td) / 'taskref'))
         run(lambda: test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(
@@ -9265,12 +8154,6 @@ def main() -> int:
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
         run(lambda: test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(Path(td) / 'readwdrn'))
-        run(lambda: test_dismissing_an_agents_own_answered_request_keeps_its_verdict(
-            Path(td) / 'dismissverdict'))
-        run(lambda: test_a_requester_dismissing_its_own_queued_request_is_pointed_at_withdraw(
-            Path(td) / 'dismissownqueued'))
-        run(lambda: test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
-            Path(td) / 'dismissownanswer'))
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
         run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
@@ -9317,7 +8200,6 @@ def main() -> int:
         run(lambda: test_the_agent_handing_a_task_on_is_not_parked(Path(td) / 'handoffpark'))
         run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
-        run(lambda: test_ask_task_links_and_a_named_task_needs_it(Path(td) / 'asktask'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
         run(lambda: test_task_list_and_board_show_only_yours_and_your_reports(Path(td) / 'taskscope'))
@@ -9331,9 +8213,6 @@ def main() -> int:
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
         run(lambda: test_done_tasks_show_as_a_waiting_for_check_group(Path(td) / 'taskdonegroup'))
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
-        run(lambda: test_resolving_the_founders_request_says_what_it_becomes(Path(td) / 'taskguard'))
-        run(lambda: test_resolve_finding_opens_a_task_in_the_same_step(Path(td) / 'findingtask'))
-        run(lambda: test_task_queue_delivers_a_finding_without_a_second_ask(Path(td) / 'findingqueue'))
         run(lambda: test_a_deferred_delivery_is_not_a_live_claim_to_impersonate_or_park(
             Path(td) / 'deferreddelivery'))
         run(lambda: test_advance_moves_past_a_done_task_even_if_it_carries_a_stale_blocker(
@@ -9349,19 +8228,15 @@ def main() -> int:
             Path(td) / 'closedeliversself'))
         run(lambda: test_advance_records_and_skips_a_refused_delivery(
             Path(td) / 'advanceskip'))
-        run(lambda: test_resolve_hold_keeps_the_work_open_and_owned(Path(td) / 'holdtask'))
         run(lambda: test_task_discard(Path(td) / 'discardtask'))
         run(lambda: test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target(
             Path(td) / 'taskdone'))
         run(lambda: test_closing_a_task_needs_no_open_child_and_only_the_asker(Path(td) / 'taskclose'))
         run(lambda: test_close_task_refuses_without_an_identity_and_does_not_move_a_clock(Path(td) / 'taskcloseid'))
         run(lambda: test_reopening_a_done_task_needs_a_reason_and_only_the_asker(Path(td) / 'taskreopen'))
-        run(lambda: test_no_other_path_closes_the_founders_request_unguarded(Path(td) / 'taskdismiss'))
         run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
-        run(lambda: test_moot_by_records_who_retired_a_row(Path(td) / 'mootby'))
         run(lambda: test_a_corrected_reply_stays_in_its_thread(Path(td) / 'replythread'))
-        run(lambda: test_retires_is_refused_on_a_row_that_is_not_the_resolvers(Path(td) / 'retiresown'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
         run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))

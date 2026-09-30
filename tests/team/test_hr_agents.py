@@ -3048,37 +3048,23 @@ edges:
         rid = int(said.split("#")[1].split(".")[0])
     finally:
         con.close()
-    rc, out = _cli(["resolve", str(rid), "sounds good"], as_agent=askmod.HUMAN)
     con = db.connect()
     try:
-        check("resolve: an open proposal refuses a non-decision here too",
-              rc == 1 and "approve" in out and db.get_request(con, rid)["state"] == "queued",
+        ok, out = actions.answer_ok(con, rid, "sounds good")
+        check("answer: an open proposal refuses a non-decision here too",
+              not ok and "approve" in out and db.get_request(con, rid)["state"] == "queued",
               out)
+        ok, out = actions.answer_ok(con, rid, "approve")
     finally:
         con.close()
-    rc, out = _cli(["resolve", str(rid), "approve"], as_agent=askmod.HUMAN)
-    check("resolve: approve still goes through", rc == 0, out)
-    check("resolve: and carries it out at once, saying so", "dohyun" in paths.list_agents()
-          and "applied" in out and hr.load_proposal(pid)["state"] == "applied", out)
-    check("resolve: so a later apply has nothing left to do", not hr.apply(pid)[0])
+    check("answer: approve still goes through", ok, out)
+    check("answer: and carries it out at once", "dohyun" in paths.list_agents()
+          and hr.load_proposal(pid)["state"] == "applied", out)
+    check("answer: so a later apply has nothing left to do", not hr.apply(pid)[0])
 
-    # #1908 should-fix: the same escalation can be closed a third way, through
-    # --retires on an unrelated resolve - "replaced by #N" is not a decision
-    # either.
     ok, said = hr.propose("add", "yerin", repo="/repo", requester="hr", why="a second pair")
     pid2 = said.split()[1]
     rid2 = int(said.split("#")[1].split(".")[0])
-    ok, _, rid3 = askmod.ask(askmod.HUMAN, "unrelated question", requester="hr")
-    check("retires: the unrelated ask queued", ok and rid3 is not None)
-    rc, out = _cli(["resolve", str(rid3), "covered", "--retires", str(rid2)],
-                   as_agent=askmod.HUMAN)
-    check("retires: an open proposal refuses to be retired away",
-          rc == 1 and "approve" in out, out)
-    con = db.connect()
-    try:
-        check("retires: and stays queued", db.get_request(con, rid2)["state"] == "queued")
-    finally:
-        con.close()
 
     # #1919: task #32's finding - ask.cancel is the same family, since
     # CANCEL_VERDICT is not a decision either.

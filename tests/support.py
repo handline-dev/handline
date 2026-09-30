@@ -94,6 +94,17 @@ _dmn_sends.RUN_INLINE = True
 _cli_ask.dmn_client = _types.SimpleNamespace(
     send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
 
+def _ask_row(payload: dict, log=None) -> dict:
+    """A request row written and told the way the removed `ocp ask` did (T560): the
+    delivery tests need a plain row in an agent's queue, and no verb makes one now."""
+    kw = {k: v for k, v in payload.items() if k not in ("verb", "target", "body", "requester", "speaker")}
+    ok, msg, rid = askmod.ask(payload["target"], payload["body"], requester=payload.get("requester"),
+                              speaker=payload.get("speaker"), notify=False, **kw)
+    if ok:
+        _dmn_sends._after(rid, payload["target"], log or (lambda _m: None))
+    return {"ok": bool(ok), "said": msg}
+
+
 # No test reaches the machine's Keychain or the usage endpoint: asked for a
 # reading, it gets "could not look". A test that drives usage_api sets its own.
 REAL_ACCESS_TOKEN = claudemeter._access_token_detailed
@@ -1932,6 +1943,7 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    '_ask_row',
     'hand_edit_team',
     'hand_edit_agent',
     'reseal',

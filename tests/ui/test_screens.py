@@ -2538,7 +2538,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
                       ["inbox", "human", "--all"]],
             "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
-            "resolve": [(["resolve", str(d), "again"], {"OCP_AGENT": "backend"})],
             "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
             "collect": [["collect"], ["collect", "reviewer"]],
             "agent list": [["agent", "list"]],
@@ -2557,7 +2556,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
             "progress": [(["progress"], {"OCP_AGENT": "reviewer"}, "progress")],
-            "ask": [(["ask", "reviewer", f"a new one {p}"], {"OCP_AGENT": "marina"}, "ask")],
             "withdraw": [(["withdraw", str(d + 1)], {"OCP_AGENT": "marina"}, "withdraw")],
             "unstall": [["unstall", "reviewer"]],
             "venv status": [["venv", "status"]],
@@ -2593,12 +2591,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         try:
             run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
             for leaf, runs in driven.items():
-                if leaf in ("ask", "withdraw", "unstall"):
+                if leaf in ("withdraw", "unstall"):
                     continue                      # they change what the others show: last
                 for one in runs:
                     argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
                     run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
-            run_it(*driven["ask"][0][:2], key=driven["ask"][0][2])
             run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
@@ -2656,7 +2653,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hr team": "writes a proposal; prints its id",
         "team init": "writes team.yaml",
         "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
-        "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
         "hook": "reads a hook payload on stdin and prints nothing",
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
@@ -2723,7 +2719,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
     must = {"ps", "events --limit 50 --all", "events --agent reviewer", "inbox reviewer",
             "inbox reviewer --all", "inbox human --all", "read 1", "read 2", "read 3",
             "digest reviewer", "handoff reviewer", "write-handoff reviewer",
-            "resolve 3 again (as backend)", "drift --no-fetch", "agent show reviewer",
+            "drift --no-fetch", "agent show reviewer",
             "agent show reviewer --json", "service logs", "fold reviewer (model lost a done item)"}
     check("cli: the poison is really on screen for every command this test claims to grade",
           must <= shows, str(sorted(must - shows)))
