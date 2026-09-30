@@ -949,6 +949,38 @@ def test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(home: Path) -
         con.close()
 
 
+def test_the_backstop_clock_is_the_tasks_not_the_agents(home: Path) -> None:
+    """T323: moving on from a task to another with no recorded wait in between must not carry the
+    first one's clock, or its told mark, over to the second."""
+    _world(home)
+    con = db.connect()
+    try:
+        ok, msg, t1 = actions.task_new("manager", "marina", "first", "first")
+        t2 = db.new_task(con, "second", "marina", "manager")
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        now = int(time.time())
+        S = timebox.STOP_WAIT_BACKSTOP_S
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now)
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + S + 1)
+        check("task clock: the first task is told after its limit",
+              db.get_cursor(con, "stop_wait_told:marina") == 1)
+
+        db.set_current_task(con, "marina", t2)        # moved on: no wait was ever recorded in between
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + S + 2)
+        check("task clock: the second task starts its own clock and is not yet told",
+              db.get_cursor(con, "stop_wait_since:marina") == now + S + 2
+              and not db.get_cursor(con, "stop_wait_told:marina"))
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + 2 * S + 1)
+        check("task clock: and is not told at the first one's deadline",
+              not db.get_cursor(con, "stop_wait_told:marina"))
+        timebox.sweep_stop_wait_backstop(con, lambda _m: None, now + 2 * S + 3)
+        check("task clock: it is told once its own limit has passed",
+              db.get_cursor(con, "stop_wait_told:marina") == 1
+              and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'stop_wait_stuck'").fetchone()[0] == 2)
+    finally:
+        con.close()
+
+
 def test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -1372,6 +1404,7 @@ def main() -> int:
             run(lambda: test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(Path(td) / 'tb12a'))
             run(lambda: test_the_founder_is_told_once_after_15_minutes_stuck_with_no_recorded_wait(
                 Path(td) / 'tb12b'))
+            run(lambda: test_the_backstop_clock_is_the_tasks_not_the_agents(Path(td) / 'tbclock'))
             run(lambda: test_the_row_says_how_long_and_when_stale(Path(td) / 'tb13'))
             run(lambda: test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_read(Path(td) / 'tb14'))
             run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb15'))
