@@ -1165,6 +1165,19 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     return None
 
 
+ASSIGN_HOWS = ("note", "handoff")
+
+
+def assign_task(con, tid: int, to: str, how: str, text: str) -> tuple[bool, str]:
+    """The founder answering from a task's page: `how` "note" sends `text` to whoever holds it
+    (`task_note`), "handoff" moves it to `to` with `text` as the note (`task_handoff`)."""
+    if how not in ASSIGN_HOWS:
+        return False, f"assign is one of {', '.join(ASSIGN_HOWS)}"
+    if how == "handoff":
+        return task_handoff(con, HUMAN, tid, to, textsafe.oneline(text).strip())
+    return task_note(con, HUMAN, tid, text)
+
+
 def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]:
     """One verb for passing a task along: its owner changes to `to`, the note goes
     to `to` with the task, and both the note and the handoff stay in the task's

@@ -44,6 +44,7 @@ from .components.text_prompt import TextPrompt, _TextBox
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.section_head import SectionHead
+from .components.task_assign import TaskAssign
 from .components.switch_row import SwitchRow
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
@@ -244,7 +245,8 @@ def task_detail(con, tid: int) -> dict | None:
             "children": kids, "requests": reqs, "asker": actions.task_asker(con, t),
             "can_close": state == "done" and mine,
             "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued") and mine}
+            "can_discard": state in ("draft", "queued") and mine,
+            "can_assign": state in ("draft", "queued", "doing")}
 
 
 EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "context_k", "idle_close")
@@ -881,6 +883,24 @@ class TaskActions:
             Confirm(f"Close task {actions.task_ref(self.tid)}", "Your sign-off, and final: a closed task cannot be reopened.",
                     yes="Close", danger=True), answered)
 
+    def action_assign_task(self) -> None:
+        if not (self.d and self.d["can_assign"]):
+            self.say("a finished task has nothing left to answer or assign")
+            return
+
+        def answered(got: "tuple[str, str, str] | None") -> None:
+            if got is None:
+                return
+            how, to, text = got
+            log_action(f"task {actions.task_ref(self.tid)} assign {how} to {to}")
+            con = db.connect()
+            try:
+                ok, said = actions.assign_task(con, self.tid, to, how, text)
+            finally:
+                con.close()
+            self.report("assign", ok, said)
+        self.app.push_screen(TaskAssign(actions.task_ref(self.tid), self.d["owner"], paths.list_agents()), answered)
+
     def action_reopen_task(self) -> None:
         if not (self.d and self.d["can_reopen"]):
             self.say("only a done task that you asked for can be reopened")
@@ -1006,6 +1026,7 @@ class TaskDetail(TaskActions, Screen):
     BINDINGS = [Binding("escape", "app.pop_screen", "back"),
                 Binding("c", "close_task", "close"),
                 Binding("r", "reopen_task", "reopen"),
+                Binding("a", "assign_task", "assign"),
                 Binding("d", "discard_task", "discard")]
 
     def __init__(self, tid: int) -> None:
@@ -1024,6 +1045,7 @@ class TaskDetail(TaskActions, Screen):
             yield Static(id="t_kids", classes="section")
             yield Static(id="t_reqs", classes="section")
         with ActionBar(id="t_actions"):
+            yield Button("Assign  a", id="assign", variant="primary", compact=True)
             yield Button("Close  c", id="close", variant="success", compact=True)
             yield Button("Reopen  r", id="reopen", variant="warning", compact=True)
             yield Button("Discard  d", id="discard", variant="error", compact=True)
@@ -1048,6 +1070,7 @@ class TaskDetail(TaskActions, Screen):
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.query_one("#t_reqs", Static).update(self._section("Requests", page["reqs"]))
+        self.query_one("#assign", Button).disabled = not d["can_assign"]
         self.query_one("#close", Button).disabled = not d["can_close"]
         self.query_one("#reopen", Button).disabled = not d["can_reopen"]
         self.query_one("#discard", Button).disabled = not d["can_discard"]
@@ -1070,8 +1093,8 @@ class TaskDetail(TaskActions, Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        {"close": self.action_close_task, "reopen": self.action_reopen_task,
-         "discard": self.action_discard_task,
+        {"assign": self.action_assign_task, "close": self.action_close_task,
+         "reopen": self.action_reopen_task, "discard": self.action_discard_task,
          "back": self.app.pop_screen}[event.button.id]()
 
 
