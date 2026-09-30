@@ -104,12 +104,12 @@ def test_the_panel_says_the_true_thing_about_a_queue(home: Path) -> None:
 def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
     """Red means the founder must act. `--fyi` is a report: listed, not red, not
     counted, closed once opened or when the sender's next report lands - and a
-    correction retires a stale escalation even after the bridge showed it."""
+    correction retires a stale decision even after the bridge showed it."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
         def esc():
-            return [w for w in actions.founder_waits(con) if w["kind"] == "escalation"]
+            return [w for w in actions.founder_waits(con) if w["kind"] == "decision"]
 
         ok, _m, q = askmod.ask(actions.HUMAN, "merge keeper-3?", requester="backend")
         ok1, _m, f1 = askmod.ask(actions.HUMAN, "status: half done", requester="backend",
@@ -174,20 +174,6 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         check("answer: reading it leaves the verdict alone",
               db.get_request(con, asked)["verdict"] == "yes, merged")
 
-        # A correction reaches an escalation the bridge already showed.
-        db.mark_delivered(con, q)
-        ok, msg, new = askmod.ask(actions.HUMAN, "merge keeper-3 - now with tests",
-                                  requester="backend", replaces=q)
-        check("replaces: an escalation already shown to the founder is retired",
-              ok and db.get_request(con, q)["state"] == "replaced", msg)
-        check("replaces: and only the replacement waits", [w["what"].startswith(f"#{new}")
-              for w in esc()] == [True], str(esc()))
-        # An agent's delivered request still cannot be replaced.
-        rid = db.add_request(con, "backend", "frontend", "do it", None, "peer",
-                             "async", None, 0, None)
-        db.mark_delivered(con, rid)
-        ok, msg, _ = askmod.ask("frontend", "do it better", requester="backend", replaces=rid)
-        check("replaces: an agent's delivered request still cannot be", not ok, msg)
     finally:
         con.close()
 
@@ -258,12 +244,12 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         check("fold: and counting all three", rev["unread"] == 3, str(rev))
 
         # A gate never folds, even when the same agent has said something newer.
-        # Built via ask.escalate() - the production shape, fire_and_forget with
+        # Built via ask.raise_decision() - the production shape, fire_and_forget with
         # creates_gate=True, so `waiting` is false on it and `gate` is the only
         # thing pinning it. A hand-made async row would pin on `waiting` alone
         # and leave `gate` untested: dropping it from messages() stayed green
         # against that shape (auditor's #1500).
-        askmod.escalate(con, "backend", "which branch do we cut?", "test escalation")
+        askmod.raise_decision(con, "backend", "which branch do we cut?", "test decision")
         ok, _m, r4 = askmod.ask(actions.HUMAN, "even later", requester="backend", fyi=True)
         backend_rows = [m for m in actions.messages(con) if m["from"] == "backend"]
         check("fold: the gate keeps its own line beside the folded report",
@@ -594,7 +580,7 @@ def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
 
 
 def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
-    """An escalation addressed to the human is the one queue nothing in this
+    """A decision addressed to the human is the one queue nothing in this
     system ever clears on its own, and it used to be visible only by running
     `ocp inbox` with the right name. It gets its own panel, and it is not also
     drawn as traffic between agents."""
@@ -712,10 +698,10 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         check("top: the screen does not smuggle a message past routing",
               "denied" in said and not db.queued_for(con, "backend"), said)
 
-        escalate = '  - { from: "*",         to: "human", kind: escalate,  creates_gate: true }'
+        founder_edge = '  - { from: "*",         to: "human", kind: task }'
         hand_edit_team(DESIGN_TEAM.replace(
-            escalate,
-            escalate + chr(10)
+            founder_edge,
+            founder_edge + chr(10)
             + '  - { from: "human", to: "*", relation: supervisor, '
               'response: fire_and_forget }'))
         said = actions.message(con, "backend", "have a look at the sea shader")
@@ -892,7 +878,7 @@ agents:
 edges:
   - { from: "orcapipe-manager", to: "orcapipe-manager.chat", relation: supervisor, response: fire_and_forget }
   - { from: "orcapipe-manager", to: "other.tool", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
     for n in ("orcapipe-manager", "orcapipe-manager.chat", "other.tool"):
         agents.register(n)
@@ -919,7 +905,7 @@ edges:
               tui.shown_names(drawn) == {"orcapipe-manager.chat": "orcapipe-manager.chat"})
         # Flat surfaces have no parent above the name and print it whole.
         askmod.ask(askmod.HUMAN, "need a decision", requester="orcapipe-manager.chat")
-        waits = [w["who"] for w in actions.founder_waits(con) if w["kind"] == "escalation"]
+        waits = [w["who"] for w in actions.founder_waits(con) if w["kind"] == "decision"]
         check("dotted: WAITING ON YOU names it whole - a flat list has no parent above it",
               waits == ["orcapipe-manager.chat"], str(waits))
     finally:
@@ -928,7 +914,7 @@ edges:
 
 
 def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> None:
-    """Founder #689: "read" on a proposal escalation closed it with a verdict
+    """Founder #689: "read" on a proposal decision closed it with a verdict
     that is neither approve nor reject, and the proposal stayed `proposed`
     with a red row nothing could clear. The bridge's own dismiss now refuses a
     proposal that is still open, and the proposer can withdraw it, which takes
@@ -943,7 +929,7 @@ def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> Non
 agents:
   hr: {}
 edges:
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         def rows():
             return [w for w in actions.founder_waits(con) if w["kind"] == "proposal"]
@@ -971,12 +957,12 @@ edges:
         ok, said = hr.withdraw(pid, "hr")
         check("withdraw: and cannot be withdrawn twice", not ok, said)
 
-        # Withdrawn while still unanswered: the escalation closes with it.
+        # Withdrawn while still unanswered: the decision closes with it.
         ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="again")
         pid2 = said.split()[1]
         rid2 = int(said.split("#")[1].split(".")[0])
         ok, said = hr.withdraw(pid2, "hr")
-        check("withdraw: an unanswered one leaves the list and closes its escalation",
+        check("withdraw: an unanswered one leaves the list and closes its decision",
               ok and rows() == [] and db.get_request(con, rid2)["state"] != "queued",
               str(rows()))
 
@@ -1302,8 +1288,8 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         card = next(r for r in db.task_requests(con, tid) if r["target"] == actions.HUMAN)["id"]
         ok, said = actions.answer_ok(con, card, "call it x")
         row = db.get_task(con, tid)
-        check("chat: the reply in a decision card decides and closes its task",
-              ok and row["done_evidence"] == "call it x" and row["closed_by"] == actions.HUMAN, said)
+        check("chat: the reply in a decision card decides and finishes its task",
+              ok and row["done_evidence"] == "call it x", said)
         check("chat: and settles the request that carried the card",
               db.get_request(con, card)["state"] == "done" and db.get_request(con, card)["verdict"] == "call it x")
         ok, said = actions.answer_ok(con, card, "again")
@@ -1639,7 +1625,7 @@ agents:
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         for name in ("manager", "marina", "keeper", "scout"):
             agents.register(name)
@@ -1765,7 +1751,7 @@ agents:
 
 edges:
   - { from: "ghost", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         check("tree: an agent whose supervisor is not registered is still drawn",
               dict(actions.agent_tree())["marina"] == 0, str(actions.agent_tree()))
@@ -1781,7 +1767,7 @@ agents:
 edges:
   - { from: "marina", to: "keeper", relation: supervisor, response: fire_and_forget }
   - { from: "keeper", to: "marina", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         cyc = actions.agent_tree()
         check("tree: a cycle does not hang and loses nobody",
@@ -1867,7 +1853,7 @@ agents:
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         for name in ("manager", "marina", "keeper"):
             agents.register(name)
@@ -1923,7 +1909,7 @@ edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
   - { from: "lead", to: "sub.*", relation: supervisor, response: fire_and_forget }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 """)
         for name in ("idle1", "lead", "worker"):
             agents.register(name)
@@ -2465,7 +2451,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         try:
             q = db.add_request(con, "marina", "reviewer", f"body {p} end\n\tsecond {p}", None,
                                "peer", "async", None, 0, None)
-            h = db.add_request(con, "reviewer", "human", f"escalation {p}", None, "peer", "async",
+            h = db.add_request(con, "reviewer", "human", f"decision {p}", None, "peer", "async",
                                "escalate", 0, None)
             d = db.add_request(con, "reviewer", "backend", f"asked {p}", None, "peer", "async",
                                None, 0, None)
@@ -2481,7 +2467,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                                  None, "peer", "async", None, 0, None)
             con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
                         (f"reject {c1p}", hrq))
-            # For `hr withdraw`: a still-open proposal, its escalation still queued.
+            # For `hr withdraw`: a still-open proposal, its decision still queued.
             wq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: rename reviewer?",
                                 None, "peer", "async", None, 0, None)
             # For `task list`: a title is text somebody typed.
@@ -2538,7 +2524,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
                       ["inbox", "human", "--all"]],
             "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
-            "resolve": [(["resolve", str(d), "again"], {"OCP_AGENT": "backend"})],
             "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
             "collect": [["collect"], ["collect", "reviewer"]],
             "agent list": [["agent", "list"]],
@@ -2557,7 +2542,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "write-handoff": [["write-handoff", "reviewer"]],
             "progress": [(["progress"], {"OCP_AGENT": "reviewer"}, "progress")],
-            "ask": [(["ask", "reviewer", f"a new one {p}"], {"OCP_AGENT": "marina"}, "ask")],
             "withdraw": [(["withdraw", str(d + 1)], {"OCP_AGENT": "marina"}, "withdraw")],
             "unstall": [["unstall", "reviewer"]],
             "venv status": [["venv", "status"]],
@@ -2593,12 +2577,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         try:
             run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
             for leaf, runs in driven.items():
-                if leaf in ("ask", "withdraw", "unstall"):
+                if leaf in ("withdraw", "unstall"):
                     continue                      # they change what the others show: last
                 for one in runs:
                     argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
                     run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
-            run_it(*driven["ask"][0][:2], key=driven["ask"][0][2])
             run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
@@ -2659,7 +2642,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hr team": "writes a proposal; prints its id",
         "team init": "writes team.yaml",
         "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
-        "dismiss": "needs a human identity; returns ids (read in actions.dismiss)",
         "hook": "reads a hook payload on stdin and prints nothing",
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
@@ -2726,7 +2708,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
     must = {"ps", "events --limit 50 --all", "events --agent reviewer", "inbox reviewer",
             "inbox reviewer --all", "inbox human --all", "read 1", "read 2", "read 3",
             "digest reviewer", "handoff reviewer", "write-handoff reviewer",
-            "resolve 3 again (as backend)", "drift --no-fetch", "agent show reviewer",
+            "drift --no-fetch", "agent show reviewer",
             "agent show reviewer --json", "service logs", "fold reviewer (model lost a done item)"}
     check("cli: the poison is really on screen for every command this test claims to grade",
           must <= shows, str(sorted(must - shows)))
@@ -3117,18 +3099,6 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
         check("map: THROTTLED is PENDING too - the ask window rolling over",
               state(state=dmn_states.THROTTLED, wake_at=wake, detail="too many asks")
               == ("PENDING", clock))
-        check("map: a PARKED requester on its own async ask is IDLE, with who it waits for",
-              state(state=dmn_states.PARKED, wake_at=wake,
-                   detail=askmod.await_reply_detail(1627, "keeper"))
-              == ("IDLE", "waiting for keeper's reply (#1627)"))
-        check("map: a long agent name does not cut the wait sentence",
-              state(state=dmn_states.PARKED, wake_at=wake,
-                   detail=askmod.await_reply_detail(1176, "orcapipe.auditor"))
-              == ("IDLE", "waiting for orcapipe.auditor's reply (#1176)"))
-        check("map: waiting on the human's reply is not spelled out",
-              state(state=dmn_states.PARKED, wake_at=wake,
-                   detail=askmod.await_reply_detail(1628, "human"))
-              == ("IDLE", ""))
         check("map: FATAL is today's STALLED, with its own detail",
               state(state=dmn_states.STALLED, detail="ran out of attempts")
               == ("FATAL", "ran out of attempts"))

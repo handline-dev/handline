@@ -252,7 +252,7 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
 def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> None:
     from ocp.ui import chat_page as cp
     d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
-         "parent": (9, "up"), "done": None, "closed": None, "asker": "o",
+         "parent": (9, "up"), "done": None, "discarded": None, "merged_into": None, "asker": "o",
          "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")],
          "timeline": [{"ts": 1, "who": "o", "kind": "memo", "text": "a memo\nsecond line", "memo": 1, "edited_at": 2}]}
     page = cp.task_page(d)
@@ -644,11 +644,11 @@ def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
         c = db.new_task(con, "opened by it", "orcapipe", "backend")
         db.new_task(con, "someone else's", "orcapipe", "orcapipe")
         closed = db.new_task(con, "closed", "backend", "orcapipe")
-        con.execute("UPDATE tasks SET closed_by = 'human' WHERE id = ?", (closed,))
+        con.execute("UPDATE tasks SET discarded_by = 'human' WHERE id = ?", (closed,))
         con.execute("UPDATE tasks SET created_at = created_at - 5000 WHERE id = ?", (a,))
         con.commit()
         rows = cp.tasks_of(con, "backend")
-        check("tasks: what it owns or opened, not others', not closed",
+        check("tasks: what it owns or opened, not others', not discarded",
               sorted(r[0] for r in rows) == sorted([a, b, c]), str([r[0] for r in rows]))
         check("tasks: the role is owns or opened",
               {r[0]: r[1] for r in rows} == {a: "owns", b: "owns", c: "opened"})
@@ -664,9 +664,9 @@ def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
 
 def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() -> None:
     from ocp.ui.components.tasks_view import result_notes
-    got = result_notes([(14, True, "x"), (15, True, "y"), (16, False, "not done yet")], "close")
+    got = result_notes([(14, True, "x"), (15, True, "y"), (16, False, "has a child")], "discard")
     check("results: successes in one toast, the refusals in another with the reason",
-          got == [("closed 2: T14 T15", "information"), ("T16: not done yet", "error")], got)
+          got == [("discarded 2: T14 T15", "information"), ("T16: has a child", "error")], got)
 
 
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
@@ -1025,7 +1025,7 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
          "replyable": True, "answered": True, "queued": False, "delivered": True, "cancelled": True}
     head, body, note = cp.message_parts(m)
     d = {"id": 1, "title": evil, "state": "doing", "owner": evil, "opened_by": evil, "created_at": 1,
-         "parent": (9, evil), "done": (evil, 1), "closed": (evil, 1), "asker": evil,
+         "parent": (9, evil), "done": (evil, 1), "discarded": (evil, evil, 1), "merged_into": None, "asker": evil,
          "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)],
          "timeline": [{"ts": 1, "who": evil, "kind": "note", "text": evil, "memo": None, "edited_at": 2}]}
     page = cp.task_page(d)
@@ -1233,7 +1233,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         askmod.resolve(pids["approved"], "approve")
         askmod.resolve(pids["rejected"], "reject not now")
         got = {p["agent"]: p for p in pr.open_proposals(con)}
-        check("proposals: a queued escalation is 'decide'",
+        check("proposals: a queued decision is 'decide'",
               got.get("queued", {}).get("status") == pr.DECIDE, got)
         check("proposals: one closed with an unclear reply is 'no decision', and keeps the reply",
               got.get("unclear", {}).get("status") == pr.STRANDED
@@ -1298,12 +1298,12 @@ def test_summary_line() -> None:
     from ocp.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
     check("summary: the daemon word comes first, and a quiet team says only that",
-          text(True, sm.Summary(0, 0, 0)) == "daemon running · 12:00:00")
-    check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0)))
+          text(True, sm.Summary(0, 0)) == "daemon running · 12:00:00")
+    check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0)))
     check("summary: for you is a link to the screen's delegated action",
-          any(not isinstance(sp.style, str) and "delegated" in str(sp.style.meta) for sp in sm.summary_text(True, "12:00:00", sm.Summary(0, 0, 0, 2)).spans))
-    check("summary: working, to decide and to check follow, in that order, each only when not zero",
-          text(True, sm.Summary(1, 2, 3)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
+          any(not isinstance(sp.style, str) and "delegated" in str(sp.style.meta) for sp in sm.summary_text(True, "12:00:00", sm.Summary(0, 0, 2)).spans))
+    check("summary: working, to decide and for you follow, in that order, each only when not zero",
+          text(True, sm.Summary(1, 2, 3)) == "daemon running · 1 working · 2 to decide · 3 for you · 12:00:00"
           and "working" not in text(True, sm.Summary(0, 2, 0)))
 
     _home("summarize")
@@ -1655,11 +1655,11 @@ def test_home_settings_marks_and_the_delegated_view() -> None:
     check("delegated view: owner human, queued and doing, nothing to check",
           (view.owner, view.states, view.closer) == (actions.HUMAN, {"queued", "doing"}, None),
           str((view.owner, view.states, view.closer)))
-    view.show_checks(False)
+    view.show_open()
     check("delegated view: a plain visit afterwards is the default view again",
           (view.owner, view.states, view.closer) == (None, set(LISTED), None))
-    check("task list: it opens with done out of the way, the other open states in",
-          set(LISTED) == {"draft", "queued", "doing"} and "done" in actions.OPEN_STATES)
+    check("task list: it opens on the open states, and done is not one",
+          set(LISTED) == {"draft", "queued", "doing"} == set(actions.OPEN_STATES))
     from ocp.ui.chat_page import TaskBody, TaskPane
     check("task list: the side view is the task page's component, adding no call of its own",
           issubclass(TaskPane, TaskBody) and not [n for n in vars(TaskPane) if n.startswith(("action_", "memo_"))])

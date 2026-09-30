@@ -10,7 +10,7 @@ daemon keeps trying and carries on the tick the obstacle goes, so nothing here
 is a state a person has to clear (STALLED is that); a `delivery_blocks` row
 stands while the work waits and the same obstacle holds, is on the founder's
 list from SHOW_AFTER_S, and becomes one request to the founder at
-ESCALATE_AFTER_S. It is written by the daemon and read by the bridge and
+DECISION_AFTER_S. It is written by the daemon and read by the bridge and
 `ocp ps`, which are other processes, so it lives in the database.
 
 ocp names what is in the way, and presses at most one key at a dialog: Esc, and
@@ -43,7 +43,7 @@ SHOW_AFTER_S = 180
 # enough that nobody learns of it from an agent that has been silent for an
 # hour. Later than SHOW_AFTER_S: a request stays until someone closes it if
 # the daemon cannot, and the list clears itself.
-ESCALATE_AFTER_S = 600
+DECISION_AFTER_S = 600
 # What each check costs an agent is a screen read and a terminal listing, so a
 # block is re-read this often and no more; a block that is not due is left as it was.
 RECHECK_S = 10
@@ -56,7 +56,7 @@ PRESS_AFTER_S = 60
 # every IDLE_CLOSE_S (10 minutes), so a close that meets background shells
 # raises the same dialog on each pass: one clear is an event, two could be
 # chance, and the third within the window is the pattern. Then ocp stops
-# pressing and the founder is told at once, not at ESCALATE_AFTER_S.
+# pressing and the founder is told at once, not at DECISION_AFTER_S.
 MAX_PRESSES = 3
 PRESS_WINDOW_S = 6 * 3600
 # Esc that leaves the dialog standing is not pressed again and again.
@@ -352,7 +352,7 @@ def _decline(con, agent: str, rec, now: int, log):
 
 def sweep(con, log, now: int | None = None) -> None:
     """Once per tick, after the agents: open, keep and end each agent's block,
-    and raise the request for those that have outlasted ESCALATE_AFTER_S - one
+    and raise the request for those that have outlasted DECISION_AFTER_S - one
     request for all that come due in the same pass."""
     now = int(time.time()) if now is None else now
     due = []
@@ -369,11 +369,11 @@ def sweep(con, log, now: int | None = None) -> None:
             log(f"  {agent}: block check failed: {e}")
             continue
         if rec is not None and rec["request_id"] is None and (
-                now - rec["since"] >= ESCALATE_AFTER_S
+                now - rec["since"] >= DECISION_AFTER_S
                 or (rec["kind"] == orca.MODAL and stopped_pressing(con, agent, rec, now))):
-            # A stall the daemon escalated itself - a trust screen - is
+            # A stall the daemon raised itself - a trust screen - is
             # already in front of the founder; the block stays for the bridge.
-            if rec["kind"] == STALLED and db.open_escalations_of(con, agent):
+            if rec["kind"] == STALLED and db.open_decisions_of(con, agent):
                 continue
             due.append(rec)
     if due:
@@ -457,7 +457,7 @@ def _raise(con, recs, now: int, log) -> None:
                      + f"  To clear it: {ADVICE.get(r['kind'], 'see `ocp ps`')}.")
     text = "[blocked] " + ("\n\n".join(lines)) + \
         "\n\nThis closes itself when it can be given its work."
-    rid = askmod.escalate(con, recs[0]["agent"], text, "delivery blocked")
+    rid = askmod.raise_decision(con, recs[0]["agent"], text, "delivery blocked")
     db.block_set_request(con, [r["agent"] for r in recs], rid)
     log(f"  blocked: raised #{rid} for {', '.join(r['agent'] for r in recs)}")
 

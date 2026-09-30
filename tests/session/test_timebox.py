@@ -12,7 +12,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.cli import parser as cliparser  # noqa: E402
 from ocp.daemon import timebox  # noqa: E402
 from ocp.session import bgjobs  # noqa: E402
 
@@ -26,7 +25,7 @@ agents:
 edges:
   - { from: "manager", to: "dev.*", relation: supervisor, response: async }
   - { from: "dev.*", to: "manager", relation: peer, response: async }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """
 
@@ -75,8 +74,6 @@ def test_a_duration_needs_its_unit(home: Path) -> None:
             continue
         bad.append(t)
     check("timebox: no unit, no number, zero, negative or fractional is refused", not bad, str(bad))
-    args = cliparser.build_parser().parse_args(["ask", "marina", "hi", "--timebox", "90m"])
-    check("timebox: ocp ask --timebox 90m reaches the command in seconds", args.timebox == 5400)
 
 
 def test_ask_keeps_its_timebox(home: Path) -> None:
@@ -97,30 +94,6 @@ def test_ask_keeps_its_timebox(home: Path) -> None:
         check("timebox: config.yaml's timebox_s is the default",
               timebox.timebox_s(db.get_request(con, rid2)) == 600
               and timebox.timebox_s(db.get_request(con, rid)) == 5400)
-    finally:
-        con.close()
-
-
-def test_a_folded_ask_keeps_its_timebox(home: Path) -> None:
-    """T95: `--mergeable` folds an ask into one already queued; its `--timebox`
-    used to vanish with it."""
-    _world(home)
-    # Only a task waits for a free agent (a message is typed at once), so a task edge is
-    # what leaves the first ask undelivered and foldable.
-    hand_edit_team(TEAM.replace('- { from: "manager", to: "dev.*", relation: supervisor, response: async }',
-                                '- { from: "manager", to: "dev.*", relation: supervisor, response: async, kind: task }'))
-    orcamod.typeable_now = lambda h: False
-    ok, _, first = askmod.ask("marina", "review the branch", requester="manager", mergeable=True)
-    ok2, msg, merged = askmod.ask("marina", "and its new commit", requester="manager",
-                                  mergeable=True, timebox_s=900)
-    con = db.connect()
-    try:
-        check("timebox: the second ask folded into the first", ok and ok2 and merged == first, msg)
-        check("timebox: and its timebox is the merged row's",
-              db.get_request(con, first)["timebox_s"] == 900, str(dict(db.get_request(con, first))))
-        ok3, _, again = askmod.ask("marina", "one more", requester="manager", mergeable=True)
-        check("timebox: a fold with none leaves the row's own",
-              ok3 and again == first and db.get_request(con, first)["timebox_s"] == 900)
     finally:
         con.close()
 
@@ -1414,7 +1387,6 @@ def main() -> int:
             run(lambda: test_a_stand_in_behind_an_ask_blocked_head_is_nudged_and_capped(Path(td) / 'tb20'))
             run(lambda: test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(Path(td) / 'tb21'))
             run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
-            run(lambda: test_a_folded_ask_keeps_its_timebox(Path(td) / 'tb1b'))
             run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))
             run(lambda: test_a_doing_tasks_timeout_starts_silently_then_repeats(Path(td) / 'tb2b'))
             run(lambda: test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(Path(td) / 'tb2c'))

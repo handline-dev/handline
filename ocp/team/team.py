@@ -24,7 +24,7 @@ from ..infra.yamlcompat import ConfigError, load
 # edge in team.yaml is found first; `hr link` / `hr unlink` are for exceptions.
 DEFAULT_LINKS = (
     "a manager and its team's members may ask each other",
-    "a manager may ask the founder (an escalation) and the other teams' managers",
+    "a manager may ask the founder (a decision task) and the other teams' managers",
     "a member may ask its team's reviewer, `<team>.reviewer`",
 )
 HUMAN = "human"
@@ -51,8 +51,13 @@ class Decision:
     relation: str | None = None
     response: str = "async"
     kind: str | None = None
-    creates_gate: bool = False
     chain_depth: int = 0
+
+
+def _edge_kind(kind):
+    """An edge's kind as a Decision carries it. `escalate` (T628) is the old spelling of a request
+    to the founder, which is a task of theirs; a team.yaml that still says it keeps working."""
+    return "task" if kind == "escalate" else kind
 
 
 class Team:
@@ -153,8 +158,8 @@ class Team:
         """Is this a routable target?
 
         Besides declared agents and team members, a literal (non-wildcard)
-        'to' in an edge counts. That is how escalation targets like
-        'human' exist: they are routable without being agents that we
+        'to' in an edge counts. That is how the founder's name
+        'human' exists: they are routable without being agents that we
         launch and account for.
         """
         if agent in self.agents or self.team_of(agent) is not None:
@@ -186,13 +191,17 @@ class Team:
                 return hit(f"{requester} may ask {t}'s reviewer", relation="peer")
         if requester in managers:
             if target == HUMAN:
-                return hit(f"{requester} may ask the founder", kind="escalate", creates_gate=True)
+                return hit(f"{requester} may ask the founder", kind="task")
             if target in managers and target != requester:
                 return hit(f"{requester} and {target} are peer managers", relation="peer")
         return None
 
     # ------------------------------------------------------------ routing
-    def route(self, requester: str, target: str, chain_depth: int = 0) -> Decision:
+    def route(self, requester: str, target: str, chain_depth: int = 0,
+              reply: bool = False) -> Decision:
+        """`reply`: this answers a request `target` sent to `requester`. A reply needs no
+        edge back - with resolve gone it is the only way to answer - but an explicit deny
+        still wins."""
         if requester == target:
             return Decision(False, "an agent cannot ask itself")
         if not self.known(target) and not (target == HUMAN and self.default_link(requester, target)):
@@ -224,8 +233,7 @@ class Team:
                     f"edge {e['from']} -> {e['to']}",
                     relation=e.get("relation"),
                     response=e.get("response", "async"),
-                    kind=e.get("kind"),
-                    creates_gate=bool(e.get("creates_gate")),
+                    kind=_edge_kind(e.get("kind")),
                     chain_depth=chain_depth,
                 )
 
@@ -233,6 +241,10 @@ class Team:
         if default is not None:
             default.chain_depth = chain_depth
             return default
+
+        if reply:
+            return Decision(True, f"reply: {target} asked {requester}", response="fire_and_forget",
+                            chain_depth=chain_depth)
 
         return Decision(
             False,
@@ -266,7 +278,7 @@ edges:
   # The founder. Not an agent - no account, no session, no terminal - but a
   # routable name, so an agent has somewhere to send a decision only a person
   # can make, and the person has a way back down.
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 
 deny: []

@@ -163,7 +163,7 @@ def test_askuserquestion_carries_its_raw_input_beside_the_summary(home: Path) ->
 # the command is boxed with "│", a description and a reason line follow.
 LIVE_PROMPT = ["─" * 120, " Bash command", "",
                " │ ocp ask human 'T239 (#1328) is blocked. Need one of: (a) approve that edit'",
-               " │ 2>&1 | tail -3", "   Escalate the block to the founder", "",
+               " │ 2>&1 | tail -3", "   Raise the block to the founder", "",
                " │ ocp names a path that is computed at run time, which cannot be checked against "
                "the read block (permissions.blockReadsOutsideWorkingDirectories)", "",
                " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "",

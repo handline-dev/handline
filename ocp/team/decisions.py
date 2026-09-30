@@ -1,6 +1,6 @@
 """The founder's answer to a roster or trust proposal, kept where no agent can write it.
 
-The request row an escalation is answered on lives in the db, which every agent
+The request row a decision is answered on lives in the db, which every agent
 can write, so a verdict read from it is no proof the founder gave it. The
 answer is therefore recorded here as it is given - by the founder's own
 session, in the protected store - and `hr.apply` and `trust.apply` act on this

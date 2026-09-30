@@ -100,7 +100,7 @@ takes a queued request out after saying who will be told, and /knows and
 /done, which open what it knows and what it has done. `m` sends a message to
 the agent under the cursor and `e` writes a longer, multi-line one. A decision
 for the founder is a card in that agent's chat: the reply typed inside the card
-is the decision, recorded on the task, and closes it. `t` takes you to that
+is the decision, recorded on the task, and finishes it. `t` takes you to that
 agent's own terminal, starting one if it has none.
 
 An interactive shell with no OCP_AGENT belongs to a human, so `ocp say` typed at
@@ -128,10 +128,9 @@ no screen.""",
 
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal
-  (`ocp close T<n>` closes a task on the board instead - the asker's
-   sign-off, once `ocp task done T<n> <sha, --request N, or a reason>` says
-   the owner is finished; #71. A task is always written T<n>; a bare number
-   is a request)
+  (a task has no close: `ocp task done T<n> <sha, --request N, or a reason>`
+   ends it, and its asker reopens it if the result was wrong. A task is
+   always written T<n>; a bare number is a request)
   ocp resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.

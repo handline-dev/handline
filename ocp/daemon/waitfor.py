@@ -8,7 +8,7 @@ at the moment they arise:
 - a wait on a blocker that was discarded, or closed without being done. It stops blocking
   (`db.task_blockers` filters it), so the waiter quietly proceeds without what it waited for.
 
-Each goes to the founder once, as an escalation, and is remembered by a cursor until the shape
+Each goes to the founder once, as a decision, and is remembered by a cursor until the shape
 is gone. Nothing is fixed and no agent is told: which edge to drop is the founder's call.
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ _PREFIX = "waitfor:"
 
 
 def _open(row) -> bool:
-    return row["closed_by"] is None and row["done_evidence"] is None
+    return not db.task_ended(row)
 
 
 def _cycles(edges: dict[int, list[int]]) -> list[tuple[int, ...]]:
@@ -86,7 +86,7 @@ def _ring(edges: dict[int, list[int]], group: tuple[int, ...]) -> list[int]:
 
 
 def stuck_waits(con) -> dict[str, tuple[int, str]]:
-    """{fingerprint: (task id to name the escalation after, text)} for every stuck wait now."""
+    """{fingerprint: (task id to name the decision after, text)} for every stuck wait now."""
     tasks = {t["id"]: t for t in db.all_tasks(con)}
     rows = con.execute("SELECT task_id, blocks_on FROM task_blocks ORDER BY task_id, blocks_on").fetchall()
     edges: dict[int, list[int]] = {}
@@ -95,10 +95,9 @@ def stuck_waits(con) -> dict[str, tuple[int, str]]:
         waiter, blocker = tasks.get(r["task_id"]), tasks.get(r["blocks_on"])
         if waiter is None or not _open(waiter):
             continue
-        if blocker is None or (blocker["closed_by"] is not None and blocker["done_evidence"] is None):
-            gone = "does not exist" if blocker is None else (
-                f"was discarded by {blocker['discarded_by']}" if blocker["discarded_by"]
-                else f"was closed by {blocker['closed_by']} without being done")
+        if blocker is None or blocker["discarded_by"]:
+            gone = ("does not exist" if blocker is None
+                    else f"was discarded by {blocker['discarded_by']}")
             found[f"gone:{waiter['id']}>{r['blocks_on']}"] = (waiter["id"], (
                 f"T{waiter['id']} ({waiter['owner']}) waited on T{r['blocks_on']}, which {gone}. "
                 f"That wait no longer holds it back, but what it waited for never happened - "
@@ -118,7 +117,7 @@ def stuck_waits(con) -> dict[str, tuple[int, str]]:
 
 
 def sweep(con, log, now: int) -> None:
-    """Escalate each stuck wait once; forget the ones that are gone."""
+    """Raise each stuck wait to the founder once; forget the ones that are gone."""
     current = stuck_waits(con)
     told = {r["name"] for r in con.execute(
         "SELECT name FROM cursors WHERE name LIKE ?", (_PREFIX + "%",)).fetchall()}
@@ -127,9 +126,9 @@ def sweep(con, log, now: int) -> None:
             continue
         task = db.get_task(con, tid)
         who = next((o for o in (task["owner"], task["opened_by"]) if o != db.HUMAN), db.HUMAN)
-        askmod.escalate(con, who, f"[wait-for] {text}", "wait-for graph")
+        askmod.raise_decision(con, who, f"[wait-for] {text}", "wait-for graph")
         db.set_cursor(con, _PREFIX + fp, 1)
-        log(f"  wait-for: {fp} escalated to the founder")
+        log(f"  wait-for: {fp} raised to the founder")
     for name in told:
         if name[len(_PREFIX):] not in current:
             db.clear_cursor(con, name)

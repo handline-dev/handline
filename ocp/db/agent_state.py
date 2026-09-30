@@ -149,11 +149,11 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
 # to "not activity", because the other direction gave a closed agent a clock
 # stamped at close time and resumed a dead cache (#1527, #1533, and the same
 # bug again through SessionEnd, which ocp's own `/exit` fires at once).
-# ask/cancel/commit/escalate/report/resolve/withdraw are commands the agent
+# ask/cancel/commit/raise_decision/report/resolve/withdraw are commands the agent
 # itself ran. no_task joins them for the same reason: cmd_resolve only writes
 # it on a queued row the resolving agent just answered, in the same command
 # as its own "resolve" event, so it can never move a clock "resolve" did not
-# already move (close_task is deliberately NOT here - see the daemon_kinds
+# already move (discard_task is deliberately NOT here - see the daemon_kinds
 # comment in test_only_the_agents_own_events_move_its_activity_clock; #1565
 # SF3, the fourth event ocp could attribute to an agent that did nothing).
 # Of the hook events ocp captures (ocp/session/events.py CAPTURED),
@@ -168,7 +168,7 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
 # gives for leaving SessionStart out of ACTIVE_EVENTS, applied here to the
 # clock it never reached before.
 AGENT_ACTIVITY_KINDS = frozenset({
-    "ask", "cancel", "commit", "escalate", "report", "resolve", "withdraw",
+    "ask", "cancel", "commit", "raise_decision", "report", "resolve", "withdraw",
     "no_task",
     # T292: task_new is the opener asking (its own delivery, C1); task_start
     # and task_note are likewise always the calling agent's own doing -

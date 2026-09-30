@@ -1,12 +1,10 @@
-"""ocp ask - the only command agents use (team model section 3).
-
-    ocp ask <target> "<request>" [--files a.ts,b.ts]
+"""Requests between agents (team model section 3): what `ocp task new` and `ocp say` write.
 
 The agent supplies a target and a message. Everything else is decided here:
 whether the edge is allowed, chain depth, rate limiting, and
 what happens to the requester. No model is involved in any of it.
 
-A denied ask returns the reason, so the agent learns the policy rather than
+A denied request returns the reason, so the agent learns the policy rather than
 guessing at it or trying to route around it.
 """
 from __future__ import annotations
@@ -27,25 +25,6 @@ from ..infra import timefmt
 # only a human clears it (section 8.6); without this an agent could launder
 # its own STALLED away just by sending a request.
 TERMINAL_STATES = {"STALLED"}
-
-# How long a requester waits on an async reply before the daemon re-evaluates
-# it anyway. Not a timeout on the request - just a guarantee that a lost reply
-# cannot strand an agent.
-AWAIT_FALLBACK_S = 3600
-
-# The marker on a PARKED row's `detail` that says this park is a requester
-# waiting on its own async ask, not a usage wall - read back by the screen
-# (tui.screen_state) to draw it as IDLE, not PENDING, with what it waits for.
-AWAIT_REPLY_MARK = "reply "
-
-
-def await_reply_detail(rid: int, target: str) -> str:
-    return f"{AWAIT_REPLY_MARK}#{rid} {target}"
-
-# Where a runaway goes. Exceeding a limit is not a reason to silently drop the
-# request on the floor - a human has to see that the team got stuck in a loop
-# (team model section 6).
-ESCALATION_TARGET = "human"
 
 # A review that bounces on the same file this many times is not a review
 # problem any more. Two agents that cannot agree is usually a spec question.
@@ -68,7 +47,7 @@ def asking_agent() -> str | None:
 
     Only the commands a human types may make that assumption. "I cannot tell
     who you are" and "you are the human" are not the same answer - the human is
-    the escalation target and the most privileged node in the
+    the founder and the most privileged node in the
     routing table, so handing it to any process that merely lost the variable
     is a fail-open. A human has a terminal; a script that dropped its
     environment does not, and it gets the refusal it used to get.
@@ -112,17 +91,17 @@ def deliver(rid: int, requester: str, target: str, body: str,
     return p
 
 
-def _escalate(con, requester: str, target: str, body: str, files: str | None,
+def _stop_runaway(con, requester: str, target: str, body: str, files: str | None,
               chain_id: str | None, depth: int, parent_id: int | None,
               reason: str) -> int:
     """Raise a runaway to a human instead of dropping it silently."""
-    text = (f"[escalation] {requester} -> {target} was stopped: {reason}\n\n"
+    text = (f"[stopped] {requester} -> {target} was stopped: {reason}\n\n"
             f"Original request:\n{body}")
-    return escalate(con, requester, text, reason, files, chain_id=chain_id, depth=depth,
+    return raise_decision(con, requester, text, reason, files, chain_id=chain_id, depth=depth,
                     parent_id=parent_id, event_extra={"blocked_target": target})
 
 
-def escalate(con, agent: str, text: str, reason: str, files: str | None = None, *,
+def raise_decision(con, agent: str, text: str, reason: str, files: str | None = None, *,
              chain_id: str | None = None, depth: int = 0, parent_id: int | None = None,
              event_extra: dict | None = None) -> int:
     """Put something only a human can act on in front of them: a decision task of
@@ -139,16 +118,16 @@ def escalate(con, agent: str, text: str, reason: str, files: str | None = None, 
     same = db.open_decision_card_ids(con, agent, body=text)
     if same:
         return same[0]
-    rid = db.add_request(con, agent, ESCALATION_TARGET, text, files,
+    rid = db.add_request(con, agent, HUMAN, text, files,
                          None, "fire_and_forget", "task", depth, parent_id,
                          chain_id=chain_id)
-    tid = db.new_task(con, title, ESCALATION_TARGET, agent, expects="decision")
-    db.set_task_queued(con, tid, ESCALATION_TARGET)
+    tid = db.new_task(con, title, HUMAN, agent, expects="decision")
+    db.set_task_queued(con, tid, HUMAN)
     db.link_request(con, tid, rid)
-    deliver(rid, agent, ESCALATION_TARGET, text, files,
+    deliver(rid, agent, HUMAN, text, files,
             team.Decision(True, reason, kind="task", response="fire_and_forget",
-                          creates_gate=True, chain_depth=depth))
-    db.add_event(con, agent, "escalate",
+                          chain_depth=depth))
+    db.add_event(con, agent, "raise_decision",
                  {"request_id": rid, "task_id": tid, "reason": reason, **(event_extra or {})})
     return rid
 
@@ -159,26 +138,26 @@ def report(con, agent: str, text: str, reason: str) -> int:
     `agent` is who it is about. Fire and forget and `fyi`, so nothing is typed
     back at `agent` and nothing waits on the human.
     """
-    rid = db.add_request(con, agent, ESCALATION_TARGET, text, None, None, "fire_and_forget",
+    rid = db.add_request(con, agent, HUMAN, text, None, None, "fire_and_forget",
                          "say", 0, None, fyi=True)
-    deliver(rid, agent, ESCALATION_TARGET, text, None,
+    deliver(rid, agent, HUMAN, text, None,
             team.Decision(True, reason, kind="say", response="fire_and_forget",
-                          creates_gate=False, chain_depth=0))
+                          chain_depth=0))
     db.add_event(con, agent, "report", {"request_id": rid, "reason": reason})
     return rid
 
 
 def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
-                    exclude_id: int | None = None, kind: str | None = None) -> str | None:
+                    kind: str | None = None) -> str | None:
     """Detect A->B->A inside one chain (team model section 6).
 
     Depth alone does not catch this: two agents can bounce a request back and
     forth well inside the depth limit and never finish.
 
     A chain with the human at one end is exempt. What this stops is a loop no
-    one is watching, and the human is who a loop is escalated *to* - refusing
+    one is watching, and the human is who a stopped loop is raised *to* - refusing
     "you replied to my reply" would make a threaded conversation illegal from
-    its second turn, and the escalation it raised would be addressed to the
+    its second turn, and the decision it raised would be addressed to the
     same human who is typing.
 
     T293: a say is exempt too - #1655's "a reply to a say is a say" makes
@@ -187,7 +166,7 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
     """
     if not chain_id or HUMAN in (requester, target) or kind == SAY_KIND:
         return None
-    rows = db.chain_members(con, chain_id, exclude_id=exclude_id)
+    rows = db.chain_members(con, chain_id)
     for r in rows:
         if r["requester"] == target and r["target"] == requester:
             return (f"cycle: {target} already asked {requester} in this chain "
@@ -195,8 +174,7 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
     return None
 
 
-def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
-                     exclude_id: int | None = None) -> str | None:
+def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) -> str | None:
     """Count review round-trips on the same file within one chain."""
     if not chain_id or target != "reviewer" or not files:
         return None
@@ -204,7 +182,7 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
     if not wanted:
         return None
     trips = 0
-    for r in db.chain_members(con, chain_id, exclude_id=exclude_id):
+    for r in db.chain_members(con, chain_id):
         if r["target"] != "reviewer":
             continue
         have = {f for f in (r["files"] or "").split(",") if f}
@@ -214,31 +192,6 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
         return (f"review ping-pong: {trips} rounds on {', '.join(sorted(wanted))} "
                 f"in this chain. Two agents who cannot agree is usually a spec question.")
     return None
-
-
-def _merge_into_queued(con, requester: str, target: str, body: str,
-                       files: str | None, timebox_s: int | None = None) -> int | None:
-    """Fold this ask into one already queued, undelivered, for the same target.
-
-    Team model section 5: a review belongs to a PR, not to every commit in it.
-    Delivered is excluded: merging into a row the target is already reading
-    or working from would change its content with nobody told (request #189).
-    A `--timebox` on the folded ask is the latest word on the merged row's, and
-    none leaves the queued row's own.
-    """
-    rows = con.execute(
-        "SELECT * FROM requests WHERE requester = ? AND target = ? AND state = 'queued' "
-        "AND delivered_at IS NULL ORDER BY id DESC LIMIT 1", (requester, target)).fetchone()
-    if rows is None:
-        return None
-    merged_body = rows["body"].rstrip() + "\n\n--- also ---\n" + body.strip()
-    merged_files = ",".join(sorted(
-        {f for f in ((rows["files"] or "") + "," + (files or "")).split(",") if f}
-    )) or None
-    con.execute("UPDATE requests SET body = ?, files = ?, ts = ?, "
-                "timebox_s = COALESCE(?, timebox_s) WHERE id = ?",
-                (merged_body, merged_files, int(time.time()), timebox_s, rows["id"]))
-    return int(rows["id"])
 
 
 # T292/T293: the `kind` overrides `ask` accepts for a task, a task note or a
@@ -257,25 +210,19 @@ _ENV = object()
 
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
-        parent_id: int | None = None, mergeable: bool = False, first: bool = False,
-        replaces: int | None = None, fyi: bool = False,
-        reason: str | None = None,
+        parent_id: int | None = None, fyi: bool = False,
         timebox_s: int | None = None, kind: str | None = None,
-        park: bool = True, send_now: bool = False,
+        send_now: bool = False,
         on_behalf_of: bool = False, speaker=_ENV,
         notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
-    `first` and `replaces` are request #189's --first and --replaces; see
-    `db.add_request` and `db.head_of_queue`. `reason` is what the retired
-    request's verdict says after "replaced by #N", exactly as typed; it means
-    nothing without `replaces`. `timebox_s` is how long after delivery the
+    `timebox_s` is how long after delivery the
     asker is told it is still open (daemon.timebox); None follows config.yaml.
     `kind` overrides the routing edge's own `decision.kind` on the request
     row - T292's `task new` uses it to write 'task' regardless of what the
     edge between opener and owner happens to carry, since a task is a task
-    whichever edge assigned it. `park` False skips the requester's own async
-    park below - T293's `say` never records a wait beyond its reply window.
+    whichever edge assigned it.
     `send_now` marks the new row (`db.mark_send_now`) on this same
     connection - `say` needs that mark, and a second connection for it could
     leave it unmarked, and unreachable, if one crashed between the two.
@@ -314,73 +261,31 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     t = team.Team.load()
     con = db.connect()
     try:
-        old = None
-        if replaces is not None:
-            old = db.get_request(con, replaces)
-            if old is None:
-                return False, f"request {replaces} does not exist", None
-            if old["requester"] != requester:
-                return False, (f"#{replaces} is {old['requester']} -> {old['target']}, "
-                               f"not yours to replace"), None
-            if old["state"] != "queued":
-                return False, (f"#{replaces} is already {old['state']} - "
-                               f"nothing to replace"), None
-            from . import hr
-            if hr.is_open_proposal(replaces):
-                # #1938 should-fix: the proposer is `old["requester"]`, so
-                # `--replaces` passes the ownership check above and would
-                # close the escalation with "replaced by #N" - not a
-                # decision, and the new row it queues is not linked to the
-                # proposal, so approving it enacts nothing. `hr withdraw`
-                # is the one way out; a corrected proposal is a fresh one.
-                return False, (f"#{replaces} is a roster proposal - `hr withdraw` it "
-                               f"and send a fresh proposal instead"), None
-            # The human's rows are "delivered" when drawn on the bridge, and
-            # nobody can withdraw or answer one on their behalf - so a
-            # correction is the only way a stale escalation ever leaves.
-            if old["delivered_at"] and old["target"] != HUMAN:
-                return False, (f"#{replaces} was already delivered to {old['target']} - "
-                               f"it is too late to replace; send a reply in its thread "
-                               f"instead (`ocp say {old['target']} \"...\" --parent "
-                               f"{replaces}`)"), None
-
-        # A correction of a reply is still that reply: without its thread it is
-        # a new request, and waits behind the head it was written to follow.
-        if old is not None and parent_id is None:
-            parent_id = old["parent_id"]
-
-        depth, chain_id = 0, None
+        depth, chain_id, is_reply = 0, None, False
         if parent_id:
             parent = db.get_request(con, parent_id)
             if parent is None:
                 return False, f"parent request {parent_id} does not exist", None
             depth = int(parent["chain_depth"]) + 1
             chain_id = parent["chain_id"]
+            is_reply = replies_to(parent, requester, target)
             # The human's turn starts the count again, and keeps the thread.
             # The limit is there so a runaway ends up in front of a human; a
             # reply typed by that human is the limit having worked, not a hop
             # towards it.
             if requester == HUMAN:
                 depth = 0
-        elif old is not None:
-            # A correction to an undelivered request continues the same
-            # conversation, not a fresh one - but only when nothing else
-            # already said which conversation this is.
-            chain_id = old["chain_id"]
 
-        # A loop is stopped and escalated, never silently dropped: a request
-        # that vanishes leaves the team stuck with nobody knowing why. `old`
-        # is excluded: it is about to be retired below and counting it here
-        # would count a round that, from the target's side, never happened.
-        for detect in (_cycle_in_chain(con, chain_id, requester, target, exclude_id=replaces,
-                                      kind=kind),
-                       _review_pingpong(con, chain_id, target, files, exclude_id=replaces)):
+        # A loop is stopped and raised to the founder, never silently dropped: a request
+        # that vanishes leaves the team stuck with nobody knowing why.
+        for detect in (_cycle_in_chain(con, chain_id, requester, target, kind=kind),
+                       _review_pingpong(con, chain_id, target, files)):
             if detect:
-                eid = _escalate(con, requester, target, body, files, chain_id,
+                eid = _stop_runaway(con, requester, target, body, files, chain_id,
                                 depth, parent_id, detect)
-                return False, f"{detect}\nEscalated to {ESCALATION_TARGET} as #{eid}.", None
+                return False, f"{detect}\nRaised to the founder as #{eid}.", None
 
-        decision = t.route(requester, target, chain_depth=depth)
+        decision = t.route(requester, target, chain_depth=depth, reply=is_reply)
         if not decision.allowed:
             if db.standing_denial(con, requester, target, body, files,
                                   int(time.time()) - team.ASK_WINDOW_S) is None:
@@ -388,10 +293,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                depth, parent_id, state="denied", verdict=decision.reason,
                                chain_id=chain_id)
             # Hitting the depth limit is a runaway, not an ordinary refusal.
-            if "chain depth" in decision.reason and target != ESCALATION_TARGET:
-                eid = _escalate(con, requester, target, body, files, chain_id,
+            if "chain depth" in decision.reason and target != HUMAN:
+                eid = _stop_runaway(con, requester, target, body, files, chain_id,
                                 depth, parent_id, decision.reason)
-                return False, (f"{decision.reason}\nEscalated to {ESCALATION_TARGET} "
+                return False, (f"{decision.reason}\nRaised to the founder "
                                f"as #{eid}."), None
             return False, decision.reason, None
 
@@ -422,37 +327,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                            f"next slot frees at {when}; wait for it rather than retrying, "
                            f"because a refusal sends nothing. Your text is kept as #{rid}."), None
 
-        if mergeable and old is None:
-            merged = _merge_into_queued(con, requester, target, body, files, timebox_s)
-            if merged is not None:
-                row = db.get_request(con, merged)
-                deliver(merged, requester, target, row["body"], row["files"], decision)
-                return True, f"merged into the queued request #{merged} for {target}", merged
-
-        if old is not None:
-            # Atomic, and before the new row exists: a delivery landing
-            # between the check above and here must not be undone by this, so
-            # the write itself is the gate, not a second look at delivered_at.
-            retire = db.retire_queued if old["target"] == HUMAN else db.retire_if_undelivered
-            if not retire(con, replaces, "replaced"):
-                if db.is_still_queued(con, replaces):
-                    return False, f"#{replaces} was not replaced - it is still queued", None
-                if old["target"] == HUMAN:
-                    return False, f"#{replaces} was answered just now - nothing to replace", None
-                return False, (f"#{replaces} was delivered to {old['target']} just now - "
-                               f"too late to replace; send a reply in its thread instead "
-                               f"(`ocp say {old['target']} \"...\" --parent {replaces}`)"), None
-
         rid = db.add_request(con, requester, target, body, files, decision.relation,
                              decision.response, kind or decision.kind,
                              depth, parent_id,
-                             chain_id=chain_id, first=first, fyi=fyi, timebox_s=timebox_s,
-                             queue_order=(old["queue_order"]
-                                         if old is not None and old["target"] == target
-                                         else None))
+                             chain_id=chain_id, fyi=fyi, timebox_s=timebox_s)
         if send_now:
             db.mark_send_now(con, rid)
-        if card and target == HUMAN and not fyi and (kind or decision.kind) == "escalate":
+        if card and target == HUMAN and not fyi and kind is None and decision.kind == "task":
             # What is asked of the founder is a decision task, and this row its card;
             # `task new` opens its own task and says `card=False`.
             tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
@@ -467,40 +348,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                     "AND fyi = 1 AND state = 'queued' AND id != ?",
                     (requester, HUMAN, rid)).fetchall():
                 db.retire_queued(con, int(prev["id"]), "replaced", f"replaced by #{rid}")
-        if old is not None:
-            con.execute("UPDATE requests SET verdict = ? WHERE id = ?",
-                       (f"replaced by #{rid}" + (f": {reason}" if reason else ""), replaces))
-            db.set_moot_by(con, replaces, rid)
-            p = _inbox(old["target"]) / f"{replaces:06d}.json"
-            if p.exists():
-                p.unlink()
         db.add_event(con, requester, "ask", {
             "request_id": rid, "target": target, "relation": decision.relation,
             "response": decision.response, "chain_depth": depth,
-            "replaces": replaces, "first": first,
         })
 
-        # async: the requester parks rather than hold an account while it
-        # waits. The fallback wake_at is there so a reply that never arrives
-        # cannot strand it (the permanent stop section 8.4 warns about).
-        #
-        # The human is not one of them. They hold no account, there is no
-        # session to park and nothing will ever wake them, so a state row in
-        # their name is bookkeeping about nobody - and it is drawn: `ocp ps`
-        # listed the founder among the agents, parked, for as long as it sat
-        # there.
-        if park and decision.response == "async" and requester != HUMAN \
-                and not _terminal(con, requester):
-            db.set_agent_state(con, requester, "PARKED",
-                               wake_at=int(time.time()) + AWAIT_FALLBACK_S,
-                               detail=await_reply_detail(rid, target))
-
         note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
-        if old is not None:
-            note = f"replaces #{replaces}; {note}"
-        if decision.creates_gate and not fyi and kind != SAY_KIND:
-            note += " [escalation: needs a human gate]"
-        elif notify:
+        if notify:
             note += "\n" + push(con, target, rid)
         return True, note, rid
     finally:
@@ -510,18 +364,24 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 SAY_TIMEBOX_S = 30 * 60
 
 
+def replies_to(parent, requester: str, target: str) -> bool:
+    """Does a request from `requester` to `target` answer `parent`: one `target` sent to
+    `requester`. Such a reply needs no edge back (`Team.route`)."""
+    return parent is not None and parent["target"] == requester and parent["requester"] == target
+
+
 def say(target: str, body: str, requester: str | None = None,
         parent_id: int | None = None, speaker=_ENV,
         notify: bool = True) -> tuple[bool, str, int | None]:
     """T293 (#1655/#1657): a question answered from a look-up, not new work
-    - always ahead of the queue, never a head, no park beyond the fixed
-    30-minute reply window (none to the founder). `parent_id` replies to and
+    - always ahead of the queue, never a head, and the sender is never parked
+    on it (T628: nobody parks waiting on a peer). `parent_id` replies to and
     settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
     """
     timebox = None if target == HUMAN else SAY_TIMEBOX_S
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
-                      kind=SAY_KIND, timebox_s=timebox, park=False, send_now=True,
+                      kind=SAY_KIND, timebox_s=timebox, send_now=True,
                       speaker=speaker, notify=notify)
     if ok and parent_id is not None and rid is not None:
         _close_replied(parent_id, rid, body)
@@ -716,7 +576,7 @@ def withdraw(rid: int, requester: str | None = None,
             # `hr.is_open_proposal` is what actually happened.
             from . import hr
             if hr.is_open_proposal(rid):
-                # #1943: a roster proposal's own escalation is `requester`'s
+                # #1943: a roster proposal's own decision task is `requester`'s
                 # to withdraw here too - ordinary ownership, since it is
                 # `requester`'s own row - but the ocp/db/requests.py chokepoint refuses
                 # this generic verdict on it the same way it refuses every
@@ -795,7 +655,7 @@ def cancel(rid: int) -> tuple[bool, str]:
             return withdraw(rid, requester=HUMAN)
         if hr.is_open_proposal(rid):
             # Same family as #1908/#1919: CANCEL_VERDICT is not approve or
-            # reject either, so cancelling a proposal escalation would strand
+            # reject either, so cancelling a roster proposal would strand
             # it exactly as an unguarded resolve or dismiss would.
             return False, (f"#{rid} is a roster proposal - answer `approve` or "
                            f"`reject`, it cannot be cancelled")

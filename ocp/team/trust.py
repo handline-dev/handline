@@ -137,7 +137,7 @@ def _save_proposal(prop: dict) -> None:
 
 
 def open_proposal_of(rid: int) -> str | None:
-    """The id of the trust proposal still waiting on an answer whose escalation is request `rid`."""
+    """The id of the trust proposal still waiting on an answer whose decision is request `rid`."""
     for p in listing():
         if p.get("state") == "proposed" and int(p.get("request") or 0) == rid:
             return p["id"]
@@ -163,7 +163,7 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
     prop = {"id": uuid.uuid4().hex[:8], "root": resolved, "why": why.strip(),
             "requested_by": requester, "created": int(time.time()), "state": "proposed"}
     from .. import actions      # a decision is a task of the founder's
-    ok, said, rid = actions.open_decision(requester, _escalation(prop))
+    ok, said, rid = actions.open_decision(requester, _decision_text(prop))
     if not ok:
         return False, f"could not raise it: {said}"
     prop["request"] = rid
@@ -173,13 +173,13 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
 
 
 def _root_read(body: str | None, requester: str) -> str | None:
-    """The root the founder was shown: the path in the escalation's own first
+    """The root the founder was shown: the path in the decision's own first
     line, and only if that line names this requester."""
     m = re.fullmatch(r"\[trust\] add (.+) - asked by (\S+)", (body or "").split("\n", 1)[0])
     return m.group(1) if m and m.group(2) == requester else None
 
 
-def _escalation(prop: dict) -> str:
+def _decision_text(prop: dict) -> str:
     return (f"[trust] add {prop['root']} - asked by {prop['requested_by']}\n\n"
             f"{prop['why']}\n\n"
             f"ocp would press \"Yes, I trust this folder\" for this path and "
@@ -194,7 +194,7 @@ def subject_of(prop: dict) -> str:
 
 def answered(prop: dict, row) -> tuple[str | None, str | None]:
     """(subject, refusal) for the answer given on `row`: the root the founder
-    was shown, read off the escalation itself - not the draft, which an agent
+    was shown, read off the decision itself - not the draft, which an agent
     can edit - so apply can tell whether the draft still names it."""
     read = _root_read(row["body"], row["requester"])
     if read is None:
@@ -229,7 +229,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     try:
         row = db.get_request(con, int(prop.get("request") or 0))
         if row is None:
-            return False, f"proposal {pid} has no escalation to check - raise it again"
+            return False, f"proposal {pid} has no decision to check - raise it again"
         if row["state"] == "queued":
             return False, (f"the founder has not answered #{row['id']} yet. It is on "
                            f"`ocp bridge`, top panel.")

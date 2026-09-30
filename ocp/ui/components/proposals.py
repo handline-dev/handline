@@ -28,7 +28,7 @@ DECIDE, STRANDED = "decide", "no decision"
 def open_proposals(con) -> list[dict]:
     """The proposals that are the founder's move, oldest first (a tie by request id): each proposal's own
     fields plus `rid` and `asked` (the request's id and time) and `status`.
-    DECIDE is one whose escalation is still queued; STRANDED is one closed with a
+    DECIDE is one whose decision is still queued; STRANDED is one closed with a
     reply that is neither approve nor reject (`reply` holds it), which only a
     withdraw can end. One approved or rejected is out: an approve is applied at once, a reject recorded."""
     out = []

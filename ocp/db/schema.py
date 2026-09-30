@@ -57,8 +57,8 @@ CREATE TABLE IF NOT EXISTS requests (
   -- be two days apart: a screen that sorts answers by `ts` puts yesterday's
   -- reply above this morning's, which reads as an old message nobody answered.
   resolved_at INTEGER,
-  -- FIFO position within one target's queue - defaults to id, but `--first`
-  -- bisects between two existing orders, so this is REAL, not INTEGER.
+  -- FIFO position within one target's queue - starts as id, and promoting a
+  -- row moves it to a smaller value, so this is REAL, not INTEGER.
   queue_order REAL,
   -- Set once, the first time this request is actually shown to its target
   -- (request #189). NULL is what makes a request still withdrawable/
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS requests (
   -- id: a cursor for every request ever sent out of turn sat in `cursors`
   -- forever, with nothing to ever clear it.
   told_out_of_turn INTEGER,
-  -- `ocp ask --timebox`: seconds after delivery when the asker is told it is
+  -- seconds after delivery when the asker is told it is
   -- still open. NULL follows config.yaml's timebox_s. The notice is once per
   -- request, so its time is a column, not a cursor left behind for every row.
   timebox_s INTEGER,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS requests (
   -- relation. Read from the row that went moot; nothing in routing, chain
   -- depth, the cycle guard or any limit may read it, the same reason
   -- parent_id does not fit that job. Set once, by the verb that already
-  -- knows both ids (a replace, or `ocp resolve --retires`).
+  -- knows both ids (a replace).
   moot_by     INTEGER,
   -- Task #70: a dismissal is a state of the row, not words anyone said. Who
   -- dismissed it and the reason they gave (when is resolved_at); the verdict
@@ -124,12 +124,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   owner        TEXT NOT NULL,
   parent_task  INTEGER REFERENCES tasks(id),
   opened_by    TEXT NOT NULL,
-  -- Task #71: a single close used to conflate two different calls - the
-  -- builder's evidence that the work is done, and the asker's sign-off that
-  -- ends it. They are split. done_evidence is that evidence: a merge sha
-  -- (checked against main), the id of a request where the result was
+  -- The builder's evidence that the work is done, and final (T568: the
+  -- asker's separate sign-off is gone; a wrong result is reopened): a merge
+  -- sha (checked against main), the id of a request where the result was
   -- already reported, or a free-text fact for work that leaves no commit.
-  -- NULL is "not done yet"; written once, by `ocp task done`.
+  -- NULL is "not done yet"; written by `ocp task done`.
   done_evidence TEXT,
   -- #1366 should-fix 2, carried over: when done_evidence was written,
   -- stamped alongside it - reason_gaps() needs it to age old closes out of a
@@ -150,29 +149,22 @@ CREATE TABLE IF NOT EXISTS tasks (
   edited_by    TEXT,
   edited_at    INTEGER,
   created_at   INTEGER NOT NULL,
-  -- The asker's own sign-off (`ocp close`), final - see actions.task_asker
-  -- for who that is. An identity, not evidence: NULL is "still open"
-  -- (whether waiting, doing or done); written once, and only once
-  -- done_evidence is set - `close_task` refuses a task that is not done yet.
-  -- Ordered last here, after every other column, since the #71 migration
-  -- can only ADD these two (SQLite has no "insert column here"). A table
-  -- migrated through earlier ALTERs (edited_by/edited_at added before #71
-  -- ran) still ends up in a different physical order than a fresh CREATE
-  -- TABLE - nothing in ocp reads a task's columns by position, so that's
-  -- fine; TASK_FIELDS is compared as a set, never as an order.
+  -- Unused since T568 dropped the close step: a done task is final. Kept
+  -- because older databases carry them and earlier migrations still read
+  -- them; only migrations read them, and nothing writes them.
   closed_by    TEXT,
   closed_at    INTEGER,
   -- A discard (task #85): the asker throwing the task away before it is
-  -- done. It also writes closed_by/closed_at, so every open-task query, block
-  -- and guard already treats it as gone; these two say it was thrown away, by
-  -- whom and why (closed_at is when) - never signed off as finished work.
+  -- done - by whom, why and when. Never signed off as finished work. A task
+  -- merged into another is a discard whose reason is 'merged into T<n>'.
   discarded_by  TEXT,
   discard_reason TEXT,
+  discarded_at  INTEGER,
   -- Task T68: 1 (P1, high), 2 (P2, the default) or 3 (P3, low). Lists sort
   -- by it, then by id.
   priority     INTEGER NOT NULL DEFAULT 2,
-  -- The task this one was merged into. Written with closed_by/closed_at, so
-  -- a merged task leaves every open set the way a close does.
+  -- The task this one was merged into (T568: it is also a discard, reason
+  -- 'merged into T<n>'); kept so the page can link to it.
   merged_into  INTEGER REFERENCES tasks(id),
   -- Task T82: NULL is a draft (recorded, not approved to run); set, it is
   -- queued - approved, and the manager pulls it to its owner. `doing` is not
@@ -194,10 +186,10 @@ CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
 -- task #21/#1884: `task_id` cannot be worked until `blocks_on` closes. A row
 -- here, not a column on `tasks`, because a task can be blocked by more than
 -- one other and `--unblock` removes exactly one edge. Gone once `blocks_on`
--- closes, in the same transaction that closes it and writes any resulting
--- notice (actions.close_task) - `add_block` also refuses to write a row
--- naming an already-closed task on either end. `task_blockers` still checks
--- `tasks.closed_by` itself rather than trusting a row's mere presence,
+-- ends by discard, in the same transaction that discards it and writes any
+-- resulting notice (actions.discard_task) - `add_block` also refuses to write
+-- a row naming an already-ended task on either end. `task_blockers` still
+-- checks the task's own state rather than trusting a row's mere presence,
 -- cheap insurance against either guard missing a case, not the only place
 -- that state lives.
 CREATE TABLE IF NOT EXISTS task_blocks (
@@ -492,7 +484,7 @@ def _pre_schema_migrate(con) -> None:
         # above, so the head is its smallest id). The old delivery did show a
         # target every queued row, not just this one, so a row past the head
         # may already have been read; marking it delivered anyway would leave
-        # --first nothing left to land in front of, which matters more.
+        # nothing to promote ahead of it.
         con.execute("""
             UPDATE requests SET delivered_at = ts WHERE state = 'queued' AND id IN (
                 SELECT MIN(id) FROM requests WHERE state = 'queued' GROUP BY target
@@ -732,7 +724,7 @@ def _one_doing_task_each(con) -> None:
     from .events import add_event
     from .requests import HUMAN
     rows = con.execute(
-        "SELECT t.id, t.owner FROM tasks t WHERE t.closed_by IS NULL AND t.done_evidence IS NULL "
+        "SELECT t.id, t.owner FROM tasks t WHERE t.discarded_by IS NULL AND t.done_evidence IS NULL "
         "AND t.owner != ? AND (t.id IN (SELECT l.task_id FROM task_requests l JOIN requests r "
         "ON r.id = l.request_id WHERE r.state = 'queued' AND r.fyi = 0) "
         f"OR t.id IN (SELECT {EVENT_TASK} FROM events WHERE kind = 'task_begin')) ORDER BY t.id",
@@ -907,6 +899,19 @@ def _add_missing_columns(con) -> None:
         con.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2")
     if "merged_into" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN merged_into INTEGER REFERENCES tasks(id)")
+    if "discarded_at" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN discarded_at INTEGER")
+        con.execute("UPDATE tasks SET discarded_at = closed_at WHERE discarded_by IS NOT NULL")
+    # T568: closed is done and merged is a discard, so a task ends only by
+    # done or discard. A closed row already carries its evidence.
+    con.execute(
+        "UPDATE tasks SET discarded_by = closed_by, discarded_at = closed_at, "
+        "discard_reason = 'merged into T' || merged_into "
+        "WHERE merged_into IS NOT NULL AND discarded_by IS NULL")
+    con.execute(
+        "UPDATE tasks SET done_evidence = 'closed by ' || closed_by, done_at = closed_at, "
+        "done_via = 'reason' WHERE closed_by IS NOT NULL AND discarded_by IS NULL "
+        "AND done_evidence IS NULL")
     if "timeout_s" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_s INTEGER")
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_at INTEGER")

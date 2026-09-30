@@ -21,9 +21,11 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
   is done, with its result. On a PASS open the same for `orcapipe.merger`
   (`"merge T<n> @<sha>"`, body naming the PASS task); it closes with the merged
-  commit (`--sha`) or `"not merged: <reason>"`. Then close T<n> with that sha if
-  you may close it, else `ocp task handoff T<n> <its opener> "merged <sha>"`.
-  An auditor or merger never hands a review or merge task back: it closes it.
+  commit (`--sha`) or `"not merged: <reason>"`. Then mark T<n> done with that sha
+  (`ocp task done T<n> --sha <sha>`; it is refused while a child is open), else
+  `ocp task handoff T<n> <its opener> "merged <sha>"`. A wrong result is
+  reopened by its asker. An auditor or merger never hands a review or merge task
+  back: it finishes it.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
   `ocp team` (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown

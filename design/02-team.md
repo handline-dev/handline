@@ -155,19 +155,22 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 기본은 `async` — 요청자는 handoff하고 park한다. 인프라 설계서 §8 상태머신과 맞물린다.
 (에이전트는 한도에 닿으면 pick이 고른 계정으로 한 번 옮겨 가고, 놀던 계정은 다음 pick에서 쓰인다.)
 
-코드에서 에지는 `relation`(`supervisor` 만 특별 취급, 나머지는 peer), `response`(`async` | `fire_and_forget`, 그 밖의 값은 로드 실패), `kind`(`escalate` 는 게이트를 만든다, `verdict`, `report`) 를 가진다. 요청은 `--fyi` 로 보고가 되며, 보고는 사람이 열면 닫힌다.
+코드에서 에지는 `relation`(`supervisor` 만 특별 취급, 나머지는 peer), `response`(`async` | `fire_and_forget`, 그 밖의 값은 로드 실패), `kind`(`task` 는 창업자에게 가는 결정 작업을 만든다 — 예전 이름 `escalate` 도 같은 뜻으로 읽는다, `verdict`, `report`) 를 가진다. 요청은 `--fyi` 로 보고가 되며, 보고는 사람이 열면 닫힌다.
 
 ### 작업 (task)
 
-요청 위에 작업이 있다: `ocp task new|list|queue|draft|link|edit|merge|done|reopen|discard|board`. 작업은 draft(기록만) → queued(창업자나 소유자의 매니저가 승인) → doing(요청이 나가 있음) → done → closed 로 간다. 작업은 제목·소유자·연 사람·부모를 갖고, 요청을 연결해 두면 누가 지금 들고 있는지 보인다. `done` 은 근거 하나를 요구한다 (main 에 있는 merge sha, 결과가 이미 보고된 요청 id, 또는 커밋이 남지 않는 일의 사실 한 줄). 닫는 건 소유자나 연결된 요청의 대상, 재개·폐기는 연 사람이다.
+요청 위에 작업이 있다: `ocp task new|list|queue|draft|link|edit|merge|done|reopen|discard|board`. 작업은 draft(기록만) → queued(창업자나 소유자의 매니저가 승인) → doing(요청이 나가 있음) → done 으로 간다. done 은 최종이고, 결과가 틀리면 연 사람이 reopen 한다. 열린 하위 작업이나 열린 blocker 가 있으면 done 이 되지 않는다. 끝나는 길은 done 과 discard 둘뿐이고, `task merge` 로 합쳐진 작업은 'merged into T<n>' 이유의 discard 다. 작업은 제목·소유자·연 사람·부모를 갖고, 요청을 연결해 두면 누가 지금 들고 있는지 보인다. `done` 은 근거 하나를 요구한다 (main 에 있는 merge sha, 결과가 이미 보고된 요청 id, 또는 커밋이 남지 않는 일의 사실 한 줄). 닫는 건 소유자나 연결된 요청의 대상, 재개·폐기는 연 사람이다.
 
 ---
 
-## 3. 에이전트가 쓰는 명령은 하나뿐
+## 3. 에이전트가 쓰는 명령은 둘뿐
 
 ```bash
-ocp ask <target> "<요청>" [--files a.ts,b.ts]
+ocp task new --owner <target> "<제목>" "<요청>"   # 일: 결과가 필요하면 작업이다
+ocp say <target> "<메시지>"                       # 답이 필요 없는 말, 바로 입력된다
 ```
+
+(`ocp ask`, `ocp resolve`, `ocp dismiss` 는 T560 에서 없어졌다.)
 
 에이전트가 아는 것: **대상과 내용.** 그게 전부다.
 
@@ -211,7 +214,7 @@ edges:
   - { from: "product",   to: "growth.*",     relation: peer,  response: async }
   - { from: "analytics", to: "product",      relation: peer,  response: async }
   - { from: "*",         to: "archivist",    relation: peer,  response: fire_and_forget }
-  - { from: "*",         to: "orchestrator", kind: escalate,  creates_gate: true }
+  - { from: "*",         to: "orchestrator", kind: task }
 
 deny:
   - { from: "eng.*",    to: "growth.*",  reason: "팀 간 직접 요청 금지 — product 경유" }

@@ -17,7 +17,7 @@ from .schema import EVENT_TASK
 TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
-               "discarded_by", "discard_reason", "priority", "merged_into",
+               "discarded_by", "discard_reason", "discarded_at", "priority", "merged_into",
                "queued_by", "queued_at", "expects", "timeout_s", "timeout_at")
 
 DEFAULT_PRIORITY = 2
@@ -68,9 +68,17 @@ def get_task(con, tid: int):
     return con.execute("SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
 
 
+# A task is open until it is done or discarded (T568): those are its only two ends.
+OPEN_SQL = "done_evidence IS NULL AND discarded_by IS NULL"
+
+
+def task_ended(row) -> bool:
+    """Done or discarded: the two ways a task ends."""
+    return bool(row["done_evidence"] or row["discarded_by"])
+
+
 def open_tasks(con) -> list:
-    return con.execute(
-        "SELECT * FROM tasks WHERE closed_by IS NULL ORDER BY priority, id").fetchall()
+    return con.execute(f"SELECT * FROM tasks WHERE {OPEN_SQL} ORDER BY priority, id").fetchall()
 
 
 def all_tasks(con) -> list:
@@ -79,7 +87,7 @@ def all_tasks(con) -> list:
 
 def open_child_tasks(con, tid: int) -> list:
     return con.execute(
-        "SELECT * FROM tasks WHERE parent_task = ? AND closed_by IS NULL ORDER BY priority, id",
+        f"SELECT * FROM tasks WHERE parent_task = ? AND {OPEN_SQL} ORDER BY priority, id",
         (tid,)).fetchall()
 
 
@@ -92,29 +100,17 @@ def mark_task_done(con, tid: int, evidence: str, via: str = "reason") -> bool:
     would guess wrong)."""
     cur = con.execute(
         "UPDATE tasks SET done_evidence = ?, done_at = ?, done_via = ? "
-        "WHERE id = ? AND done_evidence IS NULL AND closed_by IS NULL",
+        "WHERE id = ? AND done_evidence IS NULL AND discarded_by IS NULL",
         (evidence, int(time.time()), via, tid))
-    return cur.rowcount > 0
-
-
-def close_task(con, tid: int, closed_by: str) -> bool:
-    """Close a task, atomically - the asker's sign-off, final. True only if
-    this call was the one that closed it. `closed_by` is an identity, never
-    evidence (that is done_evidence, written earlier by mark_task_done)."""
-    cur = con.execute(
-        "UPDATE tasks SET closed_by = ?, closed_at = ? WHERE id = ? AND closed_by IS NULL",
-        (closed_by, int(time.time()), tid))
     return cur.rowcount > 0
 
 
 def discard_task(con, tid: int, by: str, reason: str) -> bool:
     """Discard a task that is not done, atomically. True only if this call
-    was the one that ended it. Written as a close too (see `tasks`), so it
-    leaves every open set the same way a close does."""
+    was the one that ended it."""
     cur = con.execute(
-        "UPDATE tasks SET closed_by = ?, closed_at = ?, discarded_by = ?, "
-        "discard_reason = ? WHERE id = ? AND closed_by IS NULL AND done_evidence IS NULL",
-        (by, int(time.time()), by, reason, tid))
+        "UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ? "
+        f"WHERE id = ? AND {OPEN_SQL}", (by, int(time.time()), reason, tid))
     return cur.rowcount > 0
 
 
@@ -123,15 +119,15 @@ def set_task_queued(con, tid: int, by: str | None) -> bool:
     atomically. True only if it changed: a task already ended, or already in
     that state, matches no row."""
     cur = con.execute(
-        "UPDATE tasks SET queued_by = ?, queued_at = ? WHERE id = ? AND closed_by IS NULL "
-        "AND done_evidence IS NULL AND queued_by IS " + ("NULL" if by else "NOT NULL"),
+        f"UPDATE tasks SET queued_by = ?, queued_at = ? WHERE id = ? AND {OPEN_SQL} "
+        "AND queued_by IS " + ("NULL" if by else "NOT NULL"),
         (by, int(time.time()) if by else None, tid))
     return cur.rowcount > 0
 
 
 def reopen_task(con, tid: int, is_doing: bool) -> bool:
     """Send a done task back to open, atomically; True only if this call cleared it
-    (a task not done, or already closed, matches no row). `is_doing` is the caller's
+    (a task not done matches no row). `is_doing` is the caller's
     read of `reads_doing`: a doing task's clock restarts from now rather than firing
     on a deadline that passed while it sat done."""
     now = int(time.time())
@@ -139,31 +135,24 @@ def reopen_task(con, tid: int, is_doing: bool) -> bool:
         cur = con.execute(
             "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, "
             "timeout_at = CASE WHEN timeout_s IS NOT NULL THEN ? + timeout_s ELSE NULL END "
-            "WHERE id = ? AND done_evidence IS NOT NULL AND closed_by IS NULL", (now, tid))
+            "WHERE id = ? AND done_evidence IS NOT NULL", (now, tid))
     else:
         cur = con.execute(
             "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, "
-            "timeout_at = NULL WHERE id = ? AND done_evidence IS NOT NULL AND closed_by IS NULL",
+            "timeout_at = NULL WHERE id = ? AND done_evidence IS NOT NULL",
             (tid,))
     return cur.rowcount > 0
 
 
-def tasks_needing_close(con) -> list:
-    """Done tasks not yet closed - #71's 'done - waiting for check' group."""
-    return con.execute(
-        "SELECT * FROM tasks WHERE done_evidence IS NOT NULL AND closed_by IS NULL "
-        "ORDER BY priority, id").fetchall()
-
-
 def tasks_to_clock(con) -> list:
-    """Open tasks (not done, not closed) - T286's daemon sweep reads every one
+    """Open tasks (not done, not discarded) - T286's daemon sweep reads every one
     each tick to start, pause or fire its clock, since whether it is currently
     doing (the only state the clock runs in) is not a column this can filter
     on in SQL. Every task, not only those opened with a timeout: one opened
     inside ocp (a finding, a hold, `task begin`) never passed `task new -t`
     and takes the default once it is doing (T301)."""
     return con.execute(
-        "SELECT * FROM tasks WHERE closed_by IS NULL AND done_evidence IS NULL ORDER BY id").fetchall()
+        f"SELECT * FROM tasks WHERE {OPEN_SQL} ORDER BY id").fetchall()
 
 
 def advance_task_timeout(con, tid: int, now: int, default_s: int) -> None:
@@ -189,7 +178,7 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
               timeout_s: int | None = None, is_doing: bool = False) -> None:
     """Write a changed owner and/or title, stamped with who and when - the
-    same evidence close_task leaves on closed_by/closed_at. Caller has
+    same evidence a discard leaves on discarded_by/discarded_at. Caller has
     already checked permission and that something actually changed; this
     only writes.
 
@@ -260,7 +249,7 @@ def task_blockers(con, tid: int) -> list:
     if it is reopened."""
     return con.execute(
         "SELECT t.* FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id "
-        "WHERE b.task_id = ? AND t.closed_by IS NULL AND t.done_evidence IS NULL ORDER BY t.id",
+        "WHERE b.task_id = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY t.id",
         (tid,)).fetchall()
 
 
@@ -289,7 +278,7 @@ def open_decision_tasks_of(con, agent: str) -> int:
     return con.execute(
         "SELECT COUNT(*) FROM tasks t JOIN task_requests l ON l.task_id = t.id "
         "JOIN requests r ON r.id = l.request_id "
-        "WHERE t.owner = ? AND t.opened_by = ? AND t.closed_by IS NULL "
+        "WHERE t.owner = ? AND t.opened_by = ? AND t.discarded_by IS NULL "
         "AND r.state = 'queued'", (HUMAN, agent)).fetchone()[0]
 
 
@@ -301,12 +290,12 @@ def task_requests(con, tid: int) -> list:
 
 
 def merge_task(con, tid: int, into: int, by: str) -> bool:
-    """Close `tid` as merged into `into`, atomically. True only if this call
+    """Discard `tid` as merged into `into`, atomically. True only if this call
     was the one that ended it."""
     cur = con.execute(
-        "UPDATE tasks SET closed_by = ?, closed_at = ?, merged_into = ? "
-        "WHERE id = ? AND closed_by IS NULL AND done_evidence IS NULL",
-        (by, int(time.time()), into, tid))
+        "UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ?, merged_into = ? "
+        f"WHERE id = ? AND {OPEN_SQL}",
+        (by, int(time.time()), f"merged into T{into}", into, tid))
     return cur.rowcount > 0
 
 
@@ -333,11 +322,11 @@ def move_task_links(con, tid: int, into: int) -> None:
 
 
 def task_last_activity(con, tid: int) -> int:
-    """The latest of the task's creation, edit, done and close and the newest
+    """The latest of the task's creation, edit, done and discard and the newest
     time on any request linked to it."""
     r = con.execute(
         "SELECT MAX(COALESCE(t.created_at, 0), COALESCE(t.edited_at, 0), "
-        "COALESCE(t.done_at, 0), COALESCE(t.closed_at, 0), "
+        "COALESCE(t.done_at, 0), COALESCE(t.discarded_at, 0), "
         "COALESCE((SELECT MAX(MAX(q.ts), COALESCE(MAX(q.resolved_at), 0)) FROM requests q "
         "JOIN task_requests l ON l.request_id = q.id WHERE l.task_id = t.id), 0)) "
         "FROM tasks t WHERE t.id = ?", (tid,)).fetchone()
@@ -345,14 +334,14 @@ def task_last_activity(con, tid: int) -> int:
 
 
 DECISION_CARD_SQL = ("SELECT t.id FROM tasks t WHERE t.owner = ? "
-                     "AND t.closed_by IS NULL AND t.done_evidence IS NULL AND "
+                     "AND t.discarded_by IS NULL AND t.done_evidence IS NULL AND "
                      "(SELECT MIN(request_id) FROM task_requests WHERE task_id = t.id) = ?")
 
 
 # The requests that are the card of an open task of the founder's (`?` is HUMAN): what
 # the founder is being asked to decide, whatever kind the card row is.
 OPEN_DECISION_CARDS_SQL = ("(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id "
-                           "WHERE t.owner = ? AND t.closed_by IS NULL AND t.done_evidence IS NULL "
+                           "WHERE t.owner = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL "
                            "GROUP BY t.id)")
 
 
@@ -376,12 +365,12 @@ def open_decision_card_ids(con, agent: str | None = None, prefix: str | None = N
     return [r[0] for r in con.execute(sql + " ORDER BY id", args)]
 
 
-def open_escalations_of(con, agent: str) -> int:
+def open_decisions_of(con, agent: str) -> int:
     """Decisions raised about this agent that are still waiting on the founder."""
     return len(open_decision_card_ids(con, agent))
 
 
-def open_escalation_ids(con, agent: str, prefix: str) -> list[int]:
+def open_decision_ids(con, agent: str, prefix: str) -> list[int]:
     """The still-waiting decision cards about this agent whose body starts with `prefix`."""
     return open_decision_card_ids(con, agent, prefix)
 
@@ -406,7 +395,7 @@ def settle_decision_tasks(con, rid: int, state: str, verdict: str | None,
                           dismissed_by: str | None = None) -> None:
     """A request that is the card of a decision task has left 'queued': the task
     goes with it, however the request was closed. An answer is the decision -
-    the task is done with it as evidence and closed; anything else (withdrawn,
+    the task is done with it as evidence; anything else (withdrawn,
     replaced, refused, dismissed) leaves nothing to decide, so it is discarded.
     Called from every write that moves a request out of the queue, so no path
     leaves a decision on the founder's board that nothing can answer. Only the
@@ -416,7 +405,6 @@ def settle_decision_tasks(con, rid: int, state: str, verdict: str | None,
         return
     if state == "done" and verdict and dismissed_by is None:
         mark_task_done(con, tid, verdict, "reason")
-        close_task(con, tid, HUMAN)
     else:
         discard_task(con, tid, HUMAN, f"its request was {'dismissed' if dismissed_by else state}"
                      + (f": {verdict}" if verdict and not dismissed_by else ""))

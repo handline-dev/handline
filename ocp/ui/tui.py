@@ -22,7 +22,7 @@ import re
 import time
 from typing import NamedTuple
 
-from ..team import accounts, agents, ask as askmod
+from ..team import accounts, agents
 from .. import actions, db, vendors
 from ..session import blocked as blockedmod, launch, orca, triggers
 from ..usage import load as loadmod, status
@@ -481,7 +481,7 @@ def messages_data(con) -> tuple[str, list[MessageRow], list[str]]:
     (what is waiting, counted), one row per message and the notes under them.
 
     What is waiting for the human is the one queue nothing else in this system
-    will ever clear: an agent's escalation sits here until it is answered."""
+    will ever clear: an agent's decision sits here until it is answered."""
     waiting = actions.messages(con)
     # Counted over the unfolded rows, not `waiting`: a fold shows one
     # agent's latest, and a title built from the folded list would drop
@@ -939,18 +939,6 @@ def _background_detail(con, agent: str) -> str:
         + (", told to finish or stop it" if dmn_delivery.bg_prompted_at(con, agent) else "")
 
 
-def _waiting_for(held: str) -> str:
-    """`#1054 orcapipe.auditor` (what `ask.await_reply_detail` wrote) as a sentence:
-    `waiting for orcapipe.auditor's reply (#1054)`; nothing when it waits on the human,
-    who sees that in their own inbox. Anything else is drawn as it is."""
-    rid, _, target = held.strip().partition(" ")
-    if rid.startswith("#") and rid[1:].isdigit() and target.strip():
-        if target.strip() == actions.HUMAN:
-            return ""
-        return oneline(f"waiting for {target.strip()}'s reply ({rid})")
-    return oneline(held)
-
-
 def screen_state(con, row) -> tuple[str, str]:
     """`_screen_state`, with an idle agent whose task waits on a child of its own (T443) or is
     blocked (T563) saying so."""
@@ -1006,8 +994,6 @@ def _screen_state(con, row) -> tuple[str, str]:
             return "IDLE", _background_detail(con, row["agent"])      # nothing is being said: not working
         return "PENDING", ""
     if state in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED):
-        if detail.startswith(askmod.AWAIT_REPLY_MARK):
-            return "IDLE", _waiting_for(detail[len(askmod.AWAIT_REPLY_MARK):])   # a sentence, not free text: never cut
         if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
         if not row["wake_at"]:

@@ -7,7 +7,7 @@ from ..team import team
 
 
 # The name a human's own requests are sent under, and the inbox `ocp bridge`
-# shows. Taken from `ask`, which is where escalations are addressed: a second
+# shows. Taken from `ask`, which is where decisions are addressed: a second
 # copy of the name would empty the panel the day it changed.
 HUMAN = askmod.HUMAN
 

@@ -529,7 +529,7 @@ def _perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     if ok and cleared:
         # A handoff that fully worked - record and clear both landed - ends
         # the streak. This is the only thing that clears it, so a run of
-        # failures at either step accumulates until 8.6 escalates. Checked
+        # failures at either step accumulates until 8.6 raises it. Checked
         # here, after both steps, so a clear that fails right after a good
         # record cannot have its bump wiped out by the record's own success
         # (#1975).
@@ -618,7 +618,7 @@ def _park(con, agent: str, trigger: triggers.Trigger, hid: str | None, ok: bool,
             # Unlike a usage wall or a hand park, nothing else here waits out
             # a real window - so a clear that keeps failing would retry at
             # full cadence forever with nothing counted against it. This
-            # gives it the same streak, and the same eventual 8.6 escalation
+            # gives it the same streak, and the same eventual 8.6 decision
             # to STALLED, that a failed record already gets (#1957 should-fix).
             db.bump_counter(con, agent, "throttle_count")
     # A hand park stays a hand park whatever ceiling its wake got - the mark,

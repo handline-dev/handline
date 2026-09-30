@@ -1,5 +1,5 @@
-"""The tasks table (T69) as a widget, so the home tab and a chat page's tab share it: every
-open task with its priority, owner, state, idle time, who may close it and what blocks
+"""The tasks table (T69) as a widget, so the tasks screen and a home tab share it: every
+open task with its priority, owner, state, idle time, who asked for it and what blocks
 it. What a row says and what an action does or refuses is `actions`'s (`task_rows`,
 `batch_task`, `merge_tasks`); this draws it and asks for the one thing an action needs
 (a reason, a name, a priority)."""
@@ -29,7 +29,7 @@ _ASKS = {"discard": "discard - why:", "owner": "new owner (agent name):",
          "priority": "priority (1 high, 2, 3 low):"}
 
 
-_DONE = {"close": "closed", "discard": "discarded", "owner": "owner changed", "priority": "priority set"}
+_DONE = {"discard": "discarded", "owner": "owner changed", "priority": "priority set"}
 
 
 def result_notes(results: list[tuple[int, bool, str]], verb: str) -> list[tuple[str, str]]:
@@ -137,14 +137,13 @@ class StatePicker(ModalScreen["set[str] | None"]):
 
 
 class TasksView(Vertical):
-    """`mine` limits it to what concerns the founder, `closer` to the tasks that one signs off
-    (`b`: the founder's done tasks); `f` steps through the owners. `agent` limits it to the
+    """`mine` limits it to what concerns the founder, `closer` to the tasks that one asked for;
+    `f` steps through the owners. `agent` limits it to the
     tasks that agent owns or opened (its chat page), and then the agent filter is not offered."""
 
     BINDINGS = [
         Binding("space", "check", "mark"),
         Binding("A", "check_all", "all"),
-        Binding("c", "act('close')", "close"),
         Binding("d", "act('discard')", "discard"),
         Binding("o", "act('owner')", "owner"),
         Binding("p", "act('priority')", "priority"),
@@ -164,16 +163,15 @@ class TasksView(Vertical):
     TasksView #tasks_filters Button { width: 1fr; }
     """
     KEYS = (
-        Key("space", "mark", 1, "mark or unmark the row; c d o p act on the marked rows"),
+        Key("space", "mark", 1, "mark or unmark the row; d o p act on the marked rows"),
         Key("A", "all", 3, "mark every row shown, or unmark them; the [ ] at the head of the column does the same"),
-        Key("c", "close", 1, "close the task (a done one, by whoever may close it)"),
         Key("↵", "open", 1, "open the task's detail"),
         Key("d", "discard", 2, "discard a task nothing is running on, with a reason"),
         Key("o", "owner", 2, "change the owner to another agent"),
         Key("p", "priority", 2, "set the priority, 1 high to 3 low"),
         Key("m", "merge", 2, "fold the marked tasks into the row under the cursor"),
         Key("s", "sort", 3, "sort by the next column; S reverses; a click on a column head sorts by it"),
-        Key("a", "closed", 3, "show or hide closed, discarded and merged tasks"),
+        Key("a", "closed", 3, "show or hide done and discarded tasks"),
         Key("v", "states", 3, "pick which states to show, with checkboxes"),
         Key("t", "tree", 3, "switch between the list and the tree of what waits on what"),
         Key("f", "agent", 3, "show one agent's tasks, and the next agent on each press; or use the agent dropdown"),
@@ -182,7 +180,7 @@ class TasksView(Vertical):
     TREE_HEADS = (("", "mark"), ("task", "title"), ("owner", "owner"), ("state", "state"),
                   ("waits on", "blocked"))
     HEADS = (("", "mark"), ("#", "number"), ("P", "priority"), ("state", "state"), ("title", "title"),
-             ("owner", "owner"), ("idle", "idle"), ("may close", "closer"), ("blocked by", "blocked"))
+             ("owner", "owner"), ("idle", "idle"), ("asker", "closer"), ("blocked by", "blocked"))
 
     def __init__(self, mine: bool = False, states: set[str] | None = None,
                  closer: str | None = None, agent: str | None = None, **kw) -> None:
@@ -214,7 +212,7 @@ class TasksView(Vertical):
             yield TaskTable(id="tasks_table", cursor_type="row", zebra_stripes=True)
             yield TaskPane(id="tasks_pane")
         with ActionBar(id="tasks_actions"):
-            for verb in ("close", "discard", "owner", "priority", "merge"):
+            for verb in ("discard", "owner", "priority", "merge"):
                 yield Button(verb.capitalize(), id=f"act_{verb}", compact=True)
         yield KeyGuide(self._keys(), id="tasks_foot")
 
@@ -269,10 +267,10 @@ class TasksView(Vertical):
     def _load(self) -> tuple[list, list]:
         """What the database says, read once (on a thread or not): the rows the filters let
         through, and, for the tree, every open task it hangs them on."""
-        ended = ("closed", "discarded", "merged")
+        ended = ("done", "discarded")
         con = db.connect()
         try:
-            pool = actions.task_rows(con, include_closed=bool(self.states & set(ended)))
+            pool = actions.task_rows(con, include_ended=bool(self.states & set(ended)))
         finally:
             con.close()
         rows = [r for r in pool if r["state"] in self.states]
@@ -472,10 +470,10 @@ class TasksView(Vertical):
         self.states = self.states - ended if self.states & ended else self.states | ended
         self.refresh_rows()
 
-    def show_checks(self, on: bool) -> None:
-        """The founder's done tasks waiting for a sign-off (`on`), or the view as it opens."""
-        self.closer = actions.HUMAN if on else None
-        self.states = {"done"} if on else set(LISTED)
+    def show_open(self) -> None:
+        """The view as it opens: every open task."""
+        self.closer = None
+        self.states = set(actions.OPEN_STATES)
         self.owner = None
         self.refresh_rows()
 
@@ -519,12 +517,12 @@ class TasksView(Vertical):
                  else actions.task_ref(t) for t in tids[:8]]
         if len(tids) > 8:
             lines.append(f"... and {len(tids) - 8} more")
-        what = {"close": "Close", "discard": "Discard", "owner": "Change the owner of",
+        what = {"discard": "Discard", "owner": "Change the owner of",
                 "priority": "Set the priority of", "merge": "Merge"}[verb]
         into = f" into {actions.task_ref(keep)}" if verb == "merge" else ""
         with_arg = f"\n{textsafe.oneline(arg)}" if arg else ""
         return Confirm(f"{what} {len(tids)} task{'s' if len(tids) != 1 else ''}{into}?",
-                       "\n".join(lines) + with_arg, yes=what.split()[0], danger=verb in ("close", "discard", "merge"))
+                       "\n".join(lines) + with_arg, yes=what.split()[0], danger=verb in ("discard", "merge"))
 
     async def _act(self, verb: str) -> None:
         tids = self._targets()

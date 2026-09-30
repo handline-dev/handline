@@ -6,8 +6,8 @@ python is externally managed so we cannot just pip install into it.
 
 The rule for the fallback is that it must never disagree with PyYAML *silently*.
 Two parsers that quietly read the same routing policy differently is worse than
-having no fallback at all - `creates_gate: no` meaning True under one and False
-under the other decides whether an escalation needs a human. So anything the
+having no fallback at all - `skip_permissions: no` meaning True under one and False
+under the other decides whether a prompt is answered for the agent. So anything the
 fallback is not sure it reads the same way raises ConfigError instead of
 guessing. tests/team/test_hr_agents.py compares the two on a fixed list of sources and
 fails if it cannot find a python3 that has PyYAML to compare against.
@@ -52,7 +52,7 @@ except ImportError:
 _UNSUPPORTED = ("&", "*", "|", ">", "!!", "<<")
 
 # YAML 1.1 booleans, which PyYAML's safe_load accepts. Missing these is how
-# `creates_gate: no` became the string "no", which is truthy.
+# `skip_permissions: no` became the string "no", which is truthy.
 #
 # PyYAML's resolver takes exactly these spellings, so "yEs" and "y" are strings
 # to it; parsing them as booleans here would be a silent disagreement.

@@ -121,29 +121,6 @@ def test_say_survives_enforce_edges_own_kind_recheck(home: Path) -> None:
         con.close()
 
 
-def test_resolving_a_human_ask_leaves_one_message(home: Path) -> None:
-    """T477: the answer to a founder's ask is one message. Resolve writes the verdict on
-    the ask and the answer row that carries it (`settles`), which the chat leaves out."""
-    _say_world(home)
-    con = db.connect()
-    rid = db.add_request(con, "human", "worker", "fix it", None, "supervisor",
-                         "fire_and_forget", None, 0, None)
-    con.commit()
-    con.close()
-    rc, out = _cli(["resolve", str(rid), "fixed it", "--no-task", "nothing to build"], as_agent="worker")
-    check("resolve: a human's ask is answered", rc == 0, out)
-    con = db.connect()
-    try:
-        rows = [dict(r) for r in con.execute("SELECT id, requester, target, kind, parent_id, settles, "
-                                             "verdict FROM requests WHERE id >= ? ORDER BY id", (rid,))]
-        said = [r for r in rows if r["requester"] == "worker" and r["target"] == "human"]
-        check("resolve: exactly one row from the answerer to the human", len(said) == 1, str(rows))
-        check("resolve: it is the answer row, marked as settling the ask",
-              said and said[0]["settles"] == rid, str(rows))
-    finally:
-        con.close()
-
-
 def test_a_reply_settles_the_request_it_answers_as_one_message(home: Path) -> None:
     """T361 step 1: `say --parent N` settles any open request addressed to the replier, and the
     reply row is itself the answer (`settles`) - one message, no second answer row. A reply
@@ -187,7 +164,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
     con = db.connect()
@@ -243,7 +220,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
     ok, msg, tid = actions.task_new("manager", "worker", "build it", "build it")
@@ -332,7 +309,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -499,7 +476,7 @@ agents:
 edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "*", to: "human", kind: task }
 
 limits:
   max_chain_depth: 4
@@ -568,7 +545,6 @@ def main() -> int:
         run(lambda: test_say_delivers_ahead_of_the_queue_and_never_parks(Path(td) / 'sayqueue'))
         run(lambda: test_a_manager_says_to_a_report_only_with_a_task_or_a_reason(Path(td) / 'sayrule'))
         run(lambda: test_say_survives_enforce_edges_own_kind_recheck(Path(td) / 'sayedges'))
-        run(lambda: test_resolving_a_human_ask_leaves_one_message(Path(td) / 'sayone'))
         run(lambda: test_a_reply_settles_the_request_it_answers_as_one_message(Path(td) / 'saysettle'))
         run(lambda: test_a_reply_to_the_founder_says_what_it_becomes_and_the_tail_says_how(Path(td) / 'sayfounder'))
         run(lambda: test_a_reply_never_settles_a_task_and_the_founder_guard_follows_the_target(Path(td) / 'saytask'))

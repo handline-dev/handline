@@ -74,10 +74,10 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
 
 
 def check_open_proposal(rid: int, row, verdict: str) -> str | None:
-    """The refusal for closing a queued roster-proposal escalation with
+    """The refusal for closing a queued roster-proposal decision with
     anything that is not a decision; None when it may go ahead.
 
-    `ocp resolve` reaches a queued row the same way `answer()` does - the
+    A resolve reaches a queued row the same way `answer()` does - the
     founder targeting a row that is theirs to close - and a proposal's
     requester is the proposing agent, never HUMAN, so `check_human_resolve`
     does not see it. Both callers need this same check, or one of them is
@@ -205,7 +205,7 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     manager-to-agent rows are conversation and never reach it, and it covers
     replies inside a running thread, because that is how the founder attaches
     the next piece of work to a report. Every path that closes such a row on
-    an agent's behalf goes through here (`ocp resolve`, `ocp dismiss`); the
+    an agent's behalf goes through here (a resolve, a dismiss); the
     founder's own hands - the bridge answer key, cancel, withdraw - are the
     person the guard exists to serve, so `me == HUMAN` passes.
     """
@@ -213,8 +213,8 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
         t = db.get_task(con, tid)
         if t is None:
             return f"no task T{tid}"
-        if t["closed_by"]:
-            return f"task T{tid} is already closed ({t['closed_by']})"
+        if db.task_ended(t):
+            return f"task T{tid} is already {'discarded' if t['discarded_by'] else 'done'}"
     if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):
@@ -240,7 +240,7 @@ def _is_answer_to_human(row) -> bool:
 def mailbox_rows(con) -> list[dict]:
     """The human's whole mailbox, one row per request or answer - unfolded.
 
-    Three things arrive here and they are not the same errand. An escalation is
+    Three things arrive here and they are not the same errand. A decision is
     a decision the routing says only a human makes, and nothing else in this
     system will ever clear it. A request sent `async` asked for a reply and its
     sender parked on one. A report asked for neither. Which of those a row is
@@ -248,7 +248,7 @@ def mailbox_rows(con) -> list[dict]:
     text.
 
     The fourth is not a request at all: it is an answer to something the human
-    asked. `ocp resolve` writes the verdict on the row and the daemon reads it
+    asked. A resolve writes the verdict on the row and the daemon reads it
     out to the agent that asked; the human has no terminal to be read out to, so
     their answers have to be read here or nowhere. Half a mailbox teaches the
     team to talk around it - with this one drawing only one direction, two
@@ -360,7 +360,7 @@ def founder_waits(con) -> list[dict]:
     """Everything that stops until the founder does something, oldest first.
 
     Each is {kind, who, what, since, red}. A prompt on an agent's screen (the daemon's
-    `prompt_blocks` rows) and an unanswered escalation are the founder's move (red). A roster proposal is
+    `prompt_blocks` rows) and an unanswered decision are the founder's move (red). A roster proposal is
     shown from the moment it is raised until it is applied or refused: once
     approved it is waiting on whoever applies it, so it stays but not in red.
     """
@@ -398,7 +398,7 @@ def founder_waits(con) -> list[dict]:
         f"AND id IN {db.OPEN_DECISION_CARDS_SQL} ORDER BY id", (HUMAN, HUMAN)).fetchall():
         if int(r["id"]) in proposed:
             continue
-        out.append({"kind": "escalation", "who": r["requester"], "red": True,
+        out.append({"kind": "decision", "who": r["requester"], "red": True,
                     "what": f"#{r['id']} {first_line(r['body'])}", "since": int(r["ts"])})
     return sorted(out, key=lambda w: (not w["red"], w["since"]))
 
