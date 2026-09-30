@@ -163,11 +163,14 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 
 ---
 
-## 3. 에이전트가 쓰는 명령은 하나뿐
+## 3. 에이전트가 쓰는 명령은 둘뿐
 
 ```bash
-ocp ask <target> "<요청>" [--files a.ts,b.ts]
+ocp task new --owner <target> "<제목>" "<요청>"   # 일: 결과가 필요하면 작업이다
+ocp say <target> "<메시지>"                       # 답이 필요 없는 말, 바로 입력된다
 ```
+
+(`ocp ask`, `ocp resolve`, `ocp dismiss` 는 T560 에서 없어졌다.)
 
 에이전트가 아는 것: **대상과 내용.** 그게 전부다.
 

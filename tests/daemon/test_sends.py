@@ -41,7 +41,7 @@ def _verb(payload: dict) -> dict:
 
 def test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(home: Path) -> None:
     sent = _world(home)
-    reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+    reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "please look at the retry loop"})
     con = db.connect()
     try:
@@ -64,7 +64,7 @@ def test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(home: P
 def test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_clear(home: Path) -> None:
     sent = _world(home)
     orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
-    reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+    reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "when you are free"})
     con = db.connect()
     try:
@@ -89,7 +89,7 @@ def test_a_task_kind_ask_keeps_the_one_at_a_time_rule(home: Path) -> None:
     hand_edit_team(DESIGN_TEAM.replace(
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
-    reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+    reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "a piece of work"})
     check("ask: a task-kind ask is accepted", reply["ok"], str(reply))
     check("ask: but not typed at once - it waits for an agent that is free", sent == [], str(sent))
@@ -144,7 +144,7 @@ def test_who_is_asking_comes_from_the_caller_not_the_daemon(home: Path) -> None:
     sent = _world(home)
     for payload in ({"requester": "human", "speaker": "product"},   # an agent claiming to be the founder
                     {"speaker": "product"}):                        # nobody named
-        reply = _verb({"verb": "ask", "target": "backend", "body": "hello", **payload})
+        reply = _ask_row({"verb": "ask", "target": "backend", "body": "hello", **payload})
         check(f"ask: {payload} is refused", not reply["ok"], str(reply))
     con = db.connect()
     try:
@@ -193,7 +193,7 @@ def test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(home: Path) -
         real = dmn_lifecycle.wake_agent
         dmn_lifecycle.wake_agent = _stub_wake(table, "backend", calls)
         try:
-            reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+            reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                            "target": "backend", "body": "wake up for this"})
         finally:
             dmn_lifecycle.wake_agent = real
@@ -223,7 +223,7 @@ def test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(home: Pa
         real = dmn_lifecycle._start_for_work
         dmn_lifecycle._start_for_work = _stub_start(table, "backend", calls)
         try:
-            reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+            reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                            "target": "backend", "body": "start for this"})
         finally:
             dmn_lifecycle._start_for_work = real
@@ -267,7 +267,7 @@ def test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(home: Path) -> No
         check("typed say: the agent reads IDLE",
               dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
         check("typed say: a typed ask that is still unanswered does not count either",
-              _verb({"verb": "ask", "requester": "product", "speaker": "product",
+              _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                      "target": "backend", "body": "please"})["ok"]
               and db.unreached_count(con, "backend") == 0
               and dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
@@ -284,19 +284,19 @@ def test_only_what_has_not_reached_the_agent_counts(home: Path) -> None:
     con = db.connect()
     try:
         agents.register("reviewer")
-        first = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+        first = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                        "target": "backend", "body": "a task"})
         check("in: a task is told when the agent is free - one at a time",
               first["ok"] and db.unreached_count(con, "backend") == 1 and sent == [], str((first, sent)))
         orcamod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        second = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+        second = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                         "target": "backend", "body": "another task"})
         check("in: the task told is not counted, the one waiting behind it is",
               second["ok"] and len(sent) == 1 and db.unreached_count(con, "backend") == 1,
               str((sent, db.unreached_count(con, "backend"))))
         orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a dialog")
-        _verb({"verb": "ask", "requester": "reviewer", "speaker": "reviewer",
+        _ask_row({"verb": "ask", "requester": "reviewer", "speaker": "reviewer",
                "target": "backend", "body": "a message the screen blocks"})
         check("in: a message held by the screen counts, until it is typed",
               db.unreached_count(con, "backend") == 2)
@@ -318,7 +318,7 @@ def test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(home: P
         real = dmn_lifecycle.wake_agent
         dmn_lifecycle.wake_agent = lambda c, a, log: (calls.append(a), (False, "the account is full"))[1]
         try:
-            _verb({"verb": "ask", "requester": "product", "speaker": "product",
+            _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "for when you are back"})
         finally:
             dmn_lifecycle.wake_agent = real
@@ -516,7 +516,7 @@ def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
     orcamod.send = lambda h, text, enter=True: (False, "the pane is gone")
     con = db.connect()
     try:
-        reply = _verb({"verb": "ask", "requester": "product", "speaker": "product",
+        reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                        "target": "backend", "body": "try again later"})
         row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
         check("failed send: accepted, nothing typed, and the row is owed again - not delivered",
@@ -524,7 +524,7 @@ def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
               str((reply, dict(row))))
         ok, msg = askmod.withdraw(int(row["id"]), requester="product")
         check("failed send: and it can still be withdrawn", ok, msg)
-        _verb({"verb": "ask", "requester": "product", "speaker": "product",
+        _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                "target": "backend", "body": "second try"})
         orcamod.send = ok_send
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
@@ -580,21 +580,19 @@ def test_a_delivered_task_whose_terminal_is_lost_is_started_again(home: Path) ->
         con.close()
 
 
-def test_with_the_daemon_down_ask_and_say_send_nothing(home: Path) -> None:
+def test_with_the_daemon_down_say_sends_nothing(home: Path) -> None:
     _world(home)
     saved = cli_ask.dmn_client
     cli_ask.dmn_client = types.SimpleNamespace(send=lambda payload, timeout=None: None)
     try:
-        rc, out = _cli(["ask", "backend", "hello"], as_agent="product")
         rc2, out2 = _cli(["say", "backend", "hello"], as_agent="product")
     finally:
         cli_ask.dmn_client = saved
     con = db.connect()
     try:
-        check("daemon down: ask says nothing was sent and exits 1",
-              rc == 1 and "daemon not running, nothing sent" in out, out)
-        check("daemon down: so does say", rc2 == 1 and "daemon not running, nothing sent" in out2, out2)
-        check("daemon down: and neither wrote a row - there is no other path",
+        check("daemon down: say says nothing was sent and exits 1",
+              rc2 == 1 and "daemon not running, nothing sent" in out2, out2)
+        check("daemon down: and it wrote no row - there is no other path",
               con.execute("SELECT COUNT(*) c FROM requests").fetchone()["c"] == 0)
     finally:
         con.close()
@@ -752,7 +750,7 @@ def main() -> int:
         run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))
-        run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
+        run(lambda: test_with_the_daemon_down_say_sends_nothing(Path(td) / "s6"))
         run(lambda: test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(Path(td) / "s16"))
         run(lambda: test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(Path(td) / "s17"))
         run(lambda: test_the_daemons_push_verbs_never_hand_the_push_back_to_the_daemon(Path(td) / "s18"))

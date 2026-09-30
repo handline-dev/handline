@@ -626,7 +626,7 @@ def cmd_task_board(args) -> int:
     founder means the result is in and it is my turn to read it. Nothing
     linked, or the last exchange already closed some other way (withdrawn,
     rejected, replaced), is nobody holding it - the same as never asked.
-    A hold (`resolve --hold`) is an open child task sharing a request with
+    A hold is an open child task sharing a request with
     its parent, so the parent reads `held as sub-task T<n>` while it lasts -
     below a blocker, which is the older and firmer wait. A child opened any
     other way is no hold and changes nothing here.

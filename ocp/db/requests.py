@@ -37,11 +37,9 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
                 verdict: str | None = None, chain_id: str | None = None,
-                first: bool = False, queue_order: float | None = None,
                 fyi: bool = False, timebox_s: int | None = None) -> int:
     """Insert a request. `queue_order`, not `id`, decides FIFO position - see
-    `queued_for`. `first` and `queue_order` are request #189's --first and
-    --replaces.
+    `queued_for`; it starts as the id and only `promote_to_front` moves it.
     """
     # An agent's session cannot verify the routing table it read, so what it
     # writes waits for the daemon's check (`delivery.enforce_edges`) before
@@ -58,22 +56,7 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     if chain_id is None:
         # A request with no parent starts its own chain, named after itself.
         con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
-    order = rid if queue_order is None else queue_order
-    if first and state == "queued":
-        # Midpoint between the last delivered row and the first undelivered
-        # one; queue_order is REAL so there is always room to bisect into.
-        row = con.execute(
-            "SELECT MIN(CASE WHEN delivered_at IS NULL THEN queue_order END) AS ceiling, "
-            "MAX(CASE WHEN delivered_at IS NOT NULL THEN queue_order END) AS floor_ "
-            "FROM requests WHERE target = ? AND state = 'queued'", (target,)).fetchone()
-        ceiling, floor_ = row["ceiling"], row["floor_"]
-        if ceiling is not None and floor_ is not None:
-            order = (float(ceiling) + float(floor_)) / 2
-        elif ceiling is not None:
-            order = float(ceiling) - 1
-        elif floor_ is not None:
-            order = float(floor_) + 1
-    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (order, rid))
+    con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (rid, rid))
     return rid
 
 
@@ -85,19 +68,11 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
 NEVER_REACHED_TARGET = ("denied", "withdrawn", "replaced")
 
 
-def chain_members(con, chain_id: str, exclude_id: int | None = None) -> list:
-    """`exclude_id` is a row still 'queued' that is about to be replaced or
-    withdrawn: the caller already knows it, and a cycle or ping-pong check
-    counting it before that write lands would count a conversation that, from
-    the target's side, never happened.
-    """
+def chain_members(con, chain_id: str) -> list:
     # An answer is a message in the chain, never an ask in it: the rate limit, the
     # cycle guard and the ping-pong check all count asks.
     clauses = [f"state NOT IN ({','.join('?' * len(NEVER_REACHED_TARGET))})", "settles IS NULL"]
     params: list = [chain_id, *NEVER_REACHED_TARGET]
-    if exclude_id is not None:
-        clauses.append("id != ?")
-        params.append(exclude_id)
     return con.execute(
         f"SELECT * FROM requests WHERE chain_id = ? AND {' AND '.join(clauses)} ORDER BY id",
         params,
@@ -323,8 +298,8 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     check (#1770, #1893 SF1).
 
     Called from inside every function below that can move a request row out
-    of 'queued', rather than at each door onto one of them (`ocp resolve`,
-    `--retires`, `ask.cancel`, `--replaces` and `answer()` all reached this
+    of 'queued', rather than at each door onto one of them (a resolve,
+    a retire, `ask.cancel`, a replace and `answer()` all reached this
     same gap in turn - #1908, #1919, #1938, #1943): a door added later gets
     this for free instead of needing its own copy of the same check. `hr
     withdraw` is not a door here - it marks its proposal file withdrawn
@@ -335,7 +310,7 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     `hr.is_open_proposal` - a glob and a YAML parse of the whole `hr/`
     directory - would otherwise run on every one of them, not just the
     founder-targeted rows a proposal escalation could ever be. A proposal
-    escalation is always `ocp ask human ...` (`hr.propose`), so a row aimed
+    escalation is always an ask to the human (`hr.propose`), so a row aimed
     anywhere else is checked here for free, off a column already in hand,
     and the directory is never touched for it.
     """
@@ -367,7 +342,7 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
     return cur.rowcount > 0
 
 
-# What `ocp dismiss` wrote into the verdict before a dismissal was a state.
+# What the old `dismiss` wrote into the verdict before a dismissal was a state.
 # Rows from then still hold it, and read as dismissals through `dismissal`.
 LEGACY_DISMISS = "read - no reply"
 
@@ -483,17 +458,6 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         (state, verdict, int(time.time()), rid))
     if cur.rowcount > 0:
         _settle(con, rid, state, verdict)
-    return cur.rowcount > 0
-
-
-def set_moot_by(con, rid: int, by: int) -> bool:
-    """Point a retired row at the id (request or task) that retired it.
-
-    Set once: True only the first time, so a later call naming a different id
-    cannot quietly overwrite an earlier record of why this row is moot.
-    """
-    cur = con.execute("UPDATE requests SET moot_by = ? WHERE id = ? AND moot_by IS NULL",
-                      (by, rid))
     return cur.rowcount > 0
 
 

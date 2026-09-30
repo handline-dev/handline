@@ -77,7 +77,7 @@ def check_open_proposal(rid: int, row, verdict: str) -> str | None:
     """The refusal for closing a queued roster-proposal escalation with
     anything that is not a decision; None when it may go ahead.
 
-    `ocp resolve` reaches a queued row the same way `answer()` does - the
+    A resolve reaches a queued row the same way `answer()` does - the
     founder targeting a row that is theirs to close - and a proposal's
     requester is the proposing agent, never HUMAN, so `check_human_resolve`
     does not see it. Both callers need this same check, or one of them is
@@ -205,7 +205,7 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     manager-to-agent rows are conversation and never reach it, and it covers
     replies inside a running thread, because that is how the founder attaches
     the next piece of work to a report. Every path that closes such a row on
-    an agent's behalf goes through here (`ocp resolve`, `ocp dismiss`); the
+    an agent's behalf goes through here (a resolve, a dismiss); the
     founder's own hands - the bridge answer key, cancel, withdraw - are the
     person the guard exists to serve, so `me == HUMAN` passes.
     """
@@ -248,7 +248,7 @@ def mailbox_rows(con) -> list[dict]:
     text.
 
     The fourth is not a request at all: it is an answer to something the human
-    asked. `ocp resolve` writes the verdict on the row and the daemon reads it
+    asked. A resolve writes the verdict on the row and the daemon reads it
     out to the agent that asked; the human has no terminal to be read out to, so
     their answers have to be read here or nowhere. Half a mailbox teaches the
     team to talk around it - with this one drawing only one direction, two

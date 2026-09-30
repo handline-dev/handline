@@ -62,46 +62,6 @@ _NO_WHO = ("cannot tell who is asking: the request named nobody. Agents are star
            "`ocp launch <agent>`, which sets OCP_AGENT.")
 
 
-def ask_verb(con, log, **kw) -> tuple[bool, str]:
-    """`ocp ask`, after the caller has read its body: the pre-checks that name
-    a task, the ask itself, and the task link."""
-    me, speaker = _who(kw)
-    if me is None:
-        return False, _NO_WHO
-    body, target = kw["body"], kw["target"]
-    task, no_task = kw.get("task"), kw.get("no_task")
-    fyi = bool(kw.get("fyi"))
-    named = actions.task_ids_named(body)
-    if task is None and not no_task and named:
-        return False, (f"this text names {', '.join(f'T{n}' for n in named)}: add --task T<n> so the "
-                       "request is linked and the task shows it is being worked, or "
-                       "--no-task 'reason' if it does not belong to one")
-    if task is not None:
-        row = db.get_task(con, task)
-        if row is None:
-            return False, f"no task T{task}"
-        state = actions.task_state(con, row)
-        if state in ("done", "closed", "discarded", "merged") and not fyi:
-            again = (f"`ocp task reopen T{task} <why>` first" if state == "done"
-                     else "it cannot be worked on again; open a new task")
-            return False, (f"task T{task} is {state}: a request linked to it would not reopen it - "
-                           f"{again}. A report (--fyi) may still be linked.")
-    ok, msg, rid = askmod.ask(target, body, files=kw.get("files"), parent_id=kw.get("parent"),
-                              mergeable=bool(kw.get("mergeable")), first=bool(kw.get("first")),
-                              replaces=kw.get("replaces"), fyi=fyi, reason=kw.get("reason"),
-                              timebox_s=kw.get("timebox"), requester=me, speaker=speaker,
-                              notify=False)
-    if not ok:
-        return False, msg
-    if target == askmod.HUMAN and "[escalation" not in msg:
-        msg += "\n  it is on the founder's screen (`ocp bridge`)"
-    if task is not None and rid is not None:
-        db.link_request(con, task, rid)
-        msg += f"\nlinked to T{task}, which now reads {actions.task_state(con, db.get_task(con, task))}"
-    _after(rid, target, log)
-    return True, msg
-
-
 def _is_report_of(me: str, target: str) -> bool:
     """Is `target` one of `me`'s reports, by the supervisor edge in team.yaml?"""
     try:

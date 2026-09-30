@@ -241,7 +241,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             log(f"  {agent}: {need[1]} and could not be started - {said}")
 
     # A closed session cannot read its own inbox, so the arrival of work is
-    # what has to bring it back. Without this an `ocp ask` queues into a
+    # what has to bring it back. Without this a `task new` or a say queues into a
     # terminal with nobody in it and waits forever, which is worse than the
     # memory it was saving: reviewer sat closed with two requests pending.
     # Not one started a moment ago: that terminal is a fresh session booting,

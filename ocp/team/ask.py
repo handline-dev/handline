@@ -1,12 +1,10 @@
-"""ocp ask - the only command agents use (team model section 3).
-
-    ocp ask <target> "<request>" [--files a.ts,b.ts]
+"""Requests between agents (team model section 3): what `ocp task new` and `ocp say` write.
 
 The agent supplies a target and a message. Everything else is decided here:
 whether the edge is allowed, chain depth, rate limiting, and
 what happens to the requester. No model is involved in any of it.
 
-A denied ask returns the reason, so the agent learns the policy rather than
+A denied request returns the reason, so the agent learns the policy rather than
 guessing at it or trying to route around it.
 """
 from __future__ import annotations
@@ -169,7 +167,7 @@ def report(con, agent: str, text: str, reason: str) -> int:
 
 
 def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
-                    exclude_id: int | None = None, kind: str | None = None) -> str | None:
+                    kind: str | None = None) -> str | None:
     """Detect A->B->A inside one chain (team model section 6).
 
     Depth alone does not catch this: two agents can bounce a request back and
@@ -187,7 +185,7 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
     """
     if not chain_id or HUMAN in (requester, target) or kind == SAY_KIND:
         return None
-    rows = db.chain_members(con, chain_id, exclude_id=exclude_id)
+    rows = db.chain_members(con, chain_id)
     for r in rows:
         if r["requester"] == target and r["target"] == requester:
             return (f"cycle: {target} already asked {requester} in this chain "
@@ -195,8 +193,7 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
     return None
 
 
-def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
-                     exclude_id: int | None = None) -> str | None:
+def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) -> str | None:
     """Count review round-trips on the same file within one chain."""
     if not chain_id or target != "reviewer" or not files:
         return None
@@ -204,7 +201,7 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
     if not wanted:
         return None
     trips = 0
-    for r in db.chain_members(con, chain_id, exclude_id=exclude_id):
+    for r in db.chain_members(con, chain_id):
         if r["target"] != "reviewer":
             continue
         have = {f for f in (r["files"] or "").split(",") if f}
@@ -214,31 +211,6 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None,
         return (f"review ping-pong: {trips} rounds on {', '.join(sorted(wanted))} "
                 f"in this chain. Two agents who cannot agree is usually a spec question.")
     return None
-
-
-def _merge_into_queued(con, requester: str, target: str, body: str,
-                       files: str | None, timebox_s: int | None = None) -> int | None:
-    """Fold this ask into one already queued, undelivered, for the same target.
-
-    Team model section 5: a review belongs to a PR, not to every commit in it.
-    Delivered is excluded: merging into a row the target is already reading
-    or working from would change its content with nobody told (request #189).
-    A `--timebox` on the folded ask is the latest word on the merged row's, and
-    none leaves the queued row's own.
-    """
-    rows = con.execute(
-        "SELECT * FROM requests WHERE requester = ? AND target = ? AND state = 'queued' "
-        "AND delivered_at IS NULL ORDER BY id DESC LIMIT 1", (requester, target)).fetchone()
-    if rows is None:
-        return None
-    merged_body = rows["body"].rstrip() + "\n\n--- also ---\n" + body.strip()
-    merged_files = ",".join(sorted(
-        {f for f in ((rows["files"] or "") + "," + (files or "")).split(",") if f}
-    )) or None
-    con.execute("UPDATE requests SET body = ?, files = ?, ts = ?, "
-                "timebox_s = COALESCE(?, timebox_s) WHERE id = ?",
-                (merged_body, merged_files, int(time.time()), timebox_s, rows["id"]))
-    return int(rows["id"])
 
 
 # T292/T293: the `kind` overrides `ask` accepts for a task, a task note or a
@@ -257,19 +229,14 @@ _ENV = object()
 
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
-        parent_id: int | None = None, mergeable: bool = False, first: bool = False,
-        replaces: int | None = None, fyi: bool = False,
-        reason: str | None = None,
+        parent_id: int | None = None, fyi: bool = False,
         timebox_s: int | None = None, kind: str | None = None,
         park: bool = True, send_now: bool = False,
         on_behalf_of: bool = False, speaker=_ENV,
         notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
-    `first` and `replaces` are request #189's --first and --replaces; see
-    `db.add_request` and `db.head_of_queue`. `reason` is what the retired
-    request's verdict says after "replaced by #N", exactly as typed; it means
-    nothing without `replaces`. `timebox_s` is how long after delivery the
+    `timebox_s` is how long after delivery the
     asker is told it is still open (daemon.timebox); None follows config.yaml.
     `kind` overrides the routing edge's own `decision.kind` on the request
     row - T292's `task new` uses it to write 'task' regardless of what the
@@ -314,41 +281,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     t = team.Team.load()
     con = db.connect()
     try:
-        old = None
-        if replaces is not None:
-            old = db.get_request(con, replaces)
-            if old is None:
-                return False, f"request {replaces} does not exist", None
-            if old["requester"] != requester:
-                return False, (f"#{replaces} is {old['requester']} -> {old['target']}, "
-                               f"not yours to replace"), None
-            if old["state"] != "queued":
-                return False, (f"#{replaces} is already {old['state']} - "
-                               f"nothing to replace"), None
-            from . import hr
-            if hr.is_open_proposal(replaces):
-                # #1938 should-fix: the proposer is `old["requester"]`, so
-                # `--replaces` passes the ownership check above and would
-                # close the escalation with "replaced by #N" - not a
-                # decision, and the new row it queues is not linked to the
-                # proposal, so approving it enacts nothing. `hr withdraw`
-                # is the one way out; a corrected proposal is a fresh one.
-                return False, (f"#{replaces} is a roster proposal - `hr withdraw` it "
-                               f"and send a fresh proposal instead"), None
-            # The human's rows are "delivered" when drawn on the bridge, and
-            # nobody can withdraw or answer one on their behalf - so a
-            # correction is the only way a stale escalation ever leaves.
-            if old["delivered_at"] and old["target"] != HUMAN:
-                return False, (f"#{replaces} was already delivered to {old['target']} - "
-                               f"it is too late to replace; send a reply in its thread "
-                               f"instead (`ocp say {old['target']} \"...\" --parent "
-                               f"{replaces}`)"), None
-
-        # A correction of a reply is still that reply: without its thread it is
-        # a new request, and waits behind the head it was written to follow.
-        if old is not None and parent_id is None:
-            parent_id = old["parent_id"]
-
         depth, chain_id = 0, None
         if parent_id:
             parent = db.get_request(con, parent_id)
@@ -362,19 +294,11 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             # towards it.
             if requester == HUMAN:
                 depth = 0
-        elif old is not None:
-            # A correction to an undelivered request continues the same
-            # conversation, not a fresh one - but only when nothing else
-            # already said which conversation this is.
-            chain_id = old["chain_id"]
 
         # A loop is stopped and escalated, never silently dropped: a request
-        # that vanishes leaves the team stuck with nobody knowing why. `old`
-        # is excluded: it is about to be retired below and counting it here
-        # would count a round that, from the target's side, never happened.
-        for detect in (_cycle_in_chain(con, chain_id, requester, target, exclude_id=replaces,
-                                      kind=kind),
-                       _review_pingpong(con, chain_id, target, files, exclude_id=replaces)):
+        # that vanishes leaves the team stuck with nobody knowing why.
+        for detect in (_cycle_in_chain(con, chain_id, requester, target, kind=kind),
+                       _review_pingpong(con, chain_id, target, files)):
             if detect:
                 eid = _escalate(con, requester, target, body, files, chain_id,
                                 depth, parent_id, detect)
@@ -422,34 +346,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                            f"next slot frees at {when}; wait for it rather than retrying, "
                            f"because a refusal sends nothing. Your text is kept as #{rid}."), None
 
-        if mergeable and old is None:
-            merged = _merge_into_queued(con, requester, target, body, files, timebox_s)
-            if merged is not None:
-                row = db.get_request(con, merged)
-                deliver(merged, requester, target, row["body"], row["files"], decision)
-                return True, f"merged into the queued request #{merged} for {target}", merged
-
-        if old is not None:
-            # Atomic, and before the new row exists: a delivery landing
-            # between the check above and here must not be undone by this, so
-            # the write itself is the gate, not a second look at delivered_at.
-            retire = db.retire_queued if old["target"] == HUMAN else db.retire_if_undelivered
-            if not retire(con, replaces, "replaced"):
-                if db.is_still_queued(con, replaces):
-                    return False, f"#{replaces} was not replaced - it is still queued", None
-                if old["target"] == HUMAN:
-                    return False, f"#{replaces} was answered just now - nothing to replace", None
-                return False, (f"#{replaces} was delivered to {old['target']} just now - "
-                               f"too late to replace; send a reply in its thread instead "
-                               f"(`ocp say {old['target']} \"...\" --parent {replaces}`)"), None
-
         rid = db.add_request(con, requester, target, body, files, decision.relation,
                              decision.response, kind or decision.kind,
                              depth, parent_id,
-                             chain_id=chain_id, first=first, fyi=fyi, timebox_s=timebox_s,
-                             queue_order=(old["queue_order"]
-                                         if old is not None and old["target"] == target
-                                         else None))
+                             chain_id=chain_id, fyi=fyi, timebox_s=timebox_s)
         if send_now:
             db.mark_send_now(con, rid)
         if card and target == HUMAN and not fyi and (kind or decision.kind) == "escalate":
@@ -467,17 +367,9 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                     "AND fyi = 1 AND state = 'queued' AND id != ?",
                     (requester, HUMAN, rid)).fetchall():
                 db.retire_queued(con, int(prev["id"]), "replaced", f"replaced by #{rid}")
-        if old is not None:
-            con.execute("UPDATE requests SET verdict = ? WHERE id = ?",
-                       (f"replaced by #{rid}" + (f": {reason}" if reason else ""), replaces))
-            db.set_moot_by(con, replaces, rid)
-            p = _inbox(old["target"]) / f"{replaces:06d}.json"
-            if p.exists():
-                p.unlink()
         db.add_event(con, requester, "ask", {
             "request_id": rid, "target": target, "relation": decision.relation,
             "response": decision.response, "chain_depth": depth,
-            "replaces": replaces, "first": first,
         })
 
         # async: the requester parks rather than hold an account while it
@@ -496,8 +388,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                detail=await_reply_detail(rid, target))
 
         note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
-        if old is not None:
-            note = f"replaces #{replaces}; {note}"
         if decision.creates_gate and not fyi and kind != SAY_KIND:
             note += " [escalation: needs a human gate]"
         elif notify:

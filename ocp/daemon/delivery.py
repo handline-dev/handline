@@ -30,7 +30,7 @@ _seen: dict[str, obs.Observed] = {}
 _seen_at = {"t": 0.0}
 
 # How old that reading may be before a send looks again. A tick is 2s, so
-# anything older came from another tick or from no tick at all - `ocp ask`
+# anything older came from another tick or from no tick at all - `ocp say`
 # delivers through here too - and one listing is cheap next to what a stray
 # send does.
 SEEN_FRESH_S = 10
@@ -256,7 +256,7 @@ def wall_reason(con, agent: str, row=None) -> str | None:
     fails at once, marks the request delivered, clears the very mark that
     says the agent is at the wall - and the next ask starts it over, each
     round counting as a degraded handoff. Checked where the keystrokes are
-    sent, so no caller - `supervise`, `ocp ask`, `ocp resolve` - can skip it.
+    sent, so no caller - `supervise`, `ocp say`, an answer - can skip it.
     """
     if events.at_limit(con, agent):
         return f"{agent} is at its usage limit"
@@ -889,7 +889,7 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
 
     It may be mid-work on it, so it is told the way a delivery is - the same
     gates - and (typed, why not) says whether that happened. Not telling it is
-    safe: the row is closed, so its own `ocp resolve` of it is refused.
+    safe: the row is closed, so an answer to it is refused.
     """
     agent = row["target"]
     handle = db.get_terminal(con, agent)

@@ -4437,7 +4437,7 @@ def test_who_is_asking_is_not_guessed(home: Path) -> None:
         check("identity: withdraw from nobody is refused, not 'not yours'",
               "ocp launch" in out, out)
         try:
-            climod.main(["ask", "backend", "x", "--of", "1685"])
+            climod.main(["say", "backend", "x", "--of", "1685"])
             gone = False
         except SystemExit:
             gone = True

@@ -18,21 +18,6 @@ from ..infra.yamlcompat import ConfigError
 from .routing import HUMAN, supervisor_of
 
 
-def finding_owner(me: str) -> str | None:
-    """The manager `me` answers to by the supervisor edges the daemon routes
-    on, or `me` when it is itself some agent's supervisor. None when that is
-    not a registered agent, so a task never lands on a name nobody answers to."""
-    try:
-        t = team.Team.load()
-    except (FileNotFoundError, ConfigError):
-        return None
-    owner = supervisor_of(t, me)
-    if owner is None and any(e.get("relation") == "supervisor" and e.get("from") == me
-                             for e in t.edges):
-        owner = me
-    return owner if owner in paths.list_agents() else None
-
-
 TASK_REF = re.compile(r"[Tt](\d+)")
 
 
@@ -66,67 +51,17 @@ def parse_task_ref(text) -> int:
     raise ValueError(f"'{text}' is not a task - write it T<number>, like {task_ref(79)}")
 
 
-def open_finding_tasks(con, rid: int, findings: list[str], owner: str) -> list[int]:
-    """Task #73 (founder #2150, #2154 point 2): a finding the resolver is
-    deferring rather than blocking the review on becomes a task in the same
-    step, linked to the request it came out of. The task is owned and opened
-    by the resolver's manager (#1914), never by the resolver."""
-    tids = []
-    for title in findings:
-        tid = db.new_task(con, textsafe.oneline(title).strip(), owner, owner)
-        db.link_request(con, tid, rid)
-        tids.append(tid)
-    return tids
-
-
 def _block_parent_on_child(con, parent: int | None, tid: int, by: str) -> None:
     """T294 (orcapipe's #1910): a child task always blocks its parent,
     explicitly - not only through the structural open-child-task check
     `close_task` and `stop_wait_reason` already had. Shared by every place a
-    child task comes into being (`task_new`, `open_hold_task`), so the
+    child task comes into being (`task_new`), so the
     board's "waiting on" line and the unblock notice on close see it
     wherever it is actually true, not only on the one path that happened to
     write it."""
     if parent is not None:
         db.add_block(con, parent, tid)
         db.add_event(con, by, "block_task", {"task_id": parent, "blocks_on": tid})
-
-
-def hold_refusal(con, rid: int, blocks_on: list[int]) -> str | None:
-    """The reason a hold on request `rid` cannot wait on these tasks, or None.
-    A task the hold sits under can never be one of them: the parent cannot
-    close over an open child, so the two would wait on each other."""
-    under = set()
-    for t in db.tasks_for_request(con, rid):
-        while t is not None and t["id"] not in under:
-            under.add(t["id"])
-            t = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
-    for b in blocks_on:
-        why = _blocker_refusal(con, b)
-        if why:
-            return why
-        if b in under:
-            return f"task T{b} is what this hold sits under - it cannot wait on it"
-    return None
-
-
-def open_hold_task(con, rid: int, title: str, holder: str, blocks_on: list[int]) -> list[int]:
-    """An answer that puts the work on hold keeps it as an open task owned by
-    the one holding it, linked to the request and under the task that request
-    belongs to, so the parent cannot close over it. Waiting on other tasks is
-    the same block edge `ocp task link --blocks-on` writes: closing the last
-    one notifies the holder. Callers check `hold_refusal` first."""
-    linked = [t for t in db.tasks_for_request(con, rid) if not t["closed_by"]]
-    parent = linked[0]["id"] if linked else None
-    tid = db.new_task(con, textsafe.oneline(title).strip(), holder, holder,
-                      parent_task=parent)
-    db.link_request(con, tid, rid)
-    _block_parent_on_child(con, parent, tid, holder)
-    for b in blocks_on:
-        ok, msg = add_block(con, tid, b, holder)
-        if not ok:
-            raise ValueError(msg)
-    return [tid]
 
 
 def looks_like_sha(text: str) -> bool:
@@ -323,14 +258,6 @@ def block_wait(con, agent: str) -> str | None:
         return None
     blockers = db.task_blockers(con, tid)
     return "blocked by " + ", ".join(f"T{b['id']} ({b['owner']})" for b in blockers) if blockers else None
-
-
-_TASK_NAMED = re.compile(r"\bT(\d+)\b")
-
-
-def task_ids_named(text: str) -> list[int]:
-    """The task ids a text names as T<n>, in order, once each."""
-    return list(dict.fromkeys(int(m) for m in _TASK_NAMED.findall(text)))
 
 
 def task_mismatch(con, row, state: str, open_requests: list) -> str | None:

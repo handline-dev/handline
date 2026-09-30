@@ -46,7 +46,7 @@ BY_HAND_MARK = "by hand"
 
 
 def awaiting_reply(row) -> bool:
-    """Is this PARKED row the one an async `ocp ask` writes while its asker waits for the answer? The
+    """Is this PARKED row the one an async request writes while its asker waits for the answer? The
     session is live: it is not a usage park, whatever handoff the agent last had."""
     return (row["detail"] or "").startswith(askmod.AWAIT_REPLY_MARK)
 
