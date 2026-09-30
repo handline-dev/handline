@@ -188,6 +188,38 @@ def test_daemon_kill_recovery(home: Path) -> None:
         con.close()
 
 
+def test_the_daemon_marks_itself_before_its_socket_takes_a_verb(home: Path) -> None:
+    """T408 (auditor #5913): a push made inside the daemon starts the session itself, and the flag
+    that says so is up before the socket can take a push verb."""
+    from ocp.team import ask as askmod
+    _daemon_home(home, 20)
+    seen = {}
+    real_start, real_tick = dmn_socket_server.SocketServer.start, dmn_evaluate.tick
+    real_send = dmn_client.send
+
+    def start(self):
+        seen["at socket start"] = askmod.IN_DAEMON
+
+    def tick(con, log, **kw):
+        seen["in a tick"] = askmod.IN_DAEMON
+        dmn_client.send = lambda payload, timeout=None: seen.setdefault("sent", payload)
+        try:
+            askmod.push(con, "backend")
+        finally:
+            dmn_client.send = real_send
+        return real_tick(con, log, **kw)
+    dmn_socket_server.SocketServer.start, dmn_evaluate.tick = start, tick
+    try:
+        dmn_loop.run(once=True, verbose=False)
+    finally:
+        dmn_socket_server.SocketServer.start, dmn_evaluate.tick = real_start, real_tick
+        dmn_client.send = real_send
+    check("daemon: the in-daemon flag is up when the socket starts and during a tick",
+          seen.get("at socket start") is True and seen.get("in a tick") is True, str(seen))
+    check("daemon: a push made inside it is not sent over its own socket", "sent" not in seen, str(seen))
+    check("daemon: the flag is down again once it stops", askmod.IN_DAEMON is False)
+
+
 def test_reconcile_stalls_one_agents_unreadable_config_not_the_others(home: Path) -> None:
     """orcapipe #1571: a malformed agent.yaml reached in-process, uncaught,
     through resume_handoff -> agents.current_account -> account_of -> read -
@@ -4991,6 +5023,7 @@ def main() -> int:
         run(lambda: test_daemon_resume(Path(td) / 'd2'))
         run(lambda: test_daemon_kill_recovery(Path(td) / 'd3'))
         run(lambda: test_reconcile_stalls_one_agents_unreadable_config_not_the_others(Path(td) / 'reconbad'))
+        run(lambda: test_the_daemon_marks_itself_before_its_socket_takes_a_verb(Path(td) / 'inddaemon'))
         run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
             Path(td) / 'readguarddaemon'))
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))

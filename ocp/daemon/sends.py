@@ -21,7 +21,7 @@ from . import messaging
 
 
 def _tell(rid: int, target: str, log) -> None:
-    """After the reply: a task keeps the one-at-a-time head rule (`ask.push`),
+    """After the reply: a task keeps the one-at-a-time head rule (`ask.push_here`),
     everything else is typed at once (`messaging.tell_now`)."""
     con = db.connect()
     try:
@@ -29,7 +29,7 @@ def _tell(rid: int, target: str, log) -> None:
         if row is None or row["state"] != "queued":
             return
         if row["kind"] == "task":
-            askmod.push(con, target)
+            askmod.push_here(con, target)
         else:
             messaging.tell_now(con, rid, log)
     except Exception as e:  # noqa: BLE001 - the row is written; the tick is the net
@@ -171,16 +171,16 @@ def push_verb(con, log, **kw) -> tuple[bool, str]:
     if rid is not None:
         _after(int(rid), target, log)
     else:
-        _background(f"push-{target}", lambda c: askmod.push(c, target), log)
+        _background(f"push-{target}", lambda c: askmod.push_here(c, target), log)
     return True, _HANDED
 
 
 def push_answer_verb(con, log, **kw) -> tuple[bool, str]:
-    """Put an answer in front of the agent that asked (`ask.push_answer`)."""
+    """Put an answer in front of the agent that asked (`ask.push_answer_here`)."""
     requester = kw["requester"]
     if requester == askmod.HUMAN or requester not in paths.list_agents():
         return False, f"{requester} is not an agent"
-    _background(f"push-answer-{requester}", lambda c: askmod.push_answer(c, requester), log)
+    _background(f"push-answer-{requester}", lambda c: askmod.push_answer_here(c, requester), log)
     return True, _HANDED
 
 

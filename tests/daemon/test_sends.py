@@ -661,6 +661,31 @@ def test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(h
         con.close()
 
 
+def test_the_daemons_push_verbs_never_hand_the_push_back_to_the_daemon(home: Path) -> None:
+    """T408 (auditor #5913): the verb runs the push in this process, so it starts the agent
+    whatever `IN_DAEMON` says - forwarding to itself would loop over the socket on thread after thread."""
+    from ocp.daemon import client
+    from ocp.team import ask as askmod
+    _world(home)
+    con = db.connect()
+    sent, started = [], []
+    real_send, real_start = client.send, dmn_lifecycle._start_for_work
+    client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "again"})[1]
+    dmn_lifecycle._start_for_work = lambda c, a, log: (started.append(a), "started")[1]
+    try:
+        assert askmod.IN_DAEMON is False
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
+        db.add_request(con, "product", "backend", "do the sea", None, "peer", "async", "task", 0, None)
+        reply = _verb({"verb": "push", "target": "backend"})
+        check("push verb: the agent is started here and the verb sends nothing to the socket",
+              reply["ok"] and started == ["backend"] and not sent, f"{reply} {started} {sent}")
+        _verb({"verb": "push_answer", "requester": "backend"})
+        check("push_answer verb: nothing sent to the socket either", not sent, str(sent))
+    finally:
+        client.send, dmn_lifecycle._start_for_work = real_send, real_start
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(Path(td) / "s1"))
@@ -684,6 +709,7 @@ def main() -> int:
         run(lambda: test_with_the_daemon_down_ask_and_say_send_nothing(Path(td) / "s6"))
         run(lambda: test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(Path(td) / "s16"))
         run(lambda: test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(Path(td) / "s17"))
+        run(lambda: test_the_daemons_push_verbs_never_hand_the_push_back_to_the_daemon(Path(td) / "s18"))
     return run_area(tests)
 
 

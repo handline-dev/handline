@@ -78,6 +78,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         samples: dict = {}
         dev_state: dict = {"fp": None, "warned": None}
         srv = socket_server.SocketServer(log)
+        askmod.IN_DAEMON = True     # T408: before the socket takes a verb - a push here starts the session itself
         try:
             srv.start()
         except OSError as e:
@@ -87,7 +88,6 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             # that runs with no one able to reach it over the socket.
             log(f"daemon socket: could not start ({e}) - continuing without it")
         try:
-            askmod.IN_DAEMON = True     # T408: a push here starts the session itself, not by asking the daemon
             if not once and not max_ticks:      # a bounded run (a test, --once) has no screens to watch
                 prompts.start(stopping, log)
             log("daemon starting - reconciling")
