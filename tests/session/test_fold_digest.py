@@ -82,7 +82,7 @@ def test_fold(home: Path) -> None:
     # read, hours earlier. The header is ours to write, so the model's version
     # of it is discarded - hence the wrong values here.
     good = digest.render(digest.Digest(
-        date="1999-01-01", agent="somebody-else", updated="20:12", folded_through=top,
+        date="1999-01-01", agent="somebody-else", updated="99:99", folded_through=top,
         sections={"done": ["work 0", "work 1"], "in_progress": ["work 2"], "decided": [],
                   "blocked": [], "next": ["work 3"], "base_candidates": []}))
 
@@ -102,7 +102,7 @@ def test_fold(home: Path) -> None:
         published = digest.parse(foldmod.journal_path("backend", day).read_text())
         check("fold: digest is published", published.items("done") == ["work 0", "work 1"])
         check("fold: the header is stamped, not taken from the model",
-              published.updated != "20:12" and published.date == day
+              published.updated != "99:99" and published.date == day
               and published.agent == "backend",
               f"{published.date} {published.agent} {published.updated}")
         check("fold: deterministic block is attached", "events folded" in published.facts)
