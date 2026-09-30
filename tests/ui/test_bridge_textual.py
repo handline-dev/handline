@@ -276,14 +276,26 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
           len(grown) == cp.HISTORY_MAX and grown[-1] == "new" and grown[0] == "1")
     check("history: matches are newest first and ignore case",
           cp.history_matches("AB", ["xab", "no", "ab2"]) == ["ab2", "xab"])
-    check("history: no file is an empty history", cp.load_history() == [])
-    cp.save_history(["one", "two é"])
-    check("history: it survives a reload", cp.load_history() == ["one", "two é"]
+    check("history: no file is an empty history", cp.load_history("backend") == [])
+    cp.save_history("backend", ["one", "two é"])
+    check("history: it survives a reload", cp.load_history("backend") == ["one", "two é"]
           and str(cp.history_file()).startswith(str(paths.home())))
+    cp.save_history("reviewer", ["other"])
+    check("history: each room keeps its own",
+          cp.load_history("backend") == ["one", "two é"] and cp.load_history("reviewer") == ["other"]
+          and cp.load_history("product") == [])
+    cp.history_file().write_text('["old", "shared"]')
+    check("history: the list from before rooms is read by every room",
+          cp.load_history("backend") == ["old", "shared"] == cp.load_history("reviewer"))
+    cp.save_history("backend", ["new"])
+    check("history: a room that typed leaves the old list to the others",
+          cp.load_history("backend") == ["new"] and cp.load_history("reviewer") == ["old", "shared"])
     cp.history_file().write_text("{not json")
-    check("history: a corrupt file is an empty history, not an error", cp.load_history() == [])
+    check("history: a corrupt file is an empty history, not an error", cp.load_history("backend") == [])
+    cp.save_history("backend", ["again"])
+    check("history: and the next save starts a good file", cp.load_history("backend") == ["again"])
     cp.history_file().write_text('[1, "ok", null]')
-    check("history: only strings are read back", cp.load_history() == ["ok"])
+    check("history: only strings are read back", cp.load_history("backend") == ["ok"])
 
 
 def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:

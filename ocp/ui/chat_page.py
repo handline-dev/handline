@@ -691,14 +691,27 @@ def log_action(what: str) -> None:
         pass
 
 
-def load_history() -> list[str]:
-    """What was typed and sent, oldest first. A missing or unreadable file is
-    an empty history, never an error."""
+def _history_file_data() -> "list | dict | None":
     try:
-        data = json.loads(history_file().read_text())
+        return json.loads(history_file().read_text())
     except (OSError, ValueError):
-        return []
+        return None
+
+
+def _strings(data) -> list[str]:
     return [x for x in data if isinstance(x, str)][-HISTORY_MAX:] if isinstance(data, list) else []
+
+
+def load_history(room: str) -> list[str]:
+    """What was typed and sent in `room` (an agent's chat), oldest first. A room that has none of
+    its own starts from the one shared list the file held before rooms were kept apart. A missing
+    or unreadable file is an empty history, never an error."""
+    data = _history_file_data()
+    if isinstance(data, dict):
+        rooms = data.get("rooms")
+        own = rooms.get(room) if isinstance(rooms, dict) else None
+        return _strings(own if own is not None else data.get("legacy"))
+    return _strings(data)
 
 
 def remember(history: list[str], text: str) -> list[str]:
@@ -710,10 +723,18 @@ def remember(history: list[str], text: str) -> list[str]:
     return ([h for h in history if h != text] + [text])[-HISTORY_MAX:]
 
 
-def save_history(history: list[str]) -> None:
+def save_history(room: str, history: list[str]) -> None:
+    """`room`'s history, keeping every other room's; the old shared list goes on being read by the
+    rooms that have not typed since."""
+    data = _history_file_data()
+    old = data if isinstance(data, list) else data.get("legacy") if isinstance(data, dict) else None
+    rooms = data.get("rooms") if isinstance(data, dict) and isinstance(data.get("rooms"), dict) else {}
+    doc = {"rooms": {**rooms, room: history}}
+    if isinstance(old, list):
+        doc["legacy"] = old
     try:
         history_file().parent.mkdir(parents=True, exist_ok=True)
-        history_file().write_text(json.dumps(history, ensure_ascii=False))
+        history_file().write_text(json.dumps(doc, ensure_ascii=False))
     except OSError:
         pass
 
@@ -1217,7 +1238,7 @@ class ChatPage(JobsAware, Screen):
         self.tasks_pool: list[tuple] = []     # what `#` and `/task` can offer
         self.requests_pool: list[tuple] = []
         self.suggestions: list[Suggestion] = []
-        self.history = load_history()
+        self.history = load_history(self.agent)
         self.hist_pos: int | None = None    # entry Up/Down has recalled, None when typing fresh
         self.hist_draft = ""                # what was in the box before the first Up
         self._recalling = False
@@ -1945,7 +1966,7 @@ class ChatPage(JobsAware, Screen):
         worker answers; a refusal puts the text back in the box."""
         box = self.query_one("#compose", ChatBox)
         self.history = remember(self.history, body)
-        save_history(self.history)
+        save_history(self.agent, self.history)
         self.hist_pos, self.history_mode = None, False
         box.text = ""
         self.reply_to(None)
