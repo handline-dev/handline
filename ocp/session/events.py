@@ -184,6 +184,11 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
                     payload["limit"], payload["limit_source"] = lim
             if event == "PermissionRequest":
                 payload["command"] = waiting.summary(raw.get("tool_input"))
+                # T648, observation only: what a permission hook is told, so a
+                # later hook that answers can be designed on it. Key names, no values.
+                if isinstance(raw.get("permission_mode"), str):
+                    payload["permission_mode"] = raw["permission_mode"][:40]
+                payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
             elif event in ENDS_WAIT:
                 waiting.clear(agent)
             eid = db.add_event(con, agent, event, payload, account=account)

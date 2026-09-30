@@ -2534,7 +2534,8 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
             return [held] if held else []
 
         check("prompt: nothing is waiting before one is raised", not waits())
-        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": cmd})
+        _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": cmd},
+                   permission_mode="auto")
         w = waits()
         check("prompt: the agent is waiting, with its tool and its command",
               len(w) == 1 and w[0]["tool"] == "Bash" and w[0]["command"].startswith("git push origin main"), str(w))
@@ -2543,6 +2544,10 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
               if e["kind"] == "PermissionRequest"]
         check("prompt: the event carries the command too", ev and ev[-1].get("command") == cmd[:120],
               str(ev))
+        check("prompt: the event carries the mode and the input's key names, never its values (T648)",
+              ev[-1].get("permission_mode") == "auto"
+              and "tool_input" in ev[-1].get("input_keys", []) and "git push" not in json.dumps(ev[-1].get("input_keys")),
+              str(ev[-1]))
         check("prompt: its state underneath is still RUNNING",
               db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING)
 
