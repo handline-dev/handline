@@ -22,6 +22,7 @@ from ...usage import load as loadmod, status
 from .. import tui
 from ..components import agent_rows, gauge
 from ..components.action_bar import ActionBar
+from ..components.answer_add import AnswerAdd
 from ..components.ime import ImeInput
 from ..components.jobs_aware import JobsAware
 from ..components.page_header import page_header
@@ -91,11 +92,8 @@ class HomePage(RowActions, JobsAware, Screen):
     HomePage #settings_view { height: 1fr; padding: 1 3; }
     HomePage #answers { height: auto; max-height: 12; margin-top: 1; }
     HomePage #settings_pane { height: 1fr; }
-    HomePage #answer_remove { margin-top: 1; }
-    HomePage #answer_add_head { margin-top: 1; }
-    HomePage #add_folder { width: 1fr; }
-    HomePage #add_vendor { width: 14; margin-right: 1; }
-    HomePage #add_title, HomePage #add_label { width: 1fr; margin-right: 1; }
+    HomePage #answer_buttons { height: 1; margin-top: 1; }
+    HomePage #answer_buttons Button { width: auto; min-width: 0; margin-right: 2; }
     HomePage .frow { height: 1; margin-bottom: 1; }
     HomePage .flabel { width: 16; color: $text-muted; }
     HomePage .fhint { color: $text-muted; }
@@ -154,19 +152,12 @@ class HomePage(RowActions, JobsAware, Screen):
                     yield ImeInput(id="idle_close", compact=True, restrict=r"[0-9]*")
                     yield Static("  min idle before the window closes, 0 = never (background work gets 5 more)",
                                  classes="fhint")
-                yield SectionHead("auto-answers", "what ocp answers by itself on an agent's terminal; "
+                yield SectionHead("auto-answer", "what ocp answers by itself on an agent's terminal; "
                                   "the modal's \"always\" adds one too")
-                yield DataTable(id="answers", cursor_type="row")
-                yield Button("Remove selected", id="answer_remove", compact=True)
-                yield Static("add one - filled in and saved with Save", classes="fhint", id="answer_add_head")
-                with Horizontal(classes="frow"):
-                    yield Static("trust folder", classes="flabel")
-                    yield ImeInput(id="add_folder", compact=True, placeholder="/path/to/folder")
-                with Horizontal(classes="frow"):
-                    yield Static("dialog rule", classes="flabel")
-                    yield ImeInput(id="add_vendor", compact=True, placeholder="vendor")
-                    yield ImeInput(id="add_title", compact=True, placeholder="the prompt's title")
-                    yield ImeInput(id="add_label", compact=True, placeholder="the option to choose")
+                yield DataTable(id="answers", cursor_type="row", show_header=False)
+                with Horizontal(id="answer_buttons"):
+                    yield Button("Add", id="answer_add", compact=True)
+                    yield Button("Remove selected", id="answer_remove", compact=True)
             with ActionBar(id="settings_buttons"):
                 yield Button("Save", id="settings_save", variant="primary", compact=True)
                 yield Button("Reset", id="settings_reset", compact=True)
@@ -206,8 +197,6 @@ class HomePage(RowActions, JobsAware, Screen):
         """Fill the settings form from what is saved, dropping what was typed or marked."""
         self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
         self.query_one("#idle_close", Input).value = actions.idle_close_minutes(idle_close.default_close_timeout_s())
-        for box in ("add_folder", "add_vendor", "add_title", "add_label"):
-            self.query_one(f"#{box}", Input).value = ""
         self._removing = set()
         self._draw_answers()
 
@@ -240,7 +229,7 @@ class HomePage(RowActions, JobsAware, Screen):
     def _draw_answers(self) -> None:
         table = self.query_one("#answers", DataTable)
         table.clear(columns=True)
-        table.add_column("auto-answer", key="text")
+        table.add_column("", key="text")
         try:
             self._answers = actions.standing_answers()
         except (OSError, ImportError) as e:
@@ -253,6 +242,13 @@ class HomePage(RowActions, JobsAware, Screen):
         if not self._answers:
             table.add_row(Text("none - ocp asks you when a dialog shows", style="dim"), key="none")
 
+    def _answer_added(self, fields: "dict | None") -> None:
+        """The modal's Add adds it at once, not with Save: the form is the confirmation."""
+        if fields is not None and any(v.strip() for v in fields.values()):
+            ok, said = actions.add_answer(**fields)
+            self.toast(said, ok)
+            self._draw_answers()
+
     def _remove_answer(self) -> None:
         """Mark (or unmark) the row under the cursor; Save is what removes what is marked."""
         row = self.query_one("#answers", DataTable).cursor_row
@@ -263,8 +259,8 @@ class HomePage(RowActions, JobsAware, Screen):
         self.query_one("#answers", DataTable).move_cursor(row=row)
 
     def _save_settings(self) -> None:
-        """Everything on the settings tab at once: the cap, the idle close time, the marked answers
-        to remove and the answer typed to add."""
+        """Everything on the settings tab at once: the cap, the idle close time and the marked answers
+        to remove."""
         problems, saved = [], []
         for ok, said in (actions.set_default_cap(self.query_one("#default_cap", Input).value),
                          actions.set_idle_close(self.query_one("#idle_close", Input).value)):
@@ -273,13 +269,6 @@ class HomePage(RowActions, JobsAware, Screen):
             picked = self._answers[i]
             ok, said = actions.remove_answer(picked["kind"], picked["key"])
             (saved if ok else problems).append(said)
-        typed = {k: self.query_one(f"#add_{k}", Input).value for k in ("folder", "vendor", "title", "label")}
-        if any(v.strip() for v in typed.values()):
-            ok, said = actions.add_answer(**typed)
-            (saved if ok else problems).append(said)
-            if ok:
-                for k in typed:
-                    self.query_one(f"#add_{k}", Input).value = ""
         self._removing = set()
         self._draw_answers()
         if problems:
@@ -288,7 +277,7 @@ class HomePage(RowActions, JobsAware, Screen):
             self.toast("saved: " + ", ".join(saved), True)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id in ("default_cap", "idle_close", "add_folder", "add_label"):
+        if event.input.id in ("default_cap", "idle_close"):
             event.stop()
             self._save_settings()
 
@@ -299,6 +288,9 @@ class HomePage(RowActions, JobsAware, Screen):
         elif event.button.id == "settings_reset":
             event.stop()
             self._load_settings()
+        elif event.button.id == "answer_add":
+            event.stop()
+            self.app.push_screen(AnswerAdd(), self._answer_added)
         elif event.button.id == "answer_remove":
             event.stop()
             self._remove_answer()
