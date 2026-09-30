@@ -1018,6 +1018,8 @@ def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
     check("card: above it, who and when, and NEW for a delivery",
           cp.card_head({**new, "who": "a → b", "when": 100}).plain.split("  ")[0] == "a → b"
           and cp.card_head({**new, "who": "a → b"}).plain.endswith("NEW"))
+    check("card: the founder is shown as you, as in a message head",
+          cp.card_head({**new, "who": actions.HUMAN, "change": "title changed"}).plain.startswith("you  "))
     check("card: CHANGED for a change to a task",
           cp.card_head({**new, "who": "reviewer", "change": "queued -> doing"}).plain.endswith("CHANGED"))
     check("head: a say carries no kind label, another kind still does",
@@ -1916,29 +1918,37 @@ def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
 
 
 def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
-    """Founder #7364: above the card, who changed it; inside, what happened."""
+    """Founder #7364: above the card, who changed it; inside, what happened - each written by
+    the real action, not a hand-made event."""
     from ocp.ui import chat_page as cp
     _home("changewho")
     agents.register("reviewer")
+    agents.register("backend")
     con = db.connect()
     try:
         t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
         rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
         db.link_request(con, t, rid)
-        db.add_event(con, "orcapipe", "edit_task", {"task_id": t, "owner": {"old": "reviewer", "new": "orcapipe.core"}})
-        con.execute("UPDATE events SET ts = 300 WHERE id = (SELECT MAX(id) FROM events)")
-        db.add_event(con, "reviewer", "task_start", {"task_id": t})
-        con.execute("UPDATE events SET ts = 400 WHERE id = (SELECT MAX(id) FROM events)")
+        con.commit()
+        steps = (lambda: actions.edit_task(con, t, actions.HUMAN, title="the new work"),
+                 lambda: actions.edit_task(con, t, actions.HUMAN, priority=1),
+                 lambda: actions.task_handoff(con, "reviewer", t, "backend", "yours now"),
+                 lambda: actions.edit_task(con, t, actions.HUMAN, owner="reviewer"))
+        for at, step in enumerate(steps, 300):
+            ok, said = step()
+            check(f"changes: the action itself worked ({at})", ok, said)
+            con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (at,))
         con.commit()
         msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
         for m in msgs:
             m["when"] = 100
-        changes = cp.task_changes(con, msgs)
+        changes = [c for c in cp.task_changes(con, msgs) if c["when"] >= 300]
     finally:
         con.close()
     got = [(c["who"], c["change"]) for c in changes]
-    check("changes: each names who made it, an owner change says to whom",
-          got == [("orcapipe", "assigned to orcapipe.core"), ("reviewer", "queued -> doing")], str(got))
+    check("changes: each names who made it and says what changed, a handoff and an owner edit say to whom",
+          got == [(actions.HUMAN, "title changed"), (actions.HUMAN, "priority P2 -> P1"),
+                  ("reviewer", "handed to backend"), (actions.HUMAN, "assigned to reviewer")], str(got))
 
 
 def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:

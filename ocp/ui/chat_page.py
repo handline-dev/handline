@@ -497,7 +497,8 @@ def card_head(m: dict) -> Text:
     is a new task or a change to one."""
     stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m.get("when") else ""
     new = "change" not in m
-    out = Text(f"{safe(m['who'])}  {stamp}  ", style="bold")
+    who = "you" if m["who"] == actions.HUMAN else safe(m["who"])
+    out = Text(f"{who}  {stamp}  ", style="bold")
     out.append("NEW" if new else "CHANGED", style="bold green" if new else "bold yellow")
     return out
 
