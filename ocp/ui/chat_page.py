@@ -314,7 +314,7 @@ def task_detail(con, tid: int) -> dict | None:
     kids = [(c["id"], c["title"], actions.task_state(con, c)) for c in
             con.execute("SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", (tid,)).fetchall()]
     parent = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
-    brief = ((db.task_requests(con, tid) or [{"body": ""}])[0]["body"] or "").strip()
+    brief = ((db.first_linked_request(con, tid) or {"body": ""})["body"] or "").strip()      # the one `edit_task` edits
     if brief.split("\n", 1)[0].strip() == t["title"].strip():
         brief = brief.split("\n", 1)[1].strip("\n") if "\n" in brief else ""      # the title is drawn above
     return {"id": tid, "title": t["title"], "brief": brief, "state": state, "owner": t["owner"],

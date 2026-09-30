@@ -1821,6 +1821,15 @@ async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
     try:
         ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
         check("edit text: a task's brief is the text its opener sent", actions.task_brief(con, tid).endswith("the work and its done"))
+        older = db.add_request(con, "reviewer", actions.HUMAN, "someone's older ask", None, None, "fire_and_forget", "say", 0, None)
+        ok, _, linked = actions.task_new(actions.HUMAN, "reviewer", "Linked", "the opener's own brief")
+        db.link_request(con, linked, older)
+        con.commit()
+        check("edit text: the page draws the brief the edit changes, not an older request linked later",
+              cp.task_detail(con, linked)["brief"] == "the opener's own brief", str(cp.task_detail(con, linked)["brief"]))
+        actions.edit_task(con, linked, actions.HUMAN, body="Linked\nrewritten")
+        check("edit text: and after the edit the page shows it", cp.task_detail(con, linked)["brief"] == "rewritten",
+              str(cp.task_detail(con, linked)["brief"]))
     finally:
         con.close()
     app = BridgeApp()
