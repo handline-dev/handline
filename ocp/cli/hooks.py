@@ -10,7 +10,7 @@ from ..session import edittask, events, stopgate
 from ..infra import paths, protected
 from .. import vendors
 
-# Every gate T298 rolls out warn-only, by the name `ocp hooks gate` takes.
+# Every gate T298 rolled out, by the name `ocp hooks gate` takes; on since T480.
 GATES = {"stop-wait": stopgate, "edit-task": edittask}
 
 
@@ -40,7 +40,7 @@ def cmd_hooks_status(args) -> int:
 
 
 def cmd_hooks_gate(args) -> int:
-    """Show or set one of T298's warn-only gates: refuse for real, or only log."""
+    """Show or set one of T298's gates: on refuses, off (the founder's choice) only logs."""
     mod = GATES[args.name]
     if args.state is not None:
         try:

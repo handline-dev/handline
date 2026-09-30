@@ -2,8 +2,8 @@
 turn while its current task has no recorded wait
 (`actions.tasks.stop_wait_reason`, T319/T292).
 
-Warn-only until the founder switches it on (T298): every wait still logs an
-event (`stop_gate`), but a block is returned only once `enforced()` says so.
+On unless the founder turns it off (T298, T480): every wait logs an event
+(`stop_gate`), and blocks unless `enforced()` says the founder switched it off.
 The switch lives in the protected store, so only the founder's own terminal
 or the bridge can flip it - never an agent's session.
 """
@@ -18,8 +18,8 @@ _NAME = "stop_wait"
 
 
 def enforced() -> bool:
-    """Whether a wait actually blocks the stop, or only logs one."""
-    return protected.get(_NS, _NAME) == "on"
+    """Whether a wait blocks the stop; only the founder's `off` makes it log."""
+    return protected.get(_NS, _NAME) != "off"
 
 
 def set_enforced(on: bool) -> None:
@@ -28,7 +28,8 @@ def set_enforced(on: bool) -> None:
 
 
 def _reason(tid: int, why: str) -> str:
-    return (f"{why}. Finished your part: `ocp task handoff T{tid} <next> ...` (or "
+    return (f"Stop refused: {why}, so ending your turn now would leave it with no owner working "
+            f"and nothing it waits on. Finished your part: `ocp task handoff T{tid} <next> ...` (or "
             f"`ocp task done T{tid}` if you are the last step). Waiting on "
             f"something: `ocp task edit T{tid} --blocked-by T<m>`, or a child or "
             f"decision task.")
@@ -42,7 +43,7 @@ def decide(agent: str, raw: dict) -> tuple[bool, str | None]:
     stop_hook_active chain, the founder's own chat, the usage wall, a session
     the daemon has already closed, and a task already reported once this
     session (`session_id` + the current task, both in the marker). Otherwise
-    a reason - a real block only once `enforced()` is on.
+    a reason - a real block unless `enforced()` is off.
     """
     if not agent or agent == db.HUMAN or raw.get("stop_hook_active"):
         return False, None

@@ -2,7 +2,7 @@
 NotebookEdit while the agent holds no current task - a say (T293) grants
 none, so it can never carry a change.
 
-Warn-only until the founder switches it on (T298), the same protected-store
+On unless the founder turns it off (T298, T480), the same protected-store
 mechanism as T288's stop-wait gate (`ocp hooks gate edit-task on|off`).
 """
 from __future__ import annotations
@@ -20,8 +20,8 @@ GUARDED_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 
 def enforced() -> bool:
-    """Whether holding no current task actually refuses the call, or only logs one."""
-    return protected.get(_NS, _NAME) == "on"
+    """Whether holding no current task refuses the call; only the founder's `off` makes it log."""
+    return protected.get(_NS, _NAME) != "off"
 
 
 def set_enforced(on: bool) -> None:
@@ -61,9 +61,24 @@ def _exempt(agent: str, tool_input: object) -> bool:
     return False
 
 
+def _refusal(con, agent: str, tool: str) -> str:
+    """Why the call is refused and the one command that fixes it: start the task the agent
+    owns if it owns one, else get one opened."""
+    mine = [t for t in db.open_tasks(con)
+            if t["owner"] == agent and not t["done_evidence"]]
+    head = f"{tool} refused: {agent} holds no current task, and every change must belong to one (T295)."
+    if mine:
+        t = mine[0]
+        more = f" (or another of yours: {', '.join('T%d' % m['id'] for m in mine[1:4])})" if len(mine) > 1 else ""
+        return f"{head} Run `ocp task start T{t['id']}` to make your task \"{t['title'][:60]}\" current{more}, then retry."
+    return (f"{head} You own no open task. If the founder just told you to do this, run "
+            f"`ocp task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: "
+            f"`ocp say <them> \"please open a task for <this work>\"`.")
+
+
 def guard(agent: str, tool: str | None, tool_input: object) -> str | None:
     """The reason to refuse this call, or None to let it through - None
-    whenever it is not enforced() yet, even for a real hit (T298)."""
+    whenever the founder has switched it off, even for a real hit."""
     if tool not in GUARDED_TOOLS or _exempt(agent, tool_input):
         return None
     con = db.connect()
@@ -74,10 +89,6 @@ def guard(agent: str, tool: str | None, tool_input: object) -> str | None:
         db.add_event(con, agent, "edit_gate", {"tool": tool, "enforced": on})
         if not on:
             return None
-        return (f"{agent} holds no current task, so this {tool} is refused (T295). "
-                f"`ocp task start T<n>` if you already hold one; if the founder "
-                f"told you to do this, `ocp task begin`; otherwise ask whoever gave "
-                f"you this work to open a task (`ocp say <them> 'please open a task "
-                f"for ...'`).")
+        return _refusal(con, agent, tool)
     finally:
         con.close()

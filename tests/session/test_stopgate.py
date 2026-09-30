@@ -27,8 +27,15 @@ def _open_task(home: Path) -> int:
 
 def test_stop_wait_reason_becomes_a_reason_naming_the_task(home: Path) -> None:
     tid = _open_task(home)
+    block, reason = stopgate.decide("worker", {"session_id": "s0"})
+    check("T480: on by default - a stop with no recorded wait is refused", block is True, (block, reason))
+    check("T480: the refusal says why and names the commands that fix it",
+          reason is not None and "Stop refused" in reason and f"T{tid} is current with no recorded wait" in reason
+          and f"`ocp task handoff T{tid} <next>" in reason and f"`ocp task done T{tid}`" in reason
+          and f"`ocp task edit T{tid} --blocked-by T<m>`" in reason, reason)
+    stopgate.set_enforced(False)
     block, reason = stopgate.decide("worker", {"session_id": "s1"})
-    check("warn-only by default: never blocks", block is False, (block, reason))
+    check("switched off by the founder: never blocks", block is False, (block, reason))
     check("but still gives a reason naming the current task",
           reason is not None and f"T{tid}" in reason, reason)
     check("T401 item 18: names task handoff as the finish step, not task done, "
@@ -38,8 +45,8 @@ def test_stop_wait_reason_becomes_a_reason_naming_the_task(home: Path) -> None:
     try:
         rows = con.execute("SELECT payload FROM events WHERE agent = 'worker' "
                            "AND kind = 'stop_gate'").fetchall()
-        check("and logs one stop_gate event with the reason and enforced=false",
-              len(rows) == 1 and json.loads(rows[0]["payload"])["enforced"] is False,
+        check("and logs a stop_gate event with the reason and enforced=false for that one",
+              len(rows) == 2 and json.loads(rows[1]["payload"])["enforced"] is False,
               [dict(r) for r in rows])
     finally:
         con.close()
@@ -99,7 +106,7 @@ def test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(home: Path
 
 def test_the_enforce_switch_is_the_founders_to_flip(home: Path) -> None:
     _board_world(home)
-    check("off by default", stopgate.enforced() is False)
+    check("on by default", stopgate.enforced() is True)
     os.environ["OCP_AGENT"] = "manager"
     try:
         stopgate.set_enforced(True)
@@ -109,7 +116,9 @@ def test_the_enforce_switch_is_the_founders_to_flip(home: Path) -> None:
     finally:
         del os.environ["OCP_AGENT"]
     rc, out = _cli(["hooks", "gate", "stop-wait"], as_agent=None)
-    check("founder: show", rc == 0 and "off (warn-only)" in out, out)
+    check("founder: show", rc == 0 and "gate: on" in out, out)
+    rc, out = _cli(["hooks", "gate", "stop-wait", "off"], as_agent=None)
+    check("founder: set off", rc == 0 and "off (warn-only)" in out and stopgate.enforced() is False, out)
     rc, out = _cli(["hooks", "gate", "stop-wait", "on"], as_agent=None)
     check("founder: set on", rc == 0 and "gate: on" in out, out)
     check("enforced() now reads True", stopgate.enforced() is True)
@@ -119,6 +128,7 @@ def test_the_enforce_switch_is_the_founders_to_flip(home: Path) -> None:
 
 def test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(home: Path) -> None:
     tid = _open_task(home)
+    stopgate.set_enforced(False)
     os.environ["OCP_AGENT"] = "worker"
     try:
         con = db.connect()

@@ -124,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval", type=float, default=5.0)
     p.set_defaults(fn=cmd_hooks_sync)
     hk.add_parser("status", help="show drift").set_defaults(fn=cmd_hooks_status)
-    p = hk.add_parser("gate", help="show or set one of T298's warn-only gates")
+    p = hk.add_parser("gate", help="show or set one of T298's gates (on refuses; the founder can turn one off to only log)")
     p.add_argument("name", choices=["stop-wait", "edit-task"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_gate)
