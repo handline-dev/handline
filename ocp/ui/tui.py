@@ -401,6 +401,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
     # are what a row costs.
     state_rows = {n: db.get_agent_state(con, n) for n, _, _ in drawn_tree}
     shown = {k: oneline(v) for k, v in shown_names(drawn_tree).items()}
+    task_counts = actions.open_task_counts(con)      # one read of the open tasks, not one per agent
     rows = []
     for name, depth, hidden in drawn_tree:
         under = len(hidden)
@@ -439,7 +440,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
                          w.account != acct or w.assumed) if w else None)
         cur = db.current_task(con, name)
-        task_n = actions.open_task_count(con, name)
+        task_n = task_counts.get(name, 0)
         ready = (cur is not None and s == "IDLE"
                  and actions.task_state(con, db.get_task(con, cur)) == "queued"
                  and not db.task_blockers(con, cur))

@@ -1696,6 +1696,29 @@ def test_the_bridge_stylesheet_parses() -> None:
     check("bridge: chat_page.tcss parses", ok, why)
 
 
+def test_the_open_task_counts_read_once_and_match_the_one_agent_count() -> None:
+    _home("task_counts")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, t1 = actions.task_new("product", "backend", "One", "the work and its done")
+        ok, _, t2 = actions.task_new("product", "backend", "Two", "the work and its done")
+        ok, _, t3 = actions.task_new("product", "reviewer", "Three", "the work and its done")
+        counts = actions.open_task_counts(con)
+        each = {n: actions.open_task_count(con, n) for n in ("backend", "reviewer", "product")}
+        check("task counts: every owner's count is the one-agent count, and an owner with none is left out",
+              counts == {n: c for n, c in each.items() if c} and each["backend"] >= 1 and each["product"] == 0,
+              str((counts, each)))
+        seen: list[str] = []
+        con.set_trace_callback(lambda q: seen.append(q) if "FROM tasks" in q else None)
+        actions.open_task_counts(con)
+        con.set_trace_callback(None)
+        check("task counts: the open tasks are scanned once for all agents",
+              len([q for q in seen if "discarded_by IS NULL" in q]) == 1, str(seen))
+    finally:
+        con.close()
+
+
 def test_assign_offers_the_holders_team_first() -> None:
     _home("assign_team")
     everyone = ["analytics", "backend", "frontend", "marketing", "reviewer"]
@@ -2112,6 +2135,7 @@ async def _run_all() -> None:
     test_home_settings_marks_and_the_delegated_view()
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
     test_the_bridge_stylesheet_parses()
+    test_the_open_task_counts_read_once_and_match_the_one_agent_count()
     test_assign_offers_the_holders_team_first()
     test_assign_answers_from_the_task_page()
     test_a_task_page_shows_every_line_of_a_multi_line_task()
