@@ -119,6 +119,50 @@ def _with_task_state(con, rows) -> list[dict]:
     return out
 
 
+# The task events that move a task to a state; the state `doing` is not stored, so the two
+# events that put a task in its owner's hands stand for it.
+_STATE_AFTER = {"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing",
+                "mark_task_done": "done", "close_task": "closed", "discard_task": "discarded",
+                "reopen_task": "queued"}
+
+
+def task_changes(con, msgs: list[dict]) -> list[dict]:
+    """The state changes, since the first of `msgs`, of the tasks delivered in them, as entries for
+    the chat: {change: "queued -> doing", tasks, task_title, when}. A task starts as queued."""
+    cards = {m["tasks"][0]: m["task_title"] for m in msgs if is_card(m)}
+    if not cards:
+        return []
+    since = min((m["when"] for m in msgs if m["when"]), default=0)
+    marks = ",".join("?" * len(cards))
+    kinds = tuple(_STATE_AFTER)
+    events = con.execute(
+        f"SELECT ts, kind, {db.EVENT_TASK} AS tid FROM events WHERE kind IN ({','.join('?' * len(kinds))}) "
+        f"AND {db.EVENT_TASK} IN ({marks}) ORDER BY id", (*kinds, *cards)).fetchall()
+    state: dict[int, str] = {}
+    out = []
+    for e in events:
+        before, after = state.get(e["tid"], "queued"), _STATE_AFTER[e["kind"]]
+        state[e["tid"]] = after
+        if before != after and e["ts"] >= since:
+            out.append({"change": f"{before} -> {after}", "tasks": [e["tid"]], "task_title": cards[e["tid"]],
+                        "when": e["ts"]})
+    return out
+
+
+def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
+    """The messages with each change of a task set among them at its time; a message still waiting to
+    go stays last."""
+    sent = [m for m in msgs if not m["unread"]]
+    waiting = [m for m in msgs if m["unread"]]
+    out: list[dict] = []
+    later = sorted(changes, key=lambda c: c["when"])
+    for m in sent:
+        while later and later[0]["when"] < (m["when"] or 0):
+            out.append(later.pop(0))
+        out.append(m)
+    return out + later + waiting
+
+
 def signature(con, agent: str, everyone: bool) -> tuple:
     """A cheap reading that changes whenever something in the chat does: a new
     request, or a request answered, closed or changed."""
@@ -129,7 +173,9 @@ def signature(con, agent: str, everyone: bool) -> tuple:
         "COUNT(landed_at), COALESCE(MAX(typed_at), 0), COALESCE(SUM(landing_tries), 0), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
         params).fetchone()
-    return tuple(row)
+    events = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM events WHERE kind IN "
+                         f"({','.join('?' * len(_STATE_AFTER))})", tuple(_STATE_AFTER)).fetchone()
+    return (*row, *events)
 
 
 def _col(r, name: str):
@@ -404,16 +450,19 @@ def is_card(m: dict) -> bool:
     return m.get("part") == 0 and m.get("kind") == "task" and bool(m.get("tasks"))
 
 
-def card_top(m: dict) -> tuple[Text, Text]:
-    """The card's top line (TASK T<n> and its state) and its bold title; both open the task."""
+def card_lines(m: dict) -> Text:
+    """A task in the chat, as little as it takes: the time, TASK T<n> and the title on one line (cut
+    to the room, and a click opens the task), then, for a change of state, the change alone."""
     tid = m["tasks"][0]
-    go = Style(meta={"@click": f"screen.open_task({tid})"})
-    st = m.get("task_state") or ""
-    top = Text("TASK ", style="dim")
-    top.append(actions.task_ref(tid), style=Style(bold=True, underline=True, meta=go.meta))
-    if st:
-        top.append(f"  {safe(st)} ", style=STATE_STYLE.get(st, ""))
-    return top, Text(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go.meta))
+    go = {"@click": f"screen.open_task({tid})"}
+    stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m.get("when") else ""
+    out = Text(f"{stamp} TASK ", style="dim", no_wrap=True, overflow="ellipsis")
+    out.append(actions.task_ref(tid), style=Style(bold=True, underline=True, meta=go))
+    out.append(" : ", style="dim")
+    out.append(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go))
+    if m.get("change"):
+        out.append("\n  " + m["change"], style=STATE_STYLE.get(m["change"].rsplit(" ", 1)[-1], ""))
+    return out
 
 
 def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dict | None = None) -> Text:
@@ -423,11 +472,7 @@ def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dic
     head, body, note = message_parts(m)
     out = Text()
     if is_card(m):
-        top, title = card_top(m)
-        out.append_text(top)
-        out.append("\n")
-        out.append_text(title)
-        out.append("\n")
+        return card_lines(m)
     if head_shown:
         head = head.copy()
         colour = (colors or {}).get({"them": "success", "other": "text-muted"}.get(side, ""), "")
@@ -513,6 +558,14 @@ def task_page(d: dict) -> dict:
         "timeline": [timeline_text(e) for e in d["timeline"]]}
 
 
+class TaskChange(Static):
+    """A task's change of state, set among the messages at the time it happened."""
+
+    def __init__(self, m: dict) -> None:
+        super().__init__(card_lines(m), classes="msg card change")
+        self.m = m
+
+
 class WorkLine(Static):
     """The spare row under the last message: a spinner while the agent is working, and what
     it waits on when idle."""
@@ -547,6 +600,9 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     out: list = []
     first = True
     for m in msgs:
+        if "change" in m:
+            out.append(TaskChange(m))
+            continue
         out.append(ChatMessage(m, working, why if m["unread"] and first else ""))
         first = first and not m["unread"]
     out.append(WorkLine(working, wait=wait))
@@ -1500,13 +1556,14 @@ class ChatPage(JobsAware, Screen):
         con = db.connect()
         try:
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
+            changes = task_changes(con, msgs)
         finally:
             con.close()
         state, detail = self.agent_state
         wait = detail if detail.startswith("waiting for") else ""
         key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
                       r["landing_tries"], r["dismissed_by"])
-                     for r in rows))
+                     for r in rows), tuple((c["tasks"][0], c["when"], c["change"]) for c in changes))
         live = (state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:
             if live != self._live:      # only the spinner, the wait or a reason: redraw those, not the chat
@@ -1523,7 +1580,7 @@ class ChatPage(JobsAware, Screen):
         pane = self.query_one("#transcript", VerticalScroll)
         at_bottom = pane.is_vertical_scroll_end
         pane.remove_children()
-        widgets = transcript_widgets(msgs, state == "RUNNING", why, wait)
+        widgets = transcript_widgets(with_task_changes(msgs, changes), state == "RUNNING", why, wait)
         pane.mount(*widgets)
         if at_bottom:
             pane.anchor()       # stays at its end as the new messages are laid out, until the reader scrolls
