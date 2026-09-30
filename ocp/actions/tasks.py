@@ -268,9 +268,13 @@ def stop_wait_reason(con, agent: str) -> str | None:
 
 
 def child_blocker_of(con, tid: int):
-    """The open child task that blocks `tid`, or None - any child, whoever owns it or whatever it is
-    for (a review, a merge, a piece of the work): the flow that uses one is project guidance (T443)."""
-    return next((b for b in db.task_blockers(con, tid) if b["parent_task"] == tid), None)
+    """The open child task of someone else that blocks `tid`, or None - whatever it is for (a
+    review, a merge, a piece of the work): the flow that uses one is project guidance (T443). A child
+    the owner holds itself is not waited on: it is the next thing to do, and holding the parent on it
+    would leave the owner waiting on itself."""
+    owner = db.get_task(con, tid)["owner"]
+    return next((b for b in db.task_blockers(con, tid)
+                 if b["parent_task"] == tid and b["owner"] != owner), None)
 
 
 def child_wait(con, agent: str) -> str | None:
@@ -672,9 +676,9 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     calling): the owner who just closed the blocker themselves does not need
     telling."""
     text = f"task T{dep_tid} is unblocked - T{closed_tid}, its last open blocker, {how}"
-    result = db.get_task(con, closed_tid)["done_evidence"]
-    if result:
-        text += f": {result}"     # until T443's own result line lands and takes this over
+    closed = db.get_task(con, closed_tid)
+    if closed["done_evidence"] and closed["parent_task"] != dep_tid:
+        text += f": {closed['done_evidence']}"     # a child's result is told on its own, by _child_result_notice
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, text, None, None,
                          "fire_and_forget", "report", 0, None)
     db.link_request(con, dep_tid, rid)

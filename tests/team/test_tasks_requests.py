@@ -8179,6 +8179,56 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
         con.close()
 
 
+def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited_on(home: Path) -> None:
+    """T443 (auditor #5855): a review that is the only blocker gives one result notice and an
+    unblocked line without it; a child the owner holds itself is the next task, not a wait."""
+    from ocp.daemon import taskqueue
+    _board_world(home)
+    con = db.connect()
+    real_push = askmod.push
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        parent = db.new_task(con, "the work", "worker", "manager")
+        review = db.new_task(con, "review", "team.auditor", "worker", parent_task=parent)
+        db.add_block(con, parent, review)
+        ok, msg = actions.mark_task_done(con, review, "team.auditor", reason="PASS: fine")
+        told = [r["body"] for r in db.task_requests(con, parent) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("only child: one result notice, then the unblocked line with no result",
+              ok and len(told) == 2 and told[0] == "T%d done by team.auditor: PASS: fine" % review
+              and told[1].startswith("task T%d is unblocked" % parent) and "PASS" not in told[1], str(told))
+
+        dep = db.new_task(con, "a dependency", "manager", "manager")
+        blocked = db.new_task(con, "held", "worker", "manager")
+        db.add_block(con, blocked, dep)
+        actions.mark_task_done(con, dep, "manager", reason="landed")
+        told = [r["body"] for r in db.task_requests(con, blocked) if r["requester"] == actions._UNBLOCK_REQUESTER]
+        check("non-child blocker: the unblocked line still carries its result",
+              told == ["task T%d is unblocked - T%d, its last open blocker, done: landed" % (blocked, dep)], str(told))
+    finally:
+        askmod.push = real_push
+        con.close()
+
+    _board_world(home / "own")
+    con = db.connect()
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        ok, msg, p = actions.task_new("manager", "worker", "the work", "the work")
+        (req,) = db.task_requests(con, p)
+        mine = db.new_task(con, "a piece of it", "worker", "worker", parent_task=p)
+        db.add_block(con, p, mine)
+        actions.set_queued(con, mine, "manager", True)
+        check("own child: it is no wait", actions.child_wait(con, "worker") is None)
+        askmod.resolve(req["id"], "split it")
+        actions.advance_current_task(con, "worker")
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("own child: the owner is given it, not held on it",
+              db.current_task(con, "worker") == mine and len(db.task_requests(con, mine)) == 1,
+              str(db.current_task(con, "worker")))
+    finally:
+        askmod.push = real_push
+        con.close()
+
+
 def test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(home: Path) -> None:
     """T352 (auditor #2136): the answered request must not stay a reason to keep
     a task from its owner for good - reopening it, or clearing a blocker, is."""
@@ -8401,10 +8451,12 @@ limits:
         ok, msg = actions.mark_task_done(con, kid, "dev.auditor", reason="FAIL: retry loops; repro x")
         check("review: the child closes with the result", ok, msg)
         ok, msg = actions.close_task(con, kid, "dev.worker")
-        told = [r for r in db.task_requests(con, t) if "unblocked" in r["body"]]
-        check("review: the block lifts and the owner is told the result in the notice",
-              ok and not db.task_blockers(con, t) and len(told) == 1
-              and "FAIL: retry loops; repro x" in told[0]["body"], str([dict(r) for r in told]))
+        told = [r["body"] for r in db.task_requests(con, t) if "unblocked" in r["body"]]
+        result = [r["body"] for r in db.task_requests(con, t) if "FAIL: retry loops; repro x" in r["body"]]
+        check("review: the block lifts; the result is told once, on its own, and not in the notice",
+              ok and not db.task_blockers(con, t) and len(told) == 1 and "FAIL" not in told[0]
+              and result == ["T%d done by dev.auditor: FAIL: retry loops; repro x" % kid],
+              f"{told} {result}")
         check("review: T is still the worker's",
               db.get_task(con, t)["owner"] == "dev.worker" and not db.get_task(con, t)["closed_by"])
     finally:
@@ -8912,6 +8964,7 @@ def main() -> int:
         run(lambda: test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(Path(td) / 'resend'))
         run(lambda: test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(Path(td) / 'taskqtick'))
         run(lambda: test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_result(Path(td) / 'reviewwait'))
+        run(lambda: test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited_on(Path(td) / 'reviewwait2'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
