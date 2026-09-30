@@ -4206,6 +4206,33 @@ def test_the_founder_closing_a_parent_closes_its_done_children(home: Path) -> No
         con.close()
 
 
+def test_a_done_child_held_by_its_own_child_closes_when_that_closes(home: Path) -> None:
+    """T555 audit #6615: P <- C <- G, all asked for by the manager. C done while G is
+    open stays open, and closes when G does, whichever order they finish; the founder's
+    close of a parent that cannot close whole leaves its done children as they were."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        p = db.new_task(con, "P", "worker", "manager")
+        c = db.new_task(con, "C", "worker", "manager", p)
+        g = db.new_task(con, "G", "worker", "manager", c)
+        actions.mark_task_done(con, c, "worker", reason="done")
+        check("self-close: C waits while G is open", not db.get_task(con, c)["closed_by"])
+        actions.mark_task_done(con, g, "worker", reason="done")
+        check("self-close: G closes itself, and C with it",
+              db.get_task(con, g)["closed_by"] and db.get_task(con, c)["closed_by"] == "manager",
+              str(dict(db.get_task(con, c))))
+        a = db.new_task(con, "A", "worker", "manager", p)
+        b = db.new_task(con, "B", "worker", "manager", p)
+        bg = db.new_task(con, "BG", "worker", "manager", b)
+        con.execute("UPDATE tasks SET done_evidence = 'x' WHERE id IN (?, ?, ?)", (p, a, b))
+        ok, msg = actions.close_task(con, p, actions.HUMAN)
+        check("founder close: refused with an open grandchild, and A is not closed on the way",
+              not ok and not db.get_task(con, a)["closed_by"], msg)
+    finally:
+        con.close()
+
+
 def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
     """T294 (code-review, T-A #1897): the auto-block on a `--parent` child
     must not turn into a new merge refusal - before it existed, a task with
@@ -9190,6 +9217,7 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
         run(lambda: test_the_founder_closing_a_parent_closes_its_done_children(Path(td) / 'founderclosekids'))
+        run(lambda: test_a_done_child_held_by_its_own_child_closes_when_that_closes(Path(td) / 'selfcloseheld'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
