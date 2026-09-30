@@ -1141,6 +1141,12 @@ def recent_assignees(con) -> list[str]:
     return db.recent_handoff_targets(con, HUMAN)
 
 
+def has_team(holder: str) -> bool:
+    """Does team.yaml put `holder` in a team?"""
+    t = routing()
+    return t is not None and t.team_of(holder) is not None
+
+
 def assign_targets(holder: str, agents: list[str], recent=()) -> tuple[list[str], list[str], list[str]]:
     """Who a task can be handed to, out of `agents`, as (recent, the holder's own team, everyone
     else), without the holder and each agent once. `recent` is who was handed tasks lately, newest

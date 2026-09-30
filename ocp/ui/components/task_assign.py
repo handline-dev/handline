@@ -36,7 +36,7 @@ class TaskAssign(ModalScreen["tuple[str, str, str] | None"]):
         self.ref, self.holder = ref, holder
         first, team, rest = actions.assign_targets(holder, agents, recent)
         self.options = ([(f"{a}  (recent)", a) for a in first] + [(a, a) for a in team]
-                        + [(f"{a}  (other team)" if team else a, a) for a in rest])
+                        + [(f"{a}  (other team)" if actions.has_team(holder) else a, a) for a in rest])
         self.others = [a for _, a in self.options]
 
     def compose(self) -> ComposeResult:

@@ -1681,6 +1681,44 @@ def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
     check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
 
 
+async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> None:
+    import html, re
+    from textual.app import App
+    from ocp.ui import chat_page as cp
+    _home("timeline_ui")
+    from ocp.ui.components.task_assign import TaskAssign
+    ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
+    con = db.connect()
+    try:
+        actions.memo_add(con, tid, "backend", "a short one")
+        actions.memo_add(con, tid, "backend", "top line\nsecond of three\nthird of three")
+        actions.memo_add(con, tid, "backend", " ".join(f"word{i}" for i in range(1, 41)))
+    finally:
+        con.close()
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield cp.TaskBody(tid)
+
+    app = Host()
+    async with app.run_test(size=(80, 45)) as pilot:
+        await pilot.pause(0.5)
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        lines = shown.split("\n")
+        check("timeline ui: a several-line memo shows its later lines",
+              "second of three" in shown and "third of three" in shown)
+        check("timeline ui: a memo longer than the row shows its last word, not an ellipsis",
+              "word40" in shown and "…" not in shown)
+        check("timeline ui: the icons sit on the first line of an entry, and a short one stays one line",
+              any("top line" in ln and "✎" in ln for ln in lines) and any("a short one" in ln and "✎" in ln for ln in lines))
+        d = TaskAssign("T1", "backend", ["analytics", "backend", "frontend", "reviewer"], ["frontend"])
+        check("assign to: with the holder's whole team recent, the other teams are still labelled",
+              [label for label, _ in d.options] == ["frontend  (recent)", "analytics  (other team)", "reviewer  (other team)"],
+              str(d.options))
+
+
 def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
@@ -2162,6 +2200,7 @@ async def _run_all() -> None:
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
     await test_a_blocked_task_says_so_where_working_would_be()
+    await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
 
 
