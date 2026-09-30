@@ -42,6 +42,10 @@ def dialog_of(con, agent: str) -> dict | None:
     dialog = orca.dialog_on_screen(handle)
     if dialog is None:
         return None
+    if orca.trust_prompt_showing(handle):
+        # The trust screen with its folder unreadable is numbered like any dialog, but it is answered
+        # by the trust roots only: offered here, "always" would save a rule nothing ever acts on (T211).
+        return None
     return {"agent": agent, "vendor": vendor, "kind": "dialog", "title": dialog.title,
             "options": list(dialog.options), "folder": "", "body": _context(dialog)}
 

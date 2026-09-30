@@ -1564,6 +1564,7 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}), \
             mock.patch.object(orcamod, "dialog_on_screen", lambda h: screen["dialog"]), \
             mock.patch.object(orcamod, "trust_prompt_folder", lambda h: screen["folder"]), \
+            mock.patch.object(orcamod, "trust_prompt_showing", lambda h: screen.get("trust_unreadable", False)), \
             mock.patch.object(orcamod, "confirm_trust", lambda h: (True, "trusted")), \
             mock.patch.object(orcamod, "press_option", press):
         import ocp.team as teampkg
@@ -1594,6 +1595,12 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
             check("dialog: 'always' on the folder-trust screen trusts the folder, not a rule",
                   ok and trust.is_declared(home) and len(rules.rules) == 1, said)
             screen["folder"] = None
+            screen["dialog"] = dialog
+            check("dialog: a numbered dialog with no trust screen is offered", actions.dialog_of(con, "reviewer") is not None)
+            screen["trust_unreadable"] = True
+            check("dialog: a trust screen whose folder cannot be read offers nothing (T211)",
+                  actions.dialog_of(con, "reviewer") is None, str(actions.dialog_of(con, "reviewer")))
+            screen["trust_unreadable"] = False
             answers = actions.standing_answers()
             check("dialog: the standing answers list the rule", any(a["kind"] == "dialog" for a in answers), str(answers))
             ok, _ = actions.remove_answer("dialog", ("claude", dialog.title, "Yes, and don't ask again"))
