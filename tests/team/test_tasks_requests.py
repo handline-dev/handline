@@ -8515,7 +8515,7 @@ limits:
     askmod.IN_DAEMON = True
     try:
         ok, msg, first = actions.task_new("manager", "worker", "busy the worker", "busy")
-        ok, msg, t = actions.task_new("manager", "worker", "the moved one", "the moved one")
+        ok, msg, t = actions.task_new("manager", "worker", "the moved one", "the moved one: full brief")
         (old,) = db.task_requests(con, t)
         check("setup: the moved task is asked of the worker, who is busy with the first",
               old["target"] == "worker" and old["state"] == "queued")
@@ -8531,7 +8531,16 @@ limits:
               len(sent) == 1 and db.current_task(con, "other") == t and "other" in started,
               str((sent, started)))
         check("edit: the old owner is told nothing more, and its current task is still its own",
-              db.current_task(con, "worker") == first)
+              db.current_task(con, "worker") == first and not
+              [r for r in db.queued_for(con, "worker") if r["kind"] == "say"])
+        check("edit: the new owner gets the whole brief, not the title", sent and sent[0]["body"] == "the moved one: full brief",
+              str([r["body"] for r in sent]))
+
+        rc, msg = _cli(["task", "edit", f"T{first}", "--owner", "other"])
+        told = [r["body"] for r in con.execute("SELECT body FROM requests WHERE target = 'worker' AND kind = 'say'")]
+        check("edit: an old owner that held the task is told to stop, and no longer holds it",
+              rc == 0 and told == [f"T{first} moved to other by manager - stop work on it"]
+              and db.current_task(con, "worker") != first, str((rc, msg, told)))
 
         taskqueue.sweep(con, lambda _m: None, int(time.time()))
         check("edit: the tick sends it once", len([r for r in db.task_requests(con, t)

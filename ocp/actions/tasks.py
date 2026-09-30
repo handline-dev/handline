@@ -1307,14 +1307,19 @@ def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
     row = db.get_task(con, tid)
     if row is None or row["owner"] in (HUMAN, by) or task_state(con, row) != "doing":
         return
-    body = f"T{tid} memo {what} by {by}" + (f": {textsafe.oneline(text)[:400]}" if text else "")
-    rid = db.add_request(con, _UNBLOCK_REQUESTER, row["owner"], body, None, None,
+    _type_say(con, row["owner"], f"T{tid} memo {what} by {by}"
+              + (f": {textsafe.oneline(text)[:400]}" if text else ""), "task memo")
+
+
+def _type_say(con, owner: str, body: str, why: str) -> None:
+    """A say from the task board to `owner`, typed at once."""
+    rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, body, None, None,
                          "fire_and_forget", "say", 0, None)
     db.mark_send_now(con, rid)
-    askmod.deliver(rid, _UNBLOCK_REQUESTER, row["owner"], body, None,
-                   team.Decision(True, "task memo", kind="say", response="fire_and_forget",
+    askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, body, None,
+                   team.Decision(True, why, kind="say", response="fire_and_forget",
                                  creates_gate=False, chain_depth=0))
-    askmod.push(con, row["owner"], rid)
+    askmod.push(con, owner, rid)
 
 
 def memo_add(con, tid: int, by: str, body: str) -> tuple[bool, str, int | None]:
@@ -1361,7 +1366,8 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
               timeout_s: int | None = None) -> tuple[bool, str]:
     """Change a task's owner, title, priority and/or timeout; opener or founder only
-    (an owner change fixes a wrong name, it is not a handoff - #1914). Refused when
+    (an owner change fixes a wrong name, it is not a handoff - #1914; a caller that changes
+    the owner follows it, once committed, with `send_moved_task`). Refused when
     nothing changes, except --timeout, which always restarts the deadline (only while
     doing) so extending by the same length works."""
     row = db.get_task(con, tid)
@@ -1417,24 +1423,38 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     return True, f"task T{tid} edited by {by}: {said}"
 
 
-def send_moved_task(con, tid: int, old_owner: str) -> None:
+def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
     """T545: after `edit_task` gave `tid` to a new owner - once its write has committed, since
     `resolve` and the delivery write through their own connections. The old owner's request for it
-    is taken back, and the new owner is sent the task now: left as it was, the request stayed queued
-    for the old owner and the new one saw a task already being asked. No-op if the owner did not change."""
+    is taken back and the new owner is asked the same brief now, as `task_new` would (the task row
+    keeps a title only, so the body is the request's); an old owner that had the task in hand is told
+    to stop. Left as it was, the request stayed queued for the old owner and the new one saw a task
+    already being asked. No-op if the owner did not change."""
     row = db.get_task(con, tid)
     if row is None or row["owner"] == old_owner:
         return
-    for r in db.task_requests(con, tid):
-        if r["state"] == "queued" and r["target"] == old_owner:
-            askmod.resolve(r["id"], f"moved to {row['owner']}", state="withdrawn", notify=False)
-            db.set_task_queued(con, tid, r["requester"])    # asked, so approved: it must not fall back to a draft
+    new_owner = row["owner"]
+    taken = [r for r in db.task_requests(con, tid) if r["state"] == "queued" and r["target"] == old_owner]
+    in_hand = db.current_task(con, old_owner) == tid or any(r["delivered_at"] for r in taken)
+    for r in taken:
+        askmod.resolve(r["id"], f"moved to {new_owner}", state="withdrawn", notify=False)
     if db.current_task(con, old_owner) == tid:
         db.set_current_task(con, old_owner, None)
         if advance_current_task(con, old_owner):
             askmod.push(con, old_owner)
-    if advance_current_task(con, row["owner"]):
-        askmod.push(con, row["owner"])
+    if in_hand and old_owner != HUMAN:
+        _type_say(con, old_owner, f"T{tid} moved to {new_owner} by {by} - stop work on it", "task moved")
+    if taken and new_owner != HUMAN:
+        ok, msg, rid = askmod.ask(new_owner, taken[0]["body"], requester=taken[0]["requester"],
+                                  kind="task", on_behalf_of=True, park=False)
+        if ok:
+            _link_delivery(con, tid, new_owner, rid)
+            askmod.push(con, new_owner)
+            return
+        db.add_event(con, new_owner, "task_deliver_refused", {"task_id": tid, "why": msg})
+        db.set_task_queued(con, tid, taken[0]["requester"])     # the tick tries again, with the title
+    if advance_current_task(con, new_owner):
+        askmod.push(con, new_owner)
 
 
 def _under(con, tid: int, ancestor: int) -> bool:
@@ -1709,7 +1729,7 @@ def batch_task(con, verb: str, tids: list[int], by: str, arg: str = "") -> list[
             was = (db.get_task(con, tid) or {"owner": None})["owner"]
             ok, msg = edit_task(con, tid, by, owner=arg.strip())
             if ok:
-                send_moved_task(con, tid, was)
+                send_moved_task(con, tid, was, by)
         else:
             ok, msg = edit_task(con, tid, by, priority=prio)
         out.append((tid, ok, msg))

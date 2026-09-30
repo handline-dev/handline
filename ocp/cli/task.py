@@ -499,7 +499,7 @@ def cmd_task_edit(args) -> int:
         # T545: the task goes to its new owner now, not at some later tick - and not inside the transaction.
         con = db.connect()
         try:
-            actions.send_moved_task(con, args.task, was_owner)
+            actions.send_moved_task(con, args.task, was_owner, me)
         finally:
             con.close()
     if unblocked_owner is not None:
