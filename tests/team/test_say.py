@@ -121,6 +121,29 @@ def test_say_survives_enforce_edges_own_kind_recheck(home: Path) -> None:
         con.close()
 
 
+def test_resolving_a_human_ask_leaves_one_message(home: Path) -> None:
+    """T477: the answer to a founder's ask is one message. Resolve writes the verdict on
+    the ask and the answer row that carries it (`settles`), which the chat leaves out."""
+    _say_world(home)
+    con = db.connect()
+    rid = db.add_request(con, "human", "worker", "fix it", None, "supervisor",
+                         "fire_and_forget", None, 0, None)
+    con.commit()
+    con.close()
+    rc, out = _cli(["resolve", str(rid), "fixed it", "--no-task", "nothing to build"], as_agent="worker")
+    check("resolve: a human's ask is answered", rc == 0, out)
+    con = db.connect()
+    try:
+        rows = [dict(r) for r in con.execute("SELECT id, requester, target, kind, parent_id, settles, "
+                                             "verdict FROM requests WHERE id >= ? ORDER BY id", (rid,))]
+        said = [r for r in rows if r["requester"] == "worker" and r["target"] == "human"]
+        check("resolve: exactly one row from the answerer to the human", len(said) == 1, str(rows))
+        check("resolve: it is the answer row, marked as settling the ask",
+              said and said[0]["settles"] == rid, str(rows))
+    finally:
+        con.close()
+
+
 def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
     """T293/#1655 (1b): a reply to a say is a say, threaded with --parent -
     the same chain, not a fresh one, and still never a head."""
@@ -408,6 +431,7 @@ def main() -> int:
         run(lambda: test_say_delivers_ahead_of_the_queue_and_never_parks(Path(td) / 'sayqueue'))
         run(lambda: test_a_manager_says_to_a_report_only_with_a_task_or_a_reason(Path(td) / 'sayrule'))
         run(lambda: test_say_survives_enforce_edges_own_kind_recheck(Path(td) / 'sayedges'))
+        run(lambda: test_resolving_a_human_ask_leaves_one_message(Path(td) / 'sayone'))
         run(lambda: test_a_reply_to_a_say_is_a_say_in_its_own_thread(Path(td) / 'sayreply'))
         run(lambda: test_only_the_says_own_target_can_close_it_by_replying(
             Path(td) / 'sayclosetarget'))
