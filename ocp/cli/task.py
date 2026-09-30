@@ -422,9 +422,15 @@ def cmd_task_edit(args) -> int:
     if me is None:
         print(_who_refusal("edit a task"))
         return 1
-    if (args.owner is None and args.title is None and args.priority is None
+    body = None
+    if args.body is not None or args.body_file:
+        body, err = _text_arg(args.body, args.body_file, "body")
+        if err:
+            print(err)
+            return 1
+    if (args.owner is None and args.title is None and args.priority is None and body is None
             and args.blocked_by is None and args.unblock is None and args.timeout is None):
-        print("edit needs a new owner, a new title, --priority, --blocked-by, --unblock, "
+        print("edit needs a new owner, a new title, --body, --priority, --blocked-by, --unblock, "
               "or --timeout")
         return 1
     con = db.connect()
@@ -436,10 +442,10 @@ def cmd_task_edit(args) -> int:
         was_owner = (db.get_task(con, args.task) or {"owner": None})["owner"]
         try:
             if (args.owner is not None or args.title is not None or args.priority is not None
-                    or args.timeout is not None):
+                    or args.timeout is not None or body is not None):
                 ok, msg = actions.edit_task(con, args.task, me, owner=args.owner,
                                             title=args.title, priority=args.priority,
-                                            timeout_s=args.timeout)
+                                            timeout_s=args.timeout, body=body)
                 msgs.append(msg)
             if ok and args.blocked_by is not None:
                 ok, msg = actions.add_block(con, args.task, args.blocked_by, me)
@@ -460,6 +466,12 @@ def cmd_task_edit(args) -> int:
     # after a ROLLBACK, so only it is shown.
     for msg in (msgs if ok else msgs[-1:]):
         print(msg)
+    if ok and body is not None:
+        con = db.connect()
+        try:
+            actions.tell_body_edited(con, args.task, me)
+        finally:
+            con.close()
     if ok and args.owner is not None:
         # T545: the task goes to its new owner now, not at some later tick - and not inside the transaction.
         con = db.connect()

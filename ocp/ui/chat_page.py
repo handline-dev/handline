@@ -562,7 +562,7 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     return head, body, note
 
 
-TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note"}
+TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note", "edit": "body edited"}
 
 
 def timeline_text(e: dict) -> Text:

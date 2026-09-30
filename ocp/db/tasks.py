@@ -207,6 +207,28 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     con.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
 
 
+def first_linked_request(con, tid: int):
+    """The request T<tid> was opened with: the first one linked to it, in link order (the link's
+    rowid, not the request id - a later `task link` of an older request does not come first)."""
+    return con.execute("SELECT r.* FROM task_requests l JOIN requests r ON r.id = l.request_id "
+                       "WHERE l.task_id = ? ORDER BY l.rowid LIMIT 1", (tid,)).fetchone()
+
+
+def set_request_body(con, rid: int, body: str) -> None:
+    con.execute("UPDATE requests SET body = ? WHERE id = ?", (body, rid))
+
+
+def task_body_edits(con, tid: int) -> list[dict]:
+    """T689: the edits that changed T<tid>'s body, in the order they happened: {ts, by, old, new}."""
+    out = []
+    for r in con.execute("SELECT ts, agent, payload FROM events WHERE kind = 'edit_task' "
+                         f"AND {EVENT_TASK} = ? ORDER BY id", (tid,)):
+        b = (json.loads(r["payload"]) or {}).get("body")
+        if isinstance(b, dict):
+            out.append({"ts": r["ts"], "by": r["agent"], "old": b.get("old", ""), "new": b.get("new", "")})
+    return out
+
+
 def task_handoffs(con, tid: int) -> list[dict]:
     """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}
     (a verdict only on a handoff made before verdicts were removed), and `at`, the moment to
