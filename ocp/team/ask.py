@@ -1,12 +1,10 @@
-"""ocp ask - the only command agents use (team model section 3).
-
-    ocp ask <target> "<request>" [--files a.ts,b.ts]
+"""Requests between agents (team model section 3): what `ocp task new` and `ocp say` write.
 
 The agent supplies a target and a message. Everything else is decided here:
 whether the edge is allowed, chain depth, rate limiting, and
 what happens to the requester. No model is involved in any of it.
 
-A denied ask returns the reason, so the agent learns the policy rather than
+A denied request returns the reason, so the agent learns the policy rather than
 guessing at it or trying to route around it.
 """
 from __future__ import annotations

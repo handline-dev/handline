@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS requests (
   -- id: a cursor for every request ever sent out of turn sat in `cursors`
   -- forever, with nothing to ever clear it.
   told_out_of_turn INTEGER,
-  -- `ocp ask --timebox`: seconds after delivery when the asker is told it is
+  -- seconds after delivery when the asker is told it is
   -- still open. NULL follows config.yaml's timebox_s. The notice is once per
   -- request, so its time is a column, not a cursor left behind for every row.
   timebox_s INTEGER,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS requests (
   -- relation. Read from the row that went moot; nothing in routing, chain
   -- depth, the cycle guard or any limit may read it, the same reason
   -- parent_id does not fit that job. Set once, by the verb that already
-  -- knows both ids (a replace, or `ocp resolve --retires`).
+  -- knows both ids (a replace).
   moot_by     INTEGER,
   -- Task #70: a dismissal is a state of the row, not words anyone said. Who
   -- dismissed it and the reason they gave (when is resolved_at); the verdict

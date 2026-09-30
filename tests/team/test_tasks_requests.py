@@ -6636,6 +6636,154 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
     check("reason: an empty --reason on withdraw is refused", rc == 1 and "empty" in out, out)
 
 
+def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
+    """Task #70: a dismissal is recorded as who dismissed it and why, with no
+    verdict text, and every place that draws a verdict says dismissed as a
+    state label instead of a quote. The rows the old build wrote, holding the
+    literal, read the same way."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        new = _human_request()
+        ok, msg = actions.dismiss(con, new, me="manager", reason="dup of #9",
+                                  no_task="nothing to build")
+        row = db.get_request(con, new)
+        check("dismissed: state done, who and why recorded, no verdict",
+              ok and row["state"] == "done" and row["verdict"] is None
+              and (row["dismissed_by"], row["dismissed_reason"]) == ("manager", "dup of #9")
+              and row["resolved_at"], str(dict(row)))
+        old = db.add_request(con, askmod.HUMAN, "manager", "q2", None, "supervisor",
+                             "fire_and_forget", None, 0, None, state="done",
+                             verdict="read - no reply: dup of #9")
+        old_blank = db.add_request(con, askmod.HUMAN, "manager", "q3", None, "supervisor",
+                                   "fire_and_forget", None, 0, None, state="done",
+                                   verdict="read - no reply")
+        real = db.add_request(con, askmod.HUMAN, "manager", "q4", None, "supervisor",
+                              "fire_and_forget", None, 0, None, state="done",
+                              verdict="read - no reply is not what I mean")
+        check("shown_verdict: a new dismissal is a label naming who and why",
+              db.shown_verdict(db.get_request(con, new)) == "dismissed by manager - dup of #9")
+        check("shown_verdict: the old literal reads as a dismissal too",
+              db.shown_verdict(db.get_request(con, old)) == "dismissed - dup of #9"
+              and db.shown_verdict(db.get_request(con, old_blank)) == "dismissed")
+        check("shown_verdict: a real answer that only starts alike is left alone",
+              db.shown_verdict(db.get_request(con, real))
+              == "read - no reply is not what I mean")
+
+        for rid, label in ((new, "new"), (old, "old")):
+            rc, out = _cli(["read", str(rid)])
+            check(f"dismissed ({label}): ocp read shows a state, not an answer",
+                  rc == 0 and "--- dismissed" in out and "answered by" not in out
+                  and "read - no reply" not in out, out)
+        rc, out = _cli(["inbox", "--all"], as_agent=askmod.HUMAN)
+        others = "\n".join(l for l in out.splitlines() if "what I mean" not in l)
+        check("dismissed: the founder's history says dismissed",
+              "dismissed by manager - dup of #9" in others and "read - no reply" not in others,
+              out)
+
+        con.execute("UPDATE requests SET resolved_at = ? WHERE id IN (?, ?, ?)",
+                    (int(time.time()), old, old_blank, real))
+        mail = {m["id"]: m for m in actions.mailbox_rows(con)}
+        check("dismissed: the founder's mailbox draws the label, not the literal",
+              all(rid in mail and "dismissed" in mail[rid]["body"]
+                  and "read - no reply" not in mail[rid]["body"] for rid in (old, old_blank)),
+              str({k: v["body"] for k, v in mail.items()}))
+        thread = actions._exchange(con, "manager", set())
+        check("dismissed: the exchange lines carry no verdict text",
+              thread and all("read - no reply" not in l for l in thread
+                             if "what I mean" not in l)
+              and sum("dismissed" in l for l in thread) == 3, str(thread))
+        _, drawn_lines = "", actions.conversation_and_drawn(con, "manager")[0]
+        check("dismissed: the conversation draws the label",
+              sum("dismissed" in l for l in drawn_lines) == 3
+              and all("read - no reply" not in l for l in drawn_lines
+                      if "what I mean" not in l), str(drawn_lines))
+        title, sections = actions.message_detail(con, old)
+        detail = "\n".join(l for _, ls in sections[:1] for l in ls)
+        check("dismissed: an opened message shows the label",
+              detail == "dismissed - dup of #9", detail)
+        w = db.add_request(con, "worker", "manager", "q5", None, "peer", "async", None, 0, None)
+        actions.dismiss(con, w, me="manager", reason="not now")
+        check("dismissed: nothing is left to tell the asker",
+              not db.unannounced_answers(con, "worker"),
+              str([dict(r) for r in db.unannounced_answers(con, "worker")]))
+        check("dismissed: the label is still how the row reads",
+              db.shown_verdict(db.get_request(con, w)) == "dismissed by manager - not now")
+        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (int(time.time()), w))
+        seen = int(time.time())
+        db.set_cursor(con, "seen:manager", seen)
+        check("unread: nothing new after the tab was read", actions.chat_unread(con, "manager") == 0)
+        fresh = _human_request()
+        actions.dismiss(con, fresh, me="manager", reason="not mine", no_task="nothing")
+        con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
+                    (seen - 5, seen + 10, fresh))
+        check("unread: an agent's dismissal of the founder's message is a new line",
+              actions.chat_unread(con, "manager") == 1, str(actions.chat_unread(con, "manager")))
+        gaps = actions.reason_gaps(con)
+        check("dismissed: the reason gap still counts both shapes (5 dismissals, 1 blank)",
+              (gaps["retirements"], gaps["retirements_blank"]) == (5, 1), str(gaps))
+    finally:
+        con.close()
+
+
+def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path) -> None:
+    """Auditor's should-fix on #283: a requester may clear its
+    own row once it has left 'queued', but `actions.dismiss` only special-cased
+    that for the human - an agent's own answered request fell through to
+    `resolve`, which stamped "read - no reply" over the verdict the target
+    actually wrote. Dismissing must never rewrite an answer, whoever asked for
+    it, and doing it twice must not either."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        actions.dismiss(con, rid)
+        check("dismiss: an agent's own answered request keeps its verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+        check("dismiss: and is marked read",
+              db.get_request(con, rid)["announced_at"] is not None)
+
+        actions.dismiss(con, rid)
+        check("dismiss: dismissing it a second time still keeps the verdict",
+              db.get_request(con, rid)["verdict"] == "yes, ship it",
+              db.get_request(con, rid)["verdict"])
+    finally:
+        con.close()
+
+
+
+def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
+        home: Path) -> None:
+    """Auditor's should-fix on #313: a TARGET dismissing a row it already
+    answered must not stamp announced_at on the requester's behalf - that
+    would mark the row as told when the requester has never actually seen
+    it."""
+    _two_agents_one_slot(home)
+    ok, said, rid = askmod.ask("b", "spec?", requester="a")
+    check("dismiss: the ask went through", ok, said)
+    askmod.resolve(rid, "yes, ship it")
+
+    con = db.connect()
+    try:
+        check("dismiss: unannounced to start",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")])
+        ok, out = actions.dismiss(con, rid, me="b")
+        check("dismiss: the target is told there is nothing more to do",
+              ok and "nothing more" in out, out)
+        check("dismiss: the verdict is untouched",
+              db.get_request(con, rid)["verdict"] == "yes, ship it")
+        check("dismiss: ...and the requester is still owed the answer",
+              rid in [r["id"] for r in db.unannounced_answers(con, "a")],
+              str(dict(db.get_request(con, rid))))
+    finally:
+        con.close()
+
+
+
 def test_a_corrected_reply_stays_in_its_thread(home: Path) -> None:
     """T117: `--replaces` on a reply without saying `--parent` again sent the
     correction as a new request, which waits behind the head it followed."""
@@ -8160,6 +8308,9 @@ def main() -> int:
         run(lambda: test_task_new_parent_auto_blocks(Path(td) / 'tasknewparentblock'))
         run(lambda: test_task_new_parent_auto_block_does_not_stop_a_merge(
             Path(td) / 'tasknewparentblockmerge'))
+        run(lambda: test_a_dismissal_is_a_state_and_never_reads_as_words(Path(td) / 'dismissstate'))
+        run(lambda: test_dismissing_an_agents_own_answered_request_keeps_its_verdict(Path(td) / 'dismissverdict'))
+        run(lambda: test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(Path(td) / 'dismissownanswer'))
         run(lambda: test_task_new_is_its_own_delivery(Path(td) / 'tasknewdelivery'))
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))

@@ -323,8 +323,8 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     check (#1770, #1893 SF1).
 
     Called from inside every function below that can move a request row out
-    of 'queued', rather than at each door onto one of them (`ocp resolve`,
-    `--retires`, `ask.cancel`, `--replaces` and `answer()` all reached this
+    of 'queued', rather than at each door onto one of them (a resolve,
+    a retire, `ask.cancel`, a replace and `answer()` all reached this
     same gap in turn - #1908, #1919, #1938, #1943): a door added later gets
     this for free instead of needing its own copy of the same check. `hr
     withdraw` is not a door here - it marks its proposal file withdrawn
@@ -335,7 +335,7 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     `hr.is_open_proposal` - a glob and a YAML parse of the whole `hr/`
     directory - would otherwise run on every one of them, not just the
     founder-targeted rows a proposal escalation could ever be. A proposal
-    escalation is always `ocp ask human ...` (`hr.propose`), so a row aimed
+    escalation is always an ask to the human (`hr.propose`), so a row aimed
     anywhere else is checked here for free, off a column already in hand,
     and the directory is never touched for it.
     """
@@ -367,7 +367,7 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
     return cur.rowcount > 0
 
 
-# What `ocp dismiss` wrote into the verdict before a dismissal was a state.
+# What the old `dismiss` wrote into the verdict before a dismissal was a state.
 # Rows from then still hold it, and read as dismissals through `dismissal`.
 LEGACY_DISMISS = "read - no reply"
 

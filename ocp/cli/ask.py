@@ -302,7 +302,7 @@ def _human_inbox(show_all: bool = False) -> int:
 def _who_refusal(verb: str) -> str:
     """Whose row it is cannot be checked against a caller we cannot name.
 
-    The same fail-closed rule `ocp ask` uses: a human has a terminal, a script
+    The same fail-closed rule `ocp say` uses: a human has a terminal, a script
     that dropped OCP_AGENT does not, and promoting one to the other is how an
     agent ends up clearing the founder's mailbox.
     """

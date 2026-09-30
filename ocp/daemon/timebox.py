@@ -1,7 +1,7 @@
 """Six notices about work that has run long, all read from the db every tick.
 
 A request still open a set time after it was delivered tells its asker once
-(`ocp ask --timebox`, config.yaml's `timebox_s`). A task's own timeout
+(config.yaml's `timebox_s`). A task's own timeout
 (`ocp task new -t/--timeout`, T286) only counts while it is doing; past it,
 its opener is told, and again every further timeout_s stretch, until the
 task answers with one of `ocp task edit --timeout` (continue) or `ocp task
