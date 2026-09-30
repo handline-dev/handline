@@ -888,6 +888,36 @@ def _deliver_unblocked(con, notices, freed_owners) -> None:
             askmod.push(con, owner)
 
 
+def release_closed_blockers(con, log=lambda _m: None) -> list[int]:
+    """T577: the tasks a closed or discarded task was still blocking are released, the way a close
+    releases them. A decision task settles with its card (`db.settle_decision_tasks`), at the db
+    layer, which cannot run the release: its dependents were left with a block row, no notice and
+    no next turn - a doing one never told, a queued one never sent. A level, read from the block
+    rows left behind, so it also frees what an earlier settle left. One blocker that fails is
+    logged and left for the next tick, and the others are still released (T588): its rows are
+    the same next time, so it must not stop the sweep that delivers every agent's tasks.
+    Returns the tasks released."""
+    freed: list[int] = []
+    for (tid,) in con.execute("SELECT DISTINCT b.blocks_on FROM task_blocks b JOIN tasks t "
+                              "ON t.id = b.blocks_on WHERE t.closed_by IS NOT NULL").fetchall():
+        try:
+            row = db.get_task(con, tid)
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                waiting = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
+                notices, freed_owners = _clear_blocks_on(con, tid, row["closed_by"],
+                                                         "discarded" if row["discarded_by"] else "closed")
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+            freed += waiting
+            _deliver_unblocked(con, notices, freed_owners)
+        except Exception as e:  # noqa: BLE001 - one blocker's failure is not the queue's
+            log(f"  T{tid}: releasing the tasks it blocked failed: {type(e).__name__}: {e}")
+    return freed
+
+
 def _task_edit_guard(row, tid: int, by: str) -> str | None:
     """None if `by` may reshape task `tid` (its opener, or the founder) - a
     task is not a request, it has no `target` a supervisor could redirect -
