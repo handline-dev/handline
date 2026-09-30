@@ -14,6 +14,7 @@ from . import windows
 POINTS = 96                 # over the whole range, past and future
 MAX_AGE_S = 2 * 3600        # a sample older than this no longer says what the account held
 MIN_SPAN_S = 3600           # less than this is not a pace
+WEEK_S = 7 * 24 * 3600      # the window this reads resets every week, so the guess resets again every week
 
 
 @dataclass
@@ -82,14 +83,25 @@ def _pace(series: list[tuple[int, float, int | None]]) -> float:
 
 def week_consumed(rows, lo: int, hi: int) -> dict[str, float]:
     """Points of each account's week used between `lo` and `hi`: the rises between one sample
-    and the next, and after a reset what has been used since. Read, not guessed."""
+    and the next, and after a reset what has been used since. Read, not guessed. The last sample
+    before `lo` (if not older than MAX_AGE_S) is where the first rise starts from, so the rise
+    into `lo`'s first sample is not dropped (T163)."""
     by: dict[str, list] = {}
+    inside: set[str] = set()
     for r in rows:
         w = _week(r)
-        if w and lo <= w[0] <= hi:
-            by.setdefault(r["account"], []).append(w)
+        if not w or w[0] > hi:
+            continue
+        series = by.setdefault(r["account"], [])
+        if w[0] >= lo:
+            series.append(w)
+            inside.add(r["account"])
+        elif lo - w[0] <= MAX_AGE_S:
+            series[:] = [w]         # the closest one before `lo` (rows are oldest first)
     out = {}
     for a, series in by.items():
+        if a not in inside:
+            continue                # nothing read inside the span: not an account it says anything of
         total = 0.0
         for prev, cur in zip(series, series[1:]):
             total += cur[1] - prev[1] if cur[1] >= prev[1] else cur[1]
@@ -147,7 +159,7 @@ def weekly_outlook(rows, now: int, hours: int = 24) -> Outlook:
                     continue
                 used, reset = last[1], last[2]
                 if reset and t >= reset:
-                    used = paces[a] * (t - reset)
+                    used = paces[a] * ((t - reset) % WEEK_S)       # and again each week after (T162, T320)
                 else:
                     used = used + paces[a] * (t - now)
                 left.append(100 - min(100.0, used))

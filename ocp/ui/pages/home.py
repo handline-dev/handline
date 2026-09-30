@@ -60,7 +60,7 @@ _ACCT_TIERS = (
 # The keys every panel answers to, after the panel's own.
 _GLOBAL_KEYS = (Key("←→", "panel", 3, "move between the panels"), Key("↑↓", "row", 3, "move between the rows"),
                 Key("q", "quit", 2, "quit the bridge"), Key("b", "checks", 2, "done tasks waiting for your check"),
-                Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "the week left, last and next 24h"))
+                Key("T", "tasks", 2, "every task"), Key("S", "stats", 2, "the week left, recorded and guessed"))
 _AGENT_HEADS = ("agent", "acct", "model", "state", "cache", "ctx", "in", "task", "note")
 _MESSAGE_HEADS = ("", "", "from", "message")
 
