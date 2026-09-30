@@ -533,7 +533,12 @@ def _start_for_work(con, agent: str, log) -> str:
     if not launch.choose_account(agent, con=con):
         return f"{agent}: not started - {launch.no_room(agent)}"
     if row and int(row["wake_failures"]) >= MAX_FAILED_ATTEMPTS:
-        return f"{agent}: not started again - {row['wake_failures']} attempts have failed"
+        if row["state"] == STALLED:
+            return f"{agent}: not started again - {row['wake_failures']} attempts have failed"
+        # Latched IDLE by a daemon that did not stall it (T502): one more try, which starts
+        # it or fails into the stall below with the reason.
+        db.reset_counter(con, agent, "wake_failures")
+        db.bump_counter(con, agent, "wake_failures", MAX_FAILED_ATTEMPTS - 1)
     # Its own worktree if it still has one - a terminal can be closed by a
     # human or lost when Orca restarts without anything happening to the branch
     # or to what is uncommitted in it, and a second worktree would strand the

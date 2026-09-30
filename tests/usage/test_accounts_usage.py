@@ -3487,6 +3487,44 @@ def test_starts_for_waiting_work_that_keep_failing_stall_the_agent(home: Path) -
         con.close()
 
 
+def test_an_agent_latched_idle_before_the_stall_existed_stalls_with_its_reason(home: Path) -> None:
+    """T502: legacy and personal were IDLE at wake_failures=3 from before T483, so the
+    stall (which fires on a fresh failure) never reached them. One more try either
+    starts them or stalls them with the reason."""
+    _daemon_home(home, 20)
+    credentialed(home, "alpha")
+    con = db.connect()
+    real_spawn = spawnmod.spawn
+    try:
+        calls: list[int] = []
+        spawnmod.spawn = lambda *a, **k: (calls.append(1), (False, "worktree create failed: invalid reference: main"))[1]
+        agents.register("marina", repo=str(home / "checkout"))
+        db.add_request(con, "reviewer", "marina", "look at this", None, "peer", "async", None, 0, None)
+        db.bump_counter(con, "marina", "wake_failures", dmn_states.MAX_FAILED_ATTEMPTS)
+
+        dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
+        row = db.get_agent_state(con, "marina")
+        check("latched idle: it is tried once more and stalls with the reason",
+              len(calls) == 1 and row["state"] == dmn_states.STALLED
+              and "invalid reference: main" in row["detail"], f"{calls} {dict(row)}")
+
+        dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
+        check("latched idle: once stalled it is left alone, not tried every tick", len(calls) == 1, str(calls))
+
+        # An old latch whose cause is gone starts instead of stalling.
+        agents.register("second", repo=str(home / "checkout"))
+        db.add_request(con, "reviewer", "second", "look", None, "peer", "async", None, 0, None)
+        db.bump_counter(con, "second", "wake_failures", dmn_states.MAX_FAILED_ATTEMPTS)
+        spawnmod.spawn = lambda agent, *a, **k: (db.set_terminal(con, agent, "term_new", None), (True, "spawned"))[1]
+        dmn_lifecycle._start_for_work(con, "second", lambda _m: None)
+        row = db.get_agent_state(con, "second")
+        check("latched idle: a cause that is gone lets it start and clears the streak",
+              row["wake_failures"] == 0 and row["state"] != dmn_states.STALLED, dict(row))
+    finally:
+        spawnmod.spawn = real_spawn
+        con.close()
+
+
 def test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
         home: Path) -> None:
     """Founder's decision #254: an account at 5h 9% / 7d 99% is spendable to
@@ -5841,6 +5879,7 @@ def main() -> int:
         run(lambda: test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(Path(td) / 'acctrecheck2'))
         run(lambda: test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(Path(td) / 'acctspawn'))
         run(lambda: test_starts_for_waiting_work_that_keep_failing_stall_the_agent(Path(td) / 'startstall'))
+        run(lambda: test_an_agent_latched_idle_before_the_stall_existed_stalls_with_its_reason(Path(td) / 'latchedidle'))
         run(lambda: test_a_near_wall_7d_account_is_still_a_candidate_but_not_guaranteed_the_pick(
             Path(td) / 'sevendaywall'))
         run(lambda: test_an_agent_is_judged_on_the_account_its_process_is_on(Path(td) / 'procacct'))
