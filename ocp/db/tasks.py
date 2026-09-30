@@ -40,6 +40,30 @@ def new_task(con, title: str, owner: str, opened_by: str,
     return int(cur.lastrowid)
 
 
+def add_memo(con, tid: int, author: str, body: str) -> int:
+    cur = con.execute("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+                      (tid, author, body, int(time.time())))
+    return int(cur.lastrowid)
+
+
+def get_memo(con, mid: int):
+    return con.execute("SELECT * FROM task_memos WHERE id = ?", (mid,)).fetchone()
+
+
+def task_memos(con, tid: int) -> list:
+    """The task's memos, oldest first."""
+    return con.execute("SELECT * FROM task_memos WHERE task_id = ? ORDER BY id", (tid,)).fetchall()
+
+
+def edit_memo(con, mid: int, body: str) -> None:
+    con.execute("UPDATE task_memos SET body = ?, edited_at = ? WHERE id = ?",
+                (body, int(time.time()), mid))
+
+
+def delete_memo(con, mid: int) -> None:
+    con.execute("DELETE FROM task_memos WHERE id = ?", (mid,))
+
+
 def get_task(con, tid: int):
     return con.execute("SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
 

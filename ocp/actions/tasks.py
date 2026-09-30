@@ -1251,6 +1251,57 @@ def parse_task_timeout(text) -> int:
     return secs
 
 
+def memos_of(con, tid: int) -> list[dict]:
+    """T493: a task's memos as data, oldest first: `id`, `author`, `body`, `created_at`,
+    `edited_at` (None until edited). Whether an agent may read them is the founder's to
+    say (T494); this reads for whoever calls it."""
+    return [dict(m) for m in db.task_memos(con, tid)]
+
+
+def _memo_guard(by: str) -> str | None:
+    return None if by == HUMAN else "memos are the founder's: only the founder adds, edits or deletes one"
+
+
+def memo_add(con, tid: int, by: str, body: str) -> tuple[bool, str, int | None]:
+    """Add a founder's memo to task `tid`. (ok, message, memo id)."""
+    refusal = _memo_guard(by)
+    if refusal:
+        return False, refusal, None
+    if db.get_task(con, tid) is None:
+        return False, f"no task T{tid}", None
+    if not body.strip():
+        return False, "a memo needs some text", None
+    mid = db.add_memo(con, tid, by, body)
+    return True, f"memo {mid} added to T{tid}", mid
+
+
+def memo_edit(con, mid: int, by: str, body: str) -> tuple[bool, str]:
+    """Replace a memo's text and stamp `edited_at`; the same text is no edit."""
+    refusal = _memo_guard(by)
+    if refusal:
+        return False, refusal
+    row = db.get_memo(con, mid)
+    if row is None:
+        return False, f"no memo {mid}"
+    if not body.strip():
+        return False, "a memo needs some text"
+    if body == row["body"]:
+        return False, f"memo {mid} already reads that way - nothing to edit"
+    db.edit_memo(con, mid, body)
+    return True, f"memo {mid} on T{row['task_id']} edited"
+
+
+def memo_delete(con, mid: int, by: str) -> tuple[bool, str]:
+    refusal = _memo_guard(by)
+    if refusal:
+        return False, refusal
+    row = db.get_memo(con, mid)
+    if row is None:
+        return False, f"no memo {mid}"
+    db.delete_memo(con, mid)
+    return True, f"memo {mid} deleted from T{row['task_id']}"
+
+
 def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
               timeout_s: int | None = None) -> tuple[bool, str]:
