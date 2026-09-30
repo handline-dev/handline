@@ -650,18 +650,18 @@ def bg_last_shown(con, agent: str) -> int | None:
     check: each check asks for an answer, and an agent that gives one every N minutes would
     otherwise never be silent long enough to be told to stop, or to be stale. A check's
     answer turn runs from its typing to the first Stop after it - that turn only."""
-    checks = sorted(int(json.loads(r["payload"] or "{}").get("at", r["ts"])) for r in con.execute(
-        "SELECT ts, payload FROM events WHERE agent = ? AND kind = 'background_checked'", (agent,)))
-    checks = [c for c in checks if c >= (bg_since(con, agent) or 0)]
+    checks = sorted((int(json.loads(r["payload"] or "{}").get("at", r["ts"])), r["id"]) for r in con.execute(
+        "SELECT id, ts, payload FROM events WHERE agent = ? AND kind = 'background_checked'", (agent,)))
+    checks = [c for c in checks if c[0] >= (bg_since(con, agent) or 0)]
     if not checks:
         return db.last_activity(con, agent)
     marks = ",".join("?" * len(db.AGENT_ACTIVITY_KINDS))
-    rows = con.execute(f"SELECT ts, kind FROM events WHERE agent = ? AND ts >= ? "
+    rows = con.execute(f"SELECT id, ts, kind FROM events WHERE agent = ? AND ts >= ? "
                        f"AND kind IN ({marks}) ORDER BY ts, id",
-                       (agent, checks[0], *db.AGENT_ACTIVITY_KINDS)).fetchall()
-    shown, answering, i = db.last_activity_before(con, agent, checks[0]), False, 0
+                       (agent, checks[0][0], *db.AGENT_ACTIVITY_KINDS)).fetchall()
+    shown, answering, i = db.last_activity_before(con, agent, checks[0][0]), False, 0
     for r in rows:
-        while i < len(checks) and checks[i] <= r["ts"]:
+        while i < len(checks) and checks[i] < (r["ts"], r["id"]):     # by event order within a second
             answering, i = True, i + 1
         if not answering:
             shown = int(r["ts"])
