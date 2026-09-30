@@ -1781,6 +1781,17 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
         check("timeline: a handoff shows from and to",
               [(e["kind"], e["who"]) for e in actions.task_timeline(con, other)] == [("handoff", "backend → reviewer")],
               str(actions.task_timeline(con, other)))
+        actions.memo_add(con, other, "reviewer", "after the handoff")
+        ok, _, third = actions.task_new("product", "backend", "Third", "the work and its done")
+        actions.memo_add(con, third, "product", "before the handoff")
+        actions.assign_task(con, third, "reviewer", "handoff", "you take it")
+        actions.memo_add(con, third, "reviewer", "after the handoff")
+        kinds = lambda t: [(e["kind"], e["text"]) for e in actions.task_timeline(con, t)]
+        check("timeline T524: a memo made after a handoff in the same second sits after it, not before",
+              [k for k, _ in kinds(other)] == ["handoff", "memo"], str(kinds(other)))
+        check("timeline T524: memo, handoff, memo in one second keep the order they happened in",
+              [k for k, _ in kinds(third)] == ["memo", "handoff", "memo"]
+              and kinds(third)[0][1] == "before the handoff", str(kinds(third)))
     finally:
         con.close()
 
