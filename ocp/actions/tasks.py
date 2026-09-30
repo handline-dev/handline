@@ -1287,6 +1287,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
             askmod.resolve(r["id"], f"handed to {to}", notify=False)
     db.edit_task(con, tid, me, owner=to)
     db.link_request(con, tid, rid)
+    db.mark_send_now(con, rid)      # T596: a handoff is typed on arrival, whatever its holder is doing
     db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
                                             "request_id": rid})
     if db.current_task(con, old) == tid:
@@ -1296,7 +1297,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
     if to != HUMAN:                 # the founder holds no current task and is not typed at
         if db.current_task(con, to) is None:
             db.set_current_task(con, to, tid)
-        askmod.push(con, to)
+        askmod.push(con, to, rid)
     return True, f"T{tid} handed to {to}: {msg}"
 
 

@@ -120,7 +120,8 @@ def tell_now(con, rid: int, log) -> str:
     turn, so the head rule does not say it a second time. A session that is not
     up is woken and reads it as its first prompt (`delivery.waiting_prompt` marks
     it delivered); this then finds it delivered. Tasks do not come here - they
-    keep the one-at-a-time head rule (`ask.push`). Returns what happened."""
+    keep the one-at-a-time head rule (`ask.push`), except one marked send-now: a handoff is
+    typed on arrival, its holder busy or not (T596). Returns what happened."""
     row = db.get_request(con, rid)
     if row is None or row["state"] != "queued":
         return "no longer queued"
@@ -179,12 +180,13 @@ def tell_now(con, rid: int, log) -> str:
 def tell_undelivered(con, agent: str, log) -> None:
     """Each tick, the messages nobody has told `agent` yet - one that reached it
     while it had no session, or whose edge was still to be checked - the way
-    they are told when they arrive. Tasks are not these: they keep their own turn."""
+    they are told when they arrive. Tasks are not these, unless marked send-now (a handoff,
+    T596): they keep their own turn."""
     state = db.get_agent_state(con, agent)
     if not (state and state["terminal"]) or state["closed_at"]:
         return          # starting or waking it is `supervise`'s own step, with its own gates
     for row in db.undelivered_for(con, agent):
-        if row["kind"] != "task":
+        if row["kind"] != "task" or row["send_now"]:
             tell_now(con, int(row["id"]), log)
 
 
