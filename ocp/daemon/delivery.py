@@ -373,7 +373,9 @@ def enforce_edges(con, agent: str, log) -> bool:
         if r["requester"] not in t.agents:
             db.clear_edge(con, int(r["id"]))
             continue
-        d = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0))
+        reply = askmod.replies_to(db.get_request(con, r["parent_id"]) if r["parent_id"] else None,
+                                  r["requester"], r["target"])
+        d = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0), reply=reply)
         kind = r["kind"] if r["fyi"] or r["kind"] in askmod.OVERRIDE_KINDS else d.kind
         if not d.allowed:
             why = d.reason

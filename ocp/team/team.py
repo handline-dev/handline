@@ -192,7 +192,11 @@ class Team:
         return None
 
     # ------------------------------------------------------------ routing
-    def route(self, requester: str, target: str, chain_depth: int = 0) -> Decision:
+    def route(self, requester: str, target: str, chain_depth: int = 0,
+              reply: bool = False) -> Decision:
+        """`reply`: this answers a request `target` sent to `requester`. A reply needs no
+        edge back - with resolve gone it is the only way to answer - but an explicit deny
+        still wins."""
         if requester == target:
             return Decision(False, "an agent cannot ask itself")
         if not self.known(target) and not (target == HUMAN and self.default_link(requester, target)):
@@ -233,6 +237,10 @@ class Team:
         if default is not None:
             default.chain_depth = chain_depth
             return default
+
+        if reply:
+            return Decision(True, f"reply: {target} asked {requester}", response="fire_and_forget",
+                            chain_depth=chain_depth)
 
         return Decision(
             False,
