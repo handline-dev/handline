@@ -305,7 +305,7 @@ def task_detail(con, tid: int) -> dict | None:
             "merged_into": t["merged_into"],
             "children": kids, "requests": reqs, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued", "doing") and (mine or t["owner"] == actions.HUMAN),
+            "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing")}
 
 
@@ -1044,7 +1044,7 @@ class TaskActions:
 
     def action_discard_task(self) -> None:
         if not (self.d and self.d["can_discard"]):
-            self.say("only a task that you asked for or that is assigned to you, and not done, can be discarded")
+            self.say("only a task that is not done can be discarded")
             return
 
         doing = self.d["state"] == "doing"

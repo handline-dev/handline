@@ -685,8 +685,8 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         db.link_request(con, doing, rid)
         con.commit()
         can = {tid: cp.task_detail(con, tid)["can_discard"] for tid in (mine, theirs, done, doing)}
-        check("discard: offered on a waiting or doing task the founder asked for, not one done or another's",
-              can == {mine: True, theirs: False, done: False, doing: True}, str(can))
+        check("discard: offered on any waiting or doing task, whoever asked for it, not on one done",
+              can == {mine: True, theirs: True, done: False, doing: True}, str(can))
         check("discard: the doing task is the one with a request queued",
               ok and cp.task_detail(con, doing)["state"] == "doing")
         ok, said = actions.discard_task(con, mine, actions.HUMAN, "not needed")
@@ -727,13 +727,19 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
               f"{said} {len(told)}")
         given = db.new_task(con, "handed to the founder", actions.HUMAN, "reviewer")
         other_given = db.new_task(con, "someone else's, an agent's", "backend", "reviewer")
-        check("discard T660: offered on a task assigned to the founder that an agent opened, not on an agent's own",
-              cp.task_detail(con, given)["can_discard"] and not cp.task_detail(con, other_given)["can_discard"])
+        check("discard T660: offered on a task assigned to the founder and on an agent's own",
+              cp.task_detail(con, given)["can_discard"] and cp.task_detail(con, other_given)["can_discard"])
         ok, said = actions.discard_task(con, given, actions.HUMAN, "not needed")
         told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
                            (f"T{given} discarded by the founder: not needed",)).fetchall()
         check("discard T660: the opener is told once, by the founder, with the reason", ok and len(told) == 1,
               f"{said} {len(told)}")
+        ok, said = actions.discard_task(con, other_given, actions.HUMAN, "not needed either")
+        told = {tgt: con.execute("SELECT COUNT(*) FROM requests WHERE target = ? AND body LIKE ?",
+                                 (tgt, f"T{other_given} discarded by the founder: not needed either")).fetchone()[0]
+                for tgt in ("backend", "reviewer")}
+        check("discard T660: the founder discarding an agent-to-agent task tells its owner and its opener once each",
+              ok and told == {"backend": 1, "reviewer": 1}, f"{said} {told}")
         own = db.new_task(con, "its own", "reviewer", "reviewer")
         ok, said = actions.discard_task(con, own, "reviewer", "mine, gone")
         check("discard T660: an opener discarding its own task is told nothing", ok and not con.execute(
