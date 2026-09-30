@@ -269,8 +269,7 @@ def cmd_inbox(args) -> int:
         finally:
             con.close()
     else:
-        closes = ("`ocp dismiss <id>` closes it, it asks nothing" if head["kind"] == "report"
-                  else f"`ocp say {head['requester']} --parent <id> \"<answer>\"` answers it")
+        closes = f"`ocp say {head['requester']} --parent <id> \"<answer>\"` answers it"
     print(f"\n{closes}. `ocp inbox --all` shows the whole queue and its history.")
     return 0
 

@@ -905,7 +905,7 @@ def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
 
 def _reports(con) -> list:
     return con.execute("SELECT id, kind, fyi, state, body FROM requests WHERE target = 'human' "
-                       "AND kind = 'report' ORDER BY id").fetchall()
+                       "AND kind = 'say' AND fyi = 1 ORDER BY id").fetchall()
 
 
 # ---------------------------------------------------------------- drift

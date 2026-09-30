@@ -160,9 +160,9 @@ def report(con, agent: str, text: str, reason: str) -> int:
     back at `agent` and nothing waits on the human.
     """
     rid = db.add_request(con, agent, ESCALATION_TARGET, text, None, None, "fire_and_forget",
-                         "report", 0, None, fyi=True)
+                         "say", 0, None, fyi=True)
     deliver(rid, agent, ESCALATION_TARGET, text, None,
-            team.Decision(True, reason, kind="report", response="fire_and_forget",
+            team.Decision(True, reason, kind="say", response="fire_and_forget",
                           creates_gate=False, chain_depth=0))
     db.add_event(con, agent, "report", {"request_id": rid, "reason": reason})
     return rid
@@ -290,6 +290,8 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     notice itself once this has returned the row (T351).
     """
     requester = requester or asking_agent()
+    if fyi and kind is None:            # a report asks nothing: it is a say to the founder (T361)
+        kind, send_now = SAY_KIND, True
     if timebox_s is not None and (fyi or target == HUMAN):
         return False, "--timebox does not apply to a report or to a request to the human", None
     if fyi and target != HUMAN:
@@ -442,7 +444,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                f"(`ocp say {old['target']} \"...\" --parent {replaces}`)"), None
 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
-                             decision.response, kind or ("report" if fyi else decision.kind),
+                             decision.response, kind or decision.kind,
                              depth, parent_id,
                              chain_id=chain_id, first=first, fyi=fyi, timebox_s=timebox_s,
                              queue_order=(old["queue_order"]
