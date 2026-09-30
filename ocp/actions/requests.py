@@ -280,6 +280,7 @@ def mailbox_rows(con) -> list[dict]:
         out.append({
             "id": r["id"], "ts": r["ts"], "from": r["requester"],
             "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
+            "seq": r["id"],
             "gate": int(r["id"]) in gates,
             "waiting": r["response"] == "async" and not r["fyi"] and r["kind"] != "say",
             "answer": False,
@@ -297,12 +298,28 @@ def mailbox_rows(con) -> list[dict]:
             # answer would lose the only word that distinguishes them.
             "kind": "answer" if r["state"] == "done" else "refused",
             "body": db.shown_verdict(r) or "(answered with nothing written)",
+            # The answer is a message of its own with its own, later, id; the chat draws it on the
+            # row it answers, so `seq` is what a chat's high-water mark is compared with.
+            "seq": (db.answer_row_of(con, r["id"]) or r)["id"],
             "gate": False,
             "waiting": False,
             "answer": True,
             "parent_id": r["parent_id"],
         })
     return out
+
+
+def for_you_seen(con, agent: str, upto: int) -> None:
+    """The human has `agent`'s messages up to id `upto` in front of them (a chat has drawn them):
+    they are no longer new in FOR YOU. An id, not a time: what arrives later has a higher one, so
+    nothing unread is ever hidden. Only the list forgets it; the top summary still counts decisions."""
+    key = f"for_you_seen:{agent}"
+    db.set_cursor(con, key, max(upto, db.get_cursor(con, key)))
+
+
+def unseen_rows(con) -> list[dict]:
+    """`mailbox_rows` without what its sender said before the human last had that agent's chat open."""
+    return [m for m in mailbox_rows(con) if m["seq"] > db.get_cursor(con, f"for_you_seen:{m['from']}")]
 
 
 def fold_key(agent: str) -> str:
@@ -335,7 +352,7 @@ def messages(con) -> list[dict]:
     order they matter in. A folded row sorts by the latest thing in it, which
     is what a reader who has not looked in a while cares about.
     """
-    raw = mailbox_rows(con)
+    raw = unseen_rows(con)
     # A pinned row is never folded, so its id is already its stable identity -
     # the key that changes is only the one a fold can hand a new id.
     pinned = [dict(m, unread=1, key=m["id"]) for m in raw if m["gate"] or m["waiting"]]

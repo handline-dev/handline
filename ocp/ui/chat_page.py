@@ -1557,6 +1557,10 @@ class ChatPage(JobsAware, Screen):
             self._sig = sig
             if self.oldest is None:
                 rows, self.more = requests_page(con, self.agent, self.everyone)
+                # Opened on a message: page back until it is on screen.
+                while self._focus and self.more and rows and rows[0]["id"] > self._focus[0]:
+                    older, self.more = requests_page(con, self.agent, self.everyone, before=rows[0]["id"])
+                    rows = older + rows
             else:
                 rows, _ = requests_page(con, self.agent, self.everyone, since=self.oldest)
         finally:
@@ -1565,6 +1569,8 @@ class ChatPage(JobsAware, Screen):
         msgs = messages_of(rows, self.agent)
         con = db.connect()
         try:
+            # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
+            actions.for_you_seen(con, self.agent, max((max(r["id"], r["answer_id"] or 0) for r in rows), default=0))
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
             changes = task_changes(con, msgs)
         finally:

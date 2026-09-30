@@ -35,7 +35,6 @@ from ocp.daemon import states as dmn_states
 from ocp.ui.chat_page import ChatPage  # noqa: E402
 from ocp.ui.clipboard_app import ClipboardApp  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
-from ocp.ui.components.read_only import ReadOnly  # noqa: E402
 from textual import events  # noqa: E402
 from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
 from ocp.ui.pages.account import AccountPage  # noqa: E402
@@ -2059,6 +2058,54 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
         check("chat: a task's change is a card of its own", len(cards) == 1 and "queued -> doing" in cards[0], str(cards))
 
 
+async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() -> None:
+    """T665: what the chat draws leaves FOR YOU, and only that; a message older than one page is
+    paged back to and drawn."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("foryou_chat")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        def say(text: str) -> int:
+            return db.add_request(con, "reviewer", actions.HUMAN, text, None, "peer", "async", None, 0, None)
+        old = say("the OLD one")
+        for i in range(cp.PAGE * 2):
+            say(f"filler {i}")
+        con.commit()
+        check("for-you chat: the agent's messages are listed before its chat is opened",
+              any(m["from"] == "reviewer" for m in actions.messages(con)))
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        page = cp.ChatPage("reviewer", (old, 0))
+        await app.push_screen(page)
+        await pilot.pause()
+        con = db.connect()
+        try:
+            check("for-you chat: opening it empties that agent's rows from FOR YOU",
+                  not [m for m in actions.messages(con) if m["from"] == "reviewer"])
+            late = db.add_request(con, "reviewer", actions.HUMAN, "said while open", None, "peer",
+                                         "async", None, 0, None)
+            con.commit()
+            check("for-you chat: a message that arrived after what was drawn is still listed",
+                  [m["id"] for m in actions.messages(con) if m["from"] == "reviewer"] == [late])
+        finally:
+            con.close()
+        page.refresh_conversation(force=True)
+        await pilot.pause()
+        con = db.connect()
+        try:
+            check("for-you chat: once drawn it is seen too",
+                  not [m for m in actions.messages(con) if m["from"] == "reviewer"])
+        finally:
+            con.close()
+        drawn = [w.m["rid"] for w in page.query(cp.ChatMessage)]
+        check("for-you chat: a message older than one page is drawn", old in drawn, str(drawn[:3]))
+
+
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
     """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
     working and a wait for a reply come first."""
@@ -2241,6 +2288,7 @@ async def _run_all() -> None:
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
+    await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
