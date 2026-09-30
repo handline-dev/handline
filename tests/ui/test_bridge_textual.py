@@ -420,10 +420,10 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     """T438: a message is one Static, not one widget per part; this is what it says."""
     from ocp.ui import chat_page as cp
     m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
-         "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3}
+         "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3, "to": "reviewer"}
     t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
-    check("text: a task card is the one line, time TASK T<n> : title, and nothing else",
-          len(t) == 1 and t[0].endswith("TASK T418 : Fix it"), str(t))
+    check("text: a task card is TASK T<n> : title, then what happened; who and when are above it, not in it",
+          t == ["TASK T418 : Fix it", "assigned to reviewer"], str(t))
     reply = {**m, "kind": None, "tasks": [], "task_title": None, "task_state": None, "who": "you", "side": "you",
              "rid": 5934, "mid": 5934, "text": "반영됨?", "reply_to": 5928}
     check("text: a reply not picked is one line, the link and the text",
@@ -1011,7 +1011,18 @@ def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
     card = cp.message_parts({**m, "task_title": "T", "task_state": "queued"})[0].plain
     check("card: a task delivery keeps its kind and T number for the card, not the head", "T418" not in card)
     line = cp.card_lines({**m, "task_title": "Fix it", "change": "queued -> doing"}).plain
-    check("card: a change is a second line, the change alone", line.endswith("TASK T418 : Fix it\n  queued -> doing"), line)
+    check("card: a change is a second line, the change alone, with no who or time in it",
+          line == "TASK T418 : Fix it\nqueued -> doing", line)
+    new = {**m, "task_title": "Fix it", "to": "orcapipe.core"}
+    check("card: a new task says whom it was assigned to", cp.card_lines(new).plain.endswith("\nassigned to orcapipe.core"))
+    check("card: above it, who and when, and NEW for a delivery",
+          cp.card_head({**new, "who": "a → b", "when": 100}).plain.split("  ")[0] == "a → b"
+          and cp.card_head({**new, "who": "a → b"}).plain.endswith("NEW"))
+    check("card: CHANGED for a change to a task",
+          cp.card_head({**new, "who": "reviewer", "change": "queued -> doing"}).plain.endswith("CHANGED"))
+    check("head: a say carries no kind label, another kind still does",
+          "say" not in cp.message_parts({**m, "kind": "say", "tasks": []})[0].plain
+          and "ask" in cp.message_parts({**m, "kind": "ask"})[0].plain)
     check("card: a task note stays a row labelled task note T406",
           cp.message_parts({**m, "kind": "task_note", "tasks": [406]})[0].plain.endswith("task note  T406"))
     check("head: a reply part shows neither", "task" not in cp.message_parts({**m, "part": 1})[0].plain)
@@ -1904,6 +1915,32 @@ def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
           str([m.get("change") or m["rid"] for m in merged]))
 
 
+def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
+    """Founder #7364: above the card, who changed it; inside, what happened."""
+    from ocp.ui import chat_page as cp
+    _home("changewho")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        db.add_event(con, "orcapipe", "edit_task", {"task_id": t, "owner": {"old": "reviewer", "new": "orcapipe.core"}})
+        con.execute("UPDATE events SET ts = 300 WHERE id = (SELECT MAX(id) FROM events)")
+        db.add_event(con, "reviewer", "task_start", {"task_id": t})
+        con.execute("UPDATE events SET ts = 400 WHERE id = (SELECT MAX(id) FROM events)")
+        con.commit()
+        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+        for m in msgs:
+            m["when"] = 100
+        changes = cp.task_changes(con, msgs)
+    finally:
+        con.close()
+    got = [(c["who"], c["change"]) for c in changes]
+    check("changes: each names who made it, an owner change says to whom",
+          got == [("orcapipe", "assigned to orcapipe.core"), ("reviewer", "queued -> doing")], str(got))
+
+
 def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
     """T601: `task new`, a handoff and the queue sweep log no start; the delivery's landing says when."""
     from ocp.ui import chat_page as cp
@@ -1947,8 +1984,11 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
         page = cp.ChatPage("reviewer")
         await app.push_screen(page)
         await pilot.pause()
-        cards = [w.render().plain if hasattr(w, "render") else "" for w in page.query(cp.TaskChange)]
-        check("chat: a task's change is a card of its own", len(cards) == 1 and "queued -> doing" in cards[0], str(cards))
+        cards = [(w.query_one(".cardhead").content.plain, w.query_one(".cardbox").content.plain)
+                 for w in page.query(cp.TaskChange)]
+        check("chat: a task's change is a card of its own, who and CHANGED above, the change inside",
+              len(cards) == 1 and "queued -> doing" in cards[0][1] and "CHANGED" in cards[0][0]
+              and "reviewer" not in cards[0][1], str(cards))
 
 
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
@@ -2076,6 +2116,7 @@ async def _run_all() -> None:
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
     test_task_changes_are_set_among_the_messages_at_their_time()
+    test_a_change_names_who_made_it_and_an_assignment_says_to_whom()
     test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event()
     test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
