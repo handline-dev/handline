@@ -644,6 +644,21 @@ def bg_since(con, agent: str) -> int | None:
     return db.cursor_updated(con, f"bgwork:{agent}") if has_background_work(con, agent) else None
 
 
+def bg_last_shown(con, agent: str) -> int | None:
+    """When the agent last showed anything, not counting the one turn that answered a T450
+    check: the check asks for an answer, and an agent that gives one every N minutes would
+    otherwise never be silent long enough to be told to stop, or to be stale."""
+    last = db.last_activity(con, agent)
+    typed = db.get_cursor(con, f"bg_check:{agent}")
+    if not typed or last is None or last < typed:
+        return last
+    end = con.execute("SELECT MIN(id) AS i FROM events WHERE agent = ? AND ts >= ? "
+                      "AND kind IN ('Stop', 'StopFailure')", (agent, typed)).fetchone()["i"]
+    if end is not None and (db.last_activity_id(con, agent, db.AGENT_ACTIVITY_KINDS) or 0) > end:
+        return last                     # it did more after answering: that is being shown
+    return db.last_activity_before(con, agent, typed)
+
+
 def bg_silent_s(con, agent: str, now: int) -> int | None:
     """How long this agent has shown nothing while its session reports
     background work, or None without any. Work that notifies the model or is
@@ -651,7 +666,7 @@ def bg_silent_s(con, agent: str, now: int) -> int | None:
     since = bg_since(con, agent)
     if since is None:
         return None
-    return max(0, now - (db.last_activity(con, agent) or since))
+    return max(0, now - (bg_last_shown(con, agent) or since))
 
 
 def bg_stale(con, agent: str, now: int) -> bool:

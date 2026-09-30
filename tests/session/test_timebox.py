@@ -635,6 +635,50 @@ def test_background_work_is_checked_every_n_minutes_naming_each_command(home: Pa
         con.close()
 
 
+def test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(home: Path) -> None:
+    """The check and T424 both default to 10 minutes on different clocks: answering the
+    check must not keep resetting the silence T424 measures (auditor, T450)."""
+    sent = _world(home)
+    idle_close.set_bg_seconds("bg_check_s", 600)          # both at their defaults
+    con = db.connect()
+    try:
+        t0 = int(time.time())
+
+        def event(kind: str, ts: int) -> None:
+            rid = db.add_event(con, "marina", kind, {})
+            con.execute("UPDATE events SET ts = ? WHERE id = ?", (ts, rid))
+
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        db.set_cursor(con, "bgwork:marina", 1)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (t0,))
+        event("Stop", t0 + 300)                           # it worked five minutes, then idled
+        answers: list[int] = []
+        seen = 0
+        for t in range(t0 + 300, t0 + 3600, 30):
+            for a in [a for a in answers if a <= t]:
+                event("UserPromptSubmit", a)
+                event("Stop", a + 5)
+                answers.remove(a)
+            timebox.sweep(con, lambda _m: None, t)
+            for _h, text in sent[seen:]:
+                if text.startswith("Background work has been running"):
+                    answers.append(t + 20)                # it answers the check 20s after
+            seen = len(sent)
+        checks = [x for _h, x in sent if x.startswith("Background work has been running")]
+        prompted = con.execute("SELECT ts FROM events WHERE kind = 'background_prompted'").fetchall()
+        check("answering: it was checked, and answered",
+              len(checks) >= 1, str(sent))
+        check("answering: yet T424 still told it to finish or stop, once",
+              len(prompted) == 1, str(sent))
+        at = db.get_cursor(con, "bg_prompt:marina")
+        check("answering: on schedule - its own five minutes of work, then the ten of silence",
+              t0 + 900 <= at <= t0 + 900 + 60, f"{at - t0}")
+        check("answering: and with nothing more shown the grace ends and it may be stopped",
+              dmn_delivery.bg_may_stop(con, "marina", at + idle_close.bg_grace_s("marina") + 60))
+    finally:
+        con.close()
+
+
 def test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -1226,6 +1270,7 @@ def main() -> int:
             run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
             run(lambda: test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(Path(td) / 'tb10a'))
             run(lambda: test_background_work_is_checked_every_n_minutes_naming_each_command(Path(td) / 'tb10n'))
+            run(lambda: test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(Path(td) / 'tb10m'))
             run(lambda: test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(Path(td) / 'tb10f'))
             run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
             run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))

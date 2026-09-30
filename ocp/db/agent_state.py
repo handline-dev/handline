@@ -196,6 +196,16 @@ def last_activity(con, agent: str) -> int | None:
     return int(row["t"]) if row and row["t"] is not None else None
 
 
+def last_activity_before(con, agent: str, ts: int) -> int | None:
+    """`last_activity`, as of the moment `ts`: the latest of its own events before it."""
+    placeholders = ",".join("?" * len(AGENT_ACTIVITY_KINDS))
+    row = con.execute(
+        f"SELECT MAX(ts) AS t FROM events WHERE agent = ? AND ts < ? AND kind IN ({placeholders})",
+        (agent, ts, *AGENT_ACTIVITY_KINDS)
+    ).fetchone()
+    return int(row["t"]) if row and row["t"] is not None else None
+
+
 def last_activity_id(con, agent: str, kinds: frozenset[str]) -> int | None:
     """The row id of this agent's most recent event of one of `kinds`, or None.
 

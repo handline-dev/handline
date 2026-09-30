@@ -453,7 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="how long after the notice its work is stopped if it still shows nothing; default 5m")
     p.add_argument("--check", type=span_arg, default=None, metavar="SPAN",
                    help="how often an agent with background work is asked which of it to stop, "
-                        "busy or idle; default 10m (T450)")
+                        "typed at the end of its turn; default 10m (T450)")
     p.add_argument("--agent", default=None,
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
