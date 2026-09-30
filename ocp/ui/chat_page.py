@@ -55,6 +55,8 @@ _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 # chat is scrolled to within a screen of its top. Small, because drawing what is not in
 # view is most of what a page costs (founder #5425).
 PAGE = 10
+WAITS = ("waiting for", "blocked by")      # what the work line says of an agent that waits on something
+
 # T418: what the row under a message the agent has not answered says. Only a line
 # its transcript shows is delivered; queued and typed both read sending (founder #5299).
 LANDING_LABELS = {
@@ -445,6 +447,16 @@ def link_refs(text: Text) -> Text:
     return text
 
 
+_TASK_REF = re.compile(r"(?<![\w#])T(\d+)\b")
+
+
+def link_task_refs(text: Text) -> Text:
+    """Every `T<n>` in `text` becomes a link that opens that task (a click runs `open_task`)."""
+    for hit in _TASK_REF.finditer(text.plain):
+        text.stylize(Style(underline=True, meta={"@click": f"screen.open_task({hit[1]})"}), hit.start(), hit.end())
+    return text
+
+
 def is_card(m: dict) -> bool:
     """A task delivery is drawn as the task page's card; every other message is a row."""
     return m.get("part") == 0 and m.get("kind") == "task" and bool(m.get("tasks"))
@@ -591,7 +603,7 @@ class WorkLine(Static):
     def render(self) -> Text:
         mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working \
             else f" {safe(self.wait)} " if self.wait else ""
-        return Text(mid, style="dim")
+        return link_task_refs(Text(mid, style="dim"))
 
 
 def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str = "") -> list:
@@ -1389,7 +1401,7 @@ class ChatPage(JobsAware, Screen):
         word, detail = self.agent_state
         return Text.assemble(
             ("Reply" if reply else "Chat", "bold blue"), (" · ", "dim"), self.agent, "  ",
-            agent_badge(word, "" if detail.startswith("waiting for") else detail),   # the work line says it
+            agent_badge(word, "" if detail.startswith(WAITS) else detail),   # the work line says it
             (f"   {self.SPINNER[self._frame % len(self.SPINNER)]} sending"
              + (f" {self.sending}" if self.sending > 1 else "") + "…" if self.sending else "", "cyan"),
             (f"   reply to #{mid_of(reply.m)}" if reply else "", "bold"),
@@ -1497,7 +1509,7 @@ class ChatPage(JobsAware, Screen):
         # (timefmt.ago), so comparing the whole tuple here would rebuild the
         # transcript (`_sig = None`) on almost every 2s poll for no reason.
         word_changed = state[0] != self.agent_state[0]
-        wait_changed = [d if d.startswith("waiting for") else "" for d in (state[1], self.agent_state[1])]
+        wait_changed = [d if d.startswith(WAITS) else "" for d in (state[1], self.agent_state[1])]
         self.agent_state = state
         if wait_changed[0] != wait_changed[1]:
             self._sig = None                # the work line's wait text follows the detail
@@ -1560,7 +1572,7 @@ class ChatPage(JobsAware, Screen):
         finally:
             con.close()
         state, detail = self.agent_state
-        wait = detail if detail.startswith("waiting for") else ""
+        wait = detail if detail.startswith(WAITS) else ""
         key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
                       r["landing_tries"], r["dismissed_by"])
                      for r in rows), tuple((c["tasks"][0], c["when"], c["change"]) for c in changes))
