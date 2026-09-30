@@ -406,12 +406,24 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
          "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3}
     t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
-    check("text: reply link, card top and title, head, body, in that order",
-          t[0] == "↩ #3" and t[1].startswith("TASK T418") and t[2] == "Fix it" and t[3].startswith("backend")
-          and t[4] == "the body", str(t))
+    check("text: card top and title, the head, then the reply link and the body on one line",
+          t[0].startswith("TASK T418") and t[1] == "Fix it" and t[2].startswith("backend")
+          and t[3] == "↩ #3 the body" and len(t) == 4, str(t))
+    reply = {**m, "kind": None, "tasks": [], "task_title": None, "task_state": None, "who": "you", "side": "you",
+             "rid": 5934, "mid": 5934, "text": "반영됨?", "reply_to": 5928}
+    check("text: a reply not picked is one line, the link and the text",
+          cp.message_text(reply, False, False, "me").plain == "↩ #5928 반영됨?")
+    picked = cp.message_text(reply, True, True, "me").plain
+    lines = picked.split("\n")
+    check("text: a reply picked is the head with #id, then the link and the text on one line",
+          len(lines) == 2 and lines[0].startswith("you") and lines[0].endswith("#5934") and lines[1] == "↩ #5928 반영됨?",
+          picked)
+    check("text: an agent's reply is the same, head then link and text",
+          cp.message_text({**reply, "who": "reviewer", "side": "agent"}, True, False, "them").plain.split("\n")[1]
+          == "↩ #5928 반영됨?")
     check("text: the head is left out until it is shown, and #id joins it when picked",
           "backend" not in cp.message_text(m, False, False, "them").plain
-          and "#7" in cp.message_text(m, True, True, "them").plain.split("\n")[3])
+          and "#7" in cp.message_text(m, True, True, "them").plain.split("\n")[2])
     check("text: a note follows the body", cp.message_text({**m, "cancelled": True, "kind": None, "reply_to": None},
                                                             False, False, "me").plain.split("\n")[-1].startswith("cancelled"))
 
@@ -501,9 +513,9 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
     msgs = cp.messages_of(rows, "reviewer")
     widgets = cp.transcript_widgets(msgs, False)
     texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in widgets]
-    check("chat: an undelivered message to the agent sits below the queue line; one the agent sent stays at its time (founder)",
-          texts.index("--") == texts.index("second, not read yet") - 1
-          and texts.index("hello") < texts.index("--") and texts.index("asked after") < texts.index("--"),
+    check("chat: an undelivered message to the agent sits last; one the agent sent stays at its time (founder)",
+          texts.index("second, not read yet") == len(texts) - 2 and texts[-1] == "--"
+          and texts.index("hello") < texts.index("asked after") < texts.index("second, not read yet"),
           str(texts))
     check("chat: it has no Cancel / Send now buttons", not any(
         m["queued"] for m in msgs if m["text"] == "second, not read yet"))
@@ -523,10 +535,10 @@ def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
         con.commit()
         msgs = cp.messages_of(cp.requests_page(con, "reviewer", True)[0], "reviewer")
         texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in cp.transcript_widgets(msgs, False)]
-        check("why: the sent one is above the line, the one to the agent below",
-              texts.index("reviewer's own, not delivered") < texts.index("--") < texts.index("to reviewer, not read"),
+        check("why: the one to the agent sits after the sent one",
+              texts.index("reviewer's own, not delivered") < texts.index("to reviewer, not read"),
               str(texts))
-        check("why: the reason is for the message below the line, not the one sent",
+        check("why: the reason is for the message to the agent, not the one sent",
               cp.wait_reason(con, "reviewer", msgs, False) == "reviewer: " + actions.queue_reason(con, "reviewer", below),
               cp.wait_reason(con, "reviewer", msgs, False))
     finally:
@@ -735,17 +747,14 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     check("chat: agents' messages to each other too, by when they were delivered, undelivered last",
           [m["text"] for m in between] == ["m2", "m1", "m3"], str([m["text"] for m in between]))
     kinds = [type(w).__name__ for w in cp.transcript_widgets(msgs, True)]
-    check("chat: one line sits ahead of the queued message", kinds == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"],
-          str(kinds))
-    spare = cp.transcript_widgets(msgs[:2], True)
-    check("chat: nothing queued leaves a spare row at the bottom, without a rule",
-          type(spare[-1]).__name__ == "QueueLine" and not spare[-1].rule and len(spare) == 3)
-    waits = [type(w).__name__ for w in cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")]
-    line = [w for w in cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")
-            if type(w).__name__ == "QueueLine"][0]
-    check("chat: what the agent waits on is drawn on the queue line, where working would be",
-          waits == ["ChatMessage", "ChatMessage", "QueueLine", "ChatMessage"]
-          and "waiting for x's reply (#1)" in line.render().plain, str(waits))
+    check("chat: no line between the messages; one spare row ends the chat",
+          kinds == ["ChatMessage", "ChatMessage", "ChatMessage", "WorkLine"], str(kinds))
+    widgets = cp.transcript_widgets(msgs, False, wait="waiting for x's reply (#1)")
+    check("chat: what the agent waits on is drawn on the spare row, where working would be",
+          "waiting for x's reply (#1)" in widgets[-1].render().plain, str(widgets[-1].render().plain))
+    check("chat: a message still sending says why; a delivered one does not",
+          cp.landing_label("queued", "behind #9") == "sending · behind #9"
+          and cp.landing_label("delivered", "behind #9") == cp.LANDING_LABELS["delivered"])
 
 
 def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
@@ -1664,6 +1673,56 @@ def test_a_standing_answer_is_added_from_the_settings() -> None:
           and any(a["kind"] == "trust" for a in actions.standing_answers()))
 
 
+async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -> None:
+    """T534: the transcript is torn down only when its rows change; RUNNING/IDLE and the wait
+    text update the spare row and the send-now buttons in place, so the chat does not flash."""
+    from textual.app import App
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("noflash")
+    agents.register("reviewer")
+    askmod.ask("reviewer", "hello", requester=actions.HUMAN)
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss") if hasattr(cp, "Path") else None
+
+    app = Host()
+    def screen_text() -> str:
+        import html, re
+        return html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        before = list(page.query(cp.ChatMessage))
+        page.agent_state = ("RUNNING", "")
+        page._sig = None        # what a flip of the word does (refresh_agent_state)
+        page.refresh_conversation()
+        await pilot.pause()
+        check("noflash: the messages are the same widgets after the agent starts working",
+              before and list(page.query(cp.ChatMessage)) == before)
+        line = page.query(cp.WorkLine).first()
+        check("noflash: and the screen now spins", line.working is True and "working" in screen_text())
+        page.agent_state = ("IDLE", "waiting for x's reply (#1)")
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        shown = screen_text()
+        check("noflash: back to idle with a wait, the screen shows the wait, not 'working'",
+              "working" not in shown and "waiting for x's reply (#1)" in shown
+              and list(page.query(cp.ChatMessage)) == before)
+        page.agent_state = ("IDLE", "waiting for y's reply (#2)")
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        check("noflash: a change of the wait text alone shows on the screen",
+              "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -1725,6 +1784,7 @@ async def _run_all() -> None:
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
+    await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     test_account_settings_alias_and_default_cap()
 
 
