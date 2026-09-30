@@ -237,10 +237,13 @@ def child_blocker_of(con, tid: int):
     """The open child task of someone else that blocks `tid`, or None - whatever it is for (a
     review, a merge, a piece of the work): the flow that uses one is project guidance (T443). A child
     the owner holds itself is not waited on: it is the next thing to do, and holding the parent on it
-    would leave the owner waiting on itself."""
+    would leave the owner waiting on itself - nor is anyone else's while such a piece is still open
+    (T464): the owner does its own piece first, and waits on the review after."""
     owner = db.get_task(con, tid)["owner"]
-    return next((b for b in db.task_blockers(con, tid)
-                 if b["parent_task"] == tid and b["owner"] != owner), None)
+    children = [b for b in db.task_blockers(con, tid) if b["parent_task"] == tid]
+    if any(b["owner"] == owner for b in children):
+        return None
+    return next((b for b in children), None)
 
 
 def child_wait(con, agent: str) -> str | None:

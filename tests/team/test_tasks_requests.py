@@ -7501,6 +7501,36 @@ def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited
         askmod.push = real_push
         con.close()
 
+    # T464: a review by someone else AND the owner's own queued piece block the same parent -
+    # the owner is not held on the review while its own piece is still to do.
+    _board_world(home / "both")
+    con = db.connect()
+    askmod.push = lambda _con, agent, rid=None: ""
+    try:
+        ok, msg, p = actions.task_new("manager", "worker", "the work", "the work")
+        (req,) = db.task_requests(con, p)
+        review = db.new_task(con, "review", "team.auditor", "worker", parent_task=p)
+        mine = db.new_task(con, "a piece of it", "worker", "worker", parent_task=p)
+        db.add_block(con, p, review)
+        db.add_block(con, p, mine)
+        actions.set_queued(con, mine, "manager", True)
+        check("own and foreign child: the owner waits on neither while its own piece is to do",
+              actions.child_wait(con, "worker") is None, str(actions.child_wait(con, "worker")))
+        askmod.resolve(req["id"], "split it")
+        actions.advance_current_task(con, "worker")
+        taskqueue.sweep(con, lambda _m: None, int(time.time()))
+        check("own and foreign child: the owner is given its own piece, not held on the review",
+              db.current_task(con, "worker") == mine and len(db.task_requests(con, mine)) == 1,
+              str(db.current_task(con, "worker")))
+        actions.mark_task_done(con, mine, "worker", reason="done")
+        db.set_current_task(con, "worker", p)
+        check("own and foreign child: once its piece is done the review is what it waits on",
+              (actions.child_wait(con, "worker") or "").startswith("waiting for T%d" % review),
+              f"{actions.child_wait(con, 'worker')} current={db.current_task(con, 'worker')}")
+    finally:
+        askmod.push = real_push
+        con.close()
+
 
 def test_a_queued_task_for_an_agent_with_no_terminal_starts_it(home: Path) -> None:
     """T545 (founder: "all agents are idle"): a queued task whose owner has no terminal is
