@@ -9,7 +9,7 @@ from pathlib import Path
 from ..team import agents, ask as askmod, team as teammod
 from ..infra.yamlcompat import ConfigError
 from ..infra import paths, protected, sealed, timefmt
-from ..session import blocked, idle_close
+from ..session import bgjobs, blocked, idle_close
 from .. import db
 from ..session import events
 from ..infra import lock
@@ -583,16 +583,20 @@ def track_background_work(con, agent: str, row) -> None:
     key = f"bgwork:{agent}"
     if row and (row["closed_at"] or not row["terminal"]):
         db.clear_cursor(con, key)      # the session is gone, and so is what ran behind its prompt
+        db.clear_cursor(con, f"bgcount:{agent}")
         return
     if not row or row["state"] in (HANDOFF, STALLED) or not orca.available():
         return
     running = orca.background_work(row["terminal"])
     if running is None:
         return                # unreadable is not "ended"
+    if running:
+        db.set_cursor(con, f"bgcount:{agent}", max(1, bgjobs.footer_count(running)))
     if running and not db.get_cursor(con, key):
         db.set_cursor(con, key, 1)
     elif not running and db.get_cursor(con, key):
         db.clear_cursor(con, key)
+        db.clear_cursor(con, f"bgcount:{agent}")
         db.add_event(con, agent, "background_work_ended", {})
 
 

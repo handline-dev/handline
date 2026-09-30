@@ -79,6 +79,8 @@ def close_timeout_s(agent: str) -> int:
 # T424: an agent still running background work when its idle window is over is told to
 # finish or stop it, and is stopped this long after that if it shows nothing more.
 BG_GRACE_S = 300
+# How often an agent with background work is asked which of it to stop (T450).
+BG_CHECK_S = 600
 
 
 def _seconds_setting(agent: str, key: str, default: int) -> int:
@@ -101,10 +103,15 @@ def bg_grace_s(agent: str) -> int:
     return _seconds_setting(agent, "bg_grace_s", BG_GRACE_S)
 
 
+def bg_check_s(agent: str) -> int:
+    """How often, while it has background work, an agent is asked which of it to stop."""
+    return _seconds_setting(agent, "bg_check_s", BG_CHECK_S)
+
+
 def set_bg_seconds(key: str, seconds: int | None, agent: str | None = None) -> None:
-    """One of the two background times, keeping every other setting: the global one, or
+    """One of the background times, keeping every other setting: the global one, or
     with `agent` that agent's own (None drops it, back to the global one)."""
-    if key not in ("bg_notice_s", "bg_grace_s") or (seconds is not None and seconds <= 0):
+    if key not in ("bg_notice_s", "bg_grace_s", "bg_check_s") or (seconds is not None and seconds <= 0):
         raise ValueError("a background time is a positive number of seconds")
     if agent:
         cfg = agents.read(agent)

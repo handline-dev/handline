@@ -14,6 +14,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from ocp.cli import parser as cliparser  # noqa: E402
 from ocp.daemon import timebox  # noqa: E402
+from ocp.session import bgjobs  # noqa: E402
 
 TEAM = """
 teams:
@@ -37,6 +38,7 @@ def _world(home: Path) -> list[str]:
     """Three agents with open sessions, and a `send` that records what is typed."""
     _daemon_home(home, 20)
     hand_edit_team(TEAM)
+    idle_close.set_bg_seconds("bg_check_s", 10**6)   # T450's check is tested on its own
     sent: list[tuple[str, str]] = []
     orca_seen()
     dmn_delivery.session_present = lambda a: True
@@ -561,6 +563,74 @@ def test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(home
         finally:
             (orcamod.background_work, orcamod.close_session, orcamod.close_terminal,
              dmn_delivery._wait_session_gone, dmn_delivery._past_dialog, dmn_lifecycle._answer_exit_dialog) = real
+    finally:
+        con.close()
+
+
+def test_background_work_is_checked_every_n_minutes_naming_each_command(home: Path) -> None:
+    """T450: the agent is told which commands run and for how long, whatever it owes and
+    whether it closes, again every N minutes - not the T424 idle close."""
+    sent = _world(home)
+    idle_close.set_bg_seconds("bg_check_s", 600)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        _owe(con, "marina")                     # T424 leaves it alone: it owes something
+        idle_close.set_agent_close_timeout("marina", idle_close.NEVER)   # and it never closes
+        done = home / "b1.output"
+        done.write_text("tests ok\n\n[exited with code 0]\n")
+        raw = lambda cmd, out, bg=True: {"tool_name": "Bash", "tool_use_id": "t", "session_id": "s",  # noqa: E731
+                                         "tool_input": {"command": cmd, "run_in_background": bg},
+                                         "tool_response": f"Command running in background with ID: x. Output is being written to: {out}"}
+        bgjobs.note("marina", raw("pytest -x tests/", "/x/tasks/a0.output"))
+        bgjobs.note("marina", raw("npm run watch", "/x/tasks/w2.output"))
+        bgjobs.note("marina", raw("make all", "/x/tasks/d3.output", bg=False))
+        check("check: only a call made in the background is recorded",
+              con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_started'").fetchone()[0] == 2)
+        con.execute("UPDATE events SET payload = REPLACE(payload, '/x/tasks/w2.output', ?) WHERE kind = 'background_started' "
+                    "AND payload LIKE '%w2%'", (str(done),))
+        db.set_cursor(con, "bgwork:marina", 1)
+        db.set_cursor(con, "bgcount:marina", 2)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (now - 3600,))
+        con.commit()
+        timebox.sweep(con, lambda _m: None, now)
+        check("check: told once, naming the command still running and not the one that ended",
+              len(sent) == 1 and "pytest -x tests/" in sent[0][1] and "npm run watch" not in sent[0][1]
+              and "Stop what you no longer need" in sent[0][1], str(sent))
+        timebox.sweep(con, lambda _m: None, now + 5)
+        check("check: not again before N minutes", len(sent) == 1, str(sent))
+        every = idle_close.bg_check_s("marina")
+        check("check: N defaults to 10 minutes", every == 600, str(every))
+        timebox.sweep(con, lambda _m: None, now + every)
+        check("check: and again after N minutes while it runs", len(sent) == 2, str(sent))
+        db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="active")
+        timebox.sweep(con, lambda _m: None, now + 2 * every)
+        check("check: mid-turn it waits for the turn's end", len(sent) == 2, str(sent))
+        db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
+        idle_close.set_bg_seconds("bg_check_s", 120, "marina")
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5)
+        check("check: told at once when it was due while busy; its own N is read", len(sent) == 3, str(sent))
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 119)
+        check("check: its own N of 2 minutes holds", len(sent) == 3, str(sent))
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 120)
+        check("check: and then asks", len(sent) == 4, str(sent))
+        # dohyun owes nothing, so T424's own notice comes first, and this one waits behind it
+        db.set_agent_state(con, "dohyun", dmn_states.IDLE, detail="finished its turn")
+        db.set_terminal(con, "dohyun", "term_dohyun", None)
+        db.set_cursor(con, "bgwork:dohyun", 1)
+        con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:dohyun'", (now - 3600,))
+        con.commit()
+        before = len(sent)
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 240)
+        timebox.sweep(con, lambda _m: None, now + 2 * every + 5 + 240 + timebox.NOTICE_RETRY_S + 1)
+        told = [t for h, t in sent[before:] if h == "term_dohyun"]
+        check("check: behind a T424 notice in flight it says nothing of its own",
+              len(told) == 1 and "Finish it or stop it" in told[0], str(sent[before:]))
+        check("check: the footer's count is what caps the list, killed jobs and all",
+              bgjobs.footer_count("2 shells, 1 monitor") == 3 and bgjobs.footer_count(None) == 0
+              and [j["command"] for j in bgjobs.running(con, "marina", 1)] == ["pytest -x tests/"]
+              and len(bgjobs.running(con, "marina")) == 1)
     finally:
         con.close()
 
@@ -1155,6 +1225,7 @@ def main() -> int:
             run(lambda: test_the_human_is_the_supervisor_of_an_agent_with_none(Path(td) / 'tb9'))
             run(lambda: test_background_work_is_stale_at_the_limit_and_may_stop_after_the_veto(Path(td) / 'tb10'))
             run(lambda: test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(Path(td) / 'tb10a'))
+            run(lambda: test_background_work_is_checked_every_n_minutes_naming_each_command(Path(td) / 'tb10n'))
             run(lambda: test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(Path(td) / 'tb10f'))
             run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
             run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))

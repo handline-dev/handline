@@ -65,7 +65,8 @@ def cmd_idle_background(args) -> int:
         print("--clear only applies with --agent", file=sys.stderr)
         return 1
     try:
-        for key, value in (("bg_notice_s", args.notice), ("bg_grace_s", args.grace)):
+        for key, value in (("bg_notice_s", args.notice), ("bg_grace_s", args.grace),
+                           ("bg_check_s", args.check)):
             if value is not None or args.clear:
                 idle_close.set_bg_seconds(key, None if args.clear else value, args.agent)
     except Exception as e:  # noqa: BLE001
@@ -76,6 +77,9 @@ def cmd_idle_background(args) -> int:
         "bg_notice_s", idle_close.default_close_timeout_s())
     grace = idle_close.bg_grace_s(args.agent) if args.agent else idle_close.config_seconds(
         "bg_grace_s", idle_close.BG_GRACE_S)
+    check = idle_close.bg_check_s(args.agent) if args.agent else idle_close.config_seconds(
+        "bg_check_s", idle_close.BG_CHECK_S)
+    print(f"{who}: asked which background work to stop every {timefmt.ago(check)} while any runs")
     closes = idle_close.close_timeout_s(args.agent) if args.agent else idle_close.default_close_timeout_s()
     if closes == idle_close.NEVER:
         print(f"{who}: never told - its idle window is 'never close'")

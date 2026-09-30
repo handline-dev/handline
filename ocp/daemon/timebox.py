@@ -27,7 +27,7 @@ from __future__ import annotations
 from ..infra import paths
 from ..infra import timefmt
 from ..session import handoff as progressmod
-from ..session import idle_close
+from ..session import bgjobs, idle_close
 from .. import db
 from . import delivery
 from .states import IDLE, RUNNING
@@ -212,6 +212,38 @@ def sweep_forgotten_background(con, log, now: int) -> None:
                 log(f"  {agent}: background work with nothing owed, silent {timefmt.ago(silent)} - told to finish or stop it")
 
 
+def sweep_background_check(con, log, now: int) -> None:
+    """T450: every `idle_close.bg_check_s` while an agent has background work, at a turn's
+    end, it is told what is running and asked to stop what it no longer needs - a shell
+    nobody stops holds off the context rollover. Not the idle close: busy or idle, owing
+    or not, a "never close" agent too. It waits out a T424 notice already in flight."""
+    for agent in paths.list_agents():
+        key = f"bg_check:{agent}"
+        row = db.get_agent_state(con, agent)
+        if not row or not delivery.has_background_work(con, agent):
+            db.clear_cursor(con, key)
+            continue
+        if row["state"] != IDLE or delivery.bg_prompted_at(con, agent):
+            continue
+        every = idle_close.bg_check_s(agent)
+        since = delivery.bg_since(con, agent) or now
+        if now - max(db.get_cursor(con, key), since) < every:
+            continue
+        count = db.get_cursor(con, f"bgcount:{agent}") or None
+        jobs = bgjobs.running(con, agent, count)
+        unnamed = max(0, (count or len(jobs)) - len(jobs))
+        listing = "; ".join(f"{i}. {bgjobs.line(j, now, timefmt.ago)}" for i, j in enumerate(jobs, 1))
+        if unnamed:
+            listing += ("; " if listing else "") + f"{unnamed} that ocp cannot name"
+        text = (f"Background work has been running for {timefmt.ago(now - since)}: {listing or 'something ocp cannot name'}. "
+                f"Stop what you no longer need, and for each one you keep say in a line why. "
+                f"You are asked again in {timefmt.ago(every)} while any runs.")
+        if _tell(con, agent, text, now):
+            db.set_cursor(con, key, now)
+            db.add_event(con, agent, "background_checked", {"jobs": len(jobs), "unnamed": unnamed})
+            log(f"  {agent}: background work for {timefmt.ago(now - since)} - asked which to stop")
+
+
 def sweep_stop_wait_backstop(con, log, now: int) -> None:
     """T288's own backstop: the clock (`since_key`) starts the moment the
     task-level wait goes missing and only clears once it is recorded or the
@@ -288,5 +320,6 @@ def sweep(con, log, now: int) -> None:
     sweep_unasked_running(con, log, now)
     sweep_stale_background(con, log, now)
     sweep_forgotten_background(con, log, now)
+    sweep_background_check(con, log, now)
     sweep_stop_wait_backstop(con, log, now)
     sweep_forgotten_resolve_capped(con, log, now)
