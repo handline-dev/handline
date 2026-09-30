@@ -252,6 +252,14 @@ def test_launch(home: Path) -> None:
     mcp_json.unlink()
     check("fingerprint: removing it again matches the original", launch.fingerprint("launchtest") == before)
 
+    # T448: a session launched before skip-permissions was turned on has to read
+    # as drifted, or it is reused and the setting never reaches Claude Code.
+    agents.register("launchtest", skip_permissions=True)
+    on = launch.fingerprint("launchtest")
+    check("fingerprint: turning skip-permissions on changes it", on != before)
+    agents.register("launchtest", skip_permissions=False)
+    check("fingerprint: turning it off returns to the original", launch.fingerprint("launchtest") == before)
+
 
 def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)

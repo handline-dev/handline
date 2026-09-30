@@ -568,8 +568,9 @@ def _your_team(agent: str) -> str:
 def fingerprint(agent: str) -> str:
     """What `build()` would launch this agent with right now, boiled down to
     the pieces a running session cannot pick up on its own: the model, the
-    effort level, the disallowed-tools list, the shared mcp.json, and the
-    static preamble (team line, ROLE.md, base.md, the rules file of each
+    effort level, the disallowed-tools list, the shared mcp.json, whether
+    skip-permissions is in effect (T448: a session started without the flag
+    kept running as if the setting were still off), and the static preamble (team line, ROLE.md, base.md, the rules file of each
     team it is in). Never the account or the
     handoff - the account is chosen fresh on every real launch regardless of
     what last time picked, and the handoff is supposed to be different every
@@ -587,6 +588,8 @@ def fingerprint(agent: str) -> str:
     effort = str(cfg.get("effort") or agents.DEFAULT_EFFORT)
     material = "\x1e".join([model, effort, DISALLOWED_TOOLS, _mcp_config_material(),
                             _static_preamble(agent)])
+    if agents.skip_permissions_in_effect(agent, cfg):
+        material += "\x1eskip-permissions"     # only when on: turning it off returns to the old hash
     return hashlib.sha256(material.encode()).hexdigest()[:16]
 
 
