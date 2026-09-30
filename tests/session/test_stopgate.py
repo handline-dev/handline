@@ -79,6 +79,17 @@ def test_stop_hook_active_and_once_per_session_guard_the_loop(home: Path) -> Non
     check("same session, task unchanged still: not reported a third time",
           (block, reason) == (False, None), (block, reason))
 
+    con = db.connect()
+    try:
+        db.set_current_task(con, "worker", tid2)
+    finally:
+        con.close()
+    block, reason = stopgate.decide("worker", {"session_id": "s2"})
+    check("T324: same session, a new current task: reported again, naming it",
+          block is True and reason is not None and f"T{tid2} is current" in reason, (block, reason))
+    block, reason = stopgate.decide("worker", {"session_id": "s2"})
+    check("T324: and only once for that one", (block, reason) == (False, None), (block, reason))
+
 
 def test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(home: Path) -> None:
     _open_task(home)

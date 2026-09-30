@@ -317,7 +317,7 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
     if row["closed_by"] or row["done_evidence"]:
         return False, f"task T{tid} is already decided"
     kids = db.open_child_tasks(con, tid)
-    if kids:
+    if kids and not _closes_whole(con, tid):
         # What `close_task` would refuse, said before anything is written: a
         # decision that settled the card and then could not close the task
         # would leave it done but open, and nothing could retry it.
@@ -408,7 +408,25 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, *_free_blocked_by(con, tid, by))
+    self_close(con, tid)
     return True, f"task T{tid} done ({mark})"
+
+
+def self_close(con, tid: int) -> None:
+    """A done child whose asker is an agent needs no separate sign-off (T555): close
+    it as its asker. Refused while it holds an open child or blocker of its own; the
+    close of whatever held it tries again (`close_task`)."""
+    row = db.get_task(con, tid)
+    if row is None or not row["parent_task"] or not row["done_evidence"] or row["closed_by"]:
+        return
+    asker = task_asker(con, row)
+    if asker != HUMAN:
+        close_task(con, tid, asker)
+
+
+def _closes_whole(con, tid: int) -> bool:
+    """Would the founder's close of `tid` go through: every open child done, and so on down."""
+    return all(k["done_evidence"] and _closes_whole(con, k["id"]) for k in db.open_child_tasks(con, tid))
 
 
 def close_task(con, tid: int, by: str) -> tuple[bool, str]:
@@ -444,6 +462,8 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     if by not in (asker, HUMAN):
         return False, f"task T{tid} can only be closed by {asker} - whoever asked for it - or the founder"
     kids = db.open_child_tasks(con, tid)
+    if by == HUMAN and _closes_whole(con, tid):     # the founder's close takes done children along
+        kids = [k for k in kids if not close_task(con, k["id"], HUMAN)[0]]
     if kids:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - close them first"
@@ -459,6 +479,7 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
         db.add_event(con, by, "close_task", {"task_id": tid, "closed_by": by})
         for b in blockers:  # only the founder gets here with any
             db.remove_block(con, tid, b["id"])
+        released = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
         notices, freed_owners = _clear_blocks_on(con, tid, by)
         con.execute("COMMIT")
     except Exception:
@@ -468,6 +489,9 @@ def close_task(con, tid: int, by: str) -> tuple[bool, str]:
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
+    for waiting in [row["parent_task"], *released]:     # a done child that was held by this one
+        if waiting:
+            self_close(con, waiting)
     return True, f"task T{tid} closed by {by}"
 
 
@@ -519,6 +543,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
+        released = [d["task_id"] for d in db.tasks_blocked_by(con, tid)]
         notices, freed_owners = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
     except Exception:
@@ -530,6 +555,9 @@ def discard_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
     _deliver_unblocked(con, notices, freed_owners)
+    for waiting in [row["parent_task"], *released]:     # a done child that was held by this one
+        if waiting:
+            self_close(con, waiting)
     return True, f"task T{tid} discarded by {by}: {said}"
 
 
