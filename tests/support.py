@@ -94,6 +94,17 @@ _dmn_sends.RUN_INLINE = True
 _cli_ask.dmn_client = _types.SimpleNamespace(
     send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
 
+def _ask_row(payload: dict, log=None) -> dict:
+    """A request row written and told the way the removed `ocp ask` did (T560): the
+    delivery tests need a plain row in an agent's queue, and no verb makes one now."""
+    kw = {k: v for k, v in payload.items() if k not in ("verb", "target", "body", "requester", "speaker")}
+    ok, msg, rid = askmod.ask(payload["target"], payload["body"], requester=payload.get("requester"),
+                              speaker=payload.get("speaker"), notify=False, **kw)
+    if ok:
+        _dmn_sends._after(rid, payload["target"], log or (lambda _m: None))
+    return {"ok": bool(ok), "said": msg}
+
+
 # No test reaches the machine's Keychain or the usage endpoint: asked for a
 # reading, it gets "could not look". A test that drives usage_api sets its own.
 REAL_ACCESS_TOKEN = claudemeter._access_token_detailed
@@ -1765,21 +1776,9 @@ def _link(tid: int, rid: int, state: str | None = None) -> None:
         con.close()
 
 
-def _done_and_close(tid: int, owner: str, evidence: str = "done",
-                    closer: str | None = "manager") -> tuple[int, str]:
-    """#71: the two-step close most tests just need - mark it done as its
-    owner, then close it as `closer` (the task's opener, the default asker
-    for a task nobody linked a founder request to)."""
-    rc, out = _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
-    if rc != 0:
-        return rc, out
-    con = db.connect()
-    try:
-        if db.get_task(con, tid)["closed_by"]:      # a child an agent asked for closed itself on done
-            return 0, f"{out}\ntask T{tid} closed"
-    finally:
-        con.close()
-    return _cli(["close", f"T{tid}"], as_agent=closer)
+def _task_done(tid: int, owner: str, evidence: str = "done") -> tuple[int, str]:
+    """`ocp task done` as its owner: the one step that finishes a task (T568)."""
+    return _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
 
 
 def _two_lanes(home: Path) -> None:
@@ -1938,6 +1937,7 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    '_ask_row',
     'hand_edit_team',
     'hand_edit_agent',
     'reseal',
@@ -2173,7 +2173,7 @@ __all__ = [
     '_request',
     '_now_line',
     '_link',
-    '_done_and_close',
+    '_task_done',
     '_two_lanes',
     'write_labels',
     '_read_labels',

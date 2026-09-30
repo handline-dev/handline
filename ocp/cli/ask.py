@@ -10,8 +10,6 @@ from ..infra import timefmt
 from ..team import ask as askmod
 from .. import db
 from ..session import fold as foldmod
-from ..team import hr
-from ..infra import paths
 from ..infra import textsafe
 from ..session import waiting
 
@@ -87,29 +85,6 @@ def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[st
 # "no reason" would silently drop what was typed, on ask, withdraw and dismiss
 # alike (#1348 note 1).
 _EMPTY_REASON = "--reason was given empty; type one or leave the flag off"
-
-
-def cmd_ask(args) -> int:
-    body, err = _text_arg(args.body, args.file, "body")
-    if err:
-        print(err)
-        return 1
-    if args.reason == "":
-        print(_EMPTY_REASON)
-        return 1
-    if args.reason and args.replaces is None:
-        print("--reason says why a request was replaced: it needs --replaces ID")
-        return 1
-    if args.no_task == "":
-        print("--no-task says why this names a task without belonging to it: give the reason")
-        return 1
-    if args.task is not None and args.no_task:
-        print("--task and --no-task contradict each other: use one")
-        return 1
-    return _send("ask", target=args.target, body=body, files=args.files, parent=args.parent,
-                 mergeable=args.mergeable, first=args.first, replaces=args.replaces,
-                 fyi=args.fyi, reason=args.reason, timebox=args.timebox, task=args.task,
-                 no_task=args.no_task)
 
 
 def _send(verb: str, **payload) -> int:
@@ -327,53 +302,13 @@ def _human_inbox(show_all: bool = False) -> int:
 def _who_refusal(verb: str) -> str:
     """Whose row it is cannot be checked against a caller we cannot name.
 
-    The same fail-closed rule `ocp ask` uses: a human has a terminal, a script
+    The same fail-closed rule `ocp say` uses: a human has a terminal, a script
     that dropped OCP_AGENT does not, and promoting one to the other is how an
     agent ends up clearing the founder's mailbox.
     """
     return (f"cannot tell who is {verb}ing this: OCP_AGENT is unset and this is not "
             f"an interactive shell. Agents are started with `ocp launch <agent>`, "
             f"which sets it.")
-
-
-def cmd_dismiss(args) -> int:
-    """Take one of your own rows off your list.
-
-    The two kinds there need two different writes - a request addressed to you
-    is closed with "read", an answer you asked for is only marked told - and
-    which one this is is read off the row, so clearing your list never means
-    knowing which. Somebody else's row is neither: dismissing it would resolve
-    a request they are still waiting on, with a verdict they never wrote.
-    """
-    if args.reason == "":
-        print(_EMPTY_REASON)
-        return 1
-    con = db.connect()
-    try:
-        row = db.get_request(con, args.id)
-        if row is None:
-            print(f"no request #{args.id}")
-            return 1
-        me = askmod.asking_agent()
-        if me is None:
-            print(_who_refusal("dismiss"))
-            return 1
-        mine = row["target"] == me or (row["requester"] == me and row["state"] != "queued")
-        if not mine and row["requester"] == me:
-            take_back = "cancel" if me == askmod.HUMAN else "withdraw"
-            print(f"#{args.id} is your own request, not one to dismiss. "
-                  f"`ocp {take_back} {args.id}` takes it back.")
-            return 1
-        if not mine:
-            print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
-                  f"dismiss. `ocp read {args.id}` shows it.")
-            return 1
-        ok, msg = actions.dismiss(con, args.id, me=me, reason=args.reason,
-                                  tasks=args.task, no_task=args.no_task)
-        print(msg)
-        return 0 if ok else 1
-    finally:
-        con.close()
 
 
 # Every state in which no verdict is coming: the three that never reached the
@@ -478,190 +413,3 @@ def cmd_read(args) -> int:
         return 0
     finally:
         con.close()
-
-
-def _resolve_tasks(args, owner, me):
-    """What `resolve` opens in the same transaction as the close, or None."""
-    if not (args.finding or args.hold):
-        return None
-
-    def opener(con):
-        tids = []
-        if args.finding:
-            tids += actions.open_finding_tasks(con, args.id, args.finding, owner)
-        if args.hold:
-            tids += actions.open_hold_task(con, args.id, args.hold, me, args.on or [])
-        return tids
-    return opener
-
-
-def cmd_resolve(args) -> int:
-    """Answer a request - whichever end of it you are on.
-
-    Resolving writes the verdict on the row, so aimed at a request you made
-    and someone has already answered it overwrites their answer with your own
-    words and sends nothing: the record then says the agent said what you said.
-    The screen's answer key has always branched on that; this is the same
-    branch, because the two must not disagree about what "answer" means.
-    """
-    verdict, err = _text_arg(args.verdict, args.file, "verdict")
-    if err:
-        print(err)
-        return 1
-    con = db.connect()
-    try:
-        row = db.get_request(con, args.id)
-        if row is None:
-            print(f"no request #{args.id}")
-            return 1
-        me = askmod.asking_agent()
-        if me is None:
-            print(_who_refusal("answer"))
-            return 1
-        if row["requester"] == me and row["state"] != "queued":
-            if args.finding:
-                print(f"#{args.id} is your own request - a finding is opened by "
-                      f"whoever answers it, not by you")
-                return 1
-            print(actions.answer(con, args.id, verdict))
-            return 0
-        if row["target"] != me:
-            if row["requester"] == me:
-                take_back = "cancel" if me == askmod.HUMAN else "withdraw"
-                print(f"#{args.id} is your own request, not one to answer. "
-                      f"`ocp {take_back} {args.id}` takes it back.")
-                return 1
-            print(f"#{args.id} is {row['requester']} → {row['target']}, not yours to "
-                  f"answer. `ocp read {args.id}` shows it.")
-            return 1
-        if row["state"] != "queued":
-            # Closed already - answered, or cancelled by the founder while this
-            # was being worked on. A second verdict would overwrite the first
-            # and be sent to the requester as though it were the answer.
-            print(f"#{args.id} is already {row['state']}"
-                  + (f" ({textsafe.oneline(db.shown_verdict(row))[:120]})"
-                     if db.shown_verdict(row) else "")
-                  + " - nothing to resolve.")
-            return 1
-        refusal = actions.check_human_resolve(con, row, args.task, args.no_task, me)
-        if refusal:
-            print(refusal)
-            return 1
-        refusal = actions.check_open_proposal(args.id, row, verdict)
-        if refusal:
-            print(refusal)
-            return 1
-        if args.finding and row["requester"] not in paths.list_agents():
-            print(f"#{args.id} came from {row['requester']}, not an agent - a finding "
-                  f"cannot be tied to it; open it with `ocp task new --owner NAME -t 2h`")
-            return 1
-        if args.on and not args.hold:
-            print("--on names what a --hold waits on; give --hold TITLE too")
-            return 1
-        if args.hold and not textsafe.oneline(args.hold).strip():
-            print("a hold needs a title")
-            return 1
-        if args.hold and args.state != "done":
-            print("a hold is an answer - it cannot go with --state rejected")
-            return 1
-        if args.hold and args.on:
-            refusal = actions.hold_refusal(con, args.id, args.on)
-            if refusal:
-                print(refusal)
-                return 1
-        owner = actions.finding_owner(me) if args.finding else None
-        if args.finding and owner is None:
-            print(f"no registered manager for {me}'s lane - a finding cannot be owned; "
-                  f"open it with `ocp task new --owner NAME -t 2h`")
-            return 1
-        if args.finding and any(not textsafe.oneline(f).strip() for f in args.finding):
-            print("a finding needs a title")
-            return 1
-        if args.retires is not None:
-            old = db.get_request(con, args.retires)
-            if old is None:
-                print(f"no request #{args.retires} to retire")
-                return 1
-            # #1565 BLOCKING: this pre-check tested existence, moot_by and
-            # state but never whose row it is - so any agent could retire any
-            # queued request in the system, including the founder's, with
-            # db.retire_queued stamping announced_at as though it had already
-            # been reported and check_human_resolve never running (it guards
-            # the row being resolved, not the one being retired). `old` is
-            # mine to retire the same way `--replaces` treats its own old
-            # row as the requester's: here it is the row I was asked and am
-            # now saying another answer already covers, so ownership is
-            # target, not requester - matched against `me`, already
-            # established above as the target of the row this resolve is
-            # answering. A founder row narrows further: even a legitimate
-            # target must still say what it becomes, same as answering one
-            # directly (db.retire_queued has this new caller now; #1350's
-            # enumeration did not, because this verb did not exist yet).
-            if old["target"] != me and me != askmod.HUMAN:
-                print(f"#{args.retires} is {old['requester']} -> {old['target']}, "
-                     f"not yours to retire")
-                return 1
-            if old["requester"] == askmod.HUMAN:
-                refusal = actions.check_human_resolve(con, old, args.task, args.no_task, me)
-                if refusal:
-                    print(refusal)
-                    return 1
-            if old["state"] == "queued" and hr.is_open_proposal(args.retires):
-                # #1908 should-fix: --retires closes `old` too, the same
-                # `answer`/`resolve` can - a proposal escalation retired this
-                # way is answered with "replaced by #N", not a decision.
-                print(f"#{args.retires} is a roster proposal - answer `approve` or "
-                      f"`reject`, it cannot be retired")
-                return 1
-            if old["moot_by"] is not None:
-                print(f"#{args.retires} is already moot (by #{old['moot_by']})")
-                return 1
-            if old["state"] != "queued":
-                # Caught here, not left for db.retire_queued's WHERE to fail
-                # on: that failure is worded for a race ("left 'queued'
-                # before it could be retired"), which is the wrong story for
-                # a row that was never queued to begin with - already
-                # answered, its own way, with no moot_by set (a real answer,
-                # not a retirement).
-                print(f"#{args.retires} is already {old['state']} - nothing to retire")
-                return 1
-    finally:
-        con.close()
-    if args.task or args.no_task:
-        con = db.connect()
-        try:
-            actions.record_human_resolve(con, args.id, args.task, args.no_task, me)
-        finally:
-            con.close()
-    ok, msg = askmod.resolve(
-        args.id, verdict, state=args.state,
-        open_tasks=_resolve_tasks(args, owner, me))
-    if ok and args.retires is not None:
-        con = db.connect()
-        try:
-            # Actually take the named row out of its queue - moot_by said
-            # "retiring #N" while leaving it queued, live and about to be
-            # worked on, which is worse than not recording anything (#1366
-            # BLOCKING). db.retire_queued is the same close the human
-            # mailbox and the fyi supersede loop already use for a row a
-            # newer one has superseded, delivered or not; its own WHERE
-            # state='queued' is the atomic check against a race with
-            # whatever else might close it between here and the check above.
-            retired = db.retire_queued(con, args.retires, "replaced",
-                                       f"replaced by #{args.id}")
-            if retired:
-                # set_moot_by's own CAS return is not read here (#1366 N1,
-                # unchanged by this pass - the ownership guard above narrows
-                # the race window but does not close it, and it stays a
-                # note, not a fix, per orcapipe's #1572: "leave the second
-                # and say you left it").
-                db.set_moot_by(con, args.retires, args.id)
-                msg += f", retiring #{args.retires}"
-            else:
-                msg += (f" (#{args.retires} was not retired - it is still queued)"
-                        if db.is_still_queued(con, args.retires) else
-                        f" (#{args.retires} left 'queued' before it could be retired)")
-        finally:
-            con.close()
-    print(msg)
-    return 0 if ok else 1

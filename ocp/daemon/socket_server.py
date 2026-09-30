@@ -87,7 +87,6 @@ def _trust(con, log, **kw) -> tuple[bool, str]:
 
 VERBS = {
     "message": _message,
-    "ask": sends.ask_verb,
     "say": sends.say_verb,
     "push": sends.push_verb,
     "push_answer": sends.push_answer_verb,

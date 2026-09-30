@@ -47,7 +47,7 @@ def _transcript(*entries: dict) -> Path:
 
 def _typed_row(sent: list, ago: int = 0, body: str = "look at the retry loop"):
     """A request typed at backend by the daemon `ago` seconds back, into SESSION."""
-    reply = dmn_socket_server._handle_request(
+    reply = _ask_row(
         {"verb": "ask", "requester": "product", "speaker": "product", "target": "backend", "body": body},
         lambda _m: None)
     con = db.connect()
@@ -284,7 +284,7 @@ def test_a_task_head_is_told_again_when_it_never_landed(home: Path) -> None:
     hand_edit_team(DESIGN_TEAM.replace(
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
-    dmn_socket_server._handle_request(
+    _ask_row(
         {"verb": "ask", "requester": "product", "speaker": "product", "target": "backend",
          "body": "a piece of work"}, lambda _m: None)
     con = db.connect()

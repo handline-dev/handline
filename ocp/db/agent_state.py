@@ -153,7 +153,7 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
 # itself ran. no_task joins them for the same reason: cmd_resolve only writes
 # it on a queued row the resolving agent just answered, in the same command
 # as its own "resolve" event, so it can never move a clock "resolve" did not
-# already move (close_task is deliberately NOT here - see the daemon_kinds
+# already move (discard_task is deliberately NOT here - see the daemon_kinds
 # comment in test_only_the_agents_own_events_move_its_activity_clock; #1565
 # SF3, the fourth event ocp could attribute to an agent that did nothing).
 # Of the hook events ocp captures (ocp/session/events.py CAPTURED),

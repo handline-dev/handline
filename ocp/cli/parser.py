@@ -12,7 +12,7 @@ from ..team import team
 from .account import cmd_account_add, cmd_account_cap, cmd_account_list, cmd_account_recover, cmd_account_register, cmd_account_remove
 from .memory import cmd_memory_migrate, cmd_memory_status
 from .agent import cmd_agent_list, cmd_agent_move, cmd_agent_register, cmd_agent_show, cmd_base_promote, cmd_command, cmd_handoff_write, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
-from .ask import WAIT_DEFAULT_S, cmd_ask, cmd_cancel, cmd_digest, cmd_dismiss, cmd_handoff, cmd_inbox, cmd_read, cmd_resolve, cmd_withdraw
+from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_digest, cmd_handoff, cmd_inbox, cmd_read, cmd_withdraw
 from .bridge import cmd_bridge
 from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_drift, cmd_events, cmd_fold, cmd_rollover, cmd_status, cmd_triggers
@@ -250,38 +250,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--matrix", action="store_true", help="print the full routing matrix")
     p.set_defaults(fn=cmd_team_check)
 
-    p = sub.add_parser("ask", help="send a request to another agent")
-    p.add_argument("target")
-    p.add_argument("body", nargs="?", default=None)
-    p.add_argument("--file", default=None, metavar="PATH",
-                   help="read the body from this file instead of the inline argument - "
-                        "safe against a shell expanding backticks or $() in the text")
-    p.add_argument("--files", default=None, help="comma-separated paths")
-    p.add_argument("--parent", type=int, default=None, help="parent request id, for chain depth")
-    p.add_argument("--mergeable", action="store_true",
-                   help="fold into an already-queued ask to the same target")
-    p.add_argument("--first", action="store_true",
-                   help="put this at the head of the target's queue")
-    p.add_argument("--replaces", type=int, default=None, metavar="ID",
-                   help="correct your own request ID before it has been delivered; "
-                        "ID is retired and this takes its place in line")
-    p.add_argument("--reason", default=None,
-                   help="why --replaces retires the old request; stored as typed")
-    p.add_argument("--task", type=_task_arg, default=None, metavar="T",
-                   help="link this request to task T<n>; a draft task reads doing while "
-                        "it is out")
-    p.add_argument("--no-task", default=None, metavar="REASON",
-                   help="the text names a T<n> that this request is not for; say why")
-    p.add_argument("--fyi", action="store_true",
-                   help="a report to the human that asks nothing of them: not red, not "
-                        "counted as waiting on them, gone once read or when your next "
-                        "report arrives")
-    p.add_argument("--timebox", type=span_arg, default=None, metavar="DURATION",
-                   help="tell you once if this is still open this long after it is "
-                        "delivered (45s, 90m, 2h, 1d); default is config.yaml's "
-                        "timebox_s, 2h")
-    p.set_defaults(fn=cmd_ask)
-
     p = sub.add_parser("say", help="a message that needs no answer and starts no work (T293), typed at "
                                    "once - work is `ocp task new`")
     p.add_argument("target", nargs="?")
@@ -323,42 +291,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=int, default=WAIT_DEFAULT_S, metavar="SECONDS",
                    help=f"how long --wait waits before giving up (default {WAIT_DEFAULT_S}s)")
     p.set_defaults(fn=cmd_read)
-
-    p = sub.add_parser("resolve", help="close a request with a verdict")
-    p.add_argument("id", type=int)
-    p.add_argument("verdict", nargs="?", default=None)
-    p.add_argument("--file", default=None, metavar="PATH",
-                   help="read the verdict from this file instead of the inline argument - "
-                        "safe against a shell expanding backticks or $() in the text")
-    p.add_argument("--state", default="done", choices=["done", "rejected"])
-    p.add_argument("--task", type=_task_arg, nargs="+", metavar="T",
-                   help="the task(s) this answer belongs to; required on the founder's requests")
-    p.add_argument("--no-task", metavar="REASON",
-                   help="answered, nothing to build; required on the founder's requests "
-                        "unless --task is given")
-    p.add_argument("--finding", action="append", metavar="TITLE",
-                   help="a non-blocking finding you are deferring rather than blocking "
-                        "on; opens as its own task, owned by whoever you are answering, "
-                        "linked to this request - repeat for more than one")
-    p.add_argument("--retires", type=int, default=None, metavar="ID",
-                   help="an older request this answer makes moot")
-    p.add_argument("--hold", metavar="TITLE",
-                   help="this answer puts the work on hold: it opens as a task owned by "
-                        "you, under the task this request belongs to, so it stays on the "
-                        "board instead of reading done")
-    p.add_argument("--on", type=_task_arg, nargs="+", metavar="T",
-                   help="with --hold: the open task(s) it waits on; you are told when the "
-                        "last one closes")
-    p.set_defaults(fn=cmd_resolve)
-
-    p = sub.add_parser("dismiss", help="take one row off your mailbox without replying")
-    p.add_argument("id", type=int)
-    p.add_argument("--reason", default=None, help="why; stored as typed")
-    p.add_argument("--task", type=_task_arg, nargs="+", metavar="T",
-                   help="the task(s) this belongs to; required to dismiss a request the founder made")
-    p.add_argument("--no-task", metavar="REASON",
-                   help="nothing to build; required to dismiss a founder request unless --task is given")
-    p.set_defaults(fn=cmd_dismiss)
 
     p = sub.add_parser("fold", help="fold events into the digest (the one model call)")
     p.add_argument("agent", nargs="?")
@@ -543,12 +475,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_handoff_write)
 
-    p = sub.add_parser("close", help="close a done task (ocp close T7), the asker's or "
-                                     "the founder's sign-off, or end an idle agent's session, keeping "
-                                     "its terminal")
-    p.add_argument("target", help="a task (T<n>), or an agent's name")
-    p.add_argument("evidence", nargs="?",
-                   help="refused - `ocp task done` takes the evidence now")
+    p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
+    p.add_argument("target", help="an agent's name")
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
@@ -609,13 +537,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("rest", nargs="*")
     p.set_defaults(fn=cmd_task_memo)
     p = tk.add_parser("list", help="the open tasks and their requests")
-    p.add_argument("--all", action="store_true", help="closed tasks too, with what closed them")
+    p.add_argument("--all", action="store_true", help="done and discarded tasks too")
     p.add_argument("--owner", default=None, help="only this agent's tasks")
     p.add_argument("--everyone", action="store_true",
                    help="every team's tasks, not just yours and your reports'")
     p.add_argument("--state", default=None,
-                   choices=("draft", "queued", "doing", "done", "closed", "discarded", "merged"),
-                   help="only tasks in this state; a closed one shows even without --all")
+                   choices=("draft", "queued", "doing", "done", "discarded"),
+                   help="only tasks in this state; a done or discarded one shows even without --all")
     p.set_defaults(fn=cmd_task_list)
     p = tk.add_parser("queue", help="approve draft tasks to run - the founder or the owner's manager")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")

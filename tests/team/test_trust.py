@@ -52,11 +52,11 @@ def test_trust_roots(home: Path) -> None:
     check("trust: the proposal is on record", len(props) == 1, str(props))
     pid, rid = props[0]["id"], props[0]["request"]
     card = db.connect().execute(
-        "SELECT t.owner, t.opened_by, t.expects, t.closed_by FROM tasks t JOIN task_requests l "
+        "SELECT t.owner, t.opened_by, t.expects, t.done_evidence, t.discarded_by FROM tasks t JOIN task_requests l "
         "ON l.task_id = t.id WHERE l.request_id = ?", (rid,)).fetchone()
     check("trust: the proposal reaches the founder as a decision task of theirs",
           card is not None and card["owner"] == "human" and card["opened_by"] == "backend"
-          and card["expects"] == "decision" and not card["closed_by"], str(dict(card) if card else None))
+          and card["expects"] == "decision" and not (card["done_evidence"] or card["discarded_by"]), str(dict(card) if card else None))
 
     ok, msg = trustmod.apply(pid)
     check("trust: applying before the founder answers is refused", not ok, msg)
@@ -64,8 +64,8 @@ def test_trust_roots(home: Path) -> None:
     ok, msg = askmod.resolve(rid, "approve")
     check("trust: an approve declares the root at once, and says so", ok and "applied" in msg, msg)
     check("trust: and its task is decided with it",
-          db.connect().execute("SELECT closed_by FROM tasks t JOIN task_requests l ON l.task_id = t.id "
-                               "WHERE l.request_id = ?", (rid,)).fetchone()["closed_by"] == "human")
+          db.connect().execute("SELECT done_evidence FROM tasks t JOIN task_requests l ON l.task_id = t.id "
+                               "WHERE l.request_id = ?", (rid,)).fetchone()["done_evidence"] == "approve")
     check("trust: it is now declared",
           trustmod.is_declared(home / "repos" / "second"))
     check("trust: and the proposer's answer carries the outcome",
