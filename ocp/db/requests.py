@@ -85,19 +85,11 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
 NEVER_REACHED_TARGET = ("denied", "withdrawn", "replaced")
 
 
-def chain_members(con, chain_id: str, exclude_id: int | None = None) -> list:
-    """`exclude_id` is a row still 'queued' that is about to be replaced or
-    withdrawn: the caller already knows it, and a cycle or ping-pong check
-    counting it before that write lands would count a conversation that, from
-    the target's side, never happened.
-    """
+def chain_members(con, chain_id: str) -> list:
     # An answer is a message in the chain, never an ask in it: the rate limit, the
     # cycle guard and the ping-pong check all count asks.
     clauses = [f"state NOT IN ({','.join('?' * len(NEVER_REACHED_TARGET))})", "settles IS NULL"]
     params: list = [chain_id, *NEVER_REACHED_TARGET]
-    if exclude_id is not None:
-        clauses.append("id != ?")
-        params.append(exclude_id)
     return con.execute(
         f"SELECT * FROM requests WHERE chain_id = ? AND {' AND '.join(clauses)} ORDER BY id",
         params,
@@ -483,17 +475,6 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         (state, verdict, int(time.time()), rid))
     if cur.rowcount > 0:
         _settle(con, rid, state, verdict)
-    return cur.rowcount > 0
-
-
-def set_moot_by(con, rid: int, by: int) -> bool:
-    """Point a retired row at the id (request or task) that retired it.
-
-    Set once: True only the first time, so a later call naming a different id
-    cannot quietly overwrite an earlier record of why this row is moot.
-    """
-    cur = con.execute("UPDATE requests SET moot_by = ? WHERE id = ? AND moot_by IS NULL",
-                      (by, rid))
     return cur.rowcount > 0
 
 
