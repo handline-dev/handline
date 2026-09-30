@@ -82,12 +82,24 @@ def _parsed(out: str, *keys: str) -> str | None:
     return value
 
 
+def _has_commit(repo: Path, ref: str) -> bool:
+    return _run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=repo)[0] == 0
+
+
 def pick_base(repo: Path, base: str) -> tuple[str | None, str]:
     """Return (ref to branch from, explanation).
 
-    None means the two have diverged and a human has to merge first.
+    None means the two have diverged, or there is nothing to branch from: a human has to act.
     """
     _run(["git", "fetch", "-q", "origin"], cwd=repo)
+    if not _has_commit(repo, base):
+        # `git worktree add ... <base>` would die on the name (T483: legacy had no main).
+        if _has_commit(repo, f"origin/{base}"):
+            return f"origin/{base}", f"no local {base}; using origin/{base}"
+        _, head, _ = _run(["git", "symbolic-ref", "--short", "-q", "HEAD"], cwd=repo)
+        if head and _has_commit(repo, head):
+            return head, f"no {base} here; using the checked-out {head}"
+        return None, f"{repo} has no {base} branch and no commit to branch from - make a first commit there"
     code, out, _ = _run(
         ["git", "rev-list", "--left-right", "--count", f"origin/{base}...{base}"], cwd=repo
     )

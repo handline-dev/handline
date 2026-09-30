@@ -925,6 +925,17 @@ def test_spawn_base_selection(tmp: Path) -> None:
     check("spawn: diverged, refuses instead of guessing", ref is None, f"{ref} ({why})")
     check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
 
+    # T483: a repo whose branch is not `main` (legacy's) must not be handed `main`.
+    other = tmp / "other"
+    other.mkdir()
+    run(other, "init", "-q", "-b", "trunk")
+    ref, why = spawnmod.pick_base(other, "main")
+    check("spawn: no commit at all, refuses with a plain reason", ref is None and "first commit" in why, why)
+    (other / "f.txt").write_text("x\n")
+    run(other, "add", "-A"); run(other, "commit", "-qm", "first")
+    ref, why = spawnmod.pick_base(other, "main")
+    check("spawn: no main, branches from the checked-out branch", ref == "trunk", f"{ref} ({why})")
+
 
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
     """Inside a window usage only rises, so a carried figure is a floor - and a
