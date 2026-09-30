@@ -1797,6 +1797,16 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
         await pilot.pause()
         shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
         check("blocked: the work line shows it", f"blocked by T{dep}" in shown and "working" not in shown)
+        line = page.query_one(cp.WorkLine)
+        links = [sp.style.meta["@click"] for sp in line.render().spans if getattr(sp.style, "meta", None)]
+        check("blocked: the T<n> on the work line is a link that opens that task",
+              links == [f"screen.open_task({dep})"], str(links))
+        await pilot.click(cp.WorkLine, offset=(f" blocked by T{dep}".index(f"T{dep}") + 1, 0))
+        await pilot.pause()
+        check("blocked: clicking it opens the task page", type(app.screen).__name__ == "TaskDetail",
+              type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause()
         page.agent_state = ("RUNNING", "")
         page._sig = None
         page.refresh_conversation()

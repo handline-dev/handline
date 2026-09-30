@@ -401,6 +401,16 @@ def link_refs(text: Text) -> Text:
     return text
 
 
+_TASK_REF = re.compile(r"(?<![\w#])T(\d+)\b")
+
+
+def link_task_refs(text: Text) -> Text:
+    """Every `T<n>` in `text` becomes a link that opens that task (a click runs `open_task`)."""
+    for hit in _TASK_REF.finditer(text.plain):
+        text.stylize(Style(underline=True, meta={"@click": f"screen.open_task({hit[1]})"}), hit.start(), hit.end())
+    return text
+
+
 def is_card(m: dict) -> bool:
     """A task delivery is drawn as the task page's card; every other message is a row."""
     return m.get("part") == 0 and m.get("kind") == "task" and bool(m.get("tasks"))
@@ -540,7 +550,7 @@ class WorkLine(Static):
     def render(self) -> Text:
         mid = f" {self.SPINNER[self._frame % len(self.SPINNER)]} working " if self.working \
             else f" {safe(self.wait)} " if self.wait else ""
-        return Text(mid, style="dim")
+        return link_task_refs(Text(mid, style="dim"))
 
 
 def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str = "") -> list:
