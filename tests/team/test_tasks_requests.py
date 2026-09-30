@@ -7744,6 +7744,10 @@ limits:
 """)
         ok, msg1, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
         check("reason gaps: setup - the fyi actually lands", ok, msg1)
+        r1 = db.get_request(con, f1)
+        check("ask --fyi writes a say, marked send-now, never a report row",
+              r1["kind"] == "say" and r1["fyi"] == 1 and db.send_now_pending(con, askmod.HUMAN),
+              str(dict(r1)))
         ok, msg2, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
         check("reason gaps: setup - the second fyi lands and supersedes the first", ok, msg2)
         check("reason gaps: setup - the loop actually retired the first fyi",
