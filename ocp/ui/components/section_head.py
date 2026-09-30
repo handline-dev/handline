@@ -7,12 +7,11 @@ from textual.widgets import Static
 
 
 class SectionHead(Vertical):
-    """The title of one section of a settings page: a rule, the title in bold and, under it, the
+    """The title of one section of a settings page: a rule above it, the title in bold and, under it, the
     line that says what the section holds."""
 
     DEFAULT_CSS = """
-    SectionHead { height: auto; margin-top: 1; }
-    SectionHead .rule { color: $accent; }
+    SectionHead { height: auto; margin-top: 1; border-top: solid $accent; }
     SectionHead .hint { color: $text-muted; }
     """
 
@@ -21,7 +20,6 @@ class SectionHead(Vertical):
         self.title, self.hint = title, hint
 
     def compose(self) -> ComposeResult:
-        yield Static(Text("─" * 200, no_wrap=True, overflow="crop"), classes="rule")
         yield Static(Text(self.title, style="bold"))
         if self.hint:
             yield Static(self.hint, classes="hint")
