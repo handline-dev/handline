@@ -543,13 +543,15 @@ class ChatMessage(Vertical):
         parts = [self._text]
         self._send_now: Button | None = None
         landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
+        self._qstate = Static(landing_label(landing, why), classes="qstate")
+        self._landing = landing
         if m.get("queued") or m.get("held"):
             buttons = []
             if landing == "queued" and m.get("queued"):
                 self._send_now = Button("⚡ send now", classes="sendnow", compact=True)
                 buttons = [self._send_now, Button("✕ cancel", classes="cancel", compact=True)]
             parts.append(Horizontal(
-                Static(landing_label(landing, why), classes="qstate"),
+                self._qstate,
                 *buttons, classes="qrow"))
         super().__init__(*parts, classes=f"msg {side}"
                          + (" card" if is_card(m) else ""))
@@ -569,6 +571,9 @@ class ChatMessage(Vertical):
         """A picked message tells its #id, and the human's own tells who and when too."""
         self._picked = on
         self._redraw()
+
+    def set_why(self, why: str) -> None:
+        self._qstate.update(landing_label(self._landing, why))
 
     def set_working(self, working: bool) -> None:
         if self._send_now is not None:
@@ -1150,6 +1155,7 @@ class ChatPage(JobsAware, Screen):
         self.oldest: int | None = None      # id of the oldest request on screen
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
+        self._live: tuple | None = None             # the spinner, wait and reason the widgets show now
         self._transcript_key: tuple | None = None   # what the transcript widgets were last built from
         self._block_id: int | None = None      # the block the modal on screen shows
         self._block_modal = None
@@ -1381,10 +1387,19 @@ class ChatPage(JobsAware, Screen):
         wait = detail if detail.startswith("waiting for") else ""
         key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
                       r["landing_tries"], r["dismissed_by"])
-                     for r in rows), state == "RUNNING", why, wait)
+                     for r in rows))
+        live = (state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:
+            if live != self._live:      # only the spinner, the wait or a reason: redraw those, not the chat
+                self._live = live
+                for line in self.query(WorkLine):
+                    line.working, line.wait = live[0], wait
+                first = next((m for m in msgs if m["unread"]), None)
+                for msg in self.query(ChatMessage):
+                    msg.set_working(live[0])
+                    msg.set_why(why if first and (msg.m["rid"], msg.m["part"]) == (first["rid"], first["part"]) else "")
             return          # nothing a viewer would see changed - the widgets and scroll stay put
-        self._transcript_key = key
+        self._transcript_key, self._live = key, live
         keep = (self.replying.m["rid"], self.replying.m["part"]) if self.replying else None
         pane = self.query_one("#transcript", VerticalScroll)
         at_bottom = pane.is_vertical_scroll_end

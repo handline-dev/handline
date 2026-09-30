@@ -1635,6 +1635,37 @@ def test_a_standing_answer_is_added_from_the_settings() -> None:
           and any(a["kind"] == "trust" for a in actions.standing_answers()))
 
 
+async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -> None:
+    """T534: the transcript is torn down only when its rows change; RUNNING/IDLE and the wait
+    text update the spare row and the send-now buttons in place, so the chat does not flash."""
+    from textual.app import App
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("noflash")
+    agents.register("reviewer")
+    askmod.ask("reviewer", "hello", requester=actions.HUMAN)
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss") if hasattr(cp, "Path") else None
+
+    app = Host()
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        before = list(page.query(cp.ChatMessage))
+        page.agent_state = ("RUNNING", "")
+        page._sig = None        # what a flip of the word does (refresh_agent_state)
+        page.refresh_conversation()
+        await pilot.pause()
+        check("noflash: the messages are the same widgets after the agent starts working",
+              before and list(page.query(cp.ChatMessage)) == before)
+        check("noflash: and the spare row now spins", page.query(cp.WorkLine).first().working is True)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -1695,6 +1726,7 @@ async def _run_all() -> None:
     test_a_queued_message_says_why_it_has_not_reached_the_agent()
     test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind()
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
+    await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     test_account_settings_alias_and_default_cap()
 
 
