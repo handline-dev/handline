@@ -423,7 +423,7 @@ def _track(con, agent: str, row, now: int, log):
     # only an idle one's is pressed - except the exit dialog, which no working
     # agent is at, and whose agent the state may still read as running.
     if rec["kind"] == orca.MODAL and (row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF)
-                                      or rec["origin"] == EXIT_ORIGIN):
+                                      or rec["title"].strip().lower() == orca.EXIT_OVER_WORK_TITLE):
         from ..daemon import lifecycle
         if lifecycle.auto_trust(con, agent, log):
             _end(con, agent, rec, "its folder-trust prompt was accepted", log)
