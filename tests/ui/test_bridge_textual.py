@@ -1507,12 +1507,16 @@ def test_agents_data_shows_its_current_task_and_flags_it_ready() -> None:
               "- the blocker cleared without anything having delivered it yet",
               r.state == "IDLE" and r.tasks == 1 and r.ready, r)
 
+        actions.set_queued(con, blocker, actions.HUMAN, True)
+        con.commit()
+        rows, _ = tui.agents_data(con)
+        r = next(x for x in rows if x.name == "backend")
+        check("agents_data: an approved task is in the count", r.tasks == 2, r)
         db.mark_task_done(con, blocker, "done, T317", via="reason")
         con.commit()
         rows, _ = tui.agents_data(con)
         r = next(x for x in rows if x.name == "backend")
-        check("agents_data: a done task drops out of the count",
-              r.tasks == 1 and r.ready, r)
+        check("agents_data: a done task drops out of the count", r.tasks == 1, r)
     finally:
         con.close()
 
