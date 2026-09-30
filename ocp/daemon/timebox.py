@@ -240,7 +240,7 @@ def sweep_background_check(con, log, now: int) -> None:
                 f"You are asked again in {timefmt.ago(every)} while any runs.")
         if _tell(con, agent, text, now):
             db.set_cursor(con, key, now)
-            db.add_event(con, agent, "background_checked", {"jobs": len(jobs), "unnamed": unnamed})
+            db.add_event(con, agent, "background_checked", {"jobs": len(jobs), "unnamed": unnamed, "at": now})
             log(f"  {agent}: background work for {timefmt.ago(now - since)} - asked which to stop")
 
 

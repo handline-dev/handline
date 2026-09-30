@@ -635,11 +635,9 @@ def test_background_work_is_checked_every_n_minutes_naming_each_command(home: Pa
         con.close()
 
 
-def test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(home: Path) -> None:
-    """The check and T424 both default to 10 minutes on different clocks: answering the
-    check must not keep resetting the silence T424 measures (auditor, T450)."""
+def _answers_every_check(home: Path, every: int) -> None:
     sent = _world(home)
-    idle_close.set_bg_seconds("bg_check_s", 600)          # both at their defaults
+    idle_close.set_bg_seconds("bg_check_s", every)
     con = db.connect()
     try:
         t0 = int(time.time())
@@ -667,7 +665,7 @@ def test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_s
         checks = [x for _h, x in sent if x.startswith("Background work has been running")]
         prompted = con.execute("SELECT ts FROM events WHERE kind = 'background_prompted'").fetchall()
         check("answering: it was checked, and answered",
-              len(checks) >= 1, str(sent))
+              len(checks) >= 1 and (every > 300 or len(checks) > 5), str(sent))
         check("answering: yet T424 still told it to finish or stop, once",
               len(prompted) == 1, str(sent))
         at = db.get_cursor(con, "bg_prompt:marina")
@@ -677,6 +675,18 @@ def test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_s
               dmn_delivery.bg_may_stop(con, "marina", at + idle_close.bg_grace_s("marina") + 60))
     finally:
         con.close()
+
+
+def test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(home: Path) -> None:
+    """The check and T424 both default to 10 minutes on different clocks: answering the
+    check must not keep resetting the silence T424 measures (auditor, T450)."""
+    _answers_every_check(home, 600)
+
+
+def test_answering_checks_shorter_than_the_notice_does_not_hold_the_notice_off(home: Path) -> None:
+    """Every answer turn is excused, not only the latest: with a check of 2 minutes the earlier
+    answers must not count as activity either (auditor re-audit, T450)."""
+    _answers_every_check(home, 120)
 
 
 def test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(home: Path) -> None:
@@ -1271,6 +1281,7 @@ def main() -> int:
             run(lambda: test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(Path(td) / 'tb10a'))
             run(lambda: test_background_work_is_checked_every_n_minutes_naming_each_command(Path(td) / 'tb10n'))
             run(lambda: test_an_agent_that_answers_every_check_is_still_told_to_stop_and_closed_on_schedule(Path(td) / 'tb10m'))
+            run(lambda: test_answering_checks_shorter_than_the_notice_does_not_hold_the_notice_off(Path(td) / 'tb10o'))
             run(lambda: test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(Path(td) / 'tb10f'))
             run(lambda: test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_closes(Path(td) / 'tb10b'))
             run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))
