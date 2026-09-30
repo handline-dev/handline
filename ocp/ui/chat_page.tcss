@@ -49,6 +49,7 @@ ChatPage { overflow: hidden; }
     .fvalue { width: 1fr; }
     .frow Input, .frow Select { width: 40; }
     .frow #s_context_k { width: 10; }
-    .frow .unit { width: 10; padding-left: 1; }
+    .frow #s_idle_close { width: 10; }
+    .frow .unit { width: auto; padding-left: 1; }
     .fhint { color: $text-muted; }
 }

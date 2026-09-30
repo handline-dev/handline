@@ -1491,6 +1491,7 @@ class _board_facts:
 
 TASK_STATES = ("draft", "queued", "doing", "done", "closed", "discarded", "merged")
 OPEN_STATES = TASK_STATES[:4]
+DELEGATED_STATES = ("queued", "doing")     # handed to an owner, not yet done
 STALE_AFTER_S = 3 * 86400
 BATCH_VERBS = ("close", "discard", "owner", "priority")
 

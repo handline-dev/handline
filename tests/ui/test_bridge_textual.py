@@ -1238,6 +1238,8 @@ def test_summary_line() -> None:
     check("summary: the daemon word comes first, and a quiet team says only that",
           text(True, sm.Summary(0, 0, 0)) == "daemon running · 12:00:00")
     check("summary: a daemon that is down says so", "NOT RUNNING" in text(False, sm.Summary(0, 0, 0)))
+    check("summary: for you is a link to the screen's delegated action",
+          any(not isinstance(sp.style, str) and "delegated" in str(sp.style.meta) for sp in sm.summary_text(True, "12:00:00", sm.Summary(0, 0, 0, 2)).spans))
     check("summary: working, to decide and to check follow, in that order, each only when not zero",
           text(True, sm.Summary(1, 2, 3)) == "daemon running · 1 working · 2 to decide · 3 to check · 12:00:00"
           and "working" not in text(True, sm.Summary(0, 2, 0)))
@@ -1249,6 +1251,9 @@ def test_summary_line() -> None:
               sm.summarize(con) == sm.Summary(0, 0, 0), sm.summarize(con))
         db.set_agent_state(con, "backend", "RUNNING")
         check("summary: a running agent counts", sm.summarize(con).running == 1)
+        ok, _, tid = actions.task_new("product", actions.HUMAN, "for the founder", "the work and its done")
+        check("summary: a task handed to the founder counts as for you, once queued",
+              ok and sm.summarize(con).for_you == 1, sm.summarize(con))
     finally:
         con.close()
 
@@ -1531,6 +1536,72 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
             con.close()
     del teampkg.dialog_rules
 
+def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
+    from ocp.session import idle_close
+    _home("idle_close_form")
+    check("idle close: minutes become seconds, blank is none", (actions.parse_idle_close("10"), actions.parse_idle_close(" ")) == (600, None))
+    ok, _ = actions.set_idle_close("20")
+    check("idle close: the global one is saved", ok and idle_close.default_close_timeout_s() == 1200)
+    check("idle close: blank is refused globally", not actions.set_idle_close("")[0] and not actions.set_idle_close("x")[0])
+    check("idle close: an agent's own wins, and blank drops it",
+          actions.set_idle_close("5", "backend")[0] and idle_close.close_timeout_s("backend") == 300
+          and actions.set_idle_close("", "backend")[0] and idle_close.close_timeout_s("backend") == 1200)
+    from ocp.ui import chat_page as cp
+    cfg = cp.settings_of("backend")
+    form = {k: cfg[k] for k in cp.EDITABLE}
+    ok, said = cp.save_settings("backend", cp.settings_changes(cfg, {**form, "idle_close": "0"}))
+    check("idle close: the agent form saves it, 0 is never", ok and idle_close.close_timeout_s("backend") == idle_close.NEVER, said)
+    check("idle close: a word is refused", cp.settings_problem({**form, "repo": "", "idle_close": "soon"}) is not None)
+
+
+def test_home_settings_marks_and_the_delegated_view() -> None:
+    from ocp.ui.pages.home import AnswerMarks
+    from ocp.ui.components.tasks_view import TasksView
+    _home("home_marks")
+    for title in ("Run A?", "Run B?"):
+        actions.add_answer(vendor="claude", title=title, label="Yes")
+    marks = AnswerMarks()
+    a, b = actions.standing_answers()
+    marks.toggle(a)
+    actions.add_answer(folder=str(Path(tempfile.mkdtemp(dir=t.TEST_ROOT))))      # trusted folders list first
+    now = actions.standing_answers()
+    marks.keep_only(now)
+    check("home marks: a mark stays on its answer when another is added before Save",
+          [x["text"] for x in now if marks.marks(x)] == [a["text"]], str(marks.marked))
+    for kind, key in marks.marked:
+        actions.remove_answer(kind, key)
+    left = [x["text"] for x in actions.standing_answers()]
+    check("home marks: Save removes the marked answer and only that one",
+          a["text"] not in left and b["text"] in left and any(x.startswith("trust") for x in left), str(left))
+    marks.toggle(b)
+    marks.clear()
+    check("home marks: Reset drops the marks", not marks.marked)
+    marks.toggle(b)
+    marks.keep_only([])
+    check("home marks: a mark whose answer is gone is forgotten", not marks.marked)
+
+    view = TasksView.__new__(TasksView)
+    view.refresh_rows = lambda: None
+    view.show_delegated()
+    check("delegated view: owner human, queued and doing, nothing to check",
+          (view.owner, view.states, view.closer) == (actions.HUMAN, {"queued", "doing"}, None),
+          str((view.owner, view.states, view.closer)))
+    view.show_checks(False)
+    check("delegated view: a plain visit afterwards is the default view again",
+          (view.owner, view.states, view.closer) == (None, set(actions.OPEN_STATES), None))
+
+
+def test_a_standing_answer_is_added_from_the_settings() -> None:
+    home = _home("add_answer")
+    folder = home / "work"
+    folder.mkdir()
+    check("add answer: a folder that is not one is refused", not actions.add_answer(folder="/no/such/folder")[0])
+    check("add answer: a half-filled rule is refused", not actions.add_answer(vendor="claude", title="Run it?")[0])
+    check("add answer: a rule is kept", actions.add_answer(vendor="claude", title="Run it?", label="Yes")[0]
+          and any(a["text"] == 'claude: "Run it?" -> Yes' for a in actions.standing_answers()))
+    check("add answer: a folder is trusted", actions.add_answer(folder=str(folder))[0]
+          and any(a["kind"] == "trust" for a in actions.standing_answers()))
+
 
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
@@ -1578,6 +1649,9 @@ async def _run_all() -> None:
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
+    test_idle_close_is_set_globally_and_per_agent_in_minutes()
+    test_a_standing_answer_is_added_from_the_settings()
+    test_home_settings_marks_and_the_delegated_view()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()
@@ -1601,3 +1675,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

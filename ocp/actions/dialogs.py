@@ -139,6 +139,19 @@ def standing_answers() -> list[dict]:
     return out
 
 
+def add_answer(folder: str = "", vendor: str = "", title: str = "", label: str = "") -> tuple[bool, str]:
+    """A standing answer typed in the Home settings: a folder to trust, or a dialog rule (vendor,
+    title and label). Blank fields add nothing; a half-filled rule is refused."""
+    from pathlib import Path
+    from ..team import dialog_rules
+    folder = folder.strip()
+    if folder:
+        if textsafe.has_unsafe(folder) or not Path(folder).expanduser().is_dir():
+            return False, f"trust {folder!r}: not a folder"
+        return trust.enact(folder, "added in the Home settings")
+    return dialog_rules.add(vendor.strip(), title.strip(), label.strip())
+
+
 def remove_answer(kind: str, key) -> tuple[bool, str]:
     if kind == TRUST:
         return trust.remove(key)
