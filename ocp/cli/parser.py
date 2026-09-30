@@ -560,6 +560,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
     p.add_argument("--title", default=None)
+    p.add_argument("--body", default=None, help="the task's brief, replaced (the holder is told)")
+    p.add_argument("--body-file", default=None, metavar="PATH",
+                   help="read the new brief from a file: safe against a shell expanding backticks or $()")
     p.add_argument("--priority", type=_priority_arg, default=None, metavar="P",
                    help="P1 (high), P2 (default) or P3 (low)")
     p.add_argument("--blocked-by", type=_task_arg, default=None, metavar="T",

@@ -1284,6 +1284,9 @@ def task_timeline(con, tid: int) -> list[dict]:
             first = (r["body"] or "").strip().splitlines()
             out.append({"ts": r["ts"], "at": r["ts"], "who": f"{r['requester']} → {r['target']}", "kind": "request",
                         "text": f"#{r['id']}  {r['state']}  {first[0] if first else ''}", "memo": None, "edited_at": None})
+    for e in db.task_body_edits(con, tid):
+        out.append({"ts": int(e["ts"]), "at": e["ts"], "who": e["by"], "kind": "edit", "text": e["new"],
+                    "memo": None, "edited_at": None})
     return sorted(out, key=lambda e: e["at"])
 
 
@@ -1357,8 +1360,10 @@ def memo_delete(con, mid: int, by: str) -> tuple[bool, str]:
 
 def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
-              timeout_s: int | None = None) -> tuple[bool, str]:
-    """Change a task's owner, title, priority and/or timeout; opener or founder only
+              timeout_s: int | None = None, body: str | None = None) -> tuple[bool, str]:
+    """Change a task's owner, title, priority, timeout and/or body; opener or founder only
+    (the body is the brief its first request carries - T689: fixing the text no longer takes
+    a new task; a caller that changes it follows the commit with `tell_body_edited`)
     (an owner change fixes a wrong name, it is not a handoff - #1914; a caller that changes
     the owner follows it, once committed, with `send_moved_task`). Refused when
     nothing changes, except --timeout, which always restarts the deadline (only while
@@ -1369,10 +1374,22 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
-    if owner is None and title is None and priority is None and timeout_s is None:
+    if owner is None and title is None and priority is None and timeout_s is None and body is None:
         return False, ("edit needs a new owner, a new title, a new priority, --timeout, "
-                        "or any of them")
+                        "a new body, or any of them")
     changes: dict = {}
+    new_body, body_rid = None, None
+    if body is not None:
+        text = textsafe.text(body).strip()
+        if not text:
+            return False, "a task needs a body: the work itself, what done looks like"
+        first = _brief_of(con, row)
+        if first is None:
+            return False, (f"task T{tid} has no brief its opener wrote to edit - a task begun from a "
+                           f"message, or linked to someone else's request, keeps those words as they are")
+        if text != (first["body"] or "").strip():
+            new_body, body_rid = text, first["id"]
+            changes["body"] = {"old": first["body"] or "", "new": new_body}
     new_owner = None
     if owner is not None and owner != row["owner"]:
         if owner not in paths.list_agents():
@@ -1411,9 +1428,31 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
         return False, f"task T{tid} already reads that way - nothing to edit"
     db.edit_task(con, tid, by, owner=new_owner, title=new_title, priority=new_priority,
                  timeout_s=timeout_s, is_doing=doing_now)
+    if new_body is not None:
+        db.set_request_body(con, body_rid, new_body)
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
-    said = ", ".join(f"{k} {v['old']!r} -> {v['new']!r}" for k, v in changes.items())
+    said = ", ".join("body changed" if k == "body" else f"{k} {v['old']!r} -> {v['new']!r}"
+                     for k, v in changes.items())
     return True, f"task T{tid} edited by {by}: {said}"
+
+
+def _brief_of(con, row):
+    """T689: the request the task was opened with - its first link - when its opener sent it, else
+    None. Anything else is a record and is never rewritten: a founder's message a task was begun
+    from, an older ask linked later, a handoff delivery."""
+    first = db.first_linked_request(con, row["id"])
+    return first if first is not None and first["requester"] == row["opened_by"] else None
+
+
+def tell_body_edited(con, tid: int, by: str) -> None:
+    """T689: after `edit_task` changed a task's body and its write committed - the holder is told at
+    once, typed like a say, when the task is being worked; the change itself is in its record."""
+    row = db.get_task(con, tid)
+    edits = db.task_body_edits(con, tid)
+    if row is None or not edits or row["owner"] in (HUMAN, by) or task_state(con, row) != "doing":
+        return
+    _type_say(con, row["owner"], f"T{tid} body edited by {by}: {textsafe.oneline(edits[-1]['new'])[:400]}",
+              "task body edited")
 
 
 def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
