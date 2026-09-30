@@ -95,6 +95,51 @@ def test_a_task_kind_ask_keeps_the_one_at_a_time_rule(home: Path) -> None:
     check("ask: but not typed at once - it waits for an agent that is free", sent == [], str(sent))
 
 
+def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home: Path) -> None:
+    """T596 (founder): an agent's inbox is always received, whatever it is doing. A handoff to a holder
+    with a doing task sat queued behind it for good - the one-at-a-time rule that keeps a plain task
+    waiting for a free agent, and a screen that is never idle. It is typed at once, like a say."""
+    sent = _world(home)
+    hand_edit_team(DESIGN_TEAM.replace(
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    con = db.connect()
+    try:
+        ok, msg, held = actions.task_new("product", "backend", "the one it holds", "the one it holds")
+        check("handoff: setup: backend holds a task, and it is told about it",
+              ok and db.current_task(con, "backend") == held, msg)
+        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        db.mark_delivered(con, int(row["id"]))
+        db.mark_told_out_of_turn(con, int(row["id"]))
+        sent.clear()
+        t = db.new_task(con, "handed in", "product", "product")
+        ok, msg = actions.task_handoff(con, "product", t, "backend", "please take this too")
+        got = con.execute("SELECT * FROM requests WHERE target = 'backend' AND kind = 'task' "
+                          "AND body LIKE '%handed in%'").fetchone()
+        check("handoff: accepted, and queued for the holder", ok and got is not None, msg)
+        check("handoff: typed at once although the agent is mid-turn and holds a doing task",
+              len(sent) == 1 and "please take this too" in sent[0][1], str(sent))
+        check("handoff: delivered, told out of turn, and still open as a queued task",
+              got["state"] == "queued" and got["delivered_at"] and got["told_out_of_turn"], str(dict(got)))
+        check("handoff: the task the holder has is still its current one", db.current_task(con, "backend") == held)
+        orcamod.typeable_now = lambda h: True
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        check("handoff: the tick does not type it a second time", len(sent) == 1, str(sent))
+
+        # A handoff held back at a blocked screen is typed by the tick once the screen clears.
+        sent.clear()
+        orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
+        t2 = db.new_task(con, "handed in later", "product", "product")
+        actions.task_handoff(con, "product", t2, "backend", "second one")
+        check("handoff: at a blocked screen it waits", sent == [], str(sent))
+        orcamod.screen_blocker = lambda h: None
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("handoff: and is typed by the tick once it clears",
+              len(sent) == 1 and "second one" in sent[0][1], str(sent))
+    finally:
+        con.close()
+
+
 def test_who_is_asking_comes_from_the_caller_not_the_daemon(home: Path) -> None:
     sent = _world(home)
     for payload in ({"requester": "human", "speaker": "product"},   # an agent claiming to be the founder
@@ -691,6 +736,7 @@ def main() -> int:
         run(lambda: test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(Path(td) / "s1"))
         run(lambda: test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_clear(Path(td) / "s2"))
         run(lambda: test_a_task_kind_ask_keeps_the_one_at_a_time_rule(Path(td) / "s3"))
+        run(lambda: test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(Path(td) / "s3h"))
         run(lambda: test_who_is_asking_comes_from_the_caller_not_the_daemon(Path(td) / "s4"))
         run(lambda: test_a_say_is_typed_at_once_and_owes_no_answer(Path(td) / "s5"))
         run(lambda: test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(Path(td) / "s7"))

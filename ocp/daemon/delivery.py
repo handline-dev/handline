@@ -18,7 +18,7 @@ from ..session import orca
 from ..usage import status
 from ..infra import textsafe
 
-from . import handoff
+from . import handoff, screensamples
 from .states import (HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S,
                      awaiting_reply)
 
@@ -592,6 +592,7 @@ def track_background_work(con, agent: str, row) -> None:
         return                # unreadable is not "ended"
     if running:
         db.set_cursor(con, f"bgcount:{agent}", max(1, bgjobs.footer_count(running)))
+        screensamples.record(con, agent, row, running, orca.last_tail(row["terminal"]))
     if running and not db.get_cursor(con, key):
         db.set_cursor(con, key, 1)
     elif not running and db.get_cursor(con, key):

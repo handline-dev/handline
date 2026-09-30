@@ -422,9 +422,8 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
          "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3}
     t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
-    check("text: card top and title, the head, then the reply link and the body on one line",
-          t[0].startswith("TASK T418") and t[1] == "Fix it" and t[2].startswith("backend")
-          and t[3] == "↩ #3 the body" and len(t) == 4, str(t))
+    check("text: a task card is the one line, time TASK T<n> : title, and nothing else",
+          len(t) == 1 and t[0].endswith("TASK T418 : Fix it"), str(t))
     reply = {**m, "kind": None, "tasks": [], "task_title": None, "task_state": None, "who": "you", "side": "you",
              "rid": 5934, "mid": 5934, "text": "반영됨?", "reply_to": 5928}
     check("text: a reply not picked is one line, the link and the text",
@@ -437,9 +436,10 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     check("text: an agent's reply is the same, head then link and text",
           cp.message_text({**reply, "who": "reviewer", "side": "agent"}, True, False, "them").plain.split("\n")[1]
           == "↩ #5928 반영됨?")
+    plain = {**m, "kind": None, "tasks": [], "task_title": None}
     check("text: the head is left out until it is shown, and #id joins it when picked",
-          "backend" not in cp.message_text(m, False, False, "them").plain
-          and "#7" in cp.message_text(m, True, True, "them").plain.split("\n")[2])
+          "backend" not in cp.message_text(plain, False, False, "them").plain
+          and "#7" in cp.message_text(plain, True, True, "them").plain.split("\n")[0])
     check("text: a note follows the body", cp.message_text({**m, "cancelled": True, "kind": None, "reply_to": None},
                                                             False, False, "me").plain.split("\n")[-1].startswith("cancelled"))
 
@@ -1010,9 +1010,8 @@ def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
           cp.message_parts({**m, "kind": "ask"})[0].plain.endswith("ask  T418"))
     card = cp.message_parts({**m, "task_title": "T", "task_state": "queued"})[0].plain
     check("card: a task delivery keeps its kind and T number for the card, not the head", "T418" not in card)
-    top, title = cp.card_top({**m, "task_title": "Fix it", "task_state": "queued"})
-    check("card: top line has T number and state, title is the task's",
-          top.plain == "TASK T418  queued " and title.plain == "Fix it", top.plain)
+    line = cp.card_lines({**m, "task_title": "Fix it", "change": "queued -> doing"}).plain
+    check("card: a change is a second line, the change alone", line.endswith("TASK T418 : Fix it\n  queued -> doing"), line)
     check("card: a task note stays a row labelled task note T406",
           cp.message_parts({**m, "kind": "task_note", "tasks": [406]})[0].plain.endswith("task note  T406"))
     check("head: a reply part shows neither", "task" not in cp.message_parts({**m, "part": 1})[0].plain)
@@ -1872,6 +1871,138 @@ async def test_neither_tasks_tab_scrolls_sideways() -> None:
                       f"rows {table.row_count} virtual {table.virtual_size.width} shown {table.size.width}")
 
 
+def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
+    """Founder #6869: a task in the chat is one line, and each change of state sits between the messages
+    at the moment it happened."""
+    from ocp.ui import chat_page as cp
+    _home("taskchanges")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        for ts, kind in ((200, "task_start"), (300, "mark_task_done"), (400, "reopen_task")):
+            db.add_event(con, "reviewer", kind, {"task_id": t})
+            con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (ts,))
+        con.commit()
+        rows = cp.requests_page(con, "reviewer", False)[0]
+        msgs = cp.messages_of(rows, "reviewer")
+        for m in msgs:
+            m["when"], m["unread"] = 100, False
+        changes = cp.task_changes(con, msgs)
+    finally:
+        con.close()
+    check("changes: each move of the task is one, from the state before",
+          [c["change"] for c in changes] == ["queued -> doing", "doing -> done", "done -> queued"],
+          str([c["change"] for c in changes]))
+    later = {"who": "you", "when": 250, "unread": False, "rid": 9, "part": 0}
+    merged = cp.with_task_changes([*msgs, later], changes)
+    check("changes: set among the messages by time",
+          [m.get("change") or m["rid"] for m in merged] == [msgs[0]["rid"], "queued -> doing", 9,
+                                                            "doing -> done", "done -> queued"],
+          str([m.get("change") or m["rid"] for m in merged]))
+
+
+def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
+    """T601: `task new`, a handoff and the queue sweep log no start; the delivery's landing says when."""
+    from ocp.ui import chat_page as cp
+    _home("landeddoing")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        con.execute("UPDATE requests SET landed_at = 500 WHERE id = ?", (rid,))
+        db.add_event(con, "reviewer", "mark_task_done", {"task_id": t})
+        con.execute("UPDATE events SET ts = 600 WHERE id = (SELECT MAX(id) FROM events)")
+        con.commit()
+        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+        changes = cp.task_changes(con, msgs)
+    finally:
+        con.close()
+    check("changes: a delivery that landed is doing from then, before done",
+          [(c["change"], c["when"]) for c in changes] == [("queued -> doing", 500), ("doing -> done", 600)],
+          str([(c["change"], c["when"]) for c in changes]))
+
+
+async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("changecard")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
+        db.link_request(con, t, rid)
+        db.add_event(con, "reviewer", "task_start", {"task_id": t})
+        con.commit()
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        cards = [w.render().plain if hasattr(w, "render") else "" for w in page.query(cp.TaskChange)]
+        check("chat: a task's change is a card of its own", len(cards) == 1 and "queued -> doing" in cards[0], str(cards))
+
+
+async def test_a_blocked_task_says_so_where_working_would_be() -> None:
+    """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
+    working and a wait for a reply come first."""
+    import html, re
+    from ocp.ui import tui
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("blockedline")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        dep = db.new_task(con, "the one it waits on", "backend", actions.HUMAN)
+        t = db.new_task(con, "blocked work", "reviewer", actions.HUMAN)
+        db.set_current_task(con, "reviewer", t)
+        db.set_agent_state(con, "reviewer", "IDLE")
+        check("blocked: not blocked, nothing to say", tui.screen_state(con, db.get_agent_state(con, "reviewer"))[1] == "")
+        db.add_block(con, t, dep)
+        con.commit()
+        state = tui.screen_state(con, db.get_agent_state(con, "reviewer"))
+        check("blocked: an idle agent whose task is blocked says by which", state == ("IDLE", f"blocked by T{dep} (backend)"), str(state))
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        page.agent_state = state
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("blocked: the work line shows it", f"blocked by T{dep} (backend)" in shown and "working" not in shown)
+        line = page.query_one(cp.WorkLine)
+        links = [sp.style.meta["@click"] for sp in line.render().spans if getattr(sp.style, "meta", None)]
+        check("blocked: the T<n> on the work line is a link that opens that task",
+              links == [f"screen.open_task({dep})"], str(links))
+        await pilot.click(cp.WorkLine, offset=(f" blocked by T{dep}".index(f"T{dep}") + 1, 0))
+        await pilot.pause()
+        check("blocked: clicking it opens the task page", type(app.screen).__name__ == "TaskDetail",
+              type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause()
+        page.agent_state = ("RUNNING", "")
+        page._sig = None
+        page.refresh_conversation()
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("blocked: working comes first", "working" in shown and f"blocked by T{dep}" not in shown)
+
+
 def test_a_task_page_shows_every_line_of_a_multi_line_task() -> None:
     """T600 (founder #6977): the title is the first line; the rest of what the task was given is its brief."""
     from ocp.ui import chat_page as cp
@@ -1944,6 +2075,8 @@ async def _run_all() -> None:
     test_the_chat_numbers_an_answer_by_its_own_row()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
+    test_task_changes_are_set_among_the_messages_at_their_time()
+    test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event()
     test_a_reply_shows_a_link_to_what_it_answers()
     test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat()
     test_the_queue_reason_comes_from_the_message_below_the_line()
@@ -1996,6 +2129,8 @@ async def _run_all() -> None:
     test_an_agents_queued_message_waits_below_the_line_without_buttons()
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     await test_neither_tasks_tab_scrolls_sideways()
+    await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
+    await test_a_blocked_task_says_so_where_working_would_be()
     test_account_settings_alias_and_default_cap()
 
 
