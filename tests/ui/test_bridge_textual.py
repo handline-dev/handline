@@ -725,6 +725,19 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
                            (f"T{begun} discarded%stop work%",)).fetchall()
         check("discard: and discarding it with stop tells its owner exactly once", ok and len(told) == 1,
               f"{said} {len(told)}")
+        given = db.new_task(con, "handed to the founder", actions.HUMAN, "reviewer")
+        other_given = db.new_task(con, "someone else's, an agent's", "backend", "reviewer")
+        check("discard T660: offered on a task assigned to the founder that an agent opened, not on an agent's own",
+              cp.task_detail(con, given)["can_discard"] and not cp.task_detail(con, other_given)["can_discard"])
+        ok, said = actions.discard_task(con, given, actions.HUMAN, "not needed")
+        told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
+                           (f"T{given} discarded by the founder: not needed",)).fetchall()
+        check("discard T660: the opener is told once, by the founder, with the reason", ok and len(told) == 1,
+              f"{said} {len(told)}")
+        own = db.new_task(con, "its own", "reviewer", "reviewer")
+        ok, said = actions.discard_task(con, own, "reviewer", "mine, gone")
+        check("discard T660: an opener discarding its own task is told nothing", ok and not con.execute(
+            "SELECT 1 FROM requests WHERE target = 'reviewer' AND body LIKE ?", (f"T{own} discarded%",)).fetchone(), said)
     finally:
         con.close()
 
