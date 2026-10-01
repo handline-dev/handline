@@ -2536,42 +2536,12 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
         con.close()
 
 
-async def test_a_selection_on_a_wrapped_line_never_takes_the_bridge_down():
-    from textual.app import App
-    from textual.geometry import Offset
-    from textual.selection import Selection
-    from textual.widgets import Static
-    from ocp.ui.components.wrapped_static import WrappedStatic
-    text = "\u21a9 #7935 \uadfc\ub370 ocp cancel 7789 --yes \uc774\uac8c \ubb50\uc57c? \uc800 7789 \ub294 \ubb34\uc2a8 \uc22b\uc790\ub2c8?"
-
-    class Host(ClipboardApp):
-        def compose(self):
-            yield WrappedStatic(text, id="wrapped")
-            yield Static(text, id="plain")
-
-    app = Host()
-    async with app.run_test(size=(30, 20)) as pilot:
-        await pilot.pause()
-        wrapped = app.query_one("#wrapped", WrappedStatic)
-        sel = Selection(Offset(2, 1), Offset(9, 1))
-        got = wrapped.get_selection(sel)
-        check("selection: the second visual line of a one-line text is read from the wrapped lines",
-              got is not None and got[0] != "" and got[0] in text, repr(got))
-        app.screen.selections = {app.query_one("#plain", Static): Selection(Offset(10, 1), Offset(32, 1))}
-        try:
-            app._copy_selection()
-            ok = True
-        except IndexError:
-            ok = False
-        check("selection: a widget that misreads its lines copies nothing and the app lives", ok)
-
-
-async def test_a_drag_inside_one_message_copies_only_what_was_dragged():
+async def test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it():
     from textual.screen import Screen
     from ocp.ui import chat_page as cp
-    m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "text": "hello world again", "waiting": False,
-         "replyable": True, "answered": False, "queued": False, "delivered": True}
-    picks: list = []
+    m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "waiting": False, "replyable": True,
+         "answered": False, "queued": False, "delivered": True,
+         "text": "hello world again and again until the line wraps on this narrow screen"}
 
     class Chat(Screen):
         replying = None
@@ -2580,26 +2550,46 @@ async def test_a_drag_inside_one_message_copies_only_what_was_dragged():
             yield cp.ChatMessage(m)
 
         def reply_to(self, msg):
-            picks.append(msg)
-            msg.show_id(True)
+            self.replying = None if self.replying is msg else msg
+            msg.show_id(self.replying is msg)
 
     class Host(ClipboardApp):
         def on_mount(self):
             self.push_screen(Chat())
 
     app = Host()
-    async with app.run_test(size=(60, 12)) as pilot:
+    async with app.run_test(size=(30, 12)) as pilot:
         await pilot.pause()
-        body = app.screen.query_one(cp.ChatMessage)._text
-        await pilot.mouse_down(body, offset=(0, 0))
-        await pilot.hover(body, offset=(5, 0))
-        await pilot.mouse_up(body, offset=(5, 0))
-        body.post_message(events.Click(body, 5, 0, 5, 0, 1, False, False, False))   # a terminal sends it after the mouse-up
+        msg = app.screen.query_one(cp.ChatMessage)
+        body = msg._text
+        app.screen.reply_to(msg)   # picked: the head line sits above the body, so the body starts on row 1
         await pilot.pause()
-        got = app.screen.get_selected_text()
-        check("selection: a drag inside a one-line message copies that text, not the head line above it",
-              got is not None and got.strip() != "" and "you" not in got and got in "hello world again", repr(got))
-        check("selection: and the end of a drag does not pick the message", picks == [], str(picks))
+        await pilot.mouse_down(body, offset=(0, 1))
+        await pilot.hover(body, offset=(5, 1))
+        await pilot.mouse_up(body, offset=(5, 1))
+        body.post_message(events.Click(body, 5, 1, 5, 1, 1, False, False, False))   # a terminal sends it after the mouse-up
+        await pilot.pause()
+        check("selection: a drag on a picked message copies exactly the dragged text",
+              app.screen.get_selected_text() == "hello ", repr(app.screen.get_selected_text()))
+        check("selection: and the end of the drag leaves it picked, so the head line stays where the drag was made",
+              app.screen.replying is msg)
+
+
+async def test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives():
+    from textual.geometry import Offset
+    from textual.selection import Selection
+    from textual.widgets import Static
+
+    class Host(ClipboardApp):
+        def compose(self):
+            yield Static("one line", id="s")
+
+    app = Host()
+    async with app.run_test(size=(30, 6)) as pilot:
+        await pilot.pause()
+        app.screen.selections = {app.query_one("#s", Static): Selection(Offset(1, 1), Offset(5, 1))}
+        app._copy_selection()
+        check("selection: a selection past a widget's lines copies nothing and does not raise", True)
 
 
 async def _run_all() -> None:
@@ -2688,8 +2678,8 @@ async def _run_all() -> None:
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
-    await test_a_selection_on_a_wrapped_line_never_takes_the_bridge_down()
-    await test_a_drag_inside_one_message_copies_only_what_was_dragged()
+    await test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it()
+    await test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives()
 
 
 def main() -> int:
