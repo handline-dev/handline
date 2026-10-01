@@ -406,10 +406,9 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
         con.commit()
         check("chat: once delivered it says so",
               cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")[0]["delivered"])
-        askmod.cancel(first)
-        cancelled = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
-        check("chat: a request cancelled after delivery stays, marked, without a reply from the agent",
-              cancelled[0]["cancelled"] and all(m["part"] == 0 for m in cancelled), str(cancelled[0]))
+        ok, msg = askmod.cancel(first)
+        check("chat: once it landed it cannot be cancelled - it is landed, and stays as it was",
+              not ok and "already landed" in msg and db.get_request(con, first)["state"] == "landed", msg)
     finally:
         con.close()
 

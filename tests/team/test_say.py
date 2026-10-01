@@ -38,8 +38,6 @@ def test_say_delivers_ahead_of_the_queue_and_never_parks(home: Path) -> None:
               db.head_of_queue(con, "worker")["id"] == first)
         check("say: delivered ahead of the queue - marked send_now",
               row["send_now"] is not None)
-        check("say: the fixed 30-minute reply window, not the routing edge's own default",
-              row["timebox_s"] == askmod.SAY_TIMEBOX_S)
         check("say: the requester never parks on it",
               db.get_agent_state(con, "manager") is None
               or db.get_agent_state(con, "manager")["state"] != "PARKED")
@@ -288,9 +286,6 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
     real_available = orcamod.available
     try:
         orcamod.available = lambda: False   # stuck() asks orca only if it must
-        check("say: closing it silently means no timebox notice fires for an "
-              "already-answered say",
-              not any(r["id"] == rid for r in db.timeboxed_open(con)))
         check("say: stuck() lists nothing for an answered say",
               not any(f"#{rid}" in r["what"] for r in actions.stuck(con)), actions.stuck(con))
     finally:
@@ -465,33 +460,6 @@ def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
         con.close()
 
 
-def test_say_to_the_founder_is_not_refused_for_a_timebox_it_never_asked_for(home: Path) -> None:
-    """A say to the founder carries no timebox at all, so `ask`'s own refusal never fires."""
-    _say_world(home)
-    hand_edit_team("""
-agents:
-  manager: {}
-  worker:  {}
-
-edges:
-  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
-  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "*", to: "human", kind: task }
-
-limits:
-  max_chain_depth: 4
-  ask_rate_per_hour: 50
-""")
-    ok, msg, rid = askmod.say(askmod.HUMAN, "is this ready to ship?", requester="manager")
-    check("say: to the founder is not refused", ok, msg)
-    con = db.connect()
-    try:
-        check("say: carries no timebox to the founder - there is no park to end",
-              db.get_request(con, rid)["timebox_s"] is None)
-    finally:
-        con.close()
-
-
 def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path) -> None:
     """`stuck()` never calls a send_now row "waiting behind" the head."""
     con = _blocked_world(home)
@@ -559,8 +527,6 @@ def main() -> int:
             Path(td) / 'sayinboxblocked'))
         run(lambda: test_a_say_prints_no_way_out_and_needs_task_is_gone(Path(td) / 'sayneedstask'))
         run(lambda: test_a_say_with_no_ordinary_head_still_gets_typed(Path(td) / 'saynohead'))
-        run(lambda: test_say_to_the_founder_is_not_refused_for_a_timebox_it_never_asked_for(
-            Path(td) / 'sayhuman'))
         run(lambda: test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(
             Path(td) / 'saystuck'))
         run(lambda: test_is_lookup_bash_matches_the_allowlist_by_prefix(Path(td) / 'saylookup'))

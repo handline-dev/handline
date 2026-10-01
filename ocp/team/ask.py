@@ -217,14 +217,12 @@ _ENV = object()
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
         parent_id: int | None = None, fyi: bool = False,
-        timebox_s: int | None = None, kind: str | None = None,
+        kind: str | None = None,
         send_now: bool = False,
         on_behalf_of: bool = False, speaker=_ENV,
         notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
 
-    `timebox_s` is how long after delivery the
-    asker is told it is still open (daemon.timebox); None follows config.yaml.
     `kind` overrides the routing edge's own `decision.kind` on the request
     row - T292's `task new` uses it to write 'task' regardless of what the
     edge between opener and owner happens to carry, since a task is a task
@@ -245,8 +243,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     requester = requester or asking_agent()
     if fyi and kind is None:            # a report asks nothing: it is a say to the founder (T361)
         kind, send_now = SAY_KIND, True
-    if timebox_s is not None and (fyi or target == HUMAN):
-        return False, "--timebox does not apply to a report or to a request to the human", None
     if fyi and target != HUMAN:
         return False, f"--fyi is a report to {HUMAN}; {target} is not {HUMAN}", None
     # Nobody may send as the human. That name carries two
@@ -336,7 +332,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
                              decision.response, kind or decision.kind,
                              depth, parent_id,
-                             chain_id=chain_id, fyi=fyi, timebox_s=timebox_s)
+                             chain_id=chain_id, fyi=fyi)
         if send_now:
             db.mark_send_now(con, rid)
         if card and target == HUMAN and not fyi and kind is None and decision.kind == "task":
@@ -367,9 +363,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         con.close()
 
 
-SAY_TIMEBOX_S = 30 * 60
-
-
 def replies_to(parent, requester: str, target: str) -> bool:
     """Does a request from `requester` to `target` answer `parent`: one `target` sent to
     `requester`. Such a reply needs no edge back (`Team.route`)."""
@@ -385,9 +378,8 @@ def say(target: str, body: str, requester: str | None = None,
     settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
     """
-    timebox = None if target == HUMAN else SAY_TIMEBOX_S
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
-                      kind=SAY_KIND, timebox_s=timebox, send_now=True,
+                      kind=SAY_KIND, send_now=True,
                       speaker=speaker, notify=notify)
     if ok and parent_id is not None and rid is not None:
         _close_replied(parent_id, rid, body)
@@ -559,7 +551,7 @@ def withdraw(rid: int, requester: str | None = None,
         if row["requester"] != requester:
             return False, (f"#{rid} is {row['requester']} -> {row['target']}, "
                            f"not yours to withdraw")
-        if row["state"] != "queued":
+        if row["state"] != "queued" and not (row["state"] == "landed" and row["delivered_at"]):
             return False, f"#{rid} is already {row['state']} - nothing to withdraw"
         linked = db.tasks_for_request(con, rid) if row["kind"] == "task" else []
         release = f", or `ocp task release T{linked[0]['id']}`" if linked else ""

@@ -45,7 +45,7 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
                 verdict: str | None = None, chain_id: str | None = None,
-                fyi: bool = False, timebox_s: int | None = None) -> int:
+                fyi: bool = False) -> int:
     """Insert a request. `queue_order`, not `id`, decides FIFO position - see
     `queued_for`; it starts as the id and only `promote_to_front` moves it.
     """
@@ -60,11 +60,11 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     state = LANDED if landed or state == "done" else state
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, timebox_s, edge_ok, "
+        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, edge_ok, "
         "landed_at, resolved_at, announced_at, state_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now, requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict, chain_id, int(fyi), timebox_s, edge_ok,
+         chain_depth, parent_id, state, verdict, chain_id, int(fyi), edge_ok,
          now if landed else None, now if landed else None, now if landed else None, now),
     )
     rid = int(cur.lastrowid)
@@ -294,11 +294,11 @@ def mark_landed(con, rid: int) -> None:
     con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ?) WHERE id = ?", (now, rid))
     from .tasks import stamp_task_delivered
     stamp_task_delivered(con, rid)
-    # A task delivery that landed is sent: 'queued' is only what has not reached the other side. The
-    # task rows say what is still held (`db.live_delivery`).
+    # What landed is sent: 'queued' is only what has not reached the other side. For a task the task
+    # rows say what is still held (`db.live_delivery`).
     if not _would_strand_a_proposal(con, rid, "landed", None):
         con.execute("UPDATE requests SET state = 'landed', state_at = ?, announced_at = COALESCE(announced_at, ?) "
-                    "WHERE id = ? AND state = 'queued' AND kind = 'task' AND target != ?", (now, now, rid, HUMAN))
+                    "WHERE id = ? AND state = 'queued' AND target != ?", (now, now, rid, HUMAN))
 
 
 def awaiting_landing(con, target: str):
@@ -314,22 +314,6 @@ def owe_again(con, rid: int) -> None:
     con.execute(
         "UPDATE requests SET delivered_at = NULL, typed_at = NULL, typed_session = NULL, "
         "told_out_of_turn = NULL WHERE id = ? AND state = 'queued' AND landed_at IS NULL", (rid,))
-
-
-def timeboxed_open(con):
-    """Requests an agent has been shown and not closed, whose asker has not yet
-    been told they ran long. Reports ask nothing, so no clock runs on them, and
-    the human's rows are "delivered" when drawn, not worked on. (`kind = 'report'`
-    only matches rows written before reports became says.)"""
-    return con.execute(
-        f"SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL AND NOT {LEFTOVER_DELIVERY} "
-        "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
-        "AND target != ?", (HUMAN,)).fetchall()
-
-
-def mark_timebox_noticed(con, rid: int) -> None:
-    con.execute("UPDATE requests SET timebox_noticed_at = COALESCE(timebox_noticed_at, ?) "
-                "WHERE id = ?", (int(time.time()), rid))
 
 
 def mark_send_now(con, rid: int) -> bool:

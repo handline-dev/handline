@@ -829,11 +829,11 @@ def _requests_one_state(con) -> None:
         con.execute("UPDATE requests SET announced_at = COALESCE(announced_at, resolved_at, ts) "
                     "WHERE state IN ('withdrawn', 'replaced', 'denied')")
         set_cursor(con, "migrated:requests_one_state", 1)
-    # A task delivery that reached its agent is landed, whichever code wrote the landing (T797 6b).
+    # A request that reached its agent is landed, whichever code wrote the landing (T797 6b).
     from .requests import HUMAN
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = landed_at, '
                 'announced_at = COALESCE(announced_at, landed_at) WHERE "state" = \'queued\' '
-                'AND kind = \'task\' AND landed_at IS NOT NULL AND target != ?', (HUMAN,))
+                'AND landed_at IS NOT NULL AND target != ?', (HUMAN,))
     if con.execute("SELECT 1 FROM requests WHERE state IN ('done', 'rejected') LIMIT 1").fetchone() is None:
         return
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
