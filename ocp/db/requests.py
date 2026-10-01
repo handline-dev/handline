@@ -30,7 +30,7 @@ def unannounced_answers(con, agent: str) -> list:
         "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
         f"chain_id, dismissed_by, dismissed_reason, {ANSWER_SQL} FROM requests WHERE requester = ? "
         "AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "
-        "WHERE a.settles = requests.id AND a.delivered_at IS NULL) ORDER BY id",
+        "WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id",
         (agent,),
     ).fetchall()
 
@@ -45,7 +45,8 @@ def mark_read(con, ids: list[int]) -> None:
 def mark_announced(con, ids: list[int]) -> None:
     """The asker of these requests has been told how they came back: their answering says are shown."""
     now = int(time.time())
-    con.executemany("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE settles = ?",
+    con.executemany("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
+                    "WHERE settles = ? AND state = 'landed'",
                     [(now, int(i)) for i in ids])
 
 
@@ -484,6 +485,9 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
     if cur.rowcount > 0:
         if answered_by is not None:
             con.execute("UPDATE requests SET settles = ? WHERE id = ?", (rid, answered_by))
+            if announced:       # the reply is what tells, and nobody is to be told: a landed one is shown
+                con.execute("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
+                            "WHERE id = ? AND state = 'landed'", (now, answered_by))
         elif (state in ("done", "rejected") and dismissed_by is None
               and (verdict or get_request(con, rid)["kind"] != "say")):
             # A say closed with nothing said asks nothing back; anything else tells its asker.

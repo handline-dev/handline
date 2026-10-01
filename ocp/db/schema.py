@@ -443,8 +443,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _kinds_are_say(con)
     _founder_says_landed(con)
     _fyi_are_says(con)
-    _answers_told_on_the_say(con)
     _requests_one_state(con)
+    _answers_told_on_the_say(con)
     _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
