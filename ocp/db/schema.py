@@ -444,6 +444,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _handed_to_founder_are_queued(con)
     _task_deliveries_settled(con)
     _task_sent_at(con)
+    _task_sent_at_from_events(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -786,6 +787,19 @@ def _task_sent_at(con) -> None:
         "SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id "
         "WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)")
     set_cursor(con, "migrated:task_sent_at", 1)
+
+
+def _task_sent_at_from_events(con) -> None:
+    """T751: the triggers that kept `tasks.sent_at` are dropped (`db.refresh_sent` does it now), and
+    the rule gained one clause - an ended task is never sent - so it is worked out once more for every
+    task, clearing the ghosts the triggers left."""
+    if get_cursor(con, "migrated:task_sent_at_events"):
+        return
+    from .tasks import refresh_sent
+    for r in con.execute("SELECT id FROM tasks").fetchall():
+        refresh_sent(con, r[0])
+    con.execute("UPDATE tasks SET sent_at = NULL WHERE done_evidence IS NOT NULL OR discarded_by IS NOT NULL")
+    set_cursor(con, "migrated:task_sent_at_events", 1)
 
 
 def _one_doing_task_each(con) -> None:

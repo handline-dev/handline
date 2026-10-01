@@ -8019,6 +8019,14 @@ limits:
         # T751: the triggers are gone; the task's own events keep sent_at, a ghost delivery cannot hold it
         trig = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'task_sent%'")]
         check("sent_at: no trigger keeps it any more", not trig, str(trig))
+        ok, _, gk = actions.task_new("manager", "worker", "open and sent", "w")
+        ok, _, gm = actions.task_new("manager", "worker", "stamped before the rule", "w")
+        db.mark_task_done(con, gm, "x")
+        con.execute("UPDATE tasks SET sent_at = 5 WHERE id = ?", (gm,))
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:task_sent_at_events'")
+        dbschema2._task_sent_at_from_events(con)
+        check("sent_at: the migration clears an ended task's stamp and keeps an open one's",
+              db.get_task(con, gm)["sent_at"] is None and db.get_task(con, gk)["sent_at"] is not None)
         for how in ("done", "discard"):
             ok, _, gh = actions.task_new("manager", "worker", f"ghost on {how}", "w")
             if how == "done":
