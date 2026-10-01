@@ -81,7 +81,8 @@ def _dev_mode_should_restart(state: dict, log) -> bool:
     """Called once a tick. `state` is `run`'s own dict, carried across calls:
     `fp` is the fingerprint this process started (or was last found clean)
     with, `warned` is one that already failed the import check, so a version
-    still broken is not re-checked and re-logged every tick until it is."""
+    still broken is not re-checked and re-logged every tick until it is. `seen` is the
+    fingerprint of the change last reported."""
     if not dev_mode_enabled():
         state["fp"] = None
         state["warned"] = None
@@ -93,8 +94,11 @@ def _dev_mode_should_restart(state: dict, log) -> bool:
         return False
     if fp == state["fp"] or fp == state["warned"]:
         return False
+    if fp == state.get("seen"):
+        return True             # already found to import, and not asked again
     if _dev_import_check(log):
         log("dev-mode: code changed - finishing this tick, then restarting")
+        state["seen"] = fp      # what a caller that declines the restart takes as its baseline
         return True
     state["warned"] = fp
     return False
