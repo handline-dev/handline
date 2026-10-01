@@ -8,9 +8,10 @@ agent that wrote nothing is closed on the mechanical record alone.
 
 The ask is remembered in one cursor: its row id is the newest event when the ask
 was typed, and its time is when. The turn that answers it is the one
-`UserPromptSubmit` after that event; a second one is someone else typing, which ends
-the stretch, and the note no longer counts. The file is removed before every ask, so
-one that exists was written after it.
+`UserPromptSubmit` after that event; a second one is someone else typing, and a
+`SessionStart` is a new session: either ends the stretch, and the note no longer
+counts. A record that carries the note ends it too (`session.handoff.record`). The
+file is removed before every ask, so one that exists was written after it.
 """
 from __future__ import annotations
 
@@ -53,10 +54,13 @@ def _prompts_since(con, agent: str, event_id: int) -> int:
 
 def asked(con, agent: str) -> tuple[int, int] | None:
     """(when, prompts typed since) for this stretch's ask, or None when there is none:
-    never asked, or someone else typed after the ask's own turn."""
+    never asked, someone else typed after the ask's own turn, or a new session began."""
     event_id = db.get_cursor(con, _key(agent))
     when = db.cursor_updated(con, _key(agent))
     if not event_id or when is None:
+        return None
+    if con.execute("SELECT 1 FROM events WHERE agent = ? AND kind = 'SessionStart' AND id > ? LIMIT 1",
+                   (agent, event_id)).fetchone():
         return None
     n = _prompts_since(con, agent, event_id)
     return (when, n) if n <= 1 else None

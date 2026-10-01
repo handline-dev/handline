@@ -273,6 +273,8 @@ def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, li
 
 def record(con, agent: str, closed_session: str | None = None) -> list[str]:
     """Capture and keep it for the agent's next start. Returns what was missing."""
+    from ..daemon import handoff_note  # local: see _request_line
     text, missing = capture(con, agent, closed_session)
     db.set_handoff(con, agent, text)
+    handoff_note.clear(con, agent)         # it is in the record now
     return missing

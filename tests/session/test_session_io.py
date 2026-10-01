@@ -4027,6 +4027,96 @@ def test_a_planned_move_waits_one_turn_for_the_note_but_a_forced_one_does_not(ho
         con.close()
 
 
+def test_the_tick_asks_before_it_closes_and_closes_with_the_note(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_o = (orcamod.available, orcamod.alive, orcamod.typeable_now, dmn_lifecycle._end_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        sessions_are("backend")
+        ended: list[int] = []
+        dmn_lifecycle._end_session = lambda *a, **k: (ended.append(1), db.set_closed(con, "backend", "sess-1"),
+                                                      (True, "closed"))[2]
+        write_agent_status("backend", "alpha", session_id="sess-1", transcript_path="/tmp/sess-1.jsonl")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("tick: the first pass over an idle agent asks and does not close", len(asks) == 1 and not ended,
+              f"{asks} {ended}")
+        _the_agent_answers(con, "waiting on T700")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("tick: the next pass closes it", ended == [1], str(ended))
+        check("tick: with the note in the record", "waiting on T700" in (db.get_handoff(con, "backend") or ""),
+              str(db.get_handoff(con, "backend")))
+    finally:
+        dmn_delivery.type_notice = real
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, dmn_lifecycle._end_session) = real_o
+        con.close()
+
+
+def test_an_ask_left_by_a_move_does_not_close_the_next_session_early(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_o = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (True, "sent")
+        orcamod.clear_context = lambda h, **kw: (True, "context cleared")
+        sessions_are("backend")
+        t = triggers.evaluate(10, 300_000)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("left ask: setup - the move asked", len(asks) == 1, str(asks))
+        # Its turn never starts; the wait runs out and the move goes on.
+        con.execute("UPDATE cursors SET updated = updated - ? WHERE name = 'handoff_ask:backend'",
+                    (handoff_note.ASK_WAIT_S + 5,))
+        db.set_cursor(con, "typed_at:backend", int(time.time()) - dmn_delivery.TYPE_SETTLE_S - 1)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("left ask: the move took its record and with it the ask",
+              handoff_note.asked(con, "backend") is None)
+        # And an ask that nothing took is ended by the next session beginning.
+        handoff_note.hold(con, "backend", int(time.time()), lambda _m: None)
+        db.add_event(con, "backend", "SessionStart", {})
+        db.add_event(con, "backend", "UserPromptSubmit", {})
+        db.add_event(con, "backend", "Stop", {})
+        st = status.read_for_agent("backend", "alpha")
+        st.session_id = "sess-2"
+        check("left ask: the new session's first turn is not taken for an answer",
+              not handoff_note.answered_turn(con, "backend")
+              and not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE,
+                                                 db.get_agent_state(con, "backend"), int(time.time()), st))
+        n = len(asks)
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (int(time.time()) - dmn_states.IDLE_CLOSE_S - 60,))
+        check("left ask: and at its own idle close it is asked for its own note",
+              handoff_note.hold(con, "backend", int(time.time()), lambda _m: None) and len(asks) == n + 1)
+    finally:
+        dmn_delivery.type_notice = real
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context) = real_o
+        con.close()
+
+
+def test_a_session_at_the_usage_wall_is_not_asked_for_a_note(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_o = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: False          # the limit dialog is not a turn
+        orcamod.send = lambda h, text, enter=True: (True, "sent")
+        orcamod.clear_context = lambda h, **kw: (True, "context cleared")
+        sessions_are("backend")
+        db.add_event(con, "backend", "StopFailure", {"limit": "5-hour"})
+        con.execute("UPDATE events SET ts = ? WHERE kind = 'StopFailure'",
+                    (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 10,))
+        t = triggers.evaluate(100, 10)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("wall: a settled limit stop is moved without an ask", not asks, str(asks))
+    finally:
+        dmn_delivery.type_notice = real
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context) = real_o
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -4132,6 +4222,9 @@ def main() -> int:
         run(lambda: test_a_note_counts_only_for_the_stretch_it_was_asked_in(Path(td) / 'hnote3'))
         run(lambda: test_no_ask_is_made_when_a_turn_would_not_pay(Path(td) / 'hnote4'))
         run(lambda: test_a_planned_move_waits_one_turn_for_the_note_but_a_forced_one_does_not(Path(td) / 'hnote5'))
+        run(lambda: test_the_tick_asks_before_it_closes_and_closes_with_the_note(Path(td) / 'hnote6'))
+        run(lambda: test_an_ask_left_by_a_move_does_not_close_the_next_session_early(Path(td) / 'hnote7'))
+        run(lambda: test_a_session_at_the_usage_wall_is_not_asked_for_a_note(Path(td) / 'hnote8'))
     return run_area(tests)
 
 
