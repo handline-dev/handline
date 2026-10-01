@@ -3039,26 +3039,35 @@ edges:
         ok, said = hr.confirm_answer(pid7, con)
         check("founder: a task that is no longer his reads as handed back", not ok and "eta7" not in paths.list_agents(), said)
 
-        # an agent that is the target of a request linked to the founder's own task may mark it done
+        # T792: an agent that is the target of a request linked to the founder's own task can no longer
+        # mark it done at all ...
         pid8, rid8, tid8 = raise_one("theta8")
         link = db.add_request(con, actions.HUMAN, "hr", "a side question", None, None, None, "say", 0, None)
         db.link_request(con, tid8, link)
         ok, said = actions.mark_task_done(con, tid8, "hr", reason="approve")
-        state8 = hr.answer_of(con, hr.load_proposal(pid8))[0]
         ok2, said2 = hr.confirm_answer(pid8, con)
-        check("agent: it marks the founder's own task done 'approve' (allowed: it is a done target) - not his answer",
-              ok and state8 == "discarded" and not ok2 and "theta8" not in paths.list_agents(), f"{said} / {state8} / {said2}")
+        check("agent: marking the founder's own task done 'approve' is refused, and nothing is answered",
+              not ok and hr.answer_of(con, hr.load_proposal(pid8))[0] == "open" and not ok2
+              and "theta8" not in paths.list_agents(), f"{said} / {said2}")
+        # ... but answer_of must not trust a done that some other path recorded: built directly, as an
+        # old row or a future door could leave it (the done and the event of a non-founder actor)
         pid9, rid9, tid9 = raise_one("iota9")
-        link9 = db.add_request(con, actions.HUMAN, "hr", "another side question", None, None, None, "say", 0, None)
-        db.link_request(con, tid9, link9)
-        answer_card(con, rid9, "reject - no")                         # his close ...
-        ok, said = actions.reopen_task(con, tid9, actions.HUMAN, "second thoughts")
-        ok3, said3 = actions.mark_task_done(con, tid9, "hr", reason="approve")        # ... then an agent's reopen-and-done
+        db.mark_task_done(con, tid9, "approve", "reason")
+        db.add_event(con, "hr", "mark_task_done", {"task_id": tid9, "done": "approve"})
         state9 = hr.answer_of(con, hr.load_proposal(pid9))[0]
         ok4, said4 = hr.confirm_answer(pid9, con)
-        check("agent: after the founder's close and a reopen, an agent's done is not his answer either",
-              ok and ok3 and state9 == "discarded" and not ok4 and "iota9" not in paths.list_agents(),
-              f"{said} / {said3} / {state9} / {said4}")
+        check("agent: a done recorded by a non-founder actor is not his answer",
+              state9 == "discarded" and not ok4 and "iota9" not in paths.list_agents(), f"{state9} / {said4}")
+        pid10, rid10, tid10 = raise_one("kappa10")
+        answer_card(con, rid10, "reject - no")                         # his close ...
+        ok, said = actions.reopen_task(con, tid10, actions.HUMAN, "second thoughts")
+        db.mark_task_done(con, tid10, "approve", "reason")             # ... then someone else's reopen-and-done
+        db.add_event(con, "hr", "mark_task_done", {"task_id": tid10, "done": "approve"})
+        state10 = hr.answer_of(con, hr.load_proposal(pid10))[0]
+        ok5, said5 = hr.confirm_answer(pid10, con)
+        check("agent: after the founder's close and a reopen, a non-founder done is not his answer either",
+              ok and state10 == "discarded" and not ok5 and "kappa10" not in paths.list_agents(),
+              f"{said} / {state10} / {said5}")
 
         pid5, rid5, tid5 = raise_one("eps5")
         old = hr.load_proposal(pid5)
