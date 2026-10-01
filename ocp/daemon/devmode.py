@@ -9,7 +9,6 @@ from pathlib import Path
 from ..usage import load
 from ..infra import paths
 from ..infra import service
-from ..infra.yamlcompat import dump
 
 
 # ---------------------------------------------------------------- dev mode
@@ -27,7 +26,7 @@ def dev_mode_enabled() -> bool:
 def set_dev_mode(on: bool) -> None:
     cfg = load.config_for_write()
     cfg[DEV_MODE_KEY] = bool(on)
-    paths.config_file().write_text(dump(cfg))
+    load.write_config(cfg)
 
 
 def _watched_files(root: Path) -> list[Path]:

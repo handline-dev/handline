@@ -1272,6 +1272,8 @@ class SecondVendor:
         return None
     def subscription_type(self, env):
         return None
+    def profile(self, config_dir):
+        return {}
     def shared_items(self):
         return ["skills"]
     def never_touch(self):

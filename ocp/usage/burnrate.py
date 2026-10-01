@@ -209,7 +209,7 @@ def refresh_long_ratios(con, now: int | None = None, force: bool = False) -> Non
     from ..team import accounts
 
     ratios = long_ratios(db.usage_samples(con, since=now - WEEK_RATIO_WINDOW_S),
-                         accounts.recorded_subscription_type)
+                         accounts.plan_key)
     db.set_meta(con, _WEEK_RATIO, json.dumps({"at": now, "r": ratios}))
 
 
@@ -291,4 +291,4 @@ def costs(con, plan_of=None) -> Costs:
     from ..team import accounts
 
     return Costs(_load_samples(con), _load_long_ratios(con),
-                 plan_of or accounts.recorded_subscription_type)
+                 plan_of or accounts.plan_key)

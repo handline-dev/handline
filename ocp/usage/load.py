@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from ..team import agents
 from . import burnrate, status
 from .. import db
-from ..infra import paths
+from ..infra import atomic, paths
 from ..session import triggers
 from ..infra.yamlcompat import ConfigError, dump, load as load_yaml
 
@@ -43,6 +43,25 @@ def _config() -> dict:
     except (OSError, ConfigError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def config_or_none() -> dict | None:
+    """config.yaml as it stands, or None when it exists and cannot be read as a
+    mapping (a parse error, a write caught half done): a caller that would act on
+    what the file does not say must tell that from a file that says nothing. A
+    missing file is {}."""
+    try:
+        data = load_yaml(paths.config_file().read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ConfigError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_config(cfg: dict) -> None:
+    """Replace config.yaml in one step, so a reader sees the old file or the new."""
+    atomic.write_text(paths.config_file(), dump(cfg))
 
 
 def config_for_write() -> dict:
@@ -85,7 +104,7 @@ def set_cap(acct: str, n: int) -> None:
         raise ValueError("a cap is at least 1")
     cfg = config_for_write()
     cfg[f"active_cap_{acct}"] = n
-    paths.config_file().write_text(dump(cfg))
+    write_config(cfg)
 
 
 def set_default_cap(n: int) -> None:
@@ -94,7 +113,7 @@ def set_default_cap(n: int) -> None:
         raise ValueError("a cap is at least 1")
     cfg = config_for_write()
     cfg["active_cap"] = n
-    paths.config_file().write_text(dump(cfg))
+    write_config(cfg)
 
 
 def default_cap(cfg: dict | None = None) -> int:
@@ -116,7 +135,7 @@ def set_label(acct: str, text: str) -> None:
         cfg[f"label_{acct}"] = text.strip()
     else:
         cfg.pop(f"label_{acct}", None)
-    paths.config_file().write_text(dump(cfg))
+    write_config(cfg)
 
 
 def usage_recover_enabled(acct: str, cfg: dict | None = None) -> bool:
@@ -133,7 +152,7 @@ def set_usage_recover(acct: str, on: bool) -> None:
         cfg.pop(f"usage_recover_{acct}", None)
     else:
         cfg[f"usage_recover_{acct}"] = False
-    paths.config_file().write_text(dump(cfg))
+    write_config(cfg)
 
 
 def active_by_account(con) -> dict[str, list[str]]:

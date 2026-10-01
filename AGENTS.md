@@ -39,12 +39,17 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 
 ## Hard rules
 
-1. Never read, write or copy a credential: `.credentials.json`, the Keychain,
-   `.claude.json`. Adding an account is one `CLAUDE_CONFIG_DIR=<dir> claude /login`
-   run by a person; a refresh token rotates once, so copies invalidate each other.
-   The one exception (#2010): a driver's meter path may read an opencode
-   `auth.json` in memory, once, for the usage question only. The key never reaches
-   an agent's env, prompt, terminal, log, db or any file ocp writes.
+1. Never read, write or copy a credential: `.credentials.json`, the Keychain.
+   Never write or copy `.claude.json`. Adding an account is one
+   `CLAUDE_CONFIG_DIR=<dir> claude /login` run by a person; a refresh token rotates
+   once, so copies invalidate each other. Two exceptions: (#2010) a driver's meter
+   path may read an opencode `auth.json` in memory, once, for the usage question
+   only; (T745) `Driver.profile` in the claude driver is the only reader of `.claude.json`,
+   and returns only the subscription start and the two rate-limit tier strings. The founder:
+   "A 로하자. 읽어도 돼. 다만 그걸 읽어서 그대로 토큰같은걸 노출만 안시키면 되는거지."
+   Read is allowed; exposing a token, key or other secret from it is not. No key,
+   token, email or other value from either file reaches an agent's env, prompt,
+   terminal, log, db or any file ocp writes.
 2. Do not code on an assumption nobody verified. Probe it first.
 3. No logic in `SKILL.md`: it is a stub of at most 20 lines, and detail loads on
    demand through `ocp guide <topic>`.
