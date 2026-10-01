@@ -463,9 +463,9 @@ def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> Non
     pid = trustmod.listing()[0]["id"]
     ok, msg = trustmod.enact(str(home / "repos"), "the founder declares the parent")
     check("moot: the founder declares a root above it", ok, msg)
-    ok, msg = trustmod.apply(pid)
-    check("moot: applying it says so and settles it as withdrawn, never approved",
-          not ok and "moot" in msg and trustmod.load_proposal(pid)["state"] == "withdrawn", msg)
+    settled = trustmod.settle_moot()
+    check("moot: settling moots withdraws it, never approves it",
+          settled == [pid] and trustmod.load_proposal(pid)["state"] == "withdrawn", str(settled))
     ok, msg = trustmod.propose(str(home / "repos" / "second"), "again", requester="backend")
     check("moot: a new proposal for a declared root is refused outright", not ok, msg)
 

@@ -212,9 +212,6 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         return False, f"no proposal {pid}"
     if prop.get("state") == "applied":
         return False, f"proposal {pid} was already applied"
-    if prop.get("state") == "proposed" and prop.get("root") and is_declared(prop["root"]):
-        settle_moot()
-        return False, f"proposal {pid} is moot: {prop['root']} is already a declared root"
     own = con is None
     con = con or db.connect()
     try:
@@ -252,6 +249,9 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         if read is None or _resolved(read) != _resolved(prop["root"]):
             return False, (f"proposal {pid}'s root does not match what #{row['id']} "
                            f"asked the founder to approve - raise it again")
+        if is_declared(prop["root"]):
+            settle_moot()
+            return False, f"proposal {pid} is moot: {prop['root']} is already a declared root"
         rows = list_roots()
         rows.append({"root": prop["root"], "why": prop["why"],
                      "added_by": prop["requested_by"], "added_at": prop["created"]})
