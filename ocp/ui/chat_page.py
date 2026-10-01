@@ -1355,10 +1355,8 @@ class TaskBody(TaskActions, Vertical):
         self.app.push_screen(TextPrompt("edit the memo", multi=True, initial=old), answered)
 
     def memo_delete(self, mid: int) -> None:
-        def answered(yes: bool | None) -> None:
-            if yes:
-                self.memo_call("delete", lambda con: actions.memo_delete(con, mid, actions.HUMAN))
-        self.app.push_screen(Confirm("Delete the memo", "It is removed from the task.", yes="Delete", danger=True), answered)
+        Confirm.ask(self.app, lambda: self.memo_call("delete", lambda con: actions.memo_delete(con, mid, actions.HUMAN)),
+                    "Delete the memo", "It is removed from the task.", yes="Delete", danger=True)
 
     def action_edit_brief(self) -> None:
         if not (self.d and self.d["brief_text"] is not None):
@@ -2017,9 +2015,8 @@ class ChatPage(JobsAware, Screen):
             if not self.sending:
                 self.app.exit()
             else:
-                self.app.push_screen(Confirm("Quit the bridge", f"{self.sending} message(s) still being sent.",
-                                             yes="Quit", no="Stay", danger=True),
-                                     lambda yes: yes and self.app.exit())
+                Confirm.ask(self.app, self.app.exit, "Quit the bridge", f"{self.sending} message(s) still being sent.",
+                            yes="Quit", no="Stay", danger=True)
             return
         if tab is None:
             self.leave()
@@ -2043,10 +2040,8 @@ class ChatPage(JobsAware, Screen):
         if not lost:
             self.app.pop_screen()
             return
-        # The answer runs on the pump that asked (the Back button), which the pop removes: pop from the app's.
-        self.app.push_screen(Confirm("Go back to the main screen", "This leaves " + " and ".join(lost) + ".",
-                                     yes="Go back", no="Stay"),
-                             lambda yes: yes and self.app.call_later(self.app.pop_screen))
+        Confirm.ask(self.app, self.app.pop_screen, "Go back to the main screen",
+                    "This leaves " + " and ".join(lost) + ".", yes="Go back", no="Stay")
 
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         self.everyone = event.tab.id == "all"
@@ -2232,8 +2227,8 @@ class ChatPage(JobsAware, Screen):
             self.notify(safe(plan), severity="error", timeout=10, markup=False)
             return False
         if delivered:
-            self.app.push_screen(Confirm(f"Cancel #{rid}", plan, yes="Cancel it", no="Keep",
-                                     danger=True), lambda yes: yes and self._cancel_sent(rid, body))
+            Confirm.ask(self.app, lambda: self._cancel_sent(rid, body), f"Cancel #{rid}", plan,
+                        yes="Cancel it", no="Keep", danger=True)
         else:
             self._cancel_sent(rid, body)
         return True

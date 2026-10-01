@@ -85,11 +85,9 @@ class SchedulesSection(Vertical):
         self.app.push_screen(ScheduleAdd((rows[index - 1]["cron"], rows[index - 1]["message"])), answered)
 
     def _remove(self, index: int) -> None:
-        def answered(yes: bool | None) -> None:
-            if yes:
-                self._call("removed", lambda: actions.schedule_remove(self.agent, index))
-        self.app.push_screen(Confirm("Remove this schedule", "It stops being sent; the agent is not touched.",
-                                     yes="Remove", danger=True), answered)
+        Confirm.ask(self.app, lambda: self._call("removed", lambda: actions.schedule_remove(self.agent, index)),
+                    "Remove this schedule", "It stops being sent; the agent is not touched.",
+                    yes="Remove", danger=True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""

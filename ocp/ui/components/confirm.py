@@ -1,6 +1,8 @@
 """A yes/no question in a box over the current page."""
 from __future__ import annotations
 
+from typing import Callable
+
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
@@ -45,6 +47,12 @@ class Confirm(Dialog):
                  danger: bool = False) -> None:
         super().__init__()
         self.question, self.detail, self.yes, self.no, self.danger = question, detail, yes, no, danger
+
+    @classmethod
+    def ask(cls, app, on_yes: Callable[[], None], *args, **kw) -> None:
+        """Push the question and run `on_yes` when answered yes. The answer arrives on the pump of
+        the widget that asked, which `on_yes` may remove (a screen pop): it runs from the app's."""
+        app.push_screen(cls(*args, **kw), lambda yes: yes and app.call_later(on_yes))
 
     def compose(self) -> ComposeResult:
         asked = self.question if self.question.rstrip().endswith(("?", ".", ":")) else self.question + "?"

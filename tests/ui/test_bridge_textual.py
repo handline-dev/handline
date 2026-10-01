@@ -2816,6 +2816,24 @@ async def test_going_home_from_a_chat_with_a_draft_leaves_home_answering_keys() 
               str(app.screen_stack))
 
 
+async def test_confirm_ask_runs_its_action_only_on_yes_and_from_the_app() -> None:
+    """Confirm.ask: y runs the action, n and Escape do not, and the action is the app's to run."""
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("confirm_ask")
+    app = BridgeApp()
+    ran: list[str] = []
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        for key in ("n", "escape", "y"):
+            Confirm.ask(app, lambda: ran.append("ran"), "Do it")
+            await pilot.pause()
+            await pilot.press(key)
+            await pilot.pause()
+            await pilot.pause()
+            check(f"confirm ask: {key} leaves the screen it was over", not isinstance(app.screen, Confirm))
+        check("confirm ask: the action ran once, for the y only", ran == ["ran"], str(ran))
+
+
 async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() -> None:
     """T665: what the chat draws leaves FOR YOU, and only that; a message older than one page is
     paged back to and drawn."""
@@ -3478,6 +3496,7 @@ async def _run_all() -> None:
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
+    await test_confirm_ask_runs_its_action_only_on_yes_and_from_the_app()
     await test_going_home_from_a_chat_with_a_draft_leaves_home_answering_keys()
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
