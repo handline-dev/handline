@@ -32,32 +32,6 @@ def _refused_listing(target: str | None) -> bool:
     return bool(why)
 
 
-def cmd_digest(args) -> int:
-    if _refused_listing(args.agent):
-        return 1
-    p = foldmod.journal_path(args.agent, args.date or foldmod.today())
-    if not p.exists():
-        print(f"no digest at {p}")
-        return 1
-    print(textsafe.text(p.read_text()))
-    return 0
-
-
-def cmd_handoff(args) -> int:
-    if _refused_listing(args.agent):
-        return 1
-    con = db.connect()
-    try:
-        text = db.get_handoff(con, args.agent)
-    finally:
-        con.close()
-    if not text:
-        print(f"no handoff waiting for {args.agent}")
-        return 1
-    print(textsafe.text(text))
-    return 0
-
-
 def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[str | None, str | None]:
     """(text, error). `inline` or `file_path`, never both; neither reads stdin. A shell expands backticks and $() inside double quotes before this
     process ever sees argv, so a message with either in it is silently

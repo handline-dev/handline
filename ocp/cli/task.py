@@ -389,22 +389,6 @@ def cmd_task_memo(args) -> int:
         con.close()
 
 
-def cmd_task_link(args) -> int:
-    con = db.connect()
-    try:
-        if db.get_task(con, args.task) is None:
-            print(f"no task T{args.task}")
-            return 1
-        if db.get_request(con, args.request) is None:
-            print(f"no request #{args.request}")
-            return 1
-        db.link_request(con, args.task, args.request)
-    finally:
-        con.close()
-    print(f"request #{args.request} linked to task T{args.task}")
-    return 0
-
-
 def cmd_task_edit(args) -> int:
     """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`) is
     one transaction, so a later part's refusal never leaves an earlier one

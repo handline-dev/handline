@@ -19,46 +19,6 @@ from .ask import _who_refusal
 from .health import _name_col
 
 
-def cmd_org(args) -> int:
-    """Put every live agent in the team's Run, under whoever it reports to.
-
-    A terminal Orca knows nothing about is a tab; a worker in a Run is a child
-    card with a name, a parent and its own output. Agents started before this
-    existed are tabs, and this is what adopts them - supervisors first, so a
-    report's parent task exists by the time the report is registered.
-    """
-    con = db.connect()
-    try:
-        if not orca.available():
-            print("orca is not on PATH - nothing to register with")
-            return 1
-        run = spawnmod.ensure_run(con)
-        if not run:
-            print("could not create an orchestration Run (is the Orca runtime up?)")
-            return 1
-        print(f"run {run}")
-        # Supervisors before their reports: `--parent` needs the parent task to
-        # exist, and a tree built child-first is a list.
-        order = [name for name, _depth in actions.agent_tree()]
-        w = _name_col(order)
-        for name in order:
-            row = db.get_agent_state(con, name)
-            handle = row["terminal"] if row else None
-            if not handle:
-                print(f"  {name:<{w}} no terminal - nothing to register")
-                continue
-            if not orca.alive(handle):
-                print(f"  {name:<{w}} terminal {handle} is gone")
-                continue
-            got = spawnmod.register_worker(con, name, handle)
-            fresh = db.get_agent_state(con, name)
-            print(f"  {name:<{w}} task {(fresh['task'] if fresh else None) or '-'}"
-                  + (f" dispatch {got}" if got else " (not dispatched)"))
-        return 0
-    finally:
-        con.close()
-
-
 def cmd_team(args) -> int:
     """Who you may ask, who may ask you, and what they are doing right now.
 
@@ -172,30 +132,4 @@ def cmd_team_init(args) -> int:
     p.write_text(team.STARTER)
     sealed.seal(sealed.TEAM, team.STARTER)
     print(f"wrote {p}")
-    return 0
-
-
-def cmd_team_check(args) -> int:
-    try:
-        t = team.Team.load()
-    except Exception as e:  # noqa: BLE001
-        print(f"team.yaml is invalid: {e}")
-        return 1
-    names = sorted(set(t.agents) | {a for m in t.teams.values() for a in (m or [])})
-    print(f"{len(t.teams)} teams, {len(names)} agents, {len(t.edges)} edges, {len(t.deny)} denies")
-    print(f"max_chain_depth={t.max_chain_depth} ask_rate_per_hour={t.ask_rate_per_hour}")
-    registered = set(paths.list_agents())
-    for n in names:
-        mark = "ok" if n in registered else "not registered with ocp"
-        print(f"  {n:<14} {mark}")
-    if args.matrix:
-        print("\nrouting matrix (rows ask columns):")
-        width = max(len(n) for n in names) + 2
-        print(" " * width + "".join(f"{n[:6]:>8}" for n in names))
-        for a in names:
-            cells = []
-            for b in names:
-                d = t.route(a, b)
-                cells.append("     -  " if a == b else ("   allow" if d.allowed else "    DENY"))
-            print(f"{a:<{width}}" + "".join(cells))
     return 0

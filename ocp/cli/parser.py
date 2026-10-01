@@ -11,11 +11,11 @@ from ..team import team
 
 from .account import cmd_account_add, cmd_account_cap, cmd_account_list, cmd_account_recover, cmd_account_register, cmd_account_remove
 from .memory import cmd_memory_migrate, cmd_memory_status
-from .agent import cmd_agent_list, cmd_agent_move, cmd_agent_register, cmd_agent_show, cmd_base_promote, cmd_command, cmd_handoff_write, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
-from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_digest, cmd_handoff, cmd_inbox, cmd_read, cmd_withdraw
+from .agent import cmd_agent_move, cmd_agent_register, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
+from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_inbox, cmd_read, cmd_withdraw
 from .bridge import cmd_bridge
 from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
-from .health import cmd_backup, cmd_doctor, cmd_drift, cmd_events, cmd_fold, cmd_rollover, cmd_status, cmd_triggers
+from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
 from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status, cmd_hooks_sync
 from .hr import cmd_hr, cmd_trust
 from .schedule import cmd_schedule
@@ -23,9 +23,8 @@ from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ig
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_link, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
-from .team import cmd_org, cmd_team, cmd_team_check, cmd_team_init, cmd_team_seal
-from .usage import cmd_collect, cmd_usage
+from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
+from .team import cmd_team, cmd_team_init, cmd_team_seal
 
 
 # ---------------------------------------------------------------- parser
@@ -99,11 +98,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="start its sessions without asking before they act (default off); "
                    "applies from the next launch; on re-registration, omit to keep the current one")
     p.set_defaults(fn=cmd_agent_register)
-    ag.add_parser("list", help="list agents").set_defaults(fn=cmd_agent_list)
-    p = ag.add_parser("show", help="everything known about one agent")
-    p.add_argument("name")
-    p.add_argument("--json", action="store_true")
-    p.set_defaults(fn=cmd_agent_show)
 
     p = sub.add_parser("launch", help="exec claude as this agent's account")
     p.add_argument("agent")
@@ -115,10 +109,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("extra", nargs="*", help="passed through to claude")
     p.set_defaults(fn=cmd_launch)
 
-    p = sub.add_parser("command", help="print the Orca --command string")
-    p.add_argument("agent")
-    p.set_defaults(fn=cmd_command)
-
     hk = sub.add_parser("hooks", help="mirror Orca's agent hooks").add_subparsers(dest="sub", required=True)
     p = hk.add_parser("sync", help="apply Orca's hooks to shared settings")
     p.add_argument("--watch", action="store_true", help="watch and auto-apply")
@@ -129,16 +119,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name", choices=["stop-wait", "edit-task"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_gate)
-
-    p = sub.add_parser("usage", help="the usage endpoint beside the snapshot (read-only)")
-    p.add_argument("account", nargs="?", help="one account, or every account")
-    p.set_defaults(fn=cmd_usage)
-
-    p = sub.add_parser("collect", help="read each session's context from its transcript")
-    p.add_argument("agent", nargs="?", help="one agent, or every agent")
-    p.add_argument("--write", action="store_true",
-                   help="write the snapshots, as the daemon does every tick")
-    p.set_defaults(fn=cmd_collect)
 
     p = sub.add_parser("doctor", help="verify preconditions")
     p.add_argument("--no-color", action="store_true")
@@ -229,13 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     q = trsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
     q.set_defaults(root=None, why=None)
-    q = trsub.add_parser("migrate", help="move the old trust_roots.json into the protected "
-                         "store (the founder's, once)")
-    q.set_defaults(root=None, why=None)
     p.set_defaults(fn=cmd_trust)
-
-    p = sub.add_parser("org", help="register live agents as workers in the team's Run")
-    p.set_defaults(fn=cmd_org)
 
     p = sub.add_parser("team", help="who you may ask, and what they are doing")
     p.add_argument("--agent", default=None, help="whose team to show (default: yours)")
@@ -246,10 +220,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_team_init)
     p = tm.add_parser("seal", help="founder only: accept team.yaml and every agent.yaml as they are now")
     p.set_defaults(fn=cmd_team_seal)
-    p = tm.add_parser("check", help="validate team.yaml")
-    p.add_argument("--matrix", action="store_true", help="print the full routing matrix")
-    p.set_defaults(fn=cmd_team_check)
-
     p = sub.add_parser("say", help="a message that needs no answer and starts no work (T293), typed at "
                                    "once - work is `ocp task new`")
     p.add_argument("target", nargs="?")
@@ -300,22 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", default=None, help="repo to read git facts from")
     p.set_defaults(fn=cmd_fold)
 
-    p = sub.add_parser("rollover", help="midnight rollover (no model)")
-    p.add_argument("agent", nargs="?")
-    p.set_defaults(fn=cmd_rollover)
-
     p = sub.add_parser("backup", help="snapshot OCP_HOME if it changed; `install` runs it every 5 minutes")
     p.add_argument("action", nargs="?", choices=["install"])
     p.set_defaults(fn=cmd_backup)
-
-    p = sub.add_parser("digest", help="print an agent's digest")
-    p.add_argument("agent")
-    p.add_argument("--date", default=None)
-    p.set_defaults(fn=cmd_digest)
-
-    p = sub.add_parser("handoff", help="print the handoff waiting for an agent")
-    p.add_argument("agent")
-    p.set_defaults(fn=cmd_handoff)
 
     p = sub.add_parser("events", help="list recorded events")
     p.add_argument("--agent", default=None)
@@ -426,12 +383,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("agent")
     p.set_defaults(fn=cmd_unstall)
 
-    p = sub.add_parser("drift", help="has the base moved under this agent?")
-    p.add_argument("repo")
-    p.add_argument("--base", default="main")
-    p.add_argument("--no-fetch", action="store_true")
-    p.set_defaults(fn=cmd_drift)
-
     p = sub.add_parser("spawn", help="give an agent its own worktree and start it there")
     p.add_argument("agent")
     p.add_argument("--repo", required=True)
@@ -446,14 +397,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--textual", action="store_true",
                    help="accepted and does nothing: Textual is the only screen")
     p.set_defaults(fn=cmd_bridge)
-
-    bs = sub.add_parser("base", help="the per-session fixed context").add_subparsers(
-        dest="sub", required=True)
-    p = bs.add_parser("promote", help="add a fact to an agent's base.md")
-    p.add_argument("agent")
-    p.add_argument("--item", required=True)
-    p.add_argument("--force", action="store_true", help="accept going over budget")
-    p.set_defaults(fn=cmd_base_promote)
 
     ms = sub.add_parser("memory", help="per-agent memory against its budget").add_subparsers(
         dest="sub", required=True)
@@ -470,10 +413,6 @@ def build_parser() -> argparse.ArgumentParser:
                        "your request in progress (no note shows it; '' clears it)")
     p.add_argument("note", nargs="?", default=None)
     p.set_defaults(fn=cmd_progress)
-
-    p = sub.add_parser("write-handoff", help="record a handoff now")
-    p.add_argument("agent")
-    p.set_defaults(fn=cmd_handoff_write)
 
     p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
     p.add_argument("target", help="an agent's name")
@@ -551,10 +490,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("draft", help="send queued tasks back to draft - the founder or the owner's manager")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
-    p = tk.add_parser("link", help="attach a further request to a task")
-    p.add_argument("task", type=_task_arg, metavar="T")
-    p.add_argument("request", type=int)
-    p.set_defaults(fn=cmd_task_link)
     p = tk.add_parser("edit", help="change a task's owner and/or title - opener or "
                                    "founder only, and never silent about it")
     p.add_argument("task", type=_task_arg, metavar="T")
