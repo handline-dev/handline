@@ -412,6 +412,32 @@ def test_a_wake_or_start_that_fails_in_the_tick_is_noted(home: Path) -> None:
         con.close()
 
 
+def test_a_parked_agents_due_wake_notes_its_failure_and_clears_it_when_it_works(home: Path) -> None:
+    _world(home)
+    con = db.connect()
+    real_wake = lifecycle.wake_agent
+    try:
+        orcamod.send = lambda h, t, enter=True: (True, "")
+        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+        sessions_are()
+        db.set_closed(con, "worker", "sess-1")
+        db.set_agent_state(con, "worker", "PARKED", wake_at=int(time.time()) - 5)
+        lifecycle.wake_agent = lambda c, a, log, **k: (False, "launch refused")
+        evaluate.tick(con, lambda _m: None)
+        check("parked and due: a wake that fails is noted",
+              delivery.failed_reason("worker", int(time.time())) == "could not be woken - launch refused",
+              str(delivery.failed_reason("worker", int(time.time()))))
+        # A real wake leaves the agent open, so the tick's later wake site has nothing to clear it.
+        lifecycle.wake_agent = lambda c, a, log, **k: (db.clear_closed(c, a), (True, "woken"))[1]
+        evaluate.tick(con, lambda _m: None)
+        check("parked and due: the next wake that works clears it",
+              delivery.failed_reason("worker", int(time.time())) is None,
+              str(delivery.failed_reason("worker", int(time.time()))))
+    finally:
+        lifecycle.wake_agent = real_wake
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         try:
@@ -435,6 +461,7 @@ def main() -> int:
         run(lambda: test_a_real_tick_records_why_a_task_waits(Path(td) / "h13"))
         run(lambda: test_the_daemons_own_paths_note_why_they_did_not_type(Path(td) / "h14"))
         run(lambda: test_a_wake_or_start_that_fails_in_the_tick_is_noted(Path(td) / "h15"))
+        run(lambda: test_a_parked_agents_due_wake_notes_its_failure_and_clears_it_when_it_works(Path(td) / "h16"))
     return run_area(tests)
 
 

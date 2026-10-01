@@ -171,6 +171,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             woke, restored = False, False
         else:
             woke, why = lifecycle.wake_agent(con, agent, log)
+            if restored and woke:
+                delivery.note_failure(agent, None)
         if restored and not woke:
             delivery.note_failure(agent, f"could not be woken - {why}")
             # Same rule reconcile's step 2 writes: for an agent whose session
