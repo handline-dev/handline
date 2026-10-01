@@ -390,6 +390,9 @@ class Opencode:
     def subscription_type(self, env: dict) -> str | None:
         return None
 
+    def profile(self, config_dir: Path) -> dict:
+        return {}
+
     def shared_items(self) -> list[str]:
         # Config is not under XDG_DATA_HOME, so every account already shares it.
         return []

@@ -1,6 +1,7 @@
 """Claude Code: what ocp did before there was a driver, moved here unchanged."""
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -25,6 +26,22 @@ def keychain_service(config_dir: Path) -> str:
         return "Claude Code-credentials"
     digest = hashlib.sha256(str(config_dir).encode()).hexdigest()[:8]
     return f"Claude Code-credentials-{digest}"
+
+
+# `profile`: a tier is a short snake_case word ("default_claude_ai",
+# "default_claude_max_5x"); anything else in that field is not passed on.
+_TIER = re.compile(r"[a-z0-9_]{1,64}")
+_PROFILES: dict[Path, tuple[tuple[int, int], dict]] = {}
+
+
+def _iso_epoch(v) -> float | None:
+    """An ISO-8601 timestamp ("2026-09-21T04:43:56.433836Z") as epoch seconds."""
+    if not isinstance(v, str) or len(v) > 40:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 class Claude:
@@ -261,10 +278,40 @@ class Claude:
         return ["settings.json", "CLAUDE.md", "skills", "agents", "commands", "plugins"]
 
     def never_touch(self) -> set[str]:
-        # Named explicitly as a guard: the credential file the installs that do
-        # not use the Keychain keep (AGENTS.md rule 1), claude's own config, and
-        # its machine state.
+        # Never created, linked or copied: the credential file the installs that
+        # do not use the Keychain keep (AGENTS.md rule 1), claude's own config,
+        # and its machine state. `.claude.json` is read in exactly one place, by
+        # the rule as amended (T745): `profile`, three fields, nothing else.
         return {".credentials.json", ".claude.json", "statsig", "backups"}
+
+    def profile(self, config_dir: Path) -> dict:
+        """The subscription's start and its rate-limit tiers, out of
+        `.claude.json`'s `oauthAccount`, and nothing else: the file also holds
+        the account's email and identifiers, which this function never returns,
+        keeps or logs. Each value is checked for the shape it must have, so a
+        field that held anything else is dropped rather than passed on. Read
+        again only when the file changes (it can be large)."""
+        path = config_dir / ".claude.json"
+        try:
+            st = path.stat()
+        except OSError:
+            return {}
+        stamp = (st.st_mtime_ns, st.st_size)
+        hit = _PROFILES.get(path)
+        if hit and hit[0] == stamp:
+            return dict(hit[1])
+        out: dict = {}
+        try:
+            oa = json.loads(path.read_text()).get("oauthAccount")
+            oa = oa if isinstance(oa, dict) else {}
+            started = oa.get("subscriptionCreatedAt")
+            out = {"subscription_started": _iso_epoch(started),
+                   "tiers": [t for t in (oa.get("userRateLimitTier"), oa.get("organizationRateLimitTier"))
+                             if isinstance(t, str) and _TIER.fullmatch(t)]}
+        except (OSError, ValueError, AttributeError):
+            out = {}
+        _PROFILES[path] = (stamp, out)
+        return dict(out)
 
     def memory_root(self, config_dir: Path) -> Path:
         return config_dir / "projects"

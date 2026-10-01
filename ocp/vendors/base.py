@@ -388,10 +388,18 @@ class Driver(Protocol):
     def never_touch(self) -> set[str]:
         """Names inside an account's config dir ocp never creates, links,
         reads or copies - the vendor's own credential and machine state. The
-        one exception, AGENTS.md rule 1 as amended (#2010): a driver's meter
+        exceptions, AGENTS.md rule 1 as amended (#2010, T745): a driver's meter
         path may read the account's credential in memory for its one usage
-        request, and the secret must reach no agent - not in an agent's env,
-        prompt, terminal, logs, db, or any file ocp writes."""
+        request, and `profile` may read the vendor's config for the three
+        plan fields it names; no secret reaches an agent - not in an agent's
+        env, prompt, terminal, logs, db, or any file ocp writes."""
+
+    def profile(self, config_dir: Path) -> dict:
+        """What the vendor's local profile says about the plan, and only that:
+        {"subscription_started": epoch seconds or None, "tiers": [strings]}.
+        An allowlist reader - it returns nothing else from the file, so nothing
+        else can leak - and {} where it cannot be read. {} too for a vendor
+        that keeps no such record."""
 
     def memory_root(self, config_dir: Path) -> Path | None:
         """The folder holding one directory per repo, each with a memory/ and

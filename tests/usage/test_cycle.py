@@ -308,7 +308,7 @@ def test_account_cycle_command(home: Path) -> None:
 
     check("cycle cli: shows off", run_cli() == (0, "a: not on one-month subscriptions\n"))
     rc, out = run_cli("on")
-    check("cycle cli: on without a date says so", rc == 0 and "no end date set" in out, out)
+    check("cycle cli: on without a date says so", rc == 0 and "no end date known" in out, out)
     rc, out = run_cli(end="2026-10-22")
     check("cycle cli: a date alone turns it on", rc == 0 and "last day 2026-10-22" in out
           and cycle.enabled("a"), out)
@@ -327,6 +327,121 @@ def test_account_cycle_command(home: Path) -> None:
           and not cycle.enabled("a"), out)
 
 
+def write_profile(acct: str, oauth: dict | None = None, raw: str | None = None, **top) -> Path:
+    cdir = vendors.config_dir(acct)
+    cdir.mkdir(parents=True, exist_ok=True)
+    f = cdir / ".claude.json"
+    f.write_text(raw if raw is not None else json.dumps({"oauthAccount": oauth or {}, **top}))
+    return f
+
+
+CANARIES = ("SECRET-TOP", "me@example.com", "sk-ant-oat01-SECRETTOKEN", "ACCT-UUID-1234", "ORG-UUID-5678")
+
+
+def test_the_profile_reader_returns_the_three_fields_and_nothing_else(home: Path) -> None:
+    use_home(home)
+    import contextlib
+    import io
+    drv = vendors.for_account("a")
+    oauth = {"subscriptionCreatedAt": "2026-09-21T12:00:00.000000Z", "userRateLimitTier": "default_claude_max_5x",
+             "organizationRateLimitTier": "default_claude_ai", "emailAddress": "me@example.com",
+             "accountUuid": "ACCT-UUID-1234", "organizationUuid": "ORG-UUID-5678",
+             "accessToken": "sk-ant-oat01-SECRETTOKEN", "billingType": "stripe_subscription"}
+    f = write_profile("a", oauth, secret="SECRET-TOP")
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        got = drv.profile(vendors.config_dir("a"))
+    check("profile: only the start and the tiers come back", set(got) == {"subscription_started", "tiers"}, str(got))
+    check("profile: the start is the instant, the tiers are both strings",
+          got["subscription_started"] == dt.datetime(2026, 9, 21, 12, tzinfo=dt.timezone.utc).timestamp()
+          and got["tiers"] == ["default_claude_max_5x", "default_claude_ai"], str(got))
+    check("profile: nothing else from the file is in what it returns, prints or logs",
+          not any(c in repr(got) + out.getvalue() + err.getvalue() for c in CANARIES), repr(got))
+
+    # A field that held anything but its own shape is dropped, never passed on.
+    f.write_text(json.dumps({"oauthAccount": {
+        "subscriptionCreatedAt": "sk-ant-oat01-SECRETTOKEN", "userRateLimitTier": "sk-ant-oat01-SECRETTOKEN",
+        "organizationRateLimitTier": "ORG-UUID-5678"}}))
+    got = drv.profile(vendors.config_dir("a"))
+    check("profile: a value of the wrong shape is dropped, not forwarded",
+          got == {"subscription_started": None, "tiers": []}, str(got))
+    f.write_text(json.dumps({"oauthAccount": {"userRateLimitTier": "x" * 65, "subscriptionCreatedAt": 12345}}))
+    got = drv.profile(vendors.config_dir("a"))
+    check("profile: a tier over 64 characters and a non-text date are dropped",
+          got == {"subscription_started": None, "tiers": []}, str(got))
+    for name, raw in (("not json", "{not json SECRET-TOP"), ("a list", "[]"), ("no account", '{"x": 1}')):
+        f.write_text(raw)
+        got = drv.profile(vendors.config_dir("a"))
+        check(f"profile: {name} reads as no profile, without raising",
+              got in ({}, {"subscription_started": None, "tiers": []}) and "SECRET" not in repr(got), str(got))
+    f.unlink()
+    check("profile: no file is {}", drv.profile(vendors.config_dir("a")) == {})
+    f2 = write_profile("a", {"subscriptionCreatedAt": "2026-01-02T00:00:00Z"})
+    first = drv.profile(vendors.config_dir("a"))
+    f2.write_text(json.dumps({"oauthAccount": {"subscriptionCreatedAt": "2026-03-04T00:00:00Z", "x": "padding"}}))
+    check("profile: a changed file is read again",
+          drv.profile(vendors.config_dir("a"))["subscription_started"] != first["subscription_started"])
+    check("profile: the file is still never linked, copied or created",
+          ".claude.json" in drv.never_touch() and ".credentials.json" in drv.never_touch())
+
+
+def test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(home: Path) -> None:
+    use_home(home)
+
+    def plan(recorded, *tiers) -> str | None:
+        d = paths.account_dir("a")
+        d.mkdir(parents=True, exist_ok=True)
+        if recorded:
+            (d / "subscription.json").write_text(json.dumps({"subscriptionType": recorded}))
+        elif (d / "subscription.json").exists():
+            (d / "subscription.json").unlink()
+        write_profile("a", {"userRateLimitTier": tiers[0] if tiers else None,
+                            "organizationRateLimitTier": tiers[1] if len(tiers) > 1 else None})
+        return accounts.plan_key("a")
+
+    check("plan_key: Pro stays pro whatever the tier", plan("pro", "default_claude_ai") == "pro")
+    check("plan_key: Max with a 5x tier is max_5x", plan("max", "default_claude_max_5x") == "max_5x")
+    check("plan_key: Max with a 20x tier is max_20x, from either field",
+          plan("max", "default_claude_ai", "default_claude_max_20x") == "max_20x")
+    check("plan_key: Max with a multiple we do not know stays plain max", plan("max", "default_claude_max_7x") == "max")
+    check("plan_key: Max with no tier stays plain max", plan("max") == "max")
+    check("plan_key: Max with two different multiples is not guessed", plan("max", "default_claude_max_5x", "default_claude_max_20x") == "max")
+    check("plan_key: a max tier on a plan recorded as pro does not change it", plan("pro", "default_claude_max_5x") == "pro")
+    check("plan_key: nothing recorded is None", plan(None, "default_claude_max_5x") is None)
+    write_profile("a", {"userRateLimitTier": "default_claude_max_20x"})
+    (paths.account_dir("a") / "subscription.json").write_text(json.dumps({"subscriptionType": "max"}))
+    check("plan_key: a plan changed in the profile shows on the next read", accounts.plan_key("a") == "max_20x")
+    write_profile("a", {"userRateLimitTier": "default_claude_max_5x"})
+    check("plan_key: and back", accounts.plan_key("a") == "max_5x")
+
+
+def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -> None:
+    use_home(home)
+    check("add_month: the day is kept", cycle.add_month(dt.date(2026, 9, 21)) == dt.date(2026, 10, 21))
+    check("add_month: the year turns", cycle.add_month(dt.date(2026, 12, 15)) == dt.date(2027, 1, 15))
+    check("add_month: a short month clamps", cycle.add_month(dt.date(2026, 1, 31)) == dt.date(2026, 2, 28)
+          and cycle.add_month(dt.date(2028, 1, 31)) == dt.date(2028, 2, 29))
+    write_profile("a", {"subscriptionCreatedAt": "2026-09-21T12:00:00Z"})
+    start = dt.datetime.fromtimestamp(dt.datetime(2026, 9, 21, 12, tzinfo=dt.timezone.utc).timestamp()).date()
+    write_cfg("")
+    check("default end: off the cycle there is no end, whatever the profile says", cycle.end_date("a") is None)
+    write_cfg("month_cycle_a: true\n")
+    check("default end: on the cycle it is the start plus a month", cycle.end_date("a") == cycle.add_month(start)
+          and cycle.end_is_default("a"), str(cycle.end_date("a")))
+    write_cfg('month_cycle_a: true\nsub_end_a: "2026-12-24"\n')
+    check("default end: a typed date wins", cycle.end_date("a") == dt.date(2026, 12, 24) and not cycle.end_is_default("a"))
+    write_cfg("month_cycle_a: true\nsub_end_a: not-a-date\n")
+    check("default end: a typo is no end, not the default", cycle.end_date("a") is None)
+    write_profile("a", raw="not json")
+    write_cfg("month_cycle_a: true\n")
+    check("default end: a profile that cannot be read is no end", cycle.end_date("a") is None)
+    write_profile("a", {"subscriptionCreatedAt": "2024-08-31T06:00:00Z"})
+    check("default end: an old start reads as ended once turned on (the override is how it is kept)",
+          cycle.ended_why("a", time.time()) is not None)
+    write_cfg("")
+    check("default end: and not before it is turned on", cycle.ended_why("a", time.time()) is None)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_cycle_settings_read_and_default_to_off(Path(td) / 'c1'))
@@ -339,6 +454,9 @@ def main() -> int:
         run(lambda: test_a_plan_question_that_fails_is_logged_not_swallowed(Path(td) / 'c10'))
         run(lambda: test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(Path(td) / 'c9'))
         run(lambda: test_account_cycle_command(Path(td) / 'c8'))
+        run(lambda: test_the_profile_reader_returns_the_three_fields_and_nothing_else(Path(td) / 'c11'))
+        run(lambda: test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(Path(td) / 'c12'))
+        run(lambda: test_the_default_end_is_a_month_after_the_subscription_started(Path(td) / 'c13'))
     return run_area(tests)
 
 

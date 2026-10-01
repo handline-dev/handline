@@ -11,6 +11,7 @@ All we do is create the directory and symlink the shared settings.
 from __future__ import annotations
 
 import json
+import re
 import filecmp
 import os
 import shutil
@@ -289,6 +290,25 @@ def recorded_subscription_type(acct: str) -> str | None:
     except (OSError, json.JSONDecodeError):
         return None
     return str(cached) if cached else None
+
+
+_MAX_TIER = re.compile(r"max_(5|20)x")
+
+
+def plan_key(acct: str) -> str | None:
+    """The plan weekly figures are pooled by: the recorded plan, and for Max the
+    tier from the local profile ("max_5x", "max_20x"), read each time. A tier the
+    two known multiples do not match, or that sits on any other plan, leaves the
+    plan as recorded: an unknown tier is never guessed into a multiple."""
+    plan = recorded_subscription_type(acct)
+    if plan != "max":
+        return plan
+    try:
+        tiers = vendors.for_account(acct).profile(vendors.config_dir(acct)).get("tiers", [])
+    except (vendors.UnknownVendor, OSError):
+        return plan
+    found = {m.group(0) for t in tiers if (m := _MAX_TIER.search(t))}
+    return found.pop() if len(found) == 1 else plan
 
 
 def subscription_type(acct: str, refresh: bool = False) -> str | None:
