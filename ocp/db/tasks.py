@@ -230,7 +230,7 @@ def task_body_edits(con, tid: int) -> list[dict]:
 
 
 def task_handoffs(con, tid: int) -> list[dict]:
-    """T<tid>'s handoffs in the order they happened: {ts, from, to, note, verdict}
+    """T<tid>'s handoffs in the order they happened: {ts, from, to, note, request (the request that carried it, when recorded), verdict}
     (a verdict only on a handoff made before verdicts were removed), and `at`, the moment to
     the fraction of a second (`ts` for one made before it was recorded). What the task's page shows."""
     out = []
@@ -238,7 +238,7 @@ def task_handoffs(con, tid: int) -> list[dict]:
                          f"AND {EVENT_TASK} = ? ORDER BY id", (tid,)):
         p = json.loads(r["payload"])
         out.append({"ts": r["ts"], "from": p.get("from"), "to": p.get("to"), "note": p.get("note", ""),
-                    "at": p.get("at", r["ts"]), "verdict": p.get("verdict")})
+                    "at": p.get("at", r["ts"]), "verdict": p.get("verdict"), "request": p.get("request_id")})
     return out
 
 

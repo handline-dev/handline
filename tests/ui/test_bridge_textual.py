@@ -252,13 +252,15 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
     from ocp.ui import chat_page as cp
     d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
          "parent": (9, "up"), "done": None, "discarded": None, "merged_into": None, "asker": "o",
-         "children": [(2, "kid", "waiting")], "requests": [(3, "a", "b", "queued", "line")],
-         "timeline": [{"ts": 1, "who": "o", "kind": "memo", "text": "a memo\nsecond line", "memo": 1, "edited_at": 2}]}
+         "children": [(2, "kid", "waiting")],
+         "timeline": [{"ts": 1, "who": "o", "kind": "memo", "text": "a memo\nsecond line", "memo": 1, "edited_at": 2},
+                      {"ts": 2, "who": "a → b", "kind": "request", "text": "#3  queued  line", "memo": None, "edited_at": None}]}
     page = cp.task_page(d)
     check("page: the badge and the parent and the sub-tasks say T<n>",
           "T1" in page["badge"].plain and "T9" in page["meta"].plain
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
-    check("page: a request under it is still a bare #<n>", page["reqs"][0].plain.startswith("#3"))
+    check("page: a request is a timeline entry, a bare #<n>", "request  #3  queued  line" in page["timeline"][1].plain
+          and "reqs" not in page)
     line = page["timeline"][0].plain
     check("page: a timeline entry is its first line, then the rest of its text, and when it was edited",
           " o  memo  a memo" in line and line.split("\n")[1:] == ["    second line  · edited 1970-01-01 09:00"], line)
@@ -1057,10 +1059,10 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
     head, body, note = cp.message_parts(m)
     d = {"id": 1, "title": evil, "state": "doing", "owner": evil, "opened_by": evil, "created_at": 1,
          "parent": (9, evil), "done": (evil, 1), "discarded": (evil, evil, 1), "merged_into": None, "asker": evil,
-         "children": [(2, evil, "waiting")], "requests": [(3, evil, evil, "queued", evil)],
+         "children": [(2, evil, "waiting")],
          "timeline": [{"ts": 1, "who": evil, "kind": "note", "text": evil, "memo": None, "edited_at": 2}]}
     page = cp.task_page(d)
-    texts = [head, body, *page["kids"], *page["reqs"], *page["timeline"], page["title"], page["meta"],
+    texts = [head, body, *page["kids"], *page["timeline"], page["title"], page["meta"],
              cp.agent_badge("FATAL", evil)]
     suggestions = (cp.suggest("/task ", [(1, "owns", "waiting", evil, evil, 1)], [])
                    + cp.suggest("#", [(1, "owns", "waiting", evil, evil, 1)], [(2, evil, evil)]))
@@ -1807,6 +1809,66 @@ async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> 
               str(d.options))
 
 
+async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
+    """T703: the page's edit-text button rewrites the brief its opener sent, the change is on the
+    timeline, and a refusal (nothing changed, nothing written) is shown, not swallowed."""
+    from textual.widgets import Button
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("editbrief")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
+        check("edit text: a task's brief is the text its opener sent", actions.task_brief(con, tid).endswith("the work and its done"))
+        older = db.add_request(con, "reviewer", actions.HUMAN, "someone's older ask", None, None, "fire_and_forget", "say", 0, None)
+        ok, _, linked = actions.task_new(actions.HUMAN, "reviewer", "Linked", "the opener's own brief")
+        db.link_request(con, linked, older)
+        con.commit()
+        check("edit text: the page draws the brief the edit changes, not an older request linked later",
+              cp.task_detail(con, linked)["brief"] == "the opener's own brief", str(cp.task_detail(con, linked)["brief"]))
+        actions.edit_task(con, linked, actions.HUMAN, body="Linked\nrewritten")
+        check("edit text: and after the edit the page shows it", cp.task_detail(con, linked)["brief"] == "rewritten",
+              str(cp.task_detail(con, linked)["brief"]))
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause()
+        body = app.screen.query_one(cp.TaskBody)
+        button = body.query_one("#t_brief_edit", Button)
+        check("edit text: the page offers it", button.display)
+        seen: list = []
+        body.notify = lambda said, **kw: seen.append((said, kw.get("severity")))
+        await pilot.click("#t_brief_edit")
+        await pilot.pause()
+        box = app.screen.query_one("#box")
+        check("edit text: the prompt opens on the whole text", "the work and its done" in box.text)
+        box.text = "the work, reworded"
+        await pilot.press("enter")
+        await pilot.pause()
+        con = db.connect()
+        try:
+            check("edit text: the brief is rewritten", actions.task_brief(con, tid) == "the work, reworded", str(actions.task_brief(con, tid)))
+            check("edit text: and the timeline says so", [e["text"] for e in actions.task_timeline(con, tid) if e["kind"] == "edit"] == ["the work, reworded"])
+        finally:
+            con.close()
+        await pilot.click("#t_brief_edit")
+        await pilot.pause()
+        await pilot.press("enter")          # the same text again
+        await pilot.pause()
+        check("edit text: nothing changed is refused and the refusal is shown",
+              seen and seen[-1][1] == "error" and "nothing to edit" in seen[-1][0], str(seen))
+        await pilot.click("#t_brief_edit")
+        await pilot.pause()
+        app.screen.query_one("#box").text = "  "
+        await pilot.press("enter")
+        await pilot.pause()
+        check("edit text: a blank text is refused and shown", seen[-1][1] == "error" and "needs a body" in seen[-1][0], str(seen))
+
+
 async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
     """T525: a memo or a handoff made while the page is open appears on the next poll."""
     from ocp.ui import chat_page as cp
@@ -1837,7 +1899,7 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
         cp.TaskBody.POLL_S = 2
         body._poller.stop()     # what follows calls poll() by hand
         check("task page: its own timer draws a memo an agent added while it was open",
-              [e["text"] for e in body.d["timeline"]] == ["posted while it was open"], str(body.d["timeline"]))
+              [e["text"] for e in body.d["timeline"] if e["kind"] == "memo"] == ["posted while it was open"], str(body.d["timeline"]))
         loads = []
         real = body.load
         body.load = lambda: (loads.append(1), real())[1]
@@ -1851,7 +1913,7 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
         body.poll()
         await pilot.pause()
         check("task page: a memo added meanwhile is drawn on the next poll",
-              [e["text"] for e in body.d["timeline"]] == ["posted while it was open", "found the cause"]
+              [e["text"] for e in body.d["timeline"] if e["kind"] == "memo"] == ["posted while it was open", "found the cause"]
               and len(loads) == 1, str(body.d["timeline"]))
         body.poll()
         check("task page: and the poll after that leaves it alone again", len(loads) == 1)
@@ -1930,10 +1992,10 @@ def test_assign_offers_recent_targets_then_the_holders_team() -> None:
         check("assign to: nobody was handed anything yet", actions.recent_assignees(con) == [])
         ok, _, t1 = actions.task_new("product", "backend", "One", "the work and its done")
         ok, _, t2 = actions.task_new("product", "backend", "Two", "the work and its done")
-        said = [actions.assign_task(con, t1, "archivist", "handoff", "you take it"),
-                actions.assign_task(con, t2, "archivist", "handoff", "you take it"),
-                actions.assign_task(con, t2, "reviewer", "handoff", "you review it"),
-                actions.assign_task(con, t2, "archivist", "handoff", "back")]
+        said = [actions.assign_task(con, t1, "archivist", "you take it"),
+                actions.assign_task(con, t2, "archivist", "you take it"),
+                actions.assign_task(con, t2, "reviewer", "you review it"),
+                actions.assign_task(con, t2, "archivist", "back")]
         check("assign to: the handoffs used here went through", all(ok for ok, _ in said), str(said))
         check("assign to: the founder's handoffs, newest first, each target once",
               actions.recent_assignees(con) == ["archivist", "reviewer"], str(actions.recent_assignees(con)))
@@ -1978,6 +2040,20 @@ def test_schedules_are_built_read_and_written_through_actions() -> None:
         check("schedule: a bad cron is refused", False)
     except ValueError:
         check("schedule: a bad cron is refused", len(actions.schedule_rows("backend")) == 1)
+    actions.schedule_edit("backend", 1, "15 8 * * *", "  new   words ")
+    check("schedule: an edited one keeps its place with the new cron and message",
+          [(r["cron"], r["message"]) for r in actions.schedule_rows("backend")] == [("15 8 * * *", "new words")])
+    for bad in (("backend", 2, "15 8 * * *", "x"), ("backend", 1, "not a cron", "x"), ("backend", 1, "15 8 * * *", " ")):
+        try:
+            actions.schedule_edit(*bad)
+            check(f"schedule: editing with {bad[1:]} is refused", False)
+        except ValueError:
+            check(f"schedule: editing with {bad[1:]} is refused",
+                  [r["message"] for r in actions.schedule_rows("backend")] == ["new words"])
+    check("schedule: a cron the form makes maps back to its fields, any other to None",
+          actions.schedule_fields("5 18 * * 1") == {"kind": "every week", "day": 1, "hour": "18", "minute": "5"}
+          and actions.schedule_fields("*/10 * * * *") == {"kind": "every N minutes", "every": "10"}
+          and actions.schedule_fields("0 0 1 * *") is None)
     actions.schedule_remove("backend", 1)
     check("schedule: a removed one is gone", actions.schedule_rows("backend") == [])
 
@@ -1989,13 +2065,9 @@ def test_assign_answers_from_the_task_page() -> None:
     try:
         ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
         check("assign: a task to answer", ok)
-        check("assign: an unknown way is refused", not actions.assign_task(con, tid, "reviewer", "shout", "x")[0])
-        check("assign: a blank note is refused", not actions.assign_task(con, tid, "reviewer", "note", " ")[0])
-        ok, said = actions.assign_task(con, tid, "reviewer", "note", "use branch Y")
-        check("assign: a note reaches the holder and it keeps the task", ok and db.get_task(con, tid)["owner"] == "reviewer", said)
         ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
-        check("assign: a handoff needs its text", not actions.assign_task(con, other, "reviewer", "handoff", "")[0])
-        ok, said = actions.assign_task(con, other, "reviewer", "handoff", "you take it")
+        check("assign: a handoff needs its text", not actions.assign_task(con, other, "reviewer", "")[0])
+        ok, said = actions.assign_task(con, other, "reviewer", "you take it")
         check("assign: a handoff moves the task to the one chosen", ok and db.get_task(con, other)["owner"] == "reviewer", said)
     finally:
         con.close()
@@ -2008,22 +2080,23 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
     try:
         ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
         actions.memo_add(con, tid, "reviewer", "first")
-        actions.assign_task(con, tid, "reviewer", "note", "a note")
+        actions.task_note(con, actions.HUMAN, tid, "a note")
         ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
-        actions.assign_task(con, other, "reviewer", "handoff", "you take it")
+        actions.assign_task(con, other, "reviewer", "you take it")
         tl = actions.task_timeline(con, tid)
-        check("timeline: a memo and a sent note (itself a memo) show once each, in order",
-              [(e["kind"], e["text"]) for e in tl] == [("memo", "first"), ("memo", "a note")]
-              and all(e["memo"] for e in tl), str(tl))
-        check("timeline: a handoff shows from and to",
-              [(e["kind"], e["who"]) for e in actions.task_timeline(con, other)] == [("handoff", "backend → reviewer")],
+        check("timeline: the request that opened the task, a memo and a sent note (itself a memo) show once each, in order",
+              [e["kind"] for e in tl] == ["request", "memo", "memo"] and [e["text"] for e in tl[1:]] == ["first", "a note"]
+              and tl[0]["text"].startswith("#") and all(e["memo"] for e in tl[1:]), str(tl))
+        check("timeline: a handoff shows from and to, and its request is not a second entry",
+              [(e["kind"], e["who"]) for e in actions.task_timeline(con, other) if e["kind"] != "request"] == [("handoff", "backend → reviewer")]
+              and [e["kind"] for e in actions.task_timeline(con, other)].count("request") == 1,
               str(actions.task_timeline(con, other)))
         actions.memo_add(con, other, "reviewer", "after the handoff")
         ok, _, third = actions.task_new("product", "backend", "Third", "the work and its done")
         actions.memo_add(con, third, "product", "before the handoff")
-        actions.assign_task(con, third, "reviewer", "handoff", "you take it")
+        actions.assign_task(con, third, "reviewer", "you take it")
         actions.memo_add(con, third, "reviewer", "after the handoff")
-        kinds = lambda t: [(e["kind"], e["text"]) for e in actions.task_timeline(con, t)]
+        kinds = lambda t: [(e["kind"], e["text"]) for e in actions.task_timeline(con, t) if e["kind"] != "request"]
         check("timeline T524: a memo made after a handoff in the same second sits after it, not before",
               [k for k, _ in kinds(other)] == ["handoff", "memo"], str(kinds(other)))
         check("timeline T524: memo, handoff, memo in one second keep the order they happened in",
@@ -2375,6 +2448,39 @@ async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pr
         await pilot.pause()
         check("schedules ui: Add dismisses with the cron built from the fields and a one-line message",
               got == [("5 18 * * 1", "weekly note")], str(got))
+        await pilot.click("#sc_ed_2")
+        await pilot.pause()
+        form = app.screen
+        check("schedules ui: editing opens the form on that schedule",
+              isinstance(form, ScheduleAdd) and form.query_one("#sa_kind", Select).value == "weekdays"
+              and form.query_one("#sa_hour", ImeInput).value == "18" and form.query_one("#sa_minute", ImeInput).value == "30"
+              and form.query_one("#sa_message", ImeInput).value == "second one")
+        form.query_one("#sa_message", ImeInput).value = "second, reworded"
+        await pilot.click("#sa_add")
+        await pilot.pause()
+        check("schedules ui: Save changes that schedule only, on disk and on screen",
+              [(r["cron"], r["message"]) for r in actions.schedule_rows("backend")]
+              == [("0 9 * * *", "first one"), ("30 18 * * 1-5", "second, reworded")]
+              and "second, reworded" in screen_text(), str(actions.schedule_rows("backend")))
+        actions.schedule_add("backend", "0 9-17 * * 1-5", "hourly in office hours")
+        section = app.screen_stack[0].query_one(SchedulesSection)
+        section.load()
+        await pilot.pause()
+        await pilot.click("#sc_ed_3")
+        await pilot.pause()
+        form = app.screen
+        check("schedules ui: a time the form cannot build is offered as kept, as it is",
+              isinstance(form, ScheduleAdd) and form.query_one("#sa_kind", Select).value == "custom"
+              and not form.query_one("#sa_time_row").display)
+        form.query_one("#sa_message", ImeInput).value = "office hours, reworded"
+        await pilot.click("#sa_add")
+        await pilot.pause()
+        check("schedules ui: editing only the message of such a schedule keeps its cron",
+              [(r["cron"], r["message"]) for r in actions.schedule_rows("backend")][2:]
+              == [("0 9-17 * * 1-5", "office hours, reworded")], str(actions.schedule_rows("backend")))
+        actions.schedule_remove("backend", 3)
+        section.load()
+        await pilot.pause()
         await pilot.click("#sc_rm_2")
         await pilot.pause()
         await pilot.click("#yes")
@@ -2382,7 +2488,7 @@ async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pr
         left = actions.schedule_rows("backend")
         check("schedules ui: the row pressed is the one removed, on disk and on screen",
               [r["message"] for r in left] == ["first one"] and "first one" in screen_text()
-              and "second one" not in screen_text(), str(left))
+              and "second, reworded" not in screen_text(), str(left))
 
 
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
@@ -2618,6 +2724,7 @@ async def _run_all() -> None:
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
+    await test_the_task_page_edits_the_task_text_and_shows_a_refusal()
     await test_an_open_task_page_shows_what_an_agent_adds_without_reopening()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()

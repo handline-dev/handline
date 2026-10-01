@@ -83,6 +83,18 @@ def test_the_schedules_setting_is_validated_and_set_from_the_command_line(home: 
     check("cli: a bad expression is refused and nothing is written", rc == 1 and len(schedules.of("backend")) == 1, out)
     rc, out = _cli(["schedule", "list"], as_agent=None)
     check("cli: list names every agent that has one", rc == 0 and "backend 1." in out, out)
+    rc, out = _cli(["schedule", "edit", "--agent", "backend", "--index", "1", "--cron", "0 9 * * 1-5", "--message", "new words"],
+                   as_agent=None)
+    check("cli: edit replaces that one and shows it", rc == 0 and "1. 0 9 * * 1-5" in out and schedules.of("backend")
+          == [{"cron": "0 9 * * 1-5", "message": "new words"}], out)
+    for label, argv in (("a bad --index", ["--index", "2", "--cron", "0 9 * * *", "--message", "x"]),
+                        ("a bad cron", ["--index", "1", "--cron", "nope", "--message", "x"]),
+                        ("no --cron", ["--index", "1", "--message", "x"]),
+                        ("no --message", ["--index", "1", "--cron", "0 9 * * *"]),
+                        ("no --index", ["--cron", "0 9 * * *", "--message", "x"])):
+        rc, out = _cli(["schedule", "edit", "--agent", "backend", *argv], as_agent=None)
+        check(f"cli: edit with {label} is refused and nothing changes", rc == 1 and schedules.of("backend")
+              == [{"cron": "0 9 * * 1-5", "message": "new words"}], out)
     rc, out = _cli(["schedule", "remove", "--agent", "backend", "--index", "1"], as_agent=None)
     check("cli: remove drops it", rc == 0 and schedules.of("backend") == [], out)
 
@@ -191,6 +203,8 @@ def test_a_removed_schedule_added_back_is_new_and_a_bad_value_is_said(home: Path
         check("bad value: list says so, not 'no schedules'", rc == 1 and "not JSON" in out, out)
         rc, out = _cli(["schedule", "add", "--agent", "backend", "--cron", "0 * * * *", "--message", "x"], as_agent=None)
         check("bad value: add refuses to replace it silently", rc == 1 and agents.read("backend")["schedules"] == "not json", out)
+        rc, out = _cli(["schedule", "edit", "--agent", "backend", "--index", "1", "--cron", "0 * * * *", "--message", "x"], as_agent=None)
+        check("bad value: edit refuses to replace it silently", rc == 1 and agents.read("backend")["schedules"] == "not json", out)
         check("bad value: the sweep just leaves it alone", schedules.of("backend") == [])
     finally:
         con.close()

@@ -9,13 +9,10 @@ from textual.widgets import Button, Select, Static, TextArea
 
 from ... import actions
 
-_HOWS = (("send a note to whoever holds it", "note"), ("hand it to another agent", "handoff"))
 
-
-class TaskAssign(ModalScreen["tuple[str, str, str] | None"]):
-    """The founder answering from a task's page: a note to its holder, or a handoff to another
-    agent with the note. The agent is asked for only when handing it on. Dismisses with
-    (how, to, text), or None."""
+class TaskAssign(ModalScreen["tuple[str, str] | None"]):
+    """The founder handing a task on from its page: the agent and the note that goes with it.
+    Dismisses with (to, text), or None."""
 
     BINDINGS = [Binding("escape", "dismiss(None)", "cancel")]
     DEFAULT_CSS = """
@@ -42,9 +39,6 @@ class TaskAssign(ModalScreen["tuple[str, str, str] | None"]):
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
             yield Static(Text(f"Assign {self.ref}", style="bold"), id="title")
-            with Horizontal(classes="frow"):
-                yield Static("how", classes="flabel")
-                yield Select(_HOWS, id="ta_how", allow_blank=False, compact=True, value="note")
             with Horizontal(classes="frow", id="ta_to_row"):
                 yield Static("to", classes="flabel")
                 yield Select(self.options, id="ta_to", allow_blank=False, compact=True,
@@ -55,20 +49,11 @@ class TaskAssign(ModalScreen["tuple[str, str, str] | None"]):
                 yield Button("Cancel", id="ta_cancel", compact=True)
 
     def on_mount(self) -> None:
-        self._show()
         self.query_one("#ta_text").focus()
 
-    def _show(self) -> None:
-        self.query_one("#ta_to_row").display = self.query_one("#ta_how", Select).value == "handoff"
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        event.stop()
-        self._show()
-
-    def result(self) -> "tuple[str, str, str]":
-        how = str(self.query_one("#ta_how", Select).value)
-        to = self.query_one("#ta_to", Select).value if how == "handoff" and self.others else self.holder
-        return how, str(to), self.query_one("#ta_text", TextArea).text
+    def result(self) -> "tuple[str, str]":
+        to = self.query_one("#ta_to", Select).value if self.others else self.holder
+        return str(to), self.query_one("#ta_text", TextArea).text
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
