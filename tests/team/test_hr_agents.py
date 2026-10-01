@@ -3008,6 +3008,10 @@ edges:
         ok, said = hr.apply(pid3, con)
         check("handoff: handed to an agent and 'approved' by it, with no answer of the founder's on record, nothing applies",
               not ok and "gamma3" not in paths.list_agents(), f"{said2} / {said}")
+        ok, said = hr.confirm_answer(pid3, con)
+        check("handoff: and recording the founder's answer from the db does not believe the agent",
+              not ok and hr.answer_of(con, hr.load_proposal(pid3))[0] == "discarded"
+              and "gamma3" not in paths.list_agents(), said)
 
         pid4, rid4, tid4 = raise_one("delta4")
         ok, said = askmod.resolve(rid4, "reject - not this one")
@@ -3020,6 +3024,20 @@ edges:
         answer_card(con, rid4, "approve")           # the answer flipped afterwards, with no new record
         ok, said = hr.apply(pid4, con)
         check("reject: a flipped answer does not undo it", not ok and "delta4" not in paths.list_agents(), said)
+
+        pid6, rid6, tid6 = raise_one("zeta6")
+        ok, said = actions.mark_task_done(con, tid6, actions.HUMAN, reason="approve")      # the founder closes the task himself
+        ok1, said1 = hr.apply(pid6, con)
+        check("founder: his own close without a record applies nothing by itself", not ok1 and "zeta6" not in paths.list_agents(), said1)
+        ok2, said2 = hr.confirm_answer(pid6, con)
+        check("founder: `--confirm-answer` by him records and applies it, once", ok2 and "zeta6" in paths.list_agents()
+              and not hr.apply(pid6, con)[0], said2)
+
+        pid7, rid7, tid7 = raise_one("eta7")
+        answer_card(con, rid7, "approve")
+        con.execute("UPDATE tasks SET owner = 'hr' WHERE id = ?", (tid7,))          # closed by him, but no longer his task
+        ok, said = hr.confirm_answer(pid7, con)
+        check("founder: a task that is no longer his reads as handed back", not ok and "eta7" not in paths.list_agents(), said)
 
         pid5, rid5, tid5 = raise_one("eps5")
         old = hr.load_proposal(pid5)

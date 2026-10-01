@@ -421,7 +421,8 @@ def task_of(con, prop: dict) -> int | None:
 def answer_of(con, prop: dict) -> tuple[str, int | None, str | None]:
     """(state, task id, verdict) of the founder's answer to a proposal, read off its decision task:
     "none" (no task to read), "open" (not answered), "discarded" (the card was withdrawn, handed
-    back or thrown away: nothing was decided) or "answered" with the verdict he gave."""
+    back, thrown away or marked done by someone but the founder: nothing was decided) or
+    "answered" with the verdict he gave."""
     tid = task_of(con, prop)
     task = db.get_task(con, tid) if tid else None
     if task is None:
@@ -429,7 +430,16 @@ def answer_of(con, prop: dict) -> tuple[str, int | None, str | None]:
     if task["discarded_by"]:
         return "discarded", tid, None
     if task["done_evidence"]:
-        return "answered", tid, task["done_evidence"]
+        # Only the founder's own close is his answer: an agent that was handed the task and marked it
+        # done wrote evidence, not a decision, so it reads like a hand-back.
+        last = con.execute(
+            f"SELECT kind, agent FROM events WHERE {db.EVENT_TASK} = ? AND kind IN "
+            "('settle_decision_task', 'mark_task_done', 'reopen_task') ORDER BY id DESC LIMIT 1",
+            (tid,)).fetchone()
+        if task["owner"] == askmod.HUMAN and last is not None and (last["kind"] == "settle_decision_task"
+                                 or (last["kind"] == "mark_task_done" and last["agent"] == askmod.HUMAN)):
+            return "answered", tid, task["done_evidence"]
+        return "discarded", tid, None
     return "open", tid, None
 
 
