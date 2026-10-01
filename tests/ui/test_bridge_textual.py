@@ -254,16 +254,17 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
          "parent": (9, "up"), "done": None, "discarded": None, "merged_into": None, "asker": "o",
          "children": [(2, "kid", "waiting")],
          "timeline": [{"ts": 1, "who": "o", "kind": "memo", "text": "a memo\nsecond line", "memo": 1, "edited_at": 2},
-                      {"ts": 2, "who": "a → b", "kind": "request", "text": "#3  queued  line", "memo": None, "edited_at": None}]}
+                      {"ts": 2, "who": "a → b", "kind": "request", "text": "#3  queued  line", "memo": None, "edited_at": None,
+                       "ref": "#3", "state": "queued", "summary": "line"}]}
     page = cp.task_page(d)
     check("page: the badge and the parent and the sub-tasks say T<n>",
           "T1" in page["badge"].plain and "T9" in page["meta"].plain
           and page["kids"][0].plain.startswith("T2"), str((page["badge"].plain, page["meta"].plain)))
-    check("page: a request is a timeline entry, a bare #<n>", "request  #3  queued  line" in page["timeline"][1].plain
+    check("page: a request is a timeline entry, a bare #<n>", "↗ request  a → b  #3  queued  line" in page["timeline"][1].plain
           and "reqs" not in page)
     line = page["timeline"][0].plain
     check("page: a timeline entry is its first line, then the rest of its text, and when it was edited",
-          " o  memo  a memo" in line and line.split("\n")[1:] == ["    second line  · edited 1970-01-01 09:00"], line)
+          "✎ memo  o  a memo" in line and line.split("\n")[1:] == ["    second line  · edited 1970-01-01 09:00"], line)
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
@@ -423,8 +424,8 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
          "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3, "to": "reviewer"}
     t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
-    check("text: a task card is TASK T<n> : title, then what happened; who and when are above it, not in it",
-          t == ["TASK T418 : Fix it", "assigned to reviewer"], str(t))
+    check("text: a task card is NEW TASK T<n> : title, then what happened; who and when are above it, not in it",
+          t == ["NEW TASK T418 : Fix it", "assigned to reviewer"], str(t))
     reply = {**m, "kind": None, "tasks": [], "task_title": None, "task_state": None, "who": "you", "side": "you",
              "rid": 5934, "mid": 5934, "text": "반영됨?", "reply_to": 5928}
     check("text: a reply not picked is one line, the link and the text",
@@ -1031,17 +1032,17 @@ def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
     card = cp.message_parts({**m, "task_title": "T", "task_state": "queued"})[0].plain
     check("card: a task delivery keeps its kind and T number for the card, not the head", "T418" not in card)
     line = cp.card_lines({**m, "task_title": "Fix it", "change": "queued -> doing"}).plain
-    check("card: a change is a second line, the change alone, with no who or time in it",
-          line == "TASK T418 : Fix it\nqueued -> doing", line)
+    check("card: NEW TASK / CHANGED TASK lead the first line, the change is a second line with no who or time",
+          line == "CHANGED TASK T418 : Fix it\nqueued -> doing", line)
     new = {**m, "task_title": "Fix it", "to": "orcapipe.core"}
-    check("card: a new task says whom it was assigned to", cp.card_lines(new).plain.endswith("\nassigned to orcapipe.core"))
-    check("card: above it, who and when, and NEW for a delivery",
+    check("card: a new task is NEW TASK and says whom it was assigned to",
+          cp.card_lines(new).plain == "NEW TASK T418 : Fix it\nassigned to orcapipe.core", cp.card_lines(new).plain)
+    check("card: a handoff shows the text typed with it",
+          cp.card_lines({**m, "task_title": "Fix it", "change": "handed to a", "note": "take it, urgent"}).plain.endswith(
+              "\nhanded to a\ntake it, urgent"))
+    check("card: above it, who and when only; the founder is shown as you",
           cp.card_head({**new, "who": "a → b", "when": 100}).plain.split("  ")[0] == "a → b"
-          and cp.card_head({**new, "who": "a → b"}).plain.endswith("NEW"))
-    check("card: the founder is shown as you, as in a message head",
-          cp.card_head({**new, "who": actions.HUMAN, "change": "title changed"}).plain.startswith("you  "))
-    check("card: CHANGED for a change to a task",
-          cp.card_head({**new, "who": "reviewer", "change": "queued -> doing"}).plain.endswith("CHANGED"))
+          and cp.card_head({**new, "who": actions.HUMAN}).plain.startswith("you  "))
     check("head: a say carries no kind label, another kind still does",
           "say" not in cp.message_parts({**m, "kind": "say", "tasks": []})[0].plain
           and "ask" in cp.message_parts({**m, "kind": "ask"})[0].plain)
@@ -2013,6 +2014,21 @@ def test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole(
           many.split("\n")[1:] == ["    second line", "      third"] and many.split("\n")[0].endswith("first line"), many)
 
 
+def test_a_timeline_entry_shows_its_kind_after_the_time_with_an_icon_and_a_colour_of_its_own() -> None:
+    from ocp.ui import chat_page as cp
+    base = {"ts": 1_700_000_000, "who": "reviewer", "memo": None, "edited_at": None}
+    memo = cp.timeline_text({**base, "kind": "memo", "text": "a memo"})
+    req = cp.timeline_text({**base, "kind": "request", "text": "#7  queued  ask it", "ref": "#7", "state": "queued",
+                            "summary": "ask it"})
+    check("timeline: the kind follows the time, before who, an icon in front of it",
+          "✎ memo  reviewer  a memo" in memo.plain and "↗ request  reviewer  #7  queued  ask it" in req.plain,
+          memo.plain + " | " + req.plain)
+    colour = lambda t, word: next(str(sp.style) for sp in t.spans if t.plain[sp.start:sp.end].startswith(word))
+    check("timeline: a memo and a request differ in colour, and a request's state differs from its text",
+          colour(memo, "✎") != colour(req, "↗") and colour(memo, "a memo") != colour(req, "ask it")
+          and colour(req, "queued") not in (colour(req, "ask it"), colour(req, "#7")), "")
+
+
 def test_schedules_are_built_read_and_written_through_actions() -> None:
     _home("schedules")
     cron = actions.schedule_cron
@@ -2290,13 +2306,16 @@ def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
         msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
         for m in msgs:
             m["when"] = 100
-        changes = [c for c in cp.task_changes(con, msgs) if c["when"] >= 300]
+        changes = [c for c in cp.task_changes(con, msgs, "reviewer") if c["when"] >= 300]
     finally:
         con.close()
     got = [(c["who"], c["change"]) for c in changes]
     check("changes: each names who made it and says what changed, a handoff and an owner edit say to whom",
           got == [(actions.HUMAN, "title changed"), (actions.HUMAN, "priority P2 -> P1"),
                   ("reviewer", "handed to backend"), (actions.HUMAN, "assigned to reviewer")], str(got))
+    check("changes: the founder's is side you (his background), an agent's is not, and a handoff carries its text",
+          [c["side"] for c in changes] == ["you", "you", "agent", "you"]
+          and [c["note"] for c in changes] == ["", "", "yours now", ""], str(changes))
 
 
 def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
@@ -2344,8 +2363,8 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
         await pilot.pause()
         cards = [(w.query_one(".cardhead").content.plain, w.query_one(".cardbox").content.plain)
                  for w in page.query(cp.TaskChange)]
-        check("chat: a task's change is a card of its own, who and CHANGED above, the change inside",
-              len(cards) == 1 and "queued -> doing" in cards[0][1] and "CHANGED" in cards[0][0]
+        check("chat: a task's change is a card of its own, who above, CHANGED TASK and the change inside",
+              len(cards) == 1 and "queued -> doing" in cards[0][1] and cards[0][1].startswith("CHANGED TASK")
               and "reviewer" not in cards[0][1], str(cards))
 
 
@@ -2720,6 +2739,7 @@ async def _run_all() -> None:
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
     test_task_changes_are_set_among_the_messages_at_their_time()
+    test_a_timeline_entry_shows_its_kind_after_the_time_with_an_icon_and_a_colour_of_its_own()
     test_a_change_names_who_made_it_and_an_assignment_says_to_whom()
     test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event()
     test_a_reply_shows_a_link_to_what_it_answers()

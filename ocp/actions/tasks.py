@@ -1287,7 +1287,8 @@ def task_timeline(con, tid: int) -> list[dict]:
         if r["id"] not in carried:
             first = (r["body"] or "").strip().splitlines()
             out.append({"ts": r["ts"], "at": r["ts"], "who": f"{r['requester']} → {r['target']}", "kind": "request",
-                        "text": f"#{r['id']}  {r['state']}  {first[0] if first else ''}", "memo": None, "edited_at": None})
+                        "text": f"#{r['id']}  {r['state']}  {first[0] if first else ''}", "memo": None, "edited_at": None,
+                        "ref": f"#{r['id']}", "state": r["state"], "summary": first[0] if first else ""})
     for e in db.task_body_edits(con, tid):
         out.append({"ts": int(e["ts"]), "at": e["ts"], "who": e["by"], "kind": "edit", "text": e["new"],
                     "memo": None, "edited_at": None})

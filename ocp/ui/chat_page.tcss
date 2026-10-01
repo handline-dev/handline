@@ -21,6 +21,7 @@ ChatPage { overflow: hidden; }
     .msg.replying { border-left: thick $warning; }
     .msg.flash { background: $warning 25%; }
     .msg.card { padding: 0; }
+    .msg.them .cardhead { color: $success; }
     .msg.card .cardbox { border: round $primary; padding: 0 1; }
 
     #detail_pane { padding: 1 3; }

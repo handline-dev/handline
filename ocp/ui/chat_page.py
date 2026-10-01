@@ -141,9 +141,10 @@ def _edit_notes(payload: dict) -> list[str]:
     return notes
 
 
-def task_changes(con, msgs: list[dict]) -> list[dict]:
+def task_changes(con, msgs: list[dict], agent: str = "") -> list[dict]:
     """The changes, since the first of `msgs`, of the tasks delivered in them, as entries for the
-    chat: {change: "queued -> doing", who, tasks, task_title, when}. A task starts as queued."""
+    chat: {change: "queued -> doing", who, side (as a message's, from `agent`'s page), note (the text
+    typed with a handoff), tasks, task_title, when}. A task starts as queued."""
     cards = {m["tasks"][0]: m["task_title"] for m in msgs if is_card(m)}
     if not cards:
         return []
@@ -154,20 +155,21 @@ def task_changes(con, msgs: list[dict]) -> list[dict]:
         f"SELECT ts, agent, kind, payload, {db.EVENT_TASK} AS tid FROM events "
         f"WHERE kind IN ({','.join('?' * len(kinds))}) "
         f"AND {db.EVENT_TASK} IN ({marks}) ORDER BY id", (*kinds, *cards)).fetchall()
-    steps = []      # (time, task, who, the state it reaches or None, what to say instead)
+    steps = []      # (time, task, who, the state it reaches or None, what to say instead, the note with it)
     for e in events:
         if e["kind"] in _STATE_AFTER:
-            steps.append((e["ts"], e["tid"], e["agent"], _STATE_AFTER[e["kind"]], None))
+            steps.append((e["ts"], e["tid"], e["agent"], _STATE_AFTER[e["kind"]], None, ""))
             continue
         payload = json.loads(e["payload"])
         notes = [f"handed to {payload['to']}"] if e["kind"] == "task_handoff" else _edit_notes(payload)
-        steps += [(e["ts"], e["tid"], e["agent"], None, note) for note in notes]
+        said = payload.get("note", "") if e["kind"] == "task_handoff" else ""
+        steps += [(e["ts"], e["tid"], e["agent"], None, note, said) for note in notes]
     for m in msgs:      # every delivery leaves when the task reached its owner, which is when it became doing
         if is_card(m) and m["landing"] == "delivered" and m["when"]:
-            steps.append((m["when"], m["tasks"][0], m["to"], "doing", None))
+            steps.append((m["when"], m["tasks"][0], m["to"], "doing", None, ""))
     state: dict[int, str] = {}
     out = []
-    for ts, tid, who, after, note in sorted(steps, key=lambda step: step[0]):
+    for ts, tid, who, after, note, said in sorted(steps, key=lambda step: step[0]):
         if after is not None:
             before = state.get(tid, "queued")
             state[tid] = after
@@ -175,7 +177,9 @@ def task_changes(con, msgs: list[dict]) -> list[dict]:
                 continue
             note = f"{before} -> {after}"
         if ts >= since:
-            out.append({"change": note, "who": who, "tasks": [tid], "task_title": cards[tid], "when": ts})
+            side = "you" if who == actions.HUMAN else "agent" if who == agent else "other"
+            out.append({"change": note, "note": said, "who": who, "side": side, "tasks": [tid],
+                        "task_title": cards[tid], "when": ts})
     return out
 
 
@@ -490,28 +494,29 @@ def is_card(m: dict) -> bool:
 
 
 def card_head(m: dict) -> Text:
-    """Above a task card, as over a message: who made the change and when, and whether the card
-    is a new task or a change to one."""
+    """Above a task card, as over a message: who made the change and when."""
     stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m.get("when") else ""
-    new = "change" not in m
     who = "you" if m["who"] == actions.HUMAN else safe(m["who"])
-    out = Text(f"{who}  {stamp}  ", style="bold")
-    out.append("NEW" if new else "CHANGED", style="bold green" if new else "bold yellow")
-    return out
+    return Text(f"{who}  {stamp}", style="bold")
 
 
 def card_lines(m: dict) -> Text:
-    """A task in the chat, inside its box: TASK T<n> and the title on one line (cut to the room, and a
-    click opens the task), then what happened - a new task says whom it went to, a change says
-    what changed."""
+    """A task in the chat, inside its box: NEW TASK (or CHANGED TASK) T<n> and the title on one line
+    (cut to the room, and a click opens the task), then what happened - a new task says whom it went
+    to, a change says what changed, and the text typed with a handoff."""
     tid = m["tasks"][0]
     go = {"@click": f"screen.open_task({tid})"}
-    out = Text("TASK ", style="dim", no_wrap=True, overflow="ellipsis")
+    new = "change" not in m
+    out = Text(no_wrap=True, overflow="ellipsis")
+    out.append("NEW " if new else "CHANGED ", style="bold green" if new else "bold yellow")
+    out.append("TASK ", style="dim")
     out.append(actions.task_ref(tid), style=Style(bold=True, underline=True, meta=go))
     out.append(" : ", style="dim")
     out.append(safe(m.get("task_title") or ""), style=Style(bold=True, meta=go))
     said = m.get("change") or f"assigned to {safe(m['to'])}"
     out.append("\n" + said, style=STATE_STYLE.get(said.rsplit(" ", 1)[-1], ""))
+    if m.get("note"):
+        out.append("\n" + safe(m["note"]))
     return out
 
 
@@ -558,18 +563,32 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     return head, body, note
 
 
+# What a timeline entry is called, the icon before it and its colour: the label and the text of a memo
+# and of a request differ at a glance, and a request's state has a colour of its own.
 TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note", "request": "request", "edit": "body edited"}
+TIMELINE_ICON = {"memo": "✎", "note": "✎", "request": "↗", "handoff": "⇄", "edit": "±"}
+TIMELINE_STYLE = {"memo": "cyan", "note": "cyan", "request": "magenta", "handoff": "yellow", "edit": "blue"}
+REQUEST_STATE_STYLE = {"queued": "bold yellow", "rejected": "bold red"}
 
 
 def timeline_text(e: dict) -> Text:
-    """One entry of a task's timeline: when, who, what kind and its text. A text that fits the line
-    stays on it; one of several lines (or too long for one) shows whole, each line indented under
-    the first. A memo that was edited says when."""
-    lines = safe_block(e["text"].strip()).split("\n") or [""]
-    out = Text.assemble((timefmt.stamp(e["ts"], timefmt.DATE_TIME) + "  ", "dim"), safe(e["who"]) + "  ",
-                        (TIMELINE_WORD[e["kind"]] + "  ", "dim"), lines[0])
+    """One entry of a task's timeline: when, what kind (with its icon), who and its text, the kind and
+    the text in the kind's colour. A text that fits the line stays on it; one of several lines (or
+    too long for one) shows whole, each line indented under the first. A memo that was edited says when."""
+    colour = TIMELINE_STYLE[e["kind"]]
+    out = Text.assemble((timefmt.stamp(e["ts"], timefmt.DATE_TIME) + "  ", "dim"),
+                        (f"{TIMELINE_ICON[e['kind']]} {TIMELINE_WORD[e['kind']]}  ", f"bold {colour}"),
+                        safe(e["who"]) + "  ")
+    if "state" in e:      # a request: its number, state and first line
+        out.append(f"{e['ref']}  ", style="dim")
+        out.append(f"{e['state']}  ", style=REQUEST_STATE_STYLE.get(e["state"], "bold green"))
+        out.append(safe(e["summary"]), style=colour)
+        lines = []
+    else:
+        lines = safe_block(e["text"].strip()).split("\n") or [""]
+        out.append(lines[0], style=colour)
     for more in lines[1:]:
-        out.append("\n    " + more)
+        out.append("\n    " + more, style=colour)
     if e["edited_at"]:
         out.append(f"  · edited {timefmt.stamp(e['edited_at'], timefmt.DATE_TIME)}", style="dim")
     return out
@@ -618,8 +637,9 @@ class TaskChange(Vertical):
     """A change to a task, set among the messages at the time it happened."""
 
     def __init__(self, m: dict) -> None:
+        side = {"you": "me", "agent": "them"}.get(m["side"], "other")
         super().__init__(Static(card_head(m), classes="cardhead"), Static(card_lines(m), classes="cardbox"),
-                         classes="msg card change")
+                         classes=f"msg {side} card change")
         self.m = m
 
 
@@ -1649,7 +1669,7 @@ class ChatPage(JobsAware, Screen):
             # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
             actions.for_you_seen(con, self.agent, max((max(r["id"], r["answer_id"] or 0) for r in rows), default=0))
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
-            changes = task_changes(con, msgs)
+            changes = task_changes(con, msgs, self.agent)
         finally:
             con.close()
         state, detail = self.agent_state
