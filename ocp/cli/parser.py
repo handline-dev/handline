@@ -107,6 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="start its sessions with the Claude in Chrome integration (default off, "
                    "every other agent keeps --no-chrome); its browser dialog is yours to answer, "
                    "ocp does not; on re-registration, omit to keep the current one")
+    p.add_argument("--mcp-config", default=None, metavar="FILE|off",
+                   help="MCP servers for this agent alone, from a {\"mcpServers\": {...}} file (kept "
+                   "in its agent.yaml and passed as --mcp-config, so no per-account approval of a "
+                   "project .mcp.json); 'off' removes them; on re-registration, omit to keep them")
     p.set_defaults(fn=cmd_agent_register)
 
     p = sub.add_parser("launch", help="exec claude as this agent's account")

@@ -433,7 +433,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     # git calls that build it are skipped rather than run and thrown away.
     mode = ([] if agents.skip_permissions(cfg) and agents.skip_permissions_granted(agent)
             else drv.auto_mode_argv())
-    argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
+    argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
+                           mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode else None,
@@ -591,6 +592,8 @@ def fingerprint(agent: str) -> str:
                             _static_preamble(agent)])
     if agents.skip_permissions_in_effect(agent, cfg):
         material += "\x1eskip-permissions"     # only when on: turning it off returns to the old hash
+    if agents.mcp_config_args(cfg):
+        material += "\x1emcp:" + agents.mcp_config_args(cfg)[1]   # only when set, like chrome
     if agents.chrome(cfg):
         material += "\x1echrome"                # only when on, like skip-permissions
     return hashlib.sha256(material.encode()).hexdigest()[:16]

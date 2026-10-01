@@ -46,6 +46,20 @@ def cmd_agent_register(args) -> int:
         print("the browser integration is the founder's to turn on or off, from a "
               "terminal or the bridge, not an agent's", file=sys.stderr)
         return 1
+    if args.mcp_config is not None and protected.in_agent_session():
+        print("an agent's own MCP servers are the founder's to set, from a terminal or the "
+              "bridge, not an agent's", file=sys.stderr)
+        return 1
+    mcp_text = None
+    if args.mcp_config is not None:
+        if args.mcp_config == "off":
+            mcp_text = ""
+        else:
+            try:
+                mcp_text = agents.mcp_config_text(Path(args.mcp_config).expanduser().read_text())
+            except (OSError, ValueError) as e:
+                print(f"--mcp-config {args.mcp_config}: {e}", file=sys.stderr)
+                return 1
     try:
         has_repo = bool(agents.read(args.name).get("repo"))
     except Exception:  # noqa: BLE001 - a new agent has no agent.yaml yet
@@ -60,12 +74,15 @@ def cmd_agent_register(args) -> int:
                         repo=args.repo, vendor=args.vendor,
                         skip_permissions=None if args.skip_permissions is None
                         else args.skip_permissions == "on",
-                        chrome=None if args.chrome is None else args.chrome == "on")
+                        chrome=None if args.chrome is None else args.chrome == "on",
+                        mcp_config=mcp_text)
     print(f"registered agent '{args.name}': {d}")
     if args.skip_permissions:
         print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
     if args.chrome:
         print(f"chrome {args.chrome}: applies from its next launch")
+    if args.mcp_config:
+        print(f"mcp-config {args.mcp_config}: applies from its next launch")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
     return 0
