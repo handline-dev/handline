@@ -8043,6 +8043,15 @@ limits:
         ok, msg = actions.mark_task_done(con, dec, "helper", reason="did it")
         check("T684: the holder can finish it, which settles the handoff request",
               ok and not [r for r in db.task_requests(con, dec) if r["state"] == "queued"], msg)
+        # T706: a task ended with a delivery still queued does not leave it at the holder's head
+        ok, _, st = actions.task_new("manager", "helper", "stranded", "stranded")
+        db.mark_task_done(con, st, "done the old way", "reason")      # an older path left its request queued
+        check("T706: the leftover is there", any(r["state"] == "queued" for r in db.task_requests(con, st)))
+        ok, msg = actions.mark_task_done(con, st, "helper", reason="again")
+        check("T706: task done on an already-done task settles its leftover request",
+              ok and not any(r["state"] == "queued" for r in db.task_requests(con, st)), msg)
+        ok, msg = actions.mark_task_done(con, st, "helper", reason="again")
+        check("T706: with nothing left it is refused as before", not ok and "already done" in msg, msg)
         # T689: a task's body is editable by whoever may edit its title, recorded, and told to the holder
         ok, _, bt = actions.task_new("manager", "worker", "fix the parser", "old brief: fix the parser")
         ok, msg = actions.edit_task(con, bt, "worker", body="worker rewrites it")
