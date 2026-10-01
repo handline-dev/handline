@@ -329,7 +329,7 @@ def cmd_task_note(args) -> int:
         return 1
     con = db.connect()
     try:
-        ok, msg = actions.task_memo(con, me, args.task, args.text)
+        ok, msg, _ = actions.memo_add(con, args.task, me, args.text)
         print(msg)
     finally:
         con.close()

@@ -2104,7 +2104,7 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
     try:
         ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
         actions.memo_add(con, tid, "reviewer", "first")
-        actions.task_memo(con, actions.HUMAN, tid, "a memo")
+        actions.memo_add(con, tid, actions.HUMAN, "a memo")
         ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
         actions.assign_task(con, other, "reviewer", "you take it")
         tl = actions.task_timeline(con, tid)

@@ -111,7 +111,8 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
             return False, f"no task T{task}"
         if row["owner"] != target:
             return False, f"T{task} is with {row['owner']}, not {target}"
-        return actions.task_memo(con, me, task, kw["body"])
+        ok, msg, _ = actions.memo_add(con, task, me, kw["body"])
+        return ok, msg
     if kw.get("parent") is None and not fyi and _is_report_of(me, target):
         return False, ("make it a task (`ocp task new`), or say --task T<n> to memo one, "
                        "or say --fyi 'why' to say it is not work")

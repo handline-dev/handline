@@ -194,8 +194,8 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) 
     return None
 
 
-# T292/T293: the `kind` overrides `ask` accepts for a task, a task note or a
-# say, regardless of what the routing edge itself carries. `enforce_edges`
+# T292/T293: the `kind` overrides `ask` accepts for a task, an old stored task note
+# or a say, regardless of what the routing edge itself carries. `enforce_edges`
 # (daemon delivery) must not treat that override as a changed edge, so it
 # skips the kind half of its re-check for these - it still checks relation
 # and response.
