@@ -9,7 +9,6 @@ from .. import actions
 from ..infra import timefmt
 from ..team import ask as askmod
 from .. import db
-from ..session import fold as foldmod
 from ..infra import textsafe
 from ..session import waiting
 
@@ -335,7 +334,7 @@ def cmd_read(args) -> int:
     the half it could see.
 
     Any agent can read any request, which was already true of the database and
-    of `ocp inbox`, `ocp digest` and `ocp handoff` - this makes it convenient
+    of `ocp inbox` - this makes it convenient
     rather than new. Nothing typed into a request is private to two agents.
     """
     if args.wait and not _wait_for(

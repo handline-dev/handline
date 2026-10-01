@@ -1,4 +1,4 @@
-"""Reads of the whole system: doctor, status, drift, triggers, events, fold, rollover, backup."""
+"""Reads of the whole system: doctor, status, triggers, events, fold, backup."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +11,6 @@ from ..infra import backup as backupmod
 from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
 from ..infra import doctor
-from ..session import drift
 from ..session import events
 from ..session import fold as foldmod
 from ..session import launch

@@ -1897,7 +1897,7 @@ def test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(home: Path)
 
 
 def test_an_agent_may_not_list_another_agents_messages(home: Path) -> None:
-    """T39: inbox, digest, handoff and events naming another agent are refused
+    """T39: inbox and events naming another agent are refused
     to an agent, unless it is that agent's supervisor; the human is exempt."""
     _daemon_home(home, 20)
     hand_edit_team("""
@@ -1920,8 +1920,8 @@ edges:
                        "peer", "async", None, 0, None)
     finally:
         con.close()
-    for cmd in (["inbox", "marina"], ["inbox", "marina", "--all"], ["digest", "marina"],
-                ["handoff", "marina"], ["events", "--agent", "marina"]):
+    for cmd in (["inbox", "marina"], ["inbox", "marina", "--all"],
+                ["events", "--agent", "marina"]):
         rc, out = _cli(cmd, as_agent="dohyun")
         check(f"T39: a peer is refused `ocp {' '.join(cmd)}`",
               rc == 1 and "may not list marina's messages" in out
@@ -1953,7 +1953,7 @@ edges:
           rc == 1 and "may not list manager's messages" in out, out)
     rc, out = _cli(["inbox", "marina", "--all"], as_agent=askmod.HUMAN)
     check("T39: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
-    for cmd in (["handoff", "marina"], ["digest", "marina"], ["inbox", "marina"], ["events"]):
+    for cmd in (["inbox", "marina"], ["events"]):
         rc, out = _cli(cmd, as_agent=None)
         check(f"T39: a caller with no name is refused `ocp {' '.join(cmd)}`",
               rc == 1 and "cannot tell who is asking" in out and "secret of marina" not in out, out)
@@ -2366,7 +2366,6 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         "task edit": ["task", "edit", n, "--title", "x"],
         "task edit --blocked-by": ["task", "edit", f"T{other}", "--blocked-by", n],
         "task edit --unblock": ["task", "edit", f"T{other}", "--unblock", n],
-        "task link": ["task", "link", n, "1"],
         "task new --parent": ["task", "new", "--owner", "worker", "y", "y", "--parent", n, "-t", "1h"],
         "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "y", "--blocked-by", n,
                                   "-t", "1h"],
@@ -3781,8 +3780,11 @@ def test_task_new_list_and_link(home: Path) -> None:
     rc, out = _cli(["task", "new", "--owner", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
     check("task new: a child task", rc == 0, out)
     rid = _human_request()
-    rc, out = _cli(["task", "link", "T1", str(rid)])
-    check("task link: attaches a further request", rc == 0, out)
+    con = db.connect()
+    try:
+        db.link_request(con, 1, rid)
+    finally:
+        con.close()
     rc, out = _cli(["task", "list"])
     check("task list: the board shows title, owner, child and linked request",
           "build the board" in out and "[worker]" in out and "under T1" in out

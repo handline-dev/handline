@@ -5,7 +5,6 @@ import subprocess
 import sys
 
 from ..team import ask as askmod
-from ..session import drift
 from ..session import edittask, events, stopgate
 from ..infra import paths, protected
 from .. import vendors

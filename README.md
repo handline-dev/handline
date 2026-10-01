@@ -98,7 +98,7 @@ work again. ocp names the dialog and never answers it.
 | | |
 |---|---|
 | `ocp close <agent>` | end an idle session, keep its terminal (`ocp resume` brings it back) |
-| `ocp task new --owner NAME "<title>"` / `ocp task list` / `ocp task link T<n> <request>` | the task board: a task is its own row, never a message, and is always written `T<n>` - a bare number is a request, and a task command refuses one. `list` draws each open task with its linked requests read live. A task is a draft until the founder or its owner's manager runs `ocp task queue T<n>` (`ocp task draft` sends it back), and is doing while a request on it is out |
+| `ocp task new --owner NAME "<title>"` / `ocp task list` | the task board: a task is its own row, never a message, and is always written `T<n>` - a bare number is a request, and a task command refuses one. `list` draws each open task with its linked requests read live. A task is a draft until the founder or its owner's manager runs `ocp task queue T<n>` (`ocp task draft` sends it back), and is doing while a request on it is out |
 | `ocp task done T<n> <sha or reason>` | finish a task - final; a sha must be an ancestor of `main`, and a task with an open child task or an open blocker is not done yet. A wrong result is `ocp task reopen T<n> "<why>"`, by whoever asked. A task ends only by done or discard (`ocp task discard`); a task folded in by `ocp task merge` is discarded, "merged into T<n>" |
 | `ocp say <who> "<answer>" --parent <id> --task T<n>` / `--no-task "<reason>"` | answering a request: a reply that names it settles it, and the reply is the one answer. A request the founder made also says what it becomes - the task, or that nothing needs building; agent-to-agent replies are never guarded. (`ocp ask`, `ocp resolve` and `ocp dismiss` no longer exist: work is `ocp task new`, an answer is `ocp say`.) |
 | | *Why requests link to tasks through `task_requests` and not a column on `requests`:* `--task` takes a list and a request can be attached later, so one column could hold only one task and would drift the first time it mattered. Do not fold it back into a column to save a join. |
@@ -108,13 +108,9 @@ work again. ocp names the dialog and never answers it.
 | `ocp task new --owner NAME -t <time> "<title>" "<body>"` / `ocp say <target> "<msg>"` | give an agent work or a question that needs an answer (a task, body required); or send a message that needs none |
 | `ocp inbox` / `ocp read <id>` / `ocp cancel <id>` (founder) | the queue |
 | `ocp fold [agent]` | fold events into the digest (the one model call) |
-| `ocp rollover` | midnight carry-forward, no model |
-| `ocp digest` / `ocp handoff <agent>` | the digest / the handoff waiting for an agent (four facts: its request, the agent's own progress note on it, its transcript, its worktree) |
-| `ocp drift <repo>` | has the base moved under this agent? |
 | `ocp hooks sync --watch` | keep Orca's agent hooks mirrored |
 | `ocp service install/uninstall/status/logs` | run the daemon as a launchd LaunchAgent |
 | `ocp bridge` | the screen the team is run from (`top` and `watch` still work) |
-| `ocp collect [agent]` | what each session's own transcript says about it, beside the snapshot on disk |
 | `ocp guide [topic]` | detail, loaded on demand |
 
 ## How it decides things

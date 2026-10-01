@@ -18,7 +18,6 @@ ocp never reads, writes or copies credentials. A refresh token rotates on
 single use, so two copies of one credential invalidate each other.""",
     "launch": """launching agents
   ocp launch <agent>               exec claude as that agent's account
-  ocp command <agent>              print the --command string for Orca
 
 From Orca:
   orca terminal create --worktree path:<wt> --command "ocp launch backend"

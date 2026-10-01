@@ -1,16 +1,13 @@
-"""`ocp org` and `ocp team`."""
+"""`ocp team`."""
 from __future__ import annotations
 
 
-from .. import actions
 from ..team import agents
 from ..team import ask as askmod
 from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
 from ..session import launch
-from ..session import orca
 from ..infra import paths, sealed
-from ..team import spawn as spawnmod
 from ..team import team
 from ..ui import tui
 from ..session import waiting

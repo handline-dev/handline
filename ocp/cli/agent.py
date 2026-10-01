@@ -1,4 +1,4 @@
-"""Commands on one agent: register, move, show, launch, resume, spawn, unstall."""
+"""Commands on one agent: register, move, launch, resume, spawn, unstall."""
 from __future__ import annotations
 
 import os
@@ -9,13 +9,9 @@ from .. import actions
 from ..team import agents
 from ..daemon import handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
-from ..session import handoff as handoffmod
 from ..session import launch
-from ..usage import load
-from ..infra import paths, protected
+from ..infra import protected
 from ..team import spawn as spawnmod
-from ..usage import status
-from ..infra import textsafe
 
 
 def cmd_agent_move(args) -> int:

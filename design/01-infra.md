@@ -526,7 +526,6 @@ CREATE TABLE handoff (
 
 ```bash
 ocp agent register <name> --role-file ROLE.md --repo <sel> --weight heavy
-ocp agent list|show [--json]
 
 ocp run create --objective "..."
 ocp task add --spec "..." [--depends-on <id>]
@@ -538,8 +537,6 @@ ocp slot release <account> --force
 ocp queue list
 
 ocp journal show|fold
-ocp base promote <agent> --item "..."
-ocp handoff write <agent>
 ocp resume <agent>
 ocp unstall <agent>
 

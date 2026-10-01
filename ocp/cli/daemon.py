@@ -9,6 +9,7 @@ from ..infra import timefmt
 from ..session import blocked as blockedmod
 from ..daemon import devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
 from .. import db
+from ..team import agents
 from ..session import launch
 from ..session import observe as obs
 from ..session import orca
@@ -83,7 +84,7 @@ def cmd_daemon_status(args) -> int:
             words = {r["agent"]: tui.screen_state(con, r) for r in rows}
             sw = max([len("state")] + [len(word) + (1 + len(extra) if extra else 0)
                                        for word, extra in words.values()]) + 1
-            print(f"\n{'AGENT':<{w}}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
+            print(f"\n{'AGENT':<{w}}{'ACCT':<8}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
             sessions = obs.live_sessions()
             for r in rows:
@@ -115,7 +116,7 @@ def cmd_daemon_status(args) -> int:
                     detail = f"{detail[:room]} · {walled}" if detail else walled
                 else:
                     detail = detail[:70]
-                print(f"{r['agent']:<{w}}{shown:<{sw}}{wake:<8}"
+                print(f"{r['agent']:<{w}}{(agents.current_account(r['agent'], con) or '-'):<8}{shown:<{sw}}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{detail}")
         flight = db.in_flight_handoffs(con)

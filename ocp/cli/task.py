@@ -40,10 +40,6 @@ def cmd_progress(args) -> int:
         con.close()
 
 
-def _ambiguous_number(raw: str) -> str:
-    return actions.parse_task_ref_error(raw)
-
-
 def _task_arg(text: str) -> int:
     """argparse `type` for a task: T79 only. A bare number is refused with
     both of its readings, so a request id typed here cannot act on a task."""
