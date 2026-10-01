@@ -2533,6 +2533,35 @@ def test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task() -> None:
           cp.card_lines(cards[0]).plain)
 
 
+async def test_the_chat_page_draws_a_handoff_as_one_card() -> None:
+    """T838 through the page: one CHANGED TASK card with its text, no NEW TASK, no change row beside it."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("handoffpage")
+    agents.register("reviewer")
+    agents.register("backend")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        ok, said = actions.task_handoff(con, "reviewer", t, "backend", "yours now")
+        check("handoff page: the action worked", ok, said)
+        con.commit()
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        cp.scope_file().write_text("all")
+        page = cp.ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause()
+        shown = [w.query_one(".cardbox").content.plain for w in page.query(cp.ChatMessage) if w.query(".cardbox")]
+        rows = list(page.query(cp.TaskChange))
+    check("handoff page: one card, CHANGED TASK handed to backend with the note, no NEW TASK, no change row",
+          len(shown) == 1 and shown[0] == f"CHANGED TASK T{t} : the work\nhanded to backend\nyours now" and not rows,
+          str((shown, rows)))
+
+
 def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
     """T601: `task new`, a handoff and the queue sweep log no start; the delivery's landing says when."""
     from ocp.ui import chat_page as cp
@@ -3169,6 +3198,7 @@ async def _run_all() -> None:
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
+    await test_the_chat_page_draws_a_handoff_as_one_card()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out()
