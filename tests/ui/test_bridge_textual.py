@@ -594,6 +594,42 @@ def test_a_number_in_a_message_becomes_a_link_to_it() -> None:
     check("refs: a#3 and ##4 are not links", targets("a#3") == [] and targets("##4") == [], str((targets("a#3"), targets("##4"))))
 
 
+def test_a_file_path_in_a_message_becomes_a_link_that_opens_it() -> None:
+    """Founder #8235: ~/ and absolute .md paths (non-ASCII, @, digits, hyphens) are links, the sentence's
+    comma, period and bracket are not part of them, and what only looks like a path is not one."""
+    from textual.actions import parse
+    from ocp.ui import chat_page as cp
+    from rich.text import Text
+    founder = "~/orca/workspaces/@personal/personal/면접/LINE-Pay-1차-면접준비.md"
+    def found(s):
+        return [s[h.start:h.end] for h in actions.find_paths(s)]
+    check("paths: the founder's example, then a comma", found(f"{founder}, /~~/.md 일단") == [founder, "/~~/.md"],
+          str(found(f"{founder}, /~~/.md 일단")))
+    check("paths: a closing bracket or a full stop ends it", found("(see /Users/a/b-2.md). Next") == ["/Users/a/b-2.md"],
+          str(found("(see /Users/a/b-2.md). Next")))
+    check("paths: quoted ones may hold spaces", found("`/Users/r/My Docs/a b.md` and \"~/x y/z\"") == ["/Users/r/My Docs/a b.md", "~/x y/z"])
+    check("paths: path:line is one link, open gets the path",
+          [(h.path, h.line) for h in actions.find_paths("at /tmp/f.py:42:7.")] == [("/tmp/f.py", 42)])
+    check("paths: a directory under ~/ is a link", found("in ~/dir/ now") == ["~/dir/"])
+    check("paths: fractions, dates, URLs, slash commands and relative paths are not",
+          found("1/2 2026/10/01 and/or https://x.com/a/b.md /loop ocp/a.py ./a.md") == [])
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "docs").mkdir()
+        Path(d, "docs", "x.md").write_text("x")
+        def rel(s):
+            return [(s[h.start:h.end], h.path) for h in actions.find_paths(s, [d])]
+        check("paths tier 2: a relative path that exists links, to its full path",
+              rel("see docs/x.md, and x.md") == [("docs/x.md", f"{d}/docs/x.md")], str(rel("see docs/x.md, and x.md")))
+        check("paths tier 2: one that does not exist stays plain; a quoted one with a slash links anyway",
+              rel("docs/nope.md a/b `docs/nope.md`") == [("docs/nope.md", "docs/nope.md")], str(rel("docs/nope.md a/b `docs/nope.md`")))
+    t = cp.link_paths(Text(f"see {founder}, ok"))
+    click = t.spans[0].style.meta["@click"]
+    check("paths: the click names the app's open_path with the whole path",
+          parse(click) == ("app", "open_path", (founder,)), click)
+    ok, said = actions.open_path("/no/such/dir/x.md")
+    check("paths: opening what is not there says so", not ok and "not found" in said, said)
+
+
 def test_the_task_title_is_cut_to_the_room_beside_the_other_columns() -> None:
     """Founder #5337: the title column takes what is left of the table, so every row shows."""
     from ocp.ui.components import tasks_view as tv
@@ -2853,6 +2889,7 @@ async def _run_all() -> None:
     test_the_queue_reason_comes_from_the_message_below_the_line()
     test_a_message_between_two_other_agents_can_be_picked_in_all_chat()
     test_a_number_in_a_message_becomes_a_link_to_it()
+    test_a_file_path_in_a_message_becomes_a_link_that_opens_it()
     test_the_task_title_is_cut_to_the_room_beside_the_other_columns()
     test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()

@@ -479,6 +479,15 @@ def link_refs(text: Text) -> Text:
     return text
 
 
+def link_paths(text: Text, who: str = "") -> Text:
+    """Every file path in `text` becomes a link (a click runs `app.open_path`: the file opens in the
+    system's default app). A relative path is read against `who`'s worktree and the repo root and
+    linked only if it is there; an absolute or `~/` one is linked even if it is not, and the click says so."""
+    for hit in actions.find_paths(text.plain, actions.path_bases(who) if who else ()):
+        text.stylize(Style(underline=True, meta={"@click": f"app.open_path({hit.path!r})"}), hit.start, hit.end)
+    return text
+
+
 _TASK_REF = re.compile(r"(?<![\w#])T(\d+)\b")
 
 
@@ -517,7 +526,8 @@ def card_lines(m: dict) -> Text:
     said = m.get("change") or f"assigned to {safe(m['to'])}"
     out.append("\n" + said, style=STATE_STYLE.get(said.rsplit(" ", 1)[-1], ""))
     if m.get("note"):
-        out.append("\n" + safe_block(m["note"]))
+        out.append("\n")
+        out.append_text(link_paths(Text(safe_block(m["note"])), m["who"]))
     return out
 
 
@@ -551,7 +561,7 @@ def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dic
 def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     """What one message draws: its head line (who, when, its kind and linked tasks), its body, and
     the note under it (cancelled), all as safe `Text`."""
-    body = link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else ""))
+    body = link_paths(link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else "")), m["who"])
     stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
     head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
     if m.get("part") == 0 and m.get("kind") not in (None, "say") and not is_card(m):
@@ -595,7 +605,7 @@ def timeline_text(e: dict) -> Text:
         out.append("\n    " + more, style=colour)
     if e["edited_at"]:
         out.append(f"  · edited {timefmt.stamp(e['edited_at'], timefmt.DATE_TIME)}", style="dim")
-    return out
+    return link_paths(out, e["who"])
 
 
 def task_page(d: dict) -> dict:
@@ -631,7 +641,7 @@ def task_page(d: dict) -> dict:
     badge.append(f"   {actions.task_ref(d['id'])}", style="dim")
     return {
         "title": Text(safe(d["title"]), style="bold"), "badge": badge, "meta": meta,
-        "brief": Text(safe_block(d["brief"])) if d.get("brief") else Text(),
+        "brief": link_paths(Text(safe_block(d["brief"])), d["owner"]) if d.get("brief") else Text(),
         "kids": [Text.assemble(link(i, f"{actions.task_ref(i)}  "), (f"{st:<8}", STATE_STYLE_FG.get(st, "")),
                                link(i, safe(title))) for i, title, st in d["children"]],
         "timeline": [timeline_text(e) for e in d["timeline"]]}
