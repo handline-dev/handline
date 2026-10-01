@@ -52,14 +52,6 @@ CREATE TABLE IF NOT EXISTS requests (
   -- (A->B->A) can be seen inside one chain rather than guessed at from depth.
   chain_id    TEXT,
   state       TEXT    NOT NULL DEFAULT 'queued',
-  verdict     TEXT,
-  -- When the requester was told this came back. Per row, because answering is
-  -- not monotonic in id: a high-water mark loses the answer that arrives late.
-  announced_at INTEGER,
-  -- When the answer landed. `ts` is when the request was made, and the two can
-  -- be two days apart: a screen that sorts answers by `ts` puts yesterday's
-  -- reply above this morning's, which reads as an old message nobody answered.
-  resolved_at INTEGER,
   -- FIFO position within one target's queue - starts as id, and promoting a
   -- row moves it to a smaller value, so this is REAL, not INTEGER.
   queue_order REAL,
@@ -78,9 +70,6 @@ CREATE TABLE IF NOT EXISTS requests (
   -- When the human pressed "send now" on this (still undelivered) request: it
   -- is told to its target at once, ahead of a head that is already open.
   send_now INTEGER,
-  -- A report to the human that asks nothing of them: shown, never counted as
-  -- waiting on them, and closed once read or superseded by the sender's next.
-  fyi INTEGER NOT NULL DEFAULT 0,
   -- T781: when the founder read it. Used only where the target is the founder: a say to him is
   -- born landed and NULL here is "unread" in For you.
   read_at INTEGER,
@@ -95,11 +84,6 @@ CREATE TABLE IF NOT EXISTS requests (
   -- parent_id does not fit that job. Set once, by the verb that already
   -- knows both ids (a replace).
   moot_by     INTEGER,
-  -- Task #70: a dismissal is a state of the row, not words anyone said. Who
-  -- dismissed it and the reason they gave (when is resolved_at); the verdict
-  -- stays NULL, so no screen can draw a dismissal as the answerer's own text.
-  dismissed_by     TEXT,
-  dismissed_reason TEXT,
   -- T202: 1 once the request's edge (relation, response, kind) has been checked
   -- against the sealed routing table by a process that can read the seal. An
   -- agent's own `ask` cannot, so it leaves this NULL and the daemon sets it;
@@ -423,34 +407,46 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
+    # The legacy request columns (`_LEGACY_REQUEST_COLUMNS`): a database that was dropped of them by
+    # the doctor, or made without them, never grows them back and runs no migration that names them.
+    fresh = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'requests'").fetchone() is None
+    legacy = not fresh and not _legacy_columns_dropped(con)
     # This runs before the schema: new indexes reference columns an old table
     # may not have yet, and CREATE INDEX would fail before any migration had a
     # chance to act.
-    _pre_schema_migrate(con)
+    _pre_schema_migrate(con, legacy)
     con.executescript(SCHEMA)
-    _add_missing_columns(con)
-    _unhide_the_humans_answers(con)
+    if fresh:
+        set_cursor(con, LEGACY_DROPPED, 1)
+    _add_missing_columns(con, legacy)
+    if legacy:
+        _unhide_the_humans_answers(con)
     _rename_orchestrator(con)
-    _give_answers_their_own_rows(con)
-    _asks_reports_and_escalations_to_says(con)
-    _answers_are_says(con)
-    _drop_daemon_close_notes(con)
+    if legacy:
+        _give_answers_their_own_rows(con)
+        _asks_reports_and_escalations_to_says(con)
+        _answers_are_says(con)
+        _drop_daemon_close_notes(con)
     _escalations_are_tasks(con)
-    _one_doing_task_each(con)
+    if legacy:
+        _one_doing_task_each(con)
     _notes_are_memos(con)
     _handed_to_founder_are_queued(con)
     _task_deliveries_settled(con)
-    _task_sent_at(con)
+    if legacy:
+        _task_sent_at(con)
     _task_sent_at_from_events(con)
     _task_leftovers_settled(con)
     _kinds_are_say(con)
-    _founder_says_landed(con)
-    _fyi_are_says(con)
-    _requests_one_state(con)
-    _answers_told_on_the_say(con)
-    _closed_rows_leave_the_queue(con)
-    _dismissals_are_events(con)
-    _reasons_are_events(con)
+    if legacy:
+        _founder_says_landed(con)
+        _fyi_are_says(con)
+    _requests_one_state(con, legacy)
+    if legacy:
+        _answers_told_on_the_say(con)
+        _closed_rows_leave_the_queue(con)
+        _dismissals_are_events(con)
+        _reasons_are_events(con)
     _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
@@ -461,7 +457,24 @@ def _cols(con, table: str) -> set[str]:
     return {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
 
 
-def _pre_schema_migrate(con) -> None:
+# T835: the request columns the answers-to-says work retired. Nothing reads or writes them; the
+# answer is a say, a reason or a dismissal an event, the hold `queue_order`, the time `state_at`.
+# Like the unread columns (T830) they are dropped only by `ocp doctor --drop-dead-columns`, never
+# at connect - a long-lived process on older code still names them - and the doctor marks the
+# database (`LEGACY_DROPPED`) so a connect neither re-adds them nor runs the old migrations
+# that read them. A database made after this has no such columns and is marked from the start.
+_LEGACY_REQUEST_COLUMNS = ("verdict", "resolved_at", "announced_at", "dismissed_by", "dismissed_reason", "fyi")
+LEGACY_DROPPED = "legacy_request_columns_dropped"
+
+
+def _legacy_columns_dropped(con) -> bool:
+    try:
+        return bool(get_cursor(con, LEGACY_DROPPED))
+    except sqlite3.OperationalError:        # no cursors table yet: a database from long before
+        return False
+
+
+def _pre_schema_migrate(con, legacy: bool = True) -> None:
     """Make an older database safe for the current schema to run against.
 
     Two kinds of change need to happen here rather than after: a table whose
@@ -477,16 +490,16 @@ def _pre_schema_migrate(con) -> None:
         con.execute("DROP TABLE IF EXISTS handoff")
 
     request_cols = _cols(con, "requests")
-    if request_cols and "fyi" not in request_cols:
+    if legacy and request_cols and "fyi" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN fyi INTEGER NOT NULL DEFAULT 0")
-    if request_cols and "announced_at" not in request_cols:
+    if legacy and request_cols and "announced_at" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN announced_at INTEGER")
         # Everything already resolved was resolved before anything announced
         # answers at all; announcing it now would type a wall of old verdicts
         # at every agent the first time this runs.
         con.execute("UPDATE requests SET announced_at = ? "
                     "WHERE state IN ('done', 'rejected', 'denied')", (int(time.time()),))
-    if request_cols and "resolved_at" not in request_cols:
+    if legacy and request_cols and "resolved_at" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN resolved_at INTEGER")
         # No backfill: when an old row was answered is not recorded anywhere,
         # and inventing a time would be a figure with nothing behind it. A row
@@ -836,6 +849,13 @@ def _answers_told_on_the_say(con) -> None:
     every answering say takes the request's telling. Ledgered, so it runs once."""
     if get_cursor(con, "migrated:answers_told_on_the_say"):
         return
+    _backfill_answers_told_on_the_say(con)
+    set_cursor(con, "migrated:answers_told_on_the_say", 1)
+
+
+def _backfill_answers_told_on_the_say(con) -> None:
+    """What `_answers_told_on_the_say` does, keyed on the rows rather than the ledger: run again before the
+    columns are dropped, it catches what a process still on older code closed after the upgrade."""
     from . import requests as dbreq
     for r in con.execute(
             "SELECT id, verdict, COALESCE(resolved_at, ts) AS at FROM requests "
@@ -846,7 +866,6 @@ def _answers_told_on_the_say(con) -> None:
         dbreq.add_answer(con, r["id"], r["verdict"] or "", at=r["at"])
     con.execute("UPDATE requests SET delivered_at = (SELECT q.announced_at FROM requests q "
                 "WHERE q.id = requests.settles) WHERE settles IS NOT NULL AND delivered_at IS NULL")
-    set_cursor(con, "migrated:answers_told_on_the_say", 1)
 
 
 def _closed_rows_leave_the_queue(con) -> None:
@@ -855,8 +874,14 @@ def _closed_rows_leave_the_queue(con) -> None:
     Ledgered, so it runs once."""
     if get_cursor(con, "migrated:closed_rows_leave_the_queue"):
         return
-    con.execute("UPDATE requests SET queue_order = NULL WHERE resolved_at IS NOT NULL AND queue_order IS NOT NULL")
+    _backfill_closed_rows_leave_the_queue(con)
     set_cursor(con, "migrated:closed_rows_leave_the_queue", 1)
+
+
+def _backfill_closed_rows_leave_the_queue(con) -> None:
+    """What `_closed_rows_leave_the_queue` does, keyed on the rows rather than the ledger: run again before the
+    columns are dropped, it catches what a process still on older code closed after the upgrade."""
+    con.execute("UPDATE requests SET queue_order = NULL WHERE resolved_at IS NOT NULL AND queue_order IS NOT NULL")
 
 
 def _dismissals_are_events(con) -> None:
@@ -865,6 +890,13 @@ def _dismissals_are_events(con) -> None:
     Ledgered, so it runs once."""
     if get_cursor(con, "migrated:dismissals_are_events"):
         return
+    _backfill_dismissals_are_events(con)
+    set_cursor(con, "migrated:dismissals_are_events", 1)
+
+
+def _backfill_dismissals_are_events(con) -> None:
+    """What `_dismissals_are_events` does, keyed on the rows rather than the ledger: run again before the
+    columns are dropped, it catches what a process still on older code closed after the upgrade."""
     for r in con.execute(
             "SELECT id, dismissed_by, dismissed_reason, COALESCE(resolved_at, state_at, ts) AS at FROM requests "
             "WHERE dismissed_by IS NOT NULL AND id NOT IN (SELECT " + EVENT_REQUEST + " FROM events "
@@ -872,7 +904,6 @@ def _dismissals_are_events(con) -> None:
         con.execute("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'dismissed', ?)",
                     (r["at"], r["dismissed_by"], json.dumps({"request_id": r["id"], "by": r["dismissed_by"],
                                                               "reason": r["dismissed_reason"]})))
-    set_cursor(con, "migrated:dismissals_are_events", 1)
 
 
 def _reasons_are_events(con) -> None:
@@ -881,6 +912,13 @@ def _reasons_are_events(con) -> None:
     dismissal gets one, at the time it closed. Ledgered, so it runs once."""
     if get_cursor(con, "migrated:reasons_are_events"):
         return
+    _backfill_reasons_are_events(con)
+    set_cursor(con, "migrated:reasons_are_events", 1)
+
+
+def _backfill_reasons_are_events(con) -> None:
+    """What `_reasons_are_events` does, keyed on the rows rather than the ledger: run again before the
+    columns are dropped, it catches what a process still on older code closed after the upgrade."""
     for r in con.execute(
             "SELECT id, verdict, COALESCE(state_at, ts) AS at FROM requests WHERE verdict IS NOT NULL AND verdict != '' "
             "AND settles IS NULL AND dismissed_by IS NULL AND id NOT IN "
@@ -889,17 +927,18 @@ def _reasons_are_events(con) -> None:
             + EVENT_REQUEST + " IS NOT NULL) ORDER BY id").fetchall():
         con.execute("INSERT INTO events(ts, agent, kind, payload) VALUES(?, '', 'request_reason', ?)",
                     (r["at"], json.dumps({"request_id": r["id"], "reason": r["verdict"]})))
-    set_cursor(con, "migrated:reasons_are_events", 1)
 
 
-def _requests_one_state(con) -> None:
+def _requests_one_state(con, legacy: bool = True) -> None:
     """T797 (T763 branch 6): a request has one state and one time. done becomes landed; rejected
     becomes landed when it had been delivered and withdrawn when it had not; every row gets the time
     it entered its state. Not ledgered: it runs at every connect, because a daemon still on the old
     code for a minute after a merge writes the old words, and finding nothing is one indexed
     lookup. The closed rows only - a queued one has no state to move to yet, and so cannot strand a
-    proposal; the state column is quoted so the chokepoint scan does not read this as a closer."""
-    if not get_cursor(con, "migrated:requests_one_state"):
+    proposal; the state column is quoted so the chokepoint scan does not read this as a closer.
+    A database without the legacy columns (`legacy` False) is mapped without reading them."""
+    resolved = "resolved_at, " if legacy else ""
+    if legacy and not get_cursor(con, "migrated:requests_one_state"):
         # What ended before it was sent was never an answer to anyone: "withdrawn" joins the states
         # `unannounced_answers` reads (a refusal that was `rejected`), so the old ones are marked told.
         con.execute("UPDATE requests SET announced_at = COALESCE(announced_at, resolved_at, ts) "
@@ -907,19 +946,19 @@ def _requests_one_state(con) -> None:
         set_cursor(con, "migrated:requests_one_state", 1)
     # A request that reached its agent is landed, whichever code wrote the landing (T797 6b).
     from .requests import HUMAN
-    con.execute('UPDATE requests SET "state" = \'landed\', state_at = landed_at, '
-                'announced_at = COALESCE(announced_at, landed_at) WHERE "state" = \'queued\' '
+    told = ", announced_at = COALESCE(announced_at, landed_at)" if legacy else ""
+    con.execute('UPDATE requests SET "state" = \'landed\', state_at = landed_at' + told + ' WHERE "state" = \'queued\' '
                 'AND landed_at IS NOT NULL AND target != ?', (HUMAN,))
     if con.execute("SELECT 1 FROM requests WHERE state IN ('done', 'rejected') LIMIT 1").fetchone() is None:
         return
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
-                'delivered_at, resolved_at, ts) WHERE "state" = \'done\'')
+                f'delivered_at, {resolved}ts) WHERE "state" = \'done\'')
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
-                'delivered_at, resolved_at, ts) WHERE "state" = \'rejected\' '
+                f'delivered_at, {resolved}ts) WHERE "state" = \'rejected\' '
                 'AND (delivered_at IS NOT NULL OR landed_at IS NOT NULL)')
-    con.execute('UPDATE requests SET "state" = \'withdrawn\', state_at = COALESCE(resolved_at, ts) '
+    con.execute(f'UPDATE requests SET "state" = \'withdrawn\', state_at = COALESCE({resolved}ts) '
                 'WHERE "state" = \'rejected\'')
-    con.execute("UPDATE requests SET state_at = COALESCE(resolved_at, ts) WHERE state_at IS NULL "
+    con.execute(f"UPDATE requests SET state_at = COALESCE({resolved}ts) WHERE state_at IS NULL "
                 "AND state != 'queued'")
     con.execute("UPDATE requests SET state_at = ts WHERE state_at IS NULL")
 
@@ -929,7 +968,8 @@ def _requests_one_state(con) -> None:
 # statements and re-adds them when it connects, so a drop at connect crashes it - or flaps against it
 # on every call (T830). Dropped by `ocp doctor --drop-dead-columns`, once everything long-lived has
 # been restarted; new code never names them and a fresh database never has them.
-_UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries", "told_out_of_turn")
+_UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries", "told_out_of_turn",
+                           *_LEGACY_REQUEST_COLUMNS)
 
 
 def drop_unread_request_columns(con) -> list[str]:
@@ -940,6 +980,13 @@ def drop_unread_request_columns(con) -> list[str]:
     con.execute("BEGIN IMMEDIATE")
     try:
         present = _cols(con, "requests")
+        if set(_LEGACY_REQUEST_COLUMNS) <= present:
+            # What a process still on older code closed since the upgrade carries its answer, reason
+            # or dismissal only in these columns: it is moved to where the readers look first.
+            _backfill_answers_told_on_the_say(con)
+            _backfill_closed_rows_leave_the_queue(con)
+            _backfill_dismissals_are_events(con)
+            _backfill_reasons_are_events(con)
         for col in _UNREAD_REQUEST_COLUMNS:
             if col not in present:
                 continue
@@ -949,6 +996,8 @@ def drop_unread_request_columns(con) -> list[str]:
             except sqlite3.OperationalError as e:
                 if "no such column" not in str(e):
                     raise
+        if not set(_LEGACY_REQUEST_COLUMNS) & _cols(con, "requests"):
+            set_cursor(con, LEGACY_DROPPED, 1)
         con.execute("COMMIT")
     except BaseException:
         con.execute("ROLLBACK")
@@ -1148,7 +1197,7 @@ def _rename_orchestrator(con) -> None:
     set_cursor(con, "migrated:human_name", 1)
 
 
-def _add_missing_columns(con) -> None:
+def _add_missing_columns(con, legacy: bool = True) -> None:
     # usage_samples gained the windows list; the rows before it keep the columns
     # they were written with, and `usage.windows` reads either.
     if "windows" not in _cols(con, "usage_samples"):
@@ -1165,7 +1214,7 @@ def _add_missing_columns(con) -> None:
     # the chat page looks up the answer of every row it draws by this.
     con.execute("CREATE INDEX IF NOT EXISTS requests_settles ON requests(settles)")
     for col in ("dismissed_by", "dismissed_reason"):
-        if col not in request_cols:
+        if legacy and col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
     if "landed_at" not in request_cols:
         for col, kind in (("typed_at", "INTEGER"), ("typed_session", "TEXT"),
@@ -1209,11 +1258,11 @@ def _add_missing_columns(con) -> None:
             "UPDATE tasks SET timeout_s = 14400, timeout_at = ? "
             "WHERE closed_by IS NULL AND done_evidence IS NULL AND ("
             "  EXISTS (SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id"
-            "          WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)"
+            "          WHERE l.task_id = tasks.id AND r.state = 'queued')"
             "  OR EXISTS (SELECT 1 FROM tasks c JOIN task_requests l ON l.task_id = c.id"
             "             JOIN requests r ON r.id = l.request_id"
             "             WHERE c.parent_task = tasks.id AND c.closed_by IS NULL"
-            "             AND r.state = 'queued' AND r.fyi = 0)"
+            "             AND r.state = 'queued')"
             ")", (now + 14400,))
     state_cols = _cols(con, "agent_state")
     for col in ("failed_attempts", "continuations", "throttle_count", "wake_failures"):

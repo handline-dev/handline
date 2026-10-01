@@ -265,6 +265,25 @@ def _snap(*_geometry, **_cursor) -> str:
     return tui.snapshot()
 
 
+def legacy_shape(con) -> None:
+    """Setup for a test of an upgrade from before the answers-to-says work (T835): the legacy
+    request columns are back and the database is no longer marked as having dropped them, so a
+    connect runs the migrations that read them."""
+    cols = {r[1] for r in con.execute("PRAGMA table_info(requests)")}
+    for col, decl in (("verdict", "TEXT"), ("resolved_at", "INTEGER"), ("announced_at", "INTEGER"),
+                      ("dismissed_by", "TEXT"), ("dismissed_reason", "TEXT"),
+                      ("fyi", "INTEGER NOT NULL DEFAULT 0")):
+        if col not in cols:
+            con.execute(f"ALTER TABLE requests ADD COLUMN {col} {decl}")
+    con.execute("DELETE FROM cursors WHERE name = 'legacy_request_columns_dropped'")
+    # An installed database has passed every one of those migrations; a test that wants one to run
+    # again clears its own ledger, as the upgrade tests already do.
+    import re
+    from ocp.db import schema as dbschema
+    for name in set(re.findall(r'set_cursor\(con, "(migrated:[a-z_]+)"', Path(dbschema.__file__).read_text())):
+        con.execute("INSERT OR IGNORE INTO cursors(name, row_id, updated) VALUES(?, 1, 0)", (name,))
+
+
 def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
                        announced: bool = False) -> None:
     """Force a request row to any state, for setup only - never a production
@@ -272,14 +291,13 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
     that need to reach a row's own defense-in-depth past that guard (past
     `_would_strand_a_proposal`, for one) use this to get there."""
     now = int(time.time())
-    con.execute(
-        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
-        "resolved_at = COALESCE(resolved_at, ?), "
-        "announced_at = COALESCE(announced_at, ?) WHERE id = ?",
-        (state, verdict, now if state != "queued" else None,
-         now if announced else None, rid))
-    if state != "queued" and verdict is not None and db.answer_row_of(con, rid) is None:
-        db.add_answer(con, rid, verdict, told=announced)     # what a closer leaves, T835 step 3
+    con.execute("UPDATE requests SET state = ?, state_at = ?, queue_order = CASE WHEN ? = 'queued' "
+                "THEN queue_order END WHERE id = ?", (state, now, state, rid))
+    if state != "queued" and verdict is not None:        # what a closer leaves: the answer, or the reason
+        if state in ("withdrawn", "denied", "replaced"):
+            db.add_reason(con, rid, verdict)
+        elif db.answer_row_of(con, rid) is None:
+            db.add_answer(con, rid, verdict, told=announced)
     db.refresh_sent_of_request(con, rid)
 
 

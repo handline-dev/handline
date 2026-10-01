@@ -1429,7 +1429,7 @@ def test_any_request_that_landed_is_landed(home: Path) -> None:
         con = db.connect()
         r = db.get_request(con, swept)
         check("landed any: the connect sweep lands a queued row that has its landing recorded",
-              r["state"] == "landed" and r["state_at"] == 777 and r["announced_at"] == 777, str(dict(r)))
+              r["state"] == "landed" and r["state_at"] == 777, str(dict(r)))
     finally:
         con.close()
 
@@ -3097,8 +3097,8 @@ def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> No
         check("decision: an unanswered one is waiting on the founder, in red",
               len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
               and "which branch" in w[0]["what"], str(w))
-        con.execute("UPDATE requests SET state = 'landed', verdict = 'the release one' "
-                    "WHERE body LIKE 'which branch%'")
+        for r in con.execute("SELECT id FROM requests WHERE body LIKE 'which branch%'").fetchall():
+            support._set_request_state(con, r["id"], "landed", "the release one")
         con.commit()
         check("decision: answered, it is gone", not waits("decision"))
     finally:
@@ -4571,6 +4571,7 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         def row(kind, state, target="worker", requester="manager", fyi=0, body="do the thing\nmore"):
             cur = con.execute(
@@ -4771,6 +4772,7 @@ def test_an_decisionion_is_a_decision_task_and_the_gate_is_the_open_task(home: P
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         rid = askmod.raise_decision(con, "backend", "[wait-for] T1 waits on T2\nmore", "wait-for graph")
         tasks = db.tasks_for_request(con, rid)
@@ -4920,6 +4922,7 @@ def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> No
     the conversation draws each message once."""
     _board_world(home)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         ok, msg, rid = askmod.ask("manager", "quick q?", requester="worker")
         check("setup: a request", ok, msg)
@@ -5018,7 +5021,7 @@ def test_the_answer_lookups_use_the_settles_index_not_a_scan(home: Path) -> None
     try:
         for i in range(200):
             rid = db.add_request(con, "worker", "manager", f"q{i}", None, None, None, None, 0, None)
-            con.execute("UPDATE requests SET state = 'landed', verdict = 'a' WHERE id = ?", (rid,))
+            support._set_request_state(con, rid, "landed")
             if i % 2 == 0:
                 db.add_answer(con, rid, "a")
         check("settles: the index exists on a database built now",
@@ -5392,6 +5395,7 @@ def test_one_doing_migration(home: Path) -> None:
     none of several, once, and leaves an agent that holds one of them alone."""
     _board_world(home)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         ids = {}
         for who in ("worker", "manager"):
@@ -6986,7 +6990,6 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
               db.shown_verdict(db.get_request(con, real))
               == "read - no reply is not what I mean")
         # T835 step 2: the say that answered a request is what is shown; the verdict is the fallback.
-        con.execute("UPDATE requests SET verdict = 'stale copy' WHERE id = ?", (real,))
         said = db.add_answer(con, real, "what was really said")
         check("shown_verdict: the answering say wins over the verdict copy",
               db.shown_verdict(db.get_request(con, real)) == "what was really said")
@@ -7011,8 +7014,6 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
               "dismissed by manager - dup of #9" in others and "read - no reply" not in others,
               out)
 
-        con.execute("UPDATE requests SET resolved_at = ? WHERE id IN (?, ?, ?)",
-                    (int(time.time()), old, old_blank, real))
         for legacy in (old, old_blank):         # as the upgrade leaves an untold old answer: it has a say
             db.add_answer(con, legacy, db.get_request(con, legacy)["answer"])
         mail = {m["id"]: m for m in actions.mailbox_rows(con)}
@@ -8360,6 +8361,7 @@ limits:
     for n in ("manager", "worker", "helper"):
         agents.register(n)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         ok, _, t = actions.task_new("manager", "worker", "stamp me", "work")
         rid = db.task_requests(con, t)[0]["id"]
@@ -8791,7 +8793,7 @@ limits:
             told.clear()
             db.set_current_task(con, "worker", None)
             for r in db.task_requests(con, bt):
-                con.execute("UPDATE requests SET state = 'landed', resolved_at = 1, queue_order = NULL WHERE id = ?", (r["id"],))   # answered
+                con.execute("UPDATE requests SET state = 'landed', queue_order = NULL WHERE id = ?", (r["id"],))   # answered
                 db.refresh_sent_of_request(con, r["id"])
             _cli(["task", "edit", f"T{bt}", "--body", "cli brief, not doing"], as_agent="manager")
             check("T689: nobody is told for a task that is not being worked", told == [], str(told))
