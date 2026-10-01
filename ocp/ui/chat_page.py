@@ -2016,15 +2016,19 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#compose", ChatBox).text = ""
         self.query_one("#scope", Tabs).active = tab
 
-    def leave(self) -> None:
-        """Go back to the main screen, asking first when that would lose a draft
-        or leave messages that are still being sent."""
-        box = self.query_one("#compose", ChatBox)
+    def unsent(self) -> list[str]:
+        """What leaving this page now would lose."""
         lost = []
-        if box.text.strip():
+        if self.query_one("#compose", ChatBox).text.strip():
             lost.append("the draft in the box")
         if self.sending:
             lost.append(f"{self.sending} message(s) still being sent")
+        return lost
+
+    def leave(self) -> None:
+        """Go back to the main screen, asking first when that would lose a draft
+        or leave messages that are still being sent."""
+        lost = self.unsent()
         if not lost:
             self.app.pop_screen()
             return

@@ -25,6 +25,7 @@ from ..daemon import devmode
 from ..infra import service
 
 from textual.app import App
+from textual.screen import ModalScreen
 
 from textual import events
 
@@ -48,6 +49,7 @@ class BridgeApp(ClipboardApp):
     def __init__(self) -> None:
         super().__init__()
         self.jobs = jobsmod.Jobs()
+        self.restart_owed = False       # the code changed; waiting for a moment nothing is lost
         self.restart_on_exit = False
         self._code_state: dict = {"fp": None, "warned": None}
 
@@ -76,15 +78,25 @@ class BridgeApp(ClipboardApp):
 
     def _check_code(self) -> None:
         """With dev mode on, the daemon's own check: the code changed and still imports. The import
-        check runs `ocp --help`, so this is a worker, not the UI thread."""
-        try:
-            changed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
-        except Exception as e:  # noqa: BLE001 - a tree mid-checkout must not take the bridge down
-            stall.crumb(f"dev-mode check failed: {e}")
-            return
-        if changed:
+        check runs `ocp --help`, so this is a worker, not the UI thread. A restart found is owed
+        until nothing on screen would be lost by it (see `_idle`)."""
+        if not self.restart_owed:
+            try:
+                self.restart_owed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
+            except Exception as e:  # noqa: BLE001 - a tree mid-checkout must not take the bridge down
+                stall.crumb(f"dev-mode check failed: {e}")
+                return
+        if self.restart_owed:
+            self.call_from_thread(self._restart_if_idle)
+
+    def _idle(self) -> bool:
+        """No box is open and no page holds a draft or a send in flight - what `ChatPage.leave` asks about."""
+        return not any(isinstance(sc, ModalScreen) or getattr(sc, "unsent", list)() for sc in self.screen_stack)
+
+    def _restart_if_idle(self) -> None:
+        if self._idle():
             self.restart_on_exit = True
-            self.call_from_thread(self.exit)
+            self.exit()
 
 
 def run(once: bool = False) -> int:

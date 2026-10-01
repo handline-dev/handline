@@ -1812,26 +1812,82 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
     check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
 
 
-async def test_the_bridge_exits_to_restart_when_the_daemons_code_check_says_so() -> None:
+async def test_the_bridge_exits_to_restart_only_when_nothing_would_be_lost() -> None:
     from ocp.daemon import devmode
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components.confirm import Confirm
     _home("coderestart")
     real, real_every = devmode._dev_mode_should_restart, bt.CODE_CHECK_S
-    answers = iter([False, True])
-    devmode._dev_mode_should_restart = lambda state, log: next(answers, True)
     bt.CODE_CHECK_S = 0.05
     try:
+        devmode._dev_mode_should_restart = lambda state, log: False
+        quiet = bt.BridgeApp()
+        async with quiet.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.4)
+            check("code restart: an unchanged tree leaves it running", quiet.is_running and not quiet.restart_on_exit)
+
+        devmode._dev_mode_should_restart = lambda state, log: True
         app = bt.BridgeApp()
         async with app.run_test(size=(100, 30)) as pilot:
-            await pilot.pause(0.5)
-            check("code restart: a changed tree that still imports ends the app with a restart owed",
+            await pilot.pause(0.4)
+            check("code restart: a changed tree that still imports ends an idle app with a restart owed",
                   app.restart_on_exit and not app.is_running)
-        quiet = bt.BridgeApp()
+
+        app = bt.BridgeApp()
         devmode._dev_mode_should_restart = lambda state, log: False
-        async with quiet.run_test(size=(100, 30)) as pilot:
-            await pilot.pause(0.5)
-            check("code restart: an unchanged tree leaves it running", quiet.is_running and not quiet.restart_on_exit)
+        async with app.run_test(size=(100, 30)) as pilot:
+            page = cp.ChatPage("reviewer")
+            await app.push_screen(page)
+            await pilot.pause()
+            box = page.query_one("#compose", cp.ChatBox)
+            box.text = "half a thought"
+            devmode._dev_mode_should_restart = lambda state, log: True
+            await pilot.pause(0.4)
+            check("code restart: a draft in the box keeps it running, the restart owed",
+                  app.is_running and app.restart_owed and not app.restart_on_exit)
+            box.text = ""
+            page.sending = 1
+            await pilot.pause(0.4)
+            check("code restart: a send in flight keeps it running", app.is_running and not app.restart_on_exit)
+            page.sending = 0
+            app.push_screen(Confirm("Sure", "?", yes="y", no="n"))
+            await pilot.pause(0.4)
+            check("code restart: a box open over the page keeps it running", app.is_running and not app.restart_on_exit)
+            app.pop_screen()
+            await pilot.pause(0.4)
+            check("code restart: nothing left to lose, the owed restart goes ahead",
+                  app.restart_on_exit and not app.is_running)
     finally:
         devmode._dev_mode_should_restart, bt.CODE_CHECK_S = real, real_every
+
+
+def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
+    import os as _os
+    from ocp.infra import service
+    execs, real_exec, real_app, real_argv = [], _os.execv, bt.BridgeApp, sys.argv
+    real_tty = sys.stdout.isatty
+    owed = {"now": True}
+
+    class FakeApp:
+        def __init__(self):
+            self.restart_on_exit = owed["now"]
+        def run(self):
+            pass
+    _os.execv = lambda exe, argv: execs.append((exe, argv))
+    bt.BridgeApp = FakeApp
+    sys.argv = ["ocp", "bridge", "--x"]
+    sys.stdout.isatty = lambda: True
+    try:
+        bt.run()
+        check("run: a restart owed execs the entrypoint with the same arguments",
+              execs == [(service.ocp_executable(), [service.ocp_executable(), "bridge", "--x"])], str(execs))
+        execs.clear()
+        owed["now"] = False
+        bt.run()
+        check("run: none owed, no exec", execs == [])
+    finally:
+        _os.execv, bt.BridgeApp, sys.argv = real_exec, real_app, real_argv
+        sys.stdout.isatty = real_tty
 
 
 async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> None:
@@ -3219,7 +3275,8 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
-    await test_the_bridge_exits_to_restart_when_the_daemons_code_check_says_so()
+    await test_the_bridge_exits_to_restart_only_when_nothing_would_be_lost()
+    test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
