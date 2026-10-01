@@ -3589,6 +3589,16 @@ limits:
               and db.get_request(con, drid)["announced_at"] is not None
               and not db.unannounced_answers(con, "manager")
               and con.execute("SELECT COUNT(*) FROM requests WHERE settles = ?", (drid,)).fetchone()[0] == 0)
+        check("task end: and its inbox file is removed, as a resolve removes it",
+              not (home / "agents" / "worker" / "inbox" / f"{drid:06d}.json").exists())
+        ok, _, seen = actions.task_new("manager", "worker", "read by its holder", "w")
+        ok, _, unseen = actions.task_new("manager", "worker", "never read", "w")
+        db.mark_landed(con, db.task_requests(con, seen)[0]["id"])
+        actions.mark_task_done(con, seen, "worker", reason="a")
+        actions.mark_task_done(con, unseen, "worker", reason="b")
+        check("task end: a delivery the holder had read closes as done, one it never saw as withdrawn",
+              db.task_requests(con, seen)[0]["state"] == "done" and db.task_requests(con, unseen)[0]["state"] == "withdrawn",
+              f"{db.task_requests(con, seen)[0]['state']} {db.task_requests(con, unseen)[0]['state']}")
         check("task end: and the say is not linked to the task, so a done task does not read as sent",
               db.get_task(con, top)["sent_at"] is None)
         ok, msg = actions.mark_task_done(con, top, "worker", reason="again")

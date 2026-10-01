@@ -60,6 +60,13 @@ def _terminal(con, agent: str) -> bool:
     return bool(row and row["state"] in TERMINAL_STATES)
 
 
+def forget_inbox(target: str, rid: int) -> None:
+    """Remove the inbox file a request wrote for `target`, once the request is out of the queue."""
+    p = _inbox(target) / f"{rid:06d}.json"
+    if p.exists():
+        p.unlink()
+
+
 def _inbox(target: str) -> Path:
     d = paths.agent_dir(target) / "inbox"
     d.mkdir(parents=True, exist_ok=True)
@@ -735,9 +742,7 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
             # QUEUED only if something is queued or untold: a quiet dismissal
             # leaves neither, and the asker just goes back to idle.
             dmn_evaluate.queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
-    p = _inbox(row["target"]) / f"{rid:06d}.json"
-    if p.exists():
-        p.unlink()
+    forget_inbox(row["target"], rid)
     said = push_answer(con, row["requester"]) if notify else ""
     # T318: this row may have been what kept the target's current task (T292)
     # worth holding - a no-op for a plain, task-less request, or for the

@@ -550,8 +550,7 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
         by_word = "the founder" if by == HUMAN else by
         told = _end_task(con, tid, by, row, discard_text=f"discarded by {by_word}: {said}",
                          also=[w for w in dict.fromkeys((row["owner"], asker))
-                               if not (in_hand and w == row["owner"])],
-                         tell_human=False)
+                               if not (in_hand and w == row["owner"])])
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
         db.reparent_children(con, tid)
@@ -1032,7 +1031,7 @@ def advance_current_task(con, agent: str, refused: dict | None = None) -> bool:
 
 
 def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard_text: str | None = None,
-              also: list[str] = (), tell_human: bool = True) -> list[tuple[int, str, str]]:
+              also: list[str] = ()) -> list[tuple[int, str, str]]:
     """T776: what a task's end does to its requests, inside the transaction that ended it. Every
     delivery still queued on it is closed quietly (a landed one as read, the rest withdrawn) and
     never answered with a verdict; whoever opened it, whoever asked through a linked delivery, and
@@ -1044,13 +1043,12 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
     as sent because of a say."""
     for r in db.task_requests(con, tid):
         if r["state"] == "queued":
-            db.close_if_queued(con, int(r["id"]), "done" if r["landed_at"] else "withdrawn", None,
-                               announced=True, settle=False)
+            if db.close_if_queued(con, int(r["id"]), "done" if r["landed_at"] else "withdrawn", None,
+                                  announced=True, settle=False):
+                askmod.forget_inbox(r["target"], int(r["id"]))
     text = (f"T{tid} done by {'the founder' if by == HUMAN else by}: " + " ".join(done_text.split())
             if done_text is not None else f"T{tid} {discard_text}").rstrip(": ")
     skip = {by, _UNBLOCK_REQUESTER}
-    if not tell_human:
-        skip.add(HUMAN)
     if row["parent_task"]:
         parent = db.get_task(con, row["parent_task"])
         if parent is not None:
