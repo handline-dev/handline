@@ -4799,8 +4799,8 @@ edges:
 
         # An old verdict, written before answer rows existed, is given one - once.
         old = db.add_request(con, "worker", "manager", "old question", None, None, None, None, 0,
-                             None, state="done", verdict="old verdict")
-        con.execute("UPDATE requests SET resolved_at = 1000 WHERE id = ?", (old,))
+                             None, verdict="old verdict")
+        con.execute("UPDATE requests SET state = 'done', resolved_at = 1000 WHERE id = ?", (old,))      # the old shape
         db.set_cursor(con, "migrated:answer_rows", 0)
         con.close()
         con = db.connect()
@@ -5417,7 +5417,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
               actions.task_state(con, row) == "draft" and row["timeout_at"] is None,
               str(dict(row)))
         check("release: the request is no longer open, but still on the record",
-              db.get_request(con, rid)["state"] == "rejected", str(dict(db.get_request(con, rid))))
+              db.get_request(con, rid)["state"] in ("withdrawn", "landed"), str(dict(db.get_request(con, rid))))
         check("release: the task still lists it",
               any(r["id"] == rid for r in db.task_requests(con, tid)))
         check("release: the founder is not sent a rejection of his own request, the same as "
@@ -5452,7 +5452,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
               ok and f"T{child}" in msg and "paused" not in msg, msg)
         row = db.get_task(con, parent)
         check("release: the request is retired, the timeout was left running, not paused",
-              db.get_request(con, prid)["state"] == "rejected"
+              db.get_request(con, prid)["state"] in ("withdrawn", "landed")
               and row["timeout_at"] is not None and actions.task_state(con, row) == "doing",
               str(dict(row)))
 
@@ -5486,7 +5486,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         row = db.get_task(con, two)
         check("release: still paused, back to draft, despite the one that could not be retired",
               actions.task_state(con, row) == "draft" and row["timeout_at"] is None
-              and db.get_request(con, second)["state"] == "rejected"
+              and db.get_request(con, second)["state"] in ("withdrawn", "landed")
               and db.get_request(con, first)["state"] == "landed", str(dict(row)))
     finally:
         orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now = real

@@ -179,7 +179,7 @@ def notify_cancelled_verb(con, log, **kw) -> tuple[bool, str]:
         return False, f"no request #{kw['rid']}"
     if row["target"] == askmod.HUMAN or row["target"] not in paths.list_agents():
         return False, f"{row['target']} is not an agent"
-    if row["state"] != "landed" or row["verdict"] != askmod.CANCEL_VERDICT or not row["delivered_at"]:
+    if row["state"] != "landed" or not row["delivered_at"] or db.answer_row_of(con, row["id"]) is not None:
         return False, f"#{row['id']} was not cancelled after it was delivered"
     _background(f"notify-cancelled-{row['id']}",
                 lambda c: delivery.notify_cancelled(c, row, str(row["verdict"] or "")), log)

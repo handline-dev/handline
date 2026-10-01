@@ -401,14 +401,18 @@ def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) 
     con = db.connect()
     try:
         told = [db.add_request(con, actions.HUMAN, "backend", f"say {i}", None, "peer", "async", "say", 0, None,
-                               state="done", verdict=note)
+                               verdict=note)
                 for i, note in enumerate(("typed", "closed: told before says were typed at once"))]
+        for t in told:
+            con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (t,))      # the old shape
         fakes = [db.add_answer(con, t, db.get_request(con, t)["verdict"]) for t in told]
         ask = db.add_request(con, actions.HUMAN, "backend", "a former ask", None, "peer", "async", "say", 0, None,
-                             state="done", verdict="PASS, nothing to change")
+                             verdict="PASS, nothing to change")
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (ask,))
         real = db.add_answer(con, ask, "PASS, nothing to change")
         old_ask = db.add_request(con, actions.HUMAN, "backend", "before answers were says", None, "peer", "async",
-                                 None, 0, None, state="done", verdict="typed")
+                                 None, 0, None, verdict="typed")
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (old_ask,))
         old_fake = db.add_answer(con, old_ask, "typed")
         con.execute("UPDATE requests SET kind = 'answer', settles = NULL WHERE id = ?", (fakes[0],))   # the old shape
         db.set_cursor(con, "migrated:close_notes", 0)

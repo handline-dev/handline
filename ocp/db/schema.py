@@ -454,6 +454,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _kinds_are_say(con)
     _founder_says_landed(con)
     _requests_one_state(con)
+    _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -823,6 +824,10 @@ def _requests_one_state(con) -> None:
     proposal; the state column is quoted so the chokepoint scan does not read this as a closer."""
     if get_cursor(con, "migrated:requests_one_state"):
         return
+    # What ended before it was sent was never an answer to anyone: "withdrawn" joins the states
+    # `unannounced_answers` reads (a refusal that was `rejected`), so the old ones are marked told.
+    con.execute("UPDATE requests SET announced_at = COALESCE(announced_at, resolved_at, ts) "
+                "WHERE state IN ('withdrawn', 'replaced', 'denied')")
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
                 'delivered_at, resolved_at, ts) WHERE "state" = \'done\'')
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
@@ -834,6 +839,19 @@ def _requests_one_state(con) -> None:
                 "AND state != 'queued'")
     con.execute("UPDATE requests SET state_at = ts WHERE state_at IS NULL")
     set_cursor(con, "migrated:requests_one_state", 1)
+
+
+def _moot_trust_proposals(con) -> None:
+    """T797: trust proposals for a root already declared are settled as moot, once. A store that
+    cannot be read here leaves them for the next connect."""
+    if get_cursor(con, "migrated:moot_trust_proposals"):
+        return
+    try:
+        from ..team import trust
+        trust.settle_moot()
+    except Exception:  # noqa: BLE001 - the migration must never stop a connect
+        return
+    set_cursor(con, "migrated:moot_trust_proposals", 1)
 
 
 def _task_leftovers_settled(con) -> None:

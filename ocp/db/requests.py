@@ -502,10 +502,10 @@ def add_answer(con, rid: int, text: str, at: int | None = None) -> int:
     when = int(time.time()) if at is None else at
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, kind, chain_depth, parent_id, "
-        "settles, chain_id, state, announced_at, resolved_at, edge_ok) "
-        "VALUES(?,?,?,?,'say',?,?,?,?,?,?,?,1)",
+        "settles, chain_id, state, announced_at, resolved_at, state_at, edge_ok) "
+        "VALUES(?,?,?,?,'say',?,?,?,?,?,?,?,?,1)",
         (when, row["target"], row["requester"], text, row["chain_depth"], rid, rid,
-         row["chain_id"], "done", when, when))
+         row["chain_id"], LANDED, when, when, when))
     aid = int(cur.lastrowid)
     con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (aid, aid))
     return aid
