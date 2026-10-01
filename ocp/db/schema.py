@@ -785,6 +785,8 @@ def _kinds_are_say(con) -> None:
     queued row is not touched. Ledgered, so it runs once."""
     if get_cursor(con, "migrated:kinds_are_say"):
         return
+    con.execute("UPDATE requests SET settles = parent_id WHERE kind = 'answer' AND settles IS NULL "
+                "AND parent_id IS NOT NULL")       # as `_answers_are_says` did, for the ones written since
     con.execute("UPDATE requests SET kind = 'say' WHERE state != 'queued' "
                 "AND (kind IS NULL OR kind IN ('', 'answer', 'escalate', 'report', 'task_note'))")
     set_cursor(con, "migrated:kinds_are_say", 1)

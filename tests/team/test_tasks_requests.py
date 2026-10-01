@@ -113,6 +113,8 @@ def test_ask_flow(home: Path) -> None:
     try:
         denied = con.execute("SELECT COUNT(*) c FROM requests WHERE state='denied'").fetchone()["c"]
         check("ask: denials are recorded, not silent", denied == 2, str(denied))
+        check("ask: a refusal by the routing table is written as a say (T766)",
+              {r["kind"] for r in con.execute("SELECT kind FROM requests WHERE state = 'denied'")} == {"say"})
         st = db.get_agent_state(con, "backend")
         check("ask: an async requester is never parked on the reply (T628)",
               st is None or st["state"] != "PARKED", str(dict(st) if st else None))
@@ -437,6 +439,8 @@ def test_rate_limit_throttles(home: Path) -> None:
               str(dict(row)))
         check("rate limit: with a wake_at so it clears itself",
               row["wake_at"] is not None, str(dict(row)))
+        check("rate limit: and the refused text is kept as a say (T766)",
+              con.execute("SELECT kind FROM requests WHERE state = 'denied' AND body = 'n2'").fetchone()["kind"] == "say")
     finally:
         con.close()
 
@@ -4283,6 +4287,8 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
                           "(kind IS NULL OR kind IN ('report', 'escalate'))", (q_delivered,)).fetchone()["c"] == 0
               and con.execute("SELECT COUNT(*) c FROM requests WHERE state = 'queued' AND kind IS NULL "
                               "AND fyi = 0 AND delivered_at IS NULL").fetchone()["c"] == 0)
+        ans = db.add_request(con, "worker", "manager", "q", None, None, None, None, 0, None, state="done")
+        old_ans = db.add_request(con, "manager", "worker", "the answer", None, None, None, "answer", 0, ans, state="done")
         old_kinds = {}
         for k in (None, "", "answer", "escalate", "report", "task_note"):
             rid_k = db.add_request(con, "worker", "manager", f"old {k}", None, None, None, k, 0, None, state="denied")
@@ -4295,6 +4301,8 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
               all(kind(r) == "say" for r in old_kinds.values()) and kind(task_row) == "task"
               and con.execute("SELECT 1 FROM cursors WHERE name = 'migrated:kinds_are_say'").fetchone() is not None)
         check("kinds: and a queued row is left as it is", kind(q_old) == "report")
+        check("kinds: an answer written after the answers became says now settles its request (T766)",
+              kind(old_ans) == "say" and db.get_request(con, old_ans)["settles"] == ans)
         con.close()
         con = db.connect()
         check("kinds: a second connect changes nothing",
@@ -6651,6 +6659,9 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
         detail = "\n".join(l for _, ls in sections[:1] for l in ls)
         check("dismissed: an opened message shows the label",
               detail == "dismissed - dup of #9", detail)
+        nk = db.add_request(con, "worker", "manager", "no kind", None, "peer", "async", None, 0, None)
+        check("detail: a row with no kind is called a say", " · say · " in actions.message_detail(con, nk)[0],
+              actions.message_detail(con, nk)[0])
         w = db.add_request(con, "worker", "manager", "q5", None, "peer", "async", None, 0, None)
         actions.dismiss(con, w, me="manager", reason="not now")
         check("dismissed: nothing is left to tell the asker",
