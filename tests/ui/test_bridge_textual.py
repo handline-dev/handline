@@ -2023,6 +2023,8 @@ def test_a_timeline_entry_shows_its_kind_after_the_time_with_an_icon_and_a_colou
     check("timeline: the kind follows the time, before who, an icon in front of it",
           "✎ memo  reviewer  a memo" in memo.plain and "↗ request  reviewer  #7  queued  ask it" in req.plain,
           memo.plain + " | " + req.plain)
+    odd = cp.timeline_text({**base, "kind": "state", "text": "draft -> done"}).plain
+    check("timeline: a kind the page does not know is still drawn", "state  reviewer  draft -> done" in odd, odd)
     colour = lambda t, word: next(str(sp.style) for sp in t.spans if t.plain[sp.start:sp.end].startswith(word))
     check("timeline: a memo and a request differ in colour, and a request's state differs from its text",
           colour(memo, "✎") != colour(req, "↗") and colour(memo, "a memo") != colour(req, "ask it")

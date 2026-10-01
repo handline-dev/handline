@@ -575,9 +575,10 @@ def timeline_text(e: dict) -> Text:
     """One entry of a task's timeline: when, what kind (with its icon), who and its text, the kind and
     the text in the kind's colour. A text that fits the line stays on it; one of several lines (or
     too long for one) shows whole, each line indented under the first. A memo that was edited says when."""
-    colour = TIMELINE_STYLE[e["kind"]]
+    kind = e["kind"]      # a kind not listed (a new one) is drawn plain, never an error
+    colour = TIMELINE_STYLE.get(kind, "")
     out = Text.assemble((timefmt.stamp(e["ts"], timefmt.DATE_TIME) + "  ", "dim"),
-                        (f"{TIMELINE_ICON[e['kind']]} {TIMELINE_WORD[e['kind']]}  ", f"bold {colour}"),
+                        (f"{TIMELINE_ICON.get(kind, '•')} {TIMELINE_WORD.get(kind, safe(kind))}  ", f"bold {colour}".strip()),
                         safe(e["who"]) + "  ")
     if "state" in e:      # a request: its number, state and first line
         out.append(f"{e['ref']}  ", style="dim")
