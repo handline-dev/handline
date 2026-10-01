@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import faulthandler
 import os
 import signal
@@ -45,6 +46,8 @@ def log(line: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists() and path.stat().st_size > MAX_BYTES:
             path.replace(path.with_name(path.name + ".1"))
+            if _fault_file is not None:
+                _register_dump()        # the USR1 dump follows the new file, not the rotated one
         with path.open("a") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}.{int(time.time() * 1000) % 1000:03d} {line.rstrip()}\n")
     except OSError:
@@ -126,22 +129,39 @@ class Watchdog(threading.Thread):
             self.check(time.monotonic())
 
 
+def _register_dump() -> None:
+    """USR1 writes every thread's stack to the log, whichever file that is now."""
+    global _fault_file
+    old, _fault_file = _fault_file, log_file().open("a")
+    faulthandler.register(signal.SIGUSR1, file=_fault_file, all_threads=True)
+    if old is not None:
+        old.close()
+
+
 def install(app) -> int:
     """Start watching the running app (from its event-loop thread): the watchdog, the USR1 dump and
     the pid file. Returns the pid."""
-    global _fault_file
     pid = os.getpid()
     try:
         log_file().parent.mkdir(parents=True, exist_ok=True)
         pid_file().write_text(f"{pid}\n")
-        _fault_file = log_file().open("a")
-        faulthandler.register(signal.SIGUSR1, file=_fault_file, all_threads=True)
+        _register_dump()
     except (OSError, ValueError, AttributeError):
         pass
+    atexit.register(forget_pid, pid)
     log(f"bridge up: pid {pid} term {os.environ.get('TERM_PROGRAM', os.environ.get('TERM', '?'))} "
         f"python {sys.version.split()[0]}")
     Watchdog(asyncio.get_running_loop()).start()
     return pid
+
+
+def forget_pid(pid: int) -> None:
+    """Remove the pid file when the bridge goes, unless a later bridge has written its own."""
+    try:
+        if pid_file().read_text().strip() == str(pid):
+            pid_file().unlink()
+    except OSError:
+        pass
 
 
 def running_pid() -> int | None:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -3036,8 +3037,61 @@ def test_the_stall_watchdog_writes_the_stacks_and_the_recovery() -> None:
     check("stall: no pid file, no bridge", stall.running_pid() is None)
 
 
+async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_goes_with_the_bridge() -> None:
+    """T788 (auditor #8657): a printable key in an open box is logged as "printable", a named key by
+    name, and nothing is logged with no box open; `install` writes the pid file and the USR1 dump,
+    the file goes when the bridge does, and a pid file left behind names no bridge."""
+    import signal
+    from ocp.ui import stall
+    from ocp.ui.bridge_textual import BridgeApp
+    from ocp.ui.components.task_assign import TaskAssign
+    from ocp.cli import bridge as clibridge
+    import argparse
+    _home("stall_ui")
+    app = BridgeApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        check("stall: the title says the pid, the pid file names this process and it is a bridge",
+              f"pid {os.getpid()}" in app.title and stall.pid_file().read_text().strip() == str(os.getpid())
+              and stall.running_pid() == os.getpid())
+        await pilot.press("tab")
+        await pilot.pause()
+        check("stall: no box open, no key line", "key " not in stall.log_file().read_text())
+        app.push_screen(TaskAssign("T1", "backend", ["analytics"]))
+        await pilot.pause()
+        await pilot.press(*"Secret pw 42!")
+        await pilot.press("tab", "escape")
+        await pilot.pause()
+        keys = set(re.findall(r"key (\S+) focus", stall.log_file().read_text()))
+        check("stall: typed characters are never in the log, a named key is",
+              {"printable", "tab", "escape"} <= keys and not keys & (set("Secrpw42") | {"space", "exclamation_mark"}), str(keys))
+        os.kill(os.getpid(), signal.SIGUSR1)
+        await asyncio.sleep(0.2)
+        check("stall: USR1 writes the stacks into the log", "Current thread" in stall.log_file().read_text()
+              or "Thread 0x" in stall.log_file().read_text())
+    stall.forget_pid(os.getpid())
+    check("stall: the pid file is removed when the bridge goes", not stall.pid_file().exists())
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    stall.pid_file().write_text(f"{gone.pid}\n")
+    out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
+    check("stall: a pid file left behind names no bridge", stall.running_pid() is None and out[0] == 1, str(out))
+    stall.pid_file().write_text(f"{os.getpid()}\n")
+    out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
+    check("stall: `ocp bridge --pid` prints the pid of a live bridge", out == (0, f"{os.getpid()}\n"), str(out))
+
+
+def _capture_out(fn) -> "tuple[int, str]":
+    import contextlib, io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = fn()
+    return code, buf.getvalue()
+
+
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
+    await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_goes_with_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
     test_agents_data_shows_its_current_task_and_flags_it_ready()

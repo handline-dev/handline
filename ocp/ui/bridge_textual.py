@@ -44,10 +44,11 @@ class BridgeApp(ClipboardApp):
 
     async def on_event(self, event) -> None:
         """While a box is over the page, the raw mouse and key events that reach the app, with what
-        had focus and the mouse (key names only: what is typed is not logged)."""
+        had focus and the mouse (a printable key is logged as "printable": what is typed is not logged)."""
         if isinstance(event, (events.MouseDown, events.MouseUp, events.Click, events.Key)) \
                 and isinstance(self.screen, Dialog):
-            what = f"key {event.key}" if isinstance(event, events.Key) else f"{type(event).__name__} at {event.screen_x},{event.screen_y}"
+            what = (f"key {'printable' if event.is_printable else event.key}" if isinstance(event, events.Key)
+                    else f"{type(event).__name__} at {event.screen_x},{event.screen_y}")
             stall.crumb(f"{type(self.screen).__name__}: {what} focus {self.focused!r} mouse {self.mouse_captured!r}")
         await super().on_event(event)
 
