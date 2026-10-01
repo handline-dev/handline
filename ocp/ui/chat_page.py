@@ -734,6 +734,8 @@ class ChatMessage(Vertical):
             self.screen.cancel_message(self.m["rid"], self.m["text"])
 
     def on_click(self) -> None:
+        if self.screen.selections:   # the end of a drag: picking would redraw the head line under the selection
+            return
         if self.m["replyable"]:
             self.screen.reply_to(None if self.screen.replying is self else self)
 

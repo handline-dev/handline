@@ -2566,6 +2566,42 @@ async def test_a_selection_on_a_wrapped_line_never_takes_the_bridge_down():
         check("selection: a widget that misreads its lines copies nothing and the app lives", ok)
 
 
+async def test_a_drag_inside_one_message_copies_only_what_was_dragged():
+    from textual.screen import Screen
+    from ocp.ui import chat_page as cp
+    m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "text": "hello world again", "waiting": False,
+         "replyable": True, "answered": False, "queued": False, "delivered": True}
+    picks: list = []
+
+    class Chat(Screen):
+        replying = None
+
+        def compose(self):
+            yield cp.ChatMessage(m)
+
+        def reply_to(self, msg):
+            picks.append(msg)
+            msg.show_id(True)
+
+    class Host(ClipboardApp):
+        def on_mount(self):
+            self.push_screen(Chat())
+
+    app = Host()
+    async with app.run_test(size=(60, 12)) as pilot:
+        await pilot.pause()
+        body = app.screen.query_one(cp.ChatMessage)._text
+        await pilot.mouse_down(body, offset=(0, 0))
+        await pilot.hover(body, offset=(5, 0))
+        await pilot.mouse_up(body, offset=(5, 0))
+        body.post_message(events.Click(body, 5, 0, 5, 0, 1, False, False, False))   # a terminal sends it after the mouse-up
+        await pilot.pause()
+        got = app.screen.get_selected_text()
+        check("selection: a drag inside a one-line message copies that text, not the head line above it",
+              got is not None and got.strip() != "" and "you" not in got and got in "hello world again", repr(got))
+        check("selection: and the end of a drag does not pick the message", picks == [], str(picks))
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -2653,6 +2689,7 @@ async def _run_all() -> None:
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
     await test_a_selection_on_a_wrapped_line_never_takes_the_bridge_down()
+    await test_a_drag_inside_one_message_copies_only_what_was_dragged()
 
 
 def main() -> int:
