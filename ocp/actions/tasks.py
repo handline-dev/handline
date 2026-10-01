@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -156,11 +157,9 @@ def open_task_count(con, agent: str) -> int:
     return open_task_counts(con, agent).get(agent, 0)
 
 
-def reads_doing(con, tid: int) -> bool:
-    """Whether task `tid` is being worked, whatever its own done/discarded columns
-    say: a request is queued against it or an open child, or it was begun on a
-    founder message (`_begun`). `task_state` builds "doing" from this, and the
-    timeout clock asks it of a task that is just being marked done or reopened."""
+def _reads_doing_from_requests(con, tid: int) -> bool:
+    """What `reads_doing` answered before T737, from the open requests - kept as the other half of
+    the comparison that proves the task row says the same."""
     if _begun(con, tid):
         return True
     if any(_asks(r) for r in db.task_requests(con, tid)):
@@ -168,6 +167,21 @@ def reads_doing(con, tid: int) -> bool:
     return any(_asks(r)
               for c in db.open_child_tasks(con, tid)
               for r in db.task_requests(con, c["id"]))
+
+
+def reads_doing(con, tid: int) -> bool:
+    """Whether task `tid` is being worked, whatever its own done/discarded columns
+    say: it has been sent to its owner (`sent_at`), or an open child of it has, or it was
+    begun on a founder message (`_begun`). `task_state` builds "doing" from this, and the
+    timeout clock asks it of a task that is just being marked done or reopened."""
+    row = db.get_task(con, tid)
+    now = row is not None and (_begun(con, tid) or row["sent_at"] is not None
+                               or any(c["sent_at"] is not None for c in db.open_child_tasks(con, tid)))
+    if os.environ.get("OCP_COMPARE_DOING"):
+        was = _reads_doing_from_requests(con, tid)
+        if was != now:
+            raise AssertionError(f"T{tid}: reads_doing from the row is {now}, from its requests {was}")
+    return now
 
 
 def holds_current(con, row) -> bool:
@@ -881,8 +895,7 @@ def _current_task_still_asking(con, agent: str) -> bool:
     if row is None or db.task_ended(row):
         return False
     # T443: an owner waiting on a child of its own is held on it, whatever became of its request.
-    return (_begun(con, tid) or child_blocker_of(con, tid) is not None
-            or any(_asks(r) for r in db.task_requests(con, tid)))
+    return _begun(con, tid) or child_blocker_of(con, tid) is not None or row["sent_at"] is not None
 
 
 # Events after which a task's earlier answers no longer mean it was handled: it
@@ -1688,6 +1701,7 @@ class _board_facts:
             "SELECT agent, current_task FROM agent_state WHERE current_task IS NOT NULL")}
         self.begun = {r[0] for r in con.execute(
             f"SELECT DISTINCT {db.EVENT_TASK} FROM events WHERE kind = 'task_begin'") if r[0] is not None}
+        self.sent = {r[0] for r in con.execute("SELECT id FROM tasks WHERE sent_at IS NOT NULL")}
         self.children: dict[int, list[int]] = {}
         for c in open_tasks:
             if c["parent_task"] is not None:
@@ -1708,9 +1722,8 @@ class _board_facts:
         return cur is None or db.task_ended(cur)
 
     def _asked(self, tid: int) -> bool:
-        return (tid in self.begun
-                or any(_asks(r) for r in self.links.get(tid, []))
-                or any(_asks(r) for c in self.children.get(tid, []) for r in self.links.get(c, [])))
+        return (tid in self.begun or tid in self.sent
+                or any(c in self.sent for c in self.children.get(tid, [])))
 
     def state(self, row) -> str:
         asked = self._asked(row["id"])

@@ -14,11 +14,13 @@ from .schema import EVENT_TASK
 # an answer - the board reads those from `requests` each time it draws, so
 # there is one place each fact lives and nothing to drift. Adding a column to
 # `tasks` means adding it here, and a test fails until both agree.
+# The exception is the delivery of the task itself (T720, T737, design #7986): `delivered_at`
+# and `sent_at` are the task's own facts, moving off the requests step by step.
 TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
                "discarded_by", "discard_reason", "discarded_at", "priority", "merged_into",
-               "queued_by", "queued_at", "expects", "timeout_s", "timeout_at", "delivered_at")
+               "queued_by", "queued_at", "expects", "timeout_s", "timeout_at", "delivered_at", "sent_at")
 
 DEFAULT_PRIORITY = 2
 

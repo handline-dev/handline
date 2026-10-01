@@ -3649,8 +3649,12 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
             clitask._print_board(con, db.open_tasks(con))
         check("task row: it reads the new state, from the request",
               "done" in buf.getvalue() and "queued" not in buf.getvalue(), buf.getvalue())
-        check("task row: and the task row itself did not change",
-              dict(db.get_task(con, tid)) == before, str(dict(db.get_task(con, tid))))
+        after = dict(db.get_task(con, tid))
+        check("task row: and the task row itself did not change - but for sent_at, which follows the "
+              "open requests (T737)",
+              {k: v for k, v in after.items() if k != "sent_at"}
+              == {k: v for k, v in before.items() if k != "sent_at"}
+              and before["sent_at"] is not None and after["sent_at"] is None, str(after))
         check("task row: a resolved request does not close its task",
               db.get_task(con, tid)["closed_by"] is None)
         out = buf.getvalue().lower()
@@ -7985,6 +7989,26 @@ limits:
               ok and db.get_request(con, emr)["state"] != "queued"
               and [r["target"] for r in reqs if r["state"] == "queued"] == ["helper"]
               and db.get_task(con, em)["delivered_at"] is None, msg)
+        ok, _, sn = actions.task_new("manager", "worker", "sent at once", "w")
+        sent = db.get_task(con, sn)["sent_at"]
+        check("sent_at: set the moment the delivery is out - before anything lands, and delivered_at is not",
+              sent is not None and db.get_task(con, sn)["delivered_at"] is None)
+        srid = db.task_requests(con, sn)[0]["id"]
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (srid,))
+        check("sent_at: cleared when no request that asks is left open on it (even by a raw write)",
+              db.get_task(con, sn)["sent_at"] is None)
+        ok, _, fy = actions.task_new("manager", "worker", "only a report linked", "w")
+        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (db.task_requests(con, fy)[0]["id"],))
+        rep = db.add_request(con, "worker", "manager", "fyi", None, None, "fire_and_forget", "say", 0, None)
+        con.execute("UPDATE requests SET fyi = 1 WHERE id = ?", (rep,))
+        db.link_request(con, fy, rep)
+        check("sent_at: an fyi report linked to a task does not send it", db.get_task(con, fy)["sent_at"] is None)
+        con.execute("UPDATE tasks SET sent_at = NULL")
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:task_sent_at'")
+        from ocp.db import schema as dbschema2
+        dbschema2._task_sent_at(con)
+        check("sent_at: the migration backfills it from the requests open now",
+              db.get_task(con, t)["sent_at"] is not None and db.get_task(con, sn)["sent_at"] is None)
         # a founder's card is delivered when drawn
         ok, _, card = actions.task_new("manager", "human", "decide", "decide")
         crid = db.task_requests(con, card)[0]["id"]
