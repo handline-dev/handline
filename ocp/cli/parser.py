@@ -404,6 +404,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--once", action="store_true", help="print the screen as text and exit")
     p.add_argument("--textual", action="store_true",
                    help="accepted and does nothing: Textual is the only screen")
+    p.add_argument("--pid", action="store_true",
+                   help="print the pid of the running bridge (kill -USR1 <pid> writes its stacks to logs/bridge-stall.log)")
     p.set_defaults(fn=cmd_bridge)
 
     ms = sub.add_parser("memory", help="per-agent memory against its budget").add_subparsers(

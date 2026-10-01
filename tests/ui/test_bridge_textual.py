@@ -3011,7 +3011,33 @@ def test_every_timeline_kind_the_task_page_can_get_is_drawn() -> None:
           not missing and "state" in kinds, str(missing))
 
 
+def test_the_stall_watchdog_writes_the_stacks_and_the_recovery() -> None:
+    """T788: a loop silent past STALL_S is logged with every thread's stack, again each second it
+    stays blocked, and once when it answers; `timed` and `crumb` leave a line; `--pid` finds no bridge."""
+    import asyncio
+    from ocp.ui import stall
+    home = _home("stall")
+    loop = asyncio.new_event_loop()
+    dog = stall.Watchdog(loop)
+    dog.last = 100.0
+    dog.check(100.2)
+    dog.check(100.9)
+    dog.check(101.2)
+    dog.check(101.5)
+    dog.last = 101.6
+    dog.check(101.7)
+    loop.close()
+    with stall.timed("a read"):
+        pass
+    text = stall.log_file().read_text()
+    check("stall: a silent loop is logged with the stacks, once a second, and its recovery",
+          text.count("STALL: event loop silent") == 2 and "[event loop]" in text and "RECOVERED" in text, text[:300])
+    check("stall: a timed block leaves its ms", "· a read: " in text and " ms" in text)
+    check("stall: no pid file, no bridge", stall.running_pid() is None)
+
+
 async def _run_all() -> None:
+    test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
     test_agents_data_shows_its_current_task_and_flags_it_ready()

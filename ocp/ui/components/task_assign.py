@@ -6,6 +6,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Select, Static
 
 from ... import actions
+from .. import stall
 from .dialog import Dialog
 from .ime import TextBox
 
@@ -45,14 +46,22 @@ class TaskAssign(Dialog):
                 yield Button("Send", id="ta_send", variant="primary", compact=True)
                 yield Button("Cancel", id="ta_cancel", compact=True)
 
+    def on_mount(self) -> None:
+        stall.snapshot(self.app, "assign modal: mounted")
+
+    def on_screen_resume(self) -> None:
+        self.call_after_refresh(stall.snapshot, self.app, "assign modal: settled")
+
     def result(self) -> "tuple[str, str]":
         to = self.query_one("#ta_to", Select).value if self.others else self.holder
         return str(to), self.query_one("#ta_text", TextBox).text
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
+        stall.crumb(f"assign modal: button {event.button.id} pressed")
         self.finish(self.result() if event.button.id == "ta_send" else None)
 
     def on_text_box_send(self, event: TextBox.Send) -> None:
         event.stop()
+        stall.crumb("assign modal: Enter in the note")
         self.finish(self.result())

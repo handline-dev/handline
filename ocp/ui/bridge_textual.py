@@ -22,9 +22,12 @@ from pathlib import Path
 
 from textual.app import App
 
+from textual import events
+
 from .. import actions
-from . import jobs as jobsmod, tui
+from . import jobs as jobsmod, stall, tui
 from .clipboard_app import ClipboardApp
+from .components.dialog import Dialog
 from .theme import follow_os_theme
 
 
@@ -39,6 +42,15 @@ class BridgeApp(ClipboardApp):
         super().__init__()
         self.jobs = jobsmod.Jobs()
 
+    async def on_event(self, event) -> None:
+        """While a box is over the page, the raw mouse and key events that reach the app, with what
+        had focus and the mouse (key names only: what is typed is not logged)."""
+        if isinstance(event, (events.MouseDown, events.MouseUp, events.Click, events.Key)) \
+                and isinstance(self.screen, Dialog):
+            what = f"key {event.key}" if isinstance(event, events.Key) else f"{type(event).__name__} at {event.screen_x},{event.screen_y}"
+            stall.crumb(f"{type(self.screen).__name__}: {what} focus {self.focused!r} mouse {self.mouse_captured!r}")
+        await super().on_event(event)
+
     def action_open_path(self, path: str) -> None:
         """A path in a message was clicked: open it in the default app."""
         ok, said = actions.open_path(path)
@@ -47,6 +59,7 @@ class BridgeApp(ClipboardApp):
     def on_mount(self) -> None:
         from .pages.home import HomePage
         follow_os_theme(self)
+        self.title = f"ocp bridge · pid {stall.install(self)}"
         self.push_screen(HomePage())
 
 
