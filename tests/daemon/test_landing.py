@@ -214,14 +214,47 @@ def test_a_line_already_in_the_transcript_is_landed_without_typing(home: Path) -
     try:
         con.execute("UPDATE requests SET requester = 'human' WHERE id = ?", (rid,))
         db.owe_again(con, rid)                # as if the daemon had lost its record of the send
-        con.execute("UPDATE requests SET typed_session = ? WHERE id = ?", (SESSION, rid))
     finally:
         con.close()
     _transcript({"type": "queue-operation", "operation": "enqueue", "content": _header(rid)})
-    _tell_undelivered()
+    real = dmn_delivery._live_session
+    dmn_delivery._live_session = lambda con, agent: SESSION       # owe_again cleared the old one: only the live session is looked at
+    try:
+        _tell_undelivered()
+    finally:
+        dmn_delivery._live_session = real
     row = _row(rid)
     check("transcript first: the line is there, so it is landed and nothing is typed",
           row["landed_at"] and len(sent) == 1, f"{len(sent)} {dict(row)}")
+
+
+def test_a_head_the_transcript_already_holds_is_landed_not_typed(home: Path) -> None:
+    sent = _world(home)
+    orcamod.typeable_now = lambda h: True
+    hand_edit_team(DESIGN_TEAM.replace(
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    _ask_row(
+        {"verb": "ask", "requester": "product", "speaker": "product", "target": "backend",
+         "body": "look at the retry loop"}, lambda _m: None)
+    con = db.connect()
+    real = dmn_delivery._live_session
+    dmn_delivery._live_session = lambda con, agent: SESSION
+    try:
+        rid = int(con.execute("SELECT id FROM requests WHERE target = 'backend'").fetchone()["id"])
+        typed_before = len(sent)
+        db.owe_again(con, rid)                          # the daemon's record of the send is gone
+        db.forget_told(con, "backend")
+        _transcript({"type": "queue-operation", "operation": "enqueue", "content": _header(rid)})
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        row = db.get_request(con, rid)
+        check("head: its line is already in the live session's transcript, so it is landed and not typed",
+              row["landed_at"] and row["typed_at"] and len(sent) == typed_before, f"{sent} {dict(row)}")
+        check("head: and the notify cursor moved on, so it is not told again",
+              db.get_cursor(con, "notify:backend") == rid)
+    finally:
+        dmn_delivery._live_session = real
+        con.close()
 
 
 def test_a_line_typed_into_a_session_that_ended_is_owed_again_at_once(home: Path) -> None:
@@ -375,6 +408,7 @@ def main() -> int:
         run(lambda: test_a_line_the_transcript_never_shows_is_typed_again_without_end(Path(td) / "l3"))
         run(lambda: test_a_daemon_restart_types_a_line_at_most_once_more(Path(td) / "l12"))
         run(lambda: test_a_line_already_in_the_transcript_is_landed_without_typing(Path(td) / "l13"))
+        run(lambda: test_a_head_the_transcript_already_holds_is_landed_not_typed(Path(td) / "l14"))
         run(lambda: test_a_line_typed_into_a_session_that_ended_is_owed_again_at_once(Path(td) / "l4"))
         run(lambda: test_a_task_head_is_told_again_when_it_never_landed(Path(td) / "l5"))
         run(lambda: test_sessions_that_ended_do_not_make_a_later_miss_lost(Path(td) / "l9"))
