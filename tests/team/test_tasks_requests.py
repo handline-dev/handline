@@ -3991,24 +3991,24 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "note", f"T{tid}", "worker: a memo of its own"], as_agent="worker")
-    check("task note (T521): anyone may add one - it is a memo, not a message", rc == 0 and "memo" in out, out)
-    rc, out = _cli(["task", "note", f"T{tid}", "the sha moved"], as_agent="manager")
-    check("task note (T521): the opener's note is a memo too", rc == 0 and "memo" in out, out)
-    rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
-    check("task note (T521): so is one on a task worker holds second", rc == 0 and "memo" in out, out)
+    rc, out = _cli(["task", "memo", f"T{tid}", "add", "worker: a memo of its own"], as_agent="worker")
+    check("task memo (T521): anyone may add one - it is a memo, not a message", rc == 0 and "memo" in out, out)
+    rc, out = _cli(["task", "memo", f"T{tid}", "add", "the sha moved"], as_agent="manager")
+    check("task memo (T521): the opener's note is a memo too", rc == 0 and "memo" in out, out)
+    rc, out = _cli(["task", "memo", f"T{tid2}", "add", "the branch moved"], as_agent="manager")
+    check("task memo (T521): so is one on a task worker holds second", rc == 0 and "memo" in out, out)
     con = db.connect()
     try:
-        check("task note (T521): each is a memo of its task, author recorded",
+        check("task memo (T521): each is a memo of its task, author recorded",
               [(m["author"], m["body"]) for m in actions.memos_of(con, tid)]
               == [("worker", "worker: a memo of its own"), ("manager", "the sha moved")]
               and [m["body"] for m in actions.memos_of(con, tid2)] == ["the branch moved"])
         told = [r["body"] for r in con.execute(
             "SELECT body FROM requests WHERE requester = 'task-board' AND target = 'worker' AND kind = 'say'")]
-        check("task note (T521): told to the holder at once for the doing task (not for its own memo), "
+        check("task memo (T521): told to the holder at once for the doing task (not for its own memo), "
               "silent for the one that is only queued",
               told == [f"T{tid} memo added by manager: the sha moved"], str(told))
-        check("task note (T521): no task-note request is sent any more",
+        check("task memo (T521): no task-note request is sent any more",
               con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'task_note'").fetchone()["c"] == 0)
     finally:
         con.close()
@@ -4057,8 +4057,9 @@ limits:
         con.close()
 
     rc, out = _cli(["task", "note", f"T{tid}", "too late now"], as_agent="manager")
-    check("task note: refused on an already-done task - nothing left to note",
-          rc == 1 and "nothing left to note" in out, out)
+    rc2, out2 = _cli(["task", "memo", f"T{tid}", "add", "too late now"], as_agent="manager")
+    check("task note (the hidden old name of memo add): on an already-done task it does what memo add does",
+          rc == rc2 == 0 and "memo" in out and "memo" in out2, f"{out} / {out2}")
 
     # A discarded task can still be an owner's stale current task (code
     # review finding): its live request was retired some other way (the

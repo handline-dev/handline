@@ -15,5 +15,5 @@ ocp task done T<n> "<evidence>"   finish your task (or `ocp task handoff T<n> <a
 
 The rules for any agent tool are in AGENTS.md at the repo root, the source this
 skill follows. You are handed one task at a time; to change a task you gave
-that is not yet done, `ocp task note T<n> "..."`, never a correction behind it.
+that is not yet done, `ocp task memo T<n> add "..."`, never a correction behind it.
 `ocp guide` lists topics, `ocp guide <topic>` prints one.

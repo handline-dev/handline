@@ -174,8 +174,8 @@ AGENT_ACTIVITY_KINDS = frozenset({
     "ask", "cancel", "commit", "raise_decision", "report", "resolve", "withdraw",
     "no_task",
     # T292: task_new is the opener asking (its own delivery, C1); task_start
-    # and task_note are likewise always the calling agent's own doing -
-    # picking up a task or writing a note - never something ocp did to them.
+    # and task_note (the old event of a memo) are likewise always the calling agent's own doing -
+    # picking up a task or writing a memo - never something ocp did to them.
     "task_new", "task_start", "task_note", "task_begin", "task_handoff",
     "UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact",
     "PermissionRequest", "TeammateIdle",

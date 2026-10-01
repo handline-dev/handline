@@ -1113,22 +1113,6 @@ def task_start(con, me: str, tid: int) -> tuple[bool, str]:
     return True, f"T{tid} is now {me}'s current task{back}" + (f"\n{memos}" if memos else "")
 
 
-def task_note(con, me: str, tid: int, text: str) -> tuple[bool, str]:
-    """A mid-task correction to whoever holds T<n> - "the sha moved", "use branch Y" - is a
-    memo on the task (T521, founder #6225): the same author and time rules as `ocp task memo
-    T<n> add`, typed to the holder at once while the task is doing and silent otherwise. New
-    work is `task new --parent`, not a note."""
-    row = db.get_task(con, tid)
-    if row is None:
-        return False, f"no task T{tid}"
-    if row["discarded_by"]:
-        return False, f"task T{tid} is already discarded - nothing left to note"
-    if row["done_evidence"]:
-        return False, f"task T{tid} is already done - nothing left to note"
-    ok, msg, _ = memo_add(con, tid, me, textsafe.oneline(text).strip())
-    return ok, msg
-
-
 def memo_summary(con, tid: int, cap: int = 500) -> str:
     """The task's memos in one short line - author, time, body - for a delivery or a start
     (T521); "" when it has none. Oldest first, cut at `cap` characters."""

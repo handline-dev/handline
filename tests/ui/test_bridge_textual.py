@@ -1061,7 +1061,7 @@ def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
     d = {"id": 1, "title": evil, "state": "doing", "owner": evil, "opened_by": evil, "created_at": 1,
          "parent": (9, evil), "done": (evil, 1), "discarded": (evil, evil, 1), "merged_into": None, "asker": evil,
          "children": [(2, evil, "waiting")],
-         "timeline": [{"ts": 1, "who": evil, "kind": "note", "text": evil, "memo": None, "edited_at": 2}]}
+         "timeline": [{"ts": 1, "who": evil, "kind": "memo", "text": evil, "memo": None, "edited_at": 2}]}
     page = cp.task_page(d)
     texts = [head, body, *page["kids"], *page["timeline"], page["title"], page["meta"],
              cp.agent_badge("FATAL", evil)]
@@ -2104,12 +2104,12 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
     try:
         ok, _, tid = actions.task_new(actions.HUMAN, "reviewer", "Fix it", "the work and its done")
         actions.memo_add(con, tid, "reviewer", "first")
-        actions.task_note(con, actions.HUMAN, tid, "a note")
+        actions.memo_add(con, tid, actions.HUMAN, "a memo")
         ok, _, other = actions.task_new("product", "backend", "Other", "the work and its done")
         actions.assign_task(con, other, "reviewer", "you take it")
         tl = actions.task_timeline(con, tid)
-        check("timeline: the request that opened the task, a memo and a sent note (itself a memo) show once each, in order",
-              [e["kind"] for e in tl] == ["request", "memo", "memo"] and [e["text"] for e in tl[1:]] == ["first", "a note"]
+        check("timeline: the request that opened the task, a memo and one sent with the task verb (itself a memo) show once each, in order",
+              [e["kind"] for e in tl] == ["request", "memo", "memo"] and [e["text"] for e in tl[1:]] == ["first", "a memo"]
               and tl[0]["text"].startswith("#") and all(e["memo"] for e in tl[1:]), str(tl))
         check("timeline: a handoff shows from and to, and its request is not a second entry",
               [(e["kind"], e["who"]) for e in actions.task_timeline(con, other) if e["kind"] != "request"] == [("handoff", "backend → reviewer")]
@@ -2820,7 +2820,7 @@ def test_every_timeline_kind_the_task_page_can_get_is_drawn() -> None:
     finally:
         con.close()
     drawn = [getattr(cp, name, None) for name in ("TIMELINE_WORD", "TIMELINE_ICON", "TIMELINE_STYLE")]
-    missing = {k for k in kinds | {"memo", "note", "request", "handoff", "edit", "state"} for table in drawn
+    missing = {k for k in kinds | {"memo", "request", "handoff", "edit", "state"} for table in drawn
                if table is not None and k not in table}
     check("timeline: every kind has a word, and an icon and colour where the page draws them",
           not missing and "state" in kinds, str(missing))

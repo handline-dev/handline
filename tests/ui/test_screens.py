@@ -2627,8 +2627,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task start": "T292: writes agent_state.current_task; driven in "
                       "test_task_new_is_its_own_delivery, not this scene",
-        "task note": "T292: sends an ordinary task-kind ask to the task's holder; driven in "
-                     "test_task_new_is_its_own_delivery, not this scene",
+        "task note": "hidden alias of `task memo T add`; driven in test_task_memo_verbs, not this scene",
         "task memo": "T493: writes and reads task_memos rows; driven in test_task_memo_verbs "
                      "(tests/team/test_tasks_requests.py), not this scene",
         "task begin": "T297: opens the caller's own task on a founder message; driven in "

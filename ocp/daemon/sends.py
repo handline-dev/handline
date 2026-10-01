@@ -105,15 +105,16 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
         return False, "--task and --fyi contradict each other: use one"
     if task is not None:
         # Structural, not read from the text: a say to a report about a task is
-        # that task's note, delivered as one.
+        # that task's memo, delivered as one.
         row = db.get_task(con, task)
         if row is None:
             return False, f"no task T{task}"
         if row["owner"] != target:
             return False, f"T{task} is with {row['owner']}, not {target}"
-        return actions.task_note(con, me, task, kw["body"])
+        ok, msg, _ = actions.memo_add(con, task, me, kw["body"])
+        return ok, msg
     if kw.get("parent") is None and not fyi and _is_report_of(me, target):
-        return False, ("make it a task (`ocp task new`), or say --task T<n> to note one, "
+        return False, ("make it a task (`ocp task new`), or say --task T<n> to memo one, "
                        "or say --fyi 'why' to say it is not work")
     ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw.get("parent"),
                               speaker=speaker, notify=False)

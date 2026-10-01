@@ -229,7 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parent", type=int, default=None,
                    help="the message this replies to: the reply settles it (T361)")
     p.add_argument("--task", type=_task_arg, default=None, metavar="T",
-                   help="a say to your report about this task: it lands as a note on T<n>; "
+                   help="a say to your report about this task: it lands as a memo on T<n>; "
                         "replying to the founder's request, the task it becomes")
     p.add_argument("--no-task", default=None, metavar="REASON",
                    help="replying to the founder's request: nothing needs building, and why")
@@ -463,14 +463,14 @@ def build_parser() -> argparse.ArgumentParser:
                                     "delivered while you already held another")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.set_defaults(fn=cmd_task_start)
-    p = tk.add_parser("note", help="a mid-task correction to whoever holds T<n> (T292) - "
-                                   "the opener or the founder only; new work is a child task")
+    p = tk.add_parser("note", help=argparse.SUPPRESS)      # the old name of `memo T<n> add`, hidden for one release
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("text")
     p.set_defaults(fn=cmd_task_note)
     p = tk.add_parser("memo", help="memos beside T<n>: list, add TEXT, edit ID TEXT, delete ID - "
                                    "anyone adds, the author or founder edits; a change on a doing "
-                                   "task is told to its holder at once")
+                                   "task is told to its holder at once. A correction to a task "
+                                   "you gave is a memo, not a message behind it")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("verb", choices=("list", "add", "edit", "delete"))
     p.add_argument("rest", nargs="*")

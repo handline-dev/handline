@@ -566,10 +566,10 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
 
 # What a timeline entry is called, the icon before it and its colour: the label and the text of a memo
 # and of a request differ at a glance, and a request's state has a colour of its own.
-TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note", "request": "request", "edit": "body edited",
+TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "request": "request", "edit": "body edited",
                  "state": "state"}
-TIMELINE_ICON = {"memo": "✎", "note": "✎", "request": "↗", "handoff": "⇄", "edit": "±", "state": "◆"}
-TIMELINE_STYLE = {"memo": "cyan", "note": "cyan", "request": "magenta", "handoff": "yellow", "edit": "blue",
+TIMELINE_ICON = {"memo": "✎", "request": "↗", "handoff": "⇄", "edit": "±", "state": "◆"}
+TIMELINE_STYLE = {"memo": "cyan", "request": "magenta", "handoff": "yellow", "edit": "blue",
                   "state": "green"}
 REQUEST_STATE_STYLE = {"queued": "bold yellow", "rejected": "bold red", **dict.fromkeys(db.NEVER_REACHED_TARGET, "dim")}
 

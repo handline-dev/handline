@@ -56,10 +56,10 @@ back to the account its session lives on.""",
                                   is required; -t is how long before you are told it is
                                   still open. A decision only the founder can make is the
                                   same with --owner human
-  ocp task note T<n> "..."        a correction to a task you gave, not a message behind it
+  ocp task memo T<n> add "..."    a correction to a task you gave, not a message behind it
   ocp task discard T<n> "<why>"   throw away a task that is not done
   ocp say <agent> "..."           a message: typed at once, needs no answer, starts no work.
-                                  To one of your reports it carries --task T<n> (a note on
+                                  To one of your reports it carries --task T<n> (a memo on
                                   that task) or --fyi "<why it is not work>"
   ocp say <agent> "..." --parent <id>   a reply, in its thread
   ocp inbox                       the one thing currently waiting for you, and a count
