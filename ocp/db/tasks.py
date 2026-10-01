@@ -318,7 +318,7 @@ def reparent_children(con, tid: int) -> list[int]:
         con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (parent, k))
         con.execute("DELETE FROM task_blocks WHERE task_id = ? AND blocks_on = ?", (tid, k))
         if parent is not None:
-            con.execute("INSERT OR IGNORE INTO task_blocks(task_id, blocks_on) VALUES(?, ?)", (parent, k))
+            add_block(con, parent, k)
     return kids
 
 
