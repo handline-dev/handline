@@ -486,7 +486,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
                            f"`ocp bridge`, top panel.")
         if state == "discarded":
             why = (db.get_task(con, tid)["discard_reason"] or "").strip()
-            return False, (f"T{tid}, the decision on proposal {pid}, was discarded ({why}) or handed back - "
+            return False, (f"T{tid}, the decision on proposal {pid}, was discarded{f' ({why})' if why else ''} or handed back or closed by someone but the founder - "
                            f"nothing was decided. Raise it again, or `ocp hr withdraw {pid}`.")
         card = card_of(con, tid)
         call = decision(verdict)

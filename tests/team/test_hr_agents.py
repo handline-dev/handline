@@ -3039,6 +3039,27 @@ edges:
         ok, said = hr.confirm_answer(pid7, con)
         check("founder: a task that is no longer his reads as handed back", not ok and "eta7" not in paths.list_agents(), said)
 
+        # an agent that is the target of a request linked to the founder's own task may mark it done
+        pid8, rid8, tid8 = raise_one("theta8")
+        link = db.add_request(con, actions.HUMAN, "hr", "a side question", None, None, None, "say", 0, None)
+        db.link_request(con, tid8, link)
+        ok, said = actions.mark_task_done(con, tid8, "hr", reason="approve")
+        state8 = hr.answer_of(con, hr.load_proposal(pid8))[0]
+        ok2, said2 = hr.confirm_answer(pid8, con)
+        check("agent: it marks the founder's own task done 'approve' (allowed: it is a done target) - not his answer",
+              ok and state8 == "discarded" and not ok2 and "theta8" not in paths.list_agents(), f"{said} / {state8} / {said2}")
+        pid9, rid9, tid9 = raise_one("iota9")
+        link9 = db.add_request(con, actions.HUMAN, "hr", "another side question", None, None, None, "say", 0, None)
+        db.link_request(con, tid9, link9)
+        answer_card(con, rid9, "reject - no")                         # his close ...
+        ok, said = actions.reopen_task(con, tid9, actions.HUMAN, "second thoughts")
+        ok3, said3 = actions.mark_task_done(con, tid9, "hr", reason="approve")        # ... then an agent's reopen-and-done
+        state9 = hr.answer_of(con, hr.load_proposal(pid9))[0]
+        ok4, said4 = hr.confirm_answer(pid9, con)
+        check("agent: after the founder's close and a reopen, an agent's done is not his answer either",
+              ok and ok3 and state9 == "discarded" and not ok4 and "iota9" not in paths.list_agents(),
+              f"{said} / {said3} / {state9} / {said4}")
+
         pid5, rid5, tid5 = raise_one("eps5")
         old = hr.load_proposal(pid5)
         del old["task"]                             # a proposal raised before it was keyed by task
