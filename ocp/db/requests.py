@@ -10,6 +10,12 @@ from . import cursors
 HUMAN = "human"
 
 
+# The text of the say that answered a request (its `settles` row), as a column of any query on
+# `requests`: `shown_verdict` prefers it to the request's own verdict, which says the same.
+ANSWER_SQL = ("(SELECT a.body FROM requests a WHERE a.settles = requests.id "
+              "ORDER BY a.id LIMIT 1) AS answer")
+
+
 def unannounced_answers(con, agent: str) -> list:
     """What this agent asked, that came back, that it has not been told about.
 
@@ -21,7 +27,7 @@ def unannounced_answers(con, agent: str) -> list:
     """
     return con.execute(
         "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
-        "chain_id, dismissed_by, dismissed_reason FROM requests WHERE requester = ? "
+        f"chain_id, dismissed_by, dismissed_reason, {ANSWER_SQL} FROM requests WHERE requester = ? "
         "AND state IN ('landed', 'withdrawn') AND announced_at IS NULL ORDER BY id",
         (agent,),
     ).fetchall()
@@ -436,11 +442,13 @@ def dismissal(row) -> tuple[bool, str | None, str | None]:
 
 
 def shown_verdict(row) -> str | None:
-    """What a screen may print as this row's answer: the verdict, or for a
-    dismissal a state label that cannot be read as anyone's words."""
+    """What a screen may print as this row's answer: the say that answered it, else the verdict
+    (a reason it closed without one), or for a dismissal a state label that cannot be read as
+    anyone's words."""
     dismissed, by, reason = dismissal(row)
     if not dismissed:
-        return row["verdict"]
+        answer = row["answer"] if "answer" in row.keys() else None
+        return answer if answer is not None else row["verdict"]
     return ("dismissed" + (f" by {by}" if by else "")
             + (f" - {reason}" if reason else ""))
 
@@ -544,7 +552,7 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
 
 
 def get_request(con, rid: int):
-    return con.execute("SELECT * FROM requests WHERE id = ?", (rid,)).fetchone()
+    return con.execute(f"SELECT *, {ANSWER_SQL} FROM requests WHERE id = ?", (rid,)).fetchone()
 
 
 def is_still_queued(con, rid: int) -> bool:
