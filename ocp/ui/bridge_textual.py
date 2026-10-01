@@ -17,8 +17,12 @@ start this app.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+from ..daemon import devmode
+from ..infra import service
 
 from textual.app import App
 
@@ -31,6 +35,9 @@ from .components.dialog import Dialog
 from .theme import follow_os_theme
 
 
+CODE_CHECK_S = 3.0
+
+
 class BridgeApp(ClipboardApp):
     """The Textual bridge: the home page, and from it an agent's chat page - see
     `HomePage`, `chat_page.ChatPage`."""
@@ -41,6 +48,8 @@ class BridgeApp(ClipboardApp):
     def __init__(self) -> None:
         super().__init__()
         self.jobs = jobsmod.Jobs()
+        self.restart_on_exit = False
+        self._code_state: dict = {"fp": None, "warned": None}
 
     async def on_event(self, event) -> None:
         """While a box is over the page, the raw mouse and key events that reach the app, with what
@@ -62,6 +71,20 @@ class BridgeApp(ClipboardApp):
         follow_os_theme(self)
         self.title = f"ocp bridge · pid {stall.install(self)}"
         self.push_screen(HomePage())
+        self.set_interval(CODE_CHECK_S, lambda: self.run_worker(
+            self._check_code, thread=True, exclusive=True, group="code_check"))
+
+    def _check_code(self) -> None:
+        """With dev mode on, the daemon's own check: the code changed and still imports. The import
+        check runs `ocp --help`, so this is a worker, not the UI thread."""
+        try:
+            changed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
+        except Exception as e:  # noqa: BLE001 - a tree mid-checkout must not take the bridge down
+            stall.crumb(f"dev-mode check failed: {e}")
+            return
+        if changed:
+            self.restart_on_exit = True
+            self.call_from_thread(self.exit)
 
 
 def run(once: bool = False) -> int:
@@ -70,6 +93,10 @@ def run(once: bool = False) -> int:
     if once or not sys.stdout.isatty():
         print(tui.snapshot())
         return 0
-    BridgeApp().run()
+    app = BridgeApp()
+    app.run()
+    if app.restart_on_exit:     # the terminal is restored by now: same entrypoint, same arguments
+        exe = service.ocp_executable()
+        os.execv(exe, [exe] + sys.argv[1:])
     return 0
 

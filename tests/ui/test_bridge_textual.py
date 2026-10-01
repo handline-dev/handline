@@ -1812,6 +1812,28 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
     check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
 
 
+async def test_the_bridge_exits_to_restart_when_the_daemons_code_check_says_so() -> None:
+    from ocp.daemon import devmode
+    _home("coderestart")
+    real, real_every = devmode._dev_mode_should_restart, bt.CODE_CHECK_S
+    answers = iter([False, True])
+    devmode._dev_mode_should_restart = lambda state, log: next(answers, True)
+    bt.CODE_CHECK_S = 0.05
+    try:
+        app = bt.BridgeApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.5)
+            check("code restart: a changed tree that still imports ends the app with a restart owed",
+                  app.restart_on_exit and not app.is_running)
+        quiet = bt.BridgeApp()
+        devmode._dev_mode_should_restart = lambda state, log: False
+        async with quiet.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.5)
+            check("code restart: an unchanged tree leaves it running", quiet.is_running and not quiet.restart_on_exit)
+    finally:
+        devmode._dev_mode_should_restart, bt.CODE_CHECK_S = real, real_every
+
+
 async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> None:
     """T355: a press that raises (db, orca) must not leave the modal disabled with esc blocked."""
     from ocp.ui.bridge_textual import BridgeApp
@@ -3197,6 +3219,7 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
+    await test_the_bridge_exits_to_restart_when_the_daemons_code_check_says_so()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
