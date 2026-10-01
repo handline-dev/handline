@@ -13,15 +13,18 @@ account, over one default each:
 
 An account with no `month_cycle_<account>` is untouched by all of it. With the
 switch and no `sub_end_<account>` the end is a month after the subscription
-started, read from the local profile; where that cannot be read, or the default
-is already past, there is no end known and the account is not judged ended: a
+started, at the subscription's own time of day, read from the local profile; where
+that cannot be read, or the default lapsed more than a day ago, there is no end known and the account is not judged ended: a
 missing date must not shut an account that may well be live.
 """
 from __future__ import annotations
 
 import datetime as dt
+import time
 
 DEFAULT_WARN_DAYS = 3
+# How long after a default end (start + 1 month) it still counts as an ended account.
+DEFAULT_END_GRACE_S = 86400
 
 
 def config() -> dict:
@@ -55,38 +58,57 @@ def add_month(d: dt.date) -> dt.date:
     return dt.date(y, m, min(d.day, last))
 
 
-def started(acct: str) -> dt.date | None:
-    """The day the current subscription started, local time, from the vendor's
+def started(acct: str) -> dt.datetime | None:
+    """The moment the current subscription started, local time, from the vendor's
     local profile (`Driver.profile`: that one field is all that is taken)."""
     from .. import vendors
     try:
         at = vendors.for_account(acct).profile(vendors.config_dir(acct)).get("subscription_started")
     except (vendors.UnknownVendor, OSError):
         return None
-    return dt.datetime.fromtimestamp(at).date() if at else None
+    return dt.datetime.fromtimestamp(at) if at else None
 
 
-def end_date(acct: str, cfg: dict | None = None) -> dt.date | None:
-    """The last day the account can be used, or None when it is not on a cycle
-    or no end is known. `sub_end_<account>` sets it; without one it is a month
-    after the subscription started. The date is quoted in config.yaml: the reader
-    refuses an unquoted one as ambiguous. A date that does not parse is no end
-    at all, not the default: a typo must not end an account."""
+def _end(acct: str, cfg: dict | None) -> tuple[dt.date, float] | None:
+    """(the last day, the moment the account stops being usable), or None when the
+    account is not on a cycle or no end is known.
+
+    `sub_end_<account>` is a day the founder typed: usable through all of it, so
+    the moment is the start of the next day. Without one the end is a month after
+    the subscription started, at the subscription's own time of day, because that
+    is when it lapses. The date is quoted in config.yaml (the reader refuses an
+    unquoted one as ambiguous); one that does not parse is no end, not the
+    default: a typo must not end an account."""
     cfg = _cfg(cfg)
     if cfg.get(f"month_cycle_{acct}") is not True:
         return None
     v = cfg.get(f"sub_end_{acct}")
-    if v is None:
-        start = started(acct)
-        end = add_month(start) if start else None
-        # A default already past is a start that was never renewed in the profile
-        # (or a lapse): ocp cannot tell which, so it is no end at all, not an
-        # ended account. The real end is typed.
-        return end if end and end >= dt.date.today() else None
-    try:
-        return dt.date.fromisoformat(v) if isinstance(v, str) else None
-    except ValueError:
+    if v is not None:
+        try:
+            d = dt.date.fromisoformat(v) if isinstance(v, str) else None
+        except ValueError:
+            d = None
+        return (d, day_end(d)) if d else None
+    start = started(acct)
+    if not start:
         return None
+    lapse = dt.datetime.combine(add_month(start.date()), start.time())
+    # Lapsed more than a day ago is a start the profile never renewed (or a lapse
+    # nobody renewed): ocp cannot tell which, so it is no end at all, not an
+    # ended account. The real end is typed.
+    return None if time.time() - lapse.timestamp() > DEFAULT_END_GRACE_S else (lapse.date(), lapse.timestamp())
+
+
+def end_date(acct: str, cfg: dict | None = None) -> dt.date | None:
+    """The last day the account can be used, or None (see `_end`)."""
+    end = _end(acct, cfg)
+    return end[0] if end else None
+
+
+def end_of(acct: str, cfg: dict | None = None) -> float | None:
+    """When the account stops being usable, as a timestamp, or None (see `_end`)."""
+    end = _end(acct, cfg)
+    return end[1] if end else None
 
 
 def end_is_default(acct: str, cfg: dict | None = None) -> bool:
@@ -97,15 +119,6 @@ def day_end(day: str | dt.date) -> float:
     """The moment a last usable day is over: the start of the day after it, local time."""
     d = day if isinstance(day, dt.date) else dt.date.fromisoformat(day)
     return dt.datetime.combine(d + dt.timedelta(days=1), dt.time()).timestamp()
-
-
-def end_of(acct: str, cfg: dict | None = None) -> float | None:
-    """When the account stops being usable, as a timestamp: the start of the
-    day after its end date, local time."""
-    d = end_date(acct, cfg)
-    if d is None:
-        return None
-    return day_end(d)
 
 
 def last_week_first(cfg: dict | None = None) -> bool:

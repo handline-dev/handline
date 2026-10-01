@@ -502,10 +502,28 @@ def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -
     check("default end: an old start is no end, not an ended account - the real end is typed",
           cycle.end_date("a") is None and cycle.ended_why("a", time.time()) is None)
     write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=40)).isoformat()})
-    check("default end: a month already gone is the same", cycle.end_date("a") is None)
+    check("default end: a month gone for ten days is the same", cycle.end_date("a") is None)
     write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5)).isoformat()})
     check("default end: a start five days ago ends in about a month", cycle.end_date("a") is not None
           and cycle.end_date("a") >= dt.date.today())
+    # The default ends at the subscription's own time of day; a typed date is whole-day.
+    when = dt.datetime.now().replace(microsecond=0) - dt.timedelta(days=25)
+    write_profile("a", {"subscriptionCreatedAt": when.astimezone(dt.timezone.utc).isoformat()})
+    want = dt.datetime.combine(cycle.add_month(when.date()), when.time())
+    write_cfg("month_cycle_a: true\n")
+    check("default end: the moment is the start's time of day a month on, not midnight",
+          abs(cycle.end_of("a") - want.timestamp()) < 1 and cycle.end_date("a") == want.date(), str(cycle.end_of("a")))
+    write_cfg('month_cycle_a: true\nsub_end_a: "' + str(want.date()) + '"\n')
+    check("default end: a typed day is usable through all of it",
+          cycle.end_of("a") == cycle.day_end(want.date()) and cycle.end_of("a") > want.timestamp())
+    target = dt.datetime.now().replace(microsecond=0) - dt.timedelta(hours=2)                  # lapsed two hours ago
+    lapsed = next(target - dt.timedelta(days=n) for n in range(27, 33)
+                  if cycle.add_month((target - dt.timedelta(days=n)).date()) == target.date())
+    write_profile("a", {"subscriptionCreatedAt": lapsed.astimezone(dt.timezone.utc).isoformat()})
+    write_cfg("month_cycle_a: true\n")
+    check("default end: lapsed a few hours ago it is an ended account that is not picked",
+          cycle.end_of("a") is not None and cycle.end_of("a") < time.time()
+          and cycle.ended_why("a", time.time()) is not None, str(cycle.end_of("a")))
     write_cfg("")
     check("default end: and not before it is turned on", cycle.ended_why("a", time.time()) is None)
 
