@@ -29,18 +29,20 @@ from .ask import _refused_listing
 
 # ---------------------------------------------------------------- checks
 def _started_at(pid: int, record: Path) -> float | None:
-    """When `pid` started, as epoch seconds: the process table's word, else the mtime of `record`, the
-    file it wrote its pid to when it started (an agent's sandbox may not read the table). None when
-    neither says."""
+    """When `pid` started running its current code, as epoch seconds: the mtime of `record`, the file it
+    wrote its pid to when it took its place. A daemon or bridge that restarts onto new code execs into the
+    same pid, so the process table's start stays at the first fork; the record is rewritten by each exec.
+    The table is the answer only where there is no record, and an agent's sandbox may not read it.
+    None when neither says."""
+    try:
+        return record.stat().st_mtime
+    except OSError:
+        pass
     try:
         out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True,
                              timeout=10, env={**os.environ, "LC_ALL": "C"}).stdout.strip()
         return time.mktime(time.strptime(out, "%a %b %d %H:%M:%S %Y"))
     except (OSError, subprocess.SubprocessError, ValueError):
-        pass
-    try:
-        return record.stat().st_mtime
-    except OSError:
         return None
 
 

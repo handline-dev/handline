@@ -763,12 +763,20 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
         rec.write_text("1\n")
         os.utime(rec, (1000.0, 1000.0))
         real_run = subprocess.run
-        def no_ps(*a, **k):
-            raise PermissionError("operation not permitted")
-        subprocess.run = no_ps
+        asked = []
+        def table(*a, **k):
+            asked.append(a)
+            return subprocess.CompletedProcess(a, 0, stdout="Mon Jan  1 00:00:00 2001\n")
+        subprocess.run = table
         try:
-            check("stale: where ps is denied the start is the pid file's mtime", health._started_at(1, rec) == 1000.0)
-            check("stale: and with no pid file either it is unknown", health._started_at(1, home / "none") is None)
+            check("stale: a pid file newer than the fork is the start - an exec keeps the pid, and ps its old time",
+                  health._started_at(1, rec) == 1000.0 and not asked)
+            check("stale: with no pid file the process table is asked",
+                  health._started_at(1, home / "none") == time.mktime(time.strptime("2001-01-01", "%Y-%m-%d")) and asked)
+            def no_ps(*a, **k):
+                raise PermissionError("operation not permitted")
+            subprocess.run = no_ps
+            check("stale: no pid file and ps denied is unknown", health._started_at(1, home / "none") is None)
         finally:
             subprocess.run = real_run
         con = db.connect()
