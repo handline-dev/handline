@@ -465,6 +465,26 @@ def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: P
         con.close()
 
 
+def test_the_unread_request_columns_are_dropped_at_connect(home: Path) -> None:
+    """T797 branch 7: columns nothing reads any more go from a database that still has them."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        for col in ("timebox_s", "timebox_noticed_at", "landing_tries"):
+            con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
+        before = db.add_request(con, "product", "backend", "kept", None, None, None, "say", 0, None)
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(requests)")}
+        check("unread columns: dropped at the next connect",
+              not cols & {"timebox_s", "timebox_noticed_at", "landing_tries"}, str(sorted(cols)))
+        check("unread columns: and the rows are untouched", db.get_request(con, before)["body"] == "kept")
+    finally:
+        con.close()
+
+
 def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> None:
     _daemon_home(home, 20)
     from ocp.team import trust as trustmod
@@ -515,7 +535,7 @@ def test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(ho
     try:
         con.execute("INSERT INTO requests(ts, requester, target, state, body, kind, delivered_at) "
                     "VALUES(1, 'product', 'backend', 'queued', 'old', 'ask', 100)")
-        for col in ("typed_at", "typed_session", "landed_at", "landing_tries"):
+        for col in ("typed_at", "typed_session", "landed_at"):
             con.execute(f"ALTER TABLE requests DROP COLUMN {col}")     # the table as it was before
     finally:
         con.close()
@@ -544,6 +564,7 @@ def main() -> int:
         run(lambda: test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(Path(td) / "l16"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
+        run(lambda: test_the_unread_request_columns_are_dropped_at_connect(Path(td) / 'dropcols'))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
         run(lambda: test_the_conversation_says_where_a_request_is(Path(td) / "l7"))
         run(lambda: test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(Path(td) / "l8"))

@@ -72,7 +72,6 @@ CREATE TABLE IF NOT EXISTS requests (
   typed_at INTEGER,
   typed_session TEXT,
   landed_at INTEGER,
-  landing_tries INTEGER,
   -- When the human pressed "send now" on this (still undelivered) request: it
   -- is told to its target at once, ahead of a head that is already open.
   send_now INTEGER,
@@ -81,11 +80,6 @@ CREATE TABLE IF NOT EXISTS requests (
   -- id: a cursor for every request ever sent out of turn sat in `cursors`
   -- forever, with nothing to ever clear it.
   told_out_of_turn INTEGER,
-  -- seconds after delivery when the asker is told it is
-  -- still open. NULL follows config.yaml's timebox_s. The notice is once per
-  -- request, so its time is a column, not a cursor left behind for every row.
-  timebox_s INTEGER,
-  timebox_noticed_at INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
   fyi INTEGER NOT NULL DEFAULT 0,
@@ -455,6 +449,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _founder_says_landed(con)
     _requests_one_state(con)
     _moot_trust_proposals(con)
+    _drop_unread_request_columns(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -848,6 +843,18 @@ def _requests_one_state(con) -> None:
     con.execute("UPDATE requests SET state_at = ts WHERE state_at IS NULL")
 
 
+# Request columns nothing reads or writes any more (T797 branch 7). Dropped at every connect that
+# still finds one, so a database any older than this loses them the same way.
+_UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries")
+
+
+def _drop_unread_request_columns(con) -> None:
+    present = _cols(con, "requests")
+    for col in _UNREAD_REQUEST_COLUMNS:
+        if col in present:
+            con.execute(f"ALTER TABLE requests DROP COLUMN {col}")
+
+
 def _moot_trust_proposals(con) -> None:
     """T797: trust proposals for a root already declared are settled as moot, once. A store that
     cannot be read here leaves them for the next connect."""
@@ -1057,14 +1064,11 @@ def _add_missing_columns(con) -> None:
     for col in ("dismissed_by", "dismissed_reason"):
         if col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
-    for col in ("timebox_s", "timebox_noticed_at"):
-        if col not in request_cols:
-            con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
     if "told_out_of_turn" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN told_out_of_turn INTEGER")
     if "landed_at" not in request_cols:
         for col, kind in (("typed_at", "INTEGER"), ("typed_session", "TEXT"),
-                          ("landed_at", "INTEGER"), ("landing_tries", "INTEGER")):
+                          ("landed_at", "INTEGER")):
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} {kind}")
         # Told before landings were checked: nothing can prove or disprove them now.
         con.execute("UPDATE requests SET landed_at = delivered_at WHERE delivered_at IS NOT NULL")
