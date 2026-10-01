@@ -56,7 +56,7 @@ def _world(home: Path) -> list[str]:
 
 def _delivered(con, requester: str, target: str, ago_s: int, kind: str | None = None, **kw) -> int:
     rid = db.add_request(con, requester, target, "do the thing", None, "peer", "async",
-                         kind, 0, None, **kw)
+                         kind, 0, None)
     db.mark_delivered(con, rid)
     at = int(time.time()) - ago_s
     con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ? WHERE id = ?", (at, at, at, rid))
@@ -74,56 +74,6 @@ def test_a_duration_needs_its_unit(home: Path) -> None:
             continue
         bad.append(t)
     check("timebox: no unit, no number, zero, negative or fractional is refused", not bad, str(bad))
-
-
-def test_ask_keeps_its_timebox(home: Path) -> None:
-    _world(home)
-    ok, _, rid = askmod.ask("marina", "look at it", requester="manager", timebox_s=5400)
-    ok2, _, rid2 = askmod.ask("marina", "and this", requester="manager")
-    ok3, why, _ = askmod.ask("human", "fyi", requester="manager", timebox_s=60)
-    con = db.connect()
-    try:
-        check("timebox: an ask keeps the timebox it was given",
-              ok and db.get_request(con, rid)["timebox_s"] == 5400)
-        check("timebox: an ask without one leaves it to the config",
-              ok2 and db.get_request(con, rid2)["timebox_s"] is None)
-        check("timebox: a request to the human is not timed", not ok3 and "--timebox" in why, why)
-        check("timebox: the default is two hours until config.yaml says otherwise",
-              timebox.timebox_s(db.get_request(con, rid2)) == 7200)
-        idle_close.paths.config_file().write_text("timebox_s: 600\n")
-        check("timebox: config.yaml's timebox_s is the default",
-              timebox.timebox_s(db.get_request(con, rid2)) == 600
-              and timebox.timebox_s(db.get_request(con, rid)) == 5400)
-    finally:
-        con.close()
-
-
-def test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(home: Path) -> None:
-    sent = _world(home)
-    con = db.connect()
-    try:
-        now = int(time.time())
-        rid = _delivered(con, "manager", "marina", 3000, timebox_s=3600)
-        db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="active (PostToolUse)")
-        db.set_meta(con, f"progress:{rid}", "done: parser\nleft: tests")
-        timebox.sweep(con, lambda _m: None, now)
-        check("timebox: nothing before the timebox is up", not sent, str(sent))
-        timebox.sweep(con, lambda _m: None, now + 700)
-        check("timebox: the asker is told when it runs past",
-              len(sent) == 1 and sent[0][0] == "term_manager", str(sent))
-        text = sent[0][1] if sent else ""
-        check("timebox: the notice names the request, target, elapsed time, state and last progress",
-              f"#{rid}" in text and "marina" in text and "61m" in text
-              and "RUNNING" in text and "done: parser left: tests" in text, text)
-        check("timebox: it is recorded as an event that is not agent activity",
-              con.execute("SELECT COUNT(*) FROM events WHERE kind = 'timebox_exceeded' "
-                          "AND agent = 'manager'").fetchone()[0] == 1
-              and "timebox_exceeded" not in db.AGENT_ACTIVITY_KINDS)
-        timebox.sweep(con, lambda _m: None, now + 700 + timebox.NOTICE_RETRY_S + 5)
-        timebox.sweep(con, lambda _m: None, now + 5 * 3600)
-        check("timebox: once - not again however long it stays open", len(sent) == 1, str(sent))
-    finally:
-        con.close()
 
 
 def _doing(con, tid: int, target: str) -> int:
@@ -270,59 +220,6 @@ def test_a_task_timeout_notice_goes_to_whoever_opened_it_not_the_owner(home: Pat
         con.close()
 
 
-def test_a_resolved_or_cancelled_request_stops_the_clock(home: Path) -> None:
-    sent = _world(home)
-    con = db.connect()
-    try:
-        done = _delivered(con, "manager", "marina", 9000, timebox_s=3600)
-        gone = _delivered(con, "manager", "dohyun", 9000, timebox_s=3600)
-        unshown = db.add_request(con, "manager", "marina", "later", None, "peer", "async", None, 0, None,
-                                 timebox_s=1)
-        report = _delivered(con, "manager", "dohyun", 9000, timebox_s=1)
-        con.execute("UPDATE requests SET kind = 'report' WHERE id = ?", (report,))
-        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (done,))
-        con.execute("UPDATE requests SET state = 'cancelled' WHERE id = ?", (gone,))
-        timebox.sweep(con, lambda _m: None, int(time.time()) + 3600)
-        check("timebox: resolved, cancelled, undelivered and report requests are not timed",
-              not sent, str(sent))
-    finally:
-        con.close()
-
-
-def test_a_notice_that_cannot_be_typed_is_tried_again(home: Path) -> None:
-    sent = _world(home)
-    con = db.connect()
-    try:
-        now = int(time.time())
-        rid = _delivered(con, "manager", "marina", 4000, timebox_s=3600)
-        orcamod.typeable_now = lambda h: False
-        timebox.sweep(con, lambda _m: None, now)
-        check("timebox: an asker mid-turn is not told, and the request stays unnoticed",
-              not sent and db.get_request(con, rid)["timebox_noticed_at"] is None)
-        timebox.sweep(con, lambda _m: None, now + 5)
-        orcamod.typeable_now = lambda h: True
-        timebox.sweep(con, lambda _m: None, now + 10)
-        check("timebox: not retried inside the retry gap", not sent, str(sent))
-        timebox.sweep(con, lambda _m: None, now + timebox.NOTICE_RETRY_S + 1)
-        check("timebox: told once it can be, and then marked",
-              len(sent) == 1 and db.get_request(con, rid)["timebox_noticed_at"] is not None, str(sent))
-    finally:
-        con.close()
-
-
-def test_a_human_asker_is_recorded_not_typed_at(home: Path) -> None:
-    sent = _world(home)
-    con = db.connect()
-    try:
-        rid = _delivered(con, "human", "marina", 9000, timebox_s=3600)
-        timebox.sweep(con, lambda _m: None, int(time.time()))
-        check("timebox: a request from the human is an event, and nothing is typed anywhere",
-              not sent and db.get_request(con, rid)["timebox_noticed_at"] is not None
-              and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'timebox_exceeded'").fetchone()[0] == 1)
-    finally:
-        con.close()
-
-
 def test_a_supervisor_is_told_once_of_an_agent_running_with_nothing_asked(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -355,7 +252,7 @@ def test_an_open_request_or_a_short_run_is_not_unasked(home: Path) -> None:
     try:
         now = int(time.time())
         db.set_agent_state(con, "marina", dmn_states.RUNNING, detail="active")
-        _delivered(con, "manager", "marina", 60, timebox_s=10 ** 6)
+        _delivered(con, "manager", "marina", 60)
         timebox.sweep(con, lambda _m: None, now)
         timebox.sweep(con, lambda _m: None, now + 3 * 3600)
         check("unasked: an agent with a request open is working on it", not sent, str(sent))
@@ -847,7 +744,7 @@ def test_a_stale_agent_is_nudged_to_resolve_but_a_fresh_one_is_not(home: Path) -
     _world(home)
     con = db.connect()
     try:
-        rid = _delivered(con, "manager", "marina", 9000, timebox_s=10 ** 6)
+        rid = _delivered(con, "manager", "marina", 9000)
         db.set_cursor(con, "notify:marina", rid)
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
         row = db.get_agent_state(con, "marina")
@@ -1140,59 +1037,14 @@ def test_stopping_key_presses_only_the_measured_dialog(home: Path) -> None:
         check(f"stopping_key: {what} presses nothing", key is None and why, f"{key!r} {why}")
 
 
-def test_migration_adds_the_timebox_columns_to_an_older_requests_table(home: Path) -> None:
-    """Every tick selects timebox_noticed_at, so a database made before it must
-    gain both columns on connect, keeping its rows and leaving them untimed."""
-    import sqlite3
-    home.mkdir(parents=True, exist_ok=True)
-    p = home / "old.sqlite"
-    old = sqlite3.connect(p)
-    old.execute("""
-        CREATE TABLE requests (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
-          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
-          files TEXT, relation TEXT, response TEXT, kind TEXT,
-          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
-          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
-          announced_at INTEGER, resolved_at INTEGER, delivered_at INTEGER
-        )
-    """)
-    old.execute("INSERT INTO requests(ts, requester, target, body, state, chain_id, delivered_at) "
-                "VALUES(?,?,?,?,?,?,?)", (int(time.time()), "manager", "marina", "old", "queued", "1",
-                                          int(time.time()) - 9000))
-    old.commit()
-    old.close()
-    con = db.connect(p)
-    try:
-        cols = {r["name"] for r in con.execute("PRAGMA table_info(requests)")}
-        check("migration: an older requests table gains both timebox columns",
-              {"timebox_s", "timebox_noticed_at"} <= cols, str(sorted(cols)))
-        rows = db.timeboxed_open(con)
-        check("migration: its open request is watched, with the config default box",
-              len(rows) == 1 and rows[0]["timebox_s"] is None and timebox.timebox_s(rows[0]) == 7200)
-    finally:
-        con.close()
-
-
 def test_the_notices_name_the_next_step_and_use_task_verbs(home: Path) -> None:
-    """T399: the timebox notice says the request is still the target's; the task-timeout
+    """T399: the task-timeout
     notice caps the title, names the holder and offers no release for a begun task; the
     nudges of a task use task verbs; the supervisor is pointed at a message, not `ocp ask`."""
     sent = _world(home)
     con = db.connect()
     try:
         now = int(time.time())
-        rid = _delivered(con, "manager", "marina", 3000, timebox_s=3600)
-        sid = _delivered(con, "manager", "dohyun", 3000, timebox_s=3600, kind="say")
-        timebox.sweep(con, lambda _m: None, now + 700)
-        texts = {h: t for h, t in sent}
-        check("timebox: an ask is told it is still the target's and how to reach it",
-              "still marina's" in texts.get("term_manager", "") or any(f"#{rid}" in t and "still marina's" in t for _, t in sent),
-              str(sent))
-        check("timebox: a say gets no next-step text", not any(f"#{sid}" in t and "nothing to do unless" in t for _, t in sent),
-              str(sent))
-        db.mark_timebox_noticed(con, rid)
-        db.mark_timebox_noticed(con, sid)
         sent.clear()
         long_title = "Task timeout: every task gets a default " * 20
         tid = db.new_task(con, long_title, "marina", "manager", timeout_s=3600)
@@ -1387,16 +1239,11 @@ def main() -> int:
             run(lambda: test_a_cancelled_task_handoff_names_the_task_state(Path(td) / 'tb19'))
             run(lambda: test_a_stand_in_behind_an_ask_blocked_head_is_nudged_and_capped(Path(td) / 'tb20'))
             run(lambda: test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(Path(td) / 'tb21'))
-            run(lambda: test_ask_keeps_its_timebox(Path(td) / 'tb1'))
-            run(lambda: test_the_asker_is_told_once_when_a_request_runs_past_its_timebox(Path(td) / 'tb2'))
             run(lambda: test_a_doing_tasks_timeout_starts_silently_then_repeats(Path(td) / 'tb2b'))
             run(lambda: test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(Path(td) / 'tb2c'))
             run(lambda: test_a_doing_tasks_timeout_pauses_while_it_is_not_doing(Path(td) / 'tb2b2'))
             run(lambda: test_a_task_timeout_notice_goes_to_whoever_opened_it_not_the_owner(
                 Path(td) / 'tb2c'))
-            run(lambda: test_a_resolved_or_cancelled_request_stops_the_clock(Path(td) / 'tb3'))
-            run(lambda: test_a_notice_that_cannot_be_typed_is_tried_again(Path(td) / 'tb4'))
-            run(lambda: test_a_human_asker_is_recorded_not_typed_at(Path(td) / 'tb5'))
             run(lambda: test_a_supervisor_is_told_once_of_an_agent_running_with_nothing_asked(Path(td) / 'tb6'))
             run(lambda: test_an_open_request_or_a_short_run_is_not_unasked(Path(td) / 'tb7'))
             run(lambda: test_background_work_is_not_asked_about(Path(td) / 'tb8'))
@@ -1422,7 +1269,6 @@ def main() -> int:
             run(lambda: test_the_backstop_clock_is_the_tasks_not_the_agents(Path(td) / 'tbclock'))
             run(lambda: test_the_row_says_how_long_and_when_stale(Path(td) / 'tb13'))
             run(lambda: test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_read(Path(td) / 'tb14'))
-            run(lambda: test_migration_adds_the_timebox_columns_to_an_older_requests_table(Path(td) / 'tb15'))
             run(lambda: test_stopping_key_presses_only_the_measured_dialog(Path(td) / 'tb16'))
         finally:
             dmn_delivery.session_present = REAL_SESSION_PRESENT

@@ -8456,8 +8456,6 @@ limits:
         con.execute("UPDATE requests SET delivered_at = ts WHERE id IN (?, ?)", (frid, ghost))
         check("ghost: the founder's delivery of an ended task is not told past an open head",
               frid not in [r["id"] for r in db.founder_pending(con, "worker")])
-        check("ghost: nor does a timebox run on it (no 'ran long' about an ended task)",
-              not {frid, ghost} & {r["id"] for r in db.timeboxed_open(con)})
         from ocp.infra import doctor as doctormod
         import inspect
         rep = doctormod.Report()

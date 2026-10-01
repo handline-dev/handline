@@ -1,7 +1,6 @@
-"""Six notices about work that has run long, all read from the db every tick.
+"""Five notices about work that has run long, all read from the db every tick.
 
-A request still open a set time after it was delivered tells its asker once
-(config.yaml's `timebox_s`). A task's own timeout
+A task's own timeout
 (`ocp task new -t/--timeout`, T286) only counts while it is doing; past it,
 its opener is told, and again every further timeout_s stretch, until the
 task answers with one of `ocp task edit --timeout` (continue) or `ocp task
@@ -16,7 +15,7 @@ Stop-hook gate's own backstop (T288) for whenever it is warn-only or missed.
 An agent nudged to resolve a forgotten head as many times as
 `delivery.NUDGE_SCHEDULE_S` allows, still open, tells its supervisor once
 (T337) - nothing more is typed at the agent about it past that. The first
-four act on nothing.
+three act on nothing.
 
 A notice to an agent is a line typed at its open session, so one that cannot be
 typed now is tried again; a notice to the human has no session to type at and is
@@ -32,7 +31,6 @@ from .. import db
 from . import delivery
 from .states import IDLE, RUNNING
 
-TIMEBOX_S = 7200
 UNASKED_RUNNING_S = 900
 TITLE_SHOWN = 60
 STOP_WAIT_BACKSTOP_S = 900
@@ -40,11 +38,6 @@ STOP_WAIT_BACKSTOP_S = 900
 # again for this long, per agent.
 NOTICE_RETRY_S = 60
 HUMAN = "human"
-
-
-def timebox_s(row) -> int:
-    return int(row["timebox_s"]) if row["timebox_s"] else \
-        idle_close.config_seconds("timebox_s", TIMEBOX_S)
 
 
 def _tell(con, who: str, text: str, now: int) -> bool:
@@ -64,28 +57,6 @@ def _state_of(con, agent: str) -> str:
         return "unknown"
     bg = " with background work" if delivery.has_background_work(con, agent) else ""
     return f"{row['state']}{bg}" + (f" ({row['detail']})" if row["detail"] else "")
-
-
-def sweep_timeboxes(con, log, now: int) -> None:
-    for row in db.timeboxed_open(con):
-        rid, box = int(row["id"]), timebox_s(row)
-        elapsed = now - int(row["landed_at"])
-        if elapsed < box:
-            continue
-        note = " ".join((progressmod.progress_of(con, rid) or "").split())
-        text = (f"#{rid} to {row['target']} is still open {timefmt.ago(elapsed)} after it was "
-                f"delivered, past its {timefmt.ago(box)} timebox. {row['target']} is "
-                f"{_state_of(con, row['target'])}. Last progress note: "
-                f"{note[:300] or 'none'}. `ocp read {rid}` shows it."
-                + ("" if row["kind"] == "say" else
-                   f" It is still {row['target']}'s - nothing to do unless you want it back: "
-                   f"a message to {row['target']} (`ocp say {row['target']} \"...\"`) is how."))
-        if _tell(con, row["requester"], text, now):
-            db.mark_timebox_noticed(con, rid)
-            db.add_event(con, row["requester"], "timebox_exceeded",
-                         {"request_id": rid, "target": row["target"], "elapsed_s": elapsed})
-            log(f"  #{rid}: open {timefmt.ago(elapsed)} past its {timefmt.ago(box)} timebox - "
-                f"{row['requester']} told")
 
 
 def sweep_task_timeouts(con, log, now: int) -> None:
@@ -332,7 +303,6 @@ def sweep_forgotten_resolve_capped(con, log, now: int) -> None:
 
 
 def sweep(con, log, now: int) -> None:
-    sweep_timeboxes(con, log, now)
     sweep_task_timeouts(con, log, now)
     sweep_unasked_running(con, log, now)
     sweep_stale_background(con, log, now)
