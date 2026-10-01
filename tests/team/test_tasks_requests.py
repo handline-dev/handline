@@ -7973,6 +7973,16 @@ limits:
         db.mark_landed(con, old["id"])
         check("delivered_at: a landing of the old holder's request does not stamp the new owner's task",
               db.get_task(con, t)["delivered_at"] is None)
+        ok, _, em = actions.task_new("manager", "worker", "edit the owner", "w")
+        emr = db.task_requests(con, em)[0]["id"]
+        db.mark_landed(con, emr)
+        ok, msg = actions.edit_task(con, em, "manager", owner="helper")
+        actions.send_moved_task(con, em, "worker", "manager")      # what every caller does once the edit commits
+        reqs = db.task_requests(con, em)
+        check("delivered_at: edit --owner settles the old holder's delivery and sends the new owner theirs",
+              ok and db.get_request(con, emr)["state"] != "queued"
+              and [r["target"] for r in reqs if r["state"] == "queued"] == ["helper"]
+              and db.get_task(con, em)["delivered_at"] is None, msg)
         # a founder's card is delivered when drawn
         ok, _, card = actions.task_new("manager", "human", "decide", "decide")
         crid = db.task_requests(con, card)[0]["id"]
