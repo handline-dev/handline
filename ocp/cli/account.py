@@ -11,7 +11,7 @@ from ..infra import timefmt
 from .. import actions
 from ..team import agents
 from .. import db
-from ..usage import load
+from ..usage import cycle, load
 from ..session import orca
 from ..infra import paths
 from ..usage import recover as recovermod
@@ -132,6 +132,33 @@ def cmd_account_cap(args) -> int:
     return 0
 
 
+def cmd_account_cycle(args) -> int:
+    """Show or set an account's one-month subscription: `on`/`off`, and `--end`
+    the last day it can be used (giving a date alone turns it on). With
+    neither, says where it stands."""
+    import datetime as dt
+    end = None
+    if args.end:
+        try:
+            end = dt.date.fromisoformat(args.end)
+        except ValueError:
+            print(f"--end is a date as YYYY-MM-DD, not {args.end!r}", file=sys.stderr)
+            return 1
+    if args.state is not None or end is not None:
+        try:
+            cycle.set_cycle(args.name, (args.state or "on") == "on", end)
+        except ConfigError as e:
+            print(e, file=sys.stderr)
+            return 1
+    if not cycle.enabled(args.name):
+        print(f"{args.name}: not on one-month subscriptions")
+        return 0
+    day = cycle.end_date(args.name)
+    print(f"{args.name}: one-month subscription, " + (
+        f"last day {day}" if day else "no end date set - pass --end YYYY-MM-DD"))
+    return 0
+
+
 def cmd_account_recover(args) -> int:
     """#1885's per-account switch: whether a dead read may spend one real turn
     to fix itself. With no on/off/--now, says where it stands, needs-re-login
@@ -189,6 +216,7 @@ def cmd_account_list(args) -> int:
                 "windows": st.window_report(), "ctx_pct": st.ctx_pct,
                 "age_s": st.age_s, "assignable": allowed, "reason": why,
                 "subscription_type": accounts.subscription_type(a),
+                "month_cycle": cycle.enabled(a), "subscription_end": str(cycle.end_date(a) or "") or None,
             })
         print(json.dumps(out, indent=2))
         return 0

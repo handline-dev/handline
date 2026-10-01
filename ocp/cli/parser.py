@@ -9,7 +9,7 @@ from ..infra import timefmt
 from ..team import agents
 from ..team import team
 
-from .account import cmd_account_add, cmd_account_cap, cmd_account_list, cmd_account_recover, cmd_account_register, cmd_account_remove
+from .account import cmd_account_add, cmd_account_cap, cmd_account_cycle, cmd_account_list, cmd_account_recover, cmd_account_register, cmd_account_remove
 from .memory import cmd_memory_migrate, cmd_memory_status
 from .agent import cmd_agent_move, cmd_agent_register, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
 from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_inbox, cmd_read, cmd_withdraw
@@ -63,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("n", type=int, nargs="?", default=None)
     p.set_defaults(fn=cmd_account_cap)
+    p = acc.add_parser("cycle", help="show or set an account's one-month subscription and its last day")
+    p.add_argument("name")
+    p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
+    p.add_argument("--end", default=None, metavar="YYYY-MM-DD",
+                   help="the last day the account can be used; after it the pick skips the account")
+    p.set_defaults(fn=cmd_account_cycle)
     p = acc.add_parser("recover", help="show or set #1885's per-account usage-recovery switch")
     p.add_argument("name")
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)

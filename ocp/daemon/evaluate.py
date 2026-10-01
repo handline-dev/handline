@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, landing, lifecycle, messaging, reconciler, schedules, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import delivery, handoff, landing, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -505,6 +505,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
         timebox.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a notice that failed is not the tick's failure
         log(f"  timebox: {type(e).__name__}: {e}")
+    try:
+        subscriptions.sweep(con, log, now)
+    except Exception as e:  # noqa: BLE001 - a notice that failed is not the tick's failure
+        log(f"  subscriptions: {type(e).__name__}: {e}")
     try:
         taskqueue.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a task left waiting is tried again, not the tick's failure

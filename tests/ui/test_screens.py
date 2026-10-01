@@ -2590,6 +2590,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "account add": "interactive login", "account remove": "interactive logout and a confirm",
         "account register": "creates an account directory; prints its path",
         "account cap": "writes a cap; prints numbers",
+        "account cycle": "writes a per-account month-cycle setting; driven in "
+                         "test_account_cycle_command (tests/usage/test_cycle.py), not this scene",
         "account recover": "writes a per-account setting; prints where it stands, or "
                            "with --now calls recover.recover() against a real login "
                            "(recover.py's own mechanism is driven in test_recover_*)",

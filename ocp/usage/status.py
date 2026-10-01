@@ -60,7 +60,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..team import accounts, agents
-from . import collect, usage_api, windows
+from . import collect, cycle, usage_api, windows
 from ..infra import atomic, paths, timefmt
 from ..session import triggers
 
@@ -197,6 +197,10 @@ class AccountStatus:
     # must stay pure (stats) or replay a past tick sets it instead of patching
     # time.time.
     as_of: float | None = None
+    # Month cycle (`cycle`): when a one-month subscription stops being usable,
+    # and whether the account is spent first while its last week is short.
+    sub_end: float | None = None
+    last_week_first: bool = True
 
     def _now(self) -> float:
         return time.time() if self.as_of is None else self.as_of
@@ -601,12 +605,14 @@ def not_for(acct: str, vendor: str) -> str | None:
         return f"a {theirs} account, not {vendor}"
     if not metered(acct):
         return UNMETERED_WHY
-    return None
+    return cycle.ended_why(acct, time.time())
 
 
 def read(acct: str, path: Path | None = None) -> AccountStatus:
     p = path or paths.status_file(acct)
     st = AccountStatus(account=acct)
+    cfg = cycle.config()
+    st.sub_end, st.last_week_first = cycle.end_of(acct, cfg), cycle.last_week_first(cfg)
     if not metered(acct):
         st.unmetered = True
         return st
@@ -890,6 +896,14 @@ def team_outlook(names: list[str] | None = None, now: float | None = None) -> st
 PACE_HYSTERESIS = 0.02
 
 
+def week_ends_in(st: "AccountStatus", now: float | None = None) -> float | None:
+    """Seconds until the week stops mattering: its reset, or the end of the
+    subscription when that comes first. None where the reset is unknown and no
+    end is set."""
+    ends = [t for t in (st.long.reset, st.sub_end) if t]
+    return min(ends) - (st._now() if now is None else now) if ends else None
+
+
 def long_pace(st: "AccountStatus") -> float:
     """This account's weekly usage against its weekly timer: its longest window's figure as a
     multiple of the usage a uniform pace through the week would have reached by
@@ -911,6 +925,12 @@ def long_pace(st: "AccountStatus") -> float:
     if remaining <= 0:
         return float("inf")
     length = st.long.minutes * 60
+    if st.last_week_first and st.sub_end and st._now() < st.sub_end < st.long.reset:
+        # The subscription ends inside this week, so the week is the shorter
+        # span from its start to that end, with all of its allowance still
+        # spendable: the same account sits further behind its pace, and goes first.
+        length = st.sub_end - (st.long.reset - length)
+        remaining = st.sub_end - st._now()
     elapsed_frac = max(length - remaining, 1.0) / length
     return week / (elapsed_frac * 100)
 
@@ -1009,7 +1029,9 @@ def long_runway_s(st: "AccountStatus", ld, now: float | None = None) -> float | 
     else:
         return None
     # A window resets within its own length whether or not the collector told us when.
-    reset_in = (st.long.reset - now) if st.long.reset else st.long.minutes * 60
+    reset_in = week_ends_in(st, now)
+    if reset_in is None:
+        reset_in = st.long.minutes * 60
     return None if reset_in <= lasts else lasts
 
 
@@ -1023,7 +1045,7 @@ def _no_long_room(st: "AccountStatus", ld, agent: str | None = None) -> str | No
     lasts = long_stretch_s(st, ld, agent)
     if lasts is None or lasts >= triggers.MIN_STRETCH_S:
         return None
-    left = (st.long.reset - st._now()) if st.long.reset else None
+    left = week_ends_in(st)
     if left is not None and left <= lasts:
         return None
     reset = f", resets in {timefmt.span(left)}" if left and left > 0 else ""
