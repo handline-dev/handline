@@ -2387,6 +2387,35 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
               str((agent.query_one(".cardhead").styles.color, success)))
 
 
+async def test_going_home_from_a_chat_with_a_draft_leaves_home_answering_keys() -> None:
+    """The Back button with a draft asks first; after y the chat is gone and Home takes keys (it hung)."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("leave_draft")
+    agents.register("reviewer")
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        home = app.screen
+        home.open_chat("reviewer")
+        await pilot.pause()
+        page = app.screen
+        page.query_one("#compose", cp.ChatBox).text = "hi"
+        page.query_one("#leave").press()
+        await pilot.pause()
+        check("leave: a draft in the box asks first", isinstance(app.screen, Confirm), str(app.screen_stack))
+        await pilot.press("y")
+        await pilot.pause()
+        await pilot.pause()
+        check("leave: y goes back to the home screen alone", app.screen is home and len(app.screen_stack) == 2,
+              str(app.screen_stack))
+        await pilot.pause(2.5)      # the chat's own timers (0.1s tick, 2s poll) run on after it is gone
+        await pilot.press("?")
+        await pilot.pause()
+        check("leave: home takes keys again (? opens its key help)", type(app.screen).__name__ == "KeyHelp",
+              str(app.screen_stack))
+
+
 async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() -> None:
     """T665: what the chat draws leaves FOR YOU, and only that; a message older than one page is
     paged back to and drawn."""
@@ -2907,6 +2936,7 @@ async def _run_all() -> None:
     await test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat()
     await test_neither_tasks_tab_scrolls_sideways()
     await test_the_chat_page_draws_a_changed_task_as_a_one_line_card()
+    await test_going_home_from_a_chat_with_a_draft_leaves_home_answering_keys()
     await test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message()
     await test_a_question_whose_press_raises_still_closes_with_the_reason()
     await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
