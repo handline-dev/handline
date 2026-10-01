@@ -173,7 +173,7 @@ def tell_now(con, rid: int, log) -> str:
             db.clear_delivered(con, rid)
             return f"queued - {err or 'the send failed'}"
         delivery._mark_typed(con, agent)
-        db.set_cursor(con, f"ahead:{agent}", rid)      # told out of turn: becoming the head is not news
+        db.mark_told_ahead(con, agent, rid, [int(r["id"]) for r in db.queued_for(con, agent)])   # becoming the head is not news
         db.mark_typed(con, rid, delivery._live_session(con, agent))
         landing.note_typed(rid)
         db.add_event(con, agent, "notified", {"request_id": rid, "more_waiting": 0})

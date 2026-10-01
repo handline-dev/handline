@@ -1463,10 +1463,20 @@ def test_a_head_told_before_a_session_closed_is_told_again_when_it_runs_again(ho
         ok, msg = actions.task_handoff(con, "product", t2, "backend", "second one")
         r2 = db.get_task(con, t2) and db.live_delivery(con, t2, "backend")["id"]
         check("out of turn: the handoff is typed on arrival, past the open head", ok and len(sent) == 1 and "second one" in sent[0], f"{msg} {sent}")
+        ok, _, sid = askmod.say("backend", "a word in passing", requester="product")
+        dmn_messaging.tell_now(con, sid, lambda _m: None)          # a later out-of-turn tell must not erase the earlier mark
+        check("out of turn: a say told after it is typed at once too", len(sent) == 2 and "a word in passing" in sent[1], str(sent))
         con.execute("UPDATE requests SET queue_order = -1 WHERE id = ?", (r2,))     # now first in line: the head
         sent.clear()
         check("out of turn: becoming the head is not news in the same session",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        check("out of turn: marks are per request and pruned once a request leaves the line",
+              db.told_ahead(con, "backend", r2) and db.told_ahead(con, "backend", sid), "")
+        db.mark_told_ahead(con, "backend", 99999, [99999])
+        check("out of turn: ...so one that is no longer in the line is dropped at the next mark",
+              not db.told_ahead(con, "backend", r2) and not db.told_ahead(con, "backend", sid)
+              and db.told_ahead(con, "backend", 99999), "")
+        db.set_cursor(con, "ahead:backend:%d" % r2, r2)
         db.set_closed(con, "backend", "sess-1")
         db.clear_closed(con, "backend")
         check("out of turn: a resume voids it - the head is told again",
