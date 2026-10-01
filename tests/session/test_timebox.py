@@ -1218,8 +1218,7 @@ def test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(home: 
         db.link_request(con, t_head, ask)
         db.set_cursor(con, "notify:marina", r_next)
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
-        con.execute("UPDATE requests SET state = 'landed', verdict = 'yes', announced_at = ? WHERE id = ?",
-                    (int(time.time()), ask))
+        support._set_request_state(con, ask, "landed", "yes", announced=True)
         check("cleared: the true head is the one to work again",
               dmn_delivery.effective_task_head(con, "marina")["id"] == r_head)
         db.set_cursor(con, "notify:marina", r_head)     # what `deliver_queued` does when it re-tells it

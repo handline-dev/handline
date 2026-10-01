@@ -595,7 +595,7 @@ def test_what_is_not_a_block(home: Path) -> None:
         sessions_are("backend")
 
         # No work, no block: a dialog on an agent nobody wants anything from is its own business.
-        con.execute("UPDATE requests SET state = 'landed', announced_at = 1 WHERE target = 'backend'")
+        con.execute("UPDATE requests SET state = 'landed' WHERE target = 'backend'")
         check("not blocked: a dialog with nothing waiting", verdict() is None)
 
         # An answer it asked for is work, the same as a request.
@@ -742,7 +742,7 @@ def test_a_dialog_ocps_own_exit_raised_is_said_at_once(home: Path) -> None:
     """`/exit` met background shells and the dialog is ocp's doing: it does not
     wait for T1, it stands with nothing waiting, and ocp does not answer it."""
     con = _blocked_world(home)
-    con.execute("UPDATE requests SET state = 'landed', announced_at = 1")
+    con.execute("UPDATE requests SET state = 'landed'")
     typed: list = []
     orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
     screen = {"b": orcamod.Blocker(orcamod.MODAL, '"Background work is running"')}
@@ -774,7 +774,7 @@ def test_a_dialog_ocps_own_exit_raised_is_said_at_once(home: Path) -> None:
 def test_a_failed_close_says_why_and_records_the_dialog(home: Path) -> None:
     """The reason a close did not happen used to be dropped where it was made."""
     con = _blocked_world(home)
-    con.execute("UPDATE requests SET state = 'landed', announced_at = 1")
+    con.execute("UPDATE requests SET state = 'landed'")
     now = int(time.time())
     orcamod.wait_idle = lambda h, timeout_ms=0: True
     orcamod.send = lambda h, text, enter=True: (True, "")
@@ -806,7 +806,7 @@ def test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(home: Path) -> 
     """A dialog left open refuses the next close on every tick, and leaves no
     close_failed event to stop them: the reason is said when it starts."""
     con = _blocked_world(home)
-    con.execute("UPDATE requests SET state = 'landed', announced_at = 1")
+    con.execute("UPDATE requests SET state = 'landed'")
     now = int(time.time())
     orcamod.close_session = lambda h, *a, **k: (False, "a modal is open on its screen; not typing /exit at it")
     lines: list[str] = []
@@ -919,7 +919,7 @@ def test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(home: Path)
     queued for it, its state still RUNNING - because only agents with work waiting
     were looked at."""
     con, term = _decline_world(home)
-    con.execute("UPDATE requests SET state = 'landed', announced_at = 1")
+    con.execute("UPDATE requests SET state = 'landed'")
     db.set_agent_state(con, "backend", dmn_states.RUNNING)
     lines: list[str] = []
     t0 = int(time.time()) - 5000
@@ -963,7 +963,7 @@ def test_the_exit_dialog_is_cleared_on_an_agent_with_nothing_waiting(home: Path)
 
 def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agents_after_a_wait(home: Path) -> None:
     con, term = _decline_world(home)
-    con.execute("UPDATE requests SET state = 'landed', announced_at = 1")
+    con.execute("UPDATE requests SET state = 'landed'")
     try:
         blockedmod.note_close_failure(con, "backend", lambda _m: None)
         now = int(time.time())      # after the note: it stamps its own second, and a sweep before it presses nothing
@@ -986,7 +986,7 @@ def test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agents_after_a_wa
             blockedmod.sweep(con, lambda _m: None, now + 5000 + blockedmod.PRESS_AFTER_S)
             check(f"{state}: work waiting first, the exit dialog is then pressed once, Esc",
                   term.sent == [("\x1b", False)], str(term.sent))
-            con.execute("UPDATE requests SET state = 'landed', announced_at = 1")
+            con.execute("UPDATE requests SET state = 'landed'")
 
         # Any other dialog on a working agent may have a person in it.
         db.block_clear(con, "backend")
@@ -1892,7 +1892,7 @@ def test_a_reply_in_the_open_heads_thread_is_told_now_not_behind_it(home: Path) 
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("thread: the reply is not typed a second time", not sent, str(sent))
-        con.execute("UPDATE requests SET state = 'landed', verdict = 'ok' WHERE id = ?", (head,))
+        support._set_request_state(con, head, "landed", "ok")
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("thread: with the head closed, the unrelated task is told and the reply is not",
               not any("leave it" in t for t in sent) and any("unrelated" in t for t in sent),
@@ -2654,7 +2654,7 @@ def test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(home: Pat
               and not sent)
         rid = db.add_request(con, "backend", "reviewer", "spec?", None,
                              "peer", "async", None, 0, None)
-        con.execute("UPDATE requests SET state = 'landed', verdict = 'yes' WHERE id = ?", (rid,))
+        support._set_request_state(con, rid, "landed", "yes")
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                     (now - dmn_states.RESUME_WARM_S + 600,))
         check("cold typing: a warm session with an answer waiting is left to be typed into",

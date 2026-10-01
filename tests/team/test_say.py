@@ -453,7 +453,7 @@ def test_a_say_prints_no_way_out_and_needs_task_is_gone(home: Path) -> None:
           "reply with" not in out and "needs-task" not in out and "investigation" not in out, out)
     con = db.connect()
     try:
-        con.execute("UPDATE requests SET state = 'queued', verdict = NULL WHERE id = ?", (rid,))
+        con.execute("UPDATE requests SET state = 'queued' WHERE id = ?", (rid,))
     finally:
         con.close()
     rc, out = _cli(["read", str(rid)], as_agent="worker")

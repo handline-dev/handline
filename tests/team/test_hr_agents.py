@@ -2948,8 +2948,7 @@ edges:
     try:
         ok, said = hr.propose("add", "zed", repo="/repo", requester="hr", why="hands")
         pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
-        con.execute("UPDATE requests SET state = 'landed', dismissed_by = 'ghost', "
-                    "dismissed_reason = 'not now' WHERE id = ?", (rid,))
+        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (rid,))
         db.add_event(con, "ghost", "dismissed", {"request_id": rid, "by": "ghost", "reason": "not now"})
         from ocp.db import tasks as dbtasks
         dbtasks.settle_decision_tasks(con, rid, "done", None, dismissed_by="ghost")     # what the real closer does

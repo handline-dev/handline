@@ -398,6 +398,7 @@ def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) 
     message of its own. Both go, whichever shape the answer has; a real answer to a former ask stays."""
     _world(home)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         told = [db.add_request(con, actions.HUMAN, "backend", f"say {i}", None, "peer", "async", "say", 0, None,
                                verdict=note)

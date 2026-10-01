@@ -384,6 +384,7 @@ def test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(home: Path) -
 def test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         old_q = db.add_request(con, "backend", "human", "queued before", None, None, None, None, 0, None)
         con.execute("UPDATE requests SET kind = 'say' WHERE id = ?", (old_q,))      # as the old writers left it: queued
@@ -412,6 +413,7 @@ def test_an_fyi_report_before_the_upgrade_becomes_a_say(home: Path) -> None:
     """T835: the fyi flag is gone; a row that carries it is a say, unread while it was queued."""
     _daemon_home(home, 20)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         old_q = db.add_request(con, "backend", "human", "report queued", None, None, None, "report", 0, None)
         con.execute('UPDATE requests SET fyi = 1, "state" = \'queued\', landed_at = NULL WHERE id = ?', (old_q,))
@@ -439,6 +441,7 @@ def test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(home: Pat
     same way; the upgrade moves the old per-request mark onto the say."""
     _daemon_home(home, 20)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         asked = db.add_request(con, "backend", "frontend", "q1", None, None, None, None, 0, None)
         db.close_if_queued(con, asked, "done", "yes")
@@ -479,6 +482,7 @@ def test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(home: Path) 
     or its task hold ended; the upgrade clears it on every row that was resolved."""
     _daemon_home(home, 20)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         held = db.add_request(con, "orcapipe", "backend", "task one", None, None, None, "task", 0, None)
         db.mark_landed(con, held)
@@ -504,6 +508,7 @@ def test_a_dismissal_is_an_event_and_an_old_one_gets_one(home: Path) -> None:
     nothing any reader trusts. The upgrade writes the event for a row that has only the columns."""
     _daemon_home(home, 20)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         rid = db.add_request(con, "backend", "frontend", "q", None, None, None, "task", 0, None)
         db.close_if_queued(con, rid, "done", None, dismissed_by="frontend", dismissed_reason="not mine")
@@ -533,6 +538,7 @@ def test_why_a_request_closed_without_an_answer_is_an_event(home: Path) -> None:
     row reads it from there, and the upgrade writes one for a row that has only a verdict."""
     _daemon_home(home, 20)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         denied = db.add_request(con, "backend", "frontend", "q", None, None, None, "task", 0, None,
                                 state="denied", verdict="no such route")
@@ -564,11 +570,64 @@ def test_why_a_request_closed_without_an_answer_is_an_event(home: Path) -> None:
         con.close()
 
 
+def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_the_doctor(home: Path) -> None:
+    """T835 step 7d: a database made now has none of the legacy request columns and never grows them;
+    on an older one `ocp doctor --drop-dead-columns` first moves what a process on older code closed since
+    the upgrade (an answer, a reason, a dismissal, a hold) to where the readers look, then drops them
+    and marks the database, so a connect neither re-adds them nor runs the migrations that read them."""
+    from ocp.db import schema as dbschema
+    _daemon_home(home, 20)
+    legacy = set(dbschema._LEGACY_REQUEST_COLUMNS)
+
+    def cols() -> set:
+        c = db.connect()
+        try:
+            return {r[1] for r in c.execute("PRAGMA table_info(requests)")}
+        finally:
+            c.close()
+    check("new database: no legacy column, and it is marked so", not legacy & cols())
+    con = db.connect()
+    try:
+        support.legacy_shape(con)
+        answered = db.add_request(con, "backend", "frontend", "q1", None, None, None, "task", 0, None)
+        con.execute("UPDATE requests SET \"state\" = 'landed', verdict = 'done by old code', resolved_at = 900 WHERE id = ?",
+                    (answered,))
+        taken = db.add_request(con, "backend", "frontend", "q2", None, None, None, "task", 0, None)
+        con.execute("UPDATE requests SET \"state\" = 'withdrawn', verdict = 'withdrawn: old code', resolved_at = 901 "
+                    "WHERE id = ?", (taken,))
+        dismissed = db.add_request(con, "backend", "frontend", "q3", None, None, None, "task", 0, None)
+        con.execute("UPDATE requests SET \"state\" = 'landed', dismissed_by = 'frontend', dismissed_reason = 'no', "
+                    "resolved_at = 902 WHERE id = ?", (dismissed,))
+        for name in ("answers_told_on_the_say", "closed_rows_leave_the_queue", "dismissals_are_events",
+                     "reasons_are_events"):
+            con.execute("DELETE FROM cursors WHERE name = ?", (f"migrated:{name}",))
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM events WHERE kind IN ('dismissed', 'request_reason')")
+        con.execute("DELETE FROM requests WHERE settles IS NOT NULL")
+        gone = dbschema.drop_unread_request_columns(con)
+    finally:
+        con.close()
+    check("doctor: the legacy columns are dropped", legacy <= set(gone) and not legacy & cols(), str(gone))
+    con = db.connect()
+    try:
+        check("doctor: first, what old code closed is where the readers look",
+              db.shown_verdict(db.get_request(con, answered)) == "done by old code"
+              and db.shown_verdict(db.get_request(con, taken)) == "withdrawn: old code"
+              and db.dismissal(db.get_request(con, dismissed)) == (True, "frontend", "no"))
+        check("doctor: and a connect after it grows no column back", not legacy & cols())
+    finally:
+        con.close()
+
+
 def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
     """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
     every row gets a state_at; ledgered, a second connect changes nothing."""
     _daemon_home(home, 20)
     con = db.connect()
+    support.legacy_shape(con)
     try:
         def row(state, **cols):
             rid = db.add_request(con, "product", "backend", f"old {state}", None, None, None, "say", 0, None)
@@ -762,6 +821,7 @@ def main() -> int:
         run(lambda: test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(Path(td) / "l16q"))
         run(lambda: test_a_dismissal_is_an_event_and_an_old_one_gets_one(Path(td) / "l16d"))
         run(lambda: test_why_a_request_closed_without_an_answer_is_an_event(Path(td) / "l16r"))
+        run(lambda: test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_the_doctor(Path(td) / "l16x"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))

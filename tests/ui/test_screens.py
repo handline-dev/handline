@@ -219,8 +219,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         tie_ts = int(time.time())
         answered = db.add_request(con, actions.HUMAN, "punctual", "?", None, "peer",
                                   "async", None, 0, None)
-        con.execute("UPDATE requests SET state='landed', verdict='the answer', ts=?, "
-                    "resolved_at=? WHERE id=?", (tie_ts, tie_ts, answered))
+        con.execute("UPDATE requests SET state='landed', ts=?, state_at=? WHERE id=?", (tie_ts, tie_ts, answered))
         db.add_answer(con, answered, "the answer", at=tie_ts)
         newer_report = db.add_request(con, "punctual", actions.HUMAN, "the report", None,
                                       "peer", "fire_and_forget", "say", 0, None)
@@ -234,8 +233,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         for body in ("first answer", "second answer", "third answer"):
             rid = db.add_request(con, actions.HUMAN, "reviewer", "?", None, "peer",
                                  "async", None, 0, None)
-            con.execute("UPDATE requests SET state='landed', verdict=? WHERE id=?",
-                       (body, rid))
+            con.execute("UPDATE requests SET state='landed' WHERE id=?", (rid,))
             db.add_answer(con, rid, body)
         con.commit()
         rev = by("reviewer")
@@ -331,8 +329,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         for body in ("first answer", "second answer"):
             rid = db.add_request(con, actions.HUMAN, "counted", "?", None, "peer",
                                  "async", None, 0, None)
-            con.execute("UPDATE requests SET state='landed', verdict=? WHERE id=?",
-                       (body, rid))
+            con.execute("UPDATE requests SET state='landed' WHERE id=?", (rid,))
             db.add_answer(con, rid, body)
         for body in ("r1", "r2", "r3"):
             db.add_request(con, "counted", actions.HUMAN, body, None, "peer",
@@ -2249,8 +2246,7 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
         # An answer the human was given: the verdict is the message.
         asked = db.add_request(con, actions.HUMAN, "reviewer", "did it merge?", None, "peer",
                                "async", None, 0, None, chain_id="c2")
-        con.execute("UPDATE requests SET state='landed', verdict='ANSWER yes', resolved_at=? "
-                    "WHERE id=?", (int(time.time()), asked))
+        support._set_request_state(con, asked, "landed", "ANSWER yes")
         con.commit()
         check("for-you: an answer sits on its verdict",
               actions.message_place(con, asked) == ("reviewer", 1),
@@ -2400,14 +2396,12 @@ def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) 
             db.add_request(con, "human", name, "hello", None, "peer", "async", None, 0, None)
             back = db.add_request(con, name, "backend", "a question", None, "peer", "async",
                                   None, 0, None)
-            con.execute("UPDATE requests SET state = 'landed', verdict = 'answered', "
-                        "resolved_at = ? WHERE id = ?", (int(time.time()), back))
+            support._set_request_state(con, back, "landed", "answered")
             db.add_event(con, name, "wake", {})
             db.add_request(con, name, "backend", "another", None, "peer", "async", None, 0, None)
             asked = db.add_request(con, "backend", name, "and this?", None, "peer", "async",
                                    None, 0, None)
-            con.execute("UPDATE requests SET state = 'landed', verdict = 'answered too', "
-                        "resolved_at = ? WHERE id = ?", (int(time.time()), asked))
+            support._set_request_state(con, asked, "landed", "answered too")
             shown = {"main": _snap()}
             shown["backend's page"] = _page_text(   # where the name is a requester
                 tui._agent_page(con, "backend", tui.AGENTS), 200)
@@ -2465,8 +2459,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                                "escalate", 0, None)
             d = db.add_request(con, "reviewer", "backend", f"asked {p}", None, "peer", "async",
                                None, 0, None)
-            con.execute("UPDATE requests SET state = 'landed', verdict = ?, resolved_at = ? WHERE id = ?",
-                        (f"verdict {p}\nmore {p}", int(time.time()), d))
+            support._set_request_state(con, d, "landed", f"verdict {p}\nmore {p}")
             db.set_agent_state(con, "reviewer", "STALLED", detail=f"detail {p}")
             db.add_event(con, "reviewer", f"kind{p}", {"x": p})
             db.set_terminal(con, "reviewer", f"term{p}", f"wt{p}")
@@ -2475,8 +2468,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             # depend on anything else the scene registers or retires.
             hrq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: retire reviewer?",
                                  None, "peer", "async", None, 0, None)
-            con.execute("UPDATE requests SET state = 'landed', verdict = ? WHERE id = ?",
-                        (f"reject {c1p}", hrq))
+            support._set_request_state(con, hrq, "landed", f"reject {c1p}")
             # For `hr withdraw`: a still-open proposal, its decision still queued.
             wq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: rename reviewer?",
                                 None, "peer", "async", None, 0, None)

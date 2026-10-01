@@ -495,7 +495,7 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
               ok2 and child is not None and child["parent_id"] == rid and child["target"] == "reviewer"
               and child["requester"] == actions.HUMAN)
         ok3, _, mine = askmod.ask("reviewer", "status?", requester=actions.HUMAN)
-        con.execute("UPDATE requests SET state = 'landed', verdict = 'fine' WHERE id = ?", (mine,))
+        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (mine,))
         db.add_answer(con, mine, "fine")
         con.commit()
         ok4, _ = cp.send_reply(con, "reviewer", mine, "thanks, now ship it")
