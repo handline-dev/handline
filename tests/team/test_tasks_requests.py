@@ -1474,6 +1474,37 @@ def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> No
         con.close()
 
 
+def test_any_request_that_landed_is_landed(home: Path) -> None:
+    """T797 6c: not only task deliveries - a say, or an old row with no kind, that reached its agent is
+    landed and told, can no longer be cancelled, and is no open ask; the connect sweep does the same
+    to a row left queued with its landing recorded."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        rows = {}
+        for kind in ("say", None):
+            rid = db.add_request(con, "product", "backend", f"a {kind} request", None, "peer", "async", kind, 0, None)
+            db.mark_delivered(con, rid)
+            db.mark_landed(con, rid)
+            rows[kind] = rid
+            r = db.get_request(con, rid)
+            check(f"landed any: a {kind} request reads landed and is marked told",
+                  r["state"] == "landed" and r["announced_at"] is not None and r["state_at"] is not None, str(dict(r)))
+            ok, msg = askmod.cancel(rid)
+            check(f"landed any: a landed {kind} request cannot be cancelled", not ok and "already landed" in msg, msg)
+            check(f"landed any: and is not an open ask of its requester", rid not in db.open_ask_ids_of(con, "product"))
+        swept = db.add_request(con, "product", "backend", "left queued", None, "peer", "async", "say", 0, None)
+        con.execute("UPDATE requests SET landed_at = 777 WHERE id = ?", (swept,))
+        con.commit()
+        con.close()
+        con = db.connect()
+        r = db.get_request(con, swept)
+        check("landed any: the connect sweep lands a queued row that has its landing recorded",
+              r["state"] == "landed" and r["state_at"] == 777 and r["announced_at"] == 777, str(dict(r)))
+    finally:
+        con.close()
+
+
 def test_head_task_blocked_by_the_agents_own_linked_ask(home: Path) -> None:
     """T337, auditor #2028 finding 2: `head_task_blocked`'s other form - an
     outgoing ask `agent` itself sent, linked to its head's own task - had no
@@ -9156,6 +9187,7 @@ def main() -> int:
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_a_landed_task_delivery_is_the_task_the_agent_holds(Path(td) / 'landedtask'))
+        run(lambda: test_any_request_that_landed_is_landed(Path(td) / 'landedany'))
         run(lambda: test_a_landed_task_can_be_handed_on_discarded_and_reopened(Path(td) / 'landedmove'))
         run(lambda: test_own_withdraw_is_not_an_answer(Path(td) / 'ownwithdraw'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
