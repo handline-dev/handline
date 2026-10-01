@@ -2507,6 +2507,32 @@ def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
           and [c["note"] for c in changes] == ["", "", "yours now", ""], str(changes))
 
 
+def test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task() -> None:
+    """Founder #8922: the founder handed T to orcapipe; the chat drew CHANGED TASK and NEW TASK."""
+    from ocp.ui import chat_page as cp
+    _home("handoffone")
+    agents.register("reviewer")
+    agents.register("backend")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
+        ok, said = actions.task_handoff(con, "reviewer", t, "backend", "yours now")
+        check("handoff card: the action worked", ok, said)
+        con.commit()
+        msgs = cp.messages_of(cp.requests_page(con, "backend", True)[0], "backend")
+        cp.fold_handoffs(con, msgs)
+        changes = cp.task_changes(con, msgs, "backend")
+    finally:
+        con.close()
+    cards = [m for m in msgs if cp.is_card(m)]
+    check("handoff card: one card, a change that keeps its delivery state, no second change beside it",
+          len(cards) == 1 and not [c for c in changes if c["change"].startswith("handed")]
+          and cards[0]["landing"] in ("queued", "delivered"), str((cards, changes)))
+    check("handoff card: it reads CHANGED TASK handed to backend with the typed text, never NEW TASK",
+          cp.card_lines(cards[0]).plain == f"CHANGED TASK T{t} : the work\nhanded to backend\nyours now",
+          cp.card_lines(cards[0]).plain)
+
+
 def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
     """T601: `task new`, a handoff and the queue sweep log no start; the delivery's landing says when."""
     from ocp.ui import chat_page as cp
@@ -3142,6 +3168,7 @@ async def _run_all() -> None:
     test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_it_was_a_draft()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_a_message_head_tells_its_kind_and_linked_tasks()
+    test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out()

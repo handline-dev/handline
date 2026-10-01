@@ -142,6 +142,21 @@ def _edit_notes(payload: dict) -> list[str]:
     return notes
 
 
+def fold_handoffs(con, msgs: list[dict]) -> None:
+    """A handoff delivers its task to the new owner, so it has both a delivery and a change. Draw it as
+    ONE card: the delivery, as CHANGED TASK `handed to X` with the typed text, keeping its delivery state.
+    NEW TASK stays for a task really created."""
+    rids = [m["rid"] for m in msgs if is_card(m)]
+    if not rids:
+        return
+    for e in con.execute("SELECT payload FROM events WHERE kind = 'task_handoff' AND "
+                         f"json_extract(payload, '$.request_id') IN ({','.join('?' * len(rids))})", rids):
+        p = json.loads(e["payload"])
+        for m in msgs:
+            if is_card(m) and m["rid"] == p["request_id"]:
+                m["change"], m["note"] = f"handed to {p['to']}", p.get("note", "")
+
+
 def task_changes(con, msgs: list[dict], agent: str = "") -> list[dict]:
     """The changes, since the first of `msgs`, of the tasks delivered in them, as entries for the
     chat: {change: "queued -> doing", who, side (as a message's, from `agent`'s page), note (the text
@@ -149,6 +164,7 @@ def task_changes(con, msgs: list[dict], agent: str = "") -> list[dict]:
     cards = {m["tasks"][0]: m["task_title"] for m in msgs if is_card(m)}
     if not cards:
         return []
+    folded = {m["rid"] for m in msgs if is_card(m) and "change" in m}
     since = min((m["when"] for m in msgs if m["when"]), default=0)
     marks = ",".join("?" * len(cards))
     kinds = (*_STATE_AFTER, "task_handoff", "edit_task")
@@ -162,6 +178,8 @@ def task_changes(con, msgs: list[dict], agent: str = "") -> list[dict]:
             steps.append((e["ts"], e["tid"], e["agent"], _STATE_AFTER[e["kind"]], None, ""))
             continue
         payload = json.loads(e["payload"])
+        if e["kind"] == "task_handoff" and payload.get("request_id") in folded:
+            continue        # drawn by its delivery card
         notes = [f"handed to {payload['to']}"] if e["kind"] == "task_handoff" else _edit_notes(payload)
         said = payload.get("note", "") if e["kind"] == "task_handoff" else ""
         steps += [(e["ts"], e["tid"], e["agent"], None, note, said) for note in notes]
@@ -692,7 +710,7 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     out: list = []
     first = True
     for m in msgs:
-        if "change" in m:
+        if "change" in m and not is_card(m):
             out.append(TaskChange(m))
             continue
         out.append(ChatMessage(m, working, why if m["unread"] and first else ""))
@@ -1737,6 +1755,7 @@ class ChatPage(JobsAware, Screen):
             # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
             actions.for_you_seen(con, self.agent, max((max(r["id"], r["answer_id"] or 0) for r in rows), default=0))
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
+            fold_handoffs(con, msgs)
             changes = task_changes(con, msgs, self.agent)
         finally:
             con.close()
