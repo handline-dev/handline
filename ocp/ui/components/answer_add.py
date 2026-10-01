@@ -2,26 +2,22 @@ from __future__ import annotations
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Select, Static
 
+from .dialog import Dialog
 from .ime import ImeInput
 
 _KINDS = (("trust a folder", "folder"), ("answer a dialog", "dialog"))
 
 
-class AnswerAdd(ModalScreen["dict | None"]):
+class AnswerAdd(Dialog):
     """The form for one new auto-answer: a folder to trust, or a dialog rule (the prompt's vendor
     and title, and the option to choose). Dismisses with the fields for `actions.add_answer`, or
     None."""
 
-    BINDINGS = [Binding("escape", "dismiss(None)", "cancel")]
+    FOCUS = "#ans_folder"
     DEFAULT_CSS = """
-    AnswerAdd { align: center middle; background: $background 60%; }
-    AnswerAdd #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2;
-                        border: thick $primary; background: $panel; }
     AnswerAdd #title { margin-bottom: 1; }
     AnswerAdd .frow { height: 1; margin-bottom: 1; }
     AnswerAdd .flabel { width: 14; color: $text-muted; }
@@ -48,7 +44,6 @@ class AnswerAdd(ModalScreen["dict | None"]):
 
     def on_mount(self) -> None:
         self._show_kind("folder")
-        self.query_one("#ans_folder").focus()
 
     def _show_kind(self, kind: str) -> None:
         self.query_one("#row_folder").display = kind == "folder"
@@ -67,8 +62,8 @@ class AnswerAdd(ModalScreen["dict | None"]):
 
     def on_input_submitted(self, event) -> None:
         event.stop()
-        self.dismiss(self.fields())
+        self.finish(self.fields())
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.dismiss(self.fields() if event.button.id == "ans_add" else None)
+        self.finish(self.fields() if event.button.id == "ans_add" else None)

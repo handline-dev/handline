@@ -4,11 +4,11 @@ from __future__ import annotations
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
-from textual.screen import ModalScreen
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
 from ...infra import textsafe
+from .dialog import Dialog
 
 
 def confirm_answer(key: str, character: str | None) -> bool | None:
@@ -21,7 +21,7 @@ def confirm_answer(key: str, character: str | None) -> bool | None:
     return None
 
 
-class Confirm(ModalScreen[bool]):
+class Confirm(Dialog):
     """A yes/no question in a box in the middle of the screen, over what is
     under it. `question` is the one line asked; `detail` is what answering yes
     will do, in as many lines as it takes; `yes` and `no` label the buttons
@@ -33,9 +33,7 @@ class Confirm(ModalScreen[bool]):
     or a stray arrow never answers it. Dismisses with True or False."""
 
     DEFAULT_CSS = """
-    Confirm { align: center middle; background: $background 60%; }
-    Confirm #dialog { width: 64; max-width: 90%; height: auto; padding: 1 2;
-                      border: thick $primary; background: $panel; }
+    Confirm #dialog { width: 64; }
     Confirm #dialog.danger { border: thick $error; }
     Confirm #question { text-style: bold; }
     Confirm #detail { margin-top: 1; color: $text-muted; }
@@ -61,10 +59,10 @@ class Confirm(ModalScreen[bool]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.dismiss(event.button.id == "yes")
+        self.finish(event.button.id == "yes")
 
     def on_key(self, event: events.Key) -> None:
         event.stop()
         answer = confirm_answer(event.key, event.character)
         if answer is not None:
-            self.dismiss(answer)
+            self.finish(answer)

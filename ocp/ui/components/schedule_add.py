@@ -2,28 +2,24 @@ from __future__ import annotations
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Select, Static
 
 from ... import actions
+from .dialog import Dialog
 from .ime import ImeInput
 
 
 CUSTOM = "custom"
 
 
-class ScheduleAdd(ModalScreen["tuple[str, str] | None"]):
+class ScheduleAdd(Dialog):
     """The form for one new schedule: when (every day, weekdays, a weekday, every hour, every N
     minutes), the time it needs, and a one-line message. It builds the cron with
     `actions.schedule_cron` and dismisses with (cron, message), or None."""
 
-    BINDINGS = [Binding("escape", "dismiss(None)", "cancel")]
+    FOCUS = "#sa_message"
     DEFAULT_CSS = """
-    ScheduleAdd { align: center middle; background: $background 60%; }
-    ScheduleAdd #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2;
-                          border: thick $primary; background: $panel; }
     ScheduleAdd #title { margin-bottom: 1; }
     ScheduleAdd .frow { height: 1; margin-bottom: 1; }
     ScheduleAdd .flabel { width: 10; color: $text-muted; }
@@ -75,7 +71,6 @@ class ScheduleAdd(ModalScreen["tuple[str, str] | None"]):
 
     def on_mount(self) -> None:
         self._show()
-        self.query_one("#sa_message").focus()
 
     def _kind(self) -> str:
         return str(self.query_one("#sa_kind", Select).value)
@@ -107,7 +102,7 @@ class ScheduleAdd(ModalScreen["tuple[str, str] | None"]):
 
     def _add(self) -> None:
         try:
-            self.dismiss(self.result())
+            self.finish(self.result())
         except ValueError as e:
             self.notify(str(e), severity="error", timeout=8, markup=False)
 
@@ -120,4 +115,4 @@ class ScheduleAdd(ModalScreen["tuple[str, str] | None"]):
         if event.button.id == "sa_add":
             self._add()
         else:
-            self.dismiss(None)
+            self.finish(None)

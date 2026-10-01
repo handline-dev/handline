@@ -13,7 +13,6 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
@@ -22,6 +21,7 @@ from ..chat_page import TaskBody, TaskPane, TaskTable
 from .action_bar import ActionBar
 from .table_sync import sync_rows
 from .confirm import Confirm
+from .dialog import Dialog
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
 
@@ -112,13 +112,11 @@ class _StateList(SelectionList):
     BINDINGS = [Binding("enter", "screen.apply", "apply", show=False)]
 
 
-class StatePicker(ModalScreen["set[str] | None"]):
+class StatePicker(Dialog):
     """The states to show, as checkboxes: space marks, enter applies, esc leaves it."""
 
-    BINDINGS = [Binding("escape", "dismiss(None)", "cancel")]
     DEFAULT_CSS = """
-    StatePicker { align: center middle; background: $background 60%; }
-    StatePicker #dialog { width: 36; height: auto; padding: 1 2; border: thick $primary; background: $panel; }
+    StatePicker #dialog { width: 36; }
     StatePicker #hint { margin-top: 1; color: $text-muted; }
     """
 
@@ -133,7 +131,7 @@ class StatePicker(ModalScreen["set[str] | None"]):
             yield Static("space marks · enter applies · esc cancels", id="hint")
 
     def action_apply(self) -> None:
-        self.dismiss(set(self.query_one(SelectionList).selected))
+        self.finish(set(self.query_one(SelectionList).selected))
 
 
 class TasksView(Vertical):

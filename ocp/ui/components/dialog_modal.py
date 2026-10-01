@@ -5,22 +5,18 @@ from __future__ import annotations
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Static
 
 from ...infra import textsafe
 from ...session import orca
+from .dialog import Dialog
 
 
-class DialogModal(ModalScreen["tuple[int, bool] | None"]):
+class DialogModal(Dialog):
     """Dismisses with (option number, always), or None when closed: the terminal is left as it is."""
 
-    BINDINGS = [Binding("escape", "dismiss(None)", "close")]
     DEFAULT_CSS = """
-    DialogModal { align: center middle; background: $background 60%; }
-    DialogModal #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2; border: thick $primary; background: $panel; }
     DialogModal #who { color: $text-muted; }
     DialogModal #title { margin: 1 0; text-style: bold; }
     DialogModal Button { width: 100%; margin-bottom: 1; }
@@ -51,9 +47,9 @@ class DialogModal(ModalScreen["tuple[int, bool] | None"]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.dismiss((int(event.button.id.split("_")[1]), self._always()))
+        self.finish((int(event.button.id.split("_")[1]), self._always()))
 
     def on_key(self, event) -> None:
         if event.character and event.character.isdigit() and any(n == int(event.character) for n, _ in self.dialog["options"]):
             event.stop()
-            self.dismiss((int(event.character), self._always()))
+            self.finish((int(event.character), self._always()))

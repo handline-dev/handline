@@ -1874,6 +1874,61 @@ async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> 
               str(d.options))
 
 
+async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
+    """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
+    closes it, a second answer is dropped, and the page under it has focus back after."""
+    from ocp.ui.bridge_textual import BridgeApp
+    from ocp.ui.components.answer_add import AnswerAdd
+    from ocp.ui.components.confirm import Confirm
+    from ocp.ui.components.schedule_add import ScheduleAdd
+    from ocp.ui.components.task_assign import TaskAssign
+    from ocp.ui.components.text_prompt import TextPrompt
+    _home("dialogs")
+    made = {"assign": lambda: TaskAssign("T1", "backend", ["analytics", "frontend"]),
+            "prompt": lambda: TextPrompt("what?", multi=True), "line": lambda: TextPrompt("what?"),
+            "answer": AnswerAdd, "schedule": ScheduleAdd, "confirm": lambda: Confirm("sure")}
+    app = BridgeApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        under = app.focused
+        for name, make in made.items():
+            got: list = []
+            box = make()
+            app.push_screen(box, got.append)
+            await pilot.pause()
+            check(f"dialog {name}: opens with focus on its own field",
+                  box.FOCUS is None or app.focused is box.query_one(box.FOCUS), str(app.focused))
+            box.finish("first")
+            box.finish("second")
+            await pilot.pause()
+            check(f"dialog {name}: a second answer is dropped and the box is off the stack",
+                  got == ["first"] and box not in app.screen_stack, str(got))
+            check(f"dialog {name}: what was under it has focus back", app.focused is under, str(app.focused))
+            box = make()
+            app.push_screen(box, got.append)
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            check(f"dialog {name}: Escape closes it", box not in app.screen_stack)
+
+
+async def test_assign_enter_sends_the_note_whole() -> None:
+    """T767: the assign box is a `TextBox` like the other prompts: Enter sends, shift+enter is a new line."""
+    from ocp.ui.bridge_textual import BridgeApp
+    from ocp.ui.components.task_assign import TaskAssign
+    _home("assign_enter")
+    got: list = []
+    app = BridgeApp()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        app.push_screen(TaskAssign("T1", "backend", ["analytics"]), got.append)
+        await pilot.pause()
+        await pilot.press(*"한글 note")
+        await pilot.press("enter")
+        await pilot.pause()
+        check("assign box: Enter sends the typed note to the chosen agent", got == [("analytics", "한글 note")], str(got))
+
+
 async def test_a_changed_timeline_entry_remounts_only_itself() -> None:
     """T767: an agent's one new memo on a 100-row timeline leaves the other rows as they were;
     an edited memo replaces its own row in place, a deleted one just goes."""
@@ -3043,6 +3098,8 @@ async def _run_all() -> None:
     test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
+    await test_every_dialog_opens_on_its_field_and_leaves_once()
+    await test_assign_enter_sends_the_note_whole()
     await test_a_changed_timeline_entry_remounts_only_itself()
     test_account_settings_alias_and_default_cap()
     await test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it()

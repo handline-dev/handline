@@ -41,7 +41,8 @@ from .components.dialog_modal import DialogModal
 from .components.permission_modal import PermissionModal
 from .components.question_modal import QuestionModal
 from .components.jobs_aware import JobsAware, dispatch_agent_verb
-from .components.text_prompt import TextPrompt, _TextBox
+from .components.ime import TextBox
+from .components.text_prompt import TextPrompt
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.section_head import SectionHead
@@ -985,9 +986,9 @@ def agent_state_of(con, agent: str) -> tuple[str, str]:
     return tui.screen_state(con, db.get_agent_state(con, agent))
 
 
-class ChatBox(_TextBox):
+class ChatBox(TextBox):
     """The chat box. While the command menu is up, Up and Down move in it and
-    Tab takes the highlighted command; everything else is `_TextBox`'s."""
+    Tab takes the highlighted command; everything else is `TextBox`'s."""
 
     class Complete(Message):
         pass
@@ -2138,7 +2139,7 @@ class ChatPage(JobsAware, Screen):
         elif not self.query_one("#compose", ChatBox).text.strip():
             self.app.pop_screen()
 
-    def on__text_box_send(self, event: _TextBox.Send) -> None:
+    def on_text_box_send(self, event: TextBox.Send) -> None:
         event.stop()
         box = self.query_one("#compose", ChatBox)
         body = box.text
