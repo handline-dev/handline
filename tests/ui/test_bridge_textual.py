@@ -2731,39 +2731,61 @@ def test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_i
         con.close()
 
 
-async def test_the_task_page_sends_a_draft_straight_to_done_from_its_button() -> None:
+async def test_the_task_page_sends_a_draft_straight_to_done_from_its_button_and_its_key() -> None:
     from textual.widgets import Button
     from ocp.ui import chat_page as cp
     from ocp.ui.bridge_textual import BridgeApp
     _home("draftdonebtn")
-    con = db.connect()
-    try:
-        tid = db.new_task(con, "asked, done by its sub-tasks", "backend", actions.HUMAN)
-        con.commit()
-    finally:
-        con.close()
-    app = BridgeApp()
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await app.push_screen(cp.TaskDetail(tid))
-        await pilot.pause()
-        check("done button: a draft's page offers it", not app.screen.query_one("#done", Button).disabled)
-        seen: list = []
-        app.screen.query_one(cp.TaskBody).notify = lambda said, **kw: seen.append(said)
-        await pilot.press("x")
-        await pilot.pause()
-        app.screen.query_one("#box").value = "the sub-tasks did it"
-        await pilot.press("enter")
-        await pilot.pause()
+    for how in ("click", "x"):
         con = db.connect()
         try:
-            row = db.get_task(con, tid)
-            check("done button: the draft is done with the typed reason, by the founder",
-                  row["done_evidence"] == "the sub-tasks did it" and actions.task_state(con, row) == "done",
-                  str(seen))
+            tid = db.new_task(con, f"asked, done by its sub-tasks ({how})", "backend", actions.HUMAN)
+            con.commit()
         finally:
             con.close()
-        check("done button: and the page no longer offers it", app.screen.query_one("#done", Button).disabled)
+        app = BridgeApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await app.push_screen(cp.TaskDetail(tid))
+            await pilot.pause()
+            check(f"done ({how}): a draft's page offers it", not app.screen.query_one("#done", Button).disabled)
+            seen: list = []
+            app.screen.query_one(cp.TaskBody).notify = lambda said, **kw: seen.append(said)
+            if how == "click":
+                await pilot.click("#done")
+            else:
+                await pilot.press("x")
+            await pilot.pause()
+            app.screen.query_one("#box").value = "the sub-tasks did it"
+            await pilot.press("enter")
+            await pilot.pause()
+            con = db.connect()
+            try:
+                row = db.get_task(con, tid)
+                check(f"done ({how}): the draft is done with the typed reason, by the founder",
+                      row["done_evidence"] == "the sub-tasks did it" and actions.task_state(con, row) == "done",
+                      str(seen))
+            finally:
+                con.close()
+            check(f"done ({how}): and the page no longer offers it", app.screen.query_one("#done", Button).disabled)
+
+
+def test_every_timeline_kind_the_task_page_can_get_is_drawn() -> None:
+    from ocp.ui import chat_page as cp
+    _home("timelinekinds")
+    con = db.connect()
+    try:
+        t = db.new_task(con, "kinds", "backend", actions.HUMAN)
+        actions.memo_add(con, t, "backend", "a memo")
+        actions.mark_task_done(con, t, actions.HUMAN, reason="x")
+        kinds = {e["kind"] for e in actions.task_timeline(con, t)}
+    finally:
+        con.close()
+    drawn = [getattr(cp, name, None) for name in ("TIMELINE_WORD", "TIMELINE_ICON", "TIMELINE_STYLE")]
+    missing = {k for k in kinds | {"memo", "note", "request", "handoff", "edit", "state"} for table in drawn
+               if table is not None and k not in table}
+    check("timeline: every kind has a word, and an icon and colour where the page draws them",
+          not missing and "state" in kinds, str(missing))
 
 
 async def _run_all() -> None:
@@ -2851,7 +2873,8 @@ async def _run_all() -> None:
     await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
     await test_the_task_page_edits_the_task_text_and_shows_a_refusal()
     await test_an_open_task_page_shows_what_an_agent_adds_without_reopening()
-    await test_the_task_page_sends_a_draft_straight_to_done_from_its_button()
+    await test_the_task_page_sends_a_draft_straight_to_done_from_its_button_and_its_key()
+    test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
