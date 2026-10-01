@@ -51,8 +51,7 @@ def test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(home: P
         check("ask: typed at once although the agent is not idle (typeable_now is false)",
               len(sent) == 1 and f"#{row['id']} from product" in sent[0][1]
               and "please look at the retry loop" in sent[0][1], str(sent))
-        check("ask: the row is marked told out of turn and delivered, so the tick does not repeat it",
-              row["delivered_at"] and row["told_out_of_turn"], str(dict(row)))
+        check("ask: the row is marked delivered, so the tick does not repeat it", row["delivered_at"], str(dict(row)))
         orcamod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("ask: and the tick then types nothing more about it", len(sent) == 1, str(sent))
@@ -110,7 +109,6 @@ def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home
               ok and db.current_task(con, "backend") == held, msg)
         row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
         db.mark_delivered(con, int(row["id"]))
-        db.mark_told_out_of_turn(con, int(row["id"]))
         sent.clear()
         t = db.new_task(con, "handed in", "product", "product")
         ok, msg = actions.task_handoff(con, "product", t, "backend", "please take this too")
@@ -119,8 +117,8 @@ def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home
         check("handoff: accepted, and queued for the holder", ok and got is not None, msg)
         check("handoff: typed at once although the agent is mid-turn and holds a doing task",
               len(sent) == 1 and "please take this too" in sent[0][1], str(sent))
-        check("handoff: delivered, told out of turn, and still open as a queued task",
-              got["state"] == "queued" and got["delivered_at"] and got["told_out_of_turn"], str(dict(got)))
+        check("handoff: delivered, and still open as a queued task",
+              got["state"] == "queued" and got["delivered_at"], str(dict(got)))
         check("handoff: the task the holder has is still its current one", db.current_task(con, "backend") == held)
         orcamod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
@@ -494,7 +492,7 @@ def test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(h
         row = db.get_request(con, second)
         check("open head: an agent idle on it is told the next task, marked as told ahead of it",
               told and len(sent) == 2 and f"#{second}" in sent[1][1] and f"#{first}" in sent[1][1]
-              and row["told_out_of_turn"] and db.get_cursor(con, "notify:backend") == first
+              and row["delivered_at"] and db.get_cursor(con, "notify:backend") == first
               and not dmn_delivery._HELD.get("backend"), str((told, sent)))
 
         third = db.add_request(con, "product", "backend", "one more", None, "peer", "async", "task", 0, None)

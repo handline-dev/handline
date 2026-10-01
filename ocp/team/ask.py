@@ -242,7 +242,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     """
     requester = requester or asking_agent()
     if fyi and kind is None:            # a report asks nothing: it is a say to the founder (T361)
-        kind, send_now = SAY_KIND, True
+        kind = SAY_KIND
     if fyi and target != HUMAN:
         return False, f"--fyi is a report to {HUMAN}; {target} is not {HUMAN}", None
     # Nobody may send as the human. That name carries two
@@ -379,7 +379,7 @@ def say(target: str, body: str, requester: str | None = None,
     only ever grows.
     """
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
-                      kind=SAY_KIND, send_now=True,
+                      kind=SAY_KIND,
                       speaker=speaker, notify=notify)
     if ok and parent_id is not None and rid is not None:
         _close_replied(parent_id, rid, body)

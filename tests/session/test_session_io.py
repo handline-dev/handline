@@ -2487,6 +2487,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
 
         obsmod.live_sessions = counted
         db.set_cursor(con, "notify:backend", 0)
+        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL")      # not told yet
         sent.clear()
         dmn_evaluate.tick(con, lambda _m: None)
         check("shell: the tick reads the process table once, and the sends reuse it",

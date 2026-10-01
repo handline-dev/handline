@@ -282,64 +282,6 @@ def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
         con.close()
 
 
-def test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(home: Path) -> None:
-    """T38: told_out_of_turn replaced the sendnow_told:<id> cursor. A row an
-    old database already told out of turn must not lose that, or it would be
-    told a second time once it becomes the head - and the old cursor row
-    must not just sit there unread forever, which was the bug in the first
-    place."""
-    import sqlite3
-    home.mkdir(parents=True, exist_ok=True)
-    p = home / "old.sqlite"
-    old = sqlite3.connect(p)
-    old.execute("""
-        CREATE TABLE requests (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
-          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
-          files TEXT, relation TEXT, response TEXT, kind TEXT,
-          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
-          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
-          announced_at INTEGER, resolved_at INTEGER
-        )
-    """)
-    old.execute("CREATE TABLE cursors (name TEXT PRIMARY KEY, row_id INTEGER NOT NULL, "
-                "updated INTEGER NOT NULL)")
-    now = int(time.time())
-    old.execute(
-        "INSERT INTO requests(ts, requester, target, body, state, chain_id) "
-        "VALUES(?,?,?,?,?,?)", (now, "human", "keeper", "urgent", "queued", "1"))
-    old.execute("INSERT INTO cursors(name, row_id, updated) VALUES('sendnow_told:1', 1, ?)",
-                (now,))
-    old.commit()
-    old.close()
-
-    con = db.connect(p)
-    try:
-        check("migration: the old cursor's fact lands on the row",
-              db.get_request(con, 1)["told_out_of_turn"] == 1,
-              db.get_request(con, 1)["told_out_of_turn"])
-        check("migration: and the cursor that carried it is gone",
-              con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
-                          ).fetchone() is None)
-        # T77: an old daemon still writing one, or a crash between the two
-        # statements, leaves a cursor after the column exists - the next
-        # connect still carries it.
-        con.execute("UPDATE requests SET told_out_of_turn = NULL WHERE id = 1")
-        con.execute("INSERT INTO cursors(name, row_id, updated) VALUES('sendnow_told:1', 1, ?)",
-                    (now,))
-        con.commit()
-    finally:
-        con.close()
-    con = db.connect(p)
-    try:
-        check("migration: a cursor left behind after the column exists is carried on the next connect",
-              db.get_request(con, 1)["told_out_of_turn"] == 1
-              and con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
-                              ).fetchone() is None)
-    finally:
-        con.close()
-
-
 def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path) -> None:
     """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
     delivery land between checking delivered_at and retiring the row. The
@@ -1188,7 +1130,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         check("nudge: supervise tells the next task past the idle head instead, and nudges nothing that tick",
               len(sent) == 1 and "#2 from" in sent[0] and "sat idle" in sent[0], str(sent))
         # Back to the queue the stuck checks below were written against.
-        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL, told_out_of_turn = NULL WHERE id = 2")
+        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL WHERE id = 2")
         idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         nudge(int(time.time()))
         sent.clear()
@@ -9178,7 +9120,6 @@ def main() -> int:
         run(lambda: test_a_landed_task_can_be_handed_on_discarded_and_reopened(Path(td) / 'landedmove'))
         run(lambda: test_own_withdraw_is_not_an_answer(Path(td) / 'ownwithdraw'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
-        run(lambda: test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(Path(td) / 'oldmig2'))
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
             Path(td) / 'retirerace'))
         run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
