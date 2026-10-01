@@ -488,7 +488,7 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
         after = db.get_request(con, rid)
         check("reply: a reply to a waiting question is its verdict",
-              ok1 and after["state"] == "landed" and after["verdict"] == "yes", str(dict(after)))
+              ok1 and after["state"] == "landed" and db.shown_verdict(after) == "yes", str(dict(after)))
         ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
         child = db.get_request(con, rid + 1)
         check("reply: a second reply is a new request to the agent under it",
@@ -862,7 +862,7 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     from ocp.ui import chat_page as cp
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
-                "state": "queued", "body": f"m{i}", "verdict": None, "dismisser": None,
+                "state": "queued", "body": f"m{i}", "answer": None, "dismisser": None,
                 "dismiss_reason": None, "delivered_at": delivered, "typed_at": delivered,
                 "landed_at": delivered, "landing_tries": None, "parent_id": None,
                 "kind": None, "tasks": None, "task_title": None, "task_state": None}
@@ -890,7 +890,7 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
     now = int(time.time())
     def row(typed, landed, tries=None):
         return {"id": 1, "ts": 100, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
-                "state": "queued", "body": "m", "verdict": None, "dismisser": None,
+                "state": "queued", "body": "m", "answer": None, "dismisser": None,
                 "dismiss_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
                 "landing_tries": tries}
     def label_and_buttons(r):
@@ -1810,6 +1810,84 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
           moves == [2] and not table.show_cursor and classes[-1] is False, str((moves, classes)))
     sync(sel="gone")
     check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
+
+
+async def test_the_bridge_exits_to_restart_only_when_nothing_would_be_lost() -> None:
+    from ocp.daemon import devmode
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components.confirm import Confirm
+    _home("coderestart")
+    real, real_every = devmode._dev_mode_should_restart, bt.CODE_CHECK_S
+    bt.CODE_CHECK_S = 0.05
+    try:
+        devmode._dev_mode_should_restart = lambda state, log: False
+        quiet = bt.BridgeApp()
+        async with quiet.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.4)
+            check("code restart: an unchanged tree leaves it running", quiet.is_running and not quiet.restart_on_exit)
+
+        devmode._dev_mode_should_restart = lambda state, log: True
+        app = bt.BridgeApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.4)
+            check("code restart: a changed tree that still imports ends an idle app with a restart owed",
+                  app.restart_on_exit and not app.is_running)
+
+        app = bt.BridgeApp()
+        devmode._dev_mode_should_restart = lambda state, log: False
+        async with app.run_test(size=(100, 30)) as pilot:
+            page = cp.ChatPage("reviewer")
+            await app.push_screen(page)
+            await pilot.pause()
+            box = page.query_one("#compose", cp.ChatBox)
+            box.text = "half a thought"
+            devmode._dev_mode_should_restart = lambda state, log: True
+            await pilot.pause(0.4)
+            check("code restart: a draft in the box keeps it running, the restart owed",
+                  app.is_running and app.restart_owed and not app.restart_on_exit)
+            box.text = ""
+            page.sending = 1
+            await pilot.pause(0.4)
+            check("code restart: a send in flight keeps it running", app.is_running and not app.restart_on_exit)
+            page.sending = 0
+            app.push_screen(Confirm("Sure", "?", yes="y", no="n"))
+            await pilot.pause(0.4)
+            check("code restart: a box open over the page keeps it running", app.is_running and not app.restart_on_exit)
+            app.pop_screen()
+            await pilot.pause(0.4)
+            check("code restart: nothing left to lose, the owed restart goes ahead",
+                  app.restart_on_exit and not app.is_running)
+    finally:
+        devmode._dev_mode_should_restart, bt.CODE_CHECK_S = real, real_every
+
+
+def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
+    import os as _os
+    from ocp.infra import service
+    execs, real_exec, real_app, real_argv = [], _os.execv, bt.BridgeApp, sys.argv
+    real_tty = sys.stdout.isatty
+    owed = {"now": True}
+
+    class FakeApp:
+        def __init__(self):
+            self.restart_on_exit = owed["now"]
+        def run(self):
+            pass
+    _os.execv = lambda exe, argv: execs.append((exe, argv))
+    bt.BridgeApp = FakeApp
+    sys.argv = ["ocp", "bridge", "--x"]
+    sys.stdout.isatty = lambda: True
+    try:
+        bt.run()
+        check("run: a restart owed execs the entrypoint with the same arguments",
+              execs == [(service.ocp_executable(), [service.ocp_executable(), "bridge", "--x"])], str(execs))
+        execs.clear()
+        owed["now"] = False
+        bt.run()
+        check("run: none owed, no exec", execs == [])
+    finally:
+        _os.execv, bt.BridgeApp, sys.argv = real_exec, real_app, real_argv
+        sys.stdout.isatty = real_tty
 
 
 async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> None:
@@ -3197,6 +3275,8 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
+    await test_the_bridge_exits_to_restart_only_when_nothing_would_be_lost()
+    test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()

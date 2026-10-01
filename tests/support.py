@@ -789,7 +789,7 @@ def _blocked_world(home: Path):
 
 
 def _decisions(con) -> list:
-    return con.execute("SELECT id, state, verdict FROM requests WHERE target = 'human' "
+    return con.execute(f"SELECT id, state, {db.ANSWER_SQL} FROM requests WHERE target = 'human' "
                        "AND kind = 'task' ORDER BY id").fetchall()
 
 

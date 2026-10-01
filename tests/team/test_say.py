@@ -141,7 +141,7 @@ def test_a_reply_settles_the_request_it_answers_as_one_message(home: Path) -> No
             "SELECT id, requester, target, kind, settles, parent_id FROM requests WHERE id > ?", (rid,))]
         said = [r for r in rows if r["requester"] == "worker" and r["target"] == "manager"]
         check("reply: the ask is settled, with the reply as its verdict",
-              ask_row["state"] == "landed" and ask_row["verdict"] == "looked: fine", str(dict(ask_row)))
+              ask_row["state"] == "landed" and db.shown_verdict(ask_row) == "looked: fine", str(dict(ask_row)))
         check("reply: exactly one row from the answerer, and it is the settling answer",
               len(said) == 1 and said[0]["settles"] == rid and said[0]["kind"] == "say", str(rows))
     finally:
@@ -327,7 +327,7 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
               or db.head_of_queue(con, "manager")["id"] != reply_rid)
         check("say: the reply closes the say it answers, recorded as its verdict "
               "(auditor #1742 must-change 1) - otherwise the table only grows",
-              original["state"] == "landed" and original["verdict"] == "close - one file left",
+              original["state"] == "landed" and db.shown_verdict(original) == "close - one file left",
               str(dict(original)))
     finally:
         con.close()
@@ -380,7 +380,7 @@ limits:
     try:
         row = db.get_request(con, rid)
         check("real reply: and it does close the say, this time",
-              row["state"] == "landed" and row["verdict"] == "yes", str(dict(row)))
+              row["state"] == "landed" and db.shown_verdict(row) == "yes", str(dict(row)))
     finally:
         con.close()
 

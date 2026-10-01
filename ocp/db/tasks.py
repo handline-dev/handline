@@ -111,10 +111,9 @@ def end_held(con, tid: int, owner: str | None = None) -> None:
     out of that agent's queue (no `queue_order`), so it is history and can never be held again - not
     when the task is reopened, nor when it comes back to a previous holder."""
     con.execute(
-        "UPDATE requests SET resolved_at = COALESCE(resolved_at, ?), queue_order = NULL "
-        "WHERE state = 'landed' AND kind = 'task' "
+        "UPDATE requests SET queue_order = NULL WHERE state = 'landed' AND kind = 'task' "
         "AND queue_order IS NOT NULL AND (? IS NULL OR target = ?) "
-        "AND id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", (int(time.time()), owner, owner, tid))
+        "AND id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", (owner, owner, tid))
 
 
 def _unsend(con, tid: int) -> None:

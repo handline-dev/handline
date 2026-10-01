@@ -69,7 +69,7 @@ def test_trust_roots(home: Path) -> None:
     check("trust: it is now declared",
           trustmod.is_declared(home / "repos" / "second"))
     check("trust: and the proposer's answer carries the outcome",
-          f"proposal {pid} applied" in db.get_request(db.connect(), rid)["verdict"])
+          f"proposal {pid} applied" in db.shown_verdict(db.get_request(db.connect(), rid)))
     ok, msg = trustmod.apply(pid)
     check("trust: applying twice is refused", not ok, msg)
 

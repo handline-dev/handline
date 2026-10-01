@@ -138,7 +138,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
             check("fyi: the founder's `ocp read` marks it read",
                   db.get_request(con, f2)["read_at"] is not None and db.get_request(con, f2)["state"] == "landed")
             check("fyi: `ocp read` leaves no verdict either",
-                  db.get_request(con, f2)["verdict"] is None)
+                  db.shown_verdict(db.get_request(con, f2)) is None)
         finally:
             askmod.asking_agent = real_who
         first_read = db.get_request(con, f2)["read_at"]
@@ -146,7 +146,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         actions.opened_by_human(con, f2)
         row = db.get_request(con, f2)
         check("fyi: opening it again does not move when it was read", row["read_at"] == first_read - 100)
-        check("fyi: opening it leaves no verdict", row["verdict"] is None, row["verdict"])
+        check("fyi: opening it leaves no verdict", db.shown_verdict(row) is None, db.shown_verdict(row))
         check("fyi: opening it does not read back to the sender",
               f2 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
         chat, _ = actions.conversation_and_drawn(con, "backend")
@@ -171,7 +171,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         check("answer: reading it clears it, no dismiss needed",
               asked not in [r["id"] for r in db.unannounced_answers(con, actions.HUMAN)])
         check("answer: reading it leaves the verdict alone",
-              db.get_request(con, asked)["verdict"] == "yes, merged")
+              db.shown_verdict(db.get_request(con, asked)) == "yes, merged")
 
     finally:
         con.close()
@@ -857,7 +857,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         said = actions.answer(con, rid, "variant 11")
         row = db.get_request(con, rid)
         check("top: answering resolves the request with the verdict",
-              row["state"] == "landed" and "variant 11" in (row["verdict"] or ""), said)
+              row["state"] == "landed" and "variant 11" in (db.shown_verdict(row) or ""), said)
         check("top: and it is no longer waiting on the human",
               rid not in [m["id"] for m in actions.messages(con)])
     finally:
@@ -980,7 +980,7 @@ edges:
               not ok and "already answered" in said and "apply" in said, said)
         check("withdraw: and it stays proposed, for apply to enact",
               hr.load_proposal(pid3)["state"] == "proposed"
-              and db.get_request(con, rid3)["verdict"] == "approve")
+              and db.shown_verdict(db.get_request(con, rid3)) == "approve")
     finally:
         con.close()
 
@@ -1279,7 +1279,7 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
               not any("answers #" in r for r in tab()[1]), str(tab()[1][-2:]))
         actions.answer_ok(con, q1, "one")
         check("chat: a legacy question is closed by a reply inside its card",
-              db.get_request(con, q1)["verdict"] == "one" and db.get_request(con, q2)["state"] == "queued")
+              db.shown_verdict(db.get_request(con, q1)) == "one" and db.get_request(con, q2)["state"] == "queued")
         askmod.resolve(q2, "two")
         askmod.resolve(old_fyi, "read")
 
@@ -1291,7 +1291,7 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         check("chat: the reply in a decision card decides and finishes its task",
               ok and row["done_evidence"] == "call it x", said)
         check("chat: and settles the request that carried the card",
-              db.get_request(con, card)["state"] == "landed" and db.get_request(con, card)["verdict"] == "call it x")
+              db.get_request(con, card)["state"] == "landed" and db.shown_verdict(db.get_request(con, card)) == "call it x")
         ok, said = actions.answer_ok(con, card, "again")
         check("chat: a second reply decides nothing", db.get_task(con, tid)["done_evidence"] == "call it x", said)
     finally:
@@ -1311,7 +1311,7 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
         actions.opened_by_human(con, f1)
         row = db.get_request(con, f1)
         check("opened: it leaves the mailbox", row["state"] != "queued", row["state"])
-        check("opened: it carries no verdict", row["verdict"] is None, row["verdict"])
+        check("opened: it carries no verdict", db.shown_verdict(row) is None, db.shown_verdict(row))
         check("opened: the sender is not told - nothing to announce",
               f1 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
         chat, _ = actions.conversation_and_drawn(con, "backend")

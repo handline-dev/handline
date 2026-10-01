@@ -92,7 +92,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
-    sql = (f"SELECT id, ts, state_at, resolved_at, requester, target, state, body, verdict, {db.ANSWER_SQL}, "
+    sql = (f"SELECT id, ts, state_at, requester, target, state, body, {db.ANSWER_SQL}, "
            f"{db.DISMISSED_SQL}, delivered_at, typed_at, landed_at, parent_id, kind, "
            "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
@@ -2016,15 +2016,19 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#compose", ChatBox).text = ""
         self.query_one("#scope", Tabs).active = tab
 
-    def leave(self) -> None:
-        """Go back to the main screen, asking first when that would lose a draft
-        or leave messages that are still being sent."""
-        box = self.query_one("#compose", ChatBox)
+    def unsent(self) -> list[str]:
+        """What leaving this page now would lose."""
         lost = []
-        if box.text.strip():
+        if self.query_one("#compose", ChatBox).text.strip():
             lost.append("the draft in the box")
         if self.sending:
             lost.append(f"{self.sending} message(s) still being sent")
+        return lost
+
+    def leave(self) -> None:
+        """Go back to the main screen, asking first when that would lose a draft
+        or leave messages that are still being sent."""
+        lost = self.unsent()
         if not lost:
             self.app.pop_screen()
             return

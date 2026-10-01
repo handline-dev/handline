@@ -17,10 +17,15 @@ start this app.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
+from ..daemon import devmode
+from ..infra import service
+
 from textual.app import App
+from textual.screen import ModalScreen
 
 from textual import events
 
@@ -29,6 +34,9 @@ from . import jobs as jobsmod, stall, tui
 from .clipboard_app import ClipboardApp
 from .components.dialog import Dialog
 from .theme import follow_os_theme
+
+
+CODE_CHECK_S = 3.0
 
 
 class BridgeApp(ClipboardApp):
@@ -41,6 +49,9 @@ class BridgeApp(ClipboardApp):
     def __init__(self) -> None:
         super().__init__()
         self.jobs = jobsmod.Jobs()
+        self.restart_owed = False       # the code changed; waiting for a moment nothing is lost
+        self.restart_on_exit = False
+        self._code_state: dict = {"fp": None, "warned": None}
 
     async def on_event(self, event) -> None:
         """While a box is over the page, the raw mouse and key events that reach the app, with what
@@ -62,6 +73,30 @@ class BridgeApp(ClipboardApp):
         follow_os_theme(self)
         self.title = f"ocp bridge · pid {stall.install(self)}"
         self.push_screen(HomePage())
+        self.set_interval(CODE_CHECK_S, lambda: self.run_worker(
+            self._check_code, thread=True, exclusive=True, group="code_check"))
+
+    def _check_code(self) -> None:
+        """With dev mode on, the daemon's own check: the code changed and still imports. The import
+        check runs `ocp --help`, so this is a worker, not the UI thread. A restart found is owed
+        until nothing on screen would be lost by it (see `_idle`)."""
+        if not self.restart_owed:
+            try:
+                self.restart_owed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
+            except Exception as e:  # noqa: BLE001 - a tree mid-checkout must not take the bridge down
+                stall.crumb(f"dev-mode check failed: {e}")
+                return
+        if self.restart_owed:
+            self.call_from_thread(self._restart_if_idle)
+
+    def _idle(self) -> bool:
+        """No box is open and no page holds a draft or a send in flight - what `ChatPage.leave` asks about."""
+        return not any(isinstance(sc, ModalScreen) or getattr(sc, "unsent", list)() for sc in self.screen_stack)
+
+    def _restart_if_idle(self) -> None:
+        if self._idle():
+            self.restart_on_exit = True
+            self.exit()
 
 
 def run(once: bool = False) -> int:
@@ -70,6 +105,10 @@ def run(once: bool = False) -> int:
     if once or not sys.stdout.isatty():
         print(tui.snapshot())
         return 0
-    BridgeApp().run()
+    app = BridgeApp()
+    app.run()
+    if app.restart_on_exit:     # the terminal is restored by now: same entrypoint, same arguments
+        exe = service.ocp_executable()
+        os.execv(exe, [exe] + sys.argv[1:])
     return 0
 

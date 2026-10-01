@@ -256,12 +256,12 @@ def test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(home: Path) -> No
     try:
         reply = _verb({"verb": "say", "requester": "product", "speaker": "product",
                        "target": "backend", "body": "quick one"})
-        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
+        row = db.get_request(con, con.execute("SELECT id FROM requests WHERE target = 'backend'").fetchone()["id"])
         check("typed say: typed at once", reply["ok"] and len(sent) == 1, str((reply, sent)))
         check("typed say: and finished - done, not left queued for a resolve",
               row["state"] == "landed", str(dict(row)))
         check("typed say: closed with no verdict, so no reply is made of it (T441)",
-              row["verdict"] is None and db.answer_row_of(con, row["id"]) is None, str(dict(row)))
+              db.shown_verdict(row) is None and db.answer_row_of(con, row["id"]) is None, str(dict(row)))
         check("typed say: in = 0", db.unreached_count(con, "backend") == 0)
         check("typed say: the agent reads IDLE",
               dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
@@ -357,7 +357,7 @@ def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> No
         check("migration (T431): a row for the human is drawn, never typed - left alone",
               db.get_request(con, to_human)["typed_at"] is None)
         check("migration: the old say is settled, with no verdict to be drawn as a reply",
-              db.get_request(con, say)["state"] == "landed" and db.get_request(con, say)["verdict"] is None
+              db.get_request(con, say)["state"] == "landed" and db.shown_verdict(db.get_request(con, say)) is None
               and db.answer_row_of(con, say) is None)
         check("migration: an old ask that was shown stays open, still owing its answer",
               db.get_request(con, shown)["state"] == "queued")
@@ -383,7 +383,7 @@ def test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(home: Path) -> None:
         rid = db.add_request(con, actions.HUMAN, "backend", "hello there", None, "peer", "async", "say", 0, None)
         dmn_messaging.finish_say(db.get_request(con, rid))
         row = db.get_request(con, rid)
-        check("chat: the say is done and has no verdict", row["state"] == "landed" and row["verdict"] is None)
+        check("chat: the say is done and has no verdict", row["state"] == "landed" and db.shown_verdict(row) is None)
         check("chat: no reply is drawn for it", _drawn_replies(con, "backend") == [], str(_drawn_replies(con, "backend")))
         real = db.add_request(con, actions.HUMAN, "backend", "and a question", None, "peer", "async", None, 0, None)
         askmod.resolve(real, "an answer that somebody wrote")
@@ -402,16 +402,16 @@ def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) 
         told = [db.add_request(con, actions.HUMAN, "backend", f"say {i}", None, "peer", "async", "say", 0, None,
                                verdict=note)
                 for i, note in enumerate(("typed", "closed: told before says were typed at once"))]
-        for t in told:
-            con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (t,))      # the old shape
-        fakes = [db.add_answer(con, t, db.get_request(con, t)["verdict"]) for t in told]
+        for t, note in zip(told, ("typed", "closed: told before says were typed at once")):
+            con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?", (note, t))      # the old shape
+        fakes = [db.add_answer(con, t, db.shown_verdict(db.get_request(con, t))) for t in told]
         ask = db.add_request(con, actions.HUMAN, "backend", "a former ask", None, "peer", "async", "say", 0, None,
                              verdict="PASS, nothing to change")
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (ask,))
+        con.execute("UPDATE requests SET state = 'done', verdict = 'PASS, nothing to change' WHERE id = ?", (ask,))
         real = db.add_answer(con, ask, "PASS, nothing to change")
         old_ask = db.add_request(con, actions.HUMAN, "backend", "before answers were says", None, "peer", "async",
                                  None, 0, None, verdict="typed")
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (old_ask,))
+        con.execute("UPDATE requests SET state = 'done', verdict = 'typed' WHERE id = ?", (old_ask,))
         old_fake = db.add_answer(con, old_ask, "typed")
         con.execute("UPDATE requests SET kind = 'answer', settles = NULL WHERE id = ?", (fakes[0],))   # the old shape
         db.set_cursor(con, "migrated:close_notes", 0)
@@ -420,13 +420,13 @@ def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) 
         gone = [con.execute("SELECT 1 FROM requests WHERE id = ?", (f,)).fetchone() is None for f in fakes]
         check("close notes: the messages made of them are gone, as an answer row or as a say", all(gone), str(gone))
         check("close notes: and the verdicts, so nothing is drawn from the say either",
-              all(db.get_request(con, t)["verdict"] is None for t in told))
+              all(db.shown_verdict(db.get_request(con, t)) is None for t in told))
         check("close notes: a real answer to a former ask stays, drawn once",
               con.execute("SELECT 1 FROM requests WHERE id = ?", (real,)).fetchone() is not None
               and _drawn_replies(con, "backend").count("PASS, nothing to change") == 1,
               str(_drawn_replies(con, "backend")))
         check("close notes: an ask that was not a say when it was answered is left alone",
-              db.get_request(con, old_ask)["verdict"] == "typed"
+              db.shown_verdict(db.get_request(con, old_ask)) == "typed"
               and con.execute("SELECT 1 FROM requests WHERE id = ?", (old_fake,)).fetchone() is not None)
         check("close notes: the old-say note is drawn as nobody's reply",
               "closed: told before says were typed at once" not in _drawn_replies(con, "backend"),
