@@ -3324,7 +3324,7 @@ edges:
         check("chokepoint: every db function writing requests.state "
               "calls _would_strand_a_proposal",
               not unguarded_writers and guarded_writers ==
-              {"retire_queued", "close_if_queued", "retire_if_undelivered"},
+              {"retire_queued", "close_if_queued", "retire_if_undelivered", "mark_landed"},
               f"guarded={guarded_writers} unguarded={unguarded_writers}")
     finally:
         con.close()

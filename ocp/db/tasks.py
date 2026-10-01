@@ -101,8 +101,19 @@ def refresh_sent(con, tid: int) -> None:
     con.execute(
         "UPDATE tasks SET sent_at = CASE WHEN EXISTS "
         "(SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id WHERE l.task_id = tasks.id "
-        "AND r.state = 'queued' AND r.fyi = 0) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
+        "AND r.fyi = 0 AND (r.state = 'queued' OR (r.state = 'landed' AND r.kind = 'task' "
+        "AND r.target = tasks.owner AND r.resolved_at IS NULL))) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
         (int(time.time()), tid))
+
+
+def end_held(con, tid: int, owner: str | None = None) -> None:
+    """The task no longer holds the landed delivery that asked `owner` (anyone when None) for it:
+    stamped answered, so it is history and can never be held again - not when the task is reopened,
+    nor when it comes back to a previous holder."""
+    con.execute(
+        "UPDATE requests SET resolved_at = COALESCE(resolved_at, ?) WHERE state = 'landed' AND kind = 'task' "
+        "AND resolved_at IS NULL AND (? IS NULL OR target = ?) "
+        "AND id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", (int(time.time()), owner, owner, tid))
 
 
 def _unsend(con, tid: int) -> None:
@@ -126,6 +137,8 @@ def mark_task_done(con, tid: int, evidence: str, via: str = "reason") -> bool:
         "WHERE id = ? AND done_evidence IS NULL AND discarded_by IS NULL",
         (evidence, int(time.time()), via, tid))
     _unsend(con, tid)
+    if cur.rowcount:
+        end_held(con, tid)
     return cur.rowcount > 0
 
 
@@ -136,6 +149,8 @@ def discard_task(con, tid: int, by: str, reason: str) -> bool:
         "UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ? "
         f"WHERE id = ? AND {OPEN_SQL}", (by, int(time.time()), reason, tid))
     _unsend(con, tid)
+    if cur.rowcount:
+        end_held(con, tid)
     return cur.rowcount > 0
 
 
@@ -384,6 +399,17 @@ def open_decision_tasks_of(con, agent: str) -> int:
         "JOIN requests r ON r.id = l.request_id "
         "WHERE t.owner = ? AND t.opened_by = ? AND t.discarded_by IS NULL "
         "AND r.state = 'queued'", (HUMAN, agent)).fetchone()[0]
+
+
+def live_delivery(con, tid: int, owner: str):
+    """The request that asks `owner` to do task `tid` - the latest task delivery to that owner,
+    queued or landed and not answered - or None. A landed one is the task held, not history: the
+    task rows say whether it is still open. (`resolved_at` tells an answered one apart until the
+    answers go.)"""
+    rows = [r for r in task_requests(con, tid)
+            if r["kind"] == "task" and r["target"] == owner and not r["fyi"]
+            and (r["state"] == "queued" or r["state"] == "landed" and r["resolved_at"] is None)]
+    return rows[-1] if rows else None
 
 
 def task_requests(con, tid: int) -> list:

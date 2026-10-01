@@ -452,6 +452,15 @@ def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: P
     try:
         again = {r["id"]: (r["state"], r["state_at"]) for r in con.execute("SELECT id, state, state_at FROM requests")}
         check("one state: a second connect changes nothing", again == got)
+        # A daemon still on the old code writes the old words after the migration has run.
+        stray = row("done", delivered_at=300, resolved_at=900)
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        r = db.get_request(con, stray)
+        check("one state: a row written in an old state after the migration is mapped at the next connect",
+              (r["state"], r["state_at"]) == ("landed", 300), str(dict(r)))
     finally:
         con.close()
 

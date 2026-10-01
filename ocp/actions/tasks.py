@@ -122,7 +122,8 @@ def task_asker(con, row) -> str:
 def _asks(r) -> bool:
     """Is this linked request work still being asked for? A report (`--fyi`) asks
     nothing, so linking one never makes a task doing (T266)."""
-    return r["state"] == "queued" and not r["fyi"]
+    return not r["fyi"] and (r["state"] == "queued" or (
+        r["state"] == "landed" and r["kind"] == "task" and r["resolved_at"] is None))
 
 
 def _begun(con, tid: int) -> bool:
@@ -157,19 +158,6 @@ def open_task_count(con, agent: str) -> int:
     return open_task_counts(con, agent).get(agent, 0)
 
 
-def _reads_doing_from_requests(con, tid: int) -> bool:
-    """What `reads_doing` answered before T737, from the open requests - kept as the other half of
-    the comparison that proves the task row says the same. It and the OCP_COMPARE_DOING check go
-    with the triggers in step D."""
-    if _begun(con, tid):
-        return True
-    if any(_asks(r) for r in db.task_requests(con, tid)):
-        return True
-    return any(_asks(r)
-              for c in db.open_child_tasks(con, tid)
-              for r in db.task_requests(con, c["id"]))
-
-
 def reads_doing(con, tid: int) -> bool:
     """Whether task `tid` is being worked, whatever its own done/discarded columns
     say: it has been sent to its owner (`sent_at`), or an open child of it has, or it was
@@ -178,12 +166,6 @@ def reads_doing(con, tid: int) -> bool:
     row = db.get_task(con, tid)
     now = row is not None and (_begun(con, tid) or row["sent_at"] is not None
                                or any(c["sent_at"] is not None for c in db.open_child_tasks(con, tid)))
-    # An ended task is cleared outright (T751), which the open requests still queued against it
-    # for a moment do not say, so only an open task is compared.
-    if os.environ.get("OCP_COMPARE_DOING") and row is not None and not db.task_ended(row):
-        was = _reads_doing_from_requests(con, tid)
-        if was != now:
-            raise AssertionError(f"T{tid}: reads_doing from the row is {now}, from its requests {was}")
     return now
 
 
@@ -287,20 +269,6 @@ def block_wait(con, agent: str) -> str | None:
     return "blocked by " + ", ".join(f"T{b['id']} ({b['owner']})" for b in blockers) if blockers else None
 
 
-def _task_mismatch_from_requests(con, row, state: str, open_requests: list) -> str | None:
-    """What `task_mismatch` answered before T748, from the queued requests - kept as the other half
-    of the comparison that proves `sent_at` says the same."""
-    if state in ("done", "discarded"):
-        return None
-    linked = {r["id"] for r in db.task_requests(con, row["id"])}
-    open_linked = [r for r in open_requests if r["id"] in linked and not r["fyi"]]
-    if not row["queued_by"] and open_linked:
-        return f"draft with work out (#{open_linked[0]['id']}) - its opener has not queued it"
-    if state == "queued" and not open_linked and row["owner"] != HUMAN:
-        return "approved, but no request is out"
-    return None
-
-
 def task_mismatch(con, row, state: str) -> str | None:
     """Where a task's state and its delivery disagree, or None (T250). A draft with a request
     out (`sent_at`) was never approved, and a queued one has nobody working on it."""
@@ -314,11 +282,6 @@ def task_mismatch(con, row, state: str) -> str | None:
     # the founder is never typed at (T681): a queued task of theirs waits on them, with no request out
     elif state == "queued" and not sent and row["owner"] != HUMAN:
         odd = "approved, but no request is out"
-    if os.environ.get("OCP_COMPARE_DOING"):
-        was = _task_mismatch_from_requests(
-            con, row, state, con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall())
-        if was != odd:
-            raise AssertionError(f"T{row['id']}: task_mismatch from the row is {odd!r}, from its requests {was!r}")
     return odd
 
 
@@ -519,6 +482,8 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
     if live and stop and by == HUMAN:
         cancelled = []
         for r in live:
+            if r["state"] != "queued":
+                continue            # landed: held by its agent, told to stop below; nothing to cancel
             ok, said_cancel = askmod.cancel(r["id"])
             if not ok:
                 was = f" (already cancelled: {', '.join(f'#{c}' for c in cancelled)})" if cancelled else ""
@@ -609,6 +574,13 @@ def release_task(con, tid: int, by: str) -> tuple[bool, str]:
     # whatever did get retired.
     retired, said, failed = [], [], []
     for r in direct:
+        if r["state"] == "landed":      # held by its agent: ended here, and the agent told to stop
+            db.end_held(con, tid, r["target"])
+            db.refresh_sent(con, tid)
+            _type_say(con, r["target"], f"T{tid} released by {by} - stop work on it", "task released")
+            retired.append(r["id"])
+            said.append(f"#{r['id']} ended; {r['target']} told to stop")
+            continue
         ok, msg = askmod.retire_open(con, r["id"], f"T{tid} released by {by}")
         if ok:
             retired.append(r["id"])
@@ -952,8 +924,6 @@ def _waiting_tasks(con, agent: str):
         sent = row["sent_at"] is not None
         linked = db.task_requests(con, row["id"])
         req = next((r for r in linked if _asks(r)), None)
-        if os.environ.get("OCP_COMPARE_DOING") and sent != (req is not None):
-            raise AssertionError(f"T{row['id']}: sent_at says sent={sent}, its requests {req is not None}")
         after = _reset_after(con, row["id"]) if not sent else 0
         if not sent and any(r["target"] == agent and not r["fyi"] and r["id"] > after
                             and r["state"] not in db.NEVER_REACHED_TARGET for r in linked):
@@ -1256,6 +1226,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
         if r["state"] == "queued" and r["target"] == old and r["id"] != rid:
             # not settling: a decision card closing here would mark the task done, mid-handoff (T684)
             askmod.resolve(r["id"], f"handed to {to}", notify=False, settle=False)
+    db.end_held(con, tid, old)
     db.edit_task(con, tid, me, owner=to)
     _sync_self_blocks(con, tid, me, old)
     db.link_request(con, tid, rid)
@@ -1543,10 +1514,13 @@ def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
     if row is None or row["owner"] == old_owner:
         return
     new_owner = row["owner"]
-    taken = [r for r in db.task_requests(con, tid) if r["state"] == "queued" and r["target"] == old_owner]
+    live = db.live_delivery(con, tid, old_owner)
+    taken = [live] if live is not None else []
     in_hand = db.current_task(con, old_owner) == tid or any(r["delivered_at"] for r in taken)
     for r in taken:
-        askmod.resolve(r["id"], f"moved to {new_owner}", state="withdrawn", notify=False)
+        if r["state"] == "queued":
+            askmod.resolve(r["id"], f"moved to {new_owner}", state="withdrawn", notify=False)
+    db.end_held(con, tid, old_owner)
     if db.current_task(con, old_owner) == tid:
         db.set_current_task(con, old_owner, None)
         if advance_current_task(con, old_owner):

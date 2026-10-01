@@ -47,7 +47,6 @@ MACHINE_VENV = paths.default_home() / "venv"
 TEST_ROOT = Path(tempfile.mkdtemp(prefix="ocp-test-root-"))
 os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
-os.environ["OCP_COMPARE_DOING"] = "1"      # T737: every reads_doing in the suite is also checked against the open requests
 atexit.register(shutil.rmtree, TEST_ROOT, True)
 
 # The suite must not need the real claude: a machine without one (an agent's
