@@ -1048,7 +1048,8 @@ def _no_long_room(st: "AccountStatus", ld, agent: str | None = None) -> str | No
     left = week_ends_in(st)
     if left is not None and left <= lasts:
         return None
-    reset = f", resets in {timefmt.span(left)}" if left and left > 0 else ""
+    ends = "ends" if st.sub_end and (not st.long.reset or st.sub_end < st.long.reset) else "resets"
+    reset = f", {ends} in {timefmt.span(left)}" if left and left > 0 else ""
     return (f"{st.long.label} {st.long_trusted}%{reset}: one more agent lasts ~{timefmt.span(lasts)} of it - "
             f"under the {timefmt.span(triggers.MIN_STRETCH_S)} a start is worth")
 

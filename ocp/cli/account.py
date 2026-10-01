@@ -216,7 +216,7 @@ def cmd_account_list(args) -> int:
                 "windows": st.window_report(), "ctx_pct": st.ctx_pct,
                 "age_s": st.age_s, "assignable": allowed, "reason": why,
                 "subscription_type": accounts.subscription_type(a),
-                "month_cycle": cycle.enabled(a), "subscription_end": str(cycle.end_date(a) or "") or None,
+                "month_cycle": cycle.enabled(a), "subscription_end": d.isoformat() if (d := cycle.end_date(a)) else None,
             })
         print(json.dumps(out, indent=2))
         return 0

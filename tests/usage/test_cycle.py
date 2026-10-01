@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import sys
+import threading
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -15,6 +17,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from ocp.cli import account as cliaccount  # noqa: E402
 from ocp.daemon import subscriptions  # noqa: E402
+from ocp.team import ask as askmod  # noqa: E402
 from ocp.usage import cycle  # noqa: E402
 
 DAY = 86400
@@ -148,34 +151,41 @@ def test_the_founder_is_told_once_before_the_end(home: Path) -> None:
     con = db.connect()
     now = int(time.time())
     today = dt.date.today()
-    write_status(home, "soon", pct_5h=5, pct_7d=10, reset_7d=now + DAY)
-    write_status(home, "far", pct_5h=5, pct_7d=10, reset_7d=now + DAY)
-    write_status(home, "off", pct_5h=5, pct_7d=10, reset_7d=now + DAY)
-    write_cfg(f"month_cycle_soon: true\nsub_end_soon: \"{(today + dt.timedelta(days=2)).isoformat()}\"\n"
-              f"month_cycle_far: true\nsub_end_far: \"{(today + dt.timedelta(days=20)).isoformat()}\"\n"
-              f"sub_end_off: \"{(today + dt.timedelta(days=1)).isoformat()}\"\n")
-    logged: list[str] = []
+    for a in ("soon", "far", "off"):
+        write_status(home, a, pct_5h=5, pct_7d=10, reset_7d=now + DAY)
+
+    def told() -> list:
+        return con.execute("SELECT * FROM requests WHERE target = ? AND fyi = 1 ORDER BY id",
+                           (db.HUMAN,)).fetchall()
+
+    def cfg(soon_days: int) -> None:
+        write_cfg(f'month_cycle_soon: true\nsub_end_soon: "{(today + dt.timedelta(days=soon_days)).isoformat()}"\n'
+                  f'month_cycle_far: true\nsub_end_far: "{(today + dt.timedelta(days=20)).isoformat()}"\n'
+                  f'sub_end_off: "{(today + dt.timedelta(days=1)).isoformat()}"\n')
+
+    cfg(2)
     for _ in range(3):
-        subscriptions.sweep_endings(con, logged.append, now)
-    rows = con.execute("SELECT * FROM events WHERE kind='subscription_ending'").fetchall()
-    check("ending: told once for the account inside the window, however many ticks",
-          len(rows) == 1 and rows[0]["account"] == "soon" and rows[0]["agent"] == "human", str(len(rows)))
-    check("ending: the notice names the end date",
-          str(today + dt.timedelta(days=2)) in rows[0]["payload"], rows[0]["payload"])
+        subscriptions.sweep_endings(con, lambda s: None, now)
+    rows = told()
+    check("ending: the founder holds one message for the account inside the window, however many ticks",
+          len(rows) == 1 and "soon" in rows[0]["body"] and str(today + dt.timedelta(days=2)) in rows[0]["body"],
+          str([r["body"] for r in rows]))
+    check("ending: it asks nothing and sits in the founder's inbox",
+          rows[0]["kind"] == "say" and (askmod._inbox(db.HUMAN) / f"{rows[0]['id']:06d}.json").exists())
+    check("ending: neither a far end nor an account off the cycle is mentioned",
+          "far" not in rows[0]["body"].split("ends")[0] and len(rows) == 1)
 
-    write_cfg(f"month_cycle_soon: true\nsub_end_soon: \"{(today + dt.timedelta(days=1)).isoformat()}\"\n")
-    subscriptions.sweep_endings(con, logged.append, now)
-    check("ending: a new end date is a new subscription and is told again",
-          con.execute("SELECT COUNT(*) FROM events WHERE kind='subscription_ending'").fetchone()[0] == 2)
+    cfg(1)
+    subscriptions.sweep_endings(con, lambda s: None, now)
+    check("ending: a new end date is a new subscription and is told again", len(told()) == 2)
 
-    write_cfg(f"month_cycle_soon: true\nsub_end_soon: \"{(today - dt.timedelta(days=1)).isoformat()}\"\n")
-    subscriptions.sweep_endings(con, logged.append, now)
-    check("ending: after the end it is shown ended, not warned",
-          con.execute("SELECT COUNT(*) FROM events WHERE kind='subscription_ending'").fetchone()[0] == 2)
+    cfg(-1)
+    subscriptions.sweep_endings(con, lambda s: None, now)
+    check("ending: after the end it is shown ended, not warned again", len(told()) == 2)
     con.close()
 
 
-def test_a_plan_is_asked_again_each_hour_one_account_at_a_time(home: Path) -> None:
+def test_a_plan_is_asked_again_each_hour_off_the_tick(home: Path) -> None:
     use_home(home)
     con = db.connect()
     for a in ("a", "b"):
@@ -183,31 +193,78 @@ def test_a_plan_is_asked_again_each_hour_one_account_at_a_time(home: Path) -> No
     plans = {"a": "pro", "b": "pro"}
     asked: list[str] = []
     real_rec, real_sub = subscriptions.accounts.recorded_subscription_type, subscriptions.accounts.subscription_type
+    gate = threading.Event()
 
     def ask(acct, refresh=False):
+        gate.wait(5)
         asked.append(acct)
         plans[acct] = plans_next.get(acct, plans[acct])
         return plans[acct]
+
+    def tick(now):
+        subscriptions.sweep_plans(con, lambda s: None, now)
 
     plans_next: dict[str, str] = {}
     try:
         subscriptions.accounts.recorded_subscription_type = lambda a: plans[a]
         subscriptions.accounts.subscription_type = ask
         now = 1_800_000_000
-        subscriptions.sweep_plans(con, lambda s: None, now)
-        check("plan: one account is asked per tick", asked == ["a"], str(asked))
-        subscriptions.sweep_plans(con, lambda s: None, now + 5)
+        tick(now)
+        check("plan: the tick returns while the vendor is still being asked", asked == [] and subscriptions._asking.is_alive())
+        tick(now + 5)
+        gate.set()
+        subscriptions.wait_for_plan_ask()
+        check("plan: one account is asked, not two, while one is in flight", asked == ["a"], str(asked))
+        tick(now + 5)
+        subscriptions.wait_for_plan_ask()
         check("plan: the next tick asks the other", asked == ["a", "b"], str(asked))
-        subscriptions.sweep_plans(con, lambda s: None, now + 10)
+        tick(now + 10)
+        subscriptions.wait_for_plan_ask()
         check("plan: nobody is asked again inside the hour", asked == ["a", "b"], str(asked))
         plans_next["a"] = "max"
-        subscriptions.sweep_plans(con, lambda s: None, now + 3601)
-        row = con.execute("SELECT * FROM events WHERE kind='plan_changed'").fetchall()
+        tick(now + 3601)
+        subscriptions.wait_for_plan_ask()
         check("plan: asked again after the hour, the oldest first", asked == ["a", "b", "a"], str(asked))
-        check("plan: a changed plan is an event", len(row) == 1 and '"max"' in row[0]["payload"], str(len(row)))
+        check("plan: the new plan is not an event until a tick sees it",
+              con.execute("SELECT COUNT(*) FROM events WHERE kind='plan_changed'").fetchone()[0] == 0)
+        tick(now + 3602)
+        rows = con.execute("SELECT * FROM events WHERE kind='plan_changed'").fetchall()
+        check("plan: a changed plan is an event, once", len(rows) == 1 and '"max"' in rows[0]["payload"], str(len(rows)))
+        tick(now + 3603)
+        check("plan: and not again",
+              con.execute("SELECT COUNT(*) FROM events WHERE kind='plan_changed'").fetchone()[0] == 1)
     finally:
+        gate.set()
         subscriptions.accounts.recorded_subscription_type, subscriptions.accounts.subscription_type = real_rec, real_sub
     con.close()
+
+
+def test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(home: Path) -> None:
+    use_home(home)
+    now = int(time.time())
+    write_status(home, "a", pct_5h=5, pct_7d=99, reset_7d=now + 3 * DAY)
+    costs = types.SimpleNamespace(long_per_short=lambda a: 1.0, per_s=lambda agent=None: 1e-3)
+    ld = types.SimpleNamespace(account="a", burn=None, at_cap=False, costs=costs, active=0, cap=2)
+    st = status.read("a")
+    lasts = status.long_stretch_s(st, ld)          # headroom 1 point at 1e-3 a second: ~1000s, under the 30 min a start is worth
+    check("end bounds: setup - the week alone would refuse a start", lasts is not None and lasts < 1800
+          and status._no_long_room(st, ld) is not None and "resets in" in status._no_long_room(st, ld),
+          str((lasts, status._no_long_room(st, ld))))
+    st.sub_end = now + lasts + 600                 # ends after the stretch would: the refusal stands, in its own words
+    why = status._no_long_room(st, ld)
+    check("end bounds: an end later than the stretch still refuses, and says the subscription ends",
+          why is not None and "ends in" in why and "resets in" not in why, str(why))
+    st.sub_end = now + lasts / 2                   # the subscription ends first: nothing is lost by running out
+    check("end bounds: an end sooner than the stretch is no reason to refuse", status._no_long_room(st, ld) is None)
+    check("end bounds: and the runway column shows no week runway to run out of",
+          status.long_runway_s(st, types.SimpleNamespace(account="a", burn=5e-4, at_cap=False, costs=costs)) is None)
+    st.sub_end = None
+    check("end bounds: without an end the same filling account runs out before the reset",
+          status.long_runway_s(st, types.SimpleNamespace(account="a", burn=5e-4, at_cap=False, costs=costs)) is not None)
+    write_cfg(f'month_cycle_a: true\nsub_end_a: "{(dt.date.today() + dt.timedelta(days=1)).isoformat()}"\n')
+    picked, reasons = status.pick_account(["a"], load={"a": ld})
+    check("end bounds: through the pick, the refusal is the subscription's end, in its words",
+          picked is None and "ends in" in dict(reasons)["a"], str(reasons))
 
 
 def test_account_cycle_command(home: Path) -> None:
@@ -222,6 +279,14 @@ def test_account_cycle_command(home: Path) -> None:
             rc = cliaccount.cmd_account_cycle(argparse.Namespace(name="a", state=state, end=end))
         return rc, buf.getvalue() + err.getvalue()
 
+    def run_json() -> tuple[int, str]:
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = cliaccount.cmd_account_list(argparse.Namespace(json=True))
+        return rc, buf.getvalue()
+
     check("cycle cli: shows off", run_cli() == (0, "a: not on one-month subscriptions\n"))
     rc, out = run_cli("on")
     check("cycle cli: on without a date says so", rc == 0 and "no end date set" in out, out)
@@ -230,6 +295,14 @@ def test_account_cycle_command(home: Path) -> None:
           and cycle.enabled("a"), out)
     rc, out = run_cli("off")
     check("cycle cli: off", rc == 0 and "not on" in out and not cycle.enabled("a"), out)
+    import json as _json
+    rc, out = run_json()
+    check("cycle cli: list --json carries the switch and the date as iso or null",
+          rc == 0 and _json.loads(out)[0]["month_cycle"] is False and _json.loads(out)[0]["subscription_end"] is None, out)
+    run_cli(end="2026-10-22")
+    rc, out = run_json()
+    check("cycle cli: and the date as iso", _json.loads(out)[0]["subscription_end"] == "2026-10-22", out)
+    run_cli("off")
     rc, out = run_cli(end="22/10")
     check("cycle cli: a bad date is refused and nothing is written", rc == 1 and "YYYY-MM-DD" in out
           and not cycle.enabled("a"), out)
@@ -243,7 +316,8 @@ def main() -> int:
         run(lambda: test_the_short_last_week_is_spent_first(Path(td) / 'c4'))
         run(lambda: test_the_week_stops_mattering_at_the_end_date(Path(td) / 'c5'))
         run(lambda: test_the_founder_is_told_once_before_the_end(Path(td) / 'c6'))
-        run(lambda: test_a_plan_is_asked_again_each_hour_one_account_at_a_time(Path(td) / 'c7'))
+        run(lambda: test_a_plan_is_asked_again_each_hour_off_the_tick(Path(td) / 'c7'))
+        run(lambda: test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(Path(td) / 'c9'))
         run(lambda: test_account_cycle_command(Path(td) / 'c8'))
     return run_area(tests)
 
