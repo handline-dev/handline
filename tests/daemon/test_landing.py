@@ -739,6 +739,53 @@ def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_dr
         con.close()
 
 
+def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Path) -> None:
+    import argparse, io, contextlib
+    from ocp.cli import health
+    from ocp.db import schema as dbschema
+    from ocp.daemon import devmode, locks as dmn_locks
+    from ocp.ui import stall
+    _daemon_home(home, 20)
+    code = max(f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists())
+    real_pid, real_daemon = stall.running_pid, dmn_locks.running_elsewhere
+    stall.running_pid, dmn_locks.running_elsewhere = lambda: 4242, lambda: None
+    try:
+        check("stale: a bridge that started before the newest code is named",
+              health.stale_long_lived(lambda pid: code - 60) == ["bridge (pid 4242)"])
+        check("stale: one that started after it is not", health.stale_long_lived(lambda pid: code + 60) == [])
+        check("stale: a start time the process table cannot give is not a refusal",
+              health.stale_long_lived(lambda pid: None) == [])
+        dmn_locks.running_elsewhere = lambda: 77
+        check("stale: the daemon is named too",
+              health.stale_long_lived(lambda pid: code - 60) == ["bridge (pid 4242)", "daemon (pid 77)"])
+        con = db.connect()
+        dead = [c for c in dbschema._LEGACY_REQUEST_COLUMNS]
+        try:
+            for col in dead:
+                if col not in dbschema._cols(con, "requests"):
+                    con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
+        finally:
+            con.close()
+        real_started = health._started_at
+        args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, no_color=True)
+        err = io.StringIO()
+        health._started_at = lambda pid: code - 60
+        try:
+            with contextlib.redirect_stderr(err):
+                rc = health.cmd_doctor(args)
+        finally:
+            health._started_at = real_started
+        con = db.connect()
+        try:
+            left = dbschema._cols(con, "requests")
+        finally:
+            con.close()
+        check("stale: the drop refuses naming the process and drops nothing",
+              rc == 1 and "bridge (pid 4242)" in err.getvalue() and set(dead) <= left, err.getvalue())
+    finally:
+        stall.running_pid, dmn_locks.running_elsewhere = real_pid, real_daemon
+
+
 def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> None:
     _daemon_home(home, 20)
     from ocp.team import trust as trustmod
@@ -823,6 +870,7 @@ def main() -> int:
         run(lambda: test_why_a_request_closed_without_an_answer_is_an_event(Path(td) / "l16r"))
         run(lambda: test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_the_doctor(Path(td) / "l16x"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
+        run(lambda: test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(Path(td) / "l16s"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
