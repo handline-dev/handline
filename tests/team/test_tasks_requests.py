@@ -3551,6 +3551,117 @@ def test_handoff_rate_limited(home: Path) -> None:
         con.close()
 
 
+def test_a_task_that_ends_tells_its_requesters_in_the_same_write(home: Path) -> None:
+    """T776: done, discard and merge withdraw the task's deliveries and say so in one transaction -
+    a say "T<n> done by ..." from the task board, never a verdict closing the delivery."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+  helper: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker", "helper"):
+        agents.register(n)
+    from ocp.daemon import taskqueue
+
+    def says_to(con, who, needle):
+        return [r for r in con.execute("SELECT * FROM requests WHERE target = ? AND kind = 'say' ORDER BY id", (who,))
+                if needle in r["body"]]
+    con = db.connect()
+    try:
+        ok, _, top = actions.task_new("manager", "worker", "top level", "w")
+        drid = db.task_requests(con, top)[0]["id"]
+        ok, msg = actions.mark_task_done(con, top, "worker", reason="shipped it")
+        taskqueue.sweep(con, lambda *_: None, 0)            # a tick after the end
+        told = says_to(con, "manager", f"T{top} done by worker: shipped it")
+        check("task end: a top-level task's opener is told in a say from the task board", ok and len(told) == 1
+              and told[0]["requester"] == "task-board", msg)
+        check("task end: the delivery is closed quietly - no verdict, no answer row, nothing to announce",
+              db.get_request(con, drid)["state"] in ("done", "withdrawn") and db.get_request(con, drid)["verdict"] is None
+              and db.get_request(con, drid)["announced_at"] is not None
+              and not db.unannounced_answers(con, "manager")
+              and con.execute("SELECT COUNT(*) FROM requests WHERE settles = ?", (drid,)).fetchone()[0] == 0)
+        check("task end: and its inbox file is removed, as a resolve removes it",
+              not (home / "agents" / "worker" / "inbox" / f"{drid:06d}.json").exists())
+        ok, _, seen = actions.task_new("manager", "worker", "read by its holder", "w")
+        ok, _, unseen = actions.task_new("manager", "worker", "never read", "w")
+        db.mark_landed(con, db.task_requests(con, seen)[0]["id"])
+        actions.mark_task_done(con, seen, "worker", reason="a")
+        actions.mark_task_done(con, unseen, "worker", reason="b")
+        check("task end: a delivery the holder had read closes as done, one it never saw as withdrawn",
+              db.task_requests(con, seen)[0]["state"] == "done" and db.task_requests(con, unseen)[0]["state"] == "withdrawn",
+              f"{db.task_requests(con, seen)[0]['state']} {db.task_requests(con, unseen)[0]['state']}")
+        check("task end: and the say is not linked to the task, so a done task does not read as sent",
+              db.get_task(con, top)["sent_at"] is None)
+        ok, msg = actions.mark_task_done(con, top, "worker", reason="again")
+        check("task end: a done on an already-done task tells nobody twice", not ok
+              and len(says_to(con, "manager", f"T{top} done by")) == 1, msg)
+
+        # a crash after the commit, before the say is typed: the row is there for the daemon
+        ok, _, crash = actions.task_new("manager", "worker", "crash after commit", "w")
+        real = actions.tasks._deliver_unblocked
+        actions.tasks._deliver_unblocked = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crash"))
+        try:
+            actions.mark_task_done(con, crash, "worker", reason="x")
+        except RuntimeError:
+            pass
+        finally:
+            actions.tasks._deliver_unblocked = real
+        taskqueue.sweep(con, lambda *_: None, 0)
+        lost = says_to(con, "manager", f"T{crash} done by")
+        check("task end: a crash between the commit and the typing leaves the say queued, not lost",
+              len(lost) == 1 and lost[0]["state"] == "queued", str([dict(r) for r in lost]))
+
+        ok, _, by_founder = actions.task_new("manager", "worker", "closed by the founder", "w")
+        ok, msg = actions.mark_task_done(con, by_founder, actions.HUMAN, reason="fine as is")
+        check("task end: the founder closing it tells the opener, as the founder",
+              ok and len(says_to(con, "manager", f"T{by_founder} done by the founder: fine as is")) == 1, msg)
+
+        ok, _, dis = actions.task_new("manager", "worker", "thrown away", "w")
+        askmod.withdraw(db.task_requests(con, dis)[0]["id"], "manager")      # a discard refuses while a request is open
+        ok, msg = actions.discard_task(con, dis, "manager", "not needed")
+        taskqueue.sweep(con, lambda *_: None, 0)
+        check("task end: a discard tells the holder, in the same write, and not the closer", ok
+              and len(says_to(con, "worker", f"T{dis} discarded by manager: not needed")) == 1
+              and not says_to(con, "manager", f"T{dis} discarded"), msg)
+        ok, _, dis2 = actions.task_new("manager", "helper", "thrown away by the founder", "w")
+        ok, msg = actions.discard_task(con, dis2, actions.HUMAN, "not now", stop=True)
+        d2 = db.task_requests(con, dis2)[0]
+        check("task end: a founder's discard with stop tells the opener and leaves the delivery closed", ok
+              and len(says_to(con, "manager", f"T{dis2} discarded by the founder: not now")) == 1
+              and d2["state"] != "queued", msg)
+
+        ok, _, parent = actions.task_new("manager", "worker", "parent", "w")
+        ok, msg, child = actions.task_new("worker", "helper", "child", "w", parent=parent)
+        ok, msg = actions.mark_task_done(con, child, "helper", reason="child result")
+        check("task end: a child's result reaches its parent's owner once - from the child notice, not twice",
+              ok and len(says_to(con, "worker", f"T{child} done by")) == 1, msg)
+
+        ok, _, a = actions.task_new("manager", "worker", "merged away", "w")
+        ok, _, b = actions.task_new("manager", "worker", "kept", "w")
+        ok, msg = actions.merge_tasks(con, b, [a], "manager")
+        ok2, msg2 = actions.mark_task_done(con, b, "worker", reason="both done")
+        check("task end: after a merge, finishing the kept task reaches the requesters of the merged ones' deliveries",
+              ok and ok2 and len(says_to(con, "manager", f"T{b} done by worker: both done")) == 1, f"{msg} {msg2}")
+
+        ok, _, left = actions.task_new("manager", "worker", "ended with a delivery left", "w")
+        db.mark_task_done(con, left, "x")                    # ended by some other path, delivery still queued
+        ok, msg = actions.mark_task_done(con, left, "worker", reason="x")
+        check("task end: a done on a task that ended another way settles its leftover and tells the opener once",
+              ok and db.task_requests(con, left)[0]["state"] in ("done", "withdrawn")
+              and len(says_to(con, "manager", f"T{left} done by worker")) == 1, msg)
+    finally:
+        con.close()
+
+
 def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
     """A refused ask reached nobody, so nothing can come back from it. Told
     otherwise, an agent reads 34 of its own refusals as replies from the agent
@@ -4131,7 +4242,7 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
     con = db.connect()
     try:
         check("T318: t1's own linked request is retired, not left stuck at the head",
-              db.get_request(con, rid1)["state"] == "done", dict(db.get_request(con, rid1)))
+              db.get_request(con, rid1)["state"] in ("done", "withdrawn"), dict(db.get_request(con, rid1)))
         check("T318: the higher-priority, younger task becomes current - not the older one",
               db.current_task(con, "worker") == t_high, db.current_task(con, "worker"))
         check("T318: and its own request jumps to the front of the queue",
@@ -8135,16 +8246,6 @@ limits:
         check("sweep: a task moved to someone else is not settled - only an ended one is",
               away not in db.settle_leftover_deliveries(con) and db.get_request(con, away)["state"] == "queued")
         con.execute("UPDATE tasks SET owner = 'worker' WHERE id = ?", (g3,))
-        ok, _, dn = actions.task_new("manager", "worker", "done, requester not yet answered", "w")
-        dnr = db.task_requests(con, dn)[0]["id"]
-        db.mark_task_done(con, dn, "x")                      # committed; _retire_task_requests has not run yet
-        from ocp.daemon import taskqueue
-        taskqueue.sweep(con, lambda *_: None, 0)             # a daemon tick in that window
-        check("sweep: the tick leaves an ended task's delivery for the writer that answers its requester",
-              db.get_request(con, dnr)["state"] == "queued")
-        actions.tasks._retire_task_requests(con, dn, f"task T{dn} done (x)")
-        check("sweep: the requester's answer is still the done verdict, to be announced",
-              db.get_request(con, dnr)["state"] == "done" and db.get_request(con, dnr)["announced_at"] is None)
         ok, _, lo = actions.task_new("manager", "worker", "ended with a delivery left", "w")
         lor = db.task_requests(con, lo)[0]["id"]
         db.mark_task_done(con, lo, "x")
@@ -8883,6 +8984,7 @@ def main() -> int:
         run(lambda: test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_as_idle(
             Path(td) / 'queuednudge'))
         run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
+        run(lambda: test_a_task_that_ends_tells_its_requesters_in_the_same_write(Path(td) / 'tend'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
         run(lambda: test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(Path(td) / 'readwdrn'))
