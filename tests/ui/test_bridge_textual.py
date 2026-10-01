@@ -2030,6 +2030,43 @@ async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> 
               str(d.options))
 
 
+async def test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each() -> None:
+    """T908: the page's pane grows with the timeline, so the last entry can be scrolled to and
+    no entry is cut to the room left in a screen."""
+    import html, re
+    from textual.app import App
+    from textual.containers import VerticalScroll
+    from ocp.ui import chat_page as cp
+    _home("timeline_scroll")
+    ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
+    con = db.connect()
+    try:
+        for i in range(30):
+            actions.memo_add(con, tid, "backend", f"entry {i} first\nentry {i} second\nentry {i} third")
+        actions.memo_add(con, tid, "backend", "the LAST entry\nand its LAST line")
+    finally:
+        con.close()
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield cp.TaskBody(tid)
+
+    app = Host()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await pilot.pause(0.5)
+        pane = app.query_one("#detail_pane", VerticalScroll)
+        rows = list(app.query(".tl_row"))
+        check("timeline scroll: no row is cut below its lines", all(r.size.height >= len(r.query_one(".tl_text").content.plain.split("\n")) for r in rows),
+              str([r.size.height for r in rows]))
+        pane.scroll_end(animate=False)
+        await pilot.pause()
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        check("timeline scroll: scrolled to the end, the last entry's last line is on screen", "and its LAST line" in shown,
+              str((pane.scroll_y, pane.max_scroll_y, pane.virtual_size, pane.size)))
+
+
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
     """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
     closes it, a second answer is dropped, and the page under it has focus back after."""
@@ -3507,6 +3544,7 @@ async def _run_all() -> None:
     test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
+    await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_assign_enter_sends_the_note_whole()
     await test_a_changed_timeline_entry_remounts_only_itself()
