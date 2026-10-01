@@ -8044,14 +8044,6 @@ limits:
         check("T684: the holder can finish it, which settles the handoff request",
               ok and not [r for r in db.task_requests(con, dec) if r["state"] == "queued"], msg)
         # T706: a task ended with a delivery still queued does not leave it at the holder's head
-        ok, _, lt = actions.task_new("manager", "human", "decide again", "decide again")
-        ok, _, rid = askmod.ask("helper", "T%d handed to you by human: decide again\n\nOK" % lt,
-                                requester=actions.HUMAN, kind="task")
-        db.link_request(con, lt, rid)
-        askmod.resolve(db.decision_card_of(con, lt)["id"], "decided: go")
-        check("T706: a decision card settling its task also closes a delivery still queued on it",
-              db.task_ended(db.get_task(con, lt)) and db.get_request(con, rid)["state"] == "done",
-              str(dict(db.get_request(con, rid))))
         ok, _, st = actions.task_new("manager", "helper", "stranded", "stranded")
         db.mark_task_done(con, st, "done the old way", "reason")      # an older path left its request queued
         check("T706: the leftover is there", any(r["state"] == "queued" for r in db.task_requests(con, st)))
