@@ -528,6 +528,36 @@ def test_a_dismissal_is_an_event_and_an_old_one_gets_one(home: Path) -> None:
         con.close()
 
 
+def test_why_a_request_closed_without_an_answer_is_an_event(home: Path) -> None:
+    """T835 step 4d: a denial or a withdrawal carries its reason as an event naming the request; the
+    row reads it from there, and the upgrade writes one for a row that has only a verdict."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        denied = db.add_request(con, "backend", "frontend", "q", None, None, None, "task", 0, None,
+                                state="denied", verdict="no such route")
+        taken = db.add_request(con, "backend", "frontend", "q2", None, None, None, "task", 0, None)
+        db.retire_if_undelivered(con, taken, "withdrawn", "withdrawn: changed my mind")
+        con.execute("UPDATE requests SET verdict = NULL WHERE id IN (?, ?)", (denied, taken))
+        check("reason: a denial and a withdrawal read their reason from the event, the verdict gone",
+              db.shown_verdict(db.get_request(con, denied)) == "no such route"
+              and db.shown_verdict(db.get_request(con, taken)) == "withdrawn: changed my mind")
+        old = db.add_request(con, "backend", "frontend", "q3", None, None, None, "task", 0, None)
+        con.execute('UPDATE requests SET "state" = \'withdrawn\', verdict = \'withdrawn: long ago\' WHERE id = ?', (old,))
+        check("reason: a row with only a verdict still shows it", db.shown_verdict(db.get_request(con, old)) == "withdrawn: long ago")
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:reasons_are_events'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        ev = [json.loads(r["payload"])["request_id"] for r in
+              con.execute("SELECT payload FROM events WHERE kind = 'request_reason'").fetchall()]
+        check("migration: the old verdict is an event now, and the others are not doubled",
+              ev.count(old) == 1 and len(ev) == len(set(ev)), str(ev))
+    finally:
+        con.close()
+
+
 def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
     """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
     every row gets a state_at; ledgered, a second connect changes nothing."""
@@ -725,6 +755,7 @@ def main() -> int:
         run(lambda: test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(Path(td) / "l16t"))
         run(lambda: test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(Path(td) / "l16q"))
         run(lambda: test_a_dismissal_is_an_event_and_an_old_one_gets_one(Path(td) / "l16d"))
+        run(lambda: test_why_a_request_closed_without_an_answer_is_an_event(Path(td) / "l16r"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))
