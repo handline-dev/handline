@@ -2027,6 +2027,10 @@ def test_a_timeline_entry_shows_its_kind_after_the_time_with_an_icon_and_a_colou
     check("timeline: a memo and a request differ in colour, and a request's state differs from its text",
           colour(memo, "✎") != colour(req, "↗") and colour(memo, "a memo") != colour(req, "ask it")
           and colour(req, "queued") not in (colour(req, "ask it"), colour(req, "#7")), "")
+    states = {s: cp.REQUEST_STATE_STYLE.get(s, "bold green") for s in ("queued", "rejected", "denied", "withdrawn", "replaced", "answered")}
+    check("timeline: green is for a request that was answered; one that never reached its target is not green",
+          states["answered"] == "bold green" and all("green" not in states[s] for s in ("denied", "withdrawn", "replaced")),
+          str(states))
 
 
 def test_schedules_are_built_read_and_written_through_actions() -> None:
@@ -2342,6 +2346,7 @@ def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> 
 
 
 async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
+    from textual.color import Color
     from ocp.ui import chat_page as cp
     from ocp.ui.bridge_textual import BridgeApp
     _home("changecard")
@@ -2352,6 +2357,7 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
         rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
         db.link_request(con, t, rid)
         db.add_event(con, "reviewer", "task_start", {"task_id": t})
+        actions.edit_task(con, t, actions.HUMAN, priority=1)
         con.commit()
     finally:
         con.close()
@@ -2361,11 +2367,20 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
         page = cp.ChatPage("reviewer")
         await app.push_screen(page)
         await pilot.pause()
-        cards = [(w.query_one(".cardhead").content.plain, w.query_one(".cardbox").content.plain)
-                 for w in page.query(cp.TaskChange)]
+        changes = list(page.query(cp.TaskChange))
+        cards = [(w.query_one(".cardhead").content.plain, w.query_one(".cardbox").content.plain) for w in changes]
         check("chat: a task's change is a card of its own, who above, CHANGED TASK and the change inside",
-              len(cards) == 1 and "queued -> doing" in cards[0][1] and cards[0][1].startswith("CHANGED TASK")
+              len(cards) == 2 and "queued -> doing" in cards[0][1] and cards[0][1].startswith("CHANGED TASK")
               and "reviewer" not in cards[0][1], str(cards))
+        agent, founder = changes      # the agent's change came first
+        check("chat: the founder's change is drawn as his own (class me), the page agent's as theirs (them)",
+              founder.has_class("me") and not founder.has_class("them") and agent.has_class("them")
+              and not agent.has_class("me"), str((founder.classes, agent.classes)))
+        success = Color.parse(app.theme_variables["success"])
+        check("chat: the agent's head is in the success colour, not the founder's default",
+              agent.query_one(".cardhead").styles.color.rgb == success.rgb
+              and founder.query_one(".cardhead").styles.color.rgb != success.rgb,
+              str((agent.query_one(".cardhead").styles.color, success)))
 
 
 async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() -> None:

@@ -516,7 +516,7 @@ def card_lines(m: dict) -> Text:
     said = m.get("change") or f"assigned to {safe(m['to'])}"
     out.append("\n" + said, style=STATE_STYLE.get(said.rsplit(" ", 1)[-1], ""))
     if m.get("note"):
-        out.append("\n" + safe(m["note"]))
+        out.append("\n" + safe_block(m["note"]))
     return out
 
 
@@ -568,7 +568,7 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
 TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note", "request": "request", "edit": "body edited"}
 TIMELINE_ICON = {"memo": "✎", "note": "✎", "request": "↗", "handoff": "⇄", "edit": "±"}
 TIMELINE_STYLE = {"memo": "cyan", "note": "cyan", "request": "magenta", "handoff": "yellow", "edit": "blue"}
-REQUEST_STATE_STYLE = {"queued": "bold yellow", "rejected": "bold red"}
+REQUEST_STATE_STYLE = {"queued": "bold yellow", "rejected": "bold red", **dict.fromkeys(db.NEVER_REACHED_TARGET, "dim")}
 
 
 def timeline_text(e: dict) -> Text:
