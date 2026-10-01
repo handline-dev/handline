@@ -3712,6 +3712,19 @@ limits:
         check("done: the owner can", ok, msg)
         ok, msg = actions.mark_task_done(con, founders, actions.HUMAN, reason="the founder")
         check("done: the founder can", ok, msg)
+
+        # a task handed on: the one who gave it away is no longer its holder
+        ok, _, handed = actions.task_new("manager", "worker", "to be handed on", "w")
+        ok, msg = actions.task_handoff(con, "worker", handed, "hr", "yours now")
+        old_link = db.add_request(con, actions.HUMAN, "worker", "after the handoff", None, None, None, "say", 0, None)
+        ok1, msg1 = actions.dismiss(con, old_link, me="worker", tasks=[handed])
+        ok2, msg2 = actions.mark_task_done(con, handed, "worker", reason="not mine any more")
+        check("handoff: the old holder can neither name the task with --task nor close it",
+              ok and not ok1 and "not yours" in msg1 and not ok2, f"{msg} / {msg1} / {msg2}")
+        new_link = db.add_request(con, actions.HUMAN, "hr", "for the new holder", None, None, None, "say", 0, None)
+        ok3, msg3 = actions.dismiss(con, new_link, me="hr", tasks=[handed])
+        ok4, msg4 = actions.mark_task_done(con, handed, "hr", reason="it is mine")
+        check("handoff: the new holder can do both", ok3 and ok4, f"{msg3} / {msg4}")
     finally:
         con.close()
 
@@ -6505,8 +6518,8 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
                                   "fire_and_forget", "task", 0, None)
         db.link_request(con, t_t, r_queued)
         ok, msg = actions.mark_task_done(con, t_t, "worker", reason="target works alone")
-        check("done: the target of a still-queued linked request marks it done, "
-              "not the owner", ok, msg)
+        check("done: the target of a delivery that is not to the owner is no right to close it (T792)",
+              not ok, msg)
 
         t_t2 = db.new_task(con, "target of a done request", "manager", "manager")
         r_done = db.add_request(con, "manager", "worker", "go", None, "supervisor",
@@ -6514,7 +6527,7 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
         askmod.resolve(r_done, "shipped")
         db.link_request(con, t_t2, r_done)
         ok, msg = actions.mark_task_done(con, t_t2, "worker", reason="a done link works too")
-        check("done: the target of a done linked request marks it done too", ok, msg)
+        check("done: nor is the target of a done delivery that is not to the owner", not ok, msg)
 
         t_neither = db.new_task(con, "neither owner nor target", "manager", "manager")
         ok, msg = actions.mark_task_done(con, t_neither, "worker", reason="not allowed")
