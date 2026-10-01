@@ -285,20 +285,39 @@ def block_wait(con, agent: str) -> str | None:
     return "blocked by " + ", ".join(f"T{b['id']} ({b['owner']})" for b in blockers) if blockers else None
 
 
-def task_mismatch(con, row, state: str, open_requests: list) -> str | None:
-    """Where a task's state and its requests disagree, or None (T250). A draft
-    with a request out was never approved, and a queued one has nobody working on
-    it. `open_requests` is the queued requests."""
+def _task_mismatch_from_requests(con, row, state: str, open_requests: list) -> str | None:
+    """What `task_mismatch` answered before T748, from the queued requests - kept as the other half
+    of the comparison that proves `sent_at` says the same."""
     if state in ("done", "discarded"):
         return None
     linked = {r["id"] for r in db.task_requests(con, row["id"])}
     open_linked = [r for r in open_requests if r["id"] in linked and not r["fyi"]]
     if not row["queued_by"] and open_linked:
         return f"draft with work out (#{open_linked[0]['id']}) - its opener has not queued it"
-    # the founder is never typed at (T681): a queued task of theirs waits on them, with no request out
     if state == "queued" and not open_linked and row["owner"] != HUMAN:
         return "approved, but no request is out"
     return None
+
+
+def task_mismatch(con, row, state: str) -> str | None:
+    """Where a task's state and its delivery disagree, or None (T250). A draft with a request
+    out (`sent_at`) was never approved, and a queued one has nobody working on it."""
+    if state in ("done", "discarded"):
+        return None
+    sent = row["sent_at"] is not None
+    odd = None
+    if not row["queued_by"] and sent:
+        out = next(r["id"] for r in db.task_requests(con, row["id"]) if _asks(r))  # only to name it
+        odd = f"draft with work out (#{out}) - its opener has not queued it"
+    # the founder is never typed at (T681): a queued task of theirs waits on them, with no request out
+    elif state == "queued" and not sent and row["owner"] != HUMAN:
+        odd = "approved, but no request is out"
+    if os.environ.get("OCP_COMPARE_DOING"):
+        was = _task_mismatch_from_requests(
+            con, row, state, con.execute("SELECT * FROM requests WHERE state = 'queued'").fetchall())
+        if was != odd:
+            raise AssertionError(f"T{row['id']}: task_mismatch from the row is {odd!r}, from its requests {was!r}")
+    return odd
 
 
 def _request_answered(row) -> bool:
@@ -933,13 +952,16 @@ def _waiting_tasks(con, agent: str):
             continue
         if db.task_blockers(con, row["id"]):
             continue
+        sent = row["sent_at"] is not None
         linked = db.task_requests(con, row["id"])
         req = next((r for r in linked if _asks(r)), None)
-        after = _reset_after(con, row["id"]) if req is None else 0
-        if req is None and any(r["target"] == agent and not r["fyi"] and r["id"] > after
-                               and r["state"] not in db.NEVER_REACHED_TARGET for r in linked):
+        if os.environ.get("OCP_COMPARE_DOING") and sent != (req is not None):
+            raise AssertionError(f"T{row['id']}: sent_at says sent={sent}, its requests {req is not None}")
+        after = _reset_after(con, row["id"]) if not sent else 0
+        if not sent and any(r["target"] == agent and not r["fyi"] and r["id"] > after
+                            and r["state"] not in db.NEVER_REACHED_TARGET for r in linked):
             continue  # delivered and answered since it last came due: not a reason to send it again
-        if req is not None or row["queued_by"] is not None:
+        if sent or row["queued_by"] is not None:
             yield row, req
 
 

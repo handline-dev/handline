@@ -8142,8 +8142,7 @@ limits:
               actions.task_state(con, db.get_task(con, cli_t)))
         cli_row = db.get_task(con, cli_t)
         check("T681: a queued task of the founder with its request retired is not 'approved, but no request is out'",
-              actions.task_mismatch(con, cli_row, actions.task_state(con, cli_row),
-                                    [r for r in db.task_requests(con, cli_t) if r["state"] == "queued"]) is None)
+              actions.task_mismatch(con, cli_row, actions.task_state(con, cli_row)) is None)
         # the ones handed before the fix read draft: the migration queues them
         old_t = db.new_task(con, "handed long ago", "human", "manager")
         db.add_event(con, "worker", "task_handoff", {"task_id": old_t, "from": "worker", "to": "human",
@@ -8155,7 +8154,7 @@ limits:
         dbschema._handed_to_founder_are_queued(con)
         old_row = db.get_task(con, old_t)
         check("T681: and the migrated task shows no such warning either",
-              actions.task_mismatch(con, old_row, actions.task_state(con, old_row), []) is None)
+              actions.task_mismatch(con, old_row, actions.task_state(con, old_row)) is None)
         check("T681: the migration queues a handed-over task and leaves the founder's own draft",
               actions.task_state(con, db.get_task(con, old_t)) in actions.DELEGATED_STATES
               and actions.task_state(con, db.get_task(con, mine_t)) == "draft",
@@ -8532,8 +8531,7 @@ limits:
         check("fyi: a queued task stays queued while worker is busy",
               state(merged) == "queued", state(merged))
         check("fyi: and is not flagged as never approved or with a request out",
-              actions.task_mismatch(con, db.get_task(con, merged), state(merged),
-                                    con.execute("SELECT * FROM requests WHERE state='queued'").fetchall())
+              actions.task_mismatch(con, db.get_task(con, merged), state(merged))
               == "approved, but no request is out")
         real = db.add_request(con, "manager", "worker", "go", None, "supervisor",
                               "fire_and_forget", None, 0, None)
