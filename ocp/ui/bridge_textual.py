@@ -32,6 +32,7 @@ from textual import events
 from .. import actions
 from . import jobs as jobsmod, stall, tui
 from .clipboard_app import ClipboardApp
+from .components.confirm import Confirm
 from .components.dialog import Dialog
 from .theme import follow_os_theme
 
@@ -44,14 +45,16 @@ class BridgeApp(ClipboardApp):
     `HomePage`, `chat_page.ChatPage`."""
 
     TITLE = "ocp bridge"
+    BINDINGS = [("f5", "restart", "restart")]
     CSS_PATH = Path(__file__).with_name("chat_page.tcss")
 
     def __init__(self) -> None:
         super().__init__()
         self.jobs = jobsmod.Jobs()
-        self.restart_owed = False       # the code changed; waiting for a moment nothing is lost
+        self.restart_owed = False       # the code changed; waiting for a moment to ask
         self.restart_on_exit = False
-        self._code_state: dict = {"fp": None, "warned": None}
+        self._asking = False            # the restart question is on screen
+        self._code_state: dict = {"fp": None, "warned": None, "seen": None}
 
     async def on_event(self, event) -> None:
         """While a box is over the page, the raw mouse and key events that reach the app, with what
@@ -79,13 +82,12 @@ class BridgeApp(ClipboardApp):
     def _check_code(self) -> None:
         """With dev mode on, the daemon's own check: the code changed and still imports. The import
         check runs `ocp --help`, so this is a worker, not the UI thread. A restart found is owed
-        until nothing on screen would be lost by it (see `_idle`)."""
-        if not self.restart_owed:
-            try:
-                self.restart_owed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
-            except Exception as e:  # noqa: BLE001 - a tree mid-checkout must not take the bridge down
-                stall.crumb(f"dev-mode check failed: {e}")
-                return
+        until nothing on screen would be lost by asking (see `_idle`)."""
+        try:
+            self.restart_owed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
+        except Exception as e:  # noqa: BLE001 - a tree mid-checkout must not take the bridge down
+            stall.crumb(f"dev-mode check failed: {e}")
+            return
         if self.restart_owed:
             self.call_from_thread(self._restart_if_idle)
 
@@ -95,8 +97,32 @@ class BridgeApp(ClipboardApp):
 
     def _restart_if_idle(self) -> None:
         if self._idle():
-            self.restart_on_exit = True
-            self.exit()
+            self.ask_restart("ocp was updated. Restart the bridge now?", declined=self._decline_update)
+
+    def _decline_update(self) -> None:
+        """Stay on this version: this change is not asked about again, a newer one is."""
+        self.restart_owed = False
+        self._code_state["fp"] = self._code_state["seen"]
+
+    def ask_restart(self, question: str, declined=lambda: None) -> None:
+        """Ask once whether to restart the bridge; yes exits it and `run` execs the same entrypoint."""
+        if self._asking:
+            return
+        self._asking = True
+
+        def answered(yes: bool | None) -> None:
+            self._asking = False
+            if yes:
+                self.restart_on_exit = True
+                self.exit()
+            else:
+                declined()
+        self.push_screen(Confirm(question, yes="Restart", no="Not now"), answered)
+
+    def action_restart(self) -> None:
+        lost = [w for sc in self.screen_stack for w in getattr(sc, "unsent", list)()]
+        self.ask_restart("Restart the bridge now?" if not lost else "Restart the bridge now? That loses "
+                         + " and ".join(lost) + ".")
 
 
 def run(once: bool = False) -> int:

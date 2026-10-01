@@ -1866,53 +1866,77 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
     check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
 
 
-async def test_the_bridge_exits_to_restart_only_when_nothing_would_be_lost() -> None:
+async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
     from ocp.daemon import devmode
     from ocp.ui import chat_page as cp
     from ocp.ui.components.confirm import Confirm
     _home("coderestart")
-    real, real_every = devmode._dev_mode_should_restart, bt.CODE_CHECK_S
+    real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S)
     bt.CODE_CHECK_S = 0.05
+    code = {"fp": "v1"}      # the tree, the import check and the switch stood in for; the decision is devmode's own
+    devmode._code_fingerprint = lambda root: code["fp"]
+    devmode._dev_import_check = lambda log: True
+    devmode.dev_mode_enabled = lambda: True
     try:
-        devmode._dev_mode_should_restart = lambda state, log: False
-        quiet = bt.BridgeApp()
-        async with quiet.run_test(size=(100, 30)) as pilot:
-            await pilot.pause(0.4)
-            check("code restart: an unchanged tree leaves it running", quiet.is_running and not quiet.restart_on_exit)
-
-        devmode._dev_mode_should_restart = lambda state, log: True
         app = bt.BridgeApp()
         async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.3)
+            check("code restart: an unchanged tree asks nothing", not isinstance(app.screen, Confirm))
+            code["fp"] = "v2"
             await pilot.pause(0.4)
-            check("code restart: a changed tree that still imports ends an idle app with a restart owed",
-                  app.restart_on_exit and not app.is_running)
+            check("code restart: new code asks, and does not restart on its own",
+                  isinstance(app.screen, Confirm) and app.is_running and not app.restart_on_exit)
+            code["fp"] = "v2b"
+            await pilot.pause(0.4)
+            check("code restart: a newer update while it is open adds no second prompt",
+                  sum(isinstance(sc, Confirm) for sc in app.screen_stack) == 1, str(app.screen_stack))
+            await pilot.press("n")
+            await pilot.pause(0.4)
+            check("code restart: n keeps running and neither version is asked about again",
+                  app.is_running and not isinstance(app.screen, Confirm) and not app.restart_on_exit)
+            code["fp"] = "v3"
+            await pilot.pause(0.4)
+            check("code restart: a newer update asks again", isinstance(app.screen, Confirm))
+            await pilot.press("y")
+            await pilot.pause(0.4)
+            check("code restart: y exits with a restart owed", app.restart_on_exit and not app.is_running)
 
+        code["fp"] = "w1"
         app = bt.BridgeApp()
-        devmode._dev_mode_should_restart = lambda state, log: False
         async with app.run_test(size=(100, 30)) as pilot:
             page = cp.ChatPage("reviewer")
             await app.push_screen(page)
             await pilot.pause()
             box = page.query_one("#compose", cp.ChatBox)
             box.text = "half a thought"
-            devmode._dev_mode_should_restart = lambda state, log: True
+            await pilot.pause(0.2)
+            code["fp"] = "w2"
             await pilot.pause(0.4)
-            check("code restart: a draft in the box keeps it running, the restart owed",
-                  app.is_running and app.restart_owed and not app.restart_on_exit)
+            check("code restart: a draft in the box is not asked over, the question owed",
+                  app.is_running and app.restart_owed and app.screen is page)
             box.text = ""
             page.sending = 1
             await pilot.pause(0.4)
-            check("code restart: a send in flight keeps it running", app.is_running and not app.restart_on_exit)
+            check("code restart: a send in flight is not asked over", app.screen is page)
             page.sending = 0
-            app.push_screen(Confirm("Sure", "?", yes="y", no="n"))
+            other = Confirm("Sure", "?", yes="y", no="n")
+            app.push_screen(other)
             await pilot.pause(0.4)
-            check("code restart: a box open over the page keeps it running", app.is_running and not app.restart_on_exit)
+            check("code restart: a box open over the page is not asked over", app.screen is other)
             app.pop_screen()
             await pilot.pause(0.4)
-            check("code restart: nothing left to lose, the owed restart goes ahead",
-                  app.restart_on_exit and not app.is_running)
+            check("code restart: nothing left to lose, the owed question is asked",
+                  isinstance(app.screen, Confirm) and app.screen is not other)
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+            await pilot.press("f5")
+            await pilot.pause(0.2)
+            check("code restart: F5 asks to restart by hand", isinstance(app.screen, Confirm))
+            await pilot.press("y")
+            await pilot.pause(0.3)
+            check("code restart: and y restarts", app.restart_on_exit and not app.is_running)
     finally:
-        devmode._dev_mode_should_restart, bt.CODE_CHECK_S = real, real_every
+        devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S = real
 
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
@@ -3366,7 +3390,7 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
-    await test_the_bridge_exits_to_restart_only_when_nothing_would_be_lost()
+    await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
