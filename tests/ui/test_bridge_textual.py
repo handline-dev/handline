@@ -2764,8 +2764,9 @@ async def test_the_shared_task_view_draws_the_brief() -> None:
 
 
 def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
-    """T623 (founder #7145/#7151): a `say --parent` to an agent's message still queued for the human is
-    stored as its verdict; drawn as one, it still names the message it answers."""
+    """T623 (founder #7145/#7151): the founder's reply to an agent's say names the message it answers.
+    A say to him is born landed (T781), so the reply is a say of its own to the agent, with the
+    message as its parent - not the verdict of a queued row."""
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
     _home("replylink")
@@ -2776,9 +2777,12 @@ def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
         ok, _ = cp.send_reply(con, "reviewer", said, "yes, this")
         rows, _ = cp.requests_page(con, "reviewer", False)
         msgs = cp.messages_of(rows, "reviewer")
-        reply = next(m for m in msgs if m["part"] == 1)
+        reply = next(m for m in msgs if m["text"] == "yes, this")
         check("reply link: the founder's reply is a reply to the message it answers",
-              ok and reply["text"] == "yes, this" and reply["reply_to"] == said, str(msgs))
+              ok and reply["reply_to"] == said, str(msgs))
+        check("reply link: it is a row of its own to the agent, the original untouched",
+              db.get_request(con, said)["state"] == "done" and db.get_request(con, reply["rid"])["target"] == "reviewer",
+              str(reply))
         check("reply link: it is drawn with the link", cp.message_text(reply, True, False, "me").plain
               .split("\n")[1].startswith(f"↩ #{said}"), cp.message_text(reply, True, False, "me").plain)
     finally:
