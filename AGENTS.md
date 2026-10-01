@@ -44,8 +44,8 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
    `CLAUDE_CONFIG_DIR=<dir> claude /login` run by a person; a refresh token rotates
    once, so copies invalidate each other. Two exceptions: (#2010) a driver's meter
    path may read an opencode `auth.json` in memory, once, for the usage question
-   only; (T745) the claude driver's `profile` may read `.claude.json`, and returns
-   only the subscription start and the two rate-limit tier strings. The founder:
+   only; (T745) `Driver.profile` in the claude driver is the only reader of `.claude.json`,
+   and returns only the subscription start and the two rate-limit tier strings. The founder:
    "A 로하자. 읽어도 돼. 다만 그걸 읽어서 그대로 토큰같은걸 노출만 안시키면 되는거지."
    Read is allowed; exposing a token, key or other secret from it is not. No key,
    token, email or other value from either file reaches an agent's env, prompt,

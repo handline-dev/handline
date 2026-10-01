@@ -26,16 +26,32 @@ _asking: threading.Thread | None = None
 
 
 def sweep_endings(con, log, now: int) -> None:
-    cfg = cycle.config()
+    """Act only on what is known. A file that cannot be read this tick (config.yaml
+    caught half written, the profile mid-rewrite) or a date that does not parse is
+    not "the cycle is off": the founder's notice stays as it is."""
+    cfg = cycle.config_or_none()
+    if cfg is None:
+        log("  subscriptions: config.yaml unreadable - notices left as they are")
+        return
     ahead = cycle.warn_days(cfg) * 86400
     for acct in paths.list_accounts():
-        end = cycle.end_of(acct, cfg)
-        day = str(cycle.end_date(acct, cfg)) if end else None
         told = db.get_meta(con, f"sub_ending_told:{acct}")
-        if end is None or now >= end or day != told:
-            _settle(con, log, acct, "subscription ended; the account is shown as ended"
-                    if end and now >= end else "the account's end date changed or the cycle was turned off")
-        if end is None or now >= end or end - now > ahead or told == day:
+        if not cycle.enabled(acct, cfg):
+            _settle(con, log, acct, "the month cycle was turned off")
+            db.clear_meta(con, f"sub_ending_told:{acct}")      # turned on again, the same date is news again
+            continue
+        if told and cycle.day_end(told) <= now:
+            _settle(con, log, acct, "the subscription ended; the account is shown as ended")
+        end = cycle.end_of(acct, cfg)
+        if end is None:
+            continue
+        day = str(cycle.end_date(acct, cfg))
+        if now >= end:
+            _settle(con, log, acct, "the subscription ended; the account is shown as ended")
+            continue
+        if day != told:
+            _settle(con, log, acct, "the account's end date changed")
+        if end - now > ahead or told == day:
             continue
         rid = askmod.raise_decision(
             con, _opener(con, acct),

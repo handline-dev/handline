@@ -13,9 +13,9 @@ account, over one default each:
 
 An account with no `month_cycle_<account>` is untouched by all of it. With the
 switch and no `sub_end_<account>` the end is a month after the subscription
-started, read from the local profile; where that cannot be read there is no end
-known and the account is not judged ended: a missing date must not shut an
-account that may well be live.
+started, read from the local profile; where that cannot be read, or the default
+is already past, there is no end known and the account is not judged ended: a
+missing date must not shut an account that may well be live.
 """
 from __future__ import annotations
 
@@ -29,6 +29,14 @@ def config() -> dict:
     this, so it is reached late."""
     from . import load
     return load._config()
+
+
+def config_or_none() -> dict | None:
+    """config.yaml, or None when it cannot be read: unlike `config`, which reads
+    an unreadable file as empty, this lets a caller tell "says nothing" from
+    "could not be read"."""
+    from . import load
+    return load.config_or_none()
 
 
 def _cfg(cfg: dict | None) -> dict:
@@ -70,7 +78,11 @@ def end_date(acct: str, cfg: dict | None = None) -> dt.date | None:
     v = cfg.get(f"sub_end_{acct}")
     if v is None:
         start = started(acct)
-        return add_month(start) if start else None
+        end = add_month(start) if start else None
+        # A default already past is a start that was never renewed in the profile
+        # (or a lapse): ocp cannot tell which, so it is no end at all, not an
+        # ended account. The real end is typed.
+        return end if end and end >= dt.date.today() else None
     try:
         return dt.date.fromisoformat(v) if isinstance(v, str) else None
     except ValueError:
@@ -81,13 +93,19 @@ def end_is_default(acct: str, cfg: dict | None = None) -> bool:
     return _cfg(cfg).get(f"sub_end_{acct}") is None
 
 
+def day_end(day: str | dt.date) -> float:
+    """The moment a last usable day is over: the start of the day after it, local time."""
+    d = day if isinstance(day, dt.date) else dt.date.fromisoformat(day)
+    return dt.datetime.combine(d + dt.timedelta(days=1), dt.time()).timestamp()
+
+
 def end_of(acct: str, cfg: dict | None = None) -> float | None:
     """When the account stops being usable, as a timestamp: the start of the
     day after its end date, local time."""
     d = end_date(acct, cfg)
     if d is None:
         return None
-    return dt.datetime.combine(d + dt.timedelta(days=1), dt.time()).timestamp()
+    return day_end(d)
 
 
 def last_week_first(cfg: dict | None = None) -> bool:
@@ -112,11 +130,9 @@ def ended_why(acct: str, now: float, cfg: dict | None = None) -> str | None:
 def set_cycle(acct: str, on: bool, end: dt.date | None = None) -> None:
     """Write the switch and, where given, the end date, keeping every other
     setting. Turning it off leaves the date, so turning it on again finds it."""
-    from ..infra import paths
-    from ..infra.yamlcompat import dump
     from . import load
     cfg = load.config_for_write()
     cfg[f"month_cycle_{acct}"] = on
     if end is not None:
         cfg[f"sub_end_{acct}"] = end.isoformat()
-    paths.config_file().write_text(dump(cfg))
+    load.write_config(cfg)

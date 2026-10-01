@@ -18,7 +18,7 @@ from support import *  # noqa: E402,F401,F403
 from ocp.cli import account as cliaccount  # noqa: E402
 from ocp.daemon import subscriptions  # noqa: E402
 from ocp import actions  # noqa: E402
-from ocp.usage import cycle  # noqa: E402
+from ocp.usage import cycle, load  # noqa: E402
 
 DAY = 86400
 
@@ -199,6 +199,32 @@ def test_the_founder_is_told_once_before_the_end(home: Path) -> None:
     write_cfg("")
     subscriptions.sweep_endings(con, lambda s: None, now)
     check("ending: turning the cycle off closes the notice too", told() == [])
+
+    # What cannot be read is not "off", not "ended" and not "changed": the notice stays.
+    cfg(2)
+    subscriptions.sweep_endings(con, lambda s: None, now)
+    check("unreadable: setup - one open notice", len(told()) == 1)
+    ever = con.execute("SELECT COUNT(*) FROM tasks WHERE owner = ?", (db.HUMAN,)).fetchone()[0]
+    log: list[str] = []
+    write_cfg(f'month_cycle_soon: true\nsub_end_soon: {today + dt.timedelta(days=2)}\n')    # an unquoted date does not parse
+    check("unreadable: setup - the config really cannot be read", load.config_or_none() is None)
+    subscriptions.sweep_endings(con, log.append, now)
+    check("unreadable: a tick whose config cannot be read leaves the notice open and says so",
+          len(told()) == 1 and any("unreadable" in l for l in log), str(log))
+    write_cfg("month_cycle_soon: true\nsub_end_soon: not-a-date\n")
+    subscriptions.sweep_endings(con, lambda s: None, now)
+    check("unreadable: an end date that does not parse leaves it open", len(told()) == 1)
+    write_cfg("month_cycle_soon: true\n")
+    subscriptions.sweep_endings(con, lambda s: None, now)
+    check("unreadable: on the cycle with no end known (no profile) leaves it open", len(told()) == 1)
+    write_cfg("month_cycle_soon: true\nsub_end_soon: \"" + str(today + dt.timedelta(days=2)) + "\"\n")
+    subscriptions.sweep_endings(con, lambda s: None, now + 3600)
+    check("unreadable: and once readable again it is the same one task, not a second",
+          len(told()) == 1 and con.execute("SELECT COUNT(*) FROM tasks WHERE owner = ?", (db.HUMAN,)).fetchone()[0] == ever)
+    # a told date that has passed closes it even when no end can be known any more
+    write_cfg("month_cycle_soon: true\n")
+    subscriptions.sweep_endings(con, lambda s: None, now + 4 * DAY)
+    check("unreadable: a date already told and now past closes the notice, whatever else is unknown", told() == [])
     con.close()
 
 
@@ -431,6 +457,27 @@ def test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(home: Path)
     check("plan_key: and back", accounts.plan_key("a") == "max_5x")
 
 
+def test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(home: Path) -> None:
+    use_home(home)
+    check("config: a missing file reads as empty, and as {} not None", load.config_or_none() == {})
+    write_cfg("")
+    check("config: an empty file is empty", load.config_or_none() == {})
+    load.write_config({"active_cap": 3, "month_cycle_a": True})
+    check("config: written and read back", load.config_or_none() == {"active_cap": 3, "month_cycle_a": True})
+    check("config: no half-written sibling is left behind",
+          not paths.config_file().with_name(paths.config_file().name + ".tmp").exists())
+    write_cfg("active_cap: [")
+    check("config: text that does not parse is None, where the reader's own _config says {}",
+          load.config_or_none() is None and load._config() == {})
+    write_cfg("- a\n- b\n")
+    check("config: a list is not a mapping", load.config_or_none() is None)
+    for name, fn in (("set_cap", lambda: load.set_cap("a", 2)), ("set_cycle", lambda: cycle.set_cycle("a", True))):
+        write_cfg("active_cap: 4\n")
+        fn()
+        check(f"config: {name} keeps the other settings and goes through the one writer",
+              load.config_or_none().get("active_cap") in (4, 2), str(load.config_or_none()))
+
+
 def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -> None:
     use_home(home)
     check("add_month: the day is kept", cycle.add_month(dt.date(2026, 9, 21)) == dt.date(2026, 10, 21))
@@ -452,8 +499,13 @@ def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -
     write_cfg("month_cycle_a: true\n")
     check("default end: a profile that cannot be read is no end", cycle.end_date("a") is None)
     write_profile("a", {"subscriptionCreatedAt": "2024-08-31T06:00:00Z"})
-    check("default end: an old start reads as ended once turned on (the override is how it is kept)",
-          cycle.ended_why("a", time.time()) is not None)
+    check("default end: an old start is no end, not an ended account - the real end is typed",
+          cycle.end_date("a") is None and cycle.ended_why("a", time.time()) is None)
+    write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=40)).isoformat()})
+    check("default end: a month already gone is the same", cycle.end_date("a") is None)
+    write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5)).isoformat()})
+    check("default end: a start five days ago ends in about a month", cycle.end_date("a") is not None
+          and cycle.end_date("a") >= dt.date.today())
     write_cfg("")
     check("default end: and not before it is turned on", cycle.ended_why("a", time.time()) is None)
 
@@ -473,6 +525,7 @@ def main() -> int:
         run(lambda: test_the_profile_reader_returns_the_three_fields_and_nothing_else(Path(td) / 'c11'))
         run(lambda: test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(Path(td) / 'c12'))
         run(lambda: test_the_default_end_is_a_month_after_the_subscription_started(Path(td) / 'c13'))
+        run(lambda: test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(Path(td) / 'c14'))
     return run_area(tests)
 
 

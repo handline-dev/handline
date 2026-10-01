@@ -14,7 +14,6 @@ from __future__ import annotations
 from ..team import agents
 from ..infra import paths
 from ..daemon.states import IDLE_CLOSE_S
-from ..infra.yamlcompat import dump
 from ..usage import load
 
 # A `park_timeout_s` of 0 - global or per-agent - is the explicit "never
@@ -45,7 +44,7 @@ def set_config_flag(key: str, value: bool) -> None:
     """One global setting, keeping every other."""
     cfg = load.config_for_write()
     cfg[key] = value
-    paths.config_file().write_text(dump(cfg))
+    load.write_config(cfg)
 
 
 def _agent_cfg(agent: str) -> dict:
@@ -125,7 +124,7 @@ def set_bg_seconds(key: str, seconds: int | None, agent: str | None = None) -> N
         raise ValueError("--clear only applies with --agent")
     cfg = load.config_for_write()
     cfg[key] = seconds
-    paths.config_file().write_text(dump(cfg))
+    load.write_config(cfg)
 
 
 def set_close_timeout(seconds: int) -> None:
@@ -134,7 +133,7 @@ def set_close_timeout(seconds: int) -> None:
         raise ValueError("a timeout is at least 0 (0 = never close)")
     cfg = load.config_for_write()
     cfg["park_timeout_s"] = seconds
-    paths.config_file().write_text(dump(cfg))
+    load.write_config(cfg)
 
 
 def set_agent_close_timeout(agent: str, seconds: int | None) -> None:
@@ -175,7 +174,7 @@ def set_ignore_cache_expiry(on: bool) -> None:
         cfg["ignore_cache_expiry"] = True
     else:
         cfg.pop("ignore_cache_expiry", None)
-    paths.config_file().write_text(dump(cfg))
+    load.write_config(cfg)
 
 
 def set_agent_ignore_cache_expiry(agent: str, on: bool | None) -> None:
