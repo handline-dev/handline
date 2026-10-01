@@ -257,7 +257,7 @@ def _human_inbox(show_all: bool = False) -> int:
             waiting = {m["id"] for m in rows}
             done = con.execute(
                 "SELECT id, ts, requester, target, state, body, verdict, "
-                "dismissed_by, dismissed_reason FROM requests "
+                f"dismissed_by, dismissed_reason, {db.ANSWER_SQL} FROM requests "
                 "WHERE (target = ? OR requester = ?) AND state != 'queued' "
                 "ORDER BY id DESC LIMIT 20", (actions.HUMAN, actions.HUMAN)).fetchall()
             done = [r for r in done if r["id"] not in waiting]
@@ -370,7 +370,7 @@ def cmd_read(args) -> int:
             print("--- dismissed" + (f" by {textsafe.oneline(by)}" if by else "") + " ---")
             if reason:
                 print(textsafe.text(reason))
-        elif row["verdict"]:
+        elif db.shown_verdict(row):
             print()
             # db.NEVER_REACHED_TARGET (denied, withdrawn, replaced) never
             # reached the target, so none of them came back as an answer -
@@ -382,7 +382,7 @@ def cmd_read(args) -> int:
             print(f"--- {_NEVER_ANSWERED_HEADERS[row['state']]} ---"
                   if row["state"] in _NEVER_ANSWERED_HEADERS
                   else f"--- answered by {row['target']} ---")
-            print(textsafe.text(row["verdict"]))
+            print(textsafe.text(db.shown_verdict(row)))
         return 0
     finally:
         con.close()

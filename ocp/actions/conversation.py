@@ -25,7 +25,8 @@ def _chat_rows(con, agent: str) -> list:
     """Every row of every chain the human and `agent` have a row in."""
     return con.execute(
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-        "dismissed_by, dismissed_reason, chain_id, delivered_at, typed_at, landed_at FROM requests "
+        "dismissed_by, dismissed_reason, chain_id, delivered_at, typed_at, landed_at, "
+        f"{db.ANSWER_SQL} FROM requests "
         "WHERE state != 'denied' AND settles IS NULL AND chain_id IN ("
         "  SELECT chain_id FROM requests WHERE "
         "  (requester = ? AND target = ?) OR (requester = ? AND target = ?)) "

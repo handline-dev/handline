@@ -6988,6 +6988,14 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
         check("shown_verdict: a real answer that only starts alike is left alone",
               db.shown_verdict(db.get_request(con, real))
               == "read - no reply is not what I mean")
+        # T835 step 2: the say that answered a request is what is shown; the verdict is the fallback.
+        con.execute("UPDATE requests SET verdict = 'stale copy' WHERE id = ?", (real,))
+        said = db.add_answer(con, real, "what was really said")
+        check("shown_verdict: the answering say wins over the verdict copy",
+              db.shown_verdict(db.get_request(con, real)) == "what was really said")
+        con.execute("DELETE FROM requests WHERE id = ?", (said,))
+        check("shown_verdict: with no answering say the verdict is shown",
+              db.shown_verdict(db.get_request(con, real)) == "stale copy")
 
         for rid, label in ((new, "new"), (old, "old")):
             rc, out = _cli(["read", str(rid)])

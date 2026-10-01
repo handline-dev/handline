@@ -525,7 +525,7 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
     """
     rows = con.execute(
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-        "dismissed_by, dismissed_reason "
+        f"dismissed_by, dismissed_reason, {db.ANSWER_SQL} "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
         "AND state != 'denied' AND settles IS NULL ORDER BY id DESC LIMIT ?",
         (HUMAN, other, other, HUMAN, EXCHANGE_ROWS + len(skip)),

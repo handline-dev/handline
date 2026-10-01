@@ -92,7 +92,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
-    sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
+    sql = (f"SELECT id, ts, resolved_at, requester, target, state, body, verdict, {db.ANSWER_SQL}, "
            "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, parent_id, kind, "
            "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
