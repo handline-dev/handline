@@ -27,6 +27,13 @@ def unannounced_answers(con, agent: str) -> list:
     ).fetchall()
 
 
+def mark_read(con, ids: list[int]) -> None:
+    """The founder has these in front of him (T781): the one place `read_at` is written, once."""
+    now = int(time.time())
+    con.executemany("UPDATE requests SET read_at = COALESCE(read_at, ?) WHERE id = ? AND target = ?",
+                    [(now, int(i), HUMAN) for i in ids])
+
+
 def mark_announced(con, ids: list[int]) -> None:
     now = int(time.time())
     con.executemany("UPDATE requests SET announced_at = ? WHERE id = ?",
@@ -46,12 +53,18 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     # writes waits for the daemon's check (`delivery.enforce_edges`) before
     # anyone can be handed it.
     edge_ok = None if protected.in_agent_session() else 1
+    now = int(time.time())
+    # T781: a say to the founder is born landed - nothing is typed at him, so nothing is owed - and
+    # unread (`read_at` NULL) until he reads it. 'done' is the landed state until the states collapse.
+    landed = target == HUMAN and kind == "say" and state == "queued"
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, timebox_s, edge_ok) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (int(time.time()), requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict, chain_id, int(fyi), timebox_s, edge_ok),
+        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, timebox_s, edge_ok, "
+        "landed_at, resolved_at, announced_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (now, requester, target, body, files, relation, response, kind,
+         chain_depth, parent_id, "done" if landed else state, verdict, chain_id, int(fyi), timebox_s, edge_ok,
+         now if landed else None, now if landed else None, now if landed else None),
     )
     rid = int(cur.lastrowid)
     if chain_id is None:

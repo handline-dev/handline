@@ -259,7 +259,9 @@ def mailbox_rows(con) -> list[dict]:
     gates = set(db.open_decision_card_ids(con))
     for r in con.execute(
         "SELECT id, ts, requester, target, kind, response, body, parent_id, fyi "
-        "FROM requests WHERE target = ? AND state = 'queued' ORDER BY id",
+        "FROM requests WHERE target = ? AND (state = 'queued' OR "
+        "(kind = 'say' AND state = 'done' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL)) "
+        "ORDER BY id",
         (HUMAN,),
     ).fetchall():
         # Both rows are built by hand and to one shape: a reader of this list
@@ -315,6 +317,9 @@ def for_you_seen(con, agent: str, upto: int) -> None:
     nothing unread is ever hidden. Only the list forgets it; the top summary still counts decisions."""
     key = f"for_you_seen:{agent}"
     db.set_cursor(con, key, max(upto, db.get_cursor(con, key)))
+    db.mark_read(con, [r["id"] for r in con.execute(
+        "SELECT id FROM requests WHERE target = ? AND requester = ? AND id <= ? AND read_at IS NULL",
+        (HUMAN, agent, upto))])
 
 
 def unseen_rows(con) -> list[dict]:
@@ -421,7 +426,9 @@ def founder_waits(con) -> list[dict]:
 
 
 def opened_by_human(con, rid: int) -> None:
-    """Reading a report or an answer is what clears it: neither asks anything.
+    """Reading a message is what clears it from For you (T781): `read_at` is set, once, here and by
+    `for_you_seen` - the one rule is "it has been put in front of him". A report or an answer asks
+    nothing.
 
     No verdict is written. A report is not a question, so being read is not an
     answer - and a verdict here would be one the sending agent can read back
@@ -430,6 +437,7 @@ def opened_by_human(con, rid: int) -> None:
     reading it only stops it being listed, as `dismiss` does for a closed row.
     """
     row = db.get_request(con, rid)
+    db.mark_read(con, [rid])
     if row and row["fyi"] and row["target"] == HUMAN:
         db.retire_queued(con, rid, "done", None)
     elif row and _is_answer_to_human(row):

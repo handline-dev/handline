@@ -6924,13 +6924,13 @@ limits:
         ok, msg1, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
         check("reason gaps: setup - the fyi actually lands", ok, msg1)
         r1 = db.get_request(con, f1)
-        check("ask --fyi writes a say, marked send-now, never a report row",
-              r1["kind"] == "say" and r1["fyi"] == 1 and db.send_now_pending(con, askmod.HUMAN),
+        check("ask --fyi writes a say to the founder, born landed and unread, never a report row",
+              r1["kind"] == "say" and r1["fyi"] == 1 and r1["state"] == "done" and r1["landed_at"]
+              and r1["read_at"] is None and not db.send_now_pending(con, askmod.HUMAN),
               str(dict(r1)))
         ok, msg2, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
-        check("reason gaps: setup - the second fyi lands and supersedes the first", ok, msg2)
-        check("reason gaps: setup - the loop actually retired the first fyi",
-              db.get_request(con, f1)["state"] == "replaced", str(dict(db.get_request(con, f1))))
+        check("reason gaps: setup - the second fyi lands, and the first stays as it was (unread)", ok
+              and db.get_request(con, f1)["state"] == "done" and db.get_request(con, f1)["read_at"] is None, msg2)
         gaps3 = actions.reason_gaps(con)
         check("reason gaps: an fyi superseding an fyi is not counted as a retirement",
               gaps3["retirements"] == gaps2["retirements"], str(gaps3))

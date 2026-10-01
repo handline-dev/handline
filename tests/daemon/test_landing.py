@@ -352,6 +352,62 @@ def test_a_task_head_is_told_again_when_it_never_landed(home: Path) -> None:
         con.close()
 
 
+def test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(home: Path) -> None:
+    sent = _world(home)
+    ok, msg, rid = askmod.say(askmod.HUMAN, "status: the retry loop is fixed", requester="backend")
+    con = db.connect()
+    try:
+        row = db.get_request(con, rid)
+        check("founder: a say to him is landed at once, and unread", ok and row["state"] == "done"
+              and row["landed_at"] and row["read_at"] is None, f"{msg} {dict(row)}")
+        check("founder: and it is in For you", rid in [m["id"] for m in actions.mailbox_rows(con)])
+        dmn_delivery.deliver_queued(con, askmod.HUMAN, lambda _m: None)
+        dmn_messaging.tell_undelivered(con, askmod.HUMAN, lambda _m: None)
+        landing.sweep(con, askmod.HUMAN, lambda _m: None)
+        check("founder: the daemon never types it", not sent and not db.get_request(con, rid)["typed_at"], str(sent))
+        actions.opened_by_human(con, rid)
+        first = db.get_request(con, rid)["read_at"]
+        check("founder: opening it sets read_at, and it leaves For you", first is not None
+              and rid not in [m["id"] for m in actions.mailbox_rows(con)])
+        con.execute("UPDATE requests SET read_at = read_at - 50 WHERE id = ?", (rid,))
+        actions.opened_by_human(con, rid)
+        check("founder: reading it again does not move read_at", db.get_request(con, rid)["read_at"] == first - 50)
+        ok, _, rid2 = askmod.say(askmod.HUMAN, "second", requester="backend")
+        ok, _, rid3 = askmod.say(askmod.HUMAN, "third", requester="backend")
+        actions.for_you_seen(con, "backend", rid3)
+        check("founder: a chat that has drawn them reads them - one rule, the same read_at",
+              all(db.get_request(con, r)["read_at"] is not None for r in (rid2, rid3)))
+    finally:
+        con.close()
+
+
+def test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(home: Path) -> None:
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        old_q = db.add_request(con, "backend", "human", "queued before", None, None, None, None, 0, None)
+        con.execute("UPDATE requests SET kind = 'say' WHERE id = ?", (old_q,))      # as the old writers left it: queued
+        con.execute("UPDATE requests SET state = 'queued', landed_at = NULL, resolved_at = NULL, announced_at = NULL "
+                    "WHERE id = ?", (old_q,))
+        old_done = db.add_request(con, "backend", "human", "dealt with", None, None, None, "say", 0, None)
+        con.execute("UPDATE requests SET read_at = NULL, resolved_at = 77 WHERE id = ?", (old_done,))
+        card = db.add_request(con, "backend", "human", "decide this", None, None, None, "task", 0, None)
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:founder_says_landed'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        r = db.get_request(con, old_q)
+        check("migration: a say still queued for the founder is landed and unread",
+              r["state"] == "done" and r["landed_at"] and r["read_at"] is None, str(dict(r)))
+        check("migration: what he had already dealt with reads as read, when it was closed",
+              db.get_request(con, old_done)["read_at"] == 77)
+        c = db.get_request(con, card)
+        check("migration: a task he holds stays a task, queued", c["state"] == "queued" and c["read_at"] is None)
+    finally:
+        con.close()
+
+
 def test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(home: Path) -> None:
     sent = _world(home)
     _, row = _typed_row(sent)
@@ -413,6 +469,8 @@ def main() -> int:
         run(lambda: test_a_task_head_is_told_again_when_it_never_landed(Path(td) / "l5"))
         run(lambda: test_sessions_that_ended_do_not_make_a_later_miss_lost(Path(td) / "l9"))
         run(lambda: test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_again(Path(td) / "l10"))
+        run(lambda: test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(Path(td) / "l15"))
+        run(lambda: test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(Path(td) / "l16"))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
         run(lambda: test_the_conversation_says_where_a_request_is(Path(td) / "l7"))
         run(lambda: test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(Path(td) / "l8"))

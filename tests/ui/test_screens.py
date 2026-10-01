@@ -121,32 +121,33 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         check("fyi: it is in the mailbox, not a gate", not row["gate"], str(row))
 
         ok, _m, f2 = askmod.ask(actions.HUMAN, "status: done", requester="backend", fyi=True)
-        check("fyi: the sender's next report closes the earlier one",
-              db.get_request(con, f1)["state"] == "replaced"
-              and db.get_request(con, f2)["state"] == "queued")
+        check("fyi: the sender's next report does not retire the earlier one - both are landed and unread",
+              all(db.get_request(con, f)["state"] == "done" and db.get_request(con, f)["landed_at"]
+                  and db.get_request(con, f)["read_at"] is None for f in (f1, f2)))
         ok, _m, other = askmod.ask(actions.HUMAN, "other's report", requester="frontend",
                                    fyi=True)
-        check("fyi: another sender's report is left alone",
-              db.get_request(con, f2)["state"] == "queued")
+        check("fyi: another sender's report is its own unread row",
+              db.get_request(con, other)["read_at"] is None)
 
         real_who = askmod.asking_agent
         try:
             askmod.asking_agent = lambda: "backend"
             _capture(lambda: cliask.cmd_read(argparse.Namespace(id=f2, wait=False)))
-            check("fyi: an agent reading it does not close it",
-                  db.get_request(con, f2)["state"] == "queued")
+            check("fyi: an agent reading it does not mark it read",
+                  db.get_request(con, f2)["read_at"] is None)
             askmod.asking_agent = lambda: actions.HUMAN
             _capture(lambda: cliask.cmd_read(argparse.Namespace(id=f2, wait=False)))
-            check("fyi: the founder's `ocp read` closes it",
-                  db.get_request(con, f2)["state"] == "done")
-            check("fyi: `ocp read` closing it leaves no verdict either",
+            check("fyi: the founder's `ocp read` marks it read",
+                  db.get_request(con, f2)["read_at"] is not None and db.get_request(con, f2)["state"] == "done")
+            check("fyi: `ocp read` leaves no verdict either",
                   db.get_request(con, f2)["verdict"] is None)
         finally:
             askmod.asking_agent = real_who
-        _set_request_state(con, f2, "queued")
+        first_read = db.get_request(con, f2)["read_at"]
+        con.execute("UPDATE requests SET read_at = read_at - 100 WHERE id = ?", (f2,))
         actions.opened_by_human(con, f2)
         row = db.get_request(con, f2)
-        check("fyi: opening it closes it", row["state"] == "done")
+        check("fyi: opening it again does not move when it was read", row["read_at"] == first_read - 100)
         check("fyi: opening it leaves no verdict", row["verdict"] is None, row["verdict"])
         check("fyi: opening it does not read back to the sender",
               f2 not in [r["id"] for r in db.unannounced_answers(con, "backend")])
