@@ -278,6 +278,8 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
         "announced_at = COALESCE(announced_at, ?) WHERE id = ?",
         (state, verdict, now if state != "queued" else None,
          now if announced else None, rid))
+    if state != "queued" and verdict is not None and db.answer_row_of(con, rid) is None:
+        db.add_answer(con, rid, verdict, told=announced)     # what a closer leaves, T835 step 3
     db.refresh_sent_of_request(con, rid)
 
 

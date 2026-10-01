@@ -607,6 +607,7 @@ def _close_and_tell(con, rid: int, row, verdict: str, notify: bool):
     target = row["target"]
     if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify):
         return None
+    db.add_event(con, row["requester"], "closed_under", {"request_id": rid, "target": target})
     said = []
     if row["delivered_at"]:
         typed, why = dmn_delivery.notify_cancelled(con, row, verdict)

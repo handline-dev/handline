@@ -1848,8 +1848,7 @@ def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) ->
         for i in range(5):
             rid = db.add_request(con, "backend", "reviewer", f"q{i} " + "x" * 50, None,
                                  "peer", "async", "task", 0, None)
-            con.execute("UPDATE requests SET state = 'landed', verdict = ? WHERE id = ?",
-                        (f"answer {i}\nmore", rid))
+            support._set_request_state(con, rid, "landed", f"answer {i}\nmore")
         dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         check("lines: five answers, one of them cut, are typed in three lines",
               len(sent) == 1 and sent[0].count("\n") <= 2 and "also answered" in sent[0], repr(sent))
@@ -2703,7 +2702,7 @@ def test_a_cold_session_close_that_fails_falls_back_to_typing(home: Path) -> Non
         st, now = _cold_backend(home, con, sent)
         rid = db.add_request(con, "backend", "reviewer", "spec?", None,
                              "peer", "async", None, 0, None)
-        con.execute("UPDATE requests SET state = 'landed', verdict = 'yes' WHERE id = ?", (rid,))
+        support._set_request_state(con, rid, "landed", "yes")
         dmn_lifecycle.close_agent = lambda *a, **k: (tries.append(1) or (False, "refused"))
         dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
         check("cold close fails: the failing tick types nothing into the cold session",

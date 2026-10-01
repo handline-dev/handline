@@ -221,6 +221,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
                                   "async", None, 0, None)
         con.execute("UPDATE requests SET state='landed', verdict='the answer', ts=?, "
                     "resolved_at=? WHERE id=?", (tie_ts, tie_ts, answered))
+        db.add_answer(con, answered, "the answer", at=tie_ts)
         newer_report = db.add_request(con, "punctual", actions.HUMAN, "the report", None,
                                       "peer", "fire_and_forget", "say", 0, None)
         con.execute("UPDATE requests SET ts=? WHERE id=?", (tie_ts, newer_report))
@@ -235,6 +236,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
                                  "async", None, 0, None)
             con.execute("UPDATE requests SET state='landed', verdict=? WHERE id=?",
                        (body, rid))
+            db.add_answer(con, rid, body)
         con.commit()
         rev = by("reviewer")
         check("fold: several answers from one agent become one line too",
@@ -331,6 +333,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
                                  "async", None, 0, None)
             con.execute("UPDATE requests SET state='landed', verdict=? WHERE id=?",
                        (body, rid))
+            db.add_answer(con, rid, body)
         for body in ("r1", "r2", "r3"):
             db.add_request(con, "counted", actions.HUMAN, body, None, "peer",
                            "fire_and_forget", "say", 0, None)

@@ -4934,8 +4934,8 @@ def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> No
               and ans["body"] == "the answer" and ans["kind"] == "say" and ans["settles"] == rid
               and ans["state"] == "landed"
               and ans["chain_id"] == db.get_request(con, rid)["chain_id"], str(dict(ans) if ans else None))
-        check("answer row: it is already read, so nobody is told twice",
-              ans["announced_at"] is not None)
+        check("answer row: it is how the asker is told - unshown until then, and listed meanwhile",
+              ans["delivered_at"] is None and rid in [r["id"] for r in db.unannounced_answers(con, "worker")])
         db.append_verdict(con, rid, "and one more line")
         check("answer row: a line added to the verdict is added to the message",
               db.get_request(con, rid)["verdict"].endswith("one more line")
@@ -7010,6 +7010,8 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
 
         con.execute("UPDATE requests SET resolved_at = ? WHERE id IN (?, ?, ?)",
                     (int(time.time()), old, old_blank, real))
+        for legacy in (old, old_blank):         # as the upgrade leaves an untold old answer: it has a say
+            db.add_answer(con, legacy, db.get_request(con, legacy)["verdict"])
         mail = {m["id"]: m for m in actions.mailbox_rows(con)}
         check("dismissed: the founder's mailbox draws the label, not the literal",
               all(rid in mail and "dismissed" in mail[rid]["body"]
@@ -7074,8 +7076,7 @@ def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path)
         check("dismiss: an agent's own answered request keeps its verdict",
               db.get_request(con, rid)["verdict"] == "yes, ship it",
               db.get_request(con, rid)["verdict"])
-        check("dismiss: and is marked read",
-              db.get_request(con, rid)["announced_at"] is not None)
+        check("dismiss: and is marked read", db.answer_row_of(con, rid)["delivered_at"] is not None)
 
         actions.dismiss(con, rid)
         check("dismiss: dismissing it a second time still keeps the verdict",

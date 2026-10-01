@@ -443,6 +443,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _kinds_are_say(con)
     _founder_says_landed(con)
     _fyi_are_says(con)
+    _answers_told_on_the_say(con)
     _requests_one_state(con)
     _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
@@ -820,6 +821,26 @@ def _fyi_are_says(con) -> None:
                 "resolved_at = COALESCE(resolved_at, ts), announced_at = COALESCE(announced_at, ts) "
                 "WHERE fyi = 1 AND \"state\" = 'queued'", (now,))
     set_cursor(con, "migrated:fyi_are_says", 1)
+
+
+def _answers_told_on_the_say(con) -> None:
+    """T835 step 3: whether the asker was told how a request came back is kept on the answering
+    say (`delivered_at`), not on the request (`announced_at`). A closed request still waiting to be
+    told that has no answering say gets one (its verdict, or nothing, as the reason it closed);
+    every answering say takes the request's telling. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:answers_told_on_the_say"):
+        return
+    from . import requests as dbreq
+    for r in con.execute(
+            "SELECT id, verdict, COALESCE(resolved_at, ts) AS at FROM requests "
+            "WHERE \"state\" IN ('landed', 'withdrawn') AND announced_at IS NULL AND dismissed_by IS NULL "
+            "AND COALESCE(kind, '') != 'say' AND settles IS NULL "
+            "AND id NOT IN (SELECT settles FROM requests WHERE settles IS NOT NULL) "
+            "AND resolved_at IS NOT NULL ORDER BY id").fetchall():
+        dbreq.add_answer(con, r["id"], r["verdict"] or "", at=r["at"])
+    con.execute("UPDATE requests SET delivered_at = (SELECT q.announced_at FROM requests q "
+                "WHERE q.id = requests.settles) WHERE settles IS NOT NULL AND delivered_at IS NULL")
+    set_cursor(con, "migrated:answers_told_on_the_say", 1)
 
 
 def _requests_one_state(con) -> None:
