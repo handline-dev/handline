@@ -330,14 +330,15 @@ def _request_answered(row) -> bool:
 
 
 def _task_done_targets(con, tid: int) -> set[str]:
-    """Who besides the task's owner may mark it done (#71 SHOULD-FIX 1,
-    orcapipe's #2195 decision): the target of any request linked to the
-    task that is still open (queued) or came back done - #1914 means every
-    orcapipe task is owned by orcapipe itself, so the owner alone would
-    leave only orcapipe able to mark anything done, never the builder
-    founder #2154 actually asked. A request some other way settled
-    (rejected, withdrawn, replaced, denied) named nobody real for this."""
-    return {r["target"] for r in db.task_requests(con, tid) if r["state"] in ("queued", "done")}
+    """Who besides the task's owner may mark it done (#71 SHOULD-FIX 1, orcapipe's #2195 decision):
+    the one a delivery of the task itself went to - a request of kind task, still open or come back
+    done - so a task owned by one agent and built by another is closed by its builder. Being the
+    target of some other request that was merely linked to the task (a question, a report) is no
+    right to close it (T792): anyone who answers a request could link it to a task, and a task an
+    agent could close that way is anyone's, the founder's decisions included. A request some other
+    way settled (rejected, withdrawn, replaced, denied) named nobody real for this."""
+    return {r["target"] for r in db.task_requests(con, tid)
+            if r["kind"] == "task" and r["state"] in ("queued", "done")}
 
 
 def open_decision(me: str, body: str) -> tuple[bool, str, int | None]:
