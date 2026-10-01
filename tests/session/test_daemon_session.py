@@ -341,6 +341,49 @@ def test_dev_mode_config_round_trips(home: Path) -> None:
           dmn_devmode.dev_mode_enabled() is False, str(dmn_devmode.dev_mode_enabled()))
 
 
+def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_again(home: Path) -> None:
+    """The real `_dev_mode_should_restart`, with the tree, the import check and the switch stood in for:
+    one import check per new fingerprint, `seen` set only after it passes, a decline (the caller takes
+    `seen` as its baseline) quiet until the fingerprint moves, and turning dev mode off forgets `seen`."""
+    use_home(home)
+    code, checks, on = {"fp": "v1", "ok": True}, [], {"on": True}
+    real = (dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled)
+    dmn_devmode._code_fingerprint = lambda root: code["fp"]
+
+    def import_check(log_):
+        checks.append(code["fp"])
+        return code["ok"]
+    dmn_devmode._dev_import_check = import_check
+    dmn_devmode.dev_mode_enabled = lambda: on["on"]
+    state = {"fp": None, "warned": None, "seen": None}
+    log = lambda m: None  # noqa: E731
+    try:
+        dmn_devmode._dev_mode_should_restart(state, log)
+        code["ok"] = False
+        code["fp"] = "v2"
+        check("dev-mode seen: a change that fails the check is not seen",
+              dmn_devmode._dev_mode_should_restart(state, log) is False and state["seen"] is None and checks == ["v2"],
+              str((state, checks)))
+        code["ok"], code["fp"] = True, "v3"
+        check("dev-mode seen: a change that passes is reported and seen", 
+              dmn_devmode._dev_mode_should_restart(state, log) is True and state["seen"] == "v3", str(state))
+        dmn_devmode._dev_mode_should_restart(state, log)
+        dmn_devmode._dev_mode_should_restart(state, log)
+        check("dev-mode seen: it is reported each tick but checked once", checks == ["v2", "v3"], str(checks))
+        state["fp"] = state["seen"]
+        check("dev-mode seen: a decline is quiet", dmn_devmode._dev_mode_should_restart(state, log) is False
+              and checks == ["v2", "v3"], str(checks))
+        code["fp"] = "v4"
+        check("dev-mode seen: a newer fingerprint is checked and reported again",
+              dmn_devmode._dev_mode_should_restart(state, log) is True and checks[-1] == "v4"
+              and state["seen"] == "v4", str((state, checks)))
+        on["on"] = False
+        dmn_devmode._dev_mode_should_restart(state, log)
+        check("dev-mode seen: turning it off forgets it", state == {"fp": None, "warned": None, "seen": None}, str(state))
+    finally:
+        dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled = real
+
+
 def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -> None:
     """`_dev_mode_should_restart` (called once a tick): the first call after
     dev mode turns on is the baseline, not a change; a later call with an
@@ -5076,6 +5119,8 @@ def main() -> int:
         run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
             Path(td) / 'readguarddaemon'))
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))
+        run(lambda: test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_again(
+            Path(td) / 'devmodeseen'))
         run(lambda: test_dev_mode_fingerprint_and_restart_decision(
             Path(td) / 'devmodefp_repo', Path(td) / 'devmodefp_home'))
         run(lambda: test_dev_mode_watches_subpackages(Path(td) / 'devmodesub'))

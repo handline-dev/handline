@@ -1817,18 +1817,12 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
     from ocp.ui import chat_page as cp
     from ocp.ui.components.confirm import Confirm
     _home("coderestart")
-    real, real_every = devmode._dev_mode_should_restart, bt.CODE_CHECK_S
+    real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S)
     bt.CODE_CHECK_S = 0.05
-    code = {"fp": "v1"}
-
-    def fake(state, log):       # what devmode does with a fingerprint, with the tree stood in for
-        if state["fp"] is None:
-            state["fp"] = code["fp"]
-        if state["fp"] == code["fp"]:
-            return False
-        state["seen"] = code["fp"]
-        return True
-    devmode._dev_mode_should_restart = fake
+    code = {"fp": "v1"}      # the tree, the import check and the switch stood in for; the decision is devmode's own
+    devmode._code_fingerprint = lambda root: code["fp"]
+    devmode._dev_import_check = lambda log: True
+    devmode.dev_mode_enabled = lambda: True
     try:
         app = bt.BridgeApp()
         async with app.run_test(size=(100, 30)) as pilot:
@@ -1853,8 +1847,7 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             await pilot.pause(0.4)
             check("code restart: y exits with a restart owed", app.restart_on_exit and not app.is_running)
 
-        code["fp"] = "v1"
-        devmode._dev_mode_should_restart = lambda state, log: False
+        code["fp"] = "w1"
         app = bt.BridgeApp()
         async with app.run_test(size=(100, 30)) as pilot:
             page = cp.ChatPage("reviewer")
@@ -1862,7 +1855,8 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             await pilot.pause()
             box = page.query_one("#compose", cp.ChatBox)
             box.text = "half a thought"
-            devmode._dev_mode_should_restart = lambda state, log: True
+            await pilot.pause(0.2)
+            code["fp"] = "w2"
             await pilot.pause(0.4)
             check("code restart: a draft in the box is not asked over, the question owed",
                   app.is_running and app.restart_owed and app.screen is page)
@@ -1879,7 +1873,6 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             await pilot.pause(0.4)
             check("code restart: nothing left to lose, the owed question is asked",
                   isinstance(app.screen, Confirm) and app.screen is not other)
-            devmode._dev_mode_should_restart = lambda state, log: False
             await pilot.press("escape")
             await pilot.pause(0.2)
             await pilot.press("f5")
@@ -1889,7 +1882,7 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             await pilot.pause(0.3)
             check("code restart: and y restarts", app.restart_on_exit and not app.is_running)
     finally:
-        devmode._dev_mode_should_restart, bt.CODE_CHECK_S = real, real_every
+        devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S = real
 
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:

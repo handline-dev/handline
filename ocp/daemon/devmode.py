@@ -86,6 +86,7 @@ def _dev_mode_should_restart(state: dict, log) -> bool:
     if not dev_mode_enabled():
         state["fp"] = None
         state["warned"] = None
+        state["seen"] = None
         return False
     root = paths.repo_root()
     fp = _code_fingerprint(root)
