@@ -101,7 +101,7 @@ def refresh_sent(con, tid: int) -> None:
     con.execute(
         "UPDATE tasks SET sent_at = CASE WHEN EXISTS "
         "(SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id WHERE l.task_id = tasks.id "
-        "AND r.fyi = 0 AND (r.state = 'queued' OR (r.state = 'landed' AND r.kind = 'task' "
+        "AND (r.state = 'queued' OR (r.state = 'landed' AND r.kind = 'task' "
         "AND r.target = tasks.owner AND r.resolved_at IS NULL))) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
         (int(time.time()), tid))
 
@@ -407,7 +407,7 @@ def live_delivery(con, tid: int, owner: str):
     task rows say whether it is still open. (`resolved_at` tells an answered one apart until the
     answers go.)"""
     rows = [r for r in task_requests(con, tid)
-            if r["kind"] == "task" and r["target"] == owner and not r["fyi"]
+            if r["kind"] == "task" and r["target"] == owner
             and (r["state"] == "queued" or r["state"] == "landed" and r["resolved_at"] is None)]
     return rows[-1] if rows else None
 

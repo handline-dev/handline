@@ -112,20 +112,18 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
             return [w for w in actions.founder_waits(con) if w["kind"] == "decision"]
 
         ok, _m, q = askmod.ask(actions.HUMAN, "merge keeper-3?", requester="backend")
-        ok1, _m, f1 = askmod.ask(actions.HUMAN, "status: half done", requester="backend",
-                                 fyi=True)
+        ok1, _m, f1 = askmod.say(actions.HUMAN, "status: half done", requester="backend")
         check("fyi: accepted", ok and ok1)
         check("fyi: only the question is waiting on the founder, in red",
               [w["what"].startswith(f"#{q}") for w in esc()] == [True], str(esc()))
         row = next(m for m in actions.messages(con) if m["id"] == f1)
         check("fyi: it is in the mailbox, not a gate", not row["gate"], str(row))
 
-        ok, _m, f2 = askmod.ask(actions.HUMAN, "status: done", requester="backend", fyi=True)
+        ok, _m, f2 = askmod.say(actions.HUMAN, "status: done", requester="backend")
         check("fyi: the sender's next report does not retire the earlier one - both are landed and unread",
               all(db.get_request(con, f)["state"] == "landed" and db.get_request(con, f)["landed_at"]
                   and db.get_request(con, f)["read_at"] is None for f in (f1, f2)))
-        ok, _m, other = askmod.ask(actions.HUMAN, "other's report", requester="frontend",
-                                   fyi=True)
+        ok, _m, other = askmod.say(actions.HUMAN, "other's report", requester="frontend")
         check("fyi: another sender's report is its own unread row",
               db.get_request(con, other)["read_at"] is None)
 
@@ -160,7 +158,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
         actions.opened_by_human(con, q)
         check("fyi: opening a question does not answer it",
               db.get_request(con, q)["state"] == "queued")
-        ok, msg, _ = askmod.ask("frontend", "x", requester="backend", fyi=True)
+        ok, msg, _ = askmod.say("frontend", "x", requester="backend")
         check("fyi: only the founder gets one", not ok, msg)
 
         # A resolve reply to something the founder asked clears the same way.
@@ -202,7 +200,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         for body, ts in (("almost there", base), ("half done", base - 20),
                          ("still going", base - 10)):
             rid = db.add_request(con, "backend", actions.HUMAN, body, None, "peer",
-                                 "fire_and_forget", "report", 0, None, fyi=True)
+                                 "fire_and_forget", "say", 0, None)
             con.execute("UPDATE requests SET ts=? WHERE id=?", (ts, rid))
         con.commit()
         rows = [m for m in actions.messages(con) if m["from"] == "backend"]
@@ -224,7 +222,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         con.execute("UPDATE requests SET state='landed', verdict='the answer', ts=?, "
                     "resolved_at=? WHERE id=?", (tie_ts, tie_ts, answered))
         newer_report = db.add_request(con, "punctual", actions.HUMAN, "the report", None,
-                                      "peer", "fire_and_forget", "report", 0, None, fyi=True)
+                                      "peer", "fire_and_forget", "say", 0, None)
         con.execute("UPDATE requests SET ts=? WHERE id=?", (tie_ts, newer_report))
         con.commit()
         check("fold: a same-second tie shows the row created after",
@@ -251,7 +249,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         # and leave `gate` untested: dropping it from messages() stayed green
         # against that shape (auditor's #1500).
         askmod.raise_decision(con, "backend", "which branch do we cut?", "test decision")
-        ok, _m, r4 = askmod.ask(actions.HUMAN, "even later", requester="backend", fyi=True)
+        ok, _m, r4 = askmod.say(actions.HUMAN, "even later", requester="backend")
         backend_rows = [m for m in actions.messages(con) if m["from"] == "backend"]
         check("fold: the gate keeps its own line beside the folded report",
               len(backend_rows) == 2, str(backend_rows))
@@ -264,16 +262,14 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         # A row parked waiting on a reply keeps its own line the same way.
         wid = db.add_request(con, "frontend", actions.HUMAN, "merge keeper-3?", None,
                              "peer", "async", None, 0, None)
-        ok, _m, f1 = askmod.ask(actions.HUMAN, "meanwhile: status", requester="frontend",
-                                fyi=True)
+        ok, _m, f1 = askmod.say(actions.HUMAN, "meanwhile: status", requester="frontend")
         front_rows = [m for m in actions.messages(con) if m["from"] == "frontend"]
         check("fold: a waiting-for-reply row keeps its own line",
               len(front_rows) == 2 and any(m["waiting"] for m in front_rows), str(front_rows))
 
         # The fold does not reorder agents that were not folded against each other.
         before = [m["from"] for m in actions.messages(con)]
-        ok, _m, other = askmod.ask(actions.HUMAN, "a third report", requester="other",
-                                   fyi=True)
+        ok, _m, other = askmod.say(actions.HUMAN, "a third report", requester="other")
         after = [m["from"] for m in actions.messages(con) if m["from"] != "other"]
         check("fold: agents untouched by folding keep their relative order",
               before == after, f"{before} -> {after}")
@@ -284,7 +280,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         # edge must not silently pin every report from it and switch the fold
         # off - `fyi` is what says no reply is owed, not `response`.
         db.add_request(con, "hand-edited", actions.HUMAN, "a report", None, "peer",
-                       "async", "report", 0, None, fyi=True)
+                       "async", "say", 0, None)
         edited = by("hand-edited")
         check("fold: an async-routed report still folds - fyi outranks response",
               not edited["waiting"] and not edited["gate"], str(edited))
@@ -293,7 +289,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         # (cli.ask._waiting_ids); a new report from an agent that already has a
         # folded row must still show up as a new id to wait for.
         before_ids = cliask._waiting_ids(con, actions.HUMAN)
-        ok, _m, r5 = askmod.ask(actions.HUMAN, "one more", requester="backend", fyi=True)
+        ok, _m, r5 = askmod.say(actions.HUMAN, "one more", requester="backend")
         after_ids = cliask._waiting_ids(con, actions.HUMAN)
         check("fold: a new folded message is still a new id to wait for",
               after_ids - before_ids, f"{before_ids} -> {after_ids}")
@@ -337,7 +333,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
                        (body, rid))
         for body in ("r1", "r2", "r3"):
             db.add_request(con, "counted", actions.HUMAN, body, None, "peer",
-                           "fire_and_forget", "report", 0, None, fyi=True)
+                           "fire_and_forget", "say", 0, None)
         con.commit()
         counted_line = by("counted")
         check("fold: still one line for that agent", counted_line["unread"] == 5,
@@ -1270,7 +1266,7 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
               and plain["target"] == "reviewer" and plain["parent_id"] is None, str(dict(plain)))
 
         # An open question is not answered by typing in the tab; only inside its card.
-        old_fyi = askmod.ask(actions.HUMAN, "status: started", requester="reviewer", fyi=True)[2]
+        old_fyi = askmod.say(actions.HUMAN, "status: started", requester="reviewer")[2]
         q1 = askmod.ask(actions.HUMAN, "first question?", requester="reviewer")[2]
         q2 = askmod.ask(actions.HUMAN, "second question?", requester="reviewer")[2]
         actions.chat_reply(con, "reviewer", "one")
@@ -1307,8 +1303,8 @@ def test_the_cursor_follows_a_row_that_leaves_the_list(home: Path) -> None:
     con = db.connect()
     try:
         # A report closing itself on open.
-        ok, _m, f1 = askmod.ask(actions.HUMAN, "r1", requester="backend", fyi=True)
-        ok, _m, f2 = askmod.ask(actions.HUMAN, "r2", requester="frontend", fyi=True)
+        ok, _m, f1 = askmod.say(actions.HUMAN, "r1", requester="backend")
+        ok, _m, f2 = askmod.say(actions.HUMAN, "r2", requester="frontend")
         actions.opened_by_human(con, f1)
         row = db.get_request(con, f1)
         check("opened: it leaves the mailbox", row["state"] != "queued", row["state"])
@@ -2225,9 +2221,9 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
     agents.register("reviewer")
     con = db.connect()
     try:
-        def say(text: str, chain: str | None, who: str = "reviewer", fyi: bool = False) -> int:
+        def say(text: str, chain: str | None, who: str = "reviewer", kind: str | None = None) -> int:
             return db.add_request(con, who, actions.HUMAN, text, None, "peer", "async",
-                                  None, 0, None, chain_id=chain, fyi=fyi)
+                                  kind, 0, None, chain_id=chain)
 
         for i in range(10):
             say(f"earlier {i}", "c1")
@@ -2238,7 +2234,7 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
               actions.message_place(con, target) == ("reviewer", 0),
               str(actions.message_place(con, target)))
 
-        report = say("FYI the gate is green", "c9", fyi=True)
+        report = say("FYI the gate is green", "c9", kind="say")
         actions.opened_by_human(con, report)
         chat, _ = actions.conversation_and_drawn(con, "reviewer")
         shown = [getattr(r, "text", "") for r in chat if getattr(r, "kind", None) == "msg"]

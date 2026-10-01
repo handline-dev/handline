@@ -4680,9 +4680,9 @@ def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
 
-    def request(requester, target, state="queued", fyi=False, ts=None):
-        rid = db.add_request(con, requester, target, "body", None, None, None, None, 0, None,
-                             state=state, fyi=fyi)
+    def request(requester, target, state="queued", say=False, ts=None):
+        rid = db.add_request(con, requester, target, "body", None, None, None, "say" if say else None,
+                             0, None, state="landed" if say else state)
         if ts:
             con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?", (ts, ts + 5, rid))
         return rid
@@ -4697,7 +4697,7 @@ def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_
         doing = db.new_task(con, "doing", "worker", "manager")
         db.link_request(con, doing, request("manager", "worker"))
         report = db.new_task(con, "only a report", "worker", "manager")
-        db.link_request(con, report, request("manager", "worker", fyi=True))    # asks nothing
+        db.link_request(con, report, request("manager", "worker", say=True))    # asks nothing
         begun = db.new_task(con, "begun on a founder message", "worker", "manager")
         db.add_event(con, "worker", "task_begin", {"task_id": begun})
         founder = db.new_task(con, "founder's own", "worker", "manager")
@@ -7151,7 +7151,7 @@ def test_reason_gaps_count_from_the_shapes_the_verbs_write(home: Path) -> None:
         # ever asking anyone for a reason, so it must not count as one.
         #
         # auditor's #1565 SF2: _board_world routes only manager<->worker, so
-        # `askmod.ask(HUMAN, ..., fyi=True)` was DENIED ("unknown target
+        # `askmod.say(HUMAN, ...)` was DENIED ("unknown target
         # 'human'") both times - no fyi row was ever built, the supersede
         # loop never ran, and "gaps3['retirements'] == gaps2['retirements']"
         # compared 0 retirements to 0. A route to human, added here rather
@@ -7172,14 +7172,14 @@ limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50
 """)
-        ok, msg1, f1 = askmod.ask(askmod.HUMAN, "fyi one", requester="manager", fyi=True)
+        ok, msg1, f1 = askmod.say(askmod.HUMAN, "fyi one", requester="manager")
         check("reason gaps: setup - the fyi actually lands", ok, msg1)
         r1 = db.get_request(con, f1)
         check("ask --fyi writes a say to the founder, born landed and unread, never a report row",
-              r1["kind"] == "say" and r1["fyi"] == 1 and r1["state"] == "landed" and r1["landed_at"]
+              r1["kind"] == "say" and r1["state"] == "landed" and r1["landed_at"]
               and r1["read_at"] is None and not db.send_now_pending(con, askmod.HUMAN),
               str(dict(r1)))
-        ok, msg2, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
+        ok, msg2, f2 = askmod.say(askmod.HUMAN, "fyi two", requester="manager")
         check("reason gaps: setup - the second fyi lands, and the first stays as it was (unread)", ok
               and db.get_request(con, f1)["state"] == "landed" and db.get_request(con, f1)["read_at"] is None, msg2)
         gaps3 = actions.reason_gaps(con)
@@ -8385,8 +8385,7 @@ limits:
               db.get_task(con, sn)["sent_at"] is None)
         ok, _, fy = actions.task_new("manager", "worker", "only a report linked", "w")
         db.close_if_queued(con, db.task_requests(con, fy)[0]["id"], "done", None)
-        rep = db.add_request(con, "worker", "manager", "fyi", None, None, "fire_and_forget", "say", 0, None)
-        con.execute("UPDATE requests SET fyi = 1 WHERE id = ?", (rep,))
+        rep = db.add_request(con, "worker", "human", "fyi", None, None, "fire_and_forget", "say", 0, None)
         db.link_request(con, fy, rep)
         check("sent_at: an fyi report linked to a task does not send it", db.get_task(con, fy)["sent_at"] is None)
         con.execute("UPDATE tasks SET sent_at = NULL")
@@ -9037,7 +9036,7 @@ limits:
         state = lambda t: actions.task_state(con, db.get_task(con, t))
         check("fyi: a draft is a draft", state(merged) == "draft")
         rid = db.add_request(con, "manager", "human", "T%d merged" % merged, None, "supervisor",
-                             "fire_and_forget", None, 0, None, fyi=True)
+                             "fire_and_forget", "say", 0, None)
         db.link_request(con, merged, rid)
         check("fyi: an --fyi linked to it leaves it a draft, not doing", state(merged) == "draft", state(merged))
         # T325: queuing delivers too, once worker is free for it - busy it
@@ -9068,7 +9067,7 @@ limits:
     try:
         mine = db.new_task(con, "report only", "manager", "manager")
         db.link_request(con, mine, db.add_request(con, "manager", "human", "T%d is merged" % mine, None,
-                                                  "supervisor", "fire_and_forget", None, 0, None, fyi=True))
+                                                  "supervisor", "fire_and_forget", "say", 0, None))
     finally:
         con.close()
     rc, out = _cli(["task", "board"], as_agent="manager")

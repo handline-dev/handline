@@ -899,7 +899,7 @@ def test_a_dialog_ocp_can_decline_is_cleared_and_reported(home: Path) -> None:
                                               for m in lines), str(lines))
         rep = _reports(con)
         check("clear: the founder is told, as a report that asks nothing",
-              len(rep) == 1 and rep[0]["fyi"] == 1 and rep[0]["state"] == "landed"
+              len(rep) == 1 and rep[0]["state"] == "landed"
               and 'cleared by ocp: pressed Esc on "Background work is running"' in rep[0]["body"]
               and "nothing was chosen" in rep[0]["body"] and "request #1" in rep[0]["body"],
               str([dict(r) for r in rep]))

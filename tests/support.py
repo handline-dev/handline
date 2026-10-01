@@ -937,8 +937,8 @@ def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
 
 
 def _reports(con) -> list:
-    return con.execute("SELECT id, kind, fyi, state, body FROM requests WHERE target = 'human' "
-                       "AND kind = 'say' AND fyi = 1 ORDER BY id").fetchall()
+    return con.execute("SELECT id, kind, state, body FROM requests WHERE target = 'human' "
+                       "AND kind = 'say' ORDER BY id").fetchall()
 
 
 def _worktree_with_a_dirty_file(root: Path) -> Path:

@@ -142,11 +142,11 @@ def raise_decision(con, agent: str, text: str, reason: str, files: str | None = 
 def report(con, agent: str, text: str, reason: str) -> int:
     """Tell the human something that asks nothing: a report, closed by reading it.
 
-    `agent` is who it is about. Fire and forget and `fyi`, so nothing is typed
-    back at `agent` and nothing waits on the human.
+    `agent` is who it is about. A say, so nothing is typed back at `agent` and
+    nothing waits on the human.
     """
     rid = db.add_request(con, agent, HUMAN, text, None, None, "fire_and_forget",
-                         "say", 0, None, fyi=True)
+                         "say", 0, None)
     deliver(rid, agent, HUMAN, text, None,
             team.Decision(True, reason, kind="say", response="fire_and_forget",
                           chain_depth=0))
@@ -216,7 +216,7 @@ _ENV = object()
 
 
 def ask(target: str, body: str, files: str | None = None, requester: str | None = None,
-        parent_id: int | None = None, fyi: bool = False,
+        parent_id: int | None = None,
         kind: str | None = None,
         send_now: bool = False,
         on_behalf_of: bool = False, speaker=_ENV,
@@ -241,10 +241,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     notice itself once this has returned the row (T351).
     """
     requester = requester or asking_agent()
-    if fyi and kind is None:            # a report asks nothing: it is a say to the founder (T361)
-        kind = SAY_KIND
-    if fyi and target != HUMAN:
-        return False, f"--fyi is a report to {HUMAN}; {target} is not {HUMAN}", None
     # Nobody may send as the human. That name carries two
     # privileges - the routing table lets it reach every agent, and a chain
     # through it is exempt from the loop guards, because the guards exist to
@@ -332,10 +328,10 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         rid = db.add_request(con, requester, target, body, files, decision.relation,
                              decision.response, kind or decision.kind,
                              depth, parent_id,
-                             chain_id=chain_id, fyi=fyi)
+                             chain_id=chain_id)
         if send_now:
             db.mark_send_now(con, rid)
-        if card and target == HUMAN and not fyi and kind is None and decision.kind == "task":
+        if card and target == HUMAN and kind is None and decision.kind == "task":
             # What is asked of the founder is a decision task, and this row its card;
             # `task new` opens its own task and says `card=False`.
             tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
@@ -343,13 +339,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             db.set_task_queued(con, tid, HUMAN)
             db.link_request(con, tid, rid)
         deliver(rid, requester, target, body, files, decision)
-        if fyi:
-            # One live report per sender: the newer one says what the older did.
-            for prev in con.execute(
-                    "SELECT id FROM requests WHERE requester = ? AND target = ? "
-                    "AND fyi = 1 AND state = 'queued' AND id != ?",
-                    (requester, HUMAN, rid)).fetchall():
-                db.retire_queued(con, int(prev["id"]), "replaced", f"replaced by #{rid}")
         db.add_event(con, requester, "ask", {
             "request_id": rid, "target": target, "relation": decision.relation,
             "response": decision.response, "chain_depth": depth,

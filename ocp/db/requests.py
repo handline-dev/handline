@@ -44,8 +44,7 @@ def mark_announced(con, ids: list[int]) -> None:
 def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
-                verdict: str | None = None, chain_id: str | None = None,
-                fyi: bool = False) -> int:
+                verdict: str | None = None, chain_id: str | None = None) -> int:
     """Insert a request. `queue_order`, not `id`, decides FIFO position - see
     `queued_for`; it starts as the id and only `promote_to_front` moves it.
     """
@@ -60,11 +59,11 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     state = LANDED if landed or state == "done" else state
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, edge_ok, "
+        "kind, chain_depth, parent_id, state, verdict, chain_id, edge_ok, "
         "landed_at, resolved_at, announced_at, state_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now, requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict, chain_id, int(fyi), edge_ok,
+         chain_depth, parent_id, state, verdict, chain_id, edge_ok,
          now if landed else None, now if landed else None, now if landed else None, now),
     )
     rid = int(cur.lastrowid)

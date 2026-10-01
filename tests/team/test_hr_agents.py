@@ -3127,7 +3127,7 @@ edges:
         check("approve: and the proposal stays open to retry or withdraw",
               hr.load_proposal(pid2)["state"] == "proposed")
         check("approve: and the founder gets a report of it",
-              con.execute("SELECT COUNT(*) c FROM requests WHERE fyi = 1 AND body LIKE ?",
+              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'say' AND target = 'human' AND body LIKE ?",
                           (f"%{pid2}%could not be applied%",)).fetchone()["c"] == 1)
 
         ok, said = hr.propose("add", "yerin", repo="/repo", requester="hr", why="two")
