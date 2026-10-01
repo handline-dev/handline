@@ -1173,9 +1173,10 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     return None
 
 
-def recent_assignees(con) -> list[str]:
-    """Who the founder last handed tasks to, newest first."""
-    return db.recent_handoff_targets(con, HUMAN)
+def recent_assignees(con, tid: int) -> list[str]:
+    """Who held T<tid> before, the latest holder first, without the founder and its holder now."""
+    row = db.get_task(con, tid)
+    return [a for a in db.task_holders(con, tid) if a != HUMAN and (row is None or a != row["owner"])]
 
 
 def has_team(holder: str) -> bool:
@@ -1186,7 +1187,7 @@ def has_team(holder: str) -> bool:
 
 def assign_targets(holder: str, agents: list[str], recent=()) -> tuple[list[str], list[str], list[str]]:
     """Who a task can be handed to, out of `agents`, as (recent, the holder's own team, everyone
-    else), without the holder and each agent once. `recent` is who was handed tasks lately, newest
+    else), without the holder and each agent once. `recent` is who held this task before, newest
     first, and comes first; the rest keep the order of `agents`. The team is the one team.yaml puts
     the holder in; a holder in no team has no own team."""
     t = routing()

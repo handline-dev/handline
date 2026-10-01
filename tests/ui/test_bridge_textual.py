@@ -2242,16 +2242,24 @@ def test_assign_offers_recent_targets_then_the_holders_team() -> None:
     agents.register("reviewer")
     con = db.connect()
     try:
-        check("assign to: nobody was handed anything yet", actions.recent_assignees(con) == [])
         ok, _, t1 = actions.task_new("product", "backend", "One", "the work and its done")
         ok, _, t2 = actions.task_new("product", "backend", "Two", "the work and its done")
-        said = [actions.assign_task(con, t1, "archivist", "you take it"),
-                actions.assign_task(con, t2, "archivist", "you take it"),
+        check("assign to: a task nobody else held has no recent group",
+              actions.recent_assignees(con, t1) == [], str(actions.recent_assignees(con, t1)))
+        said = [actions.assign_task(con, t2, "archivist", "you take it"),
                 actions.assign_task(con, t2, "reviewer", "you review it"),
-                actions.assign_task(con, t2, "archivist", "back")]
+                actions.assign_task(con, t2, "archivist", "again")]
         check("assign to: the handoffs used here went through", all(ok for ok, _ in said), str(said))
-        check("assign to: the founder's handoffs, newest first, each target once",
-              actions.recent_assignees(con) == ["archivist", "reviewer"], str(actions.recent_assignees(con)))
+        check("assign to: this task's earlier holders, latest first, without the founder, the product that asked, or its holder now",
+              actions.recent_assignees(con, t2) == ["reviewer", "backend"] and
+              actions.recent_assignees(con, t1) == [], str(actions.recent_assignees(con, t2)))
+        ok, said = actions.task_handoff(con, "archivist", t2, "human", "done, back to you")
+        check("assign to: a task that went back to the founder keeps the founder out of recent",
+              ok and "human" not in actions.recent_assignees(con, t2)
+              and "human" in db.task_holders(con, t2), str((ok, said, db.task_holders(con, t2))))
+        actions.assign_task(con, t1, "analytics", "other task, other agent")
+        check("assign to: another task's holders are not this task's",
+              "analytics" not in actions.recent_assignees(con, t2), "")
     finally:
         con.close()
 
