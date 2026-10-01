@@ -3663,6 +3663,80 @@ limits:
         con.close()
 
 
+def test_an_agent_cannot_make_itself_a_done_target_of_a_task_it_does_not_hold(home: Path) -> None:
+    """T792: dismiss/resolve --task links a task to a request; it may link only a task the actor owns or
+    was handed, and the target of a request merely linked (a question, a report) can not close the task."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+  hr: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker", "hr"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, _, founders = actions.task_new("manager", "human", "which name?", "pick one", expects="decision")
+        ask_rid = db.add_request(con, actions.HUMAN, "hr", "a side question", None, None, None, "say", 0, None)
+        ok, msg = actions.dismiss(con, ask_rid, me="hr", tasks=[founders])
+        check("link: an agent cannot link the founder's task to a request it is the target of",
+              not ok and "not yours" in msg and not db.task_requests(con, founders)[1:], msg)
+        ok, _, mine = actions.task_new("manager", "hr", "hr's own", "w")
+        ask2 = db.add_request(con, actions.HUMAN, "hr", "another", None, None, None, "say", 0, None)
+        ok, msg = actions.dismiss(con, ask2, me="hr", tasks=[mine])
+        check("link: a task the agent was handed can be named", ok, msg)
+        ok, _, others = actions.task_new("manager", "worker", "worker's", "w")
+        ask3 = db.add_request(con, actions.HUMAN, "hr", "third", None, None, None, "say", 0, None)
+        ok, msg = actions.dismiss(con, ask3, me="hr", tasks=[others])
+        check("link: and another agent's task cannot", not ok and "not yours" in msg, msg)
+        ok, msg = actions.dismiss(con, ask3, me=actions.HUMAN, tasks=[others])
+        check("link: the founder may name any task", ok, msg)
+
+        # a link made by hand, as an older ocp or a direct write could: it is no right to close
+        db.link_request(con, founders, ask_rid)
+        ok, msg = actions.mark_task_done(con, founders, "hr", reason="approve")
+        check("done: the target of a linked question can not mark the founder's task done", not ok, msg)
+        ok, msg = actions.mark_task_done(con, others, "hr", reason="not mine")
+        check("done: nor another agent's task", not ok, msg)
+        ok, msg = actions.mark_task_done(con, mine, "hr", reason="mine")
+        check("done: the holder can", ok, msg)
+        ok, msg = actions.mark_task_done(con, others, "worker", reason="its owner")
+        check("done: the owner can", ok, msg)
+        ok, msg = actions.mark_task_done(con, founders, actions.HUMAN, reason="the founder")
+        check("done: the founder can", ok, msg)
+
+        # the usual reply: a manager answers a founder request naming the task it opened for a report
+        ok, _, report = actions.task_new("manager", "worker", "opened for a report", "w")
+        fq = db.add_request(con, actions.HUMAN, "manager", "please look at it", None, None, None, "say", 0, None)
+        refusal = actions.check_human_resolve(con, db.get_request(con, fq), [report], None, "manager")
+        ok1, msg1 = actions.mark_task_done(con, report, "manager", reason="not mine to close")
+        check("link: the opener may name the task it opened for someone else, and still cannot close it",
+              refusal is None and not ok1, f"{refusal} / {msg1}")
+
+        # a task handed on: the one who gave it away is no longer its holder
+        ok, _, handed = actions.task_new("manager", "worker", "to be handed on", "w")
+        ok, msg = actions.task_handoff(con, "worker", handed, "hr", "yours now")
+        old_link = db.add_request(con, actions.HUMAN, "worker", "after the handoff", None, None, None, "say", 0, None)
+        ok1, msg1 = actions.dismiss(con, old_link, me="worker", tasks=[handed])
+        ok2, msg2 = actions.mark_task_done(con, handed, "worker", reason="not mine any more")
+        check("handoff: the old holder can neither name the task with --task nor close it",
+              ok and not ok1 and "not yours" in msg1 and not ok2, f"{msg} / {msg1} / {msg2}")
+        new_link = db.add_request(con, actions.HUMAN, "hr", "for the new holder", None, None, None, "say", 0, None)
+        ok3, msg3 = actions.dismiss(con, new_link, me="hr", tasks=[handed])
+        ok4, msg4 = actions.mark_task_done(con, handed, "hr", reason="it is mine")
+        check("handoff: the new holder can do both", ok3 and ok4, f"{msg3} / {msg4}")
+    finally:
+        con.close()
+
+
 def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
     """A refused ask reached nobody, so nothing can come back from it. Told
     otherwise, an agent reads 34 of its own refusals as replies from the agent
@@ -6449,28 +6523,28 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
 
         t_t = db.new_task(con, "target only, not the owner", "manager", "manager")
         r_queued = db.add_request(con, "manager", "worker", "go", None, "supervisor",
-                                  "fire_and_forget", None, 0, None)
+                                  "fire_and_forget", "task", 0, None)
         db.link_request(con, t_t, r_queued)
         ok, msg = actions.mark_task_done(con, t_t, "worker", reason="target works alone")
-        check("done: the target of a still-queued linked request marks it done, "
-              "not the owner", ok, msg)
+        check("done: the target of a delivery that is not to the owner is no right to close it (T792)",
+              not ok, msg)
 
         t_t2 = db.new_task(con, "target of a done request", "manager", "manager")
         r_done = db.add_request(con, "manager", "worker", "go", None, "supervisor",
-                                "fire_and_forget", None, 0, None)
+                                "fire_and_forget", "task", 0, None)
         askmod.resolve(r_done, "shipped")
         db.link_request(con, t_t2, r_done)
         ok, msg = actions.mark_task_done(con, t_t2, "worker", reason="a done link works too")
-        check("done: the target of a done linked request marks it done too", ok, msg)
+        check("done: nor is the target of a done delivery that is not to the owner", not ok, msg)
 
         t_neither = db.new_task(con, "neither owner nor target", "manager", "manager")
         ok, msg = actions.mark_task_done(con, t_neither, "worker", reason="not allowed")
-        check("done: refused - worker is neither the owner nor a linked target",
-              not ok and "owner" in msg and "target" in msg, msg)
+        check("done: refused - worker is neither the owner nor the founder",
+              not ok and "owner" in msg and "founder" in msg, msg)
 
         t_withdrawn = db.new_task(con, "target of a withdrawn request", "manager", "manager")
         r_withdrawn = db.add_request(con, "manager", "worker", "go", None, "supervisor",
-                                     "fire_and_forget", None, 0, None)
+                                     "fire_and_forget", "task", 0, None)
         askmod.withdraw(r_withdrawn, requester="manager")
         db.link_request(con, t_withdrawn, r_withdrawn)
         ok, msg = actions.mark_task_done(con, t_withdrawn, "worker", reason="too late")
@@ -6478,7 +6552,7 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
               not ok, msg)
 
         r = db.add_request(con, "manager", "worker", "go", None, "supervisor",
-                           "fire_and_forget", None, 0, None)
+                           "fire_and_forget", "task", 0, None)
         t2 = db.new_task(con, "two", "worker", "manager")
         ok, msg = actions.mark_task_done(con, t2, "worker", request_id=r)
         check("done: a still-queued request is not evidence yet",
@@ -8986,6 +9060,7 @@ def main() -> int:
             Path(td) / 'queuednudge'))
         run(lambda: test_handoff_rate_limited(Path(td) / 'hrate'))
         run(lambda: test_a_task_that_ends_tells_its_requesters_in_the_same_write(Path(td) / 'tend'))
+        run(lambda: test_an_agent_cannot_make_itself_a_done_target_of_a_task_it_does_not_hold(Path(td) / 'doneT'))
         run(lambda: test_a_refused_ask_is_never_announced_as_an_answer(Path(td) / 'noannounce'))
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
         run(lambda: test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(Path(td) / 'readwdrn'))

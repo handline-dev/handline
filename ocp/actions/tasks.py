@@ -329,17 +329,6 @@ def _request_answered(row) -> bool:
     return bool(row["verdict"]) or row["state"] != "queued"
 
 
-def _task_done_targets(con, tid: int) -> set[str]:
-    """Who besides the task's owner may mark it done (#71 SHOULD-FIX 1,
-    orcapipe's #2195 decision): the target of any request linked to the
-    task that is still open (queued) or came back done - #1914 means every
-    orcapipe task is owned by orcapipe itself, so the owner alone would
-    leave only orcapipe able to mark anything done, never the builder
-    founder #2154 actually asked. A request some other way settled
-    (rejected, withdrawn, replaced, denied) named nobody real for this."""
-    return {r["target"] for r in db.task_requests(con, tid) if r["state"] in ("queued", "done")}
-
-
 def open_decision(me: str, body: str) -> tuple[bool, str, int | None]:
     """A question only the founder can answer, as a task of theirs - a decision
     card - rather than a request nobody tracks: (ok, message, the id of the
@@ -409,9 +398,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     a claim taken on trust), or a one-line fact for work that leaves no
     commit (a plan, a decision, a duplicate).
 
-    Only the task's own owner, or the target of a request linked to it that
-    is open or done (`_task_done_targets`), may - the one actually doing the
-    work, never the opener standing in for them. Refused if the task is
+    Only the task's own owner may - the one actually doing the work, never the opener standing in
+    for them (T792: a request merely linked to the task, or a delivery a handoff closed, is no right
+    to close it) - and the founder. Refused if the task is
     already done or discarded, while a child task is open - a five-part ask
     marked done as one row hid that parts 4 and 5 were not done (#1008) - or
     while this task itself is waiting on an open blocker (task #21/#1884),
@@ -434,10 +423,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     # may close it another way when the sha is never going to land - the
     # one exception to #2195's rule that the opener alone is not enough.
     sha_override = by == row["opened_by"] and row["expects"] == "sha"
-    if by not in (row["owner"], HUMAN) and by not in _task_done_targets(con, tid) \
-            and not sha_override:
+    if by not in (row["owner"], HUMAN) and not sha_override:
         return False, (f"task T{tid} can only be marked done by its owner "
-                       f"({row['owner']}), the target of a request linked to it, or the founder")
+                       f"({row['owner']}) or the founder")
     given = [x for x in (sha, request_id, reason) if x is not None]
     if len(given) != 1:
         return False, "done needs exactly one of a sha, --request, or a reason"

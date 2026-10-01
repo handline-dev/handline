@@ -215,6 +215,9 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
             return f"no task T{tid}"
         if db.task_ended(t):
             return f"task T{tid} is already {'discarded' if t['discarded_by'] else 'done'}"
+        if me not in (None, HUMAN) and me not in (t["owner"], t["opened_by"]):
+            return (f"T{tid} is not yours: only a task you hold, or opened, can be named here "
+                    f"(it is {t['owner']}'s)")
     if row["requester"] != HUMAN or me == HUMAN:
         return None
     if bool(tasks) == bool(no_task):
