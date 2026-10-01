@@ -152,10 +152,10 @@ SAFE_COMMANDS = (
     *(f"Bash({c}:*)" for c in ("tail", "head", "grep", "wc", "cat", "ls")),
     "Bash(git status)", "Bash(git log)", "Bash(git diff)",
     # read-only
-    *(f"Bash(ocp {c}:*)" for c in ("inbox", "read", "status", "task list", "team check")),
+    *(f"Bash(ocp {c}:*)" for c in ("inbox", "read", "status", "task list")),
     "Bash(ocp team)",
     # reporting
-    *(f"Bash(ocp {c}:*)" for c in ("say", "progress", "task link", "task new")),
+    *(f"Bash(ocp {c}:*)" for c in ("say", "progress", "task new")),
 )
 
 

@@ -83,7 +83,7 @@ def cmd_daemon_status(args) -> int:
             words = {r["agent"]: tui.screen_state(con, r) for r in rows}
             sw = max([len("state")] + [len(word) + (1 + len(extra) if extra else 0)
                                        for word, extra in words.values()]) + 1
-            print(f"\n{'AGENT':<{w}}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
+            print(f"\n{'AGENT':<{w}}{'ACCT':<8}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
             now = int(time.time())
             sessions = obs.live_sessions()
             for r in rows:
@@ -115,7 +115,7 @@ def cmd_daemon_status(args) -> int:
                     detail = f"{detail[:room]} · {walled}" if detail else walled
                 else:
                     detail = detail[:70]
-                print(f"{r['agent']:<{w}}{shown:<{sw}}{wake:<8}"
+                print(f"{r['agent']:<{w}}{(r['account'] or '-'):<8}{shown:<{sw}}{wake:<8}"
                       f"{r['failed_attempts']:>5}{r['continuations']:>6}{r['throttle_count']:>5}  "
                       f"{detail}")
         flight = db.in_flight_handoffs(con)

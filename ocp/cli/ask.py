@@ -9,7 +9,6 @@ from .. import actions
 from ..infra import timefmt
 from ..team import ask as askmod
 from .. import db
-from ..session import fold as foldmod
 from ..infra import textsafe
 from ..session import waiting
 
@@ -30,32 +29,6 @@ def _refused_listing(target: str | None) -> bool:
     if why:
         print(why)
     return bool(why)
-
-
-def cmd_digest(args) -> int:
-    if _refused_listing(args.agent):
-        return 1
-    p = foldmod.journal_path(args.agent, args.date or foldmod.today())
-    if not p.exists():
-        print(f"no digest at {p}")
-        return 1
-    print(textsafe.text(p.read_text()))
-    return 0
-
-
-def cmd_handoff(args) -> int:
-    if _refused_listing(args.agent):
-        return 1
-    con = db.connect()
-    try:
-        text = db.get_handoff(con, args.agent)
-    finally:
-        con.close()
-    if not text:
-        print(f"no handoff waiting for {args.agent}")
-        return 1
-    print(textsafe.text(text))
-    return 0
 
 
 def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[str | None, str | None]:
@@ -361,7 +334,7 @@ def cmd_read(args) -> int:
     the half it could see.
 
     Any agent can read any request, which was already true of the database and
-    of `ocp inbox`, `ocp digest` and `ocp handoff` - this makes it convenient
+    of `ocp inbox` - this makes it convenient
     rather than new. Nothing typed into a request is private to two agents.
     """
     if args.wait and not _wait_for(

@@ -299,34 +299,6 @@ def repo_of(name: str) -> str | None:
     return str(repo) if repo else None
 
 
-def promote_to_base(name: str, item: str, force: bool = False) -> tuple[bool, str]:
-    """Add a fact to base.md (team model section 1).
-
-    base.md is injected into every session, so anything added here is paid for
-    on every turn of every session forever. That is why promotion is a human
-    action with a budget rather than something an agent does to itself: left
-    alone base.md always grows, because useful facts keep being discovered.
-    """
-    d = paths.agent_dir(name)
-    if not d.is_dir():
-        return False, f"agent '{name}' is not registered"
-    p = d / "base.md"
-    text = p.read_text() if p.exists() else f"# base - {name}\n"
-    line = f"- {item.strip()}\n"
-    if line in text:
-        return False, "that item is already in base.md"
-    new = text.rstrip("\n") + "\n" + line
-    size = len(new.encode())
-    if size > BASE_BUDGET_BYTES and not force:
-        return False, (
-            f"base.md would be {size}B, over the {BASE_BUDGET_BYTES}B budget by "
-            f"{size - BASE_BUDGET_BYTES}B. This is per-session fixed cost, so take "
-            f"something out first, or pass --force if it genuinely earns its place."
-        )
-    p.write_text(new)
-    return True, f"promoted into {p} ({size}B / {BASE_BUDGET_BYTES}B budget)"
-
-
 def budget_report(name: str) -> list[tuple[str, int, int, bool]]:
     """(file, bytes, budget, over?) for the per-session fixed overhead."""
     d = paths.agent_dir(name)

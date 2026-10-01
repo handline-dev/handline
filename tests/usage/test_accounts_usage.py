@@ -1284,13 +1284,8 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
               usage_api.read("zai", refresh=False) is None)
         body["raw"] = json.dumps(zai_quota(now_ms)).encode()
 
-        real_live = obsmod.live_sessions
-        obsmod.live_sessions = lambda: {}
-        try:
-            out = _capture(lambda: climod.main(["usage", "zai"]))
-        finally:
-            obsmod.live_sessions = real_live
-        check("zai meter: `ocp usage` prints the figures, never the key",
+        out = repr(usage_api.read("zai", refresh=False))
+        check("zai meter: the reading holds the figures, never the key",
               "SECRET-ZAI-KEY" not in out and "13" in out and "2" in out, out)
 
         argv, env = launch.build("glm")

@@ -40,10 +40,6 @@ def cmd_progress(args) -> int:
         con.close()
 
 
-def _ambiguous_number(raw: str) -> str:
-    return actions.parse_task_ref_error(raw)
-
-
 def _task_arg(text: str) -> int:
     """argparse `type` for a task: T79 only. A bare number is refused with
     both of its readings, so a request id typed here cannot act on a task."""
@@ -387,22 +383,6 @@ def cmd_task_memo(args) -> int:
         return 0 if ok else 1
     finally:
         con.close()
-
-
-def cmd_task_link(args) -> int:
-    con = db.connect()
-    try:
-        if db.get_task(con, args.task) is None:
-            print(f"no task T{args.task}")
-            return 1
-        if db.get_request(con, args.request) is None:
-            print(f"no request #{args.request}")
-            return 1
-        db.link_request(con, args.task, args.request)
-    finally:
-        con.close()
-    print(f"request #{args.request} linked to task T{args.task}")
-    return 0
 
 
 def cmd_task_edit(args) -> int:
