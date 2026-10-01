@@ -434,7 +434,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         return False, f"task T{tid} is waiting on {ids} - it is done only once they are"
     if not db.mark_task_done(con, tid, mark, via):
         return False, f"task T{tid} was marked done by someone else just now"
-    db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark})
+    db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark, "from": task_state(con, row)})
     _retire_task_requests(con, tid, f"task T{tid} done ({mark})")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
@@ -1295,6 +1295,11 @@ def task_timeline(con, tid: int) -> list[dict]:
     for e in db.task_body_edits(con, tid):
         out.append({"ts": int(e["ts"]), "at": e["ts"], "who": e["by"], "kind": "edit", "text": e["new"],
                     "memo": None, "edited_at": None})
+    for e in con.execute(f"SELECT ts, agent, payload FROM events WHERE kind = 'mark_task_done' AND {db.EVENT_TASK} = ?",
+                         (tid,)).fetchall():
+        if before := json.loads(e["payload"]).get("from"):
+            out.append({"ts": int(e["ts"]), "at": e["ts"], "who": e["agent"], "kind": "state", "text": f"{before} -> done",
+                        "memo": None, "edited_at": None})
     return sorted(out, key=lambda e: e["at"])
 
 

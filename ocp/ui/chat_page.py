@@ -325,6 +325,7 @@ def task_detail(con, tid: int) -> dict | None:
             "merged_into": t["merged_into"],
             "brief_text": actions.task_brief(con, tid),
             "children": kids, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
+            "can_done": state in ("draft", "queued", "doing"),
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing")}
@@ -558,7 +559,7 @@ def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     return head, body, note
 
 
-TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note", "request": "request", "edit": "body edited"}
+TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "note": "note", "request": "request", "edit": "body edited", "state": "state"}
 
 
 def timeline_text(e: dict) -> Text:
@@ -1067,6 +1068,22 @@ class TaskActions:
             con.close()
         self.app.push_screen(TaskAssign(actions.task_ref(self.tid), self.d["owner"], paths.list_agents(), recent), answered)
 
+    def action_done_task(self) -> None:
+        if not (self.d and self.d["can_done"]):
+            self.say("only a task that is not done can be marked done")
+            return
+
+        def answered(reason: str | None) -> None:
+            log_action(f"task {actions.task_ref(self.tid)} done: reason {'given' if reason and reason.strip() else 'not given'}")
+            if reason and reason.strip():
+                con = db.connect()
+                try:
+                    ok, said = actions.mark_task_done(con, self.tid, actions.HUMAN, reason=reason.strip())
+                finally:
+                    con.close()
+                self.report("done", ok, said)
+        self.app.push_screen(TextPrompt("done - what came of it?"), answered)
+
     def action_reopen_task(self) -> None:
         if not (self.d and self.d["can_reopen"]):
             self.say("only a done task that you asked for can be reopened")
@@ -1158,6 +1175,7 @@ class TaskBody(TaskActions, Vertical):
                 yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
             yield Button(label("Assign", "a"), id="assign", variant="primary", compact=True)
+            yield Button(label("Done", "x"), id="done", variant="success", compact=True)
             yield Button(label("Reopen", "r"), id="reopen", variant="warning", compact=True)
             yield Button(label("Discard", "d"), id="discard", variant="error", compact=True)
 
@@ -1206,7 +1224,7 @@ class TaskBody(TaskActions, Vertical):
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.draw_memos(page["timeline"])
-        for name in ("assign", "reopen", "discard"):
+        for name in ("assign", "done", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = not d[f"can_{name}"]
 
     def _blank(self, said: str) -> None:
@@ -1216,7 +1234,7 @@ class TaskBody(TaskActions, Vertical):
         self.query_one("#t_brief", Static).display = False
         self.query_one("#t_brief_edit", Button).display = False
         self.query_one("#t_memos", Vertical).remove_children()
-        for name in ("assign", "reopen", "discard"):
+        for name in ("assign", "done", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
 
     def draw_memos(self, texts: list[Text]) -> None:
@@ -1306,7 +1324,7 @@ class TaskBody(TaskActions, Vertical):
             (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
             return
         call = {"memo_add": self.action_memo_add, "t_brief_edit": self.action_edit_brief, "assign": self.action_assign_task,
-                "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
+                "done": self.action_done_task, "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
         if call:
             event.stop()
             call()
@@ -1337,6 +1355,7 @@ class TaskDetail(Screen):
     """One task's page: the shared `TaskBody` under a Back button, with a key for each call the
     human may make on it."""
     BINDINGS = [Binding("escape", "app.pop_screen", "back"),
+                Binding("x", "done_task", "done"),
                 Binding("r", "reopen_task", "reopen"),
                 Binding("a", "assign_task", "assign"),
                 Binding("d", "discard_task", "discard")]
@@ -1364,6 +1383,9 @@ class TaskDetail(Screen):
 
     def _body(self) -> TaskBody:
         return self.query_one(TaskBody)
+
+    def action_done_task(self) -> None:
+        self._body().action_done_task()
 
     def action_reopen_task(self) -> None:
         self._body().action_reopen_task()

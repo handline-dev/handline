@@ -2701,6 +2701,71 @@ async def test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_ap
         check("selection: a selection past a widget's lines copies nothing and does not raise", True)
 
 
+def test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_it_was_a_draft() -> None:
+    from ocp.ui import chat_page as cp
+    _home("draftdone")
+    con = db.connect()
+    try:
+        mine = db.new_task(con, "mine", "backend", actions.HUMAN)
+        theirs = db.new_task(con, "theirs", "backend", "orcapipe")
+        done = db.new_task(con, "done", "backend", actions.HUMAN)
+        con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (done,))
+        con.commit()
+        can = {tid: cp.task_detail(con, tid)["can_done"] for tid in (mine, theirs, done)}
+        check("done: the page offers it on a draft, whoever owns it, not on one already done",
+              can == {mine: True, theirs: True, done: False} and cp.task_detail(con, mine)["state"] == "draft", str(can))
+        ok, said = actions.mark_task_done(con, theirs, "reviewer", reason="x")
+        check("done: an agent that neither owns the draft nor is the target of a request on it is refused",
+              not ok and "can only be marked done" in said, said)
+        ok, said = actions.mark_task_done(con, theirs, "backend", reason="its owner may")
+        check("done: its owner may mark a draft done", ok, said)
+        ok, said = actions.mark_task_done(con, mine, actions.HUMAN, reason="the sub-tasks did it")
+        check("done: and the founder, on a draft with no request out", ok, said)
+        event = json.loads(con.execute("SELECT payload FROM events WHERE kind = 'mark_task_done' "
+                                       "AND agent = ?", (actions.HUMAN,)).fetchone()["payload"])
+        check("done: the event records that it left a draft", event["from"] == "draft", str(event))
+        line = [e for e in actions.task_timeline(con, mine) if e["kind"] == "state"]
+        check("done: and the task's timeline reads draft -> done, by the founder",
+              [(e["text"], e["who"]) for e in line] == [("draft -> done", actions.HUMAN)], str(line))
+    finally:
+        con.close()
+
+
+async def test_the_task_page_sends_a_draft_straight_to_done_from_its_button() -> None:
+    from textual.widgets import Button
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("draftdonebtn")
+    con = db.connect()
+    try:
+        tid = db.new_task(con, "asked, done by its sub-tasks", "backend", actions.HUMAN)
+        con.commit()
+    finally:
+        con.close()
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause()
+        check("done button: a draft's page offers it", not app.screen.query_one("#done", Button).disabled)
+        seen: list = []
+        app.screen.query_one(cp.TaskBody).notify = lambda said, **kw: seen.append(said)
+        await pilot.press("x")
+        await pilot.pause()
+        app.screen.query_one("#box").value = "the sub-tasks did it"
+        await pilot.press("enter")
+        await pilot.pause()
+        con = db.connect()
+        try:
+            row = db.get_task(con, tid)
+            check("done button: the draft is done with the typed reason, by the founder",
+                  row["done_evidence"] == "the sub-tasks did it" and actions.task_state(con, row) == "done",
+                  str(seen))
+        finally:
+            con.close()
+        check("done button: and the page no longer offers it", app.screen.query_one("#done", Button).disabled)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -2733,6 +2798,7 @@ async def _run_all() -> None:
     test_a_delivery_changes_the_chat_signature()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
+    test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_it_was_a_draft()
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page()
@@ -2785,6 +2851,7 @@ async def _run_all() -> None:
     await test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pressed()
     await test_the_task_page_edits_the_task_text_and_shows_a_refusal()
     await test_an_open_task_page_shows_what_an_agent_adds_without_reopening()
+    await test_the_task_page_sends_a_draft_straight_to_done_from_its_button()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
