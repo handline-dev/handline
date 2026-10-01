@@ -17,7 +17,8 @@ ANSWER_SQL = ("(SELECT a.body FROM requests a WHERE a.settles = requests.id "
 
 
 def unannounced_answers(con, agent: str) -> list:
-    """What this agent asked, that came back, that it has not been told about.
+    """What this agent asked, that came back, that it has not been told about: the requests
+    whose answering say (its `settles` row) has not been shown yet - `delivered_at` NULL on it.
 
     Marked per row rather than tracked with a cursor: a cursor works for
     arrival, which happens in id order by construction, and not for answering,
@@ -28,7 +29,8 @@ def unannounced_answers(con, agent: str) -> list:
     return con.execute(
         "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
         f"chain_id, dismissed_by, dismissed_reason, {ANSWER_SQL} FROM requests WHERE requester = ? "
-        "AND state IN ('landed', 'withdrawn') AND announced_at IS NULL ORDER BY id",
+        "AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "
+        "WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id",
         (agent,),
     ).fetchall()
 
@@ -41,8 +43,10 @@ def mark_read(con, ids: list[int]) -> None:
 
 
 def mark_announced(con, ids: list[int]) -> None:
+    """The asker of these requests has been told how they came back: their answering says are shown."""
     now = int(time.time())
-    con.executemany("UPDATE requests SET announced_at = ? WHERE id = ?",
+    con.executemany("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
+                    "WHERE settles = ? AND state = 'landed'",
                     [(now, int(i)) for i in ids])
 
 
@@ -461,9 +465,8 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
     was the one that closed it: an agent resolving it in the same instant wins,
     and its answer is not overwritten. `announced=True` is `resolve`'s
     `notify=False` case: stamped in this same write rather than a follow-up
-    call - a row that is briefly 'done' with `announced_at` still NULL is
-    exactly what `unannounced_answers()` looks for, and a sweep landing in
-    that window would announce it anyway.
+    call - the answering say is written with it, already told, so a sweep
+    landing between the two writes finds nothing to announce.
 
     `answered_by` names a reply row that is itself the answer (T361: a `say --parent`): it is
     marked as settling this request, and no second answer row is written for the same words.
@@ -482,8 +485,13 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
     if cur.rowcount > 0:
         if answered_by is not None:
             con.execute("UPDATE requests SET settles = ? WHERE id = ?", (rid, answered_by))
-        elif state == "done" and verdict and dismissed_by is None:
-            add_answer(con, rid, verdict)
+            if announced:       # the reply is what tells, and nobody is to be told: a landed one is shown
+                con.execute("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
+                            "WHERE id = ? AND state = 'landed'", (now, answered_by))
+        elif (state in ("done", "rejected") and dismissed_by is None
+              and (verdict or get_request(con, rid)["kind"] != "say")):
+            # A say closed with nothing said asks nothing back; anything else tells its asker.
+            add_answer(con, rid, verdict or "", told=announced)
         if settle:
             _settle(con, rid, state, verdict, dismissed_by)
         else:
@@ -499,20 +507,21 @@ def _settle(con, rid: int, state: str, verdict: str | None, dismissed_by: str | 
     settle_decision_tasks(con, rid, state, verdict, dismissed_by)
 
 
-def add_answer(con, rid: int, text: str, at: int | None = None) -> int:
+def add_answer(con, rid: int, text: str, at: int | None = None, told: bool = False) -> int:
     """Store what answered request `rid` as a say of its own: its own id, from the
     one asked to the one who asked, referencing the request (`parent_id`) and
     marked as the one that settled it (`settles`) - so a reply to it can name it,
-    and the request's own verdict is not drawn a second time. It is already read:
-    telling the asker is the request's own announcement, not this row's."""
+    and the request's own verdict is not drawn a second time. It is born landed,
+    and the asker is told of it when it is shown: `delivered_at` NULL until then
+    (`told` says it already was, as when the closer tells nobody)."""
     row = get_request(con, rid)
     when = int(time.time()) if at is None else at
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, kind, chain_depth, parent_id, "
-        "settles, chain_id, state, announced_at, resolved_at, state_at, edge_ok) "
+        "settles, chain_id, state, delivered_at, resolved_at, state_at, edge_ok) "
         "VALUES(?,?,?,?,'say',?,?,?,?,?,?,?,?,1)",
         (when, row["target"], row["requester"], text, row["chain_depth"], rid, rid,
-         row["chain_id"], LANDED, when, when, when))
+         row["chain_id"], LANDED, when if told else None, when, when))
     aid = int(cur.lastrowid)
     con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (aid, aid))
     return aid
@@ -549,6 +558,12 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
     if cur.rowcount > 0:
         _settle(con, rid, state, verdict)
     return cur.rowcount > 0
+
+
+def closed_under(con, rid: int) -> bool:
+    """Was this request closed out from under its target (cancelled, retired) rather than answered by it?"""
+    return con.execute("SELECT 1 FROM events WHERE kind = 'closed_under' AND CASE WHEN json_valid(payload) "
+                       "THEN json_extract(payload, '$.request_id') END = ? LIMIT 1", (rid,)).fetchone() is not None
 
 
 def get_request(con, rid: int):

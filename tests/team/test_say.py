@@ -255,6 +255,56 @@ edges:
           and "[T<n> ...]" not in out, out)
 
 
+def test_a_reply_that_answers_is_told_once_and_still_typed(home: Path) -> None:
+    """T835 step 3: the reply say is what tells the asker. Queued, it is not an untold answer, and
+    announcing the parent must not mark it shown before it is typed; a reply to the founder's
+    request, which tells nobody, puts no row in his mailbox."""
+    _say_world(home)
+    con = db.connect()
+    try:
+        ok, msg, rid = askmod.ask("manager", "may I?", requester="worker")
+        check("setup: worker asks manager", ok, msg)
+    finally:
+        con.close()
+    rc, out = _cli(["say", "worker", "yes", "--parent", str(rid)], as_agent="manager")
+    check("setup: the reply is sent", rc == 0, out)
+    reply = int(out.split("queued as #", 1)[1].split()[0])
+    con = db.connect()
+    try:
+        check("reply: the parent is closed by it", db.get_request(con, rid)["state"] == "landed")
+        check("reply: while it is queued the asker has no untold answer",
+              db.unannounced_answers(con, "worker") == [])
+        db.mark_announced(con, [rid])
+        check("reply: announcing the parent leaves the queued reply to be typed",
+              db.get_request(con, reply)["delivered_at"] is None
+              and reply in [r["id"] for r in db.send_now_pending(con, "worker")], str(dict(db.get_request(con, reply))))
+        hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+        frid = db.add_request(con, "human", "manager", "how is it?", None, "supervisor",
+                              "fire_and_forget", None, 0, None)
+        con.commit()
+    finally:
+        con.close()
+    rc, out = _cli(["say", "human", "fine", "--parent", str(frid), "--no-task", "nothing to build"],
+                   as_agent="manager")
+    con = db.connect()
+    try:
+        check("founder reply: sent and the request closed", rc == 0 and db.get_request(con, frid)["state"] == "landed", out)
+        check("founder reply: no answer row for it in his mailbox - it is drawn in the chat",
+              frid not in [m["id"] for m in actions.mailbox_rows(con)], str(actions.mailbox_rows(con)))
+    finally:
+        con.close()
+
+
 def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
     """T293/#1655 (1b): a reply to a say is a say, threaded with --parent -
     the same chain, not a fresh one, and still never a head."""
@@ -515,6 +565,7 @@ def main() -> int:
         run(lambda: test_a_reply_to_the_founder_says_what_it_becomes_and_the_tail_says_how(Path(td) / 'sayfounder'))
         run(lambda: test_a_reply_never_settles_a_task_and_the_founder_guard_follows_the_target(Path(td) / 'saytask'))
         run(lambda: test_a_reply_to_a_say_is_a_say_in_its_own_thread(Path(td) / 'sayreply'))
+        run(lambda: test_a_reply_that_answers_is_told_once_and_still_typed(Path(td) / 'told'))
         run(lambda: test_only_the_says_own_target_can_close_it_by_replying(
             Path(td) / 'sayclosetarget'))
         run(lambda: test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(

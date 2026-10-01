@@ -496,10 +496,11 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
               and child["requester"] == actions.HUMAN)
         ok3, _, mine = askmod.ask("reviewer", "status?", requester=actions.HUMAN)
         con.execute("UPDATE requests SET state = 'landed', verdict = 'fine' WHERE id = ?", (mine,))
+        db.add_answer(con, mine, "fine")
         con.commit()
         ok4, _ = cp.send_reply(con, "reviewer", mine, "thanks, now ship it")
         check("reply: an answer to the human's own request is marked read, as the mailbox does",
-              ok3 and ok4 and db.get_request(con, mine)["announced_at"], str(dict(db.get_request(con, mine))))
+              ok3 and ok4 and db.answer_row_of(con, mine)["delivered_at"], str(dict(db.get_request(con, mine))))
         _, _, theirs = askmod.ask("reviewer", "status again?", requester=actions.HUMAN)
         ok5, _ = cp.send_reply(con, "backend", theirs, "and the date?")
         kid5 = db.get_request(con, theirs + 1)

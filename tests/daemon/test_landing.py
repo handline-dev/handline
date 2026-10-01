@@ -434,6 +434,46 @@ def test_an_fyi_report_before_the_upgrade_becomes_a_say(home: Path) -> None:
         con.close()
 
 
+def test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(home: Path) -> None:
+    """T835 step 3: the asker is told of an answer when its say is shown; a refusal is told the
+    same way; the upgrade moves the old per-request mark onto the say."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        asked = db.add_request(con, "backend", "frontend", "q1", None, None, None, None, 0, None)
+        db.close_if_queued(con, asked, "done", "yes")
+        refused = db.add_request(con, "backend", "frontend", "q2", None, None, None, None, 0, None)
+        db.close_if_queued(con, refused, "rejected", "no, not that")
+        check("told: an answer and a refusal both wait, each as a say of its own",
+              {r["id"] for r in db.unannounced_answers(con, "backend")} == {asked, refused}
+              and db.answer_row_of(con, refused)["body"] == "no, not that")
+        db.mark_announced(con, [asked])
+        check("told: marking one shows its say and leaves the other",
+              db.answer_row_of(con, asked)["delivered_at"] is not None
+              and [r["id"] for r in db.unannounced_answers(con, "backend")] == [refused])
+        # As the old build left them: told by a mark on the request, or untold with no say at all.
+        told_old = db.add_request(con, "backend", "frontend", "old told", None, None, None, None, 0, None)
+        db.close_if_queued(con, told_old, "done", "ok")
+        con.execute("UPDATE requests SET announced_at = 55 WHERE id = ?", (told_old,))
+        con.execute("UPDATE requests SET delivered_at = NULL WHERE settles = ?", (told_old,))
+        untold_old = db.add_request(con, "backend", "frontend", "old untold", None, None, None, None, 0, None)
+        con.execute('UPDATE requests SET "state" = \'landed\', verdict = \'late\', resolved_at = 60, announced_at = NULL '
+                    'WHERE id = ?', (untold_old,))
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:answers_told_on_the_say'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("migration: an answer told by the old mark has its say shown",
+              db.answer_row_of(con, told_old)["delivered_at"] == 55)
+        said = db.answer_row_of(con, untold_old)
+        check("migration: an untold one gets a say carrying its verdict, still to be told",
+              said is not None and said["body"] == "late" and said["delivered_at"] is None
+              and untold_old in [r["id"] for r in db.unannounced_answers(con, "backend")])
+    finally:
+        con.close()
+
+
 def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
     """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
     every row gets a state_at; ledgered, a second connect changes nothing."""
@@ -628,6 +668,7 @@ def main() -> int:
         run(lambda: test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(Path(td) / "l15"))
         run(lambda: test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(Path(td) / "l16"))
         run(lambda: test_an_fyi_report_before_the_upgrade_becomes_a_say(Path(td) / "l16f"))
+        run(lambda: test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(Path(td) / "l16t"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))
