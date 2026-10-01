@@ -1124,7 +1124,7 @@ class TaskActions:
             con = db.connect()
         try:
             with stall.timed(f"assign {ref}: actions.recent_assignees"):
-                recent = actions.recent_assignees(con)
+                recent = actions.recent_assignees(con, self.tid)
         finally:
             con.close()
         with stall.timed(f"assign {ref}: paths.list_agents"):

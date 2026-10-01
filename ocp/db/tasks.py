@@ -282,14 +282,16 @@ def task_handoffs(con, tid: int) -> list[dict]:
     return out
 
 
-def recent_handoff_targets(con, by: str, scan: int = 200) -> list[str]:
-    """Who `by` last handed tasks to, newest first, each once (from its last `scan` handoffs)."""
+def task_holders(con, tid: int) -> list[str]:
+    """Everyone who took part in T<tid>, the most recent first, each once: those in its handoffs
+    (the one handed to, then the one handing), then the targets of the requests linked to it."""
     out: list[str] = []
-    for r in con.execute("SELECT payload FROM events WHERE kind = 'task_handoff' AND agent = ? "
-                         "ORDER BY id DESC LIMIT ?", (by, scan)):
-        to = json.loads(r["payload"] or "{}").get("to")
-        if to and to not in out:
-            out.append(to)
+    for h in reversed(task_handoffs(con, tid)):
+        out += [a for a in (h["to"], h["from"]) if a and a not in out]
+    for r in con.execute("SELECT r.target FROM requests r JOIN task_requests l "
+                         "ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id DESC", (tid,)):
+        if r["target"] not in out:
+            out.append(r["target"])
     return out
 
 
