@@ -154,7 +154,7 @@ base.md는 방치하면 반드시 비대해진다. 유용한 사실이 계속 �
 기본은 `async` — 요청자는 handoff하고 park한다. 인프라 설계서 §8 상태머신과 맞물린다.
 (에이전트는 한도에 닿으면 pick이 고른 계정으로 한 번 옮겨 가고, 놀던 계정은 다음 pick에서 쓰인다.)
 
-코드에서 에지는 `relation`(`supervisor` 만 특별 취급, 나머지는 peer), `response`(`async` | `fire_and_forget`, 그 밖의 값은 로드 실패), `kind`(`task` 는 창업자에게 가는 결정 작업을 만든다 — 예전 이름 `escalate` 도 같은 뜻으로 읽는다, `verdict`, `report`) 를 가진다. 요청은 `--fyi` 로 보고가 되며, 보고는 사람이 열면 닫힌다.
+코드에서 에지는 `relation`(`supervisor` 만 특별 취급, 나머지는 peer), `response`(`async` | `fire_and_forget`, 그 밖의 값은 로드 실패), `kind`(`task` 는 창업자에게 가는 결정 작업을 만든다 — 예전 이름 `escalate` 도 같은 뜻으로 읽는다, `verdict`, `report`) 를 가진다. 창업자에게 가는 보고는 `ocp say` 이고, 사람이 열면 읽힌 것으로 닫힌다.
 
 ### 작업 (task)
 

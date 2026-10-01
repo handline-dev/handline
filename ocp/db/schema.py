@@ -809,7 +809,7 @@ def _founder_says_landed(con) -> None:
 def _fyi_are_says(con) -> None:
     """T835 step 1: a report to the founder is a say, so the `fyi` flag says nothing more. Every
     row that carries it becomes a say; one still queued becomes landed and unread, as a say to
-    him is born, and one already dealt with reads as read. Ledgered, so it runs once."""
+    the founder is born, and one already dealt with reads as read. Ledgered, so it runs once."""
     if get_cursor(con, "migrated:fyi_are_says"):
         return
     now = int(time.time())

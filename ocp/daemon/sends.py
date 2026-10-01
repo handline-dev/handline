@@ -14,7 +14,8 @@ import threading
 
 from .. import actions, db
 from ..infra import paths
-from ..team import ask as askmod
+from ..infra.yamlcompat import ConfigError
+from ..team import ask as askmod, team
 
 from . import messaging
 
@@ -61,6 +62,14 @@ _NO_WHO = ("cannot tell who is asking: the request named nobody. Agents are star
            "`ocp launch <agent>`, which sets OCP_AGENT.")
 
 
+def _is_report_of(me: str, target: str) -> bool:
+    """Is `target` one of `me`'s reports, by the supervisor edge in team.yaml?"""
+    try:
+        return actions.supervisor_of(team.Team.load(), target) == me
+    except (ConfigError, OSError):      # an unreadable table refuses nothing here
+        return False
+
+
 def say_verb(con, log, **kw) -> tuple[bool, str]:
     """`ocp say TARGET BODY`: a message that needs no answer, typed at once."""
     me, speaker = _who(kw)
@@ -88,6 +97,9 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
     if no_task is not None:
         return False, ("--no-task is for replying to the founder's request (--parent <its id>): "
                        "say what it becomes there")
+    if task is None and kw.get("parent") is None and _is_report_of(me, target):
+        return False, ("work cannot reach a report by message: make it a task (`ocp task new`), "
+                       "or say --task T<n> to memo one")
     if task is not None:
         # Structural, not read from the text: a say to a report about a task is
         # that task's memo, delivered as one.

@@ -1696,7 +1696,7 @@ class _board_facts:
     def __init__(self, con, open_tasks: list):
         self.links: dict[int, list] = {}
         for r in con.execute(
-                "SELECT l.task_id AS tid, r.id, r.state, r.kind, r.requester, r.ts, r.resolved_at "
+                "SELECT l.task_id AS tid, r.id, r.state, r.requester, r.ts, r.resolved_at "
                 "FROM task_requests l JOIN requests r ON r.id = l.request_id "
                 "ORDER BY l.task_id, r.id"):
             self.links.setdefault(r["tid"], []).append(r)

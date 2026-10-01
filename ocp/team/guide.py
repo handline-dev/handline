@@ -59,7 +59,7 @@ back to the account its session lives on.""",
   ocp task memo T<n> add "..."    a correction to a task you gave, not a message behind it
   ocp task discard T<n> "<why>"   throw away a task that is not done
   ocp say <agent> "..."           a message: typed at once, needs no answer, starts no work.
-                                  With --task T<n> it is a memo on that task
+                                  To one of your reports it carries --task T<n> (a memo on that task)
   ocp say <agent> "..." --parent <id>   a reply, in its thread
   ocp inbox                       the one thing currently waiting for you, and a count
   ocp inbox --all                 the whole queue and its history
