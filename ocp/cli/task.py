@@ -9,7 +9,7 @@ from .. import actions
 from ..infra import timefmt
 from ..team import agents
 from ..team import ask as askmod
-from ..daemon import lifecycle as dmn_lifecycle
+from ..daemon import lifecycle as dmn_lifecycle, taskholds
 from .. import db
 from ..session import handoff as handoffmod
 from ..infra import paths
@@ -535,6 +535,9 @@ def _print_board(con, tasks: list) -> None:
         odd = actions.task_mismatch(con, t, state, open_requests)
         if odd:
             print(f"        ! {odd}")
+        wait = taskholds.wait_line(con, t, state)
+        if wait:
+            print(f"        {wait}")
         for r in db.task_requests(con, t["id"]):
             when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
@@ -628,6 +631,9 @@ def cmd_task_board(args) -> int:
             parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
             print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
             print(_fit100(f"      now: {now}"))
+            wait = taskholds.wait_line(con, t, actions.task_state(con, t))
+            if wait:
+                print(_fit100(f"      {wait}"))
             odd = actions.task_mismatch(con, t, actions.task_state(con, t), open_requests)
             if odd:
                 print(_fit100(f"      ! {odd}"))

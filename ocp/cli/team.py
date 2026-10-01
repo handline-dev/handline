@@ -5,7 +5,7 @@ from __future__ import annotations
 from .. import actions
 from ..team import agents
 from ..team import ask as askmod
-from ..daemon import lifecycle as dmn_lifecycle
+from ..daemon import lifecycle as dmn_lifecycle, taskholds
 from .. import db
 from ..session import launch
 from ..session import orca
@@ -139,6 +139,9 @@ def _doing(con, agent: str) -> str:
     waiting = db.unreached_count(con, agent)
     if waiting:
         state += f" · {waiting} waiting"
+    waits = taskholds.agent_waits(con, agent)
+    if waits:
+        state += f" · T{waits[0][0]} waits: {waits[0][1]}" + (f" (+{len(waits) - 1} more)" if len(waits) > 1 else "")
     if dmn_lifecycle.would_wake(con, row):
         walled = launch.wake_wait_reason(agent, row, con)
         if walled:
