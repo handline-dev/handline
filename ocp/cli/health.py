@@ -28,28 +28,41 @@ from .ask import _refused_listing
 
 
 # ---------------------------------------------------------------- checks
-def _started_at(pid: int) -> float | None:
-    """When `pid` started, as epoch seconds; None when the process table cannot say."""
+def _started_at(pid: int, record: Path) -> float | None:
+    """When `pid` started, as epoch seconds: the process table's word, else the mtime of `record`, the
+    file it wrote its pid to when it started (an agent's sandbox may not read the table). None when
+    neither says."""
     try:
         out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True,
                              timeout=10, env={**os.environ, "LC_ALL": "C"}).stdout.strip()
         return time.mktime(time.strptime(out, "%a %b %d %H:%M:%S %Y"))
     except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    try:
+        return record.stat().st_mtime
+    except OSError:
         return None
 
 
 def stale_long_lived(started_at=None) -> list[str]:
-    """The bridge and the daemon that are up now and started before the newest code file on disk: they
-    run code older than what is checked out, and a connect of theirs would re-add the columns a drop
-    removed. Each is named with its pid."""
+    """What stops `--drop-dead-columns`: the bridge and the daemon that are up now and started before the
+    newest code file on disk (they run older code, and a connect of theirs would re-add the columns a drop
+    removed), or whose start cannot be read. Each is named with its pid."""
     started_at = started_at or _started_at
     from ..daemon import devmode, locks as dmn_locks
+    from ..infra import lock
     from ..ui import stall
     code = max((f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists()), default=0)
     stale = []
-    for name, pid in (("bridge", stall.running_pid()), ("daemon", dmn_locks.running_elsewhere())):
-        began = started_at(pid) if pid else None
-        if pid and began is not None and began < code:
+    for name, pid, record in (("bridge", stall.running_pid(), stall.pid_file()),
+                              ("daemon", dmn_locks.running_elsewhere(),
+                               paths.home() / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}")):
+        if not pid:
+            continue
+        began = started_at(pid, record)
+        if began is None:
+            stale.append(f"{name} (pid {pid}; cannot tell when it started)")
+        elif began < code:
             stale.append(f"{name} (pid {pid})")
     return stale
 
@@ -66,8 +79,8 @@ def cmd_doctor(args) -> int:
         from ..db import schema
         stale = stale_long_lived()
         if stale:
-            print(f"not dropping: {' and '.join(stale)} started before the code now on disk - restart "
-                  "it, then run this again", file=sys.stderr)
+            print(f"not dropping: {' and '.join(stale)} - started before the code now on disk or not known to have "
+                  "started after it; restart it, then run this again", file=sys.stderr)
             return 1
         con = db.connect()
         try:

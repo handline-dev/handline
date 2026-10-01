@@ -751,13 +751,26 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
     stall.running_pid, dmn_locks.running_elsewhere = lambda: 4242, lambda: None
     try:
         check("stale: a bridge that started before the newest code is named",
-              health.stale_long_lived(lambda pid: code - 60) == ["bridge (pid 4242)"])
-        check("stale: one that started after it is not", health.stale_long_lived(lambda pid: code + 60) == [])
-        check("stale: a start time the process table cannot give is not a refusal",
-              health.stale_long_lived(lambda pid: None) == [])
+              health.stale_long_lived(lambda pid, rec: code - 60) == ["bridge (pid 4242)"])
+        check("stale: one that started after it is not", health.stale_long_lived(lambda pid, rec: code + 60) == [])
+        check("stale: a live process whose start cannot be read is refused, not passed",
+              health.stale_long_lived(lambda pid, rec: None) == ["bridge (pid 4242; cannot tell when it started)"])
         dmn_locks.running_elsewhere = lambda: 77
         check("stale: the daemon is named too",
-              health.stale_long_lived(lambda pid: code - 60) == ["bridge (pid 4242)", "daemon (pid 77)"])
+              health.stale_long_lived(lambda pid, rec: code - 60) == ["bridge (pid 4242)", "daemon (pid 77)"])
+        import os, subprocess
+        rec = home / "rec.pid"
+        rec.write_text("1\n")
+        os.utime(rec, (1000.0, 1000.0))
+        real_run = subprocess.run
+        def no_ps(*a, **k):
+            raise PermissionError("operation not permitted")
+        subprocess.run = no_ps
+        try:
+            check("stale: where ps is denied the start is the pid file's mtime", health._started_at(1, rec) == 1000.0)
+            check("stale: and with no pid file either it is unknown", health._started_at(1, home / "none") is None)
+        finally:
+            subprocess.run = real_run
         con = db.connect()
         dead = [c for c in dbschema._LEGACY_REQUEST_COLUMNS]
         try:
@@ -769,7 +782,7 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
         real_started = health._started_at
         args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, no_color=True)
         err = io.StringIO()
-        health._started_at = lambda pid: code - 60
+        health._started_at = lambda pid, rec: code - 60
         try:
             with contextlib.redirect_stderr(err):
                 rc = health.cmd_doctor(args)
