@@ -54,10 +54,12 @@ def _world(home: Path) -> list[str]:
     return sent
 
 
-def _delivered(con, requester: str, target: str, ago_s: int, kind: str | None = None, **kw) -> int:
+def _delivered(con, requester: str, target: str, ago_s: int, kind: str | None = "task", **kw) -> int:
+    """A request `target` was told, left open: a task delivery, the only thing an agent is nudged about."""
     rid = db.add_request(con, requester, target, "do the thing", None, "peer", "async",
                          kind, 0, None)
     db.mark_delivered(con, rid)
+    db.set_cursor(con, f"notify:{target}", rid)
     at = int(time.time()) - ago_s
     con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ? WHERE id = ?", (at, at, at, rid))
     return rid

@@ -997,7 +997,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
         db.set_terminal(con, "backend", "term_x", "wt")
         now = int(time.time())
         head = db.add_request(con, "marina", "backend", "carry on", None,
-                              "peer", "async", None, 0, None)
+                              "peer", "async", "task", 0, None)
         db.mark_delivered(con, head)
         db.set_cursor(con, "notify:backend", head)
         db.add_event(con, "backend", "Stop", {})

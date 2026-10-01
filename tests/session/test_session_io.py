@@ -631,7 +631,7 @@ def test_a_reminder_a_dialog_blocks_is_said(home: Path) -> None:
     try:
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         head = db.add_request(con, "marina", "backend", "the first thing", None,
-                              "peer", "async", None, 0, None)
+                              "peer", "async", "task", 0, None)
         db.mark_delivered(con, head)
         db.set_cursor(con, "notify:backend", head)
         db.add_event(con, "backend", "Stop", {})
@@ -2730,7 +2730,7 @@ def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) ->
         st, now = _cold_backend(home, con, sent)
         log = lambda _m: None
         rid = db.add_request(con, "marina", "backend", "carry on", None,
-                             "peer", "async", None, 0, None)
+                             "peer", "async", "task", 0, None)
         row = db.get_agent_state(con, "backend")
         check("cold head: an untold head closes the cold session",
               dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is True
@@ -3273,7 +3273,7 @@ def test_a_queued_agents_blocked_reminder_surfaces_like_an_idle_ones(home: Path)
     try:
         db.set_agent_state(con, "backend", dmn_states.QUEUED)
         head = db.add_request(con, "marina", "backend", "the first thing", None,
-                              "peer", "async", None, 0, None)
+                              "peer", "async", "task", 0, None)
         db.mark_delivered(con, head)
         db.set_cursor(con, "notify:backend", head)
         db.add_event(con, "backend", "Stop", {})

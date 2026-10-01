@@ -769,9 +769,7 @@ def _waiting_on_ask(con, agent: str, head) -> bool:
 
 def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     """What the agent is holding, if it looks like a resolve nobody wrote: its next
-    task (`effective_task_head`) when that was told and is still open, otherwise the
-    oldest open ask that was typed at it (T398) - a message is judged on its own
-    delivery, not on a cursor the tick keeps for tasks.
+    task (`effective_task_head`) when that was told and is still open.
 
     IDLE or QUEUED with a live terminal, delivered and told and still open, and
     nothing the agent asked that is still unanswered - which is what separates a
@@ -792,14 +790,8 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
     if has_background_work(con, agent) and not bg_stale(con, agent, now):
         return None           # not idle: work it started is still running
     head = effective_task_head(con, agent)
-    if not head or not head["delivered_at"] \
-            or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
-        cursor = db.get_cursor(con, f"notify:{agent}")
-        head = next((r for r in db.queued_for(con, agent)
-                     if r["kind"] not in ("task", "say") and r["delivered_at"]
-                     and (r["told_out_of_turn"] or cursor == int(r["id"]))), None)
-        if head is None:
-            return None
+    if not head or not head["delivered_at"] or db.get_cursor(con, f"notify:{agent}") != int(head["id"]):
+        return None
     if _waiting_on_ask(con, agent, head) or db.unannounced_answers(con, agent):
         return None
     idle = now - max(int(head["delivered_at"]), idle_since(con, agent) or 0)
