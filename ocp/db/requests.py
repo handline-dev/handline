@@ -261,14 +261,12 @@ def awaiting_landing(con, target: str):
         "AND landed_at IS NULL ORDER BY queue_order, id", (target,)).fetchall()
 
 
-def owe_again(con, rid: int, counted: bool = True) -> None:
+def owe_again(con, rid: int) -> None:
     """A typed line the transcript never showed is owed again, told afresh by the
-    same paths that told it first. `counted` adds a miss to `landing_tries`; a line
-    typed into a session that ended is no miss of the terminal's."""
+    same paths that told it first."""
     con.execute(
         "UPDATE requests SET delivered_at = NULL, typed_at = NULL, typed_session = NULL, "
-        "told_out_of_turn = NULL, landing_tries = COALESCE(landing_tries, 0) + ? "
-        "WHERE id = ? AND state = 'queued' AND landed_at IS NULL", (int(counted), rid))
+        "told_out_of_turn = NULL WHERE id = ? AND state = 'queued' AND landed_at IS NULL", (rid,))
 
 
 def timeboxed_open(con):

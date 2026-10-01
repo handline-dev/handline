@@ -201,11 +201,6 @@ def stuck(con) -> list[dict]:
             continue
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         landed = dmn_landing.state(r, now)
-        if landed == "lost":
-            # T418: typed and typed again, and its transcript never showed it - whatever the
-            # agent is doing now, it has not read this.
-            add(what, age, f"{dmn_landing.LOST_TEXT}, so {r['target']} has not read it", r["target"])
-            continue
         why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
         if not why:
             # The daemon can deliver it. Either it is about to, or it has

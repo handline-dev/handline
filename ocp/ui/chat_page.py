@@ -63,7 +63,6 @@ WAITS = ("waiting for", "blocked by")      # what the work line says of an agent
 LANDING_LABELS = {
     "queued": "sending",
     "typed": "sending",
-    "lost": f"not delivered: {landingmod.LOST_TEXT}",
     "delivered": "delivered, not answered yet",
 }
 

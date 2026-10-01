@@ -140,8 +140,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
                 landed = landing.state(r)
                 tail = ("waiting for you" if r["target"] == HUMAN else
                         f"delivered {timefmt.stamp(r['landed_at'], timefmt.CLOCK)}" if landed == "delivered" else
-                        "typed, not in its session yet" if landed == "typed" else
-                        f"not delivered: {landing.LOST_TEXT}" if landed == "lost"
+                        "typed, not in its session yet" if landed == "typed"
                         else "queued")
                 if r["target"] == agent:
                     tail += f" · #{r['id']}"       # what /cancel names
