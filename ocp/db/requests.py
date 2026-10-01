@@ -195,6 +195,9 @@ def mark_delivered(con, rid: int) -> bool:
         # work arrived: the agent-level progress note (T366) is for an idle spell
         row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
         cursors.set_meta(con, cursors.agent_progress_key(row["target"]), None)
+        if row["target"] == HUMAN:          # the founder has no transcript to land in: drawn is delivered
+            from .tasks import stamp_task_delivered
+            stamp_task_delivered(con, rid)
     return cur.rowcount > 0
 
 
@@ -215,6 +218,8 @@ def mark_landed(con, rid: int) -> None:
     """The receiving session's transcript holds `rid`: only now is it delivered."""
     con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ?) WHERE id = ?",
                 (int(time.time()), rid))
+    from .tasks import stamp_task_delivered
+    stamp_task_delivered(con, rid)
 
 
 def awaiting_landing(con, target: str):

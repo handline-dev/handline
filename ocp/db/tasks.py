@@ -18,7 +18,7 @@ TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
                "discarded_by", "discard_reason", "discarded_at", "priority", "merged_into",
-               "queued_by", "queued_at", "expects", "timeout_s", "timeout_at")
+               "queued_by", "queued_at", "expects", "timeout_s", "timeout_at", "delivered_at")
 
 DEFAULT_PRIORITY = 2
 
@@ -192,7 +192,7 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     sets = ["edited_by = ?", "edited_at = ?"]
     params: list = [by, now]
     if owner is not None:
-        sets.append("owner = ?")
+        sets += ["owner = ?", "delivered_at = NULL"]       # the new owner has not had it yet
         params.append(owner)
     if title is not None:
         sets.append("title = ?")
@@ -307,6 +307,15 @@ def sync_self_blocks(con, tid: int, old_owner: str) -> list[tuple[int, int]]:
             con.execute("UPDATE task_blocks SET dormant = 0 WHERE task_id = ? AND blocks_on = ?",
                         (r["task_id"], r["blocks_on"]))
     return went
+
+
+def stamp_task_delivered(con, rid: int) -> None:
+    """T720: request `rid` reached its target's session (or, for the founder, was drawn): the
+    task it delivers to that same owner is delivered from now. Once - the first stamp stays."""
+    con.execute(
+        "UPDATE tasks SET delivered_at = ? WHERE delivered_at IS NULL AND owner = "
+        "(SELECT target FROM requests WHERE id = ? AND (kind = 'task' OR (target = ? AND COALESCE(kind, '') NOT IN ('say', 'report')))) AND id IN "
+        "(SELECT task_id FROM task_requests WHERE request_id = ?)", (int(time.time()), rid, HUMAN, rid))
 
 
 def reparent_children(con, tid: int) -> list[int]:

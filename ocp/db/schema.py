@@ -174,7 +174,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- T286: timeout_s is the length a doing task may run before its opener is told;
   -- timeout_at the next deadline (NULL while it is not doing). See daemon/timebox.py.
   timeout_s    INTEGER,
-  timeout_at   INTEGER
+  timeout_at   INTEGER,
+  -- T720: when its owner's session first had the task (the request that delivers it landed; a
+  -- founder's card, when it was drawn). Internal - the clock starts here - and never a state a
+  -- screen shows. NULL again when the owner changes.
+  delivered_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -433,6 +437,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _one_doing_task_each(con)
     _notes_are_memos(con)
     _handed_to_founder_are_queued(con)
+    _task_deliveries_settled(con)
     return con
 
 
@@ -740,6 +745,28 @@ def _handed_to_founder_are_queued(con) -> None:
     set_cursor(con, "migrated:handed_to_founder_queued", 1)
 
 
+def _task_deliveries_settled(con) -> None:
+    """T720: stamp `tasks.delivered_at` from the deliveries that already landed, and settle the ghosts -
+    a delivery still queued on a task that has ended, or one handed on and left with its old holder
+    (#7789, #7837). Ledgered, so it runs once; the writers keep it current after that."""
+    if get_cursor(con, "migrated:task_deliveries_settled"):
+        return
+    from .requests import HUMAN, close_if_queued
+    con.execute(
+        "UPDATE tasks SET delivered_at = (SELECT MIN(CASE WHEN r.target = ? THEN COALESCE(r.landed_at, r.delivered_at) "
+        "ELSE r.landed_at END) FROM task_requests l JOIN requests r ON r.id = l.request_id "
+        "WHERE l.task_id = tasks.id AND (r.kind = 'task' OR (r.target = ? AND COALESCE(r.kind, '') NOT IN ('say', 'report'))) AND r.target = tasks.owner) "
+        "WHERE delivered_at IS NULL", (HUMAN, HUMAN))
+    ghosts = con.execute(
+        "SELECT DISTINCT r.id FROM requests r JOIN task_requests l ON l.request_id = r.id "
+        "WHERE r.state = 'queued' AND r.kind = 'task' AND NOT EXISTS ("
+        "SELECT 1 FROM task_requests l2 JOIN tasks t ON t.id = l2.task_id WHERE l2.request_id = r.id "
+        "AND t.owner = r.target AND t.done_evidence IS NULL AND t.discarded_by IS NULL)").fetchall()
+    for g in ghosts:      # no open task of its target is left for it to deliver: it ended, or was handed on
+        close_if_queued(con, g["id"], "done", "its task is no longer this agent's to do", announced=True, settle=False)
+    set_cursor(con, "migrated:task_deliveries_settled", 1)
+
+
 def _one_doing_task_each(con) -> None:
     """T444: an agent holds one doing task. Where several are being asked of one agent
     and it holds none of them, the newest becomes its current task and the rest read as
@@ -937,6 +964,8 @@ def _add_missing_columns(con) -> None:
         "UPDATE tasks SET done_evidence = 'closed by ' || closed_by, done_at = closed_at, "
         "done_via = 'reason' WHERE closed_by IS NOT NULL AND discarded_by IS NULL "
         "AND done_evidence IS NULL")
+    if "delivered_at" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN delivered_at INTEGER")
     if "timeout_s" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_s INTEGER")
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_at INTEGER")

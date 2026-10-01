@@ -7938,6 +7938,101 @@ limits:
         con.close()
 
 
+def test_a_task_knows_when_its_owner_had_it(home: Path) -> None:
+    """T720 (step A): tasks.delivered_at - set when the delivery lands with the owner, cleared when the
+    owner changes, backfilled once, and the ghost deliveries settled by the migration."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+  helper: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker", "helper"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, _, t = actions.task_new("manager", "worker", "stamp me", "work")
+        rid = db.task_requests(con, t)[0]["id"]
+        check("delivered_at: not before the delivery lands", db.get_task(con, t)["delivered_at"] is None)
+        db.mark_delivered(con, rid)
+        check("delivered_at: typed is not landed", db.get_task(con, t)["delivered_at"] is None)
+        db.mark_landed(con, rid)
+        first = db.get_task(con, t)["delivered_at"]
+        check("delivered_at: stamped when it lands with its owner", first is not None)
+        db.mark_landed(con, rid)
+        check("delivered_at: once - the first stamp stays", db.get_task(con, t)["delivered_at"] == first)
+        ok, msg = actions.task_handoff(con, "worker", t, "helper", "yours")
+        check("delivered_at: cleared when the owner changes", ok and db.get_task(con, t)["delivered_at"] is None, msg)
+        old = [r for r in db.task_requests(con, t) if r["id"] == rid][0]
+        db.mark_landed(con, old["id"])
+        check("delivered_at: a landing of the old holder's request does not stamp the new owner's task",
+              db.get_task(con, t)["delivered_at"] is None)
+        ok, _, em = actions.task_new("manager", "worker", "edit the owner", "w")
+        emr = db.task_requests(con, em)[0]["id"]
+        db.mark_landed(con, emr)
+        ok, msg = actions.edit_task(con, em, "manager", owner="helper")
+        actions.send_moved_task(con, em, "worker", "manager")      # what every caller does once the edit commits
+        reqs = db.task_requests(con, em)
+        check("delivered_at: edit --owner settles the old holder's delivery and sends the new owner theirs",
+              ok and db.get_request(con, emr)["state"] != "queued"
+              and [r["target"] for r in reqs if r["state"] == "queued"] == ["helper"]
+              and db.get_task(con, em)["delivered_at"] is None, msg)
+        # a founder's card is delivered when drawn
+        ok, _, card = actions.task_new("manager", "human", "decide", "decide")
+        crid = db.task_requests(con, card)[0]["id"]
+        kind = db.get_request(con, crid)["kind"]
+        db.mark_delivered(con, crid)
+        check("delivered_at: a founder's card, when drawn",
+              db.get_task(con, card)["delivered_at"] is not None, f"kind={kind} {dict(db.get_task(con, card))}")
+        ok, _, fyi_t = actions.task_new("manager", "human", "a card with a say linked", "decide")
+        ok, _, say_rid = askmod.ask("human", "just so you know", requester="manager", kind="say")
+        db.link_request(con, fyi_t, say_rid)
+        db.mark_delivered(con, say_rid)
+        check("delivered_at: a say to the founder linked to his task does not stamp it",
+              db.get_task(con, fyi_t)["delivered_at"] is None)
+        # the migration: backfill, and ghosts settled
+        ok, _, landed = actions.task_new("manager", "worker", "landed long ago", "w")
+        lrid = db.task_requests(con, landed)[0]["id"]
+        con.execute("UPDATE requests SET landed_at = 1234 WHERE id = ?", (lrid,))
+        ok, _, ghost = actions.task_new("manager", "worker", "ended with a delivery left", "w")
+        grid = db.task_requests(con, ghost)[0]["id"]
+        db.mark_task_done(con, ghost, "done the old way", "reason")
+        ok, _, moved = actions.task_new("manager", "worker", "handed on, old one left", "w")
+        mrid = db.task_requests(con, moved)[0]["id"]
+        con.execute("UPDATE tasks SET owner = 'helper' WHERE id = ?", (moved,))
+        ok, _, two_a = actions.task_new("manager", "worker", "shares a delivery - ended", "w")
+        ok, _, two_b = actions.task_new("manager", "worker", "shares a delivery - open", "w")
+        shared = db.task_requests(con, two_a)[0]["id"]
+        db.link_request(con, two_b, shared)
+        db.mark_task_done(con, two_a, "done", "reason")
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:task_deliveries_settled'")
+        con.execute("UPDATE tasks SET delivered_at = NULL")
+        from ocp.db import schema as dbschema
+        dbschema._task_deliveries_settled(con)
+        check("delivered_at: the migration backfills from a landed delivery",
+              db.get_task(con, landed)["delivered_at"] == 1234)
+        check("delivered_at: and leaves an unlanded one empty", db.get_task(con, t)["delivered_at"] is None)
+        check("delivered_at: a delivery left queued on an ended task is settled",
+              db.get_request(con, grid)["state"] == "done")
+        check("delivered_at: so is one left with the old holder after a hand-on",
+              db.get_request(con, mrid)["state"] == "done")
+        check("delivered_at: and a live delivery is left alone", db.get_request(con, lrid)["state"] == "queued")
+        check("delivered_at: a delivery shared with a task still open is not a ghost",
+              db.get_request(con, shared)["state"] == "queued")
+        dbschema._task_deliveries_settled(con)
+        check("delivered_at: the migration runs once", db.get_task(con, landed)["delivered_at"] == 1234)
+    finally:
+        con.close()
+
+
 def test_a_task_is_handed_over_with_a_note(home: Path) -> None:
     """T377: its owner (or the founder) hands a task to another agent with a note; the
     note travels as the delivery and the record lists every handoff in order."""
@@ -8638,6 +8733,7 @@ def main() -> int:
         run(lambda: test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited_on(Path(td) / 'reviewwait2'))
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
+        run(lambda: test_a_task_knows_when_its_owner_had_it(Path(td) / 'delivered'))
         run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
         run(lambda: test_the_agent_handing_a_task_on_is_not_parked(Path(td) / 'handoffpark'))
         run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))
