@@ -3713,6 +3713,14 @@ limits:
         ok, msg = actions.mark_task_done(con, founders, actions.HUMAN, reason="the founder")
         check("done: the founder can", ok, msg)
 
+        # the usual reply: a manager answers a founder request naming the task it opened for a report
+        ok, _, report = actions.task_new("manager", "worker", "opened for a report", "w")
+        fq = db.add_request(con, actions.HUMAN, "manager", "please look at it", None, None, None, "say", 0, None)
+        refusal = actions.check_human_resolve(con, db.get_request(con, fq), [report], None, "manager")
+        ok1, msg1 = actions.mark_task_done(con, report, "manager", reason="not mine to close")
+        check("link: the opener may name the task it opened for someone else, and still cannot close it",
+              refusal is None and not ok1, f"{refusal} / {msg1}")
+
         # a task handed on: the one who gave it away is no longer its holder
         ok, _, handed = actions.task_new("manager", "worker", "to be handed on", "w")
         ok, msg = actions.task_handoff(con, "worker", handed, "hr", "yours now")
@@ -6531,8 +6539,8 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
 
         t_neither = db.new_task(con, "neither owner nor target", "manager", "manager")
         ok, msg = actions.mark_task_done(con, t_neither, "worker", reason="not allowed")
-        check("done: refused - worker is neither the owner nor a linked target",
-              not ok and "owner" in msg and "target" in msg, msg)
+        check("done: refused - worker is neither the owner nor the founder",
+              not ok and "owner" in msg and "founder" in msg, msg)
 
         t_withdrawn = db.new_task(con, "target of a withdrawn request", "manager", "manager")
         r_withdrawn = db.add_request(con, "manager", "worker", "go", None, "supervisor",
