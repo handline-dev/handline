@@ -178,13 +178,38 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- T720: when its owner's session first had the task (the request that delivers it landed; a
   -- founder's card, when it was drawn). Internal - the clock starts here - and never a state a
   -- screen shows. NULL again when the owner changes.
-  delivered_at INTEGER
+  delivered_at INTEGER,
+  -- T737: two different facts, easy to confuse. `sent_at` is "the daemon gave this task to its
+  -- owner": set the moment a delivery is out on it, so queued turns doing there (founder #8035) -
+  -- never a screen state of its own. `delivered_at` is "the owner's session actually had it", the
+  -- clock's start. A task can be sent and not yet delivered, never the reverse.
+  sent_at      INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
   request_id  INTEGER NOT NULL,
   PRIMARY KEY (task_id, request_id)
 );
+-- T737: `tasks.sent_at` follows the open requests that ask something (not an fyi report) while
+-- those still decide it - set at the first, kept, cleared when none is left. Triggers, so a
+-- write that never went through db/ keeps it true too. They go when a task's own events
+-- (done, discard, owner change) clear it instead (design #7986, step D).
+CREATE TRIGGER IF NOT EXISTS task_sent_on_link AFTER INSERT ON task_requests BEGIN
+  UPDATE tasks SET sent_at = CASE WHEN EXISTS (SELECT 1 FROM task_requests l JOIN requests r
+    ON r.id = l.request_id WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)
+    THEN COALESCE(sent_at, CAST(strftime('%s','now') AS INTEGER)) ELSE NULL END WHERE id = NEW.task_id;
+END;
+CREATE TRIGGER IF NOT EXISTS task_sent_on_unlink AFTER DELETE ON task_requests BEGIN
+  UPDATE tasks SET sent_at = CASE WHEN EXISTS (SELECT 1 FROM task_requests l JOIN requests r
+    ON r.id = l.request_id WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)
+    THEN COALESCE(sent_at, CAST(strftime('%s','now') AS INTEGER)) ELSE NULL END WHERE id = OLD.task_id;
+END;
+CREATE TRIGGER IF NOT EXISTS task_sent_on_request AFTER UPDATE OF state, fyi ON requests BEGIN
+  UPDATE tasks SET sent_at = CASE WHEN EXISTS (SELECT 1 FROM task_requests l JOIN requests r
+    ON r.id = l.request_id WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)
+    THEN COALESCE(sent_at, CAST(strftime('%s','now') AS INTEGER)) ELSE NULL END
+  WHERE id IN (SELECT task_id FROM task_requests WHERE request_id = NEW.id);
+END;
 CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
 
 -- task #21/#1884: `task_id` cannot be worked until `blocks_on` closes. A row
@@ -438,6 +463,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _notes_are_memos(con)
     _handed_to_founder_are_queued(con)
     _task_deliveries_settled(con)
+    _task_sent_at(con)
     return con
 
 
@@ -767,6 +793,19 @@ def _task_deliveries_settled(con) -> None:
     set_cursor(con, "migrated:task_deliveries_settled", 1)
 
 
+def _task_sent_at(con) -> None:
+    """T737: `tasks.sent_at` from the deliveries out now - set, as the triggers set it, to now for a
+    task with an open request that asks something (not an fyi report) of anyone on it. Ledgered, so
+    it runs once; the triggers keep it current after that."""
+    if get_cursor(con, "migrated:task_sent_at"):
+        return
+    con.execute(
+        "UPDATE tasks SET sent_at = CAST(strftime('%s','now') AS INTEGER) WHERE EXISTS ("
+        "SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id "
+        "WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)")
+    set_cursor(con, "migrated:task_sent_at", 1)
+
+
 def _one_doing_task_each(con) -> None:
     """T444: an agent holds one doing task. Where several are being asked of one agent
     and it holds none of them, the newest becomes its current task and the rest read as
@@ -966,6 +1005,8 @@ def _add_missing_columns(con) -> None:
         "AND done_evidence IS NULL")
     if "delivered_at" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN delivered_at INTEGER")
+    if "sent_at" not in task_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN sent_at INTEGER")
     if "timeout_s" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_s INTEGER")
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_at INTEGER")
