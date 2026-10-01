@@ -33,7 +33,7 @@ from ocp.team import agents, hr
 from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
 from ocp.infra import timefmt  # noqa: E402
 from ocp.daemon import states as dmn_states
-from ocp.ui.chat_page import ChatPage  # noqa: E402
+from ocp.ui.chat_page import ChatMessage as cp_ChatMessage, ChatPage  # noqa: E402
 from ocp.ui.clipboard_app import ClipboardApp  # noqa: E402
 from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from textual import events  # noqa: E402
@@ -593,6 +593,60 @@ def test_a_number_in_a_message_becomes_a_link_to_it() -> None:
     check("refs: each #id is a link to show_message",
           targets("see #12 and #7") == ["screen.show_message(12)", "screen.show_message(7)"], str(targets("see #12 and #7")))
     check("refs: a#3 and ##4 are not links", targets("a#3") == [] and targets("##4") == [], str((targets("a#3"), targets("##4"))))
+
+
+def test_a_task_ref_in_a_message_is_found_only_when_it_stands_alone() -> None:
+    found = lambda s: [t for _, _, t in actions.task_refs_in(s)]  # noqa: E731
+    for s in ("T835", "see T835 now", "(T835)", "T835,", "T835.", "a T835: b", "T835를", "[T835]", "x\nT835"):
+        check(f"task ref: {s!r} is one", found(s) == [835], str(found(s)))
+    for s in ("LIT123", "XT5", "T835a", "T12_3", "t835", "T", "T 835", "_T835", "9T835", "#T835",
+              "http://x.io/T835", "see `T835` here", "https://a.b/c?T835"):
+        check(f"task ref: {s!r} is plain", found(s) == [], str(found(s)))
+    check("task ref: two in a line", found("T1 and T22") == [1, 22])
+    check("task ref: the span is the token", actions.task_refs_in("go T835!") == [(3, 7, 835)])
+
+
+async def test_clicking_a_task_ref_in_a_message_opens_that_task_and_a_missing_one_is_refused() -> None:
+    from ocp.team import ask as askmod
+    from ocp.ui.chat_page import TaskDetail
+    _home("taskref")
+    con = db.connect()
+    try:
+        ok, said, tid = actions.task_new("product", "backend", "Fix it", "the work and its done")
+    finally:
+        con.close()
+    check("task ref: the task was made", ok and tid, str(said))
+    ref = actions.task_ref(tid)
+    askmod.say("human", f"see {ref} and T99999 and LIT123", requester="backend")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        page = app.screen
+        check("task ref: the chat page is open", isinstance(page, ChatPage), type(page).__name__)
+        msg = next(w for w in page.query(cp_ChatMessage) if "T99999" in str(w._text.render()))
+        links = [sp.style.meta["@click"] for sp in msg._text.render().spans if sp.style.meta.get("@click")]
+        check("task ref: the two T<n> are links, LIT123 is not",
+              links == [f"screen.open_task({tid})", "screen.open_task(99999)"], str(links))
+        def at(word: str) -> tuple[int, int]:
+            before = msg._text.render().plain[:msg._text.render().plain.index(word)]
+            return len(before.rsplit("\n", 1)[-1]), before.count("\n")
+
+        check("task ref: nothing is picked at first", page.replying is None, str(page.replying))
+        await pilot.click(msg._text, offset=at("T99999"))
+        await pilot.pause(0.3)
+        check("task ref: an unknown task opens no page", app.screen is page, type(app.screen).__name__)
+        check("task ref: and the click did not pick the message", page.replying is None, str(page.replying))
+        await pilot.click(msg._text, offset=at(ref))
+        await pilot.pause(0.3)
+        check("task ref: a click on the ref opens that task's page",
+              isinstance(app.screen, TaskDetail) and app.screen.tid == tid, type(app.screen).__name__)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        await pilot.click(msg._text, offset=at("LIT123"))
+        await pilot.pause(0.2)
+        check("task ref: a click on plain text still picks the message", page.replying is msg, str(page.replying))
 
 
 def test_a_file_path_in_a_message_becomes_a_link_that_opens_it() -> None:
@@ -3225,6 +3279,8 @@ async def _run_all() -> None:
     test_a_message_between_two_other_agents_can_be_picked_in_all_chat()
     test_a_number_in_a_message_becomes_a_link_to_it()
     test_a_file_path_in_a_message_becomes_a_link_that_opens_it()
+    test_a_task_ref_in_a_message_is_found_only_when_it_stands_alone()
+    await test_clicking_a_task_ref_in_a_message_opens_that_task_and_a_missing_one_is_refused()
     test_the_task_title_is_cut_to_the_room_beside_the_other_columns()
     test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()

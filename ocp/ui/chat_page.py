@@ -507,13 +507,10 @@ def link_paths(text: Text, who: str = "") -> Text:
     return text
 
 
-_TASK_REF = re.compile(r"(?<![\w#])T(\d+)\b")
-
-
 def link_task_refs(text: Text) -> Text:
     """Every `T<n>` in `text` becomes a link that opens that task (a click runs `open_task`)."""
-    for hit in _TASK_REF.finditer(text.plain):
-        text.stylize(Style(underline=True, meta={"@click": f"screen.open_task({hit[1]})"}), hit.start(), hit.end())
+    for start, end, tid in actions.task_refs_in(text.plain):
+        text.stylize(Style(underline=True, meta={"@click": f"screen.open_task({tid})"}), start, end)
     return text
 
 
@@ -580,7 +577,8 @@ def message_text(m: dict, head_shown: bool, picked: bool, side: str, colors: dic
 def message_parts(m: dict) -> tuple[Text, Text, Text | None]:
     """What one message draws: its head line (who, when, its kind and linked tasks), its body, and
     the note under it (cancelled), all as safe `Text`."""
-    body = link_paths(link_refs(Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else "")), m["who"])
+    body = link_paths(link_task_refs(link_refs(
+        Text(safe_block(m["text"]), style="strike dim" if m.get("cancelled") else ""))), m["who"])
     stamp = timefmt.stamp(m["when"], timefmt.CLOCK) if m["when"] else ""
     head = Text(f"{safe(m['who'])}  {stamp}", style="bold")
     if m.get("part") == 0 and m.get("kind") not in (None, "say") and not is_card(m):
@@ -1187,7 +1185,7 @@ class TaskText(Static):
     """A `Static` on a task's page whose links open another task's page, wherever the page is."""
 
     def action_open_task(self, tid: int) -> None:
-        self.app.push_screen(TaskDetail(tid))
+        open_task_page(self.app, tid)
 
 
 class TaskBody(TaskActions, Vertical):
@@ -1435,6 +1433,19 @@ class TaskPane(TaskBody):
         return wide
 
 
+def open_task_page(app, tid: int) -> None:
+    """Open task `tid`'s page; a number that is no task says so instead of opening an empty page."""
+    con = db.connect()
+    try:
+        known = db.get_task(con, tid) is not None
+    finally:
+        con.close()
+    if known:
+        app.push_screen(TaskDetail(tid))
+    else:
+        app.notify(f"{actions.task_ref(tid)} is not a task", timeout=6)
+
+
 class TaskDetail(Screen):
     """One task's page: the shared `TaskBody` under a Back button, with a key for each call the
     human may make on it."""
@@ -1463,7 +1474,7 @@ class TaskDetail(Screen):
             self.app.pop_screen()
 
     def action_open_task(self, tid: int) -> None:
-        self.app.push_screen(TaskDetail(tid))
+        open_task_page(self.app, tid)
 
     def _body(self) -> TaskBody:
         return self.query_one(TaskBody)
@@ -2144,7 +2155,7 @@ class ChatPage(JobsAware, Screen):
         self.set_timer(1.5, lambda: target.remove_class("flash"))
 
     def action_open_task(self, tid: int) -> None:
-        self.app.push_screen(TaskDetail(tid))
+        open_task_page(self.app, tid)
 
     def reply_to(self, msg: ChatMessage | None) -> None:
         for old in self.query(".replying"):
