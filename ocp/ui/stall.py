@@ -11,8 +11,8 @@
 from __future__ import annotations
 
 import asyncio
-import atexit
 import faulthandler
+import fcntl
 import os
 import signal
 import sys
@@ -29,6 +29,7 @@ PING_S = 0.1
 MAX_BYTES = 2_000_000       # past this the log is moved to `.1` and starts again
 
 _fault_file = None
+_pid_fd: int | None = None      # held open for the lock
 
 
 def log_file() -> Path:
@@ -144,31 +145,46 @@ def install(app) -> int:
     pid = os.getpid()
     try:
         log_file().parent.mkdir(parents=True, exist_ok=True)
-        pid_file().write_text(f"{pid}\n")
+        _claim_pid_file(pid)
         _register_dump()
     except (OSError, ValueError, AttributeError):
         pass
-    atexit.register(forget_pid, pid)
     log(f"bridge up: pid {pid} term {os.environ.get('TERM_PROGRAM', os.environ.get('TERM', '?'))} "
         f"python {sys.version.split()[0]}")
     Watchdog(asyncio.get_running_loop()).start()
     return pid
 
 
-def forget_pid(pid: int) -> None:
-    """Remove the pid file when the bridge goes, unless a later bridge has written its own."""
+def _claim_pid_file(pid: int) -> None:
+    """Write `pid` into the pid file and hold a lock on it for as long as this process lives. The
+    kernel drops the lock however the process dies (exit, SIGHUP, kill -9), so a file left behind
+    is told from a live bridge by the lock, not by whether its pid is alive: pids get reused. A
+    second bridge cannot take the lock; the file keeps naming the first."""
+    global _pid_fd
+    fd = os.open(pid_file(), os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        if pid_file().read_text().strip() == str(pid):
-            pid_file().unlink()
-    except OSError:
-        pass
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{pid}\n".encode())
+    _pid_fd = fd
 
 
 def running_pid() -> int | None:
-    """The pid of a bridge that is up now, if the pid file names a live process."""
+    """The pid of the bridge that is up now: the pid file names it and something holds its lock."""
     try:
-        pid = int(pid_file().read_text().strip())
-        os.kill(pid, 0)
-    except (OSError, ValueError):
+        fd = os.open(pid_file(), os.O_RDONLY)
+    except OSError:
         return None
-    return pid
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return int(os.read(fd, 32).decode().strip() or 0) or None      # held: a bridge is up
+        return None                                                      # free: left behind
+    except ValueError:
+        return None
+    finally:
+        os.close(fd)

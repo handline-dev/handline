@@ -3036,10 +3036,11 @@ def test_the_stall_watchdog_writes_the_stacks_and_the_recovery() -> None:
     check("stall: no pid file, no bridge", stall.running_pid() is None)
 
 
-async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_goes_with_the_bridge() -> None:
+async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge() -> None:
     """T788 (auditor #8657): a printable key in an open box is logged as "printable", a named key by
     name, and nothing is logged with no box open; `install` writes the pid file and the USR1 dump,
-    the file goes when the bridge does, and a pid file left behind names no bridge."""
+    the bridge holds a lock on the file, so a file left behind (even by kill -9) or one naming a
+    reused pid names no bridge (T800)."""
     import signal
     from ocp.ui import stall
     from ocp.ui.bridge_textual import BridgeApp
@@ -3068,16 +3069,30 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_goes_wit
         await asyncio.sleep(0.2)
         check("stall: USR1 writes the stacks into the log", "Current thread" in stall.log_file().read_text()
               or "Thread 0x" in stall.log_file().read_text())
-    stall.forget_pid(os.getpid())
-    check("stall: the pid file is removed when the bridge goes", not stall.pid_file().exists())
-    gone = subprocess.Popen([sys.executable, "-c", "pass"])
-    gone.wait()
-    stall.pid_file().write_text(f"{gone.pid}\n")
-    out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
-    check("stall: a pid file left behind names no bridge", stall.running_pid() is None and out[0] == 1, str(out))
-    stall.pid_file().write_text(f"{os.getpid()}\n")
-    out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
-    check("stall: `ocp bridge --pid` prints the pid of a live bridge", out == (0, f"{os.getpid()}\n"), str(out))
+        out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
+        check("stall: while the bridge runs, `ocp bridge --pid` prints its pid", out == (0, f"{os.getpid()}\n"), str(out))
+    os.close(stall._pid_fd)
+    stall._pid_fd = None
+    check("stall: once the bridge's lock is gone, the file names no bridge", stall.running_pid() is None)
+    child = subprocess.Popen([sys.executable, "-c", "import sys, time; sys.path.insert(0, sys.argv[1]); "
+                              "from ocp.ui import stall; stall._claim_pid_file(__import__('os').getpid()); print('up', flush=True); time.sleep(60)",
+                              str(ROOT)], stdout=subprocess.PIPE, text=True)
+    try:
+        child.stdout.readline()
+        check("stall: another process's bridge lock names that process", stall.running_pid() == child.pid, str(stall.running_pid()))
+    finally:
+        child.kill()
+        child.wait()
+    check("stall: a bridge killed by a signal leaves a file that names no bridge", stall.running_pid() is None)
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        stall.pid_file().write_text(f"{sleeper.pid}\n")
+        out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
+        check("stall: a pid file naming a live process that is no bridge (a reused pid) names none",
+              stall.running_pid() is None and out[0] == 1, str(out))
+    finally:
+        sleeper.kill()
+        sleeper.wait()
 
 
 def _capture_out(fn) -> "tuple[int, str]":
@@ -3090,7 +3105,7 @@ def _capture_out(fn) -> "tuple[int, str]":
 
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
-    await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_goes_with_the_bridge()
+    await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
     test_agents_data_shows_its_current_task_and_flags_it_ready()
