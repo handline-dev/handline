@@ -14,17 +14,14 @@ account, over one default each:
 An account with no `month_cycle_<account>` is untouched by all of it. With the
 switch and no `sub_end_<account>` the end is a month after the subscription
 started, at the subscription's own time of day, read from the local profile; where
-that cannot be read, or the default lapsed more than a day ago, there is no end known and the account is not judged ended: a
+that cannot be read there is no end known and the account is not judged ended: a
 missing date must not shut an account that may well be live.
 """
 from __future__ import annotations
 
 import datetime as dt
-import time
 
 DEFAULT_WARN_DAYS = 3
-# How long after a default end (start + 1 month) it still counts as an ended account.
-DEFAULT_END_GRACE_S = 86400
 
 
 def config() -> dict:
@@ -76,7 +73,8 @@ def _end(acct: str, cfg: dict | None) -> tuple[dt.date, float] | None:
     `sub_end_<account>` is a day the founder typed: usable through all of it, so
     the moment is the start of the next day. Without one the end is a month after
     the subscription started, at the subscription's own time of day, because that
-    is when it lapses. The date is quoted in config.yaml (the reader refuses an
+    is when it lapses; one already past is an ended account, until the profile's
+    start changes (a renewal) or an end is typed. The date is quoted in config.yaml (the reader refuses an
     unquoted one as ambiguous); one that does not parse is no end, not the
     default: a typo must not end an account."""
     cfg = _cfg(cfg)
@@ -93,10 +91,7 @@ def _end(acct: str, cfg: dict | None) -> tuple[dt.date, float] | None:
     if not start:
         return None
     lapse = dt.datetime.combine(add_month(start.date()), start.time())
-    # Lapsed more than a day ago is a start the profile never renewed (or a lapse
-    # nobody renewed): ocp cannot tell which, so it is no end at all, not an
-    # ended account. The real end is typed.
-    return None if time.time() - lapse.timestamp() > DEFAULT_END_GRACE_S else (lapse.date(), lapse.timestamp())
+    return lapse.date(), lapse.timestamp()
 
 
 def end_date(acct: str, cfg: dict | None = None) -> dt.date | None:

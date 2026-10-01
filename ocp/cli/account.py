@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 import sys
 
 from ..team import accounts
@@ -157,6 +158,9 @@ def cmd_account_cycle(args) -> int:
     print(f"{args.name}: one-month subscription, " + (
         f"last day {day}" + (" (a month after the subscription started)" if cycle.end_is_default(args.name) else "")
         if day else "no end date known - pass --end YYYY-MM-DD"))
+    if day and cycle.end_is_default(args.name) and cycle.end_of(args.name) <= time.time():
+        print(f"default end {day} is past - this account will not be picked; "
+              f"set the real end with --end YYYY-MM-DD")
     return 0
 
 

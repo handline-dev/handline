@@ -18,6 +18,7 @@ from support import *  # noqa: E402,F401,F403
 from ocp.cli import account as cliaccount  # noqa: E402
 from ocp.daemon import subscriptions  # noqa: E402
 from ocp import actions  # noqa: E402
+from ocp.infra import atomic  # noqa: E402
 from ocp.usage import cycle, load  # noqa: E402
 
 DAY = 86400
@@ -457,6 +458,63 @@ def test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(home: Path)
     check("plan_key: and back", accounts.plan_key("a") == "max_5x")
 
 
+def test_turning_on_a_cycle_whose_default_end_is_past_says_so(home: Path) -> None:
+    use_home(home)
+    import contextlib
+    import io
+    write_status(home, "a", pct_5h=5, pct_7d=10, reset_7d=int(time.time()) + DAY)
+
+    def cli(state=None, end=None) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cliaccount.cmd_account_cycle(argparse.Namespace(name="a", state=state, end=end))
+        return buf.getvalue()
+
+    write_profile("a", {"subscriptionCreatedAt": "2024-08-31T06:00:00Z"})
+    out = cli("on")
+    check("cycle cli: a past default end is said plainly, with the way out",
+          "default end 2024-09-30 is past - this account will not be picked" in out
+          and "--end YYYY-MM-DD" in out, out)
+    check("cycle cli: asking again says it again", "is past" in cli())
+    out = cli(end=str(dt.date.today() + dt.timedelta(days=9)))
+    check("cycle cli: a typed end clears the warning", "is past" not in out and "last day" in out, out)
+    write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()})
+    write_cfg("month_cycle_a: true\n")
+    out = cli()
+    check("cycle cli: a default end still ahead is not warned about", "is past" not in out and "a month after" in out, out)
+
+
+def test_two_writers_never_share_a_temp_file(home: Path) -> None:
+    use_home(home)
+    f = home / "x.txt"
+    names: list[str] = []
+    real = Path.replace
+
+    def spy(self, target):
+        names.append(self.name)
+        return real(self, target)
+
+    Path.replace = spy
+    try:
+        atomic.write_text(f, "one")
+        atomic.write_text(f, "two")
+        check("atomic: each write has its own temp name", len(names) == 2 and names[0] != names[1], str(names))
+
+        def boom(self, target):
+            raise OSError("no")
+        Path.replace = boom
+        raised = False
+        try:
+            atomic.write_text(f, "three")
+        except OSError:
+            raised = True
+    finally:
+        Path.replace = real
+    check("atomic: a failed move raises and leaves no temp file", raised and sorted(p.name for p in home.glob("x.txt*")) == ["x.txt"],
+          str(sorted(p.name for p in home.glob("x.txt*"))))
+    check("atomic: and the old text is kept", f.read_text() == "two")
+
+
 def test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(home: Path) -> None:
     use_home(home)
     check("config: a missing file reads as empty, and as {} not None", load.config_or_none() == {})
@@ -499,10 +557,19 @@ def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -
     write_cfg("month_cycle_a: true\n")
     check("default end: a profile that cannot be read is no end", cycle.end_date("a") is None)
     write_profile("a", {"subscriptionCreatedAt": "2024-08-31T06:00:00Z"})
-    check("default end: an old start is no end, not an ended account - the real end is typed",
-          cycle.end_date("a") is None and cycle.ended_why("a", time.time()) is None)
+    check("default end: an old start is an ended account until the start changes or an end is typed",
+          cycle.end_date("a") == dt.date(2024, 9, 30) and cycle.ended_why("a", time.time()) is not None)
     write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=40)).isoformat()})
-    check("default end: a month gone for ten days is the same", cycle.end_date("a") is None)
+    check("default end: a month gone for ten days is the same", cycle.ended_why("a", time.time()) is not None)
+    write_status(home, "a", pct_5h=5, pct_7d=10, reset_7d=int(time.time()) + 3 * DAY)
+    write_status(home, "b", pct_5h=5, pct_7d=10, reset_7d=int(time.time()) + 3 * DAY)
+    picked, reasons = status.pick_account(["a", "b"])
+    check("default end: still not picked long after the lapse, and says why",
+          picked == "b" and "subscription ended" in dict(reasons)["a"], str(reasons))
+    check("default end: with nothing else the pick refuses rather than use it", status.pick_account(["a"])[0] is None)
+    cycle.set_cycle("a", True, dt.date.today() + dt.timedelta(days=9))
+    check("default end: a typed end brings it back", status.pick_account(["a"])[0] == "a")
+    write_cfg("month_cycle_a: true\n")
     write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5)).isoformat()})
     check("default end: a start five days ago ends in about a month", cycle.end_date("a") is not None
           and cycle.end_date("a") >= dt.date.today())
@@ -544,6 +611,8 @@ def main() -> int:
         run(lambda: test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(Path(td) / 'c12'))
         run(lambda: test_the_default_end_is_a_month_after_the_subscription_started(Path(td) / 'c13'))
         run(lambda: test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(Path(td) / 'c14'))
+        run(lambda: test_turning_on_a_cycle_whose_default_end_is_past_says_so(Path(td) / 'c15'))
+        run(lambda: test_two_writers_never_share_a_temp_file(Path(td) / 'c16'))
     return run_area(tests)
 
 
