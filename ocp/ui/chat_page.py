@@ -3,6 +3,7 @@
 chat_page.tcss."""
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import sys
@@ -1189,6 +1190,7 @@ class TaskBody(TaskActions, Vertical):
         super().__init__(**kw)
         self.tid = tid
         self.d: dict | None = None
+        self._tl_rows: list[tuple[str, Horizontal]] = []      # the timeline rows on screen, each with its entry's key
         self.keys = keys          # the buttons name their keys: the host binds them
 
     def compose(self) -> ComposeResult:
@@ -1267,20 +1269,39 @@ class TaskBody(TaskActions, Vertical):
         self.query_one("#t_brief", Static).display = False
         self.query_one("#t_brief_edit", Button).display = False
         self.query_one("#t_memos", Vertical).remove_children()
+        self._tl_rows = []
         for name in ("assign", "done", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
 
     def draw_memos(self, texts: list[Text]) -> None:
-        """The timeline: a line each, and a memo's own line ends in edit and delete icons."""
+        """The timeline: a line each, and a memo's own line ends in edit and delete icons. A line
+        is kept while its entry is unchanged: only entries that came, went or changed are removed
+        or mounted, so an agent's one new memo does not rebuild a hundred rows."""
         self.query_one("#t_memo_head", Static).update(Text.assemble(("Timeline", "bold"), (f"  {len(texts)}", "dim")))
         box = self.query_one("#t_memos", Vertical)
-        box.remove_children()
-        for text, e in zip(texts, self.d["timeline"]):
-            cells = [Static(text, classes="tl_text")]
-            if e["memo"]:
-                cells += [Button("✎", id=f"me_{e['memo']}", compact=True, classes="tl_icon"),
-                          Button("✕", id=f"md_{e['memo']}", variant="error", compact=True, classes="tl_icon")]
-            box.mount(Horizontal(*cells, classes="tl_row"))
+        entries = self.d["timeline"]
+        keys = [json.dumps(e, sort_keys=True, default=str) for e in entries]
+        have = self._tl_rows
+        kept: dict[int, Horizontal] = {}        # new index -> the row that already shows it
+        for a, b, size in difflib.SequenceMatcher(None, [k for k, _ in have], keys, autojunk=False).get_matching_blocks():
+            for i in range(size):
+                kept[b + i] = have[a + i][1]
+        for _, row in have:
+            if row not in kept.values():
+                row.remove()
+        rows: list[tuple[str, Horizontal]] = []
+        for i, (key, text, e) in enumerate(zip(keys, texts, entries)):
+            row = kept.get(i)
+            if row is None:
+                cells = [Static(text, classes="tl_text")]
+                if e["memo"]:
+                    cells += [Button("✎", id=f"me_{e['memo']}", compact=True, classes="tl_icon"),
+                              Button("✕", id=f"md_{e['memo']}", variant="error", compact=True, classes="tl_icon")]
+                row = Horizontal(*cells, classes="tl_row")
+                later = next((kept[j] for j in range(i + 1, len(keys)) if j in kept), None)
+                box.mount(row, before=later) if later is not None else box.mount(row)
+            rows.append((key, row))
+        self._tl_rows = rows
 
     def action_memo_add(self) -> None:
         box = self.query_one("#t_memo_box", ImeInput)
