@@ -130,6 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-color", action="store_true")
     p.add_argument("--settle-leftovers", action="store_true",
                    help="close, quietly, the task deliveries still queued on a task that has ended")
+    p.add_argument("--drop-dead-columns", action="store_true",
+                   help="drop the request columns nothing uses any more - only after the bridge and every "
+                        "long-lived session have been restarted on current code")
     p.set_defaults(fn=cmd_doctor)
 
     p = sub.add_parser("status", help="which account may take work")

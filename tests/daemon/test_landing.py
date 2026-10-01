@@ -465,22 +465,61 @@ def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: P
         con.close()
 
 
-def test_the_unread_request_columns_are_dropped_at_connect(home: Path) -> None:
-    """T797 branch 7: columns nothing reads any more go from a database that still has them."""
+def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(home: Path) -> None:
+    """T797 branch 7 / T830: a connect never drops a column (an older process still names them, and
+    re-adds them when it connects); `ocp doctor --drop-dead-columns` does, and two of them at once,
+    or one that read the columns a moment too early, do not crash."""
+    import threading
+    from ocp.db import schema as dbschema
     _daemon_home(home, 20)
+    dead = ("timebox_s", "timebox_noticed_at", "landing_tries")
+
+    def cols() -> set:
+        c = db.connect()
+        try:
+            return {r[1] for r in c.execute("PRAGMA table_info(requests)")}
+        finally:
+            c.close()
     con = db.connect()
     try:
-        for col in ("timebox_s", "timebox_noticed_at", "landing_tries"):
+        for col in dead:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
-        before = db.add_request(con, "product", "backend", "kept", None, None, None, "say", 0, None)
+        kept = db.add_request(con, "product", "backend", "kept", None, None, None, "say", 0, None)
     finally:
         con.close()
+    check("dead columns: connecting does not drop them - an older process may still use them",
+          set(dead) <= cols() and set(dead) <= cols())
+    errors: list = []
+
+    def drop():
+        c = db.connect()
+        try:
+            dbschema.drop_unread_request_columns(c)
+        except Exception as e:      # noqa: BLE001 - the point of the test
+            errors.append(repr(e))
+        finally:
+            c.close()
+    threads = [threading.Thread(target=drop) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    check("dead columns: four drops racing all finish without an error", not errors, str(errors))
+    check("dead columns: and the columns are gone, the rows untouched",
+          not set(dead) & cols() and db.get_request(db.connect(), kept)["body"] == "kept")
     con = db.connect()
+    real = dbschema._cols
     try:
-        cols = {r[1] for r in con.execute("PRAGMA table_info(requests)")}
-        check("unread columns: dropped at the next connect",
-              not cols & {"timebox_s", "timebox_noticed_at", "landing_tries"}, str(sorted(cols)))
-        check("unread columns: and the rows are untouched", db.get_request(con, before)["body"] == "kept")
+        for col in dead:
+            con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
+        con.execute(f"ALTER TABLE requests DROP COLUMN timebox_noticed_at")       # gone since it was read
+        dbschema._cols = lambda c, t: set(dead) | {"id"}                            # a stale reading
+        try:
+            got = dbschema.drop_unread_request_columns(con)
+        finally:
+            dbschema._cols = real
+        check("dead columns: a column that vanished after it was read is not an error",
+              "timebox_noticed_at" not in got and not set(dead) & cols(), str(got))
     finally:
         con.close()
 
@@ -564,7 +603,7 @@ def main() -> int:
         run(lambda: test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(Path(td) / "l16"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
-        run(lambda: test_the_unread_request_columns_are_dropped_at_connect(Path(td) / 'dropcols'))
+        run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
         run(lambda: test_the_conversation_says_where_a_request_is(Path(td) / "l7"))
         run(lambda: test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(Path(td) / "l8"))

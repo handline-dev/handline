@@ -449,7 +449,6 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _founder_says_landed(con)
     _requests_one_state(con)
     _moot_trust_proposals(con)
-    _drop_unread_request_columns(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -843,16 +842,36 @@ def _requests_one_state(con) -> None:
     con.execute("UPDATE requests SET state_at = ts WHERE state_at IS NULL")
 
 
-# Request columns nothing reads or writes any more (T797 branch 7). Dropped at every connect that
-# still finds one, so a database any older than this loses them the same way.
+# Request columns nothing reads or writes any more (T797 branch 7). They are NOT dropped at connect:
+# a long-lived process on older code (the bridge, an agent's own CLI) still names them in its
+# statements and re-adds them when it connects, so a drop at connect crashes it - or flaps against it
+# on every call (T830). Dropped by `ocp doctor --drop-dead-columns`, once everything long-lived has
+# been restarted; new code never names them and a fresh database never has them.
 _UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries")
 
 
-def _drop_unread_request_columns(con) -> None:
-    present = _cols(con, "requests")
-    for col in _UNREAD_REQUEST_COLUMNS:
-        if col in present:
-            con.execute(f"ALTER TABLE requests DROP COLUMN {col}")
+def drop_unread_request_columns(con) -> list[str]:
+    """Drop what `_UNREAD_REQUEST_COLUMNS` finds still present, in one write transaction with the
+    columns read again inside it, so two of these racing cannot both try the same drop; a column
+    that vanishes anyway is not an error. The columns dropped."""
+    dropped: list[str] = []
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        present = _cols(con, "requests")
+        for col in _UNREAD_REQUEST_COLUMNS:
+            if col not in present:
+                continue
+            try:
+                con.execute(f"ALTER TABLE requests DROP COLUMN {col}")
+                dropped.append(col)
+            except sqlite3.OperationalError as e:
+                if "no such column" not in str(e):
+                    raise
+        con.execute("COMMIT")
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
+    return dropped
 
 
 def _moot_trust_proposals(con) -> None:

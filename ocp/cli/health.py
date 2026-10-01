@@ -32,6 +32,14 @@ def cmd_doctor(args) -> int:
                 print(f"#{rid}: settled, quietly")
         finally:
             con.close()
+    if args.drop_dead_columns:
+        from ..db import schema
+        con = db.connect()
+        try:
+            gone = schema.drop_unread_request_columns(con)
+        finally:
+            con.close()
+        print(f"dropped: {', '.join(gone)}" if gone else "no dead columns left")
     r = doctor.run()
     print(r.render(color=not args.no_color))
     return 1 if r.failed else 0
