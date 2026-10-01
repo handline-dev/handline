@@ -101,7 +101,8 @@ def refresh_sent(con, tid: int) -> None:
     con.execute(
         "UPDATE tasks SET sent_at = CASE WHEN EXISTS "
         "(SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id WHERE l.task_id = tasks.id "
-        "AND r.state = 'queued' AND r.fyi = 0) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
+        "AND r.fyi = 0 AND (r.state = 'queued' OR (r.state = 'landed' AND r.kind = 'task' "
+        "AND r.target = tasks.owner AND r.resolved_at IS NULL))) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
         (int(time.time()), tid))
 
 
@@ -384,6 +385,17 @@ def open_decision_tasks_of(con, agent: str) -> int:
         "JOIN requests r ON r.id = l.request_id "
         "WHERE t.owner = ? AND t.opened_by = ? AND t.discarded_by IS NULL "
         "AND r.state = 'queued'", (HUMAN, agent)).fetchone()[0]
+
+
+def live_delivery(con, tid: int, owner: str):
+    """The request that asks `owner` to do task `tid` - the latest task delivery to that owner,
+    queued or landed and not answered - or None. A landed one is the task held, not history: the
+    task rows say whether it is still open. (`resolved_at` tells an answered one apart until the
+    answers go.)"""
+    rows = [r for r in task_requests(con, tid)
+            if r["kind"] == "task" and r["target"] == owner and not r["fyi"]
+            and (r["state"] == "queued" or r["state"] == "landed" and r["resolved_at"] is None)]
+    return rows[-1] if rows else None
 
 
 def task_requests(con, tid: int) -> list:

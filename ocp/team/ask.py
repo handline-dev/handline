@@ -656,7 +656,9 @@ def cancel(rid: int) -> tuple[bool, str]:
         if row is None:
             return False, f"request {rid} does not exist"
         if row["state"] != "queued":
-            return False, f"#{rid} is already {row['state']} - nothing to cancel"
+            tasks = db.tasks_for_request(con, rid) if row["kind"] == "task" else []
+            stop = f" - stop its task with `ocp task discard T{tasks[0]['id']}` or hand it back" if tasks else ""
+            return False, f"#{rid} is already {row['state']} - nothing to cancel{stop}"
         if row["requester"] == HUMAN and not row["delivered_at"]:
             return withdraw(rid, requester=HUMAN)
         if hr.is_open_proposal(rid, con):

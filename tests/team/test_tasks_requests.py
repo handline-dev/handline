@@ -1333,6 +1333,102 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
         con.close()
 
 
+def test_a_landed_task_delivery_is_the_task_the_agent_holds(home: Path) -> None:
+    """T797 6b: a task delivery whose line reached the agent's transcript is `landed`, not `queued` -
+    and the agent still holds that task: it is the inbox head, the one-task-at-a-time gate keeps
+    the next task behind it, a forgotten one is nudged, and the task ending frees the next."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        ok, _, first = actions.task_new("product", "backend", "first held task", "first held task")
+        rid1 = db.task_requests(con, first)[0]["id"]
+        db.mark_delivered(con, rid1)
+        db.mark_landed(con, rid1)
+        ok, _, second = actions.task_new("product", "backend", "second waits", "second waits")
+        rid2 = db.task_requests(con, second)[0]["id"]
+        sent.clear()
+
+        check("landed task: its delivery reads landed, not queued", db.get_request(con, rid1)["state"] == "landed")
+        check("landed task: its landing is not an answer - the asker is not told one",
+              rid1 not in [r["id"] for r in db.unannounced_answers(con, "product")])
+        check("landed task: it is still sent and being worked",
+              db.get_task(con, first)["sent_at"] is not None and actions.task_state(con, db.get_task(con, first)) == "doing")
+        check("landed task: it is the inbox head, not the task waiting behind it",
+              (db.head_of_queue(con, "backend") or {})["id"] == rid1 and dmn_delivery.effective_head(con, "backend")["id"] == rid1,
+              str(db.head_of_queue(con, "backend") and db.head_of_queue(con, "backend")["id"]))
+        check("landed task: the next is not told while it is held",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+
+        now = int(time.time())
+        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (now - dmn_delivery.NUDGE_AFTER_S - 60, rid1))
+        con.execute("DELETE FROM events WHERE agent = 'backend'")
+        db.add_event(con, "backend", "Stop", {})
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_delivery.NUDGE_AFTER_S - 60,))
+        found = dmn_delivery.forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"), now)
+        check("landed task: left open and idle, it is the forgotten one", found is not None and found["head"]["id"] == rid1,
+              str(found))
+
+        check("landed task: it is what the agent's inbox shows, as the task it is on",
+              [m["id"] for m in askmod.inbox("backend")] == [rid1] and db.current_task(con, "backend") == first,
+              str([m["id"] for m in askmod.inbox("backend")]))
+        actions._WORLD["at"] = 0.0
+        check("landed task: it is not on the stuck list - it reached its agent",
+              not any(r["what"].startswith(f"#{rid1} ") for r in actions.stuck(con)), str(actions.stuck(con)))
+        db.mark_task_done(con, first, "finished")
+        check("landed task: once it is done the next is told",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and "second waits" in sent[-1], str(sent))
+    finally:
+        con.close()
+
+
+def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> None:
+    """T797 6b: the ways a held (landed) task delivery ends or moves - its old holder keeps no hold,
+    the new one is asked, a discarded one is nobody's, a reopened one goes out again."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (True, "")
+        agents.register("reviewer")
+        for a in ("backend", "reviewer"):
+            sessions_are(a)
+            db.set_terminal(con, a, f"term_{a}", "wt")
+            db.set_agent_state(con, a, dmn_states.IDLE)
+        ok, _, t1 = actions.task_new("product", "backend", "to hand on", "to hand on")
+        r1 = db.task_requests(con, t1)[0]["id"]
+        db.mark_delivered(con, r1)
+        db.mark_landed(con, r1)
+        ok, msg = actions.task_handoff(con, "backend", t1, "reviewer", "yours now")
+        check("handed on: a landed task can be handed to another agent", ok, msg)
+        mine = db.get_task(con, t1)
+        check("handed on: it is the new owner's and asked of them, queued",
+              mine["owner"] == "reviewer" and db.live_delivery(con, t1, "reviewer")["state"] == "queued")
+        check("handed on: the old holder holds nothing - nothing left in its line",
+              not db.queued_for(con, "backend"), str([r["id"] for r in db.queued_for(con, "backend")]))
+
+        ok, _, t2 = actions.task_new("product", "backend", "to discard", "to discard")
+        r2 = db.task_requests(con, t2)[0]["id"]
+        db.mark_delivered(con, r2)
+        db.mark_landed(con, r2)
+        ok, msg = actions.discard_task(con, t2, "product", "not needed")
+        check("discard: the asker is refused while the task is held - a request is open", not ok, msg)
+        ok, msg = actions.discard_task(con, t2, db.HUMAN, "not needed", stop=True)
+        check("discard: the founder stops and discards a held task", ok, msg)
+        check("discard: a discarded landed task leaves nothing in the line", not db.queued_for(con, "backend"),
+              str([r["id"] for r in db.queued_for(con, "backend")]))
+        check("discard: and reads not sent", db.get_task(con, t2)["sent_at"] is None)
+    finally:
+        con.close()
+
+
 def test_head_task_blocked_by_the_agents_own_linked_ask(home: Path) -> None:
     """T337, auditor #2028 finding 2: `head_task_blocked`'s other form - an
     outgoing ask `agent` itself sent, linked to its head's own task - had no
@@ -8312,7 +8408,7 @@ limits:
         check("ghost: the founder's delivery of an open task is pending for the agent",
               frid in [r["id"] for r in db.founder_pending(con, "worker")])
         db.mark_task_done(con, fg, "x")
-        con.execute("UPDATE requests SET landed_at = ts, delivered_at = ts WHERE id IN (?, ?)", (frid, ghost))
+        con.execute("UPDATE requests SET delivered_at = ts WHERE id IN (?, ?)", (frid, ghost))
         check("ghost: the founder's delivery of an ended task is not told past an open head",
               frid not in [r["id"] for r in db.founder_pending(con, "worker")])
         check("ghost: nor does a timebox run on it (no 'ran long' about an ended task)",
@@ -8423,7 +8519,8 @@ limits:
               db.get_request(con, grid)["state"] == "landed")
         check("delivered_at: so is one left with the old holder after a hand-on",
               db.get_request(con, mrid)["state"] == "landed")
-        check("delivered_at: and a live delivery is left alone", db.get_request(con, lrid)["state"] == "queued")
+        check("delivered_at: and a live delivery is left alone - landed, and still the owner's to hold",
+              db.get_request(con, lrid)["state"] == "landed" and db.live_delivery(con, landed, "worker") is not None)
         check("delivered_at: a delivery shared with a task still open is not a ghost",
               db.get_request(con, shared)["state"] == "queued")
         dbschema._task_deliveries_settled(con)
@@ -8630,7 +8727,7 @@ limits:
             told.clear()
             db.set_current_task(con, "worker", None)
             for r in db.task_requests(con, bt):
-                con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (r["id"],))
+                con.execute("UPDATE requests SET state = 'landed', resolved_at = 1 WHERE id = ?", (r["id"],))   # answered
                 db.refresh_sent_of_request(con, r["id"])
             _cli(["task", "edit", f"T{bt}", "--body", "cli brief, not doing"], as_agent="manager")
             check("T689: nobody is told for a task that is not being worked", told == [], str(told))
@@ -9015,6 +9112,8 @@ def main() -> int:
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
+        run(lambda: test_a_landed_task_delivery_is_the_task_the_agent_holds(Path(td) / 'landedtask'))
+        run(lambda: test_a_landed_task_can_be_handed_on_discarded_and_reopened(Path(td) / 'landedmove'))
         run(lambda: test_own_withdraw_is_not_an_answer(Path(td) / 'ownwithdraw'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
         run(lambda: test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(Path(td) / 'oldmig2'))

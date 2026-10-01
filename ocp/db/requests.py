@@ -144,12 +144,22 @@ def settle_leftover_deliveries(con) -> list[int]:
     return done
 
 
+# A task delivery that landed and was not answered is the task its target still holds: it stays in
+# that agent's queue, ahead of the ones not yet told, until the task ends or moves on. Read off the
+# task rows (open, still this owner's), so a delivery of a task that ended is never held.
+HELD_DELIVERY = ("(requests.state = 'landed' AND requests.kind = 'task' AND requests.resolved_at IS NULL "
+                 "AND EXISTS (SELECT 1 FROM task_requests l JOIN tasks t ON t.id = l.task_id "
+                 "WHERE l.request_id = requests.id AND t.owner = requests.target "
+                 "AND t.done_evidence IS NULL AND t.discarded_by IS NULL))")
+
+
 def queued_for(con, target: str):
-    """Every request still queued for `target`, ordered by queue_order (its
-    delivery position - see `add_request`), not by id."""
+    """What `target` has in line, ordered by queue_order (its delivery position - see
+    `add_request`), not by id: every request still queued for it, and the task deliveries it
+    already holds (`HELD_DELIVERY`)."""
     return con.execute(
-        f"SELECT * FROM requests WHERE target = ? AND state = 'queued' AND NOT {LEFTOVER_DELIVERY} "
-        "ORDER BY queue_order, id",
+        f"SELECT * FROM requests WHERE target = ? AND (state = 'queued' OR {HELD_DELIVERY}) "
+        f"AND NOT {LEFTOVER_DELIVERY} ORDER BY queue_order, id",
         (target,),
     ).fetchall()
 
@@ -280,10 +290,15 @@ def mark_typed(con, rid: int, session: str | None) -> None:
 
 def mark_landed(con, rid: int) -> None:
     """The receiving session's transcript holds `rid`: only now is it delivered."""
-    con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ?) WHERE id = ?",
-                (int(time.time()), rid))
+    now = int(time.time())
+    con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ?) WHERE id = ?", (now, rid))
     from .tasks import stamp_task_delivered
     stamp_task_delivered(con, rid)
+    # A task delivery that landed is sent: 'queued' is only what has not reached the other side. The
+    # task rows say what is still held (`db.live_delivery`).
+    if not _would_strand_a_proposal(con, rid, "landed", None):
+        con.execute("UPDATE requests SET state = 'landed', state_at = ?, announced_at = COALESCE(announced_at, ?) "
+                    "WHERE id = ? AND state = 'queued' AND kind = 'task' AND target != ?", (now, now, rid, HUMAN))
 
 
 def awaiting_landing(con, target: str):
