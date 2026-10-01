@@ -282,64 +282,6 @@ def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
         con.close()
 
 
-def test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(home: Path) -> None:
-    """T38: told_out_of_turn replaced the sendnow_told:<id> cursor. A row an
-    old database already told out of turn must not lose that, or it would be
-    told a second time once it becomes the head - and the old cursor row
-    must not just sit there unread forever, which was the bug in the first
-    place."""
-    import sqlite3
-    home.mkdir(parents=True, exist_ok=True)
-    p = home / "old.sqlite"
-    old = sqlite3.connect(p)
-    old.execute("""
-        CREATE TABLE requests (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
-          requester TEXT NOT NULL, target TEXT NOT NULL, body TEXT NOT NULL,
-          files TEXT, relation TEXT, response TEXT, kind TEXT,
-          chain_depth INTEGER NOT NULL DEFAULT 0, parent_id INTEGER,
-          chain_id TEXT, state TEXT NOT NULL DEFAULT 'queued', verdict TEXT,
-          announced_at INTEGER, resolved_at INTEGER
-        )
-    """)
-    old.execute("CREATE TABLE cursors (name TEXT PRIMARY KEY, row_id INTEGER NOT NULL, "
-                "updated INTEGER NOT NULL)")
-    now = int(time.time())
-    old.execute(
-        "INSERT INTO requests(ts, requester, target, body, state, chain_id) "
-        "VALUES(?,?,?,?,?,?)", (now, "human", "keeper", "urgent", "queued", "1"))
-    old.execute("INSERT INTO cursors(name, row_id, updated) VALUES('sendnow_told:1', 1, ?)",
-                (now,))
-    old.commit()
-    old.close()
-
-    con = db.connect(p)
-    try:
-        check("migration: the old cursor's fact lands on the row",
-              db.get_request(con, 1)["told_out_of_turn"] == 1,
-              db.get_request(con, 1)["told_out_of_turn"])
-        check("migration: and the cursor that carried it is gone",
-              con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
-                          ).fetchone() is None)
-        # T77: an old daemon still writing one, or a crash between the two
-        # statements, leaves a cursor after the column exists - the next
-        # connect still carries it.
-        con.execute("UPDATE requests SET told_out_of_turn = NULL WHERE id = 1")
-        con.execute("INSERT INTO cursors(name, row_id, updated) VALUES('sendnow_told:1', 1, ?)",
-                    (now,))
-        con.commit()
-    finally:
-        con.close()
-    con = db.connect(p)
-    try:
-        check("migration: a cursor left behind after the column exists is carried on the next connect",
-              db.get_request(con, 1)["told_out_of_turn"] == 1
-              and con.execute("SELECT 1 FROM cursors WHERE name LIKE 'sendnow_told:%'"
-                              ).fetchone() is None)
-    finally:
-        con.close()
-
-
 def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path) -> None:
     """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
     delivery land between checking delivered_at and retiring the row. The
@@ -1188,7 +1130,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         check("nudge: supervise tells the next task past the idle head instead, and nudges nothing that tick",
               len(sent) == 1 and "#2 from" in sent[0] and "sat idle" in sent[0], str(sent))
         # Back to the queue the stuck checks below were written against.
-        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL, told_out_of_turn = NULL WHERE id = 2")
+        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL WHERE id = 2")
         idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         nudge(int(time.time()))
         sent.clear()
@@ -1488,6 +1430,57 @@ def test_any_request_that_landed_is_landed(home: Path) -> None:
         r = db.get_request(con, swept)
         check("landed any: the connect sweep lands a queued row that has its landing recorded",
               r["state"] == "landed" and r["state_at"] == 777 and r["announced_at"] == 777, str(dict(r)))
+    finally:
+        con.close()
+
+
+def test_a_head_told_before_a_session_closed_is_told_again_when_it_runs_again(home: Path) -> None:
+    """T797 7b (auditor #8852): `clear_closed` voids what the earlier session was told, and a resume keeps
+    its id - so the head, delivered before the close, is typed again; and a task told out of turn is
+    not told a second time only while that same session runs."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        ok, _, tid = actions.task_new("product", "backend", "the head", "the head")
+        rid = db.task_requests(con, tid)[0]["id"]
+        check("resume: the head was typed once when it arrived", len(sent) == 1 and db.get_cursor(con, "notify:backend") == rid, str(sent))
+        check("resume: and the tick does not repeat it", not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and len(sent) == 1, str(sent))
+        db.set_closed(con, "backend", "sess-1")
+        db.clear_closed(con, "backend")               # the same session id runs again: told afresh
+        check("resume: told about its queue afresh after a close and a same-id resume",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and len(sent) == 2 and f"#{rid}" in sent[-1], str(sent))
+
+        # a task told out of turn (a handoff) is not told again when it becomes the head - until a resume
+        sent.clear()
+        t2 = db.new_task(con, "handed in", "product", "product")
+        ok, msg = actions.task_handoff(con, "product", t2, "backend", "second one")
+        r2 = db.get_task(con, t2) and db.live_delivery(con, t2, "backend")["id"]
+        check("out of turn: the handoff is typed on arrival, past the open head", ok and len(sent) == 1 and "second one" in sent[0], f"{msg} {sent}")
+        ok, _, sid = askmod.say("backend", "a word in passing", requester="product")
+        dmn_messaging.tell_now(con, sid, lambda _m: None)          # a later out-of-turn tell must not erase the earlier mark
+        check("out of turn: a say told after it is typed at once too", len(sent) == 2 and "a word in passing" in sent[1], str(sent))
+        con.execute("UPDATE requests SET queue_order = -1 WHERE id = ?", (r2,))     # now first in line: the head
+        sent.clear()
+        check("out of turn: becoming the head is not news in the same session",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        check("out of turn: marks are per request and pruned once a request leaves the line",
+              db.told_ahead(con, "backend", r2) and db.told_ahead(con, "backend", sid), "")
+        db.mark_told_ahead(con, "backend", 99999, [99999])
+        check("out of turn: ...so one that is no longer in the line is dropped at the next mark",
+              not db.told_ahead(con, "backend", r2) and not db.told_ahead(con, "backend", sid)
+              and db.told_ahead(con, "backend", 99999), "")
+        db.set_cursor(con, "ahead:backend:%d" % r2, r2)
+        db.set_closed(con, "backend", "sess-1")
+        db.clear_closed(con, "backend")
+        check("out of turn: a resume voids it - the head is told again",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and sent and f"#{r2}" in sent[-1], str(sent))
     finally:
         con.close()
 
@@ -9174,11 +9167,11 @@ def main() -> int:
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_a_landed_task_delivery_is_the_task_the_agent_holds(Path(td) / 'landedtask'))
+        run(lambda: test_a_head_told_before_a_session_closed_is_told_again_when_it_runs_again(Path(td) / 'resume'))
         run(lambda: test_any_request_that_landed_is_landed(Path(td) / 'landedany'))
         run(lambda: test_a_landed_task_can_be_handed_on_discarded_and_reopened(Path(td) / 'landedmove'))
         run(lambda: test_own_withdraw_is_not_an_answer(Path(td) / 'ownwithdraw'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
-        run(lambda: test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(Path(td) / 'oldmig2'))
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
             Path(td) / 'retirerace'))
         run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))

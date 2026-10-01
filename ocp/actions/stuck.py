@@ -98,7 +98,7 @@ def _delivery_block(con, agent: str, sessions: dict | None,
 def queue_reason(con, agent: str, rid: int) -> str:
     """Why request `rid`, queued for `agent`, has not reached it, for the chat page."""
     row = db.get_request(con, rid)
-    if row and row["send_now"]:
+    if row and db.tells_now(row):
         return _delivery_state(con, agent, *_world())[0] or "sending now"
     true_head = db.head_of_queue(con, agent)
     # T337 (auditor #2028's sweep): the true head itself, blocked on record,
@@ -170,7 +170,7 @@ def stuck(con) -> list[dict]:
             h["agent"])
 
     queued = con.execute(
-        "SELECT id, requester, target, ts, send_now, typed_at, landed_at FROM requests WHERE state = 'queued' "
+        "SELECT id, requester, target, ts, kind, send_now, typed_at, landed_at FROM requests WHERE state = 'queued' "
         f"AND NOT {db.LEFTOVER_DELIVERY} AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
@@ -214,7 +214,7 @@ def stuck(con) -> list[dict]:
                 add(what, age, f"typed at {r['target']}, and its transcript has not shown it yet", r["target"])
             elif told:
                 add(what, age, f"{r['target']} was told and has not answered", r["target"])
-            elif not r["send_now"] and head is not None and int(head["id"]) != int(r["id"]):
+            elif not db.tells_now(r) and head is not None and int(head["id"]) != int(r["id"]):
                 # Only the head of a queue is told; the rest wait their turn -
                 # except a send_now row (T293's say among them), which is
                 # never behind the head at all (`queue_reason` checks this

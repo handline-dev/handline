@@ -312,8 +312,14 @@ def owe_again(con, rid: int) -> None:
     """A typed line the transcript never showed is owed again, told afresh by the
     same paths that told it first."""
     con.execute(
-        "UPDATE requests SET delivered_at = NULL, typed_at = NULL, typed_session = NULL, "
-        "told_out_of_turn = NULL WHERE id = ? AND state = 'queued' AND landed_at IS NULL", (rid,))
+        "UPDATE requests SET delivered_at = NULL, typed_at = NULL, typed_session = NULL "
+        "WHERE id = ? AND state = 'queued' AND landed_at IS NULL", (rid,))
+
+
+def tells_now(row) -> bool:
+    """Is this request told ahead of the queue (never waits behind a head): a say always, anything
+    else only once marked send-now (a handoff, a scheduled run, the founder's button)."""
+    return row["kind"] == "say" or row["send_now"] is not None
 
 
 def mark_send_now(con, rid: int) -> bool:
@@ -333,7 +339,8 @@ def send_now_pending(con, target: str):
     """Marked requests for `target` not yet shown to it, in the order pressed."""
     return con.execute(
         f"SELECT * FROM requests WHERE target = ? AND state = 'queued' AND NOT {LEFTOVER_DELIVERY} "
-        "AND send_now IS NOT NULL AND delivered_at IS NULL ORDER BY send_now, id",
+        "AND (send_now IS NOT NULL OR kind = 'say') AND delivered_at IS NULL "
+        "ORDER BY COALESCE(send_now, ts), id",
         (target,)).fetchall()
 
 
@@ -354,12 +361,6 @@ def followups_pending(con, target: str, head_id: int):
         "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
         "AND parent_id = ? AND delivered_at IS NULL ORDER BY queue_order, id",
         (target, head_id)).fetchall()
-
-
-def mark_told_out_of_turn(con, rid: int) -> None:
-    """Record that "send now" already told this row, ahead of its head, so
-    becoming the head later (T38) is not a second telling."""
-    con.execute("UPDATE requests SET told_out_of_turn = 1 WHERE id = ?", (rid,))
 
 
 def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> bool:

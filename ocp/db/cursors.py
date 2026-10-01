@@ -56,10 +56,25 @@ def get_notified_session(con, agent: str) -> str | None:
     return row["notified_session"] if row else None
 
 
+def mark_told_ahead(con, agent: str, rid: int, keep: list[int]) -> None:
+    """Record that request `rid` was told to `agent` out of turn, to the session that is running, so
+    that becoming its head is not news. One mark per request; the marks of requests no longer in
+    `keep` (what is still in the agent's line) are dropped, so they never pile up."""
+    marks = con.execute("SELECT name, row_id FROM cursors WHERE name LIKE ?", (f"ahead:{agent}:%",)).fetchall()
+    for m in marks:
+        if int(m["row_id"]) not in keep:
+            con.execute("DELETE FROM cursors WHERE name = ?", (m["name"],))
+    set_cursor(con, f"ahead:{agent}:{rid}", rid)
+
+
+def told_ahead(con, agent: str, rid: int) -> bool:
+    return get_cursor(con, f"ahead:{agent}:{rid}") == rid
+
+
 def forget_told(con, agent: str) -> None:
     """Void what this agent's earlier session was told about its queue: the
     head is announced again to whatever session is running next."""
-    con.execute("DELETE FROM cursors WHERE name = ?", (f"notify:{agent}",))
+    con.execute("DELETE FROM cursors WHERE name = ? OR name LIKE ?", (f"notify:{agent}", f"ahead:{agent}:%"))
     con.execute("UPDATE agent_state SET notified_session = NULL WHERE agent = ?", (agent,))
 
 

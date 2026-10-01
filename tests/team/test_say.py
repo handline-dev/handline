@@ -36,8 +36,7 @@ def test_say_delivers_ahead_of_the_queue_and_never_parks(home: Path) -> None:
               row["state"] == "queued", row["state"])
         check("say: never the head of the queue - the ordinary ask still is",
               db.head_of_queue(con, "worker")["id"] == first)
-        check("say: delivered ahead of the queue - marked send_now",
-              row["send_now"] is not None)
+        check("say: delivered ahead of the queue - by its kind, with no mark", db.tells_now(row))
         check("say: the requester never parks on it",
               db.get_agent_state(con, "manager") is None
               or db.get_agent_state(con, "manager")["state"] != "PARKED")

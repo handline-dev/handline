@@ -75,11 +75,6 @@ CREATE TABLE IF NOT EXISTS requests (
   -- When the human pressed "send now" on this (still undelivered) request: it
   -- is told to its target at once, ahead of a head that is already open.
   send_now INTEGER,
-  -- Set once "send now" has told it out of turn, so becoming the head later
-  -- (T38) is not a second telling. A request column, not a cursor keyed by
-  -- id: a cursor for every request ever sent out of turn sat in `cursors`
-  -- forever, with nothing to ever clear it.
-  told_out_of_turn INTEGER,
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
   fyi INTEGER NOT NULL DEFAULT 0,
@@ -847,7 +842,7 @@ def _requests_one_state(con) -> None:
 # statements and re-adds them when it connects, so a drop at connect crashes it - or flaps against it
 # on every call (T830). Dropped by `ocp doctor --drop-dead-columns`, once everything long-lived has
 # been restarted; new code never names them and a fresh database never has them.
-_UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries")
+_UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries", "told_out_of_turn")
 
 
 def drop_unread_request_columns(con) -> list[str]:
@@ -1083,23 +1078,12 @@ def _add_missing_columns(con) -> None:
     for col in ("dismissed_by", "dismissed_reason"):
         if col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
-    if "told_out_of_turn" not in request_cols:
-        con.execute("ALTER TABLE requests ADD COLUMN told_out_of_turn INTEGER")
     if "landed_at" not in request_cols:
         for col, kind in (("typed_at", "INTEGER"), ("typed_session", "TEXT"),
                           ("landed_at", "INTEGER")):
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} {kind}")
         # Told before landings were checked: nothing can prove or disprove them now.
         con.execute("UPDATE requests SET landed_at = delivered_at WHERE delivered_at IS NOT NULL")
-    # Carry over what the old sendnow_told:<id> cursors already knew - a
-    # request left NULL here that was in fact already told out of turn would be
-    # told a second time once it becomes the head. Every connect, not only the
-    # one that adds the column: a crash between the statements, or an old
-    # daemon still writing a cursor, leaves some behind.
-    con.execute(
-        "UPDATE requests SET told_out_of_turn = 1 WHERE id IN "
-        "(SELECT CAST(substr(name, 14) AS INTEGER) FROM cursors "
-        "WHERE name LIKE 'sendnow_told:%')")
     con.execute("DELETE FROM cursors WHERE name LIKE 'sendnow_told:%'")
     task_cols = _cols(con, "tasks")
     for col in ("discarded_by", "discard_reason"):

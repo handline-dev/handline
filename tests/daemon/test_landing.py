@@ -472,7 +472,7 @@ def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_dr
     import threading
     from ocp.db import schema as dbschema
     _daemon_home(home, 20)
-    dead = ("timebox_s", "timebox_noticed_at", "landing_tries")
+    dead = ("timebox_s", "timebox_noticed_at", "landing_tries", "told_out_of_turn")
 
     def cols() -> set:
         c = db.connect()
