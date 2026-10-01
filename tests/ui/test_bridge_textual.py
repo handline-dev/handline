@@ -1874,6 +1874,61 @@ async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> 
               str(d.options))
 
 
+async def test_a_changed_timeline_entry_remounts_only_itself() -> None:
+    """T767: an agent's one new memo on a 100-row timeline leaves the other rows as they were;
+    an edited memo replaces its own row in place, a deleted one just goes."""
+    from textual.app import App
+    from ocp.ui import chat_page as cp
+    _home("timeline_rows")
+    ok, _, tid = actions.task_new("product", "backend", "Long", "the work and its done")
+    con = db.connect()
+    try:
+        ids = [actions.memo_add(con, tid, "backend", f"memo {i}")[2] for i in range(100)]
+    finally:
+        con.close()
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield cp.TaskBody(tid)
+
+    def change(f) -> None:
+        con = db.connect()
+        try:
+            f(con)
+        finally:
+            con.close()
+    app = Host()
+    async with app.run_test(size=(100, 40)) as pilot:
+        body = app.query_one(cp.TaskBody)
+        await pilot.pause()
+        before = list(body.query(".tl_row"))
+        change(lambda con: actions.memo_add(con, tid, "backend", "one more"))
+        body.poll()
+        await pilot.pause()
+        after = list(body.query(".tl_row"))
+        check("timeline rows: a new memo adds one row and keeps the other rows themselves",
+              len(after) == len(before) + 1 and after[:len(before)] == before, f"{len(before)} -> {len(after)}")
+        at = lambda rows, mid: next(i for i, r in enumerate(rows) if r.query(f"#me_{mid}"))      # the task's own request comes first
+        i = at(after, ids[40])
+        change(lambda con: actions.memo_edit(con, ids[40], "backend", "memo 40 rewritten"))
+        body.poll()
+        await pilot.pause()
+        now = list(body.query(".tl_row"))
+        check("timeline rows: an edited memo replaces its own row, in its place, and no other",
+              len(now) == len(after) and now[i] is not after[i] and now[:i] == after[:i] and now[i + 1:] == after[i + 1:])
+        check("timeline rows: the edited row shows the new text and its icons still answer",
+              "rewritten" in str(now[i].query_one(".tl_text").render()) and body.query_one(f"#me_{ids[40]}") is not None)
+        j = at(now, ids[10])
+        change(lambda con: actions.memo_delete(con, ids[10], "backend"))
+        body.poll()
+        await pilot.pause()
+        gone = list(body.query(".tl_row"))
+        check("timeline rows: a deleted memo's row goes and the rest stay",
+              len(gone) == len(now) - 1 and gone[:j] == now[:j] and gone[j:] == now[j + 1:])
+
+
 async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
     """T703: the page's edit-text button rewrites the brief its opener sent, the change is on the
     timeline, and a refusal (nothing changed, nothing written) is shown, not swallowed."""
@@ -2988,6 +3043,7 @@ async def _run_all() -> None:
     test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
+    await test_a_changed_timeline_entry_remounts_only_itself()
     test_account_settings_alias_and_default_cap()
     await test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it()
     await test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives()
