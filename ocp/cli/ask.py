@@ -287,7 +287,7 @@ def _who_refusal(verb: str) -> str:
 # Every state in which no verdict is coming: the three that never reached the
 # target, plus the two that settled one. A wait that does not know them waits
 # out its whole timeout for an answer nobody is going to write.
-SETTLED = ("done", "rejected", *db.NEVER_REACHED_TARGET)
+SETTLED = ("landed", *db.NEVER_REACHED_TARGET)
 
 # cmd_read's header for a row in one of db.NEVER_REACHED_TARGET's states - a
 # module-level name, not an inline literal, so a test can check every name

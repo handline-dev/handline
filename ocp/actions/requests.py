@@ -229,6 +229,12 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     return None
 
 
+def _refused(row) -> bool:
+    """Did request `row` come back as a refusal rather than an answer: it was taken back before it
+    was sent, or the founder cancelled it."""
+    return row["state"] == "withdrawn" or row["verdict"] == askmod.CANCEL_VERDICT
+
+
 def _is_answer_to_human(row) -> bool:
     """Is this row an answer that came back to the human, rather than a request?
 
@@ -263,7 +269,7 @@ def mailbox_rows(con) -> list[dict]:
     for r in con.execute(
         "SELECT id, ts, requester, target, kind, response, body, parent_id, fyi "
         "FROM requests WHERE target = ? AND (state = 'queued' OR "
-        "(kind = 'say' AND state = 'done' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL)) "
+        "(kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL)) "
         "ORDER BY id",
         (HUMAN,),
     ).fetchall():
@@ -301,7 +307,7 @@ def mailbox_rows(con) -> list[dict]:
             # What the row's own state says came back. A refusal is an answer -
             # it is the one that means do something else - and drawing it as an
             # answer would lose the only word that distinguishes them.
-            "kind": "answer" if r["state"] == "done" else "refused",
+            "kind": "refused" if _refused(r) else "answer",
             "body": db.shown_verdict(r) or "(answered with nothing written)",
             # The answer is a message of its own with its own, later, id; the chat draws it on the
             # row it answers, so `seq` is what a chat's high-water mark is compared with.
@@ -465,7 +471,7 @@ def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | N
     other = row["target"] if answer else row["requester"]
     when = time.strftime("%Y-%m-%d %H:%M",
                          time.localtime((row["resolved_at"] if answer else None) or row["ts"]))
-    kind = ("answer" if row["state"] == "done" else "refusal") if answer \
+    kind = ("refusal" if _refused(row) else "answer") if answer \
         else (row["kind"] or "say")
     title = f"#{rid} from {other} · {kind} · {when}"
     text = (db.shown_verdict(row) if answer else row["body"]) or ""

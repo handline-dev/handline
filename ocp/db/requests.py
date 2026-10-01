@@ -22,7 +22,7 @@ def unannounced_answers(con, agent: str) -> list:
     return con.execute(
         "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
         "chain_id, dismissed_by, dismissed_reason FROM requests WHERE requester = ? "
-        "AND state IN ('done', 'rejected') AND announced_at IS NULL ORDER BY id",
+        "AND state IN ('landed', 'withdrawn') AND announced_at IS NULL ORDER BY id",
         (agent,),
     ).fetchall()
 
@@ -57,14 +57,15 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     # T781: a say to the founder is born landed - nothing is typed at him, so nothing is owed - and
     # unread (`read_at` NULL) until he reads it. 'done' is the landed state until the states collapse.
     landed = target == HUMAN and kind == "say" and state == "queued"
+    state = LANDED if landed or state == "done" else state
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
         "kind, chain_depth, parent_id, state, verdict, chain_id, fyi, timebox_s, edge_ok, "
-        "landed_at, resolved_at, announced_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "landed_at, resolved_at, announced_at, state_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now, requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, "done" if landed else state, verdict, chain_id, int(fyi), timebox_s, edge_ok,
-         now if landed else None, now if landed else None, now if landed else None),
+         chain_depth, parent_id, state, verdict, chain_id, int(fyi), timebox_s, edge_ok,
+         now if landed else None, now if landed else None, now if landed else None, now),
     )
     rid = int(cur.lastrowid)
     if chain_id is None:
@@ -72,6 +73,24 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
         con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
     con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (rid, rid))
     return rid
+
+
+# T797: a request has one state and one time (`state_at`). queued: not sent; landed: the line is in
+# its target's transcript, the normal end; withdrawn / replaced / denied: ended before sending.
+# The closers below still take the old words as the intent of the close - "done" (answered, so
+# landed) and "rejected" (taken back: landed if it had been delivered, else withdrawn) - and store
+# the new ones.
+LANDED = "landed"
+
+
+def stored_state(con, rid: int, intent: str) -> str:
+    """The state a close with `intent` leaves on request `rid`."""
+    if intent in ("done", LANDED):
+        return LANDED
+    if intent == "rejected":
+        r = con.execute("SELECT delivered_at, landed_at FROM requests WHERE id = ?", (rid,)).fetchone()
+        return LANDED if r is not None and (r["delivered_at"] or r["landed_at"]) else "withdrawn"
+    return intent
 
 
 # States a request can leave 'queued' for without ever having reached its
@@ -387,9 +406,9 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
         return False
     now = int(time.time())
     cur = con.execute(
-        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
+        "UPDATE requests SET state = ?, state_at = ?, verdict = COALESCE(?, verdict), "
         "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?) "
-        "WHERE id = ? AND state = 'queued'", (state, verdict, now, now, rid))
+        "WHERE id = ? AND state = 'queued'", (stored_state(con, rid, state), now, verdict, now, now, rid))
     if cur.rowcount > 0:
         _settle(con, rid, state, verdict)
     return cur.rowcount > 0
@@ -448,10 +467,11 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
         return False
     now = int(time.time())
     cur = con.execute(
-        "UPDATE requests SET state = ?, verdict = ?, resolved_at = ?, "
+        "UPDATE requests SET state = ?, state_at = ?, verdict = ?, resolved_at = ?, "
         "announced_at = COALESCE(announced_at, ?), dismissed_by = ?, dismissed_reason = ? "
         "WHERE id = ? AND state = 'queued'",
-        (state, verdict, now, now if announced else None, dismissed_by, dismissed_reason, rid))
+        (stored_state(con, rid, state), now, verdict, now, now if announced else None,
+         dismissed_by, dismissed_reason, rid))
     if cur.rowcount > 0:
         if answered_by is not None:
             con.execute("UPDATE requests SET settles = ? WHERE id = ?", (rid, answered_by))
@@ -513,11 +533,12 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
     """
     if _would_strand_a_proposal(con, rid, state, verdict):
         return False
+    now = int(time.time())
     cur = con.execute(
-        "UPDATE requests SET state = ?, verdict = COALESCE(?, verdict), "
-        "resolved_at = COALESCE(resolved_at, ?) "
+        "UPDATE requests SET state = ?, state_at = ?, verdict = COALESCE(?, verdict), "
+        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?) "
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
-        (state, verdict, int(time.time()), rid))
+        (stored_state(con, rid, state), now, verdict, now, now, rid))
     if cur.rowcount > 0:
         _settle(con, rid, state, verdict)
     return cur.rowcount > 0

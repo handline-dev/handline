@@ -280,7 +280,7 @@ def test_a_resolved_or_cancelled_request_stops_the_clock(home: Path) -> None:
                                  timebox_s=1)
         report = _delivered(con, "manager", "dohyun", 9000, timebox_s=1)
         con.execute("UPDATE requests SET kind = 'report' WHERE id = ?", (report,))
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (done,))
+        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (done,))
         con.execute("UPDATE requests SET state = 'cancelled' WHERE id = ?", (gone,))
         timebox.sweep(con, lambda _m: None, int(time.time()) + 3600)
         check("timebox: resolved, cancelled, undelivered and report requests are not timed",
@@ -359,7 +359,7 @@ def test_an_open_request_or_a_short_run_is_not_unasked(home: Path) -> None:
         timebox.sweep(con, lambda _m: None, now)
         timebox.sweep(con, lambda _m: None, now + 3 * 3600)
         check("unasked: an agent with a request open is working on it", not sent, str(sent))
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
         timebox.sweep(con, lambda _m: None, now + 3 * 3600 + 10)
         timebox.sweep(con, lambda _m: None, now + 3 * 3600 + 20)
         check("unasked: the clock starts when its last request closed, not before", not sent, str(sent))
@@ -771,11 +771,11 @@ def test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_cl
         timebox.sweep(con, lambda _m: None, now)
         check("forgotten: an agent waiting on an answer it asked is not told to stop",
               not [s for s in sent if s[0] == "term_marina"], str(sent))
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
         db.add_request(con, "manager", "marina", "do it", None, "peer", "async", None, 0, None)
         timebox.sweep(con, lambda _m: None, now)
         check("forgotten: nor one with a request open", not [s for s in sent if s[0] == "term_marina"], str(sent))
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
         idle_close.set_agent_close_timeout("marina", idle_close.NEVER)
         timebox.sweep(con, lambda _m: None, now)
         check("forgotten: nor one set to never close", not [s for s in sent if s[0] == "term_marina"], str(sent))
@@ -946,7 +946,7 @@ def test_the_supervisor_is_told_once_the_nudge_schedule_is_used_up(home: Path) -
         timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now + 5)
         check("cap notice: not told twice for the same head", len(sent) == 1, str(sent))
 
-        _set_request_state(con, rid, "done", verdict="did it")
+        _set_request_state(con, rid, "landed", verdict="did it")
         timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now + 10)
         check("cap notice: resolving it clears the mark",
               db.get_cursor(con, "forgotten_capped_told:marina") == 0)
@@ -1364,7 +1364,7 @@ def test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(home: 
         db.link_request(con, t_head, ask)
         db.set_cursor(con, "notify:marina", r_next)
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
-        con.execute("UPDATE requests SET state = 'done', verdict = 'yes', announced_at = ? WHERE id = ?",
+        con.execute("UPDATE requests SET state = 'landed', verdict = 'yes', announced_at = ? WHERE id = ?",
                     (int(time.time()), ask))
         check("cleared: the true head is the one to work again",
               dmn_delivery.effective_task_head(con, "marina")["id"] == r_head)

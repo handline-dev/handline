@@ -358,7 +358,7 @@ def test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(home: Path) -
     con = db.connect()
     try:
         row = db.get_request(con, rid)
-        check("founder: a say to him is landed at once, and unread", ok and row["state"] == "done"
+        check("founder: a say to him is landed at once, and unread", ok and row["state"] == "landed"
               and row["landed_at"] and row["read_at"] is None, f"{msg} {dict(row)}")
         check("founder: and it is in For you", rid in [m["id"] for m in actions.mailbox_rows(con)])
         dmn_delivery.deliver_queued(con, askmod.HUMAN, lambda _m: None)
@@ -399,7 +399,7 @@ def test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unre
     try:
         r = db.get_request(con, old_q)
         check("migration: a say still queued for the founder is landed and unread",
-              r["state"] == "done" and r["landed_at"] and r["read_at"] is None, str(dict(r)))
+              r["state"] == "landed" and r["landed_at"] and r["read_at"] is None, str(dict(r)))
         check("migration: what he had already dealt with reads as read, when it was closed",
               db.get_request(con, old_done)["read_at"] == 77)
         c = db.get_request(con, card)

@@ -236,7 +236,7 @@ def messages_of(rows, agent: str) -> list[dict]:
         for part, speaker, to, text, at in (
                 (0, r["requester"], r["target"], r["body"], r["ts"]),
                 (1, r["target"], r["requester"], shown, r["resolved_at"] or r["ts"])):
-            cancelled = r["state"] == "rejected" and r["verdict"] == askmod.CANCEL_VERDICT
+            cancelled = r["state"] in ("landed", "withdrawn") and r["verdict"] == askmod.CANCEL_VERDICT
             if part == 1 and (not shown or cancelled or db.dismissal(r)[0]):
                 continue
             side = "you" if speaker == human else "agent" if speaker == agent else "other"
@@ -582,7 +582,7 @@ TIMELINE_WORD = {"memo": "memo", "handoff": "handed", "request": "request", "edi
 TIMELINE_ICON = {"memo": "✎", "request": "↗", "handoff": "⇄", "edit": "±", "state": "◆"}
 TIMELINE_STYLE = {"memo": "cyan", "request": "magenta", "handoff": "yellow", "edit": "blue",
                   "state": "green"}
-REQUEST_STATE_STYLE = {"queued": "bold yellow", "rejected": "bold red", **dict.fromkeys(db.NEVER_REACHED_TARGET, "dim")}
+REQUEST_STATE_STYLE = {"queued": "bold yellow", "landed": "bold green", **dict.fromkeys(db.NEVER_REACHED_TARGET, "dim")}
 
 
 def timeline_text(e: dict) -> Text:

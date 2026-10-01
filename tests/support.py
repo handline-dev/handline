@@ -286,7 +286,7 @@ def answer_card(con, rid: int, verdict: str) -> None:
     """Setup: the founder's answer on a decision card, as the closer leaves it - the card done with
     the verdict and its decision task done with it (T785: a proposal reads its answer off the task).
     Not through `resolve`, so nothing is applied and nothing is recorded."""
-    _set_request_state(con, rid, "done", verdict)
+    _set_request_state(con, rid, "landed", verdict)
     from ocp.db import tasks as dbtasks
     dbtasks.settle_decision_tasks(con, rid, "done", verdict)
 

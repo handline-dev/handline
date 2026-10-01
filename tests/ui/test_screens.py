@@ -122,7 +122,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
 
         ok, _m, f2 = askmod.ask(actions.HUMAN, "status: done", requester="backend", fyi=True)
         check("fyi: the sender's next report does not retire the earlier one - both are landed and unread",
-              all(db.get_request(con, f)["state"] == "done" and db.get_request(con, f)["landed_at"]
+              all(db.get_request(con, f)["state"] == "landed" and db.get_request(con, f)["landed_at"]
                   and db.get_request(con, f)["read_at"] is None for f in (f1, f2)))
         ok, _m, other = askmod.ask(actions.HUMAN, "other's report", requester="frontend",
                                    fyi=True)
@@ -138,7 +138,7 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
             askmod.asking_agent = lambda: actions.HUMAN
             _capture(lambda: cliask.cmd_read(argparse.Namespace(id=f2, wait=False)))
             check("fyi: the founder's `ocp read` marks it read",
-                  db.get_request(con, f2)["read_at"] is not None and db.get_request(con, f2)["state"] == "done")
+                  db.get_request(con, f2)["read_at"] is not None and db.get_request(con, f2)["state"] == "landed")
             check("fyi: `ocp read` leaves no verdict either",
                   db.get_request(con, f2)["verdict"] is None)
         finally:
@@ -221,7 +221,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         tie_ts = int(time.time())
         answered = db.add_request(con, actions.HUMAN, "punctual", "?", None, "peer",
                                   "async", None, 0, None)
-        con.execute("UPDATE requests SET state='done', verdict='the answer', ts=?, "
+        con.execute("UPDATE requests SET state='landed', verdict='the answer', ts=?, "
                     "resolved_at=? WHERE id=?", (tie_ts, tie_ts, answered))
         newer_report = db.add_request(con, "punctual", actions.HUMAN, "the report", None,
                                       "peer", "fire_and_forget", "report", 0, None, fyi=True)
@@ -235,7 +235,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         for body in ("first answer", "second answer", "third answer"):
             rid = db.add_request(con, actions.HUMAN, "reviewer", "?", None, "peer",
                                  "async", None, 0, None)
-            con.execute("UPDATE requests SET state='done', verdict=? WHERE id=?",
+            con.execute("UPDATE requests SET state='landed', verdict=? WHERE id=?",
                        (body, rid))
         con.commit()
         rev = by("reviewer")
@@ -333,7 +333,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         for body in ("first answer", "second answer"):
             rid = db.add_request(con, actions.HUMAN, "counted", "?", None, "peer",
                                  "async", None, 0, None)
-            con.execute("UPDATE requests SET state='done', verdict=? WHERE id=?",
+            con.execute("UPDATE requests SET state='landed', verdict=? WHERE id=?",
                        (body, rid))
         for body in ("r1", "r2", "r3"):
             db.add_request(con, "counted", actions.HUMAN, body, None, "peer",
@@ -665,7 +665,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         check("top: with something waiting it may be woken, not closed",
               actions.can(con, "backend", "wake")[0]
               and not actions.can(con, "backend", "close")[0])
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
 
         said = actions.wake(con, "backend")
         check("top: with nothing waiting for it, waking says so and resumes nothing",
@@ -676,7 +676,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("top: waking from the screen resumes that same session",
               row["closed_at"] is None and any("--resume sess-6" in t for t in sent), said)
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
 
         # A stall is the one state the daemon will not leave on its own, so the
         # screen is where it is cleared - including the wake streak, or the
@@ -743,7 +743,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
                        "peer", "async", None, 0, None)
         check("top: closing is not offered while work is waiting",
               not actions.can(con, "backend", "close")[0])
-        con.execute("UPDATE requests SET state = 'done' WHERE target = 'backend'")
+        con.execute("UPDATE requests SET state = 'landed' WHERE target = 'backend'")
 
         # perform_handoff returns True for three things that are not a handoff.
         # Reporting the state afterwards read "RUNNING" as though it were a
@@ -858,7 +858,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         said = actions.answer(con, rid, "variant 11")
         row = db.get_request(con, rid)
         check("top: answering resolves the request with the verdict",
-              row["state"] == "done" and "variant 11" in (row["verdict"] or ""), said)
+              row["state"] == "landed" and "variant 11" in (row["verdict"] or ""), said)
         check("top: and it is no longer waiting on the human",
               rid not in [m["id"] for m in actions.messages(con)])
     finally:
@@ -1292,7 +1292,7 @@ def test_the_messenger_tab_carries_a_conversation_both_ways(home: Path) -> None:
         check("chat: the reply in a decision card decides and finishes its task",
               ok and row["done_evidence"] == "call it x", said)
         check("chat: and settles the request that carried the card",
-              db.get_request(con, card)["state"] == "done" and db.get_request(con, card)["verdict"] == "call it x")
+              db.get_request(con, card)["state"] == "landed" and db.get_request(con, card)["verdict"] == "call it x")
         ok, said = actions.answer_ok(con, card, "again")
         check("chat: a second reply decides nothing", db.get_task(con, tid)["done_evidence"] == "call it x", said)
     finally:
@@ -2250,7 +2250,7 @@ def test_a_message_in_for_you_has_a_place_in_the_conversation(home: Path) -> Non
         # An answer the human was given: the verdict is the message.
         asked = db.add_request(con, actions.HUMAN, "reviewer", "did it merge?", None, "peer",
                                "async", None, 0, None, chain_id="c2")
-        con.execute("UPDATE requests SET state='done', verdict='ANSWER yes', resolved_at=? "
+        con.execute("UPDATE requests SET state='landed', verdict='ANSWER yes', resolved_at=? "
                     "WHERE id=?", (int(time.time()), asked))
         con.commit()
         check("for-you: an answer sits on its verdict",
@@ -2401,13 +2401,13 @@ def test_an_agent_name_is_text_and_no_screen_can_be_made_to_obey_it(home: Path) 
             db.add_request(con, "human", name, "hello", None, "peer", "async", None, 0, None)
             back = db.add_request(con, name, "backend", "a question", None, "peer", "async",
                                   None, 0, None)
-            con.execute("UPDATE requests SET state = 'done', verdict = 'answered', "
+            con.execute("UPDATE requests SET state = 'landed', verdict = 'answered', "
                         "resolved_at = ? WHERE id = ?", (int(time.time()), back))
             db.add_event(con, name, "wake", {})
             db.add_request(con, name, "backend", "another", None, "peer", "async", None, 0, None)
             asked = db.add_request(con, "backend", name, "and this?", None, "peer", "async",
                                    None, 0, None)
-            con.execute("UPDATE requests SET state = 'done', verdict = 'answered too', "
+            con.execute("UPDATE requests SET state = 'landed', verdict = 'answered too', "
                         "resolved_at = ? WHERE id = ?", (int(time.time()), asked))
             shown = {"main": _snap()}
             shown["backend's page"] = _page_text(   # where the name is a requester
@@ -2466,7 +2466,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                                "escalate", 0, None)
             d = db.add_request(con, "reviewer", "backend", f"asked {p}", None, "peer", "async",
                                None, 0, None)
-            con.execute("UPDATE requests SET state = 'done', verdict = ?, resolved_at = ? WHERE id = ?",
+            con.execute("UPDATE requests SET state = 'landed', verdict = ?, resolved_at = ? WHERE id = ?",
                         (f"verdict {p}\nmore {p}", int(time.time()), d))
             db.set_agent_state(con, "reviewer", "STALLED", detail=f"detail {p}")
             db.add_event(con, "reviewer", f"kind{p}", {"x": p})
@@ -2476,7 +2476,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             # depend on anything else the scene registers or retires.
             hrq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: retire reviewer?",
                                  None, "peer", "async", None, 0, None)
-            con.execute("UPDATE requests SET state = 'done', verdict = ? WHERE id = ?",
+            con.execute("UPDATE requests SET state = 'landed', verdict = ? WHERE id = ?",
                         (f"reject {c1p}", hrq))
             # For `hr withdraw`: a still-open proposal, its decision still queued.
             wq = db.add_request(con, "reviewer", askmod.HUMAN, "roster: rename reviewer?",
@@ -2978,7 +2978,7 @@ def test_the_agent_footer_shows_only_what_the_row_can_do(home: Path) -> None:
         check("footer: a closed agent with something waiting adds only wake, not "
               "close or park - whatever parked it",
               set(got) == set(common) | {"wake"}, got)
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
 
         for got in (labels(dmn_states.RUNNING), labels(dmn_states.PARKED, detail="by hand; wakes at 16:40"),
                     labels(dmn_states.STALLED), labels(dmn_states.PARKED, closed=True)):

@@ -2948,7 +2948,7 @@ edges:
     try:
         ok, said = hr.propose("add", "zed", repo="/repo", requester="hr", why="hands")
         pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
-        con.execute("UPDATE requests SET state = 'done', dismissed_by = 'ghost', "
+        con.execute("UPDATE requests SET state = 'landed', dismissed_by = 'ghost', "
                     "dismissed_reason = 'not now' WHERE id = ?", (rid,))
         from ocp.db import tasks as dbtasks
         dbtasks.settle_decision_tasks(con, rid, "done", None, dismissed_by="ghost")     # what the real closer does
@@ -3277,7 +3277,7 @@ edges:
         check("close_if_queued: a real decision still goes through",
               db.close_if_queued(con, rid, "done", "approve") is True)
         check("close_if_queued: and the row is no longer queued",
-              db.get_request(con, rid)["state"] == "done")
+              db.get_request(con, rid)["state"] == "landed")
 
         # #2024: ocp/db/ once also held an unguarded state-setter, so the
         # docstring's "every function below" was false for it. That function

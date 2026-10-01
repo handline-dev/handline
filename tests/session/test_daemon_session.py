@@ -1041,7 +1041,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
 
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         # Nothing queued for it now, so only the work itself can keep it open.
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_states.IDLE_CLOSE_S - 60,))
         row = db.get_agent_state(con, "backend")
@@ -1960,7 +1960,7 @@ def test_a_resume_woken_for_a_message_is_handed_that_message(home: Path) -> None
                         status.read_for_agent("backend", "alpha"))
         rid = db.add_request(con, "backend", "reviewer", "ship it?", None,
                              "peer", "async", None, 0, None)
-        support._set_request_state(con, rid, "done", "yes, ship it")
+        support._set_request_state(con, rid, "landed", "yes, ship it")
         sent.clear()
         dmn_evaluate.tick(con, lambda _m: None)
         told = [t for t in sent if "Answers to what you asked" in t]
@@ -3858,7 +3858,7 @@ def test_a_due_park_with_no_terminal_is_started_not_held(home: Path) -> None:
         db.set_terminal(con, "marina", None, None)
         db.set_closed(con, "marina", "sess_old")
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
-        con.execute("UPDATE requests SET state = 'done'")
+        con.execute("UPDATE requests SET state = 'landed'")
         db.add_pending(con, "marina", "hello", int(time.time()))
         dmn_evaluate.supervise(con, "marina", lambda _m: None, int(time.time()), {}, [])
         check("tick: a closed agent with no terminal and only a pending message is started for it",
@@ -3986,7 +3986,7 @@ def test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(h
               f"{logged} {order}")
         order.clear()
         for a in ("stalled", "handed", "finished", "aboom"):
-            con.execute("UPDATE requests SET state = 'done' WHERE target = ?", (a,))
+            con.execute("UPDATE requests SET state = 'landed' WHERE target = ?", (a,))
         db.set_terminal(con, "marina", None, None)
         acts = dmn_evaluate.start_waiting(con, lambda _m: None)
         check("start: an agent with work and no terminal is started, a closed one with work woken",
@@ -4181,7 +4181,7 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
         waitfor.sweep(con, log.append, 0)
         check("wait-for: back while the first is still undecided, it is that decision, not a second",
               len(raised()) == 1)
-        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
+        con.execute("UPDATE requests SET state = 'landed' WHERE kind = 'task' AND target = 'human'")
         con.execute("UPDATE tasks SET done_evidence = 'seen' WHERE owner = 'human'")
         db.clear_cursor(con, next(r["name"] for r in con.execute("SELECT name FROM cursors WHERE name LIKE 'waitfor:%'")))
         waitfor.sweep(con, log.append, 0)

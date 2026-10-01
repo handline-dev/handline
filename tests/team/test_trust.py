@@ -610,7 +610,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
                        "peer", "fire_and_forget", None, 0, None)
         asked = db.add_request(con, "backend", "reviewer", "did it land?", None,
                                "peer", "async", None, 0, None)
-        _set_request_state(con, asked, "done", "yes")
+        _set_request_state(con, asked, "landed", "yes")
         db.set_agent_state(con, "backend", dmn_states.RUNNING)
         dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
@@ -684,7 +684,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
               row["state"] == dmn_states.IDLE, str(dict(row)))
         check("trust stall: ...says so", any("STALLED -> IDLE" in a for a in said), str(said))
         check("trust stall: ...and closes the decision",
-              db.get_request(con, rid)["state"] == "done"
+              db.get_request(con, rid)["state"] == "landed"
               and not open_trust_decisions())
 
         # A pending standing-consent proposal (team/trust.py) opens with "[trust]" too and is the
@@ -694,7 +694,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         rid = stalled_on_the_trust_screen()
         sweep()
         check("trust stall: a pending trust proposal survives the lift, the stall's own decision closes",
-              db.get_request(con, proposal)["state"] == "queued" and db.get_request(con, rid)["state"] == "done",
+              db.get_request(con, proposal)["state"] == "queued" and db.get_request(con, rid)["state"] == "landed",
               str((db.get_request(con, proposal)["state"], db.get_request(con, rid)["state"])))
         askmod.resolve(proposal, "test cleanup", state="done", notify=False)
 
@@ -704,7 +704,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
                                  "prompt for wt", "old")
         sweep()
         check("trust stall: a decision raised under the old marker closes with the lift",
-              db.get_request(con, legacy)["state"] == "done", str(dict(db.get_request(con, legacy))) + str(db.open_decision_ids(con, "backend", "[trust] backend")))
+              db.get_request(con, legacy)["state"] == "landed", str(dict(db.get_request(con, legacy))) + str(db.open_decision_ids(con, "backend", "[trust] backend")))
 
         # A closed agent whose session is running, stalled by the trust prompt with the wake
         # streak at its cap, is lifted once and said once: the wake-stall branch below the lift
@@ -756,7 +756,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         sweep()
         check("trust stall: ...and the next tick closes both",
               db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
-              and db.get_request(con, rid)["state"] == "done")
+              and db.get_request(con, rid)["state"] == "landed")
 
         # A wake stall - the streak at its cap, no trust prompt behind it - is lifted by a running
         # session, once.

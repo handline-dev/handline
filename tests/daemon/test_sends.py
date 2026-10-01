@@ -260,7 +260,7 @@ def test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(home: Path) -> No
         row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
         check("typed say: typed at once", reply["ok"] and len(sent) == 1, str((reply, sent)))
         check("typed say: and finished - done, not left queued for a resolve",
-              row["state"] == "done", str(dict(row)))
+              row["state"] == "landed", str(dict(row)))
         check("typed say: closed with no verdict, so no reply is made of it (T441)",
               row["verdict"] is None and db.answer_row_of(con, row["id"]) is None, str(dict(row)))
         check("typed say: in = 0", db.unreached_count(con, "backend") == 0)
@@ -358,7 +358,7 @@ def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> No
         check("migration (T431): a row for the human is drawn, never typed - left alone",
               db.get_request(con, to_human)["typed_at"] is None)
         check("migration: the old say is settled, with no verdict to be drawn as a reply",
-              db.get_request(con, say)["state"] == "done" and db.get_request(con, say)["verdict"] is None
+              db.get_request(con, say)["state"] == "landed" and db.get_request(con, say)["verdict"] is None
               and db.answer_row_of(con, say) is None)
         check("migration: an old ask that was shown stays open, still owing its answer",
               db.get_request(con, shown)["state"] == "queued")
@@ -384,7 +384,7 @@ def test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(home: Path) -> None:
         rid = db.add_request(con, actions.HUMAN, "backend", "hello there", None, "peer", "async", "say", 0, None)
         dmn_messaging.finish_say(db.get_request(con, rid))
         row = db.get_request(con, rid)
-        check("chat: the say is done and has no verdict", row["state"] == "done" and row["verdict"] is None)
+        check("chat: the say is done and has no verdict", row["state"] == "landed" and row["verdict"] is None)
         check("chat: no reply is drawn for it", _drawn_replies(con, "backend") == [], str(_drawn_replies(con, "backend")))
         real = db.add_request(con, actions.HUMAN, "backend", "and a question", None, "peer", "async", None, 0, None)
         askmod.resolve(real, "an answer that somebody wrote")
@@ -552,7 +552,7 @@ def test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(home: 
         row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
         check("say on wake: told by the first prompt, nothing typed on top",
               row["delivered_at"] and sent == [], str((dict(row), sent)))
-        check("say on wake: and finished - done, not left queued", row["state"] == "done", str(dict(row)))
+        check("say on wake: and finished - done, not left queued", row["state"] == "landed", str(dict(row)))
         check("say on wake: nothing counts as owed", db.unreached_count(con, "backend") == 0)
     finally:
         con.close()

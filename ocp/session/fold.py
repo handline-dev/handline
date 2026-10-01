@@ -133,7 +133,7 @@ def _is_resolved(con, rid: int) -> bool:
     # the queue for some other reason (auditor's #499 should-fix, raised to
     # blocking by #1573's ruling - the same one-way-error reasoning above).
     r = db.get_request(con, rid)
-    return r is not None and r["state"] == "done"
+    return r is not None and r["state"] == "landed"
 
 
 def reconcile_resolved(con, d: digest.Digest) -> digest.Digest:
