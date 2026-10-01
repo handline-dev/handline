@@ -534,8 +534,8 @@ def deliver_queued(con, agent: str, log) -> bool:
         return False
     head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
         or _session_changed(con, agent)
-    if head_due and head["delivered_at"] and not _session_changed(con, agent):
-        # Told already - out of turn, or by a resume's first prompt; becoming the head is not news.
+    if head_due and db.get_cursor(con, f"ahead:{agent}") == int(head["id"]) and not _session_changed(con, agent):
+        # Told already, out of turn, to the session that is running; becoming the head is not news.
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         head_due = False
     ahead_of = None
@@ -1057,6 +1057,8 @@ def _record_told(con, agent: str, head, depth: int, log, session: str | None,
     if ahead_of is None:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         db.set_notified_session(con, agent, session)
+    else:
+        db.set_cursor(con, f"ahead:{agent}", int(head["id"]))
     db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
     log(f"  {agent}: told about #{head['id']}"
         + (f" (ahead of #{ahead_of['id']}, idle)" if parked else " (send now)" if ahead_of is not None else "")

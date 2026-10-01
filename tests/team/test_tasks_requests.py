@@ -1434,6 +1434,47 @@ def test_any_request_that_landed_is_landed(home: Path) -> None:
         con.close()
 
 
+def test_a_head_told_before_a_session_closed_is_told_again_when_it_runs_again(home: Path) -> None:
+    """T797 7b (auditor #8852): `clear_closed` voids what the earlier session was told, and a resume keeps
+    its id - so the head, delivered before the close, is typed again; and a task told out of turn is
+    not told a second time only while that same session runs."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    try:
+        orca_seen()
+        orcamod.idle_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        sessions_are("backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        ok, _, tid = actions.task_new("product", "backend", "the head", "the head")
+        rid = db.task_requests(con, tid)[0]["id"]
+        check("resume: the head was typed once when it arrived", len(sent) == 1 and db.get_cursor(con, "notify:backend") == rid, str(sent))
+        check("resume: and the tick does not repeat it", not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and len(sent) == 1, str(sent))
+        db.set_closed(con, "backend", "sess-1")
+        db.clear_closed(con, "backend")               # the same session id runs again: told afresh
+        check("resume: told about its queue afresh after a close and a same-id resume",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and len(sent) == 2 and f"#{rid}" in sent[-1], str(sent))
+
+        # a task told out of turn (a handoff) is not told again when it becomes the head - until a resume
+        sent.clear()
+        t2 = db.new_task(con, "handed in", "product", "product")
+        ok, msg = actions.task_handoff(con, "product", t2, "backend", "second one")
+        r2 = db.get_task(con, t2) and db.live_delivery(con, t2, "backend")["id"]
+        check("out of turn: the handoff is typed on arrival, past the open head", ok and len(sent) == 1 and "second one" in sent[0], f"{msg} {sent}")
+        con.execute("UPDATE requests SET queue_order = -1 WHERE id = ?", (r2,))     # now first in line: the head
+        sent.clear()
+        check("out of turn: becoming the head is not news in the same session",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
+        db.set_closed(con, "backend", "sess-1")
+        db.clear_closed(con, "backend")
+        check("out of turn: a resume voids it - the head is told again",
+              dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and sent and f"#{r2}" in sent[-1], str(sent))
+    finally:
+        con.close()
+
+
 def test_head_task_blocked_by_the_agents_own_linked_ask(home: Path) -> None:
     """T337, auditor #2028 finding 2: `head_task_blocked`'s other form - an
     outgoing ask `agent` itself sent, linked to its head's own task - had no
@@ -9116,6 +9157,7 @@ def main() -> int:
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_a_landed_task_delivery_is_the_task_the_agent_holds(Path(td) / 'landedtask'))
+        run(lambda: test_a_head_told_before_a_session_closed_is_told_again_when_it_runs_again(Path(td) / 'resume'))
         run(lambda: test_any_request_that_landed_is_landed(Path(td) / 'landedany'))
         run(lambda: test_a_landed_task_can_be_handed_on_discarded_and_reopened(Path(td) / 'landedmove'))
         run(lambda: test_own_withdraw_is_not_an_answer(Path(td) / 'ownwithdraw'))

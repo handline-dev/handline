@@ -109,6 +109,7 @@ def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home
               ok and db.current_task(con, "backend") == held, msg)
         row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
         db.mark_delivered(con, int(row["id"]))
+        db.set_cursor(con, "notify:backend", int(row["id"]))        # told, in turn
         sent.clear()
         t = db.new_task(con, "handed in", "product", "product")
         ok, msg = actions.task_handoff(con, "product", t, "backend", "please take this too")
