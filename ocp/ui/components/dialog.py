@@ -4,6 +4,8 @@ from __future__ import annotations
 from textual.binding import Binding
 from textual.screen import ModalScreen
 
+from .. import stall
+
 
 class Dialog(ModalScreen):
     """A box in the middle of the screen over what is under it. A subclass draws its content in a
@@ -28,6 +30,7 @@ class Dialog(ModalScreen):
     def finish(self, result=None) -> None:
         """The one way out: the first answer counts, a second (a double click, Enter after a click)
         is dropped instead of dismissing a screen that is already gone."""
+        stall.crumb(f"{type(self).__name__}: finish{'' if not self._finished else ' dropped (already finished)'}")
         if not self._finished:
             self._finished = True
             self.dismiss(result)

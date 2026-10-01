@@ -31,7 +31,7 @@ from ..team import agents, ask as askmod
 from ..infra import paths, textsafe
 from ..session import idle_close
 from ..usage import status
-from . import tui
+from . import stall, tui
 from .clipboard_app import ClipboardApp
 from .theme import follow_os_theme
 from ..infra import timefmt
@@ -1083,24 +1083,36 @@ class TaskActions:
         if not (self.d and self.d["can_assign"]):
             self.say("a finished task has nothing left to answer or assign")
             return
+        ref = actions.task_ref(self.tid)
+        stall.snapshot(self.app, f"assign {ref}: open requested")
 
         def answered(got: "tuple[str, str] | None") -> None:
+            stall.crumb(f"assign {ref}: answered {'cancelled' if got is None else 'to ' + got[0]}")
             if got is None:
                 return
             to, text = got
-            log_action(f"task {actions.task_ref(self.tid)} assign to {to}")
-            con = db.connect()
+            log_action(f"task {ref} assign to {to}")
+            with stall.timed(f"assign {ref}: db.connect"):
+                con = db.connect()
             try:
-                ok, said = actions.assign_task(con, self.tid, to, text)
+                with stall.timed(f"assign {ref}: actions.assign_task"):
+                    ok, said = actions.assign_task(con, self.tid, to, text)
             finally:
                 con.close()
             self.report("assign", ok, said)
-        con = db.connect()
+            stall.crumb(f"assign {ref}: callback end ({'ok' if ok else 'refused'})")
+            self.app.call_after_refresh(stall.snapshot, self.app, f"assign {ref}: after the callback")
+        with stall.timed(f"assign {ref}: db.connect"):
+            con = db.connect()
         try:
-            recent = actions.recent_assignees(con)
+            with stall.timed(f"assign {ref}: actions.recent_assignees"):
+                recent = actions.recent_assignees(con)
         finally:
             con.close()
-        self.app.push_screen(TaskAssign(actions.task_ref(self.tid), self.d["owner"], paths.list_agents(), recent), answered)
+        with stall.timed(f"assign {ref}: paths.list_agents"):
+            agents_here = paths.list_agents()
+        with stall.timed(f"assign {ref}: TaskAssign built and pushed"):
+            self.app.push_screen(TaskAssign(ref, self.d["owner"], agents_here, recent), answered)
 
     def action_done_task(self) -> None:
         if not (self.d and self.d["can_done"]):

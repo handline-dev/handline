@@ -34,6 +34,11 @@ def _bridge_textual_module():
 
 
 def cmd_bridge(args) -> int:
+    if args.pid:
+        from ..ui import stall      # needs neither textual nor rich
+        pid = stall.running_pid()
+        print(pid if pid else "no bridge is running")
+        return 0 if pid else 1
     # The bridge is a Textual app. Run once, or into a pipe, it is `tui.snapshot`:
     # plain text that needs no `textual`.
     if args.once or not sys.stdout.isatty():
