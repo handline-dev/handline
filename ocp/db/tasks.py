@@ -314,8 +314,8 @@ def stamp_task_delivered(con, rid: int) -> None:
     task it delivers to that same owner is delivered from now. Once - the first stamp stays."""
     con.execute(
         "UPDATE tasks SET delivered_at = ? WHERE delivered_at IS NULL AND owner = "
-        "(SELECT target FROM requests WHERE id = ? AND (kind = 'task' OR target = 'human')) AND id IN "
-        "(SELECT task_id FROM task_requests WHERE request_id = ?)", (int(time.time()), rid, rid))
+        "(SELECT target FROM requests WHERE id = ? AND (kind = 'task' OR (target = ? AND COALESCE(kind, '') NOT IN ('say', 'report')))) AND id IN "
+        "(SELECT task_id FROM task_requests WHERE request_id = ?)", (int(time.time()), rid, HUMAN, rid))
 
 
 def reparent_children(con, tid: int) -> list[int]:

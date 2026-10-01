@@ -755,16 +755,15 @@ def _task_deliveries_settled(con) -> None:
     con.execute(
         "UPDATE tasks SET delivered_at = (SELECT MIN(CASE WHEN r.target = ? THEN COALESCE(r.landed_at, r.delivered_at) "
         "ELSE r.landed_at END) FROM task_requests l JOIN requests r ON r.id = l.request_id "
-        "WHERE l.task_id = tasks.id AND (r.kind = 'task' OR r.target = ?) AND r.target = tasks.owner) "
+        "WHERE l.task_id = tasks.id AND (r.kind = 'task' OR (r.target = ? AND COALESCE(r.kind, '') NOT IN ('say', 'report'))) AND r.target = tasks.owner) "
         "WHERE delivered_at IS NULL", (HUMAN, HUMAN))
     ghosts = con.execute(
-        "SELECT r.id, t.owner, t.done_evidence, t.discarded_by FROM requests r "
-        "JOIN task_requests l ON l.request_id = r.id JOIN tasks t ON t.id = l.task_id "
-        "WHERE r.state = 'queued' AND r.kind = 'task' AND (t.done_evidence IS NOT NULL "
-        "OR t.discarded_by IS NOT NULL OR r.target != t.owner)").fetchall()
-    for g in ghosts:
-        why = "its task has ended" if g["done_evidence"] or g["discarded_by"] else f"its task is {g['owner']}'s now"
-        close_if_queued(con, g["id"], "done", why, announced=True, settle=False)
+        "SELECT DISTINCT r.id FROM requests r JOIN task_requests l ON l.request_id = r.id "
+        "WHERE r.state = 'queued' AND r.kind = 'task' AND NOT EXISTS ("
+        "SELECT 1 FROM task_requests l2 JOIN tasks t ON t.id = l2.task_id WHERE l2.request_id = r.id "
+        "AND t.owner = r.target AND t.done_evidence IS NULL AND t.discarded_by IS NULL)").fetchall()
+    for g in ghosts:      # no open task of its target is left for it to deliver: it ended, or was handed on
+        close_if_queued(con, g["id"], "done", "its task is no longer this agent's to do", announced=True, settle=False)
     set_cursor(con, "migrated:task_deliveries_settled", 1)
 
 

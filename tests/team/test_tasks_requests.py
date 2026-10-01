@@ -7980,6 +7980,12 @@ limits:
         db.mark_delivered(con, crid)
         check("delivered_at: a founder's card, when drawn",
               db.get_task(con, card)["delivered_at"] is not None, f"kind={kind} {dict(db.get_task(con, card))}")
+        ok, _, fyi_t = actions.task_new("manager", "human", "a card with a say linked", "decide")
+        ok, _, say_rid = askmod.ask("human", "just so you know", requester="manager", kind="say")
+        db.link_request(con, fyi_t, say_rid)
+        db.mark_delivered(con, say_rid)
+        check("delivered_at: a say to the founder linked to his task does not stamp it",
+              db.get_task(con, fyi_t)["delivered_at"] is None)
         # the migration: backfill, and ghosts settled
         ok, _, landed = actions.task_new("manager", "worker", "landed long ago", "w")
         lrid = db.task_requests(con, landed)[0]["id"]
@@ -7990,6 +7996,11 @@ limits:
         ok, _, moved = actions.task_new("manager", "worker", "handed on, old one left", "w")
         mrid = db.task_requests(con, moved)[0]["id"]
         con.execute("UPDATE tasks SET owner = 'helper' WHERE id = ?", (moved,))
+        ok, _, two_a = actions.task_new("manager", "worker", "shares a delivery - ended", "w")
+        ok, _, two_b = actions.task_new("manager", "worker", "shares a delivery - open", "w")
+        shared = db.task_requests(con, two_a)[0]["id"]
+        db.link_request(con, two_b, shared)
+        db.mark_task_done(con, two_a, "done", "reason")
         con.execute("DELETE FROM cursors WHERE name = 'migrated:task_deliveries_settled'")
         con.execute("UPDATE tasks SET delivered_at = NULL")
         from ocp.db import schema as dbschema
@@ -8002,6 +8013,8 @@ limits:
         check("delivered_at: so is one left with the old holder after a hand-on",
               db.get_request(con, mrid)["state"] == "done")
         check("delivered_at: and a live delivery is left alone", db.get_request(con, lrid)["state"] == "queued")
+        check("delivered_at: a delivery shared with a task still open is not a ghost",
+              db.get_request(con, shared)["state"] == "queued")
         dbschema._task_deliveries_settled(con)
         check("delivered_at: the migration runs once", db.get_task(con, landed)["delivered_at"] == 1234)
     finally:
