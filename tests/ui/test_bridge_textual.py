@@ -3158,6 +3158,43 @@ def _capture_out(fn) -> "tuple[int, str]":
     return code, buf.getvalue()
 
 
+def test_a_late_answer_still_counts_as_new_everywhere() -> None:
+    """T835 step 4a: the answering say can land long after the request entered its state (the line was
+    delivered, the answer came later). Everything that asks "what changed" reads the say's own time too."""
+    from ocp.ui import chat_page as cp
+    from ocp.team import ask as askmod
+    home = _home("lateans")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        long_ago = int(time.time()) - 5000
+        ok, msg, rid = askmod.ask("reviewer", "how is it?", requester=actions.HUMAN)
+        askmod.resolve(rid, "fine")
+        said = db.answer_row_of(con, rid)["id"]
+        con.execute("UPDATE requests SET ts = ?, state_at = ? WHERE id = ?", (long_ago - 10, long_ago, rid))
+        con.execute("UPDATE requests SET ts = ? WHERE id = ?", (long_ago, said))
+        tid = db.new_task(con, "watched", "reviewer", actions.HUMAN)
+        db.link_request(con, tid, rid)
+        con.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (long_ago - 20, tid))
+        seen = long_ago + 100
+        db.set_cursor(con, "seen:reviewer", seen)
+        before = (actions.chat_unread(con, "reviewer"), cp.signature(con, "reviewer", False),
+                  db.task_last_activity(con, tid))
+        check("late answer: before it lands, nothing is new", before[0] == 0 and before[2] == long_ago, str(before))
+        late = int(time.time()) + 900       # after everything else in the chat, as a signature's maximum needs
+        con.execute("UPDATE requests SET ts = ? WHERE id = ?", (late, said))      # the same say, answered later
+        check("late answer: chat_unread counts it although the request's state_at is older than the tab's last look",
+              actions.chat_unread(con, "reviewer") == 1)
+        check("late answer: the chat signature moves", cp.signature(con, "reviewer", False) != before[1])
+        check("late answer: the task's last activity is the say's time", db.task_last_activity(con, tid) == late,
+              str(db.task_last_activity(con, tid)))
+        row = next((r for r in actions.task_rows(con) if r["id"] == tid), None)
+        check("late answer: and so is the board's batch reading of it", row is not None and row["last_activity"] == late)
+        check("late answer: and the chat's own task list", [x for x in cp.tasks_of(con, "reviewer") if x[0] == tid][0][5] == late)
+    finally:
+        con.close()
+
+
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
@@ -3259,6 +3296,7 @@ async def _run_all() -> None:
     test_account_settings_alias_and_default_cap()
     await test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it()
     await test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives()
+    test_a_late_answer_still_counts_as_new_everywhere()
 
 
 def main() -> int:

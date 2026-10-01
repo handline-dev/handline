@@ -1696,7 +1696,7 @@ class _board_facts:
     def __init__(self, con, open_tasks: list):
         self.links: dict[int, list] = {}
         for r in con.execute(
-                "SELECT l.task_id AS tid, r.id, r.state, r.requester, r.ts, r.resolved_at "
+                f"SELECT l.task_id AS tid, r.id, r.state, r.requester, r.ts, {db.touched_sql('r')} AS touched, r.resolved_at "
                 "FROM task_requests l JOIN requests r ON r.id = l.request_id "
                 "ORDER BY l.task_id, r.id"):
             self.links.setdefault(r["tid"], []).append(r)
@@ -1741,7 +1741,7 @@ class _board_facts:
     def last_activity(self, row) -> int:
         seen = [row[k] or 0 for k in ("created_at", "edited_at", "done_at", "discarded_at")]
         for r in self.links.get(row["id"], []):
-            seen += [r["ts"] or 0, r["resolved_at"] or 0]
+            seen += [r["ts"] or 0, r["touched"] or 0]
         return int(max(seen))
 
 
@@ -1923,7 +1923,7 @@ def reason_gaps(con, window_days: int = 30) -> dict:
     stores a NULL verdict; a dismiss or a replace with none stores the fixed
     phrase with no ": " suffix.
 
-    From auditor #1366's should-fix 2: `resolved_at >= cutoff` bounds the count to the last `window_days`: with
+    From auditor #1366's should-fix 2: `state_at >= cutoff` bounds the count to the last `window_days`: with
     no window the line reports history forever, dominated by rows that
     predate `--reason` existing rather than current practice.
 
@@ -1940,7 +1940,7 @@ def reason_gaps(con, window_days: int = 30) -> dict:
     cutoff = int(time.time()) - window_days * 86400
     def one(where: str) -> int:
         return con.execute(
-            f"SELECT COUNT(*) FROM requests WHERE resolved_at >= ? AND {where}",
+            f"SELECT COUNT(*) FROM requests WHERE state_at >= ? AND {where}",
             (cutoff,)).fetchone()[0]
     withdrawn_total = one("state = 'withdrawn'")
     withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")

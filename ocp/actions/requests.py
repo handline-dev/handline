@@ -299,7 +299,7 @@ def mailbox_rows(con) -> list[dict]:
             "id": r["id"],
             # When the answer landed, not when the question was asked. Those
             # are two days apart on this machine's oldest rows.
-            "ts": r["resolved_at"] or r["ts"],
+            "ts": db.answered_at(r),
             "from": r["target"],
             # What the row's own state says came back. A refusal is an answer -
             # it is the one that means do something else - and drawing it as an
@@ -465,7 +465,7 @@ def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | N
     answer = _is_answer_to_human(row)
     other = row["target"] if answer else row["requester"]
     when = time.strftime("%Y-%m-%d %H:%M",
-                         time.localtime((row["resolved_at"] if answer else None) or row["ts"]))
+                         time.localtime(db.answered_at(row) if answer else row["ts"]))
     kind = ("refusal" if _refused(row) else "answer") if answer \
         else (row["kind"] or "say")
     title = f"#{rid} from {other} · {kind} · {when}"
@@ -524,7 +524,7 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
     of things the human sent.
     """
     rows = con.execute(
-        "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
+        "SELECT id, ts, state_at, resolved_at, requester, target, state, body, verdict, "
         f"dismissed_by, dismissed_reason, {db.ANSWER_SQL} "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
         "AND state != 'denied' AND settles IS NULL ORDER BY id DESC LIMIT ?",
@@ -540,7 +540,7 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
         shown = db.shown_verdict(r)
         if shown:
             who = other if mine else "you"
-            out.append(f"{'':<6} ↩ {who:<22} {_at(r['resolved_at'] or r['ts'])}  "
+            out.append(f"{'':<6} ↩ {who:<22} {_at(db.answered_at(r))}  "
                        f"{_gist(shown)}")
     return out
 

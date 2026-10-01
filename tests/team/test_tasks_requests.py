@@ -4684,7 +4684,7 @@ def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_
         rid = db.add_request(con, requester, target, "body", None, None, None, "say" if say else None,
                              0, None, state="landed" if say else state)
         if ts:
-            con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?", (ts, ts + 5, rid))
+            con.execute("UPDATE requests SET ts = ?, state_at = ? WHERE id = ?", (ts, ts + 5, rid))
         return rid
 
     def build(n_extra: int) -> None:
@@ -4711,7 +4711,7 @@ def test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_
         late = db.new_task(con, "late answer", "worker", "manager")
         late_rid = request("manager", "worker", state="done")
         stamp = int(time.time())
-        con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?", (stamp - 10, stamp + 100, late_rid))
+        con.execute("UPDATE requests SET ts = ?, state_at = ? WHERE id = ?", (stamp - 10, stamp + 100, late_rid))
         db.link_request(con, late, late_rid)        # answered after every time the task itself has
         blocked = db.new_task(con, "blocked", "worker", "manager")
         db.add_block(con, blocked, doing)
@@ -6993,7 +6993,13 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
         said = db.add_answer(con, real, "what was really said")
         check("shown_verdict: the answering say wins over the verdict copy",
               db.shown_verdict(db.get_request(con, real)) == "what was really said")
+        con.execute("UPDATE requests SET ts = ts + 777 WHERE id = ?", (said,))
+        check("answered_at: the time of the answering say, not the request's own state_at",
+              db.answered_at(db.get_request(con, real)) == db.get_request(con, said)["ts"]
+              != db.get_request(con, real)["state_at"])
         con.execute("DELETE FROM requests WHERE id = ?", (said,))
+        check("answered_at: with no answering say, the time it entered its state",
+              db.answered_at(db.get_request(con, real)) == db.get_request(con, real)["state_at"])
         check("shown_verdict: with no answering say the verdict is shown",
               db.shown_verdict(db.get_request(con, real)) == "stale copy")
 
@@ -7041,13 +7047,13 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
               str([dict(r) for r in db.unannounced_answers(con, "worker")]))
         check("dismissed: the label is still how the row reads",
               db.shown_verdict(db.get_request(con, w)) == "dismissed by manager - not now")
-        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?", (int(time.time()), w))
+        con.execute("UPDATE requests SET state_at = ? WHERE id = ?", (int(time.time()), w))
         seen = int(time.time())
         db.set_cursor(con, "seen:manager", seen)
         check("unread: nothing new after the tab was read", actions.chat_unread(con, "manager") == 0)
         fresh = _human_request()
         actions.dismiss(con, fresh, me="manager", reason="not mine", no_task="nothing")
-        con.execute("UPDATE requests SET ts = ?, resolved_at = ? WHERE id = ?",
+        con.execute("UPDATE requests SET ts = ?, state_at = ? WHERE id = ?",
                     (seen - 5, seen + 10, fresh))
         check("unread: an agent's dismissal of the founder's message is a new line",
               actions.chat_unread(con, "manager") == 1, str(actions.chat_unread(con, "manager")))
@@ -7199,7 +7205,7 @@ limits:
         old = db.add_request(con, "manager", "worker", "ancient", None, "peer",
                              "fire_and_forget", None, 0, None)
         _set_request_state(con, old, "withdrawn", None)
-        con.execute("UPDATE requests SET resolved_at = ? WHERE id = ?",
+        con.execute("UPDATE requests SET state_at = ? WHERE id = ?",
                     (int(time.time()) - 31 * 86400, old))
         gaps4 = actions.reason_gaps(con)
         check("reason gaps: a retirement older than the window does not count",
