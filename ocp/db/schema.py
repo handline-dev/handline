@@ -819,15 +819,18 @@ def _founder_says_landed(con) -> None:
 def _requests_one_state(con) -> None:
     """T797 (T763 branch 6): a request has one state and one time. done becomes landed; rejected
     becomes landed when it had been delivered and withdrawn when it had not; every row gets the time
-    it entered its state. Ledgered and idempotent: a second run finds nothing in the old states.
-    The closed rows only - a queued one has no state to move to yet, and so cannot strand a
+    it entered its state. Not ledgered: it runs at every connect, because a daemon still on the old
+    code for a minute after a merge writes the old words, and finding nothing is one indexed
+    lookup. The closed rows only - a queued one has no state to move to yet, and so cannot strand a
     proposal; the state column is quoted so the chokepoint scan does not read this as a closer."""
-    if get_cursor(con, "migrated:requests_one_state"):
+    if not get_cursor(con, "migrated:requests_one_state"):
+        # What ended before it was sent was never an answer to anyone: "withdrawn" joins the states
+        # `unannounced_answers` reads (a refusal that was `rejected`), so the old ones are marked told.
+        con.execute("UPDATE requests SET announced_at = COALESCE(announced_at, resolved_at, ts) "
+                    "WHERE state IN ('withdrawn', 'replaced', 'denied')")
+        set_cursor(con, "migrated:requests_one_state", 1)
+    if con.execute("SELECT 1 FROM requests WHERE state IN ('done', 'rejected') LIMIT 1").fetchone() is None:
         return
-    # What ended before it was sent was never an answer to anyone: "withdrawn" joins the states
-    # `unannounced_answers` reads (a refusal that was `rejected`), so the old ones are marked told.
-    con.execute("UPDATE requests SET announced_at = COALESCE(announced_at, resolved_at, ts) "
-                "WHERE state IN ('withdrawn', 'replaced', 'denied')")
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
                 'delivered_at, resolved_at, ts) WHERE "state" = \'done\'')
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
@@ -838,7 +841,6 @@ def _requests_one_state(con) -> None:
     con.execute("UPDATE requests SET state_at = COALESCE(resolved_at, ts) WHERE state_at IS NULL "
                 "AND state != 'queued'")
     con.execute("UPDATE requests SET state_at = ts WHERE state_at IS NULL")
-    set_cursor(con, "migrated:requests_one_state", 1)
 
 
 def _moot_trust_proposals(con) -> None:
