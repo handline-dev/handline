@@ -1058,8 +1058,10 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,
                  ahead_of=None, parked: bool = False) -> None:
     """What a delivered tell leaves behind, once it is known to have landed."""
+    from . import landing        # imports this module
     more = depth - 1
     db.mark_typed(con, int(head["id"]), session or _live_session(con, agent))
+    landing.note_typed(int(head["id"]))
     if ahead_of is None:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         db.set_notified_session(con, agent, session)
@@ -1085,6 +1087,13 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None,
         # here. Typing a dead request into the target's terminal would be
         # worse than skipping it; the next tick picks up whatever is now head.
         return False
+    from . import landing        # imports this module
+    if landing.landed_already(con, agent, int(head["id"])):
+        # T766: the transcript first - a line it already holds is not typed again.
+        db.mark_typed(con, int(head["id"]), _live_session(con, agent))
+        db.mark_landed(con, int(head["id"]))
+        _record_told(con, agent, head, depth, log, None, ahead_of, parked)
+        return True
     ok, _ = _send(handle, tell_text(con, head, depth, ahead_of, parked))
     if ok:
         _mark_typed(con, agent)

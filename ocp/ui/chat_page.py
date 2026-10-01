@@ -63,7 +63,6 @@ WAITS = ("waiting for", "blocked by")      # what the work line says of an agent
 LANDING_LABELS = {
     "queued": "sending",
     "typed": "sending",
-    "lost": f"not delivered: {landingmod.LOST_TEXT}",
     "delivered": "delivered, not answered yet",
 }
 
@@ -92,7 +91,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
     sql = ("SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-           "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, landing_tries, parent_id, kind, "
+           "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, parent_id, kind, "
            "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
            "WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, "
@@ -204,7 +203,7 @@ def signature(con, agent: str, everyone: bool) -> tuple:
     row = con.execute(
         "SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(resolved_at), 0), "
         "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), COALESCE(MAX(landed_at), 0), "
-        "COUNT(landed_at), COALESCE(MAX(typed_at), 0), COALESCE(SUM(landing_tries), 0), "
+        "COUNT(landed_at), COALESCE(MAX(typed_at), 0), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
         params).fetchone()
     events = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM events WHERE kind IN "
@@ -1710,7 +1709,7 @@ class ChatPage(JobsAware, Screen):
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
         key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
-                      r["landing_tries"], r["dismissed_by"])
+                      r["dismissed_by"])
                      for r in rows), tuple((c["tasks"][0], c["when"], c["change"]) for c in changes))
         live = (state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:

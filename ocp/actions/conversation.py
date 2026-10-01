@@ -25,7 +25,7 @@ def _chat_rows(con, agent: str) -> list:
     """Every row of every chain the human and `agent` have a row in."""
     return con.execute(
         "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
-        "dismissed_by, dismissed_reason, chain_id, delivered_at, typed_at, landed_at, landing_tries, fyi FROM requests "
+        "dismissed_by, dismissed_reason, chain_id, delivered_at, typed_at, landed_at, fyi FROM requests "
         "WHERE state != 'denied' AND settles IS NULL AND chain_id IN ("
         "  SELECT chain_id FROM requests WHERE "
         "  (requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
@@ -140,8 +140,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
                 landed = landing.state(r)
                 tail = ("waiting for you" if r["target"] == HUMAN else
                         f"delivered {timefmt.stamp(r['landed_at'], timefmt.CLOCK)}" if landed == "delivered" else
-                        "typed, not in its session yet" if landed == "typed" else
-                        f"not delivered: {landing.LOST_TEXT}" if landed == "lost"
+                        "typed, not in its session yet" if landed == "typed"
                         else "queued")
                 if r["target"] == agent:
                     tail += f" · #{r['id']}"       # what /cancel names

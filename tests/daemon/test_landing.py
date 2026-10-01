@@ -1,6 +1,6 @@
 """Tests (T418): a request is delivered once the receiving session's transcript shows
-it, not once it was typed - a line the transcript never shows is typed again, then
-reported lost, and the words on screen say which of those it is.
+it, not once it was typed - a line the transcript never shows is typed again, as often
+as it takes (T766: no count, no "lost"), and the words on screen say which it is.
 
 Run on its own: python3 tests/daemon/test_landing.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -29,6 +29,7 @@ def _world(home: Path) -> list:
     orcamod.screen_blocker = lambda h: None
     orcamod.typeable_now = lambda h: False
     orcamod.live_terminals = lambda: {"term_x"}
+    landing._typed_at.clear()
     sent: list[tuple[str, str]] = []
 
     def send(handle, text, enter=True):
@@ -55,6 +56,7 @@ def _typed_row(sent: list, ago: int = 0, body: str = "look at the retry loop"):
         row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
         con.execute("UPDATE requests SET typed_session = ?, typed_at = typed_at - ? WHERE id = ?",
                     (SESSION, ago, row["id"]))
+        landing._typed_at[int(row["id"])] = int(time.time()) - ago      # what the daemon remembers
         return reply, db.get_request(con, int(row["id"]))
     finally:
         con.close()
@@ -126,9 +128,24 @@ def test_a_typed_request_is_delivered_only_once_its_transcript_shows_it(home: Pa
         con.close()
 
 
-def test_a_line_the_transcript_never_shows_is_typed_again_then_lost(home: Path) -> None:
+def _age(rid: int, by: int) -> None:
+    """The daemon last typed `rid` `by` seconds ago."""
+    landing._typed_at[rid] = int(time.time()) - by
+
+
+def _tell_undelivered() -> None:
+    con = db.connect()
+    try:
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        con.execute("UPDATE requests SET typed_session = ? WHERE typed_at IS NOT NULL AND landed_at IS NULL",
+                    (SESSION,))               # the test has no live session to record
+    finally:
+        con.close()
+
+
+def test_a_line_the_transcript_never_shows_is_typed_again_without_end(home: Path) -> None:
     sent = _world(home)
-    _, row = _typed_row(sent, ago=landing.LANDING_WAIT_S + 5)
+    _, row = _typed_row(sent, ago=landing.LANDING_WAIT_S - 30)
     rid = int(row["id"])
     _transcript({"type": "user", "message": {"role": "user", "content": "something else"}})
     con = db.connect()
@@ -138,44 +155,105 @@ def test_a_line_the_transcript_never_shows_is_typed_again_then_lost(home: Path) 
         con.close()
     _sweep()
     row = _row(rid)
-    check("retry: after the wait it is owed again, counted", not row["delivered_at"] and not row["typed_at"]
-          and row["landing_tries"] == 1 and landing.state(row) == "queued", str(dict(row)))
-    con = db.connect()
-    try:
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-    finally:
-        con.close()
+    check("retry: inside the window it is not owed again, and not typed again",
+          row["typed_at"] and len(sent) == 1 and landing.state(row) == "typed", str(dict(row)))
+    _age(rid, landing.LANDING_WAIT_S + 5)
+    _sweep()
     row = _row(rid)
-    check("retry: the tick types it again, once more", len(sent) == 2 and row["typed_at"]
+    check("retry: after the window it is owed again", not row["delivered_at"] and not row["typed_at"]
+          and landing.state(row) == "queued", str(dict(row)))
+    _tell_undelivered()
+    check("retry: the tick types it again, once more", len(sent) == 2 and _row(rid)["typed_at"]
           and "look at the retry loop" in sent[1][1], str(sent))
-    con = db.connect()
-    try:
-        con.execute("UPDATE requests SET typed_session = ?, typed_at = typed_at - ? WHERE id = ?",
-                    (SESSION, landing.LANDING_WAIT_S + 5, rid))
-    finally:
-        con.close()
     _sweep()
-    con = db.connect()
-    try:
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-        con.execute("UPDATE requests SET typed_session = ?, typed_at = typed_at - ? WHERE id = ?",
-                    (SESSION, landing.LANDING_WAIT_S + 5, rid))
-    finally:
-        con.close()
-    check("retry: a third telling went out", len(sent) == 3, str(sent))
-    _sweep()
-    _sweep()
+    _tell_undelivered()
+    check("retry: and the window starts over - nothing more inside it", len(sent) == 2, str(sent))
+    for n in range(3, 7):                    # no count, no giving up
+        _age(rid, landing.LANDING_WAIT_S + 5)
+        _sweep()
+        _tell_undelivered()
     row = _row(rid)
-    check("lost: typed MAX_TRIES times and never shown, it is lost and not typed a fourth time",
-          landing.state(row) == "lost" and len(sent) == 3, f"{landing.state(row)} {len(sent)}")
+    check("retry: typed again each time the window passes, a sixth time too", len(sent) == 6
+          and row["state"] == "queued" and not row["landed_at"], f"{len(sent)} {dict(row)}")
     con = db.connect()
     try:
-        check("lost: said once", con.execute("SELECT COUNT(*) FROM events WHERE kind = 'landing_lost'"
-                                             ).fetchone()[0] == 1)
+        _age(rid, landing.LANDING_WAIT_S + 5)
+        con.execute("UPDATE requests SET ts = ts - 3600 WHERE id = ?", (rid,))
         why = [s for s in actions.stuck(con) if s["what"].startswith(f"#{rid} ")]
-        check("lost: it is on the stuck list, and says it was not read",
-              why and landing.LOST_TEXT in why[0]["why"], str(why))
+        check("never lands: it stays queued and is on the stuck list", bool(why), str(why))
+        check("never lands: and nothing is said as lost", con.execute(
+            "SELECT COUNT(*) FROM events WHERE kind = 'landing_lost'").fetchone()[0] == 0)
     finally:
+        con.close()
+
+
+def test_a_daemon_restart_types_a_line_at_most_once_more(home: Path) -> None:
+    sent = _world(home)
+    _, row = _typed_row(sent)
+    rid = int(row["id"])
+    _transcript({"type": "user", "message": {"role": "user", "content": "something else"}})
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET requester = 'human' WHERE id = ?", (rid,))
+    finally:
+        con.close()
+    landing._typed_at.clear()               # the daemon restarted: it remembers nothing
+    _sweep()
+    _tell_undelivered()
+    check("restart: the line the transcript does not hold is typed once more", len(sent) == 2, str(sent))
+    _sweep()
+    _tell_undelivered()
+    check("restart: and not again inside the window", len(sent) == 2, str(sent))
+
+
+def test_a_line_already_in_the_transcript_is_landed_without_typing(home: Path) -> None:
+    sent = _world(home)
+    _, row = _typed_row(sent)
+    rid = int(row["id"])
+    con = db.connect()
+    try:
+        con.execute("UPDATE requests SET requester = 'human' WHERE id = ?", (rid,))
+        db.owe_again(con, rid)                # as if the daemon had lost its record of the send
+    finally:
+        con.close()
+    _transcript({"type": "queue-operation", "operation": "enqueue", "content": _header(rid)})
+    real = dmn_delivery._live_session
+    dmn_delivery._live_session = lambda con, agent: SESSION       # owe_again cleared the old one: only the live session is looked at
+    try:
+        _tell_undelivered()
+    finally:
+        dmn_delivery._live_session = real
+    row = _row(rid)
+    check("transcript first: the line is there, so it is landed and nothing is typed",
+          row["landed_at"] and len(sent) == 1, f"{len(sent)} {dict(row)}")
+
+
+def test_a_head_the_transcript_already_holds_is_landed_not_typed(home: Path) -> None:
+    sent = _world(home)
+    orcamod.typeable_now = lambda h: True
+    hand_edit_team(DESIGN_TEAM.replace(
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
+        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    _ask_row(
+        {"verb": "ask", "requester": "product", "speaker": "product", "target": "backend",
+         "body": "look at the retry loop"}, lambda _m: None)
+    con = db.connect()
+    real = dmn_delivery._live_session
+    dmn_delivery._live_session = lambda con, agent: SESSION
+    try:
+        rid = int(con.execute("SELECT id FROM requests WHERE target = 'backend'").fetchone()["id"])
+        typed_before = len(sent)
+        db.owe_again(con, rid)                          # the daemon's record of the send is gone
+        db.forget_told(con, "backend")
+        _transcript({"type": "queue-operation", "operation": "enqueue", "content": _header(rid)})
+        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
+        row = db.get_request(con, rid)
+        check("head: its line is already in the live session's transcript, so it is landed and not typed",
+              row["landed_at"] and row["typed_at"] and len(sent) == typed_before, f"{sent} {dict(row)}")
+        check("head: and the notify cursor moved on, so it is not told again",
+              db.get_cursor(con, "notify:backend") == rid)
+    finally:
+        dmn_delivery._live_session = real
         con.close()
 
 
@@ -191,7 +269,7 @@ def test_a_line_typed_into_a_session_that_ended_is_owed_again_at_once(home: Path
     _sweep()
     row = _row(rid)
     check("ended: nothing waits out the timer - it is owed again, and no try is used up",
-          not row["delivered_at"] and not row["typed_at"] and not row["landing_tries"], str(dict(row)))
+          not row["delivered_at"] and not row["typed_at"], str(dict(row)))
     con = db.connect()
     try:
         row = db.get_request(con, rid)
@@ -217,13 +295,14 @@ def test_sessions_that_ended_do_not_make_a_later_miss_lost(home: Path) -> None:
         db.clear_closed(con, "backend")
         con.execute("UPDATE requests SET delivered_at = 1, typed_at = ?, typed_session = ? WHERE id = ?",
                     (int(time.time()) - landing.LANDING_WAIT_S - 5, SESSION, rid))
+        _age(rid, landing.LANDING_WAIT_S + 5)
     finally:
         con.close()
     _transcript({"type": "user", "message": {"role": "user", "content": "something else"}})
     _sweep()
     row = _row(rid)
-    check("ended twice, then one miss in a live session: retyped, not lost",
-          not row["typed_at"] and row["landing_tries"] == 1 and landing.state(row) == "queued", str(dict(row)))
+    check("ended twice, then one miss in a live session: retyped",
+          not row["typed_at"] and landing.state(row) == "queued", str(dict(row)))
 
 
 def test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_again(home: Path) -> None:
@@ -246,38 +325,6 @@ def test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_
           row["landed_at"] and len(sent) == 1, str(dict(row)))
 
 
-def test_a_lost_request_is_looked_for_only_now_and_then(home: Path) -> None:
-    sent = _world(home)
-    _, row = _typed_row(sent, ago=landing.LANDING_WAIT_S + 5)
-    rid = int(row["id"])
-    con = db.connect()
-    try:
-        con.execute("UPDATE requests SET requester = 'human', landing_tries = ? WHERE id = ?",
-                    (landing.MAX_TRIES - 1, rid))
-    finally:
-        con.close()
-    f = _transcript({"type": "user", "message": {"role": "user", "content": "something else"}})
-    reads = []
-    real = landing.shown_in
-    landing.shown_in = lambda *a, **k: (reads.append(1), real(*a, **k))[1]
-    try:
-        _sweep()
-        first = len(reads)
-        _sweep()
-        _sweep()
-        check("lost: said, and then not read again on every tick", first >= 1 and len(reads) == first, str(reads))
-        con = db.connect()
-        try:
-            con.execute("UPDATE cursors SET row_id = row_id - ? WHERE name = ?",
-                        (landing.LOST_RECHECK_S + 1, f"landing_recheck:{rid}"))
-        finally:
-            con.close()
-        _sweep()
-        check("lost: but looked at again after a while", len(reads) > first, str(reads))
-    finally:
-        landing.shown_in = real
-
-
 def test_a_task_head_is_told_again_when_it_never_landed(home: Path) -> None:
     sent = _world(home)
     orcamod.typeable_now = lambda h: True
@@ -295,6 +342,7 @@ def test_a_task_head_is_told_again_when_it_never_landed(home: Path) -> None:
         told = db.get_cursor(con, "notify:backend") == rid
         con.execute("UPDATE requests SET typed_session = ?, typed_at = typed_at - ? WHERE id = ?",
                     (SESSION, landing.LANDING_WAIT_S + 5, rid))
+        _age(rid, landing.LANDING_WAIT_S + 5)
         landing.sweep(con, "backend", lambda _m: None)
         check("task: it was told once, and the sweep voids the cursor so it is told again",
               row["typed_at"] and told and db.get_cursor(con, "notify:backend") != rid, str(dict(row)))
@@ -357,12 +405,14 @@ def main() -> int:
     def tests(td):
         run(lambda: test_only_a_line_a_person_or_the_daemon_typed_counts_as_shown(Path(td) / "l1"))
         run(lambda: test_a_typed_request_is_delivered_only_once_its_transcript_shows_it(Path(td) / "l2"))
-        run(lambda: test_a_line_the_transcript_never_shows_is_typed_again_then_lost(Path(td) / "l3"))
+        run(lambda: test_a_line_the_transcript_never_shows_is_typed_again_without_end(Path(td) / "l3"))
+        run(lambda: test_a_daemon_restart_types_a_line_at_most_once_more(Path(td) / "l12"))
+        run(lambda: test_a_line_already_in_the_transcript_is_landed_without_typing(Path(td) / "l13"))
+        run(lambda: test_a_head_the_transcript_already_holds_is_landed_not_typed(Path(td) / "l14"))
         run(lambda: test_a_line_typed_into_a_session_that_ended_is_owed_again_at_once(Path(td) / "l4"))
         run(lambda: test_a_task_head_is_told_again_when_it_never_landed(Path(td) / "l5"))
         run(lambda: test_sessions_that_ended_do_not_make_a_later_miss_lost(Path(td) / "l9"))
         run(lambda: test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_again(Path(td) / "l10"))
-        run(lambda: test_a_lost_request_is_looked_for_only_now_and_then(Path(td) / "l11"))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
         run(lambda: test_the_conversation_says_where_a_request_is(Path(td) / "l7"))
         run(lambda: test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(Path(td) / "l8"))

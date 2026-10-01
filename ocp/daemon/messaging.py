@@ -18,7 +18,7 @@ from ..infra import lock, paths
 from ..session import orca
 from ..team import ask as askmod
 
-from . import delivery, lifecycle
+from . import delivery, landing, lifecycle
 
 
 def can_type_now(con, agent: str, handle: str) -> tuple[bool, str]:
@@ -164,6 +164,10 @@ def tell_now(con, rid: int, log) -> str:
             return f"queued - {why}"
         if not db.mark_delivered(con, rid):
             return "withdrawn first"
+        if landing.landed_already(con, agent, rid):        # T766: the transcript first
+            db.mark_typed(con, rid, delivery._live_session(con, agent))
+            db.mark_landed(con, rid)
+            return "already in its transcript"
         sent, err = delivery._send(handle, delivery.tell_text(con, row, 1))
         if not sent:
             db.clear_delivered(con, rid)
@@ -171,6 +175,7 @@ def tell_now(con, rid: int, log) -> str:
         delivery._mark_typed(con, agent)
         db.mark_told_out_of_turn(con, rid)
         db.mark_typed(con, rid, delivery._live_session(con, agent))
+        landing.note_typed(rid)
         db.add_event(con, agent, "notified", {"request_id": rid, "more_waiting": 0})
     log(f"  {agent}: told about #{rid} at once")
     finish_say(row)
