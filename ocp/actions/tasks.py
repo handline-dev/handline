@@ -1944,9 +1944,11 @@ def reason_gaps(con, window_days: int = 30) -> dict:
             (cutoff,)).fetchone()[0]
     withdrawn_total = one("state = 'withdrawn'")
     withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")
-    dismissed_total = one("(dismissed_by IS NOT NULL OR verdict = 'read - no reply' "
+    dismissed_total = one(f"({db.DISMISSED_WHERE} OR verdict = 'read - no reply' "
                           "OR verdict LIKE 'read - no reply: %')")
-    dismissed_blank = one("((dismissed_by IS NOT NULL AND dismissed_reason IS NULL) "
+    dismissed_blank = one(f"(({db.DISMISSED_WHERE} AND NOT EXISTS (SELECT 1 FROM events e WHERE e.kind = 'dismissed' "
+                          f"AND {db.EVENT_REQUEST.replace('payload', 'e.payload')} = requests.id "
+                          "AND json_extract(e.payload, '$.reason') IS NOT NULL)) "
                           "OR verdict = 'read - no reply')")
     replaced_total = one("state = 'replaced'")
     replaced_blank = one("state = 'replaced' AND verdict NOT LIKE '%: %'")

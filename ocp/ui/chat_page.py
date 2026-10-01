@@ -93,7 +93,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
     sql = (f"SELECT id, ts, state_at, resolved_at, requester, target, state, body, verdict, {db.ANSWER_SQL}, "
-           "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, parent_id, kind, "
+           f"{db.DISMISSED_SQL}, delivered_at, typed_at, landed_at, parent_id, kind, "
            "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
            "WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, "
@@ -1762,7 +1762,7 @@ class ChatPage(JobsAware, Screen):
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
         key = (tuple((r["id"], r["state"], db.answered_at(r), r["delivered_at"], r["landed_at"], r["typed_at"],
-                      r["dismissed_by"])
+                      r["dismisser"])
                      for r in rows), tuple((c["tasks"][0], c["when"], c["change"]) for c in changes))
         live = (state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:

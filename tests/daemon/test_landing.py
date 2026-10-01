@@ -499,6 +499,35 @@ def test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(home: Path) 
         con.close()
 
 
+def test_a_dismissal_is_an_event_and_an_old_one_gets_one(home: Path) -> None:
+    """T835 step 4c: who dismissed a request and why is an event naming it; the row's own columns say
+    nothing any reader trusts. The upgrade writes the event for a row that has only the columns."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "backend", "frontend", "q", None, None, None, "task", 0, None)
+        db.close_if_queued(con, rid, "done", None, dismissed_by="frontend", dismissed_reason="not mine")
+        ev = con.execute("SELECT payload FROM events WHERE kind = 'dismissed'").fetchall()
+        check("dismiss: one event naming the request, who and why", len(ev) == 1 and
+              json.loads(ev[0]["payload"]) == {"request_id": rid, "by": "frontend", "reason": "not mine"}, str(ev))
+        con.execute("UPDATE requests SET dismissed_by = NULL, dismissed_reason = NULL WHERE id = ?", (rid,))
+        check("dismiss: the row reads as dismissed from the event alone",
+              db.dismissal(db.get_request(con, rid)) == (True, "frontend", "not mine")
+              and db.shown_verdict(db.get_request(con, rid)) == "dismissed by frontend - not mine")
+        old = db.add_request(con, "backend", "frontend", "q2", None, None, None, "task", 0, None)
+        con.execute("UPDATE requests SET dismissed_by = 'frontend', dismissed_reason = NULL WHERE id = ?", (old,))
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:dismissals_are_events'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("migration: an old dismissal gets its event, and a read dismissal is not doubled",
+              db.dismissal(db.get_request(con, old)) == (True, "frontend", None)
+              and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'dismissed'").fetchone()[0] == 2)
+    finally:
+        con.close()
+
+
 def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
     """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
     every row gets a state_at; ledgered, a second connect changes nothing."""
@@ -695,6 +724,7 @@ def main() -> int:
         run(lambda: test_an_fyi_report_before_the_upgrade_becomes_a_say(Path(td) / "l16f"))
         run(lambda: test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(Path(td) / "l16t"))
         run(lambda: test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(Path(td) / "l16q"))
+        run(lambda: test_a_dismissal_is_an_event_and_an_old_one_gets_one(Path(td) / "l16d"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))

@@ -5,6 +5,8 @@ import time
 
 from ..infra import protected
 from . import cursors
+from .events import add_event
+from .schema import EVENT_REQUEST
 
 # The founder's name as a requester or target; team.ask re-exports it.
 HUMAN = "human"
@@ -16,6 +18,18 @@ ANSWER_SQL = ("(SELECT a.body FROM requests a WHERE a.settles = requests.id "
               "ORDER BY a.id LIMIT 1) AS answer, "
               "(SELECT a.ts FROM requests a WHERE a.settles = requests.id "
               "ORDER BY a.id LIMIT 1) AS answered_at")
+
+
+# A dismissal is an event naming the request, who dismissed it and why: a state of the row, never
+# words anyone said. As columns of a query on `requests` (`dismisser`, `dismiss_reason`) and as
+# a condition.
+_DISMISSED_EVENT = ("FROM events e WHERE e.kind = 'dismissed' AND "
+                    + EVENT_REQUEST.replace("payload", "e.payload") + " = requests.id")
+DISMISSED_SQL = (f"(SELECT json_extract(e.payload, '$.by') {_DISMISSED_EVENT} ORDER BY e.id DESC LIMIT 1) "
+                 "AS dismisser, "
+                 f"(SELECT json_extract(e.payload, '$.reason') {_DISMISSED_EVENT} ORDER BY e.id DESC LIMIT 1) "
+                 "AS dismiss_reason")
+DISMISSED_WHERE = f"EXISTS (SELECT 1 {_DISMISSED_EVENT})"
 
 
 def touched_sql(alias: str) -> str:
@@ -45,7 +59,7 @@ def unannounced_answers(con, agent: str) -> list:
     """
     return con.execute(
         "SELECT id, ts, state_at, resolved_at, target, kind, state, verdict, body, parent_id, "
-        f"chain_id, dismissed_by, dismissed_reason, {ANSWER_SQL} FROM requests WHERE requester = ? "
+        f"chain_id, {DISMISSED_SQL}, {ANSWER_SQL} FROM requests WHERE requester = ? "
         "AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "
         "WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id",
         (agent,),
@@ -452,9 +466,9 @@ def dismissal(row) -> tuple[bool, str | None, str | None]:
     author is unknown). A row read from a SELECT that leaves the columns out
     reads as not dismissed unless it is the old literal."""
     keys = row.keys()
-    by = row["dismissed_by"] if "dismissed_by" in keys else None
+    by = row["dismisser"] if "dismisser" in keys else None
     if by:
-        return True, by, row["dismissed_reason"]
+        return True, by, row["dismiss_reason"]
     verdict = row["verdict"] if "verdict" in keys else None
     if verdict == LEGACY_DISMISS:
         return True, None, None
@@ -501,6 +515,9 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
         (stored_state(con, rid, state), now, verdict, now, now if announced else None,
          dismissed_by, dismissed_reason, rid))
     if cur.rowcount > 0:
+        if dismissed_by is not None:
+            add_event(con, dismissed_by, "dismissed", {"request_id": rid, "by": dismissed_by,
+                                                       "reason": dismissed_reason})
         if answered_by is not None:
             con.execute("UPDATE requests SET settles = ? WHERE id = ?", (rid, answered_by))
             if announced:       # the reply is what tells, and nobody is to be told: a landed one is shown
@@ -580,12 +597,12 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
 
 def closed_under(con, rid: int) -> bool:
     """Was this request closed out from under its target (cancelled, retired) rather than answered by it?"""
-    return con.execute("SELECT 1 FROM events WHERE kind = 'closed_under' AND CASE WHEN json_valid(payload) "
-                       "THEN json_extract(payload, '$.request_id') END = ? LIMIT 1", (rid,)).fetchone() is not None
+    return con.execute(f"SELECT 1 FROM events WHERE kind = 'closed_under' AND {EVENT_REQUEST} = ? LIMIT 1",
+                       (rid,)).fetchone() is not None
 
 
 def get_request(con, rid: int):
-    return con.execute(f"SELECT *, {ANSWER_SQL} FROM requests WHERE id = ?", (rid,)).fetchone()
+    return con.execute(f"SELECT *, {ANSWER_SQL}, {DISMISSED_SQL} FROM requests WHERE id = ?", (rid,)).fetchone()
 
 
 def is_still_queued(con, rid: int) -> bool:

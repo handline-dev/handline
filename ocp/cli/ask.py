@@ -257,7 +257,7 @@ def _human_inbox(show_all: bool = False) -> int:
             waiting = {m["id"] for m in rows}
             done = con.execute(
                 "SELECT id, ts, requester, target, state, body, verdict, "
-                f"dismissed_by, dismissed_reason, {db.ANSWER_SQL} FROM requests "
+                f"{db.DISMISSED_SQL}, {db.ANSWER_SQL} FROM requests "
                 "WHERE (target = ? OR requester = ?) AND state != 'queued' "
                 "ORDER BY id DESC LIMIT 20", (actions.HUMAN, actions.HUMAN)).fetchall()
             done = [r for r in done if r["id"] not in waiting]
