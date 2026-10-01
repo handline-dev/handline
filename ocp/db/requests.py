@@ -80,11 +80,43 @@ def chain_members(con, chain_id: str) -> list:
     ).fetchall()
 
 
+# T751: a delivery (kind 'task') whose task has ended, or has gone to someone else, is a leftover:
+# nothing can be done with it, so nothing that hands requests out, counts them or lists them stuck
+# reads it (`ocp doctor` lists them). The same fragment, on `requests`.
+LEFTOVER_DELIVERY = ("(requests.kind = 'task' AND EXISTS (SELECT 1 FROM task_requests l0 WHERE l0.request_id = requests.id) "
+                     "AND NOT EXISTS (SELECT 1 FROM task_requests l JOIN tasks t ON t.id = l.task_id "
+                     "WHERE l.request_id = requests.id AND t.done_evidence IS NULL AND t.discarded_by IS NULL "
+                     "AND t.owner = requests.target))")
+
+
+def leftover_deliveries(con):
+    """The queued deliveries `LEFTOVER_DELIVERY` describes, for `ocp doctor`."""
+    return con.execute(f"SELECT * FROM requests WHERE state = 'queued' AND {LEFTOVER_DELIVERY} ORDER BY id").fetchall()
+
+
+def settle_leftover_deliveries(con) -> list[int]:
+    """Close quietly, as settled (design #7986, MIGRATION), every queued delivery whose tasks have all
+    ended: nobody is told, nothing is typed, and no task is touched. A task moved to someone else is
+    not settled here - `send_moved_task` takes the old row back and asks the new owner, and a sweep
+    between `edit_task`'s commit and that would leave the new owner never asked. The ids closed."""
+    done = []
+    for r in con.execute(
+            "SELECT * FROM requests WHERE state = 'queued' AND kind = 'task' "
+            "AND EXISTS (SELECT 1 FROM task_requests l0 WHERE l0.request_id = requests.id) "
+            "AND NOT EXISTS (SELECT 1 FROM task_requests l JOIN tasks t ON t.id = l.task_id "
+            "WHERE l.request_id = requests.id AND t.done_evidence IS NULL AND t.discarded_by IS NULL) "
+            "ORDER BY id").fetchall():
+        if close_if_queued(con, int(r["id"]), "done", "its task is no longer this agent's to do",
+                           announced=True, settle=False):
+            done.append(int(r["id"]))
+    return done
+
+
 def queued_for(con, target: str):
     """Every request still queued for `target`, ordered by queue_order (its
     delivery position - see `add_request`), not by id."""
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        f"SELECT * FROM requests WHERE target = ? AND state = 'queued' AND NOT {LEFTOVER_DELIVERY} "
         "ORDER BY queue_order, id",
         (target,),
     ).fetchall()
@@ -97,7 +129,7 @@ def undelivered_for(con, target: str):
     it was already told, and only sits on, would close it and wake it again
     every idle window for as long as that one request stays open."""
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        f"SELECT * FROM requests WHERE target = ? AND state = 'queued' AND NOT {LEFTOVER_DELIVERY} "
         "AND delivered_at IS NULL ORDER BY queue_order, id",
         (target,),
     ).fetchall()
@@ -245,7 +277,7 @@ def timeboxed_open(con):
     the human's rows are "delivered" when drawn, not worked on. (`kind = 'report'`
     only matches rows written before reports became says.)"""
     return con.execute(
-        "SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL "
+        f"SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL AND NOT {LEFTOVER_DELIVERY} "
         "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
         "AND target != ?", (HUMAN,)).fetchall()
 
@@ -271,7 +303,7 @@ def mark_send_now(con, rid: int) -> bool:
 def send_now_pending(con, target: str):
     """Marked requests for `target` not yet shown to it, in the order pressed."""
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND state = 'queued' "
+        f"SELECT * FROM requests WHERE target = ? AND state = 'queued' AND NOT {LEFTOVER_DELIVERY} "
         "AND send_now IS NOT NULL AND delivered_at IS NULL ORDER BY send_now, id",
         (target,)).fetchall()
 
@@ -280,7 +312,7 @@ def founder_pending(con, target: str):
     """The founder's requests to `target` that have not been shown to it yet,
     oldest first: what `deliver_queued` tells past an open head."""
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND requester = ? "
+        f"SELECT * FROM requests WHERE target = ? AND requester = ? AND NOT {LEFTOVER_DELIVERY} "
         "AND state = 'queued' AND delivered_at IS NULL ORDER BY queue_order, id",
         (target, HUMAN)).fetchall()
 

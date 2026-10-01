@@ -171,7 +171,7 @@ def stuck(con) -> list[dict]:
 
     queued = con.execute(
         "SELECT id, requester, target, ts, send_now, typed_at, landed_at, landing_tries FROM requests WHERE state = 'queued' "
-        "AND target != ? ORDER BY ts", (HUMAN,),
+        f"AND NOT {db.LEFTOVER_DELIVERY} AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
     sessions, handles = _world() if queued else (None, None)
     # An agent ocp has work for and cannot give it, with what is in the way read

@@ -8040,6 +8040,127 @@ limits:
             db.refresh_sent(con, gh)
             check(f"sent_at: and a refresh re-derives it from the request still out (what reopen does)",
                   db.get_task(con, gh)["sent_at"] is not None)
+        # T751 D3, the #7789 shape: a done task whose delivery is still queued reaches nobody
+        ok, _, g1 = actions.task_new("manager", "worker", "ghost first", "w")
+        ghost = db.task_requests(con, g1)[0]["id"]
+        ok, _, g2 = actions.task_new("manager", "worker", "waits behind the ghost", "w")
+        behind = db.task_requests(con, g2)[0]["id"]
+        before_head = db.head_of_queue(con, "worker")["id"]
+        db.mark_task_done(con, g1, "done elsewhere")          # the task ends; its delivery is left queued
+        check("ghost: the delivery is still queued (the #7789 shape)", db.get_request(con, ghost)["state"] == "queued")
+        head = db.head_of_queue(con, "worker")
+        check("ghost: it is never the inbox head, and what waited behind it is",
+              head is not None and head["id"] != ghost
+              and ghost in [r["id"] for r in db.task_requests(con, g1)] and behind in [r["id"] for r in db.queued_for(con, "worker")],
+              str(head and head["id"]))
+        check("ghost: nor counted in the queue, nor handed out by the delivery reads",
+              ghost not in [r["id"] for r in db.queued_for(con, "worker")]
+              and ghost not in [r["id"] for r in db.undelivered_for(con, "worker")]
+              and ghost not in [r["id"] for r in db.send_now_pending(con, "worker")])
+        import importlib
+        stuckmod = importlib.import_module("ocp.actions.stuck")
+        con.execute("UPDATE requests SET ts = ts - 100000 WHERE id = ?", (ghost,))
+        from ocp.session import observe as obsmod, orca as orcamod
+        was = (orcamod.available, obsmod.live_sessions)
+        orcamod.available, obsmod.live_sessions = (lambda: False), (lambda: {})
+        actions._WORLD["at"] = 0.0
+        try:
+            stuck_now = stuckmod.stuck(con)
+        finally:
+            orcamod.available, obsmod.live_sessions = was
+        check("ghost: and the stuck list does not carry it, however old",
+              not any(f"#{ghost} " in str(i) for i in stuck_now) and any(f"#{behind} " in str(i) for i in stuck_now),
+              str(stuck_now))
+        check("ghost: `ocp doctor` lists it", ghost in [r["id"] for r in db.leftover_deliveries(con)])
+        fg = db.new_task(con, "founder's, ended", "worker", actions.HUMAN)
+        frid = db.add_request(con, actions.HUMAN, "worker", "from the founder", None, None, "fire_and_forget",
+                              "task", 0, None)
+        db.link_request(con, fg, frid)
+        check("ghost: the founder's delivery of an open task is pending for the agent",
+              frid in [r["id"] for r in db.founder_pending(con, "worker")])
+        db.mark_task_done(con, fg, "x")
+        con.execute("UPDATE requests SET landed_at = ts, delivered_at = ts WHERE id IN (?, ?)", (frid, ghost))
+        check("ghost: the founder's delivery of an ended task is not told past an open head",
+              frid not in [r["id"] for r in db.founder_pending(con, "worker")])
+        check("ghost: nor does a timebox run on it (no 'ran long' about an ended task)",
+              not {frid, ghost} & {r["id"] for r in db.timeboxed_open(con)})
+        from ocp.infra import doctor as doctormod
+        import inspect
+        rep = doctormod.Report()
+        doctormod._check_leftover_deliveries(rep)
+        check("doctor: warns of each leftover, and does not point at `ocp cancel`",
+              len(rep.rows) >= 2 and all(lv == doctormod.WARN for lv, _, _ in rep.rows)
+              and not any("ocp cancel" in d for _, _, d in rep.rows), str(rep.rows))
+        full = doctormod.run()
+        check("doctor: the check is part of the run - `doctor.run()` reports the leftover as a WARN",
+              any(lv == doctormod.WARN and f"request #{ghost} " in str(t) for lv, t, _ in full.rows), str(full.rows))
+        settled = db.settle_leftover_deliveries(con)
+        check("sweep: the leftovers are settled quietly - closed, nobody told, their tasks untouched",
+              {frid, ghost} <= set(settled) and db.get_request(con, frid)["state"] == "done"
+              and db.get_request(con, frid)["announced_at"] is not None
+              and db.get_task(con, fg)["done_evidence"] == "x" and not db.leftover_deliveries(con))
+        rep2 = doctormod.Report()
+        doctormod._check_leftover_deliveries(rep2)
+        check("doctor: and says nothing when there are none", rep2.rows == [])
+        check("ghost: closed, it is no leftover", ghost not in [r["id"] for r in db.leftover_deliveries(con)])
+        ok, _, g3 = actions.task_new("manager", "worker", "handed on", "w")
+        away = db.task_requests(con, g3)[0]["id"]
+        con.execute("UPDATE tasks SET owner = 'helper' WHERE id = ?", (g3,))
+        check("ghost: a delivery whose task is with someone else is a leftover too",
+              away in [r["id"] for r in db.leftover_deliveries(con)]
+              and away not in [r["id"] for r in db.queued_for(con, "worker")])
+        check("sweep: a task moved to someone else is not settled - only an ended one is",
+              away not in db.settle_leftover_deliveries(con) and db.get_request(con, away)["state"] == "queued")
+        con.execute("UPDATE tasks SET owner = 'worker' WHERE id = ?", (g3,))
+        ok, _, dn = actions.task_new("manager", "worker", "done, requester not yet answered", "w")
+        dnr = db.task_requests(con, dn)[0]["id"]
+        db.mark_task_done(con, dn, "x")                      # committed; _retire_task_requests has not run yet
+        from ocp.daemon import taskqueue
+        taskqueue.sweep(con, lambda *_: None, 0)             # a daemon tick in that window
+        check("sweep: the tick leaves an ended task's delivery for the writer that answers its requester",
+              db.get_request(con, dnr)["state"] == "queued")
+        actions.tasks._retire_task_requests(con, dn, f"task T{dn} done (x)")
+        check("sweep: the requester's answer is still the done verdict, to be announced",
+              db.get_request(con, dnr)["state"] == "done" and db.get_request(con, dnr)["announced_at"] is None)
+        ok, _, lo = actions.task_new("manager", "worker", "ended with a delivery left", "w")
+        lor = db.task_requests(con, lo)[0]["id"]
+        db.mark_task_done(con, lo, "x")
+        import argparse, contextlib, io
+        from ocp.cli import health
+        from ocp.cli import parser as parsermod
+        parsed = parsermod.build_parser().parse_args(["doctor", "--settle-leftovers"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            health.cmd_doctor(parsed)
+        check("doctor --settle-leftovers: closes an ended task's delivery quietly, and says which",
+              db.get_request(con, lor)["state"] == "done" and f"#{lor}" in out.getvalue(), out.getvalue()[:200])
+        ok, _, up = actions.task_new("manager", "worker", "ended before the upgrade", "w")
+        upr = db.task_requests(con, up)[0]["id"]
+        db.mark_task_done(con, up, "x")
+        ok, _, upm = actions.task_new("manager", "worker", "moved on before the upgrade", "w")
+        upmr = db.task_requests(con, upm)[0]["id"]
+        con.execute("UPDATE tasks SET owner = 'helper' WHERE id = ?", (upm,))
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:task_leftovers_settled'")
+        con2 = db.connect()                                  # the upgrade: connect runs the migrations
+        try:
+            gone = db.get_request(con2, upr)
+            check("upgrade migration: an ended task's delivery is closed quietly, once",
+                  gone["state"] == "done" and gone["announced_at"] is not None
+                  and db.get_cursor(con2, "migrated:task_leftovers_settled") == 1)
+            check("upgrade migration: a delivery whose task moved on is left queued",
+                  db.get_request(con2, upmr)["state"] == "queued")
+        finally:
+            con2.close()
+        ok, _, mv = actions.task_new("manager", "worker", "moved between commit and send", "w")
+        mvr = db.task_requests(con, mv)[0]["id"]
+        ok, msg = actions.edit_task(con, mv, "manager", owner="helper")
+        db.settle_leftover_deliveries(con)                  # a daemon tick in the window after the commit
+        actions.send_moved_task(con, mv, "worker", "manager")
+        check("sweep: a tick between edit_task and send_moved_task still leaves the new owner asked",
+              ok and [r["target"] for r in db.task_requests(con, mv) if r["state"] == "queued"] == ["helper"]
+              and db.get_request(con, mvr)["state"] == "withdrawn", msg)
+        check("ghost: and an open task with its owner is never one",
+              away not in [r["id"] for r in db.leftover_deliveries(con)])
         # a founder's card is delivered when drawn
         ok, _, card = actions.task_new("manager", "human", "decide", "decide")
         crid = db.task_requests(con, card)[0]["id"]

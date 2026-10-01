@@ -25,6 +25,13 @@ from .ask import _refused_listing
 
 # ---------------------------------------------------------------- checks
 def cmd_doctor(args) -> int:
+    if args.settle_leftovers:
+        con = db.connect()
+        try:
+            for rid in db.settle_leftover_deliveries(con):
+                print(f"#{rid}: settled, quietly")
+        finally:
+            con.close()
     r = doctor.run()
     print(r.render(color=not args.no_color))
     return 1 if r.failed else 0
