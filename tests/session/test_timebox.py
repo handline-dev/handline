@@ -186,8 +186,9 @@ def test_a_doing_tasks_timeout_starts_silently_then_repeats(home: Path) -> None:
               len(sent) == 2, str(sent))
 
         actions.mark_task_done(con, tid, "marina", reason="shipped")
+        told = len(sent)            # the "T<n> done" say to its opener is typed too
         timebox.sweep(con, lambda _m: None, now + 1000000)
-        check("task timeout: done, the clock stops for good", len(sent) == 2, str(sent))
+        check("task timeout: done, the clock stops for good", len(sent) == told, str(sent))
     finally:
         con.close()
 

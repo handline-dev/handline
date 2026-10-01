@@ -426,7 +426,8 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if row["done_evidence"]:
         # T706: a delivery left queued when the task ended some other way is settled here
         if by in (row["owner"], HUMAN) and any(r["state"] == "queued" for r in db.task_requests(con, tid)):
-            _retire_task_requests(con, tid, f"task T{tid} done ({row['done_evidence']})")
+            told = _end_task(con, tid, by, row, done_text=row["done_evidence"])
+            _deliver_unblocked(con, told, set())
             return True, f"task T{tid} is already done ({row['done_evidence']}); its leftover request is settled"
         return False, f"task T{tid} is already done ({row['done_evidence']})"
     # T292 (#1655 section 4): a sha-expecting task's opener or the founder
@@ -468,13 +469,21 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     if blockers and by != HUMAN:
         ids = ", ".join(f"T{b['id']}" for b in blockers)
         return False, f"task T{tid} is waiting on {ids} - it is done only once they are"
-    if not db.mark_task_done(con, tid, mark, via):
-        return False, f"task T{tid} was marked done by someone else just now"
-    db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark, "from": task_state(con, row)})
-    _retire_task_requests(con, tid, f"task T{tid} done ({mark})")
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if not db.mark_task_done(con, tid, mark, via):
+            con.execute("ROLLBACK")
+            return False, f"task T{tid} was marked done by someone else just now"
+        db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark, "from": task_state(con, row)})
+        told = _end_task(con, tid, by, row, done_text=mark)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
-    _deliver_unblocked(con, *_free_blocked_by(con, tid, by))
+    notices, freed = _free_blocked_by(con, tid, by)
+    _deliver_unblocked(con, [*told, *notices], freed)
     return True, f"task T{tid} done ({mark})"
 
 
@@ -538,6 +547,11 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
             con.execute("ROLLBACK")
             return False, f"task T{tid} was done or discarded by someone else just now"
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
+        by_word = "the founder" if by == HUMAN else by
+        told = _end_task(con, tid, by, row, discard_text=f"discarded by {by_word}: {said}",
+                         also=[w for w in dict.fromkeys((row["owner"], asker))
+                               if not (in_hand and w == row["owner"])],
+                         tell_human=False)
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
         db.reparent_children(con, tid)
@@ -546,19 +560,12 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
     except Exception:
         con.execute("ROLLBACK")
         raise
-    # `live` only guaranteed nothing was asking *then* - a lingering fyi
-    # report could still be queued, so retire it too.
-    _retire_task_requests(con, tid, f"task T{tid} discarded by {by}: {said}", state="rejected")
     if in_hand and row["owner"] != HUMAN and not any(r["delivered_at"] for r in live):
         # a delivered one was told to stop by the cancel; one only held (its `task start`) was not
         _type_say(con, row["owner"], f"T{tid} discarded by {by} - stop work on it", "task discarded")
-    by_word = "the founder" if by == HUMAN else by
-    for who in dict.fromkeys((row["owner"], asker)):      # the holder and whoever asked hear it went, once each,
-        if who not in (by, HUMAN) and not (in_hand and who == row["owner"]):     # unless told to stop already
-            _type_say(con, who, f"T{tid} discarded by {by_word}: {said}", "task discarded")
     if advance_current_task(con, row["owner"]):
         askmod.push(con, row["owner"])
-    _deliver_unblocked(con, notices, freed_owners)
+    _deliver_unblocked(con, [*told, *notices], freed_owners)
     return True, f"task T{tid} discarded by {by}: {said}"
 
 
@@ -1024,12 +1031,40 @@ def advance_current_task(con, agent: str, refused: dict | None = None) -> bool:
     return before is not None
 
 
-def _retire_task_requests(con, tid: int, verdict: str, state: str = "done") -> None:
-    """Retire every one of `tid`'s own linked requests still queued, through
-    the ordinary `resolve` path, so none is left stuck at a target's head."""
+def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard_text: str | None = None,
+              also: list[str] = (), tell_human: bool = True) -> list[tuple[int, str, str]]:
+    """T776: what a task's end does to its requests, inside the transaction that ended it. Every
+    delivery still queued on it is closed quietly (a landed one as read, the rest withdrawn) and
+    never answered with a verdict; whoever opened it, whoever asked through a linked delivery, and
+    `also` are told in one say each, from the task board - "T<n> done by <by>: <evidence>" - as rows
+    written in this same transaction, so a crash or a tick between the end and the notice cannot
+    lose it. Not the closer; not the owner of a parent task, which hears of a child from
+    `_child_result_notice`. The caller delivers the returned `(rid, to, text)` after COMMIT
+    (`_deliver_unblocked`). The notices are not linked to the task: a task that ended must not read
+    as sent because of a say."""
     for r in db.task_requests(con, tid):
         if r["state"] == "queued":
-            askmod.resolve(r["id"], verdict, state=state)
+            db.close_if_queued(con, int(r["id"]), "done" if r["landed_at"] else "withdrawn", None,
+                               announced=True, settle=False)
+    text = (f"T{tid} done by {'the founder' if by == HUMAN else by}: " + " ".join(done_text.split())
+            if done_text is not None else f"T{tid} {discard_text}").rstrip(": ")
+    skip = {by, _UNBLOCK_REQUESTER}
+    if not tell_human:
+        skip.add(HUMAN)
+    if row["parent_task"]:
+        parent = db.get_task(con, row["parent_task"])
+        if parent is not None:
+            skip.add(parent["owner"])
+    known = set(paths.list_agents()) | {HUMAN}
+    who = [row["opened_by"], *(r["requester"] for r in db.task_requests(con, tid) if r["kind"] == "task"), *also]
+    told = []
+    for to in dict.fromkeys(who):
+        if to in skip or to not in known:
+            continue
+        rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None)
+        db.add_event(con, by, "task_end_told", {"task_id": tid, "request_id": rid, "to": to})
+        told.append((rid, to, text))
+    return told
 
 
 def task_new(me: str, owner: str, title: str, body: str | None = None,
