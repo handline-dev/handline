@@ -190,26 +190,6 @@ CREATE TABLE IF NOT EXISTS task_requests (
   request_id  INTEGER NOT NULL,
   PRIMARY KEY (task_id, request_id)
 );
--- T737: `tasks.sent_at` follows the open requests that ask something (not an fyi report) while
--- those still decide it - set at the first, kept, cleared when none is left. Triggers, so a
--- write that never went through db/ keeps it true too. They go when a task's own events
--- (done, discard, owner change) clear it instead (design #7986, step D).
-CREATE TRIGGER IF NOT EXISTS task_sent_on_link AFTER INSERT ON task_requests BEGIN
-  UPDATE tasks SET sent_at = CASE WHEN EXISTS (SELECT 1 FROM task_requests l JOIN requests r
-    ON r.id = l.request_id WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)
-    THEN COALESCE(sent_at, CAST(strftime('%s','now') AS INTEGER)) ELSE NULL END WHERE id = NEW.task_id;
-END;
-CREATE TRIGGER IF NOT EXISTS task_sent_on_unlink AFTER DELETE ON task_requests BEGIN
-  UPDATE tasks SET sent_at = CASE WHEN EXISTS (SELECT 1 FROM task_requests l JOIN requests r
-    ON r.id = l.request_id WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)
-    THEN COALESCE(sent_at, CAST(strftime('%s','now') AS INTEGER)) ELSE NULL END WHERE id = OLD.task_id;
-END;
-CREATE TRIGGER IF NOT EXISTS task_sent_on_request AFTER UPDATE OF state, fyi ON requests BEGIN
-  UPDATE tasks SET sent_at = CASE WHEN EXISTS (SELECT 1 FROM task_requests l JOIN requests r
-    ON r.id = l.request_id WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)
-    THEN COALESCE(sent_at, CAST(strftime('%s','now') AS INTEGER)) ELSE NULL END
-  WHERE id IN (SELECT task_id FROM task_requests WHERE request_id = NEW.id);
-END;
 CREATE INDEX IF NOT EXISTS task_requests_request ON task_requests(request_id);
 
 -- task #21/#1884: `task_id` cannot be worked until `blocks_on` closes. A row
@@ -464,6 +444,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _handed_to_founder_are_queued(con)
     _task_deliveries_settled(con)
     _task_sent_at(con)
+    for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
+        con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
 
 

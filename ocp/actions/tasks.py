@@ -178,7 +178,9 @@ def reads_doing(con, tid: int) -> bool:
     row = db.get_task(con, tid)
     now = row is not None and (_begun(con, tid) or row["sent_at"] is not None
                                or any(c["sent_at"] is not None for c in db.open_child_tasks(con, tid)))
-    if os.environ.get("OCP_COMPARE_DOING"):
+    # An ended task is cleared outright (T751), which the open requests still queued against it
+    # for a moment do not say, so only an open task is compared.
+    if os.environ.get("OCP_COMPARE_DOING") and row is not None and not db.task_ended(row):
         was = _reads_doing_from_requests(con, tid)
         if was != now:
             raise AssertionError(f"T{tid}: reads_doing from the row is {now}, from its requests {was}")
@@ -578,6 +580,7 @@ def reopen_task(con, tid: int, by: str, reason: str) -> tuple[bool, str]:
     # T286: whether it still has a request out decides whether its timeout
     # clock resumes (reads_doing, not task_state - done_evidence is still set
     # on `row` here, and task_state would misread that as "done", never doing).
+    db.refresh_sent(con, tid)       # done cleared it; a request still out on it sends it again
     if not db.reopen_task(con, tid, is_doing(con, tid)):
         return False, f"task T{tid} was reopened by someone else just now"
     db.add_event(con, by, "reopen_task",

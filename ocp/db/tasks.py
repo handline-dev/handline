@@ -93,6 +93,27 @@ def open_child_tasks(con, tid: int) -> list:
         (tid,)).fetchall()
 
 
+def refresh_sent(con, tid: int) -> None:
+    """T751: `tasks.sent_at` for `tid` - set (once) while a request that asks something is out on it,
+    cleared when none is left. Called wherever a link or a request's state changes; the events that
+    end a task (`mark_task_done`, `discard_task`, `merge_task`) clear it outright, whatever is still
+    queued against it, so a task that ended any way can never read as sent."""
+    con.execute(
+        "UPDATE tasks SET sent_at = CASE WHEN EXISTS "
+        "(SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id WHERE l.task_id = tasks.id "
+        "AND r.state = 'queued' AND r.fyi = 0) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
+        (int(time.time()), tid))
+
+
+def _unsend(con, tid: int) -> None:
+    con.execute("UPDATE tasks SET sent_at = NULL WHERE id = ?", (tid,))
+
+
+def refresh_sent_of_request(con, rid: int) -> None:
+    for r in con.execute("SELECT task_id FROM task_requests WHERE request_id = ?", (rid,)).fetchall():
+        refresh_sent(con, r[0])
+
+
 def mark_task_done(con, tid: int, evidence: str, via: str = "reason") -> bool:
     """Mark a task done, atomically. True only if this call was the one that
     wrote the first evidence, so a second call racing this one loses instead
@@ -104,6 +125,7 @@ def mark_task_done(con, tid: int, evidence: str, via: str = "reason") -> bool:
         "UPDATE tasks SET done_evidence = ?, done_at = ?, done_via = ? "
         "WHERE id = ? AND done_evidence IS NULL AND discarded_by IS NULL",
         (evidence, int(time.time()), via, tid))
+    _unsend(con, tid)
     return cur.rowcount > 0
 
 
@@ -113,6 +135,7 @@ def discard_task(con, tid: int, by: str, reason: str) -> bool:
     cur = con.execute(
         "UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ? "
         f"WHERE id = ? AND {OPEN_SQL}", (by, int(time.time()), reason, tid))
+    _unsend(con, tid)
     return cur.rowcount > 0
 
 
@@ -194,7 +217,7 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     sets = ["edited_by = ?", "edited_at = ?"]
     params: list = [by, now]
     if owner is not None:
-        sets += ["owner = ?", "delivered_at = NULL"]       # the new owner has not had it yet
+        sets += ["owner = ?", "delivered_at = NULL", "sent_at = NULL"]       # the new owner has not had it yet
         params.append(owner)
     if title is not None:
         sets.append("title = ?")
@@ -258,6 +281,7 @@ def recent_handoff_targets(con, by: str, scan: int = 200) -> list[str]:
 def link_request(con, tid: int, rid: int) -> None:
     con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) VALUES (?, ?)",
                 (tid, rid))
+    refresh_sent(con, tid)
 
 
 def tasks_for_request(con, rid: int) -> list:
@@ -376,6 +400,7 @@ def merge_task(con, tid: int, into: int, by: str) -> bool:
         "UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ?, merged_into = ? "
         f"WHERE id = ? AND {OPEN_SQL}",
         (by, int(time.time()), f"merged into T{into}", into, tid))
+    _unsend(con, tid)
     return cur.rowcount > 0
 
 
@@ -390,6 +415,8 @@ def move_task_links(con, tid: int, into: int) -> None:
     con.execute("INSERT OR IGNORE INTO task_requests(task_id, request_id) "
                 "SELECT ?, request_id FROM task_requests WHERE task_id = ?", (into, tid))
     con.execute("DELETE FROM task_requests WHERE task_id = ?", (tid,))
+    refresh_sent(con, tid)
+    refresh_sent(con, into)
     con.execute("UPDATE tasks SET parent_task = ? WHERE parent_task = ? AND id != ?",
                 (into, tid, into))
     con.execute("UPDATE OR IGNORE task_blocks SET blocks_on = ? WHERE blocks_on = ? AND task_id != ?",

@@ -237,7 +237,7 @@ def test_a_doing_tasks_timeout_pauses_while_it_is_not_doing(home: Path) -> None:
         timebox.sweep(con, lambda _m: None, now)
         check("task timeout: doing, the clock started", db.get_task(con, tid)["timeout_at"] is not None)
 
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (rid,))
+        db.close_if_queued(con, rid, "done", None)
         timebox.sweep(con, lambda _m: None, now + 10000)
         check("task timeout: no longer doing (its request answered) - paused, no notice",
               db.get_task(con, tid)["timeout_at"] is None and not sent,
