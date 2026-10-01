@@ -7,12 +7,11 @@ from __future__ import annotations
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from ...infra import textsafe
+from .dialog import Dialog
 
 
 def panel_text(d: dict) -> str:
@@ -23,15 +22,12 @@ def panel_text(d: dict) -> str:
     return "\n".join(textsafe.drawable("\n".join(lines) if lines else d.get("command") or ""))
 
 
-class PermissionModal(ModalScreen["bool | None"]):
+class PermissionModal(Dialog):
     """Dismisses with True (Yes), False (No), or None when closed by hand: the
     terminal is left as it is either way."""
 
-    BINDINGS = [Binding("escape", "dismiss(None)", "close")]
     DEFAULT_CSS = """
-    PermissionModal { align: center middle; background: $background 60%; }
-    PermissionModal #dialog { width: 72; max-width: 90%; height: auto; max-height: 95%; padding: 1 2;
-                              border: thick $warning; background: $panel; }
+    PermissionModal #dialog { max-height: 95%; border: thick $warning; }
     PermissionModal #title { margin-bottom: 1; text-style: bold; }
     PermissionModal #tool { color: $text-muted; }
     PermissionModal #command { margin-top: 1; height: auto; max-height: 20; border: round $primary-darken-1; padding: 0 1; }
@@ -65,12 +61,12 @@ class PermissionModal(ModalScreen["bool | None"]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.dismiss(event.button.id == "yes")
+        self.finish(event.button.id == "yes")
 
     def on_key(self, event) -> None:
         if event.character in ("y", "Y"):
             event.stop()
-            self.dismiss(True)
+            self.finish(True)
         elif event.character in ("n", "N"):
             event.stop()
-            self.dismiss(False)
+            self.finish(False)
