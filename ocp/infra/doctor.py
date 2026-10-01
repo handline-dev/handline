@@ -608,7 +608,7 @@ def _check_leftover_deliveries(r: Report) -> None:
     try:
         for row in db.leftover_deliveries(con):
             r.add(WARN, f"request #{row['id']} to {row['target']}: its task has ended or moved on",
-                  "it is skipped by the inbox and the stuck list; the daemon settles it quietly once its task has ended")
+                  "it is skipped by the inbox and the stuck list; `ocp doctor --settle-leftovers` closes the ended ones quietly")
     finally:
         con.close()
 

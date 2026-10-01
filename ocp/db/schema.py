@@ -445,6 +445,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _task_deliveries_settled(con)
     _task_sent_at(con)
     _task_sent_at_from_events(con)
+    _task_leftovers_settled(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -774,6 +775,17 @@ def _task_deliveries_settled(con) -> None:
     for g in ghosts:      # no open task of its target is left for it to deliver: it ended, or was handed on
         close_if_queued(con, g["id"], "done", "its task is no longer this agent's to do", announced=True, settle=False)
     set_cursor(con, "migrated:task_deliveries_settled", 1)
+
+
+def _task_leftovers_settled(con) -> None:
+    """T751 D3: the deliveries still queued on a task that has ended, settled once at upgrade. After
+    this only `ocp doctor --settle-leftovers` does it - never a timer, which would race the writers
+    that end a task and then answer its requester."""
+    if get_cursor(con, "migrated:task_leftovers_settled"):
+        return
+    from .requests import settle_leftover_deliveries
+    settle_leftover_deliveries(con)
+    set_cursor(con, "migrated:task_leftovers_settled", 1)
 
 
 def _task_sent_at(con) -> None:

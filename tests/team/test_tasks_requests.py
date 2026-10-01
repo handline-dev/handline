@@ -8112,7 +8112,27 @@ limits:
         check("sweep: a task moved to someone else is not settled - only an ended one is",
               away not in db.settle_leftover_deliveries(con) and db.get_request(con, away)["state"] == "queued")
         con.execute("UPDATE tasks SET owner = 'worker' WHERE id = ?", (g3,))
-        ok, _, mv = actions.task_new("manager", "worker", "moved between commit and send", "w")
+        ok, _, dn = actions.task_new("manager", "worker", "done, requester not yet answered", "w")
+        dnr = db.task_requests(con, dn)[0]["id"]
+        db.mark_task_done(con, dn, "x")                      # committed; _retire_task_requests has not run yet
+        from ocp.daemon import taskqueue
+        taskqueue.sweep(con, lambda *_: None, 0)             # a daemon tick in that window
+        check("sweep: the tick leaves an ended task's delivery for the writer that answers its requester",
+              db.get_request(con, dnr)["state"] == "queued")
+        actions.tasks._retire_task_requests(con, dn, f"task T{dn} done (x)")
+        check("sweep: the requester's answer is still the done verdict, to be announced",
+              db.get_request(con, dnr)["state"] == "done" and db.get_request(con, dnr)["announced_at"] is None)
+        ok, _, lo = actions.task_new("manager", "worker", "ended with a delivery left", "w")
+        lor = db.task_requests(con, lo)[0]["id"]
+        db.mark_task_done(con, lo, "x")
+        import argparse, contextlib, io
+        from ocp.cli import health
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            health.cmd_doctor(argparse.Namespace(settle_leftovers=True, no_color=True))
+        check("doctor --settle-leftovers: closes an ended task's delivery quietly, and says which",
+              db.get_request(con, lor)["state"] == "done" and f"#{lor}" in out.getvalue(), out.getvalue()[:200])
+        ok, _, mv =actions.task_new("manager", "worker", "moved between commit and send", "w")
         mvr = db.task_requests(con, mv)[0]["id"]
         ok, msg = actions.edit_task(con, mv, "manager", owner="helper")
         db.settle_leftover_deliveries(con)                  # a daemon tick in the window after the commit

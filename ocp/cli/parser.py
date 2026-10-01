@@ -122,6 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("doctor", help="verify preconditions")
     p.add_argument("--no-color", action="store_true")
+    p.add_argument("--settle-leftovers", action="store_true",
+                   help="close, quietly, the task deliveries still queued on a task that has ended")
     p.set_defaults(fn=cmd_doctor)
 
     p = sub.add_parser("status", help="which account may take work")
