@@ -192,7 +192,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     pid, rid = trustmod.listing()[0]["id"], trustmod.listing()[0]["request"]
     con = db.connect()
     try:
-        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (rid,))
+        answer_card(con, rid, "approve")
         ok, msg = trustmod.apply(pid, con)
         check("answers: a verdict written into the db alone declares nothing",
               not ok and "no answer from the founder is on record" in msg
@@ -205,15 +205,18 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     check("answers: the founder's own approve records the answer and declares the root",
           ok and trustmod.is_declared(home / "third")
           and decisions.get("trust", third["id"])["call"] == "approved", msg)
-    check("answers: the record names the request", decisions.get("trust", third["id"])["request"]
-          == third["request"])
+    con = db.connect()
+    third_task = hr.task_of_card(con, third["request"])
+    check("answers: the record names the decision task", decisions.get("trust", third["id"])["task"]
+          == third_task)
     check("answers: and the root the founder was shown",
           decisions.get("trust", third["id"])["subject"] == trustmod._resolved(third["root"]))
     check("answers: a draft edited afterwards is no longer what was approved",
-          decisions.refusal("trust", third["id"], third["request"], str(home / "elsewhere"))
+          decisions.refusal("trust", third["id"], third_task, str(home / "elsewhere"))
           is not None)
-    other = decisions.refusal("trust", third["id"], third["request"] + 1, third["root"])
-    check("answers: a record for another request is no answer", other is not None, str(other))
+    other = decisions.refusal("trust", third["id"], third_task + 1, third["root"])
+    con.close()
+    check("answers: a record for another task is no answer", other is not None, str(other))
 
     # T182: the answer is for the root the founder was shown. An agent that
     # rewrites both the draft and the request body afterwards changes neither.
@@ -222,9 +225,8 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     con = db.connect()
     try:
         subject, why = trustmod.answered(fourth, db.get_request(con, fourth["request"]))
-        decisions.record("trust", fourth["id"], fourth["request"], "approved", subject)
-        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
-                    (fourth["request"],))
+        decisions.record("trust", fourth["id"], hr.task_of_card(con, fourth["request"]), "approved", subject)
+        answer_card(con, fourth["request"], "approve")
         body = db.get_request(con, fourth["request"])["body"].replace(
             str(home / "fourth"), str(home / "repos"))
         con.execute("UPDATE requests SET body = ? WHERE id = ?", (body, fourth["request"]))

@@ -95,10 +95,21 @@ def _save_proposal(prop: dict) -> None:
     atomic.write_text(p, dump(prop))
 
 
-def open_proposal_of(rid: int) -> str | None:
-    """The id of the trust proposal still waiting on an answer whose decision is request `rid`."""
-    for p in listing():
-        if p.get("state") == "proposed" and int(p.get("request") or 0) == rid:
+def open_proposal_of(rid: int, con=None) -> str | None:
+    """The id of the trust proposal still waiting on an answer whose decision is request `rid`
+    (the card of its decision task)."""
+    props = [p for p in listing() if p.get("state") == "proposed"]
+    if not props:
+        return None
+    own = con is None
+    con = con or db.connect()
+    try:
+        tid = hr.task_of_card(con, rid)
+    finally:
+        if own:
+            con.close()
+    for p in props:
+        if hr.waits_on(p, rid, tid):
             return p["id"]
     return None
 
@@ -126,6 +137,11 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
     if not ok:
         return False, f"could not raise it: {said}"
     prop["request"] = rid
+    con = db.connect()
+    try:
+        prop["task"] = hr.task_of_card(con, rid)       # T785: keyed by its decision task
+    finally:
+        con.close()
     _save_proposal(prop)
     return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
                   f"founder answers it; an approve is applied then, and you are told how it went.")
@@ -186,27 +202,31 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     own = con is None
     con = con or db.connect()
     try:
-        row = db.get_request(con, int(prop.get("request") or 0))
-        if row is None:
+        state, tid, verdict = hr.answer_of(con, prop)
+        if state == "none":
             return False, f"proposal {pid} has no decision to check - raise it again"
-        if row["state"] == "queued":
-            return False, (f"the founder has not answered #{row['id']} yet. It is on "
+        if state == "open":
+            return False, (f"the founder has not answered T{tid} yet. It is on "
                            f"`ocp bridge`, top panel.")
-        verdict = row["verdict"]
+        if state == "discarded":
+            why = (db.get_task(con, tid)["discard_reason"] or "").strip()
+            return False, (f"T{tid}, the decision on proposal {pid}, was discarded ({why}) or handed back - "
+                           f"nothing was decided. Raise it again.")
+        row = hr.card_of(con, tid)
         call = hr.decision(verdict)
         if call in ("approved", "rejected"):
-            why_not = decisions.refusal("trust", pid, row["id"], subject_of(prop))
+            why_not = decisions.refusal("trust", pid, tid, subject_of(prop), row["id"] if row else None)
             if why_not or decisions.get("trust", pid)["call"] != call:
                 return False, why_not or (f"the founder's recorded answer for proposal {pid} "
-                                          f"does not match #{row['id']}'s verdict")
+                                          f"does not match T{tid}'s answer")
         if call == "rejected":
             prop["state"] = "rejected"
             prop["verdict"] = textsafe.oneline(verdict or "")
             _save_proposal(prop)
             return False, f"proposal {pid} was rejected: {(verdict or '').strip()[:120]}"
         if call != "approved":
-            return False, (f"#{row['id']} was answered "
-                           f"{(db.shown_verdict(row) or '').strip()[:60]!r}, "
+            return False, (f"T{tid} was answered "
+                           f"{textsafe.oneline((verdict or '').strip())[:60]!r}, "
                            f"which is not a decision.")
         # What gets added is exactly what the founder read: the path on the
         # request row's first line, which this file cannot edit, must be the

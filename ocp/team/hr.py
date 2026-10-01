@@ -248,6 +248,11 @@ def propose(kind: str, name: str, requester: str, why: str,
     if not ok:
         return False, f"could not raise it: {said}"
     prop["request"] = rid
+    con = db.connect()
+    try:
+        prop["task"] = task_of_card(con, rid)       # T785: the proposal is keyed by its decision task
+    finally:
+        con.close()
     save(prop)
     return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
                   f"founder answers it; an approve is applied then, and you are told how it went.")
@@ -398,6 +403,41 @@ def answered(prop: dict, row) -> tuple[str | None, str | None]:
     return subject_of(prop), None
 
 
+def task_of_card(con, rid: int) -> int | None:
+    """The decision task whose card is request `rid`, in whatever state it is now."""
+    for t in db.tasks_for_request(con, rid):
+        first = db.first_linked_request(con, t["id"])
+        if t["expects"] == "decision" and first is not None and int(first["id"]) == int(rid):
+            return int(t["id"])
+    return None
+
+
+def task_of(con, prop: dict) -> int | None:
+    """The decision task a proposal waits on (T785). A proposal raised before it was keyed by task
+    names only its card request: the task is found from that."""
+    return int(prop.get("task") or 0) or task_of_card(con, int(prop.get("request") or 0))
+
+
+def answer_of(con, prop: dict) -> tuple[str, int | None, str | None]:
+    """(state, task id, verdict) of the founder's answer to a proposal, read off its decision task:
+    "none" (no task to read), "open" (not answered), "discarded" (the card was withdrawn, handed
+    back or thrown away: nothing was decided) or "answered" with the verdict he gave."""
+    tid = task_of(con, prop)
+    task = db.get_task(con, tid) if tid else None
+    if task is None:
+        return "none", None, None
+    if task["discarded_by"]:
+        return "discarded", tid, None
+    if task["done_evidence"]:
+        return "answered", tid, task["done_evidence"]
+    return "open", tid, None
+
+
+def card_of(con, tid: int):
+    """The request the founder was shown: the decision's own first request."""
+    return db.first_linked_request(con, tid)
+
+
 def decision(verdict: str | None) -> str:
     """approved / rejected / unclear, from the first word of the verdict."""
     first = (verdict or "").strip().split()
@@ -428,19 +468,23 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     own = con is None
     con = con or db.connect()
     try:
-        row = db.get_request(con, int(prop.get("request") or 0))
-        if row is None:
+        state, tid, verdict = answer_of(con, prop)
+        if state == "none":
             return False, f"proposal {pid} has no decision to check - raise it again"
-        if row["state"] == "queued":
-            return False, (f"the founder has not answered #{row['id']} yet. It is on "
+        if state == "open":
+            return False, (f"the founder has not answered T{tid} yet. It is on "
                            f"`ocp bridge`, top panel.")
-        verdict = row["verdict"]
+        if state == "discarded":
+            why = (db.get_task(con, tid)["discard_reason"] or "").strip()
+            return False, (f"T{tid}, the decision on proposal {pid}, was discarded ({why}) or handed back - "
+                           f"nothing was decided. Raise it again, or `ocp hr withdraw {pid}`.")
+        card = card_of(con, tid)
         call = decision(verdict)
         if call in ("approved", "rejected"):
-            why_not = decisions.refusal("hr", pid, row["id"], subject_of(prop))
+            why_not = decisions.refusal("hr", pid, tid, subject_of(prop), card["id"] if card else None)
             if why_not or decisions.get("hr", pid)["call"] != call:
                 return False, why_not or (f"the founder's recorded answer for proposal {pid} "
-                                          f"does not match #{row['id']}'s verdict")
+                                          f"does not match T{tid}'s answer")
         if call == "rejected":
             prop["state"] = "rejected"
             prop["verdict"] = textsafe.oneline(verdict or "")
@@ -451,8 +495,8 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             return False, (f"proposal {pid} was rejected: "
                            f"{textsafe.oneline((verdict or '').strip())[:120]}")
         if call != "approved":
-            return False, (f"#{row['id']} was answered "
-                           f"{(db.shown_verdict(row) or '').strip()[:60]!r}, "
+            return False, (f"T{tid} was answered "
+                           f"{textsafe.oneline((verdict or '').strip())[:60]!r}, "
                            f"which is not a decision. Ask the founder to answer "
                            f"`approve` or `reject`, or `ocp hr withdraw {pid}`.")
         doer = _DOERS[prop["kind"]]
@@ -489,17 +533,18 @@ def confirm_answer(pid: str, con=None) -> tuple[bool, str]:
     own = con is None
     con = con or db.connect()
     try:
-        row = db.get_request(con, int(prop.get("request") or 0))
-        if row is None or row["state"] == "queued":
-            return False, f"the founder has not answered #{prop.get('request')} yet"
-        call = decision(row["verdict"])
+        state, tid, verdict = answer_of(con, prop)
+        if state in ("none", "open", "discarded"):
+            return False, f"the founder has not answered T{tid or prop.get('task') or '?'} yet"
+        call = decision(verdict)
         if call == "unclear":
-            return False, f"#{row['id']} was answered without approve or reject"
-        subject, why_not = answered(prop, row)
+            return False, f"T{tid} was answered without approve or reject"
+        card = card_of(con, tid)
+        subject, why_not = answered(prop, card)
         if why_not:
             return False, why_not
         try:
-            decisions.record("hr", pid, row["id"], call, subject)
+            decisions.record("hr", pid, tid, call, subject)
         except PermissionError as e:
             return False, str(e)
     finally:
@@ -545,13 +590,12 @@ def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
             if prop.get("state") != "proposed":
                 con.execute("ROLLBACK")
                 return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
-            row = (db.get_request(con, int(prop["request"]))
-                   if int(prop.get("request") or 0) else None)
-            if row is not None and row["state"] != "queued" \
-                    and decision(row["verdict"]) != "unclear":
+            state, tid, verdict = answer_of(con, prop)
+            row = card_of(con, tid) if tid else None
+            if state == "answered" and decision(verdict) != "unclear":
                 con.execute("ROLLBACK")
-                return False, (f"the founder already answered #{row['id']} "
-                               f"({textsafe.oneline((row['verdict'] or '').strip())[:60]!r}) - "
+                return False, (f"the founder already answered T{tid} "
+                               f"({textsafe.oneline((verdict or '').strip())[:60]!r}) - "
                                f"nothing to withdraw; `ocp hr apply {pid}` reads that answer")
             # Marked withdrawn before the row is closed: `_would_strand_a_proposal`
             # reads `is_open_proposal` off this same file, and this call is the
@@ -581,10 +625,28 @@ def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
             con.close()
 
 
-def open_proposal_of(rid: int) -> str | None:
-    """The id of the proposal still waiting on approve or reject whose decision is request `rid`."""
-    for p in listing():
-        if p.get("state") == "proposed" and int(p.get("request") or 0) == rid:
+def waits_on(prop: dict, rid: int, tid: int | None) -> bool:
+    """Is request `rid` (task `tid`'s card) the decision this proposal waits on?"""
+    if prop.get("task"):
+        return tid is not None and int(prop["task"]) == tid
+    return int(prop.get("request") or 0) == rid
+
+
+def open_proposal_of(rid: int, con=None) -> str | None:
+    """The id of the proposal still waiting on approve or reject whose decision is request `rid`
+    (the card of its decision task)."""
+    props = [p for p in listing() if p.get("state") == "proposed"]
+    if not props:
+        return None
+    own = con is None
+    con = con or db.connect()
+    try:
+        tid = task_of_card(con, rid)
+    finally:
+        if own:
+            con.close()
+    for p in props:
+        if waits_on(p, rid, tid):
             return p["id"]
     return None
 
@@ -593,6 +655,11 @@ def unknown_kind_of(rid: int) -> str | None:
     """The kind of a proposal file waiting on request `rid` that this process does
     not know, else None. `listing` skips such a file, so without this a process
     older than the kind would close the decision and throw the answer away."""
+    con = db.connect()
+    try:
+        tid = task_of_card(con, rid)
+    finally:
+        con.close()
     for f in dir_().glob("*.yaml"):
         try:
             data = load(f.read_text())
@@ -600,14 +667,15 @@ def unknown_kind_of(rid: int) -> str | None:
             continue
         if (isinstance(data, dict) and data.get("id") and data.get("agent")
                 and data.get("kind") not in KINDS and data.get("state") == "proposed"
-                and str(data.get("request") or "") == str(rid)):
+                and waits_on(data, rid, tid)):
             return str(data.get("kind"))
     return None
 
 
-def is_open_proposal(rid: int) -> bool:
-    """Is request `rid` the decision of a proposal still waiting on approve or reject?"""
-    return open_proposal_of(rid) is not None
+def is_open_proposal(rid: int, con=None) -> bool:
+    """Is request `rid` the decision of a proposal still waiting on approve or reject? Pass the
+    caller's `con` when it is inside a write: a second connection would wait on its lock."""
+    return open_proposal_of(rid, con) is not None
 
 
 def register_repo(repo: str | None) -> str:

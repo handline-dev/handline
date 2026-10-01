@@ -373,7 +373,7 @@ def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> 
     row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
     if row is None or row["target"] != HUMAN:
         return False
-    return hr.is_open_proposal(rid) and hr.decision(verdict) == "unclear"
+    return hr.is_open_proposal(rid, con) and hr.decision(verdict) == "unclear"
 
 
 def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool:

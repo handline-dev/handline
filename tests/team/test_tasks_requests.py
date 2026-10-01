@@ -2139,15 +2139,16 @@ edges:
         # guard to reach the row hr.apply's own decision check exists for:
         # one closed by something other than this fix, such as data from
         # before it shipped.
-        _set_request_state(con, rid[0], "done", "hmm, maybe next week")
+        answer_card(con, rid[0], "hmm, maybe next week")
         ok, said = hr.apply(pid)
         check("hr: nor on an answer that is not a decision",
               not ok and "not a decision" in said and "dohyun" not in paths.list_agents(),
               said)
 
         # Approved, and the two writes a human would have made.
-        con.execute("UPDATE requests SET verdict = ? WHERE id = ?", ("approve", rid[0]))
-        decisions.record("hr", pid, rid[0], "approved", hr.subject_of(hr.load_proposal(pid)))
+        db.reopen_task(con, hr.task_of_card(con, rid[0]), False)       # the stranded answer is replaced
+        answer_card(con, rid[0], "approve")
+        decisions.record("hr", pid, hr.task_of_card(con, rid[0]), "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid)
         table = yamlcompat.load((home / "team.yaml").read_text())
         check("hr: an approved proposal registers the agent", ok and "dohyun" in paths.list_agents(), said)
@@ -2902,8 +2903,8 @@ def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> No
               "hr retire backend" in tui._ANSI.sub("", _snap(120, 40)))
 
         rid = hr.load_proposal(pid)["request"]
-        _set_request_state(con, rid, "done", "approve")  # answered, apply not yet run
-        decisions.record("hr", pid, rid, "approved", hr.subject_of(hr.load_proposal(pid)))
+        answer_card(con, rid, "approve")  # answered, apply not yet run
+        decisions.record("hr", pid, hr.task_of_card(con, rid), "approved", hr.subject_of(hr.load_proposal(pid)))
         w = waits("proposal")
         check("hr wait: approved but not applied it stays, no longer red",
               len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))

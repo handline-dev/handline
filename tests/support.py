@@ -282,6 +282,15 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
     db.refresh_sent_of_request(con, rid)
 
 
+def answer_card(con, rid: int, verdict: str) -> None:
+    """Setup: the founder's answer on a decision card, as the closer leaves it - the card done with
+    the verdict and its decision task done with it (T785: a proposal reads its answer off the task).
+    Not through `resolve`, so nothing is applied and nothing is recorded."""
+    _set_request_state(con, rid, "done", verdict)
+    from ocp.db import tasks as dbtasks
+    dbtasks.settle_decision_tasks(con, rid, "done", verdict)
+
+
 def pointed_record(typed: str) -> str:
     """The record a one-line wake pointer names ("Your handoff is in <file> -
     ..."): what the session reads when it follows it. "" for a line that names none."""
@@ -1937,6 +1946,7 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    'answer_card',
     '_ask_row',
     'hand_edit_team',
     'hand_edit_agent',
