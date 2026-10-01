@@ -8009,6 +8009,12 @@ limits:
         dbschema2._task_sent_at(con)
         check("sent_at: the migration backfills it from the requests open now",
               db.get_task(con, t)["sent_at"] is not None and db.get_task(con, sn)["sent_at"] is None)
+        ok, _, mk = actions.task_new("manager", "worker", "kept by the merge", "w")
+        ok, _, mg = actions.task_new("manager", "worker", "merged away", "w")
+        check("sent_at: the task to be merged away is sent", db.get_task(con, mg)["sent_at"] is not None)
+        ok, msg = actions.merge_tasks(con, mk, [mg], "manager")
+        check("sent_at: a task merged away has no request left on it, so it is no longer sent",
+              ok and db.get_task(con, mg)["sent_at"] is None and db.get_task(con, mk)["sent_at"] is not None, msg)
         # a founder's card is delivered when drawn
         ok, _, card = actions.task_new("manager", "human", "decide", "decide")
         crid = db.task_requests(con, card)[0]["id"]

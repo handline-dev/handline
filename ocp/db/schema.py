@@ -794,13 +794,14 @@ def _task_deliveries_settled(con) -> None:
 
 
 def _task_sent_at(con) -> None:
-    """T737: `tasks.sent_at` from the deliveries out now - the earliest open one that asks something
-    (not an fyi report) of anyone on the task. Ledgered, so it runs once; `db.refresh_sent` keeps it
-    current after that."""
+    """T737: `tasks.sent_at` from the deliveries out now - set, as the triggers set it, to now for a
+    task with an open request that asks something (not an fyi report) of anyone on it. Ledgered, so
+    it runs once; the triggers keep it current after that."""
     if get_cursor(con, "migrated:task_sent_at"):
         return
     con.execute(
-        "UPDATE tasks SET sent_at = (SELECT MIN(r.ts) FROM task_requests l JOIN requests r ON r.id = l.request_id "
+        "UPDATE tasks SET sent_at = CAST(strftime('%s','now') AS INTEGER) WHERE EXISTS ("
+        "SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id "
         "WHERE l.task_id = tasks.id AND r.state = 'queued' AND r.fyi = 0)")
     set_cursor(con, "migrated:task_sent_at", 1)
 

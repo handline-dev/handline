@@ -159,7 +159,8 @@ def open_task_count(con, agent: str) -> int:
 
 def _reads_doing_from_requests(con, tid: int) -> bool:
     """What `reads_doing` answered before T737, from the open requests - kept as the other half of
-    the comparison that proves the task row says the same."""
+    the comparison that proves the task row says the same. It and the OCP_COMPARE_DOING check go
+    with the triggers in step D."""
     if _begun(con, tid):
         return True
     if any(_asks(r) for r in db.task_requests(con, tid)):
