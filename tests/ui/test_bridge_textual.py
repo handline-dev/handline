@@ -2536,6 +2536,36 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
         con.close()
 
 
+async def test_a_selection_on_a_wrapped_line_never_takes_the_bridge_down():
+    from textual.app import App
+    from textual.geometry import Offset
+    from textual.selection import Selection
+    from textual.widgets import Static
+    from ocp.ui.components.wrapped_static import WrappedStatic
+    text = "\u21a9 #7935 \uadfc\ub370 ocp cancel 7789 --yes \uc774\uac8c \ubb50\uc57c? \uc800 7789 \ub294 \ubb34\uc2a8 \uc22b\uc790\ub2c8?"
+
+    class Host(ClipboardApp):
+        def compose(self):
+            yield WrappedStatic(text, id="wrapped")
+            yield Static(text, id="plain")
+
+    app = Host()
+    async with app.run_test(size=(30, 20)) as pilot:
+        await pilot.pause()
+        wrapped = app.query_one("#wrapped", WrappedStatic)
+        sel = Selection(Offset(2, 1), Offset(9, 1))
+        got = wrapped.get_selection(sel)
+        check("selection: the second visual line of a one-line text is read from the wrapped lines",
+              got is not None and got[0] != "" and got[0] in text, repr(got))
+        app.screen.selections = {app.query_one("#plain", Static): Selection(Offset(10, 1), Offset(32, 1))}
+        try:
+            app._copy_selection()
+            ok = True
+        except IndexError:
+            ok = False
+        check("selection: a widget that misreads its lines copies nothing and the app lives", ok)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -2622,6 +2652,7 @@ async def _run_all() -> None:
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
+    await test_a_selection_on_a_wrapped_line_never_takes_the_bridge_down()
 
 
 def main() -> int:

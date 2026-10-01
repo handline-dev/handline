@@ -37,6 +37,7 @@ from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
 from .components.dialog_modal import DialogModal
+from .components.wrapped_static import WrappedStatic
 from .components.permission_modal import PermissionModal
 from .components.question_modal import QuestionModal
 from .components.jobs_aware import JobsAware, dispatch_agent_verb
@@ -685,7 +686,7 @@ class ChatMessage(Vertical):
         self._picked = False
         self._colors: dict[str, str] = {}
         card = is_card(m)
-        self._text = Static(message_text(m, self._always, False, side), classes="body cardbox" if card else "body")
+        self._text = WrappedStatic(message_text(m, self._always, False, side), classes="body cardbox" if card else "body")
         parts = [Static(card_head(m), classes="cardhead"), self._text] if card else [self._text]
         self._send_now: Button | None = None
         landing = m.get("landing") or ("delivered" if m.get("delivered") else "queued")
@@ -1106,7 +1107,7 @@ class TaskActions:
         self.app.push_screen(TextPrompt("stop it and discard - why?" if doing else "discard - why?"), answered)
 
 
-class TaskText(Static):
+class TaskText(WrappedStatic):
     """A `Static` on a task's page whose links open another task's page, wherever the page is."""
 
     def action_open_task(self, tid: int) -> None:
