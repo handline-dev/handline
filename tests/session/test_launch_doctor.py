@@ -516,6 +516,27 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
               agents.read("backend").get("skip_permissions") is True and "next launch" in out, out)
         _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))
         check("skip: and off from the CLI", "skip_permissions" not in agents.read("backend"))
+        # T875: the same wiring, through the real parser and launch.build.
+        check("chrome: a launch is --no-chrome by default",
+              "--no-chrome" in launch.build("backend")[0] and "--chrome" not in launch.build("backend")[0])
+        out = _capture(lambda: climod.main(["agent", "register", "backend", "--chrome", "on"]))
+        argv = launch.build("backend")[0]
+        check("chrome: the CLI turns it on, says when, and the launch carries --chrome",
+              "--chrome" in argv and "--no-chrome" not in argv and "next launch" in out, (argv, out))
+        _capture(lambda: climod.main(["agent", "register", "backend", "--chrome", "off"]))
+        argv = launch.build("backend")[0]
+        check("chrome: and off from the CLI gives --no-chrome back",
+              "--no-chrome" in argv and "--chrome" not in argv and "chrome" not in agents.read("backend"), argv)
+        os.environ["OCP_AGENT"] = "backend"
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = climod.main(["agent", "register", "backend", "--chrome", "on"])
+            check("chrome: an agent's own session is refused cleanly, nothing written",
+                  rc == 1 and "founder's" in err.getvalue() and "chrome" not in agents.read("backend"),
+                  err.getvalue())
+        finally:
+            os.environ.pop("OCP_AGENT")
         real = os.environ.get("OCP_AGENT")
         os.environ["OCP_AGENT"] = "backend"
         try:

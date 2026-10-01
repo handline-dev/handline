@@ -42,6 +42,10 @@ def cmd_agent_register(args) -> int:
         print("skipping permission prompts is the founder's to turn on or off, from a "
               "terminal or the bridge, not an agent's", file=sys.stderr)
         return 1
+    if args.chrome and protected.in_agent_session():
+        print("the browser integration is the founder's to turn on or off, from a "
+              "terminal or the bridge, not an agent's", file=sys.stderr)
+        return 1
     try:
         has_repo = bool(agents.read(args.name).get("repo"))
     except Exception:  # noqa: BLE001 - a new agent has no agent.yaml yet

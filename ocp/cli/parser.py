@@ -105,7 +105,8 @@ def build_parser() -> argparse.ArgumentParser:
                    "applies from the next launch; on re-registration, omit to keep the current one")
     p.add_argument("--chrome", default=None, choices=["on", "off"],
                    help="start its sessions with the Claude in Chrome integration (default off, "
-                   "every other agent keeps --no-chrome); on re-registration, omit to keep the current one")
+                   "every other agent keeps --no-chrome); its browser dialog is yours to answer, "
+                   "ocp does not; on re-registration, omit to keep the current one")
     p.set_defaults(fn=cmd_agent_register)
 
     p = sub.add_parser("launch", help="exec claude as this agent's account")
