@@ -8072,7 +8072,34 @@ limits:
               not any(f"#{ghost} " in str(i) for i in stuck_now) and any(f"#{behind} " in str(i) for i in stuck_now),
               str(stuck_now))
         check("ghost: `ocp doctor` lists it", ghost in [r["id"] for r in db.leftover_deliveries(con)])
-        db.close_if_queued(con, ghost, "done", None)
+        fg = db.new_task(con, "founder's, ended", "worker", actions.HUMAN)
+        frid = db.add_request(con, actions.HUMAN, "worker", "from the founder", None, None, "fire_and_forget",
+                              "task", 0, None)
+        db.link_request(con, fg, frid)
+        check("ghost: the founder's delivery of an open task is pending for the agent",
+              frid in [r["id"] for r in db.founder_pending(con, "worker")])
+        db.mark_task_done(con, fg, "x")
+        con.execute("UPDATE requests SET landed_at = ts, delivered_at = ts WHERE id IN (?, ?)", (frid, ghost))
+        check("ghost: the founder's delivery of an ended task is not told past an open head",
+              frid not in [r["id"] for r in db.founder_pending(con, "worker")])
+        check("ghost: nor does a timebox run on it (no 'ran long' about an ended task)",
+              not {frid, ghost} & {r["id"] for r in db.timeboxed_open(con)})
+        from ocp.infra import doctor as doctormod
+        import inspect
+        rep = doctormod.Report()
+        doctormod._check_leftover_deliveries(rep)
+        check("doctor: warns of each leftover, and does not point at `ocp cancel`",
+              len(rep.rows) >= 2 and all(lv == doctormod.WARN for lv, _, _ in rep.rows)
+              and not any("ocp cancel" in d for _, _, d in rep.rows), str(rep.rows))
+        check("doctor: the check is part of the run", "_check_leftover_deliveries(r)" in inspect.getsource(doctormod._run))
+        settled = db.settle_leftover_deliveries(con)
+        check("sweep: the leftovers are settled quietly - closed, nobody told, their tasks untouched",
+              {frid, ghost} <= set(settled) and db.get_request(con, frid)["state"] == "done"
+              and db.get_request(con, frid)["announced_at"] is not None
+              and db.get_task(con, fg)["done_evidence"] == "x" and not db.leftover_deliveries(con))
+        rep2 = doctormod.Report()
+        doctormod._check_leftover_deliveries(rep2)
+        check("doctor: and says nothing when there are none", rep2.rows == [])
         check("ghost: closed, it is no leftover", ghost not in [r["id"] for r in db.leftover_deliveries(con)])
         ok, _, g3 = actions.task_new("manager", "worker", "handed on", "w")
         away = db.task_requests(con, g3)[0]["id"]

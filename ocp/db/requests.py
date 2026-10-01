@@ -94,6 +94,17 @@ def leftover_deliveries(con):
     return con.execute(f"SELECT * FROM requests WHERE state = 'queued' AND {LEFTOVER_DELIVERY} ORDER BY id").fetchall()
 
 
+def settle_leftover_deliveries(con) -> list[int]:
+    """Close every `LEFTOVER_DELIVERY` quietly, as settled (design #7986, MIGRATION): nobody is told,
+    nothing is typed, and no task is touched. The ids closed."""
+    done = []
+    for r in leftover_deliveries(con):
+        if close_if_queued(con, int(r["id"]), "done", "its task is no longer this agent's to do",
+                           announced=True, settle=False):
+            done.append(int(r["id"]))
+    return done
+
+
 def queued_for(con, target: str):
     """Every request still queued for `target`, ordered by queue_order (its
     delivery position - see `add_request`), not by id."""
@@ -259,7 +270,7 @@ def timeboxed_open(con):
     the human's rows are "delivered" when drawn, not worked on. (`kind = 'report'`
     only matches rows written before reports became says.)"""
     return con.execute(
-        "SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL "
+        f"SELECT * FROM requests WHERE state = 'queued' AND landed_at IS NOT NULL AND NOT {LEFTOVER_DELIVERY} "
         "AND timebox_noticed_at IS NULL AND fyi = 0 AND COALESCE(kind, '') != 'report' "
         "AND target != ?", (HUMAN,)).fetchall()
 
