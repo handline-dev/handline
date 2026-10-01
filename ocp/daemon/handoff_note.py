@@ -40,7 +40,7 @@ _ASK = ("This session is about to close. Write your handoff to {path} now, with 
 
 
 def note_path(agent: str):
-    return paths.agent_dir(agent) / "handoff.md"
+    return paths.handoff_note_file(agent)
 
 
 def _key(agent: str) -> str:

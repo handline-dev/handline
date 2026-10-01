@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 from ..team import memory
-from ..infra import protected
+from ..infra import paths, protected
 from .. import db
 
 _NS = "gates"
@@ -46,12 +46,17 @@ def _plans_dir() -> str | None:
 
 
 def _exempt(agent: str, tool_input: object) -> bool:
-    """Memory, $TMPDIR and the plan-mode plan folder are working files,
-    never the deliverable itself."""
+    """Memory, $TMPDIR, the plan-mode plan folder and the agent's own handoff note
+    (T571: the ask comes to an idle agent, which holds no task) are working files,
+    never the deliverable itself. The note is that one file, not its folder, and not
+    through a link."""
     path = _path(tool_input)
     if path is None:
         return False
     real = os.path.realpath(path)
+    note = paths.handoff_note_file(agent)
+    if real == os.path.realpath(note) and not os.path.islink(path) and not note.is_symlink():
+        return True
     for root in (memory.memory_dir(agent), os.environ.get("TMPDIR"), _plans_dir()):
         if not root:
             continue

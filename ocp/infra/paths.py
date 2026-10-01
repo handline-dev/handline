@@ -102,6 +102,11 @@ def agent_dir(name: str) -> Path:
     return agents_dir() / name
 
 
+def handoff_note_file(agent: str) -> Path:
+    """The one file an agent writes for its handoff note (T571, `daemon.handoff_note`)."""
+    return agent_dir(agent) / "handoff.md"
+
+
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
