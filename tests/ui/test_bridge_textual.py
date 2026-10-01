@@ -2642,6 +2642,62 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
         con.close()
 
 
+async def test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it():
+    from textual.screen import Screen
+    from ocp.ui import chat_page as cp
+    m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "waiting": False, "replyable": True,
+         "answered": False, "queued": False, "delivered": True,
+         "text": "hello world again and again until the line wraps on this narrow screen"}
+
+    class Chat(Screen):
+        replying = None
+
+        def compose(self):
+            yield cp.ChatMessage(m)
+
+        def reply_to(self, msg):
+            self.replying = None if self.replying is msg else msg
+            msg.show_id(self.replying is msg)
+
+    class Host(ClipboardApp):
+        def on_mount(self):
+            self.push_screen(Chat())
+
+    app = Host()
+    async with app.run_test(size=(30, 12)) as pilot:
+        await pilot.pause()
+        msg = app.screen.query_one(cp.ChatMessage)
+        body = msg._text
+        app.screen.reply_to(msg)   # picked: the head line sits above the body, so the body starts on row 1
+        await pilot.pause()
+        await pilot.mouse_down(body, offset=(0, 1))
+        await pilot.hover(body, offset=(5, 1))
+        await pilot.mouse_up(body, offset=(5, 1))
+        body.post_message(events.Click(body, 5, 1, 5, 1, 1, False, False, False))   # a terminal sends it after the mouse-up
+        await pilot.pause()
+        check("selection: a drag on a picked message copies exactly the dragged text",
+              app.screen.get_selected_text() == "hello ", repr(app.screen.get_selected_text()))
+        check("selection: and the end of the drag leaves it picked, so the head line stays where the drag was made",
+              app.screen.replying is msg)
+
+
+async def test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives():
+    from textual.geometry import Offset
+    from textual.selection import Selection
+    from textual.widgets import Static
+
+    class Host(ClipboardApp):
+        def compose(self):
+            yield Static("one line", id="s")
+
+    app = Host()
+    async with app.run_test(size=(30, 6)) as pilot:
+        await pilot.pause()
+        app.screen.selections = {app.query_one("#s", Static): Selection(Offset(1, 1), Offset(5, 1))}
+        app._copy_selection()
+        check("selection: a selection past a widget's lines copies nothing and does not raise", True)
+
+
 async def _run_all() -> None:
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
@@ -2729,6 +2785,8 @@ async def _run_all() -> None:
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     test_account_settings_alias_and_default_cap()
+    await test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it()
+    await test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives()
 
 
 def main() -> int:

@@ -17,7 +17,11 @@ class ClipboardApp(App):
         self.call_after_refresh(self._copy_selection)
 
     def _copy_selection(self) -> None:
-        if text := self.screen.get_selected_text():
+        try:
+            text = self.screen.get_selected_text()
+        except IndexError:  # a widget whose get_selection misreads its own lines: copy nothing, keep the app
+            return
+        if text:
             self.copy_to_clipboard(text)
 
     def copy_to_clipboard(self, text: str) -> None:
