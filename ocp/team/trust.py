@@ -192,6 +192,19 @@ def enact(root: str, why: str) -> tuple[bool, str]:
     return True, f"{resolved} is now a declared root"
 
 
+def settle_moot() -> list[str]:
+    """T797: a proposal for a root the founder has already declared is moot - nothing is left to
+    apply. Each open one is settled as withdrawn (never as approved) and its id returned."""
+    gone = []
+    for prop in listing():
+        if prop.get("state") == "proposed" and prop.get("root") and is_declared(prop["root"]):
+            prop["state"] = "withdrawn"
+            prop["verdict"] = "moot: that root is already declared"
+            _save_proposal(prop)
+            gone.append(prop["id"])
+    return gone
+
+
 def apply(pid: str, con=None) -> tuple[bool, str]:
     """Carry out a trust proposal the founder approved."""
     prop = load_proposal(pid)
@@ -236,6 +249,9 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
         if read is None or _resolved(read) != _resolved(prop["root"]):
             return False, (f"proposal {pid}'s root does not match what #{row['id']} "
                            f"asked the founder to approve - raise it again")
+        if is_declared(prop["root"]):
+            settle_moot()
+            return False, f"proposal {pid} is moot: {prop['root']} is already a declared root"
         rows = list_roots()
         rows.append({"root": prop["root"], "why": prop["why"],
                      "added_by": prop["requested_by"], "added_at": prop["created"]})

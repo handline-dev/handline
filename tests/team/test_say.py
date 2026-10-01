@@ -144,7 +144,7 @@ def test_a_reply_settles_the_request_it_answers_as_one_message(home: Path) -> No
             "SELECT id, requester, target, kind, settles, parent_id FROM requests WHERE id > ?", (rid,))]
         said = [r for r in rows if r["requester"] == "worker" and r["target"] == "manager"]
         check("reply: the ask is settled, with the reply as its verdict",
-              ask_row["state"] == "done" and ask_row["verdict"] == "looked: fine", str(dict(ask_row)))
+              ask_row["state"] == "landed" and ask_row["verdict"] == "looked: fine", str(dict(ask_row)))
         check("reply: exactly one row from the answerer, and it is the settling answer",
               len(said) == 1 and said[0]["settles"] == rid and said[0]["kind"] == "say", str(rows))
     finally:
@@ -199,7 +199,7 @@ edges:
         row = db.get_request(con, rid)
         answer = con.execute("SELECT * FROM requests WHERE settles = ?", (rid,)).fetchone()
         check("founder reply: the ask is settled and the reply is its one answer",
-              row["state"] == "done" and answer is not None and answer["target"] == "human"
+              row["state"] == "landed" and answer is not None and answer["target"] == "human"
               and con.execute("SELECT COUNT(*) c FROM requests WHERE settles = ?", (rid,)).fetchone()["c"] == 1)
         check("founder reply: the reason is recorded", con.execute(
             "SELECT 1 FROM events WHERE kind = 'no_task'").fetchone() is not None)
@@ -280,7 +280,7 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
               or db.head_of_queue(con, "manager")["id"] != reply_rid)
         check("say: the reply closes the say it answers, recorded as its verdict "
               "(auditor #1742 must-change 1) - otherwise the table only grows",
-              original["state"] == "done" and original["verdict"] == "close - one file left",
+              original["state"] == "landed" and original["verdict"] == "close - one file left",
               str(dict(original)))
     finally:
         con.close()
@@ -336,7 +336,7 @@ limits:
     try:
         row = db.get_request(con, rid)
         check("real reply: and it does close the say, this time",
-              row["state"] == "done" and row["verdict"] == "yes", str(dict(row)))
+              row["state"] == "landed" and row["verdict"] == "yes", str(dict(row)))
     finally:
         con.close()
 
@@ -459,7 +459,7 @@ def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
               any(f"#{rid}" in t for h, t in sent), str(sent))
         check("say: marked delivered, and finished - a typed say owes nothing",
               db.get_request(con, rid)["delivered_at"] is not None
-              and db.get_request(con, rid)["state"] == "done", str(dict(db.get_request(con, rid))))
+              and db.get_request(con, rid)["state"] == "landed", str(dict(db.get_request(con, rid))))
     finally:
         orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now = real
         con.close()

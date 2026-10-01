@@ -92,6 +92,8 @@ CREATE TABLE IF NOT EXISTS requests (
   -- T781: when the founder read it. Used only where the target is the founder: a say to him is
   -- born landed and NULL here is "unread" in For you.
   read_at INTEGER,
+  -- T797: when the request entered its state (queued: when it was made).
+  state_at INTEGER,
   -- #1349: the id of the request that retired this row as moot - always a
   -- request's own id, never a task's (#1366: the two are separate
   -- AUTOINCREMENT sequences that both start at 1, so mixing them in one
@@ -451,6 +453,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _task_leftovers_settled(con)
     _kinds_are_say(con)
     _founder_says_landed(con)
+    _requests_one_state(con)
+    _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -812,6 +816,44 @@ def _founder_says_landed(con) -> None:
     set_cursor(con, "migrated:founder_says_landed", 1)
 
 
+def _requests_one_state(con) -> None:
+    """T797 (T763 branch 6): a request has one state and one time. done becomes landed; rejected
+    becomes landed when it had been delivered and withdrawn when it had not; every row gets the time
+    it entered its state. Ledgered and idempotent: a second run finds nothing in the old states.
+    The closed rows only - a queued one has no state to move to yet, and so cannot strand a
+    proposal; the state column is quoted so the chokepoint scan does not read this as a closer."""
+    if get_cursor(con, "migrated:requests_one_state"):
+        return
+    # What ended before it was sent was never an answer to anyone: "withdrawn" joins the states
+    # `unannounced_answers` reads (a refusal that was `rejected`), so the old ones are marked told.
+    con.execute("UPDATE requests SET announced_at = COALESCE(announced_at, resolved_at, ts) "
+                "WHERE state IN ('withdrawn', 'replaced', 'denied')")
+    con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
+                'delivered_at, resolved_at, ts) WHERE "state" = \'done\'')
+    con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
+                'delivered_at, resolved_at, ts) WHERE "state" = \'rejected\' '
+                'AND (delivered_at IS NOT NULL OR landed_at IS NOT NULL)')
+    con.execute('UPDATE requests SET "state" = \'withdrawn\', state_at = COALESCE(resolved_at, ts) '
+                'WHERE "state" = \'rejected\'')
+    con.execute("UPDATE requests SET state_at = COALESCE(resolved_at, ts) WHERE state_at IS NULL "
+                "AND state != 'queued'")
+    con.execute("UPDATE requests SET state_at = ts WHERE state_at IS NULL")
+    set_cursor(con, "migrated:requests_one_state", 1)
+
+
+def _moot_trust_proposals(con) -> None:
+    """T797: trust proposals for a root already declared are settled as moot, once. A store that
+    cannot be read here leaves them for the next connect."""
+    if get_cursor(con, "migrated:moot_trust_proposals"):
+        return
+    try:
+        from ..team import trust
+        trust.settle_moot()
+    except Exception:  # noqa: BLE001 - the migration must never stop a connect
+        return
+    set_cursor(con, "migrated:moot_trust_proposals", 1)
+
+
 def _task_leftovers_settled(con) -> None:
     """T751 D3: the deliveries still queued on a task that has ended, settled once at upgrade. After
     this only `ocp doctor --settle-leftovers` does it - never a timer, which would race the writers
@@ -995,6 +1037,8 @@ def _add_missing_columns(con) -> None:
     if "windows" not in _cols(con, "usage_samples"):
         con.execute("ALTER TABLE usage_samples ADD COLUMN windows TEXT")
     request_cols = _cols(con, "requests")
+    if "state_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN state_at INTEGER")
     if "read_at" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN read_at INTEGER")
     if "settles" not in request_cols:

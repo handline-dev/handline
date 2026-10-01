@@ -358,7 +358,7 @@ def test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(home: Path) -
     con = db.connect()
     try:
         row = db.get_request(con, rid)
-        check("founder: a say to him is landed at once, and unread", ok and row["state"] == "done"
+        check("founder: a say to him is landed at once, and unread", ok and row["state"] == "landed"
               and row["landed_at"] and row["read_at"] is None, f"{msg} {dict(row)}")
         check("founder: and it is in For you", rid in [m["id"] for m in actions.mailbox_rows(con)])
         dmn_delivery.deliver_queued(con, askmod.HUMAN, lambda _m: None)
@@ -399,13 +399,75 @@ def test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unre
     try:
         r = db.get_request(con, old_q)
         check("migration: a say still queued for the founder is landed and unread",
-              r["state"] == "done" and r["landed_at"] and r["read_at"] is None, str(dict(r)))
+              r["state"] == "landed" and r["landed_at"] and r["read_at"] is None, str(dict(r)))
         check("migration: what he had already dealt with reads as read, when it was closed",
               db.get_request(con, old_done)["read_at"] == 77)
         c = db.get_request(con, card)
         check("migration: a task he holds stays a task, queued", c["state"] == "queued" and c["read_at"] is None)
     finally:
         con.close()
+
+
+def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
+    """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
+    every row gets a state_at; ledgered, a second connect changes nothing."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        def row(state, **cols):
+            rid = db.add_request(con, "product", "backend", f"old {state}", None, None, None, "say", 0, None)
+            sets = "".join(f"{k} = ?, " for k in cols)
+            con.execute(f"UPDATE requests SET {sets}state = ?, state_at = NULL WHERE id = ?",
+                        (*cols.values(), state, rid))
+            return rid
+        done_landed = row("done", landed_at=500, typed_at=400, delivered_at=300, resolved_at=900)
+        done_typed = row("done", typed_at=400, delivered_at=300, resolved_at=900)
+        done_only = row("done", resolved_at=900)
+        rej_delivered = row("rejected", delivered_at=300, resolved_at=900)
+        rej_never = row("rejected", resolved_at=900)
+        gone = [row(s, resolved_at=800) for s in ("withdrawn", "replaced", "denied")]
+        waiting = row("queued")
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:requests_one_state'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        got = {r["id"]: (r["state"], r["state_at"]) for r in con.execute("SELECT id, state, state_at FROM requests")}
+        check("one state: done becomes landed, stamped with when it landed (else typed, delivered, resolved)",
+              got[done_landed] == ("landed", 500) and got[done_typed] == ("landed", 400)
+              and got[done_only] == ("landed", 900), str(got))
+        check("one state: rejected is landed if it had been delivered, withdrawn if not",
+              got[rej_delivered] == ("landed", 300) and got[rej_never] == ("withdrawn", 900), str(got))
+        check("one state: withdrawn, replaced and denied stay and take the time they ended; queued takes its ts",
+              [got[g] for g in gone] == [("withdrawn", 800), ("replaced", 800), ("denied", 800)]
+              and got[waiting][0] == "queued" and got[waiting][1] == db.get_request(con, waiting)["ts"], str(got))
+        check("one state: a row that ended before sending is marked told (never an answer); a refusal keeps what it had",
+              all(con.execute("SELECT announced_at FROM requests WHERE id = ?", (g,)).fetchone()[0] is not None for g in gone)
+              and con.execute("SELECT announced_at FROM requests WHERE id = ?", (rej_never,)).fetchone()[0] is None)
+        check("one state: nothing is left in the old words",
+              con.execute("SELECT COUNT(*) FROM requests WHERE state IN ('done', 'rejected')").fetchone()[0] == 0)
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        again = {r["id"]: (r["state"], r["state_at"]) for r in con.execute("SELECT id, state, state_at FROM requests")}
+        check("one state: a second connect changes nothing", again == got)
+    finally:
+        con.close()
+
+
+def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> None:
+    _daemon_home(home, 20)
+    from ocp.team import trust as trustmod
+    ok, msg = trustmod.propose(str(home / "repos" / "moot"), "needs it", requester="backend")
+    pid = trustmod.listing()[0]["id"]
+    ok, msg = trustmod.enact(str(home / "repos"), "the founder declares the parent")
+    check("moot: the founder declares a root above it", ok, msg)
+    settled = trustmod.settle_moot()
+    check("moot: settling moots withdraws it, never approves it",
+          settled == [pid] and trustmod.load_proposal(pid)["state"] == "withdrawn", str(settled))
+    ok, msg = trustmod.propose(str(home / "repos" / "second"), "again", requester="backend")
+    check("moot: a new proposal for a declared root is refused outright", not ok, msg)
 
 
 def test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(home: Path) -> None:
@@ -471,6 +533,8 @@ def main() -> int:
         run(lambda: test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_again(Path(td) / "l10"))
         run(lambda: test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(Path(td) / "l15"))
         run(lambda: test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(Path(td) / "l16"))
+        run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
+        run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
         run(lambda: test_the_conversation_says_where_a_request_is(Path(td) / "l7"))
         run(lambda: test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(Path(td) / "l8"))

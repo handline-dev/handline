@@ -219,6 +219,30 @@ def test_one_request_at_a_time(home: Path) -> None:
         con.close()
 
 
+def test_own_withdraw_is_not_an_answer(home: Path) -> None:
+    """A requester's own withdraw stores 'withdrawn' and is marked told, so it
+    never comes back to them as an answer or shows in the founder's For you."""
+    use_home(home)
+    hand_edit_team(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name)
+    con = db.connect()
+    try:
+        for who in ("backend", db.HUMAN):
+            ok, msg, rid = askmod.ask("reviewer", f"from {who}", requester=who)
+            check(f"own withdraw: {who} asks", ok, msg)
+            ok, msg = askmod.withdraw(rid, requester=who)
+            check(f"own withdraw: {who} withdraws", ok, msg)
+            check(f"own withdraw: {who}'s row is withdrawn",
+                  db.get_request(con, rid)["state"] == "withdrawn")
+            check(f"own withdraw: not an unannounced answer to {who}",
+                  rid not in [r["id"] for r in db.unannounced_answers(con, who)])
+            check(f"own withdraw: not in the mailbox for {who}",
+                  rid not in [m["id"] for m in actions.mailbox_rows(con)])
+    finally:
+        con.close()
+
+
 def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
     """Review of buddyron/one-task-at-a-time: the first version of this
     migration marked every existing queued row delivered, so none was left
@@ -405,7 +429,7 @@ def test_review_pingpong(home: Path) -> None:
         parent = rid
         con = db.connect()
         try:
-            _set_request_state(con, rid, "done", "ok")
+            _set_request_state(con, rid, "landed", "ok")
         finally:
             con.close()
 
@@ -479,7 +503,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
     # path only fires that event into a live session (design section 5).
     con = db.connect()
     try:
-        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        _set_request_state(con, rid, "landed", verdict="looks good", announced=True)
     finally:
         con.close()
 
@@ -536,7 +560,7 @@ def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: 
         for _ in range(8):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            _set_request_state(con, rid, "done", verdict="ok")
+            _set_request_state(con, rid, "landed", verdict="ok")
 
         prose = ["Phase 4 daemon rewrite, step 2 of 7",
                 "rebase onto main, 3 conflicts left",
@@ -581,7 +605,7 @@ def test_reconcile_resolved_only_state_done_counts(home: Path) -> None:
             never_happened[state] = rid
         done_rid = db.add_request(con, "backend", "auditor", "y", None, "peer",
                                   "fire_and_forget", None, 0, None)
-        _set_request_state(con, done_rid, "done", verdict="ok")
+        _set_request_state(con, done_rid, "landed", verdict="ok")
         queued_rid = db.add_request(con, "backend", "auditor", "z", None, "peer",
                                     "fire_and_forget", None, 0, None)
 
@@ -628,7 +652,7 @@ def test_fold_degraded_path_also_reconciles_resolved_asks(home: Path) -> None:
 
     con = db.connect()
     try:
-        _set_request_state(con, rid, "done", verdict="looks good", announced=True)
+        _set_request_state(con, rid, "landed", verdict="looks good", announced=True)
         # A second, unrelated event so the fold is not the no-event path.
         db.add_event(con, "backend", "commit", {"sha": "abc", "subject": "more work"})
     finally:
@@ -712,7 +736,7 @@ limits:
     con = db.connect()
     try:
         check("reply: it settles the ask it answers",
-              db.get_request(con, rid)["state"] == "done"
+              db.get_request(con, rid)["state"] == "landed"
               and db.get_request(con, rid)["verdict"] == "looked, fine")
     finally:
         con.close()
@@ -940,7 +964,7 @@ def test_blocked_agents_come_due_in_one_request(home: Path) -> None:
         screens["worker"] = screens["reviewer"] = None
         blockedmod._checked.clear()
         blockedmod.sweep(con, lambda _m: None, t0 + blockedmod.DECISION_AFTER_S + 40)
-        check("blocked: the last one closes it", _decisions(con)[0]["state"] == "done")
+        check("blocked: the last one closes it", _decisions(con)[0]["state"] == "landed")
     finally:
         con.close()
 
@@ -987,7 +1011,7 @@ def test_a_trust_screen_is_one_founder_request(home: Path) -> None:
         # obstacle from whatever the agent's open decision is about.
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.block_clear(con, "backend")
-        con.execute("UPDATE requests SET state = 'done' WHERE kind = 'task' AND target = 'human'")
+        con.execute("UPDATE requests SET state = 'landed' WHERE kind = 'task' AND target = 'human'")
         askmod.raise_decision(con, "backend", "something else", "unrelated")
         blockedmod._checked.clear()
         blockedmod.sweep(con, lambda _m: None, t0 + 5000)
@@ -1100,7 +1124,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
                              "peer", "async", "task", 0, None)
         check("nudge: an agent with an ask of its own outstanding is waiting, not forgetful",
               not nudge(now) and not sent, str(sent))
-        _set_request_state(con, ask, "done", verdict="fine", announced=True)
+        _set_request_state(con, ask, "landed", verdict="fine", announced=True)
 
         # The gates delivery has.
         dmn_delivery.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
@@ -1204,7 +1228,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         idle_for(dmn_delivery.FORGOTTEN_STUCK_S + 60)
         check("stuck: and is shown again once it has",
               any("idle on" in b["what"] for b in actions.stuck(con)))
-        _set_request_state(con, head, "done", verdict="did it")
+        _set_request_state(con, head, "landed", verdict="did it")
         check("stuck: resolving it clears the row",
               not any("idle on" in b["what"] for b in actions.stuck(con)))
     finally:
@@ -1293,7 +1317,7 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
               and f"#{first}" in sent[-1], str(sent))
         sent.clear()
 
-        _set_request_state(con, first, "done", verdict="did it")
+        _set_request_state(con, first, "landed", verdict="did it")
         check("blocked: the second is delivered once the first resolves",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
               and "second thing" in sent[-1] and f"#{second}" in sent[-1], str(sent))
@@ -1332,7 +1356,7 @@ def test_head_task_blocked_by_the_agents_own_linked_ask(home: Path) -> None:
         check("blocked: linked to the head's own task, the open ask blocks it",
               dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
 
-        _set_request_state(con, ask_id, "done", verdict="looks right", announced=True)
+        _set_request_state(con, ask_id, "landed", verdict="looks right", announced=True)
         check("blocked: answered, it no longer blocks",
               not dmn_delivery.head_task_blocked(con, "backend", db.get_request(con, head)))
     finally:
@@ -1715,7 +1739,7 @@ def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
         check("ocp read: shows what it is in reply to, as its own line",
               f"\nin reply to #{parent}: which port?\n" in out, out)
 
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (reply,))
+        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (reply,))
         plain = db.add_request(con, "human", "backend", "hello", None,
                                "peer", "async", None, 0, None)
         dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
@@ -2921,7 +2945,7 @@ def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> No
         check("decision: an unanswered one is waiting on the founder, in red",
               len(w) == 1 and w[0]["red"] and w[0]["who"] == "marina"
               and "which branch" in w[0]["what"], str(w))
-        con.execute("UPDATE requests SET state = 'done', verdict = 'the release one' "
+        con.execute("UPDATE requests SET state = 'landed', verdict = 'the release one' "
                     "WHERE body LIKE 'which branch%'")
         con.commit()
         check("decision: answered, it is gone", not waits("decision"))
@@ -3369,7 +3393,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         said = actions.cancel(con, head)
         row = db.get_request(con, head)
         check("cancel: a delivered head is closed as rejected with the verdict",
-              row["state"] == "rejected" and row["verdict"] == "withdrawn by the founder",
+              row["state"] == "landed" and row["verdict"] == "withdrawn by the founder",
               str(dict(row)))
         check("cancel: and is still in the log, not deleted", row is not None)
         check("cancel: the target is told to stop, at its own terminal",
@@ -3391,7 +3415,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         sent.clear()
         actions.cancel(con, mine)
         check("cancel: the founder's own delivered request is closed as rejected",
-              db.get_request(con, mine)["state"] == "rejected")
+              db.get_request(con, mine)["state"] == "landed")
         check("cancel: and the founder is not told about their own cancel",
               not db.unannounced_answers(con, askmod.HUMAN), str(db.unannounced_answers(con, askmod.HUMAN)))
 
@@ -3405,7 +3429,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         actions.cancel(con, tail)
         other = tail
         check("cancel: an undelivered request of another agent's is closed and its requester told",
-              db.get_request(con, other)["state"] == "rejected"
+              db.get_request(con, other)["state"] == "withdrawn"
               and any(h == "term_m" and f"#{other}" in t for h, t in sent), str(sent))
         check("cancel: with nothing typed at a target that never saw it",
               not any(h == "term_b" and "cancelled" in t for h, t in sent), str(sent))
@@ -3430,7 +3454,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         sent.clear()
         said = actions.cancel(con, busy)
         check("cancel: a target it cannot type at is not told now, and the founder is told so",
-              db.get_request(con, busy)["state"] == "rejected"
+              db.get_request(con, busy)["state"] == "landed"
               and "could not be told" in said and not any(h == "term_b" for h, _t in sent), said)
         orcamod.typeable_now = lambda h: True
 
@@ -3447,7 +3471,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         db.close_if_queued(con, overtaken, "rejected", askmod.CANCEL_VERDICT)
         ok, msg = askmod.resolve(overtaken, "did it anyway")
         check("cancel: a resolve landing after the close is refused, not applied",
-              not ok and "already rejected" in msg
+              not ok and "already withdrawn" in msg
               and db.get_request(con, overtaken)["verdict"] == askmod.CANCEL_VERDICT, msg)
         check("cancel: a request that is already closed says so",
               "already" in actions.cancel(con, head), actions.cancel(con, head))
@@ -3466,7 +3490,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         askmod.asking_agent = lambda: askmod.HUMAN
         out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
         check("cancel: and does the same action for the founder",
-              db.get_request(con, again)["state"] == "rejected" and "cancelled" in out, out)
+              db.get_request(con, again)["state"] == "withdrawn" and "cancelled" in out, out)
     finally:
         (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now,
          askmod.asking_agent) = real
@@ -3586,7 +3610,7 @@ limits:
         check("task end: a top-level task's opener is told in a say from the task board", ok and len(told) == 1
               and told[0]["requester"] == "task-board", msg)
         check("task end: the delivery is closed quietly - no verdict, no answer row, nothing to announce",
-              db.get_request(con, drid)["state"] in ("done", "withdrawn") and db.get_request(con, drid)["verdict"] is None
+              db.get_request(con, drid)["state"] in ("landed", "withdrawn") and db.get_request(con, drid)["verdict"] is None
               and db.get_request(con, drid)["announced_at"] is not None
               and not db.unannounced_answers(con, "manager")
               and con.execute("SELECT COUNT(*) FROM requests WHERE settles = ?", (drid,)).fetchone()[0] == 0)
@@ -3598,7 +3622,7 @@ limits:
         actions.mark_task_done(con, seen, "worker", reason="a")
         actions.mark_task_done(con, unseen, "worker", reason="b")
         check("task end: a delivery the holder had read closes as done, one it never saw as withdrawn",
-              db.task_requests(con, seen)[0]["state"] == "done" and db.task_requests(con, unseen)[0]["state"] == "withdrawn",
+              db.task_requests(con, seen)[0]["state"] == "landed" and db.task_requests(con, unseen)[0]["state"] == "withdrawn",
               f"{db.task_requests(con, seen)[0]['state']} {db.task_requests(con, unseen)[0]['state']}")
         check("task end: and the say is not linked to the task, so a done task does not read as sent",
               db.get_task(con, top)["sent_at"] is None)
@@ -3657,7 +3681,7 @@ limits:
         db.mark_task_done(con, left, "x")                    # ended by some other path, delivery still queued
         ok, msg = actions.mark_task_done(con, left, "worker", reason="x")
         check("task end: a done on a task that ended another way settles its leftover and tells the opener once",
-              ok and db.task_requests(con, left)[0]["state"] in ("done", "withdrawn")
+              ok and db.task_requests(con, left)[0]["state"] in ("landed", "withdrawn")
               and len(says_to(con, "manager", f"T{left} done by worker")) == 1, msg)
     finally:
         con.close()
@@ -3838,7 +3862,7 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
         with contextlib.redirect_stdout(buf):
             clitask._print_board(con, db.open_tasks(con))
         check("task row: it reads the new state, from the request",
-              "done" in buf.getvalue() and "queued" not in buf.getvalue(), buf.getvalue())
+              "landed" in buf.getvalue() and "queued" not in buf.getvalue(), buf.getvalue())
         after = dict(db.get_task(con, tid))
         check("task row: and the task row itself did not change - but for sent_at, which follows the "
               "open requests (T737)",
@@ -4317,7 +4341,7 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
     con = db.connect()
     try:
         check("T318: t1's own linked request is retired, not left stuck at the head",
-              db.get_request(con, rid1)["state"] in ("done", "withdrawn"), dict(db.get_request(con, rid1)))
+              db.get_request(con, rid1)["state"] in ("landed", "withdrawn"), dict(db.get_request(con, rid1)))
         check("T318: the higher-priority, younger task becomes current - not the older one",
               db.current_task(con, "worker") == t_high, db.current_task(con, "worker"))
         check("T318: and its own request jumps to the front of the queue",
@@ -4454,7 +4478,7 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
         askmod.resolve(q_delivered, "looks good")
         check("kinds: answered, it leaves no open task behind",
               not db.tasks_for_request(con, q_delivered)
-              and db.get_request(con, q_delivered)["state"] == "done")
+              and db.get_request(con, q_delivered)["state"] == "landed")
         check("kinds: a queued ask becomes a task for its target, the row its delivery",
               len(t_ask) == 1 and t_ask[0]["owner"] == "worker" and t_ask[0]["opened_by"] == "manager"
               and t_ask[0]["title"] == "do the thing" and kind(q_ask) == "task"
@@ -4756,7 +4780,7 @@ def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> No
               ans is not None and ans["id"] != rid and ans["parent_id"] == rid
               and ans["requester"] == "manager" and ans["target"] == "worker"
               and ans["body"] == "the answer" and ans["kind"] == "say" and ans["settles"] == rid
-              and ans["state"] == "done"
+              and ans["state"] == "landed"
               and ans["chain_id"] == db.get_request(con, rid)["chain_id"], str(dict(ans) if ans else None))
         check("answer row: it is already read, so nobody is told twice",
               ans["announced_at"] is not None)
@@ -4799,8 +4823,8 @@ edges:
 
         # An old verdict, written before answer rows existed, is given one - once.
         old = db.add_request(con, "worker", "manager", "old question", None, None, None, None, 0,
-                             None, state="done", verdict="old verdict")
-        con.execute("UPDATE requests SET resolved_at = 1000 WHERE id = ?", (old,))
+                             None, verdict="old verdict")
+        con.execute("UPDATE requests SET state = 'done', resolved_at = 1000 WHERE id = ?", (old,))      # the old shape
         db.set_cursor(con, "migrated:answer_rows", 0)
         con.close()
         con = db.connect()
@@ -4845,7 +4869,7 @@ def test_the_answer_lookups_use_the_settles_index_not_a_scan(home: Path) -> None
     try:
         for i in range(200):
             rid = db.add_request(con, "worker", "manager", f"q{i}", None, None, None, None, 0, None)
-            con.execute("UPDATE requests SET state = 'done', verdict = 'a' WHERE id = ?", (rid,))
+            con.execute("UPDATE requests SET state = 'landed', verdict = 'a' WHERE id = ?", (rid,))
             if i % 2 == 0:
                 db.add_answer(con, rid, "a")
         check("settles: the index exists on a database built now",
@@ -4921,7 +4945,7 @@ limits:
               row["done_evidence"] == "call it x", str(dict(row)))
         req = db.get_request(con, card)
         check("decide: the card's request is settled with the same text",
-              req["state"] == "done" and req["verdict"] == "call it x")
+              req["state"] == "landed" and req["verdict"] == "call it x")
         ok, said = actions.decide(con, tid, "again")
         check("decide: a task already decided is refused and keeps the first decision",
               not ok and "already decided" in said and db.get_task(con, tid)["done_evidence"] == "call it x", said)
@@ -5417,7 +5441,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
               actions.task_state(con, row) == "draft" and row["timeout_at"] is None,
               str(dict(row)))
         check("release: the request is no longer open, but still on the record",
-              db.get_request(con, rid)["state"] == "rejected", str(dict(db.get_request(con, rid))))
+              db.get_request(con, rid)["state"] in ("withdrawn", "landed"), str(dict(db.get_request(con, rid))))
         check("release: the task still lists it",
               any(r["id"] == rid for r in db.task_requests(con, tid)))
         check("release: the founder is not sent a rejection of his own request, the same as "
@@ -5452,7 +5476,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
               ok and f"T{child}" in msg and "paused" not in msg, msg)
         row = db.get_task(con, parent)
         check("release: the request is retired, the timeout was left running, not paused",
-              db.get_request(con, prid)["state"] == "rejected"
+              db.get_request(con, prid)["state"] in ("withdrawn", "landed")
               and row["timeout_at"] is not None and actions.task_state(con, row) == "doing",
               str(dict(row)))
 
@@ -5486,8 +5510,8 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         row = db.get_task(con, two)
         check("release: still paused, back to draft, despite the one that could not be retired",
               actions.task_state(con, row) == "draft" and row["timeout_at"] is None
-              and db.get_request(con, second)["state"] == "rejected"
-              and db.get_request(con, first)["state"] == "done", str(dict(row)))
+              and db.get_request(con, second)["state"] in ("withdrawn", "landed")
+              and db.get_request(con, first)["state"] == "landed", str(dict(row)))
     finally:
         orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now = real
         con.close()
@@ -5581,11 +5605,11 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
         con.close()
 
     _link(t_held, _request("manager", "worker"))
-    _link(t_back, _request("manager", "worker"), state="done")
+    _link(t_back, _request("manager", "worker"), state="landed")
     _link(t_closed_other, _request("manager", "worker"), state="withdrawn")
     _link(t_child, _request("manager", "worker"))
-    _link(t_human_to_me, _request(askmod.HUMAN, "manager"), state="done")
-    _link(t_me_to_human, _request("manager", askmod.HUMAN), state="done")
+    _link(t_human_to_me, _request(askmod.HUMAN, "manager"), state="landed")
+    _link(t_me_to_human, _request("manager", askmod.HUMAN), state="landed")
 
     rc, out = _cli(["task", "board"])
     check("board: rc 0", rc == 0, out)
@@ -6792,7 +6816,7 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
                                   no_task="nothing to build")
         row = db.get_request(con, new)
         check("dismissed: state done, who and why recorded, no verdict",
-              ok and row["state"] == "done" and row["verdict"] is None
+              ok and row["state"] == "landed" and row["verdict"] is None
               and (row["dismissed_by"], row["dismissed_reason"]) == ("manager", "dup of #9")
               and row["resolved_at"], str(dict(row)))
         old = db.add_request(con, askmod.HUMAN, "manager", "q2", None, "supervisor",
@@ -7000,12 +7024,12 @@ limits:
         check("reason gaps: setup - the fyi actually lands", ok, msg1)
         r1 = db.get_request(con, f1)
         check("ask --fyi writes a say to the founder, born landed and unread, never a report row",
-              r1["kind"] == "say" and r1["fyi"] == 1 and r1["state"] == "done" and r1["landed_at"]
+              r1["kind"] == "say" and r1["fyi"] == 1 and r1["state"] == "landed" and r1["landed_at"]
               and r1["read_at"] is None and not db.send_now_pending(con, askmod.HUMAN),
               str(dict(r1)))
         ok, msg2, f2 = askmod.ask(askmod.HUMAN, "fyi two", requester="manager", fyi=True)
         check("reason gaps: setup - the second fyi lands, and the first stays as it was (unread)", ok
-              and db.get_request(con, f1)["state"] == "done" and db.get_request(con, f1)["read_at"] is None, msg2)
+              and db.get_request(con, f1)["state"] == "landed" and db.get_request(con, f1)["read_at"] is None, msg2)
         gaps3 = actions.reason_gaps(con)
         check("reason gaps: an fyi superseding an fyi is not counted as a retirement",
               gaps3["retirements"] == gaps2["retirements"], str(gaps3))
@@ -8305,7 +8329,7 @@ limits:
               any(lv == doctormod.WARN and f"request #{ghost} " in str(t) for lv, t, _ in full.rows), str(full.rows))
         settled = db.settle_leftover_deliveries(con)
         check("sweep: the leftovers are settled quietly - closed, nobody told, their tasks untouched",
-              {frid, ghost} <= set(settled) and db.get_request(con, frid)["state"] == "done"
+              {frid, ghost} <= set(settled) and db.get_request(con, frid)["state"] == "landed"
               and db.get_request(con, frid)["announced_at"] is not None
               and db.get_task(con, fg)["done_evidence"] == "x" and not db.leftover_deliveries(con))
         rep2 = doctormod.Report()
@@ -8332,7 +8356,7 @@ limits:
         with contextlib.redirect_stdout(out):
             health.cmd_doctor(parsed)
         check("doctor --settle-leftovers: closes an ended task's delivery quietly, and says which",
-              db.get_request(con, lor)["state"] == "done" and f"#{lor}" in out.getvalue(), out.getvalue()[:200])
+              db.get_request(con, lor)["state"] == "landed" and f"#{lor}" in out.getvalue(), out.getvalue()[:200])
         ok, _, up = actions.task_new("manager", "worker", "ended before the upgrade", "w")
         upr = db.task_requests(con, up)[0]["id"]
         db.mark_task_done(con, up, "x")
@@ -8344,7 +8368,7 @@ limits:
         try:
             gone = db.get_request(con2, upr)
             check("upgrade migration: an ended task's delivery is closed quietly, once",
-                  gone["state"] == "done" and gone["announced_at"] is not None
+                  gone["state"] == "landed" and gone["announced_at"] is not None
                   and db.get_cursor(con2, "migrated:task_leftovers_settled") == 1)
             check("upgrade migration: a delivery whose task moved on is left queued",
                   db.get_request(con2, upmr)["state"] == "queued")
@@ -8396,9 +8420,9 @@ limits:
               db.get_task(con, landed)["delivered_at"] == 1234)
         check("delivered_at: and leaves an unlanded one empty", db.get_task(con, t)["delivered_at"] is None)
         check("delivered_at: a delivery left queued on an ended task is settled",
-              db.get_request(con, grid)["state"] == "done")
+              db.get_request(con, grid)["state"] == "landed")
         check("delivered_at: so is one left with the old holder after a hand-on",
-              db.get_request(con, mrid)["state"] == "done")
+              db.get_request(con, mrid)["state"] == "landed")
         check("delivered_at: and a live delivery is left alone", db.get_request(con, lrid)["state"] == "queued")
         check("delivered_at: a delivery shared with a task still open is not a ghost",
               db.get_request(con, shared)["state"] == "queued")
@@ -8480,7 +8504,7 @@ limits:
         check("T509: the cli hands a task to human", rc == 0 and db.get_task(con, cli_t)["owner"] == "human", out)
         for r in db.task_requests(con, cli_t):      # the founder's request answered or retired: the task is still theirs
             if r["state"] == "queued":
-                con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (r["id"],))
+                con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (r["id"],))
                 db.refresh_sent_of_request(con, r["id"])
         check("T681: a task handed to the founder is delegated to them (for you), not a draft",
               actions.task_state(con, db.get_task(con, cli_t)) in actions.DELEGATED_STATES,
@@ -8606,7 +8630,7 @@ limits:
             told.clear()
             db.set_current_task(con, "worker", None)
             for r in db.task_requests(con, bt):
-                con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (r["id"],))
+                con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (r["id"],))
                 db.refresh_sent_of_request(con, r["id"])
             _cli(["task", "edit", f"T{bt}", "--body", "cli brief, not doing"], as_agent="manager")
             check("T689: nobody is told for a task that is not being worked", told == [], str(told))
@@ -8712,7 +8736,7 @@ def test_a_begun_task_reads_doing_the_same_way_everywhere(home: Path) -> None:
         check("begun: task_state says doing", ok and actions.task_state(con, row) == "doing", msg)
         check("begun: and reads_doing agrees", actions.reads_doing(con, tid))
         db.set_task_queued(con, tid, "worker")
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (chat,))
+        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (chat,))
         check("begun: still doing after its chat request is answered, in both",
               actions.task_state(con, db.get_task(con, tid)) == "doing" and actions.reads_doing(con, tid))
         ok, msg = actions.release_task(con, tid, askmod.HUMAN)
@@ -8991,6 +9015,7 @@ def main() -> int:
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
+        run(lambda: test_own_withdraw_is_not_an_answer(Path(td) / 'ownwithdraw'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
         run(lambda: test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(Path(td) / 'oldmig2'))
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(

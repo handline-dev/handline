@@ -592,7 +592,7 @@ def cmd_task_board(args) -> int:
             kids = sorted({r["target"] for c in db.open_child_tasks(con, t["id"])
                           for r in db.task_requests(con, c["id"]) if actions._asks(r)})
             last = reqs[-1] if reqs else None
-            back = (last is not None and last["state"] == "done"
+            back = (last is not None and last["state"] == "landed"
                     and last["target"] not in (me, askmod.HUMAN))
             blockers = db.task_blockers(con, t["id"])
             linked_rids = {r["id"] for r in reqs}

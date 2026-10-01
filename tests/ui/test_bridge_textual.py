@@ -489,14 +489,14 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
         after = db.get_request(con, rid)
         check("reply: a reply to a waiting question is its verdict",
-              ok1 and after["state"] == "done" and after["verdict"] == "yes", str(dict(after)))
+              ok1 and after["state"] == "landed" and after["verdict"] == "yes", str(dict(after)))
         ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
         child = db.get_request(con, rid + 1)
         check("reply: a second reply is a new request to the agent under it",
               ok2 and child is not None and child["parent_id"] == rid and child["target"] == "reviewer"
               and child["requester"] == actions.HUMAN)
         ok3, _, mine = askmod.ask("reviewer", "status?", requester=actions.HUMAN)
-        con.execute("UPDATE requests SET state = 'done', verdict = 'fine' WHERE id = ?", (mine,))
+        con.execute("UPDATE requests SET state = 'landed', verdict = 'fine' WHERE id = ?", (mine,))
         con.commit()
         ok4, _ = cp.send_reply(con, "reviewer", mine, "thanks, now ship it")
         check("reply: an answer to the human's own request is marked read, as the mailbox does",
@@ -685,7 +685,7 @@ def test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process() -> 
     con = db.connect()
     try:
         check("jobs: it is collected, and the row is dismissed",
-              said and said[0][0] and db.get_request(con, rid)["state"] == "done", str(said))
+              said and said[0][0] and db.get_request(con, rid)["state"] == "landed", str(said))
     finally:
         con.close()
     check("jobs: a verb that waits on something is still a process of its own",
@@ -2836,7 +2836,7 @@ def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
         check("reply link: the founder's reply is a reply to the message it answers",
               ok and reply["reply_to"] == said, str(msgs))
         check("reply link: it is a row of its own to the agent, the original untouched",
-              db.get_request(con, said)["state"] == "done" and db.get_request(con, reply["rid"])["target"] == "reviewer",
+              db.get_request(con, said)["state"] == "landed" and db.get_request(con, reply["rid"])["target"] == "reviewer",
               str(reply))
         check("reply link: it is drawn with the link", cp.message_text(reply, True, False, "me").plain
               .split("\n")[1].startswith(f"↩ #{said}"), cp.message_text(reply, True, False, "me").plain)

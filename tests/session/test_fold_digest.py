@@ -183,7 +183,7 @@ def test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_has
         for _ in range(8):
             rid = db.add_request(con, "backend", "auditor", "x", None, "peer",
                                  "fire_and_forget", None, 0, None)
-            _set_request_state(con, rid, "done", verdict="ok")
+            _set_request_state(con, rid, "landed", verdict="ok")
 
         started_by = ["Fix auditor's #5 BLOCKING finding", "per #3, rework the guard"]
         d = digest.Digest(date="2026-09-22", agent="backend", updated="09:00", folded_through=1,
@@ -422,7 +422,7 @@ def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
 
         # A request nobody has been shown yet is not one in hand.
         db.add_request(con, "marina", "backend", "later", None, "peer", "async", None, 0, None)
-        _set_request_state(con, rid, "done", "ok")
+        _set_request_state(con, rid, "landed", "ok")
         check("handoff: no delivered request is a fact, not a gap",
               handoffmod.record(con, "backend") == []
               and "request: none in progress" in db.get_handoff(con, "backend"))
@@ -462,7 +462,7 @@ def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path)
         rid = db.add_request(con, "marina", "backend", "fix it", None,
                              "peer", "async", None, 0, None)
         db.mark_delivered(con, rid)
-        _set_request_state(con, rid, "done", "ok")
+        _set_request_state(con, rid, "landed", "ok")
         check("progress: an idle note does not resurface after a request came and went (T366)",
               handoffmod.get_progress(con, "backend") is None)
         rid = db.add_request(con, "marina", "backend", "fix it", None,
@@ -501,7 +501,7 @@ def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path)
         handoffmod.record(con, "backend")
         check("progress: an empty note clears it", "progress" not in db.get_handoff(con, "backend"))
         handoffmod.set_progress(con, "backend", "old")
-        _set_request_state(con, rid, "done", "ok")
+        _set_request_state(con, rid, "landed", "ok")
         rid2 = db.add_request(con, "marina", "backend", "next", None,
                               "peer", "async", None, 0, None)
         db.mark_delivered(con, rid2)
