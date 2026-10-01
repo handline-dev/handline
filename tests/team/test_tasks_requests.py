@@ -219,6 +219,30 @@ def test_one_request_at_a_time(home: Path) -> None:
         con.close()
 
 
+def test_own_withdraw_is_not_an_answer(home: Path) -> None:
+    """A requester's own withdraw stores 'withdrawn' and is marked told, so it
+    never comes back to them as an answer or shows in the founder's For you."""
+    use_home(home)
+    hand_edit_team(DESIGN_TEAM)
+    for name in ("backend", "reviewer"):
+        agents.register(name)
+    con = db.connect()
+    try:
+        for who in ("backend", db.HUMAN):
+            ok, msg, rid = askmod.ask("reviewer", f"from {who}", requester=who)
+            check(f"own withdraw: {who} asks", ok, msg)
+            ok, msg = askmod.withdraw(rid, requester=who)
+            check(f"own withdraw: {who} withdraws", ok, msg)
+            check(f"own withdraw: {who}'s row is withdrawn",
+                  db.get_request(con, rid)["state"] == "withdrawn")
+            check(f"own withdraw: not an unannounced answer to {who}",
+                  rid not in [r["id"] for r in db.unannounced_answers(con, who)])
+            check(f"own withdraw: not in the mailbox for {who}",
+                  rid not in [m["id"] for m in actions.mailbox_rows(con)])
+    finally:
+        con.close()
+
+
 def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
     """Review of buddyron/one-task-at-a-time: the first version of this
     migration marked every existing queued row delivered, so none was left
@@ -8991,6 +9015,7 @@ def main() -> int:
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
+        run(lambda: test_own_withdraw_is_not_an_answer(Path(td) / 'ownwithdraw'))
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
         run(lambda: test_migration_carries_an_old_sendnow_told_cursor_onto_the_row(Path(td) / 'oldmig2'))
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
