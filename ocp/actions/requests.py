@@ -127,7 +127,7 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         refusal = check_human_resolve(con, row, tasks, no_task, me)
         if refusal:
             return False, refusal
-    if row["state"] == "queued" and hr.is_open_proposal(rid):
+    if row["state"] == "queued" and hr.is_open_proposal(rid, con):
         # "read" would close it with a verdict that is neither approve nor
         # reject, leaving a proposal nobody can apply or clear.
         return False, (f"#{rid} is a roster proposal - answer `approve` or `reject`, "
@@ -397,14 +397,15 @@ def founder_waits(con) -> list[dict]:
     for prop in hr.listing():
         if prop.get("state") != "proposed":
             continue
-        req = db.get_request(con, int(prop.get("request") or 0))
+        state, tid, verdict = hr.answer_of(con, prop)
+        req = hr.card_of(con, tid) if tid else None
         if req is None:
             continue
         proposed.add(int(req["id"]))
-        if req["state"] == "queued":
+        if state == "open":
             how, red = "awaiting your decision", True
-        elif req["state"] == "done":
-            call = hr.decision(req["verdict"])
+        elif state == "answered":
+            call = hr.decision(verdict)
             if call == "rejected":
                 continue
             how, red = (("approved, not yet applied", False) if call == "approved"

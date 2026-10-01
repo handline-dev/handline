@@ -1318,8 +1318,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
             pids[name] = int(said.split("#")[1].split(".")[0])
         # `resolve` refuses a non-decision on a proposal now; one closed that way by an
         # older ocp is what is stranded.
-        con.execute("UPDATE requests SET state = 'done', verdict = 'sounds good' WHERE id = ?",
-                    (pids["unclear"],))
+        t.answer_card(con, pids["unclear"], "sounds good")
         askmod.resolve(pids["approved"], "approve")
         askmod.resolve(pids["rejected"], "reject not now")
         got = {p["agent"]: p for p in pr.open_proposals(con)}

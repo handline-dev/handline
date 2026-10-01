@@ -25,12 +25,13 @@ def digest(fields: dict) -> str:
     return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
 
 
-def record(kind: str, pid: str, request_id: int, call: str, subject: str) -> None:
+def record(kind: str, pid: str, task_id: int, call: str, subject: str) -> None:
     """`call` is "approved" or "rejected"; `subject` is what it was decided on
-    (the module's `subject_of` for the draft the founder was shown).
+    (the module's `subject_of` for the draft the founder was shown); `task_id` is the
+    decision task it was answered on (T785: a proposal is keyed by its task).
     PermissionError from an agent's session."""
     protected.put(_ns(kind), pid, json.dumps(
-        {"request": int(request_id), "call": call, "subject": subject,
+        {"task": int(task_id), "call": call, "subject": subject,
          "at": int(time.time())}))
 
 
@@ -45,15 +46,19 @@ def get(kind: str, pid: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def refusal(kind: str, pid: str, request_id: int, subject: str) -> str | None:
-    """Why the founder's answer to `request_id` cannot be relied on, or None
-    when the record names this request, a decision, and the draft as it is now."""
+def refusal(kind: str, pid: str, task_id: int, subject: str, card_id: int | None = None) -> str | None:
+    """Why the founder's answer to decision task `task_id` cannot be relied on, or None
+    when the record names this task, a decision, and the draft as it is now. A record written
+    before proposals were keyed by task names the card request instead: it counts for the task
+    whose card that is (`card_id`)."""
     got = get(kind, pid)
     if got is None:
         return (f"no answer from the founder is on record for proposal {pid} - it was "
                 f"answered before answers were recorded, or not by the founder; raise it again")
-    if got.get("request") != int(request_id) or got.get("call") not in ("approved", "rejected"):
-        return f"the founder's recorded answer for proposal {pid} is not for #{request_id}"
+    names_it = (got.get("task") == int(task_id) if "task" in got
+                else card_id is not None and got.get("request") == int(card_id))
+    if not names_it or got.get("call") not in ("approved", "rejected"):
+        return f"the founder's recorded answer for proposal {pid} is not for T{task_id}"
     if got.get("subject") != subject:
         return (f"proposal {pid} was changed after the founder answered it - what they "
                 f"approved is not what is in the draft now; raise it again")

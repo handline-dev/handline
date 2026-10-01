@@ -35,13 +35,14 @@ def open_proposals(con) -> list[dict]:
     for prop in hr.listing():
         if prop.get("state") != "proposed":
             continue
-        req = db.get_request(con, int(prop.get("request") or 0))
+        state, tid, verdict = hr.answer_of(con, prop)
+        req = hr.card_of(con, tid) if tid else None
         if req is None:
             continue
-        if req["state"] == "queued":
+        if state == "open":
             status, reply = DECIDE, ""
-        elif req["state"] == "done" and hr.decision(req["verdict"]) == "unclear":
-            status, reply = STRANDED, req["verdict"] or ""
+        elif state == "answered" and hr.decision(verdict) == "unclear":
+            status, reply = STRANDED, verdict or ""
         else:
             continue
         out.append({**prop, "rid": int(req["id"]), "asked": int(req["ts"]),

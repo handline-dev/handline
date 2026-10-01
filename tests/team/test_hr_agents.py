@@ -2354,8 +2354,8 @@ deny:
               con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 1)
         ok, said = hr.apply(pid, con)
         check("team: refused until the founder answers", not ok, said)
-        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(prop))
-        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (prop["request"],))
+        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(prop))
+        answer_card(con, prop["request"], "approve")
         for label, key, value in [("a member added", "members", prop["members"] + ",boat.spy"),
                                   ("a member's repo changed", "repo.boat.sea", "/elsewhere"),
                                   ("the manager's repo changed", "repo", "/elsewhere")]:
@@ -2580,7 +2580,7 @@ edges:
         ok, said = askmod.resolve(prop["request"], "approve")
         check("team answer: the approve is applied by the answer itself", ok and "applied" in said, said)
         check("team answer: it is recorded, names the request, and the team exists",
-              (decisions.get("hr", pid) or {}).get("request") == prop["request"]
+              (decisions.get("hr", pid) or {}).get("task") == hr.task_of_card(con, prop["request"])
               and hr.load_proposal(pid)["state"] == "applied"
               and team.Team.load().teams.get("crew") == ["crew", "crew.a", "crew.b"]
               and "crew.b" in paths.list_agents())
@@ -2703,12 +2703,11 @@ deny:
               "marina -> keeper" in req["body"] and "approve" in req["body"], req["body"])
         ok, said = hr.apply(pid, con)
         check("link: apply refuses until the founder has answered", not ok, said)
-        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
-                    (prop["request"],))
+        answer_card(con, prop["request"], "approve")
         ok, said = hr.apply(pid, con)
         check("link: a verdict written into the db alone, with no recorded answer, applies nothing",
               not ok and "no answer from the founder is on record" in said, said)
-        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(hr.load_proposal(pid)))
+        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid, con)
         check("link: apply after approval adds the edge",
               ok and team.Team.load().route("marina", "keeper").allowed, said)
@@ -2820,9 +2819,8 @@ edges:
         req = db.get_request(con, prop["request"])
         check("hr add: the decision names the vendor to the founder",
               "vendor opencode" in req["body"], req["body"])
-        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?",
-                   (prop["request"],))
-        decisions.record("hr", pid, prop["request"], "approved", hr.subject_of(hr.load_proposal(pid)))
+        answer_card(con, prop["request"], "approve")
+        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(hr.load_proposal(pid)))
         ok, said = hr.apply(pid, con)
         check("hr add: applying an approved proposal succeeds", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
@@ -2836,9 +2834,9 @@ edges:
         ok, said = hr.propose("add", "glm3", repo="/repo", requester="marina", why="w", vendor="opencode")
         pid3 = said.split()[1]
         rid3 = hr.load_proposal(pid3)["request"]
-        con.execute("UPDATE requests SET state = 'done', verdict = 'approve' WHERE id = ?", (rid3,))
+        answer_card(con, rid3, "approve")
         subject, _why = hr.answered(hr.load_proposal(pid3), db.get_request(con, rid3))
-        decisions.record("hr", pid3, rid3, "approved", subject)
+        decisions.record("hr", pid3, hr.task_of_card(con, rid3), "approved", subject)
         edited = hr.load_proposal(pid3)
         edited["repo"] = "/somewhere/else"
         hr.save(edited)
@@ -2952,9 +2950,123 @@ edges:
         pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
         con.execute("UPDATE requests SET state = 'done', dismissed_by = 'ghost', "
                     "dismissed_reason = 'not now' WHERE id = ?", (rid,))
+        from ocp.db import tasks as dbtasks
+        dbtasks.settle_decision_tasks(con, rid, "done", None, dismissed_by="ghost")     # what the real closer does
         ok, msg = hr.apply(pid)
         check("dismissed decision: apply names the state",
-              not ok and "dismissed by ghost - not now" in msg, msg)
+              not ok and "was discarded (its request was dismissed)" in msg and "nothing was decided" in msg, msg)
+    finally:
+        con.close()
+
+
+def test_a_proposal_is_answered_on_its_decision_task_and_applies_once_never_on_a_discard(home: Path) -> None:
+    """T785: a proposal is keyed by its decision task. The founder's answer is the task done with the
+    verdict; an approve applies once, never on a discard or a handoff, and a reject stays rejected."""
+    _daemon_home(home, 20)
+    accounts.register("alpha")
+    agents.register("hr")
+    hand_edit_team("""
+agents:
+  hr: {}
+edges:
+  - { from: "*", to: "human", kind: task }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    from ocp.daemon import taskqueue
+    con = db.connect()
+    try:
+        def raise_one(name):
+            ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="w")
+            pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
+            return pid, rid, hr.load_proposal(pid)["task"]
+
+        pid, rid, tid = raise_one("alpha1")
+        check("keyed by task: the proposal names its decision task, which has the request as its card",
+              tid and hr.task_of_card(con, rid) == tid and hr.card_of(con, tid)["id"] == rid)
+        ok, said = hr.apply(pid, con)
+        check("keyed by task: unanswered, nothing applies", not ok and "has not answered" in said, said)
+        # the answer on the task, a daemon tick, then the apply
+        answer_card(con, rid, "approve")
+        decisions.record("hr", pid, tid, "approved", hr.subject_of(hr.load_proposal(pid)))
+        taskqueue.sweep(con, lambda *_: None, 0)
+        ok, said = hr.apply(pid, con)
+        check("apply: after the answer and a tick between, it applies", ok and "alpha1" in paths.list_agents(), said)
+        ok, said = hr.apply(pid, con)
+        check("apply: and never twice", not ok and "already applied" in said, said)
+
+        pid2, rid2, tid2 = raise_one("beta2")
+        decisions.record("hr", pid2, tid2, "approved", hr.subject_of(hr.load_proposal(pid2)))     # even with a record
+        from ocp.db import tasks as dbtasks
+        ok, dsaid = dbtasks.discard_task(con, tid2, actions.HUMAN, "not now"), "discarded"
+        ok2, said = hr.apply(pid2, con)
+        check("discard: a discarded decision never applies", ok and not ok2 and "discarded" in said
+              and "beta2" not in paths.list_agents(), f"{dsaid} / {said}")
+
+        pid3, rid3, tid3 = raise_one("gamma3")
+        ok, said = actions.edit_task(con, tid3, actions.HUMAN, owner="hr")      # handed to an agent
+        ok2, said2 = actions.mark_task_done(con, tid3, "hr", reason="approve")        # the agent signs its own request off
+        ok, said = hr.apply(pid3, con)
+        check("handoff: handed to an agent and 'approved' by it, with no answer of the founder's on record, nothing applies",
+              not ok and "gamma3" not in paths.list_agents(), f"{said2} / {said}")
+        ok, said = hr.confirm_answer(pid3, con)
+        check("handoff: and recording the founder's answer from the db does not believe the agent",
+              not ok and hr.answer_of(con, hr.load_proposal(pid3))[0] == "discarded"
+              and "gamma3" not in paths.list_agents(), said)
+
+        pid4, rid4, tid4 = raise_one("delta4")
+        ok, said = askmod.resolve(rid4, "reject - not this one")
+        check("reject: the founder's reject is recorded on the proposal", hr.load_proposal(pid4)["state"] == "rejected", said)
+        ok, said = hr.apply(pid4, con)
+        again = hr.load_proposal(pid4)             # a restarted daemon reads it afresh
+        check("reject: and it stays rejected, applying nothing, after a restart",
+              not ok and again["state"] == "rejected" and "delta4" not in paths.list_agents(), said)
+        db.reopen_task(con, tid4, False)
+        answer_card(con, rid4, "approve")           # the answer flipped afterwards, with no new record
+        ok, said = hr.apply(pid4, con)
+        check("reject: a flipped answer does not undo it", not ok and "delta4" not in paths.list_agents(), said)
+
+        pid6, rid6, tid6 = raise_one("zeta6")
+        ok, said = actions.mark_task_done(con, tid6, actions.HUMAN, reason="approve")      # the founder closes the task himself
+        ok1, said1 = hr.apply(pid6, con)
+        check("founder: his own close without a record applies nothing by itself", not ok1 and "zeta6" not in paths.list_agents(), said1)
+        ok2, said2 = hr.confirm_answer(pid6, con)
+        check("founder: `--confirm-answer` by him records and applies it, once", ok2 and "zeta6" in paths.list_agents()
+              and not hr.apply(pid6, con)[0], said2)
+
+        pid7, rid7, tid7 = raise_one("eta7")
+        answer_card(con, rid7, "approve")
+        con.execute("UPDATE tasks SET owner = 'hr' WHERE id = ?", (tid7,))          # closed by him, but no longer his task
+        ok, said = hr.confirm_answer(pid7, con)
+        check("founder: a task that is no longer his reads as handed back", not ok and "eta7" not in paths.list_agents(), said)
+
+        # an agent that is the target of a request linked to the founder's own task may mark it done
+        pid8, rid8, tid8 = raise_one("theta8")
+        link = db.add_request(con, actions.HUMAN, "hr", "a side question", None, None, None, "say", 0, None)
+        db.link_request(con, tid8, link)
+        ok, said = actions.mark_task_done(con, tid8, "hr", reason="approve")
+        state8 = hr.answer_of(con, hr.load_proposal(pid8))[0]
+        ok2, said2 = hr.confirm_answer(pid8, con)
+        check("agent: it marks the founder's own task done 'approve' (allowed: it is a done target) - not his answer",
+              ok and state8 == "discarded" and not ok2 and "theta8" not in paths.list_agents(), f"{said} / {state8} / {said2}")
+        pid9, rid9, tid9 = raise_one("iota9")
+        link9 = db.add_request(con, actions.HUMAN, "hr", "another side question", None, None, None, "say", 0, None)
+        db.link_request(con, tid9, link9)
+        answer_card(con, rid9, "reject - no")                         # his close ...
+        ok, said = actions.reopen_task(con, tid9, actions.HUMAN, "second thoughts")
+        ok3, said3 = actions.mark_task_done(con, tid9, "hr", reason="approve")        # ... then an agent's reopen-and-done
+        state9 = hr.answer_of(con, hr.load_proposal(pid9))[0]
+        ok4, said4 = hr.confirm_answer(pid9, con)
+        check("agent: after the founder's close and a reopen, an agent's done is not his answer either",
+              ok and ok3 and state9 == "discarded" and not ok4 and "iota9" not in paths.list_agents(),
+              f"{said} / {said3} / {state9} / {said4}")
+
+        pid5, rid5, tid5 = raise_one("eps5")
+        old = hr.load_proposal(pid5)
+        del old["task"]                             # a proposal raised before it was keyed by task
+        hr.save(old)
+        check("legacy: found by its card request when it has no task key", hr.open_proposal_of(rid5, con) == pid5)
+        ok, said = askmod.resolve(rid5, "approve")
+        check("legacy: and answered the same way", ok and "eps5" in paths.list_agents(), said)
     finally:
         con.close()
 
@@ -3866,6 +3978,7 @@ def main() -> int:
             Path(td) / 'dismissedhr'))
         run(lambda: test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(
             Path(td) / 'hrapplyonapprove'))
+        run(lambda: test_a_proposal_is_answered_on_its_decision_task_and_applies_once_never_on_a_discard(Path(td) / 'hrkey'))
         run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
             Path(td) / 'hrresolveguard'))
         run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(

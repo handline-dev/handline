@@ -63,13 +63,14 @@ def cmd_hr(args) -> int:
                 prop = hr.load_proposal(args.id) or {}
                 con = db.connect()
                 try:
-                    row = db.get_request(con, int(prop.get("request") or 0))
+                    state, tid, verdict = hr.answer_of(con, prop)
+                    row = hr.card_of(con, tid) if tid else None
                 finally:
                     con.close()
                 if row is None:
                     print(f"no proposal {args.id}")
                     return 1
-                print(row["body"], f"\nanswered: {row['verdict']!r}", sep="\n")
+                print(row["body"], f"\nanswered: {verdict!r}", sep="\n")
                 if not sys.stdin.isatty():
                     print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
                     return 1

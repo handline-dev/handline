@@ -581,7 +581,7 @@ def withdraw(rid: int, requester: str | None = None,
             # docstring exists to close - leaves the row queued too.
             # `hr.is_open_proposal` is what actually happened.
             from . import hr
-            if hr.is_open_proposal(rid):
+            if hr.is_open_proposal(rid, con):
                 # #1943: a roster proposal's own decision task is `requester`'s
                 # to withdraw here too - ordinary ownership, since it is
                 # `requester`'s own row - but the ocp/db/requests.py chokepoint refuses
@@ -659,7 +659,7 @@ def cancel(rid: int) -> tuple[bool, str]:
             return False, f"#{rid} is already {row['state']} - nothing to cancel"
         if row["requester"] == HUMAN and not row["delivered_at"]:
             return withdraw(rid, requester=HUMAN)
-        if hr.is_open_proposal(rid):
+        if hr.is_open_proposal(rid, con):
             # Same family as #1908/#1919: CANCEL_VERDICT is not approve or
             # reject either, so cancelling a roster proposal would strand
             # it exactly as an unguarded resolve or dismiss would.
@@ -703,7 +703,7 @@ def retire_open(con, rid: int, verdict: str, notify: bool | None = None) -> tupl
         notify = row["requester"] != HUMAN
     if row["state"] != "queued":
         return False, f"#{rid} is already {row['state']} - nothing to retire"
-    if hr.is_open_proposal(rid):
+    if hr.is_open_proposal(rid, con):
         return False, f"#{rid} is a roster proposal - answer `approve` or `reject`"
     closed = _close_and_tell(con, rid, row, verdict, notify)
     if closed is None:
@@ -845,7 +845,7 @@ def _apply_answered(con, row, mod, pid: str, verdict: str | None) -> str:
             if why_not:
                 return f"proposal {pid} was not applied: {why_not}"
         try:
-            decisions.record(kind, pid, row["id"], call, subject)
+            decisions.record(kind, pid, hr.task_of_card(con, row["id"]) or 0, call, subject)
         except PermissionError as e:
             return f"proposal {pid} was not applied: {e}"
     if call == "rejected":
