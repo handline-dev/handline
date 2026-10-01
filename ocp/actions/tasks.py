@@ -470,13 +470,15 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
     said = textsafe.oneline(reason).strip()
     if not said:
         return False, "discarding needs a one-line reason"
+    from_above = by == HUMAN    # live children outlive a parent the founder clears: they move up
     kids = db.open_child_tasks(con, tid)
-    if kids:
+    if kids and not from_above:
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - deal with them first"
     blockers = db.task_blockers(con, tid)
-    if blockers and by != HUMAN:
-        ids = ", ".join(f"T{b['id']}" for b in blockers)
+    waits = [b for b in blockers if not (from_above and b["parent_task"] == tid)]
+    if waits and by != HUMAN:
+        ids = ", ".join(f"T{b['id']}" for b in waits)
         return False, f"task T{tid} is waiting on {ids} - it cannot be discarded until they close"
     live = [r for r in db.task_requests(con, tid) if _asks(r)]
     in_hand = stop and by == HUMAN and (db.current_task(con, row["owner"]) == tid
@@ -502,6 +504,7 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
         db.add_event(con, by, "discard_task", {"task_id": tid, "reason": said})
         for b in blockers:  # only the founder gets here with any: the wait ends with the task
             db.remove_block(con, tid, b["id"])
+        db.reparent_children(con, tid)
         notices, freed_owners = _clear_blocks_on(con, tid, by, "discarded")
         con.execute("COMMIT")
     except Exception:
@@ -1210,6 +1213,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
             # not settling: a decision card closing here would mark the task done, mid-handoff (T684)
             askmod.resolve(r["id"], f"handed to {to}", notify=False, settle=False)
     db.edit_task(con, tid, me, owner=to)
+    _sync_self_blocks(con, tid, me, old)
     db.link_request(con, tid, rid)
     db.mark_send_now(con, rid)      # T596: a handoff is typed on arrival, whatever its holder is doing
     db.add_event(con, me, "task_handoff", {"task_id": tid, "from": old, "to": to, "note": said,
@@ -1432,12 +1436,23 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
         return False, f"task T{tid} already reads that way - nothing to edit"
     db.edit_task(con, tid, by, owner=new_owner, title=new_title, priority=new_priority,
                  timeout_s=timeout_s, is_doing=doing_now)
+    if new_owner is not None:
+        _sync_self_blocks(con, tid, by, row["owner"])
     if new_body is not None:
         db.set_request_body(con, body_rid, new_body)
     db.add_event(con, by, "edit_task", {"task_id": tid, **changes})
     said = ", ".join("body changed" if k == "body" else f"{k} {v['old']!r} -> {v['new']!r}"
                      for k, v in changes.items())
     return True, f"task T{tid} edited by {by}: {said}"
+
+
+def _sync_self_blocks(con, tid: int, by: str, old_owner: str) -> None:
+    """T707: a task given to the agent that holds what it waits on (a review failed and came
+    back), or that waits on it, would leave that agent blocked by itself: the wait goes dormant
+    - recorded, and counted again once the owners differ."""
+    for blocked, blocker in db.sync_self_blocks(con, tid, old_owner):
+        db.add_event(con, by, "dormant_block", {"task_id": blocked, "blocks_on": blocker,
+                                                "why": "one agent holds both"})
 
 
 def _brief_of(con, row):
@@ -1676,7 +1691,7 @@ class _board_facts:
         for r in con.execute(
                 "SELECT b.task_id AS tid, t.id AS blocker FROM task_blocks b "
                 "JOIN tasks t ON t.id = b.blocks_on "
-                "WHERE t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY b.task_id, t.id"):
+                "WHERE b.dormant = 0 AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY b.task_id, t.id"):
             self.blockers.setdefault(r["tid"], []).append(r["blocker"])
 
     def _holds(self, row) -> bool:

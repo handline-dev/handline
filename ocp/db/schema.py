@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS task_blocks (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
   blocks_on   INTEGER NOT NULL REFERENCES tasks(id),
   created_at  INTEGER NOT NULL,
+  dormant     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (task_id, blocks_on)
 );
 CREATE INDEX IF NOT EXISTS task_blocks_on ON task_blocks(blocks_on);
@@ -502,6 +503,11 @@ def _pre_schema_migrate(con) -> None:
         # already named in the verdict text, and re-parsing that text to fill
         # a column meant to replace parsing it is the mistake this exists to
         # end, not repeat.
+
+    block_cols = _cols(con, "task_blocks")
+    if block_cols and "dormant" not in block_cols:
+        # T707: a wait whose two ends one agent holds because an owner change put them there
+        con.execute("ALTER TABLE task_blocks ADD COLUMN dormant INTEGER NOT NULL DEFAULT 0")
 
     task_cols = _cols(con, "tasks")
     if task_cols and "closed_at" not in task_cols:

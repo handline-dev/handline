@@ -283,8 +283,43 @@ def task_blockers(con, tid: int) -> list:
     if it is reopened."""
     return con.execute(
         "SELECT t.* FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id "
-        "WHERE b.task_id = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY t.id",
-        (tid,)).fetchall()
+        "WHERE b.task_id = ? AND b.dormant = 0 AND t.discarded_by IS NULL AND t.done_evidence IS NULL "
+        "ORDER BY t.id", (tid,)).fetchall()
+
+
+def sync_self_blocks(con, tid: int, old_owner: str) -> list[tuple[int, int]]:
+    """After `tid` changed owner from `old_owner` (T707): a wait that one agent now holds
+    both ends of goes dormant - it stops counting, nobody else could finish it - and a
+    dormant one whose ends differ again counts again. A same-owner wait added on purpose
+    (both ends already one agent's) is left as it was. The (blocked, blocker) pairs that
+    went dormant."""
+    went = []
+    for r in con.execute(
+            "SELECT b.task_id, b.blocks_on, b.dormant, a.owner AS ao, c.owner AS co "
+            "FROM task_blocks b JOIN tasks a ON a.id = b.task_id JOIN tasks c ON c.id = b.blocks_on "
+            "WHERE b.task_id = ?1 OR b.blocks_on = ?1", (tid,)).fetchall():
+        other = r["co"] if r["task_id"] == tid else r["ao"]
+        if r["ao"] == r["co"] and other != old_owner:
+            con.execute("UPDATE task_blocks SET dormant = 1 WHERE task_id = ? AND blocks_on = ?",
+                        (r["task_id"], r["blocks_on"]))
+            went.append((r["task_id"], r["blocks_on"]))
+        elif r["ao"] != r["co"] and r["dormant"]:
+            con.execute("UPDATE task_blocks SET dormant = 0 WHERE task_id = ? AND blocks_on = ?",
+                        (r["task_id"], r["blocks_on"]))
+    return went
+
+
+def reparent_children(con, tid: int) -> list[int]:
+    """Move `tid`'s open children up to its own parent (or to the top), and the wait `tid`
+    holds on each with them (T707). The ids moved."""
+    parent = con.execute("SELECT parent_task FROM tasks WHERE id = ?", (tid,)).fetchone()["parent_task"]
+    kids = [k["id"] for k in open_child_tasks(con, tid)]
+    for k in kids:
+        con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (parent, k))
+        con.execute("DELETE FROM task_blocks WHERE task_id = ? AND blocks_on = ?", (tid, k))
+        if parent is not None:
+            con.execute("INSERT OR IGNORE INTO task_blocks(task_id, blocks_on) VALUES(?, ?)", (parent, k))
+    return kids
 
 
 def blocks_on_ids(con, tid: int) -> list[int]:
