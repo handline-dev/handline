@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS requests (
   -- A report to the human that asks nothing of them: shown, never counted as
   -- waiting on them, and closed once read or superseded by the sender's next.
   fyi INTEGER NOT NULL DEFAULT 0,
+  -- T781: when the founder read it. Used only where the target is the founder: a say to him is
+  -- born landed and NULL here is "unread" in For you.
+  read_at INTEGER,
   -- #1349: the id of the request that retired this row as moot - always a
   -- request's own id, never a task's (#1366: the two are separate
   -- AUTOINCREMENT sequences that both start at 1, so mixing them in one
@@ -447,6 +450,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _task_sent_at_from_events(con)
     _task_leftovers_settled(con)
     _kinds_are_say(con)
+    _founder_says_landed(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -792,6 +796,22 @@ def _kinds_are_say(con) -> None:
     set_cursor(con, "migrated:kinds_are_say", 1)
 
 
+def _founder_says_landed(con) -> None:
+    """T781: a say to the founder is born landed and carries when he read it. What he has already
+    dealt with reads as read (when it was closed); a say still queued for him becomes landed and
+    unread; a task card he holds stays a task, queued. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:founder_says_landed"):
+        return
+    con.execute("UPDATE requests SET read_at = COALESCE(resolved_at, ts) WHERE target = 'human' "
+                "AND state != 'queued' AND read_at IS NULL")
+    from .requests import close_if_queued
+    for r in con.execute("SELECT id FROM requests WHERE target = 'human' AND state = 'queued' "
+                         "AND kind = 'say'").fetchall():
+        if close_if_queued(con, r["id"], "done", None, announced=True, settle=False):
+            con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ts) WHERE id = ?", (r["id"],))
+    set_cursor(con, "migrated:founder_says_landed", 1)
+
+
 def _task_leftovers_settled(con) -> None:
     """T751 D3: the deliveries still queued on a task that has ended, settled once at upgrade. After
     this only `ocp doctor --settle-leftovers` does it - never a timer, which would race the writers
@@ -975,6 +995,8 @@ def _add_missing_columns(con) -> None:
     if "windows" not in _cols(con, "usage_samples"):
         con.execute("ALTER TABLE usage_samples ADD COLUMN windows TEXT")
     request_cols = _cols(con, "requests")
+    if "read_at" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN read_at INTEGER")
     if "settles" not in request_cols:
         # The request a say settled, when it is the answer that closed it (T361).
         con.execute("ALTER TABLE requests ADD COLUMN settles INTEGER")
