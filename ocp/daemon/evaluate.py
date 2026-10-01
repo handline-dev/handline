@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, landing, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import delivery, handoff, handoff_note, landing, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -292,7 +292,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # costs no tokens, and answers no one. Closing it is not a handoff -
     # nothing is cleared - and waking it resumes the same session, so the
     # only thing that changes is who has the memory.
-    if not at_wall and lifecycle.should_close(con, agent, state, row, now, st):
+    if not at_wall and lifecycle.should_close(con, agent, state, row, now, st) \
+            and not handoff_note.hold(con, agent, now, log):
         ok, why = lifecycle.close_agent(con, agent, log, st)
         if ok:
             actions.append(f"{agent}: session closed while idle")

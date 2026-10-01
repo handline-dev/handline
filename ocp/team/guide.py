@@ -150,7 +150,14 @@ system prompt, and the wake prompt says why.
 This is not a handoff. No context is reclaimed, because there is nothing
 wrong with an idle agent's context. The daemon does it by
 itself after 10 minutes of silence, unless the agent is working, mid-handoff,
-STALLED, or has a request waiting.""",
+STALLED, or has a request waiting.
+
+Just before a close or a planned move, while the cache is warm, the agent is asked
+once to write `~/.orcapipe/agents/<you>/handoff.md`: only what `ocp` and your memory
+cannot tell the next session (judgments in progress, what you wait on as T/# numbers,
+unchecked hunches, how you read the founder's latest intent). It follows the facts in
+the handoff. It is never waited on past 5 minutes: with no note the handoff is the
+facts alone. `handoff_note: false` in config.yaml turns it off.""",
 
     "hooks": """Orca hooks
   ocp hooks status                 show drift

@@ -240,6 +240,15 @@ def memory_line(agent: str) -> str:
     return "; ".join(parts)
 
 
+def _note_lines(con, agent: str) -> list[str]:
+    """The agent's own note for this stretch, after the facts ocp read: the agent was
+    asked for it just before the close (`daemon.handoff_note`), and may not have written
+    one, in which case the record is the facts alone."""
+    from ..daemon import handoff_note  # local: see _request_line
+    body = handoff_note.text(con, agent)
+    return ["written by the agent just before the close:"] + ["  " + l for l in body.splitlines()] if body else []
+
+
 def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, list[str]]:
     """The record, and what could not be read for it (empty when it is whole).
 
@@ -258,11 +267,14 @@ def capture(con, agent: str, closed_session: str | None = None) -> tuple[str, li
         if gap:
             missing.append(gap)
             lines.append(f"(could not read {gap})")
+    lines += _note_lines(con, agent)
     return "\n".join(lines), missing
 
 
 def record(con, agent: str, closed_session: str | None = None) -> list[str]:
     """Capture and keep it for the agent's next start. Returns what was missing."""
+    from ..daemon import handoff_note  # local: see _request_line
     text, missing = capture(con, agent, closed_session)
     db.set_handoff(con, agent, text)
+    handoff_note.clear(con, agent)         # it is in the record now
     return missing

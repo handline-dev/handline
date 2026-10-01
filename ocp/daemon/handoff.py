@@ -20,7 +20,7 @@ from ..infra import paths
 from ..usage import status
 from ..session import triggers
 
-from . import delivery, lifecycle
+from . import delivery, handoff_note, lifecycle
 from .states import (ASSUMED_ACCOUNT_RECHECK_S, BY_HAND_MARK, HANDOFF, HANDOFF_DEADLINE_S, IDLE,
                      LIMIT_SETTLE_S, MIN_HANDOFF_INTERVAL_S, MOVING_MARK, PARKED, QUEUED, RUNNING,
                      STALLED, backoff_for)
@@ -199,6 +199,13 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             # agent's triggers do not fire at all.
             log(f"  {agent}: {trigger.kind} fired but no session is running - "
                 f"not handing off")
+            return True
+        # The agent writes its own part of the record first, one turn while its cache is
+        # warm (T571). A person's forced move is not held for it, and a session at the
+        # wall cannot take a turn.
+        if trigger.kind != "forced" and not settled \
+                and handoff_note.hold(con, agent, int(time.time()), log):
+            log(f"  {agent}: {trigger.kind} fired - waiting for its handoff note")
             return True
 
     with lock.terminal(agent) as mine:

@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from ocp.daemon import handoff_note  # noqa: E402
 
 
 
@@ -3843,6 +3844,279 @@ def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
         con.close()
 
 
+def _note_world(home: Path):
+    """An idle agent with a readable record, its ask typed into `asks`, and a way to play
+    the turn that answers it."""
+    _daemon_home(home, 20)
+    cfg = loadmod.config_for_write()
+    cfg.pop("handoff_note")
+    loadmod.write_config(cfg)
+    con = db.connect()
+    readable_agent(con, home, "backend")
+    asks: list[str] = []
+    real = dmn_delivery.type_notice
+    dmn_delivery.type_notice = lambda c, a, text: (asks.append(text), True)[1]
+    db.add_event(con, "backend", "Stop", {})
+    con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                (int(time.time()) - dmn_states.IDLE_CLOSE_S - 60,))
+    return con, asks, real
+
+
+def _the_agent_answers(con, text: str | None) -> None:
+    """The turn the ask started: a prompt, the note, and the stop that ends it."""
+    db.add_event(con, "backend", "UserPromptSubmit", {})
+    if text is not None:
+        handoff_note.note_path("backend").write_text(text)
+    db.add_event(con, "backend", "Stop", {})
+
+
+def test_an_idle_agent_is_asked_for_its_handoff_note_once_and_closed_when_it_is_written(
+        home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_end = dmn_lifecycle._end_session
+    try:
+        now = int(time.time())
+        st = status.read_for_agent("backend", "alpha")
+        st.session_id = "sess-1"
+        row = db.get_agent_state(con, "backend")
+        check("note: an idle agent is due its close", dmn_lifecycle.should_close(
+            con, "backend", dmn_states.IDLE, row, now, st))
+        check("note: the close waits while the ask goes out",
+              handoff_note.hold(con, "backend", now, lambda _m: None) and len(asks) == 1, str(asks))
+        check("note: the ask names the file and what belongs in it",
+              str(handoff_note.note_path("backend")) in asks[0] and "T123/#1234" in asks[0], asks[0][:200])
+        check("note: it is not asked again while the turn has not begun",
+              handoff_note.hold(con, "backend", now + 30, lambda _m: None) and len(asks) == 1, str(asks))
+
+        _the_agent_answers(con, "doing: the cache fix, because #8642\nwaiting: T700")
+        row = db.get_agent_state(con, "backend")
+        check("note: once it has answered it is closed at once, not after another idle window",
+              dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
+        check("note: and the close no longer waits",
+              not handoff_note.hold(con, "backend", now, lambda _m: None) and len(asks) == 1, str(asks))
+        dmn_lifecycle._end_session = lambda *a, **k: (True, "closed")
+        dmn_lifecycle._close_agent(con, "backend", lambda _m: None, st)
+        rec = db.get_handoff(con, "backend") or ""
+        check("note: the record carries the agent's words under the facts ocp read",
+              "written by the agent just before the close:\n  doing: the cache fix, because #8642" in rec
+              and "previous session: sess-1" in rec and rec.index("previous session") < rec.index("written by"),
+              rec)
+        check("note: a successful close takes the file and the ask with it",
+              not handoff_note.note_path("backend").exists() and handoff_note.asked(con, "backend") is None)
+    finally:
+        dmn_delivery.type_notice, dmn_lifecycle._end_session = real, real_end
+        con.close()
+
+
+def test_a_close_never_waits_on_a_note_that_does_not_come(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_end = dmn_lifecycle._end_session
+    try:
+        now = int(time.time())
+        st = status.read_for_agent("backend", "alpha")
+        st.session_id = "sess-1"
+        handoff_note.hold(con, "backend", now, lambda _m: None)
+        check("fallback: an ask whose turn never began holds only so long",
+              not handoff_note.hold(con, "backend", now + handoff_note.ASK_WAIT_S + 1, lambda _m: None))
+        dmn_lifecycle._end_session = lambda *a, **k: (True, "closed")
+        dmn_lifecycle._close_agent(con, "backend", lambda _m: None, st)
+        rec = db.get_handoff(con, "backend") or ""
+        check("fallback: and the record is the mechanical one", "previous session: sess-1" in rec
+              and "written by the agent" not in rec, rec)
+
+        # A turn that ended without a file, or with an empty one, is the same.
+        db.set_handoff(con, "backend", None)
+        handoff_note.clear(con, "backend")
+        handoff_note.hold(con, "backend", now, lambda _m: None)
+        _the_agent_answers(con, "  \n")
+        check("fallback: an empty note is no note", handoff_note.text(con, "backend") is None)
+        check("fallback: and an answered ask does not hold the close",
+              not handoff_note.hold(con, "backend", now, lambda _m: None))
+
+        # A line that could not be typed made no ask: nothing is held, nothing remembered.
+        handoff_note.clear(con, "backend")
+        dmn_delivery.type_notice = lambda c, a, text: False
+        check("fallback: an ask that could not be typed holds nothing",
+              not handoff_note.hold(con, "backend", now, lambda _m: None)
+              and handoff_note.asked(con, "backend") is None)
+    finally:
+        dmn_delivery.type_notice, dmn_lifecycle._end_session = real, real_end
+        con.close()
+
+
+def test_a_note_counts_only_for_the_stretch_it_was_asked_in(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    try:
+        now = int(time.time())
+        handoff_note.hold(con, "backend", now, lambda _m: None)
+        _the_agent_answers(con, "an old note")
+        check("stretch: the answer to the ask counts", handoff_note.text(con, "backend") == "an old note")
+        # Someone types at it afterwards: that stretch is over, and what it wrote is old.
+        db.add_event(con, "backend", "UserPromptSubmit", {})
+        check("stretch: a later prompt ends it, and the note with it",
+              handoff_note.text(con, "backend") is None and handoff_note.asked(con, "backend") is None)
+        check("stretch: so the next idle window asks again, over a clean file",
+              handoff_note.hold(con, "backend", now, lambda _m: None) and len(asks) == 2
+              and not handoff_note.note_path("backend").exists(), str(asks))
+
+        # What it wrote is cut, so one record cannot outgrow the system prompt it goes into.
+        handoff_note.clear(con, "backend")
+        handoff_note.hold(con, "backend", now, lambda _m: None)
+        _the_agent_answers(con, "x" * (handoff_note.NOTE_MAX + 500))
+        got = handoff_note.text(con, "backend") or ""
+        check("stretch: a long note is cut and says so", len(got) < handoff_note.NOTE_MAX + 60
+              and got.endswith(f"(cut at {handoff_note.NOTE_MAX} characters)"), got[-60:])
+    finally:
+        dmn_delivery.type_notice = real
+        con.close()
+
+
+def test_no_ask_is_made_when_a_turn_would_not_pay(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    try:
+        now = int(time.time())
+        check("no ask: a session whose cache is gone is closed as it is",
+              not handoff_note.hold(con, "backend", now + dmn_states.RESUME_WARM_S, lambda _m: None) and not asks)
+        db.set_cursor(con, "bgwork:backend", 1)
+        check("no ask: nor one with background work", not handoff_note.hold(
+            con, "backend", now, lambda _m: None) and not asks)
+        db.clear_cursor(con, "bgwork:backend")
+        cfg = loadmod.config_for_write()
+        cfg["handoff_note"] = False
+        loadmod.write_config(cfg)
+        check("no ask: nor when config.yaml turns it off",
+              not handoff_note.hold(con, "backend", now, lambda _m: None) and not asks)
+    finally:
+        dmn_delivery.type_notice = real
+        con.close()
+
+
+def test_a_planned_move_waits_one_turn_for_the_note_but_a_forced_one_does_not(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_o = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context)
+    cleared: list[str] = []
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (True, "sent")
+        orcamod.clear_context = lambda h, **kw: (cleared.append("/clear"), (True, "context cleared"))[1]
+        sessions_are("backend")
+        t = triggers.evaluate(10, 300_000)
+        check("move: setup - the trigger fires", t.fired, t.reason)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("move: the first pass asks for the note and clears nothing", len(asks) == 1 and not cleared,
+              f"{asks} {cleared}")
+        _the_agent_answers(con, "next: check the cache window")
+        db.set_cursor(con, "typed_at:backend", int(time.time()) - dmn_delivery.TYPE_SETTLE_S - 1)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("move: once it has answered the move goes on", cleared == ["/clear"], str(cleared))
+        check("move: carrying the note", "next: check the cache window" in (db.get_handoff(con, "backend") or ""))
+
+        # A person's own order is not held for a turn.
+        asks.clear()
+        cleared.clear()
+        handoff_note.clear(con, "backend")
+        con.execute("DELETE FROM handoff")
+        t_forced = triggers.Trigger(True, "forced", "forced by test")
+        dmn_handoff.perform_handoff(con, "backend", t_forced, lambda _m: None)
+        check("move: a forced move asks for nothing", not asks, str(asks))
+    finally:
+        dmn_delivery.type_notice = real
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context) = real_o
+        con.close()
+
+
+def test_the_tick_asks_before_it_closes_and_closes_with_the_note(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_o = (orcamod.available, orcamod.alive, orcamod.typeable_now, dmn_lifecycle._end_session)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        sessions_are("backend")
+        ended: list[int] = []
+        dmn_lifecycle._end_session = lambda *a, **k: (ended.append(1), db.set_closed(con, "backend", "sess-1"),
+                                                      (True, "closed"))[2]
+        write_agent_status("backend", "alpha", session_id="sess-1", transcript_path="/tmp/sess-1.jsonl")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("tick: the first pass over an idle agent asks and does not close", len(asks) == 1 and not ended,
+              f"{asks} {ended}")
+        _the_agent_answers(con, "waiting on T700")
+        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
+        check("tick: the next pass closes it", ended == [1], str(ended))
+        check("tick: with the note in the record", "waiting on T700" in (db.get_handoff(con, "backend") or ""),
+              str(db.get_handoff(con, "backend")))
+    finally:
+        dmn_delivery.type_notice = real
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, dmn_lifecycle._end_session) = real_o
+        con.close()
+
+
+def test_an_ask_left_by_a_move_does_not_close_the_next_session_early(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_o = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: True
+        orcamod.send = lambda h, text, enter=True: (True, "sent")
+        orcamod.clear_context = lambda h, **kw: (True, "context cleared")
+        sessions_are("backend")
+        t = triggers.evaluate(10, 300_000)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("left ask: setup - the move asked", len(asks) == 1, str(asks))
+        # Its turn never starts; the wait runs out and the move goes on.
+        con.execute("UPDATE cursors SET updated = updated - ? WHERE name = 'handoff_ask:backend'",
+                    (handoff_note.ASK_WAIT_S + 5,))
+        db.set_cursor(con, "typed_at:backend", int(time.time()) - dmn_delivery.TYPE_SETTLE_S - 1)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("left ask: the move took its record and with it the ask",
+              handoff_note.asked(con, "backend") is None)
+        # And an ask that nothing took is ended by the next session beginning.
+        handoff_note.hold(con, "backend", int(time.time()), lambda _m: None)
+        db.add_event(con, "backend", "SessionStart", {})
+        db.add_event(con, "backend", "UserPromptSubmit", {})
+        db.add_event(con, "backend", "Stop", {})
+        st = status.read_for_agent("backend", "alpha")
+        st.session_id = "sess-2"
+        check("left ask: the new session's first turn is not taken for an answer",
+              not handoff_note.answered_turn(con, "backend")
+              and not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE,
+                                                 db.get_agent_state(con, "backend"), int(time.time()), st))
+        n = len(asks)
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
+                    (int(time.time()) - dmn_states.IDLE_CLOSE_S - 60,))
+        check("left ask: and at its own idle close it is asked for its own note",
+              handoff_note.hold(con, "backend", int(time.time()), lambda _m: None) and len(asks) == n + 1)
+    finally:
+        dmn_delivery.type_notice = real
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context) = real_o
+        con.close()
+
+
+def test_a_session_at_the_usage_wall_is_not_asked_for_a_note(home: Path) -> None:
+    con, asks, real = _note_world(home)
+    real_o = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context)
+    try:
+        orcamod.available = lambda: True
+        orcamod.alive = lambda h: True
+        orcamod.typeable_now = lambda h: False          # the limit dialog is not a turn
+        orcamod.send = lambda h, text, enter=True: (True, "sent")
+        orcamod.clear_context = lambda h, **kw: (True, "context cleared")
+        sessions_are("backend")
+        db.add_event(con, "backend", "StopFailure", {"limit": "5-hour"})
+        con.execute("UPDATE events SET ts = ? WHERE kind = 'StopFailure'",
+                    (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 10,))
+        t = triggers.evaluate(100, 10)
+        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
+        check("wall: a settled limit stop is moved without an ask", not asks, str(asks))
+    finally:
+        dmn_delivery.type_notice = real
+        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send, orcamod.clear_context) = real_o
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -3943,6 +4217,14 @@ def main() -> int:
         run(lambda: test_an_idle_close_keeps_a_handoff_only_if_it_closed(Path(td) / 'hdclose'))
         run(lambda: test_a_second_done_loses_the_race(Path(td) / 'taskrace'))
         run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))
+        run(lambda: test_an_idle_agent_is_asked_for_its_handoff_note_once_and_closed_when_it_is_written(Path(td) / 'hnote1'))
+        run(lambda: test_a_close_never_waits_on_a_note_that_does_not_come(Path(td) / 'hnote2'))
+        run(lambda: test_a_note_counts_only_for_the_stretch_it_was_asked_in(Path(td) / 'hnote3'))
+        run(lambda: test_no_ask_is_made_when_a_turn_would_not_pay(Path(td) / 'hnote4'))
+        run(lambda: test_a_planned_move_waits_one_turn_for_the_note_but_a_forced_one_does_not(Path(td) / 'hnote5'))
+        run(lambda: test_the_tick_asks_before_it_closes_and_closes_with_the_note(Path(td) / 'hnote6'))
+        run(lambda: test_an_ask_left_by_a_move_does_not_close_the_next_session_early(Path(td) / 'hnote7'))
+        run(lambda: test_a_session_at_the_usage_wall_is_not_asked_for_a_note(Path(td) / 'hnote8'))
     return run_area(tests)
 
 
