@@ -17,7 +17,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from ocp.cli import account as cliaccount  # noqa: E402
 from ocp.daemon import subscriptions  # noqa: E402
-from ocp.team import ask as askmod  # noqa: E402
+from ocp import actions  # noqa: E402
 from ocp.usage import cycle  # noqa: E402
 
 DAY = 86400
@@ -155,8 +155,7 @@ def test_the_founder_is_told_once_before_the_end(home: Path) -> None:
         write_status(home, a, pct_5h=5, pct_7d=10, reset_7d=now + DAY)
 
     def told() -> list:
-        return con.execute("SELECT * FROM requests WHERE target = ? AND fyi = 1 ORDER BY id",
-                           (db.HUMAN,)).fetchall()
+        return actions.task_rows(con, owner=actions.HUMAN, state=list(actions.DELEGATED_STATES))
 
     def cfg(soon_days: int) -> None:
         write_cfg(f'month_cycle_soon: true\nsub_end_soon: "{(today + dt.timedelta(days=soon_days)).isoformat()}"\n'
@@ -167,17 +166,19 @@ def test_the_founder_is_told_once_before_the_end(home: Path) -> None:
     for _ in range(3):
         subscriptions.sweep_endings(con, lambda s: None, now)
     rows = told()
-    check("ending: the founder holds one message for the account inside the window, however many ticks",
-          len(rows) == 1 and "soon" in rows[0]["body"] and str(today + dt.timedelta(days=2)) in rows[0]["body"],
-          str([r["body"] for r in rows]))
-    check("ending: it asks nothing and sits in the founder's inbox",
-          rows[0]["kind"] == "say" and (askmod._inbox(db.HUMAN) / f"{rows[0]['id']:06d}.json").exists())
-    check("ending: neither a far end nor an account off the cycle is mentioned",
-          "far" not in rows[0]["body"].split("ends")[0] and len(rows) == 1)
+    check("ending: the founder's board holds one task for the account inside the window, however many ticks",
+          len(rows) == 1 and rows[0]["title"] == f"soon subscription ends {today + dt.timedelta(days=2)}",
+          str([r["title"] for r in rows]))
+    body = con.execute("SELECT body FROM requests WHERE target = ? ORDER BY id DESC", (db.HUMAN,)).fetchone()["body"]
+    check("ending: the task says what happens after and how to extend",
+          "not removed" in body and "ocp account cycle soon --end" in body, body)
+    check("ending: it is the founder's own, open, as the home page counts 'for you'",
+          rows[0]["owner"] == actions.HUMAN and rows[0]["state"] in actions.DELEGATED_STATES)
 
     cfg(1)
     subscriptions.sweep_endings(con, lambda s: None, now)
-    check("ending: a new end date is a new subscription and is told again", len(told()) == 2)
+    check("ending: a new end date is a new subscription and is told again",
+          sorted(r["title"] for r in told())[0].startswith("soon subscription ends") and len(told()) == 2)
 
     cfg(-1)
     subscriptions.sweep_endings(con, lambda s: None, now)
@@ -237,6 +238,24 @@ def test_a_plan_is_asked_again_each_hour_off_the_tick(home: Path) -> None:
         gate.set()
         subscriptions.accounts.recorded_subscription_type, subscriptions.accounts.subscription_type = real_rec, real_sub
     con.close()
+
+
+def test_a_plan_question_that_fails_is_logged_not_swallowed(home: Path) -> None:
+    use_home(home)
+    logged: list[str] = []
+    real = subscriptions.accounts.subscription_type
+
+    def boom(acct, refresh=False):
+        raise OSError("no claude")
+    try:
+        subscriptions.accounts.subscription_type = boom
+        subscriptions._ask("a", logged.append)
+        subscriptions.accounts.subscription_type = lambda acct, refresh=False: None
+        subscriptions._ask("a", logged.append)
+    finally:
+        subscriptions.accounts.subscription_type = real
+    check("plan: a failed question says so", any("failed: OSError" in l for l in logged), str(logged))
+    check("plan: so does an account with no plan at all", any("no plan recorded" in l for l in logged), str(logged))
 
 
 def test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(home: Path) -> None:
@@ -317,6 +336,7 @@ def main() -> int:
         run(lambda: test_the_week_stops_mattering_at_the_end_date(Path(td) / 'c5'))
         run(lambda: test_the_founder_is_told_once_before_the_end(Path(td) / 'c6'))
         run(lambda: test_a_plan_is_asked_again_each_hour_off_the_tick(Path(td) / 'c7'))
+        run(lambda: test_a_plan_question_that_fails_is_logged_not_swallowed(Path(td) / 'c10'))
         run(lambda: test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(Path(td) / 'c9'))
         run(lambda: test_account_cycle_command(Path(td) / 'c8'))
     return run_area(tests)

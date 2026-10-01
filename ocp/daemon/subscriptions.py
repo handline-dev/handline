@@ -1,8 +1,9 @@
 """Two upkeep sweeps over the accounts, each read from state every tick.
 
 A month-cycle account (`usage.cycle`) whose end date is within `cycle_warn_days`
-tells the founder once, as a message that asks nothing (`ask.report`), remembered
-by account and end date: a later end date is a new subscription and is told again.
+tells the founder once, as a task of the founder's on the board (`ask.raise_decision`),
+remembered by account and end date: a later end date is a new subscription and is told
+again.
 
 Each account's plan is asked of its vendor again once an hour, one account at a
 time and off the tick, because `claude auth status` is a process with a ten-second
@@ -15,7 +16,7 @@ from __future__ import annotations
 import threading
 
 from ..infra import paths
-from ..team import accounts, ask as askmod
+from ..team import accounts, agents, ask as askmod
 from ..usage import cycle
 from .. import db
 
@@ -35,21 +36,32 @@ def sweep_endings(con, log, now: int) -> None:
         key = f"sub_ending_told:{acct}"
         if db.get_meta(con, key) == day:
             continue
-        askmod.report(con, SENDER,
-                      f"Account {acct}'s one-month subscription ends {day} (last usable day), in "
-                      f"{(end - now) // 3600} h. After it the account is shown as ended and no agent is "
-                      f"placed on it; it is not removed. Resubscribing, then "
-                      f"`ocp account cycle {acct} --end YYYY-MM-DD` sets the next end.",
-                      "subscription ending")
+        askmod.raise_decision(
+            con, _opener(con, acct),
+            f"{acct} subscription ends {day}\n\n"
+            f"Account {acct}'s one-month subscription ends {day} (its last usable day), in "
+            f"{(end - now) // 3600} h. After that it is shown as ended and no agent is placed on it; "
+            f"it is not removed. To keep it, resubscribe and run "
+            f"`ocp account cycle {acct} --end YYYY-MM-DD`; to let it end, do nothing.",
+            "subscription ending")
         db.set_meta(con, key, day)
         log(f"  {acct}: subscription ends {day} - founder told")
 
 
-def _ask(acct: str) -> None:
+def _opener(con, acct: str) -> str:
+    """Whom the founder's task is opened by: an agent on the account, else any
+    agent, since the board and the home count are drawn per listed agent."""
+    names = paths.list_agents()
+    return next((n for n in names if agents.current_account(n, con) == acct),
+                names[0] if names else SENDER)
+
+
+def _ask(acct: str, log) -> None:
     try:
-        accounts.subscription_type(acct, refresh=True)
-    except Exception:  # noqa: BLE001 - a plan not read now is asked again next hour
-        pass
+        if not accounts.subscription_type(acct, refresh=True):
+            log(f"  {acct}: no plan recorded and none read (not logged in, or auth status failed)")
+    except Exception as e:  # noqa: BLE001 - a plan not read now is asked again next hour
+        log(f"  {acct}: plan question failed: {type(e).__name__}: {e}")
 
 
 def sweep_plans(con, log, now: int) -> None:
@@ -68,7 +80,7 @@ def sweep_plans(con, log, now: int) -> None:
     if not due or now - due[0][0] < PLAN_REFRESH_S:
         return
     db.set_cursor(con, f"plan_checked:{due[0][1]}", now)
-    _asking = threading.Thread(target=_ask, args=(due[0][1],), daemon=True)
+    _asking = threading.Thread(target=_ask, args=(due[0][1], log), daemon=True)
     _asking.start()
 
 
