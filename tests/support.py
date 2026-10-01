@@ -600,6 +600,12 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     agents.register("backend")
     write_status(home, "alpha", pct_5h=pct, pct_7d=10, ctx_pct=5,
                  reset_5h=int(time.time()) + 1800)
+    # The handoff note's ask (T571) is a line typed at an idle agent before it closes or
+    # moves; the tests of those are about what they type themselves, so it is off here
+    # and the tests of the note turn it on.
+    cfg = loadmod.config_for_write()
+    cfg["handoff_note"] = False
+    loadmod.write_config(cfg)
     # An agent the daemon acts on has somewhere to run: nothing is folded,
     # cleared or parked for one with no terminal. The fixture says so once, so
     # the tests below are about triggers rather than about that.

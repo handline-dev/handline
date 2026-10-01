@@ -23,7 +23,7 @@ from ..usage import status
 from ..team import trust
 from .. import vendors
 
-from . import delivery, handoff
+from . import delivery, handoff, handoff_note
 from .states import (DEGRADED, EVALUATED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
                      MAX_FAILED_ATTEMPTS, PARKED, RESUME_WARM_S, RUNNING, STALLED,
                      THROTTLED)
@@ -72,8 +72,10 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     if last is None:
         return False          # nothing has ever been seen from it - leave it alone
     # An agent told to finish its background work and shown nothing since is closed now,
-    # whatever its window: the time it was given is its grace (`bg_may_stop`).
-    return (now - last) >= timeout or (delivery.bg_owes_nothing(con, agent) and delivery.bg_may_stop(con, agent, now))
+    # whatever its window: the time it was given is its grace (`bg_may_stop`). So is one
+    # that has answered the ask for its handoff note: that turn restarted its idle clock.
+    return (now - last) >= timeout or handoff_note.answered_turn(con, agent) \
+        or (delivery.bg_owes_nothing(con, agent) and delivery.bg_may_stop(con, agent, now))
 
 
 def triggers_apply(row) -> bool:
@@ -270,6 +272,8 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     ok, why = _end_session(con, agent, log, st, resume=st.session_id)
     if not ok and wrote:
         db.set_handoff(con, agent, None)
+    if ok:
+        handoff_note.clear(con, agent)
     return ok, why
 
 
