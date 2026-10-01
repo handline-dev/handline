@@ -32,7 +32,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   target" in the command's own output - read it, or you wait for a reply that
   never comes.
 - A manager cannot hand a report work by message: a say to a report carries
-  `--task T<n>` (a note on that task) or `--fyi "<why it is not work>"`.
+  `--task T<n>` (a memo on that task) or `--fyi "<why it is not work>"`.
 - A decision only the founder can make is a task of theirs: `ocp task new
   --owner human ...`. A status report that needs nothing is `ocp say human
   "..."`.

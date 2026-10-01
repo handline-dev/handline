@@ -321,16 +321,15 @@ def cmd_task_start(args) -> int:
 
 
 def cmd_task_note(args) -> int:
-    """T292/#1655 (1a): a mid-task correction to whoever holds T<n>, not new
-    work - `task new --parent` is that. Delivered as an ordinary task-kind
-    ask until T293's `say` gives it its own, lighter path."""
+    """The old name of `ocp task memo T<n> add TEXT`, kept hidden for one release for the
+    prompts of agents already running; it adds the same memo."""
     me = askmod.asking_agent()
     if me is None:
-        print(_who_refusal("send a task note"))
+        print(_who_refusal("write a memo"))
         return 1
     con = db.connect()
     try:
-        ok, msg = actions.task_note(con, me, args.task, args.text)
+        ok, msg = actions.task_memo(con, me, args.task, args.text)
         print(msg)
     finally:
         con.close()

@@ -3991,11 +3991,11 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "note", f"T{tid}", "worker: a memo of its own"], as_agent="worker")
+    rc, out = _cli(["task", "memo", f"T{tid}", "add", "worker: a memo of its own"], as_agent="worker")
     check("task note (T521): anyone may add one - it is a memo, not a message", rc == 0 and "memo" in out, out)
-    rc, out = _cli(["task", "note", f"T{tid}", "the sha moved"], as_agent="manager")
+    rc, out = _cli(["task", "memo", f"T{tid}", "add", "the sha moved"], as_agent="manager")
     check("task note (T521): the opener's note is a memo too", rc == 0 and "memo" in out, out)
-    rc, out = _cli(["task", "note", f"T{tid2}", "the branch moved"], as_agent="manager")
+    rc, out = _cli(["task", "memo", f"T{tid2}", "add", "the branch moved"], as_agent="manager")
     check("task note (T521): so is one on a task worker holds second", rc == 0 and "memo" in out, out)
     con = db.connect()
     try:
@@ -4057,8 +4057,8 @@ limits:
         con.close()
 
     rc, out = _cli(["task", "note", f"T{tid}", "too late now"], as_agent="manager")
-    check("task note: refused on an already-done task - nothing left to note",
-          rc == 1 and "nothing left to note" in out, out)
+    check("task note (the hidden old name of memo add): refused on an already-done task - nothing left to memo",
+          rc == 1 and "nothing left to memo" in out, out)
 
     # A discarded task can still be an owner's stale current task (code
     # review finding): its live request was retired some other way (the

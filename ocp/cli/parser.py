@@ -463,14 +463,14 @@ def build_parser() -> argparse.ArgumentParser:
                                     "delivered while you already held another")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.set_defaults(fn=cmd_task_start)
-    p = tk.add_parser("note", help="a mid-task correction to whoever holds T<n> (T292) - "
-                                   "the opener or the founder only; new work is a child task")
+    p = tk.add_parser("note", help=argparse.SUPPRESS)      # the old name of `memo T<n> add`, hidden for one release
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("text")
     p.set_defaults(fn=cmd_task_note)
     p = tk.add_parser("memo", help="memos beside T<n>: list, add TEXT, edit ID TEXT, delete ID - "
                                    "anyone adds, the author or founder edits; a change on a doing "
-                                   "task is told to its holder at once")
+                                   "task is told to its holder at once. A correction to a task "
+                                   "you gave is a memo, not a message behind it")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("verb", choices=("list", "add", "edit", "delete"))
     p.add_argument("rest", nargs="*")
