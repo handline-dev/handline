@@ -115,15 +115,17 @@ class Claude:
                     mcp: list[str], preamble: str | None,
                     hide: list[str] | None = None,
                     memory_dir: Path | None = None,
-                    trusted: list[str] | None = None) -> list[str]:
+                    trusted: list[str] | None = None,
+                    chrome: bool = False) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
         argv += ["--disallowedTools", disallowed]
         argv += ["--effort", effort]
         # --no-chrome (claude --help) keeps the unanswered "Claude wants to
-        # use your browser" dialog off every session's start.
-        argv += ["--no-chrome"]
+        # use your browser" dialog off every session's start; an agent with
+        # `chrome: true` in its agent.yaml (T875) opts in with --chrome.
+        argv += ["--chrome" if chrome else "--no-chrome"]
         argv += mcp
         if preamble:
             argv += ["--append-system-prompt", preamble]
@@ -190,7 +192,8 @@ class Claude:
         return TRUST_PROMPT_DOWN_ARROW
 
     def accepts_tool(self, tool: str | None) -> bool:
-        # launch_argv passes --no-chrome, so there is no browser prompt to accept.
+        # launch_argv passes --no-chrome unless the agent opted in (T875), and an
+        # opted-in agent's browser prompt is the founder's to answer.
         return False
 
     def accepting_key(self, dialog, tool: str | None) -> tuple[str | None, str]:

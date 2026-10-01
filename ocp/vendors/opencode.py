@@ -228,7 +228,8 @@ class Opencode:
                     mcp: list[str], preamble: str | None,
                     hide: list[str] | None = None,
                     memory_dir: Path | None = None,
-                    trusted: list[str] | None = None) -> list[str]:
+                    trusted: list[str] | None = None,
+                    chrome: bool = False) -> list[str]:
         """The TUI takes the model, as `provider/model`, and nothing else ocp
         passes: it has no flag for effort (only `run --variant` does), tool
         denial, an MCP config or a system prompt. Those reach opencode through

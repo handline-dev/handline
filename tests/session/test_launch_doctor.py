@@ -2269,6 +2269,27 @@ def test_launch_argv_always_carries_no_chrome(home: Path) -> None:
     drv = vendors.get("claude")
     check("launch: --no-chrome is always in the argv",
           "--no-chrome" in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
+    argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None, chrome=True)
+    check("launch: chrome=True (T875) swaps it for --chrome, never both",
+          "--chrome" in argv and "--no-chrome" not in argv, argv)
+
+
+def test_chrome_opt_in_reads_only_a_real_true_and_changes_the_fingerprint(home: Path) -> None:
+    """T875: `chrome: true` in agent.yaml is the opt-in; garbage reads as off, and
+    only an opted-in agent's recipe differs, so every other fingerprint is unchanged."""
+    check("chrome: only a real true", agents.chrome({"chrome": True}))
+    check("chrome: absent, 'true', 1 and null are off",
+          not any(agents.chrome(c) for c in ({}, {"chrome": "true"}, {"chrome": 1}, {"chrome": None})))
+    agents.register("fp", model="sonnet")
+    off = launch.fingerprint("fp")
+    agents.register("fp", chrome=True)
+    on = launch.fingerprint("fp")
+    check("chrome: opting in changes the launch fingerprint", on != off)
+    check("chrome: and the recipe's config reads it", agents.chrome(agents.read("fp")))
+    agents.register("fp", model="opus")
+    check("chrome: re-registering without it keeps it", agents.chrome(agents.read("fp")))
+    agents.register("fp", model="sonnet", chrome=False)
+    check("chrome: off returns the old fingerprint exactly", launch.fingerprint("fp") == off)
 
 
 def test_atomic_write_replaces_the_file_and_leaves_no_temp(home: Path) -> None:
@@ -2336,6 +2357,7 @@ def main() -> int:
         run(lambda: test_atomic_write_replaces_the_file_and_leaves_no_temp(Path(td) / 'atomic'))
         run(lambda: test_an_agent_cannot_read_a_peers_or_its_supervisors_transcripts(Path(td) / 'transcripts'))
         run(lambda: test_launch_argv_always_carries_no_chrome(Path(td) / 'no_chrome'))
+        run(lambda: test_chrome_opt_in_reads_only_a_real_true_and_changes_the_fingerprint(Path(td) / 'chrome_opt'))
         run(lambda: test_shared_settings_turn_claude_notifications_off_once(Path(td) / 'notif'))
     return run_area(tests)
 

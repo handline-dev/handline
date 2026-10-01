@@ -103,6 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-permissions", default=None, choices=["on", "off"],
                    help="start its sessions without asking before they act (default off); "
                    "applies from the next launch; on re-registration, omit to keep the current one")
+    p.add_argument("--chrome", default=None, choices=["on", "off"],
+                   help="start its sessions with the Claude in Chrome integration (default off, "
+                   "every other agent keeps --no-chrome); on re-registration, omit to keep the current one")
     p.set_defaults(fn=cmd_agent_register)
 
     p = sub.add_parser("launch", help="exec claude as this agent's account")

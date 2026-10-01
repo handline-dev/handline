@@ -55,10 +55,13 @@ def cmd_agent_register(args) -> int:
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo, vendor=args.vendor,
                         skip_permissions=None if args.skip_permissions is None
-                        else args.skip_permissions == "on")
+                        else args.skip_permissions == "on",
+                        chrome=None if args.chrome is None else args.chrome == "on")
     print(f"registered agent '{args.name}': {d}")
     if args.skip_permissions:
         print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
+    if args.chrome:
+        print(f"chrome {args.chrome}: applies from its next launch")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
     return 0
