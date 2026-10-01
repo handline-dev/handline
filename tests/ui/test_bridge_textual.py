@@ -2345,6 +2345,13 @@ def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
           str([m.get("change") or m["rid"] for m in merged]))
 
 
+def _edit_owner(con, tid: int, old: str, new: str):
+    """`edit --owner` as every caller runs it: the edit, then the new owner's delivery."""
+    ok, said = actions.edit_task(con, tid, actions.HUMAN, owner=new)
+    actions.send_moved_task(con, tid, old, actions.HUMAN)
+    return ok, said
+
+
 def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
     """Founder #7364: above the card, who changed it; inside, what happened - each written by
     the real action, not a hand-made event."""
@@ -2361,7 +2368,7 @@ def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
         steps = (lambda: actions.edit_task(con, t, actions.HUMAN, title="the new work"),
                  lambda: actions.edit_task(con, t, actions.HUMAN, priority=1),
                  lambda: actions.task_handoff(con, "reviewer", t, "backend", "yours now"),
-                 lambda: actions.edit_task(con, t, actions.HUMAN, owner="reviewer"))
+                 lambda: _edit_owner(con, t, "backend", "reviewer"))
         for at, step in enumerate(steps, 300):
             ok, said = step()
             check(f"changes: the action itself worked ({at})", ok, said)

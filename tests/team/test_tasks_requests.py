@@ -3643,7 +3643,7 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
             clitask._print_board(con, db.open_tasks(con))
         check("task row: the board shows the request's state as it is now",
               "queued" in buf.getvalue(), buf.getvalue())
-        con.execute("UPDATE requests SET state = 'done', verdict = 'x' WHERE id = ?", (rid,))
+        db.close_if_queued(con, rid, "done", "x")
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             clitask._print_board(con, db.open_tasks(con))
@@ -7995,11 +7995,11 @@ limits:
         check("sent_at: set the moment the delivery is out - before anything lands, and delivered_at is not",
               sent is not None and db.get_task(con, sn)["delivered_at"] is None)
         srid = db.task_requests(con, sn)[0]["id"]
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (srid,))
-        check("sent_at: cleared when no request that asks is left open on it (even by a raw write)",
+        db.close_if_queued(con, srid, "done", None)
+        check("sent_at: cleared when no request that asks is left open on it",
               db.get_task(con, sn)["sent_at"] is None)
         ok, _, fy = actions.task_new("manager", "worker", "only a report linked", "w")
-        con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (db.task_requests(con, fy)[0]["id"],))
+        db.close_if_queued(con, db.task_requests(con, fy)[0]["id"], "done", None)
         rep = db.add_request(con, "worker", "manager", "fyi", None, None, "fire_and_forget", "say", 0, None)
         con.execute("UPDATE requests SET fyi = 1 WHERE id = ?", (rep,))
         db.link_request(con, fy, rep)
@@ -8016,6 +8016,30 @@ limits:
         ok, msg = actions.merge_tasks(con, mk, [mg], "manager")
         check("sent_at: a task merged away has no request left on it, so it is no longer sent",
               ok and db.get_task(con, mg)["sent_at"] is None and db.get_task(con, mk)["sent_at"] is not None, msg)
+        # T751: the triggers are gone; the task's own events keep sent_at, a ghost delivery cannot hold it
+        trig = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'task_sent%'")]
+        check("sent_at: no trigger keeps it any more", not trig, str(trig))
+        ok, _, gk = actions.task_new("manager", "worker", "open and sent", "w")
+        ok, _, gm = actions.task_new("manager", "worker", "stamped before the rule", "w")
+        db.mark_task_done(con, gm, "x")
+        con.execute("UPDATE tasks SET sent_at = 5 WHERE id = ?", (gm,))
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:task_sent_at_events'")
+        dbschema2._task_sent_at_from_events(con)
+        check("sent_at: the migration clears an ended task's stamp and keeps an open one's",
+              db.get_task(con, gm)["sent_at"] is None and db.get_task(con, gk)["sent_at"] is not None)
+        for how in ("done", "discard"):
+            ok, _, gh = actions.task_new("manager", "worker", f"ghost on {how}", "w")
+            if how == "done":
+                db.mark_task_done(con, gh, "x")
+            else:
+                db.discard_task(con, gh, "manager", "x")
+            gr = db.task_requests(con, gh)[0]
+            check(f"sent_at: a task {how} is not sent, whatever is still queued against it",
+                  gr["state"] == "queued" and db.get_task(con, gh)["sent_at"] is None)
+            db.link_request(con, gh, gr["id"])
+            db.refresh_sent(con, gh)
+            check(f"sent_at: and a refresh re-derives it from the request still out (what reopen does)",
+                  db.get_task(con, gh)["sent_at"] is not None)
         # a founder's card is delivered when drawn
         ok, _, card = actions.task_new("manager", "human", "decide", "decide")
         crid = db.task_requests(con, card)[0]["id"]
@@ -8137,6 +8161,7 @@ limits:
         for r in db.task_requests(con, cli_t):      # the founder's request answered or retired: the task is still theirs
             if r["state"] == "queued":
                 con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (r["id"],))
+                db.refresh_sent_of_request(con, r["id"])
         check("T681: a task handed to the founder is delegated to them (for you), not a draft",
               actions.task_state(con, db.get_task(con, cli_t)) in actions.DELEGATED_STATES,
               actions.task_state(con, db.get_task(con, cli_t)))
@@ -8262,6 +8287,7 @@ limits:
             db.set_current_task(con, "worker", None)
             for r in db.task_requests(con, bt):
                 con.execute("UPDATE requests SET state = 'done' WHERE id = ?", (r["id"],))
+                db.refresh_sent_of_request(con, r["id"])
             _cli(["task", "edit", f"T{bt}", "--body", "cli brief, not doing"], as_agent="manager")
             check("T689: nobody is told for a task that is not being worked", told == [], str(told))
         finally:

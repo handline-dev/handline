@@ -416,12 +416,16 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
             add_answer(con, rid, verdict)
         if settle:
             _settle(con, rid, state, verdict, dismissed_by)
+        else:
+            from .tasks import refresh_sent_of_request
+            refresh_sent_of_request(con, rid)
     return cur.rowcount > 0
 
 
 def _settle(con, rid: int, state: str, verdict: str | None, dismissed_by: str | None = None) -> None:
     """A founder's decision task follows its request out of the queue."""
-    from .tasks import settle_decision_tasks
+    from .tasks import refresh_sent_of_request, settle_decision_tasks
+    refresh_sent_of_request(con, rid)
     settle_decision_tasks(con, rid, state, verdict, dismissed_by)
 
 

@@ -279,6 +279,7 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
         "announced_at = COALESCE(announced_at, ?) WHERE id = ?",
         (state, verdict, now if state != "queued" else None,
          now if announced else None, rid))
+    db.refresh_sent_of_request(con, rid)
 
 
 def pointed_record(typed: str) -> str:
@@ -1770,6 +1771,7 @@ def _link(tid: int, rid: int, state: str | None = None) -> None:
         db.link_request(con, tid, rid)
         if state:
             con.execute("UPDATE requests SET state = ? WHERE id = ?", (state, rid))
+            db.refresh_sent_of_request(con, rid)     # a raw write, so what a close would do is done here
     finally:
         con.close()
 
