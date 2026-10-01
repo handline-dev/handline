@@ -620,8 +620,28 @@ def test_a_file_path_in_a_message_becomes_a_link_that_opens_it() -> None:
             return [(s[h.start:h.end], h.path) for h in actions.find_paths(s, [d])]
         check("paths tier 2: a relative path that exists links, to its full path",
               rel("see docs/x.md, and x.md") == [("docs/x.md", f"{d}/docs/x.md")], str(rel("see docs/x.md, and x.md")))
-        check("paths tier 2: one that does not exist stays plain; a quoted one with a slash links anyway",
-              rel("docs/nope.md a/b `docs/nope.md`") == [("docs/nope.md", "docs/nope.md")], str(rel("docs/nope.md a/b `docs/nope.md`")))
+        check("paths tier 2: one that does not exist stays plain, quoted or not",
+              rel("docs/nope.md a/b `docs/nope.md` `1/2` `and/or`") == [], str(rel("docs/nope.md a/b `docs/nope.md` `1/2` `and/or`")))
+        check("paths tier 2: a backticked path:line links to the full path and its line",
+              [(h.path, h.line) for h in actions.find_paths("at `docs/x.md:7` and \"docs/x.md:9\"", [d])]
+              == [(f"{d}/docs/x.md", 7), (f"{d}/docs/x.md", 9)])
+        click = lambda t: [sp.style.meta["@click"] for sp in t.spans if "@click" in (getattr(sp.style, "meta", None) or {})]
+        orig = actions.path_bases
+        actions.path_bases = lambda who: [d]
+        try:
+            m = {"text": "see docs/x.md now", "who": "a", "when": 0, "side": "agent"}
+            check("paths: a message body carries the open_path click", click(cp.message_parts(m)[1]) == [f"app.open_path('{d}/docs/x.md')"])
+            e = {"kind": "memo", "ts": 0, "who": "a", "text": "docs/x.md", "edited_at": None, "memo": 1}
+            check("paths: a timeline line carries it", len(click(cp.timeline_text(e))) == 1)
+            check("paths: a card note carries it", click(cp.card_lines({"tasks": [1], "to": "b", "who": "a", "note": "docs/x.md"}))[-1:] == [f"app.open_path('{d}/docs/x.md')"])
+            pg = cp.task_page({"id": 1, "title": "t", "state": "doing", "owner": "a", "opened_by": "a", "created_at": 0, "parent": None,
+                               "done": None, "discarded": None, "merged_into": None, "asker": "a", "brief": "docs/x.md",
+                               "children": [], "timeline": []})
+            check("paths: a task's brief carries it", len(click(pg["brief"])) == 1)
+        finally:
+            actions.path_bases = orig
+    ok, said = actions.open_path("docs/x.md")
+    check("paths: a relative path is never opened from the bridge's own cwd", not ok and "not found" in said, said)
     t = cp.link_paths(Text(f"see {founder}, ok"))
     click = t.spans[0].style.meta["@click"]
     check("paths: the click names the app's open_path with the whole path",

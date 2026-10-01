@@ -2,8 +2,8 @@
 
 A screen links what `find_paths` returns and runs `open_path` on a click; it judges nothing.
 Two tiers. A shape that is surely a path - `~/...`, an absolute path with an extension (or that
-exists), a quoted one with a slash - is always found. Anything else that might be one (`docs/x.md`,
-`name.py`) is found only if it exists, resolved against `bases` (the sender's worktree, the repo
+exists) - is always found. Anything else that might be one (`docs/x.md`, `name.py`, a quoted
+one with a slash) is found only if it exists, resolved against `bases` (the sender's worktree, the repo
 root); a miss is plain text.
 """
 from __future__ import annotations
@@ -78,8 +78,11 @@ def find_paths(text: str, bases=()) -> list[Hit]:
         if inner.startswith(("~/", "/")):
             if _plausible(inner):
                 hits.append(Hit(m.start(2), m.end(2), inner, None))
-        elif "/" in inner and not re.search(r"\s|://", inner):
-            hits.append(Hit(m.start(2), m.end(2), _resolve(inner, bases) or inner, None))
+        elif "/" in inner and "://" not in inner:
+            at = _LINE.search(inner)
+            where = _resolve(inner[:at.start()] if at else inner, bases)
+            if where:
+                hits.append(Hit(m.start(2), m.end(2), where, int(at[1]) if at else None))
     for m in _BARE.finditer(text):
         whole = m[0].rstrip(".,;:!?")
         at = _LINE.search(whole)
@@ -120,6 +123,8 @@ def open_path(path: str) -> tuple[bool, str]:
     """Open `path` in the system's default app (a folder opens in the file manager). Returns (ok, the
     line to show); a path that is not there is refused, not handed to the opener."""
     full = os.path.expanduser(path)
+    if not os.path.isabs(full):
+        return False, f"not found: {path}"
     if not os.path.exists(full):
         return False, f"not found: {path}"
     tool = "open" if sys.platform == "darwin" else "xdg-open"
