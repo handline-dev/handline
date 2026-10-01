@@ -322,7 +322,7 @@ def _answered(con, request_id: int) -> bool:
     the target was told the row exists.
     """
     row = db.get_request(con, request_id)
-    return row is None or bool(row["verdict"]) or row["state"] in SETTLED
+    return row is None or row["state"] in SETTLED
 
 
 def cmd_read(args) -> int:

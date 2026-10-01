@@ -287,9 +287,9 @@ def task_mismatch(con, row, state: str) -> str | None:
 
 def _request_answered(row) -> bool:
     """Has this request been told something back, as opposed to still
-    sitting queued? Mirrors cli._answered's own reading (verdict set, or a
+    sitting queued? Mirrors cli._answered's own reading (a
     settled state) without importing cli, which imports this module."""
-    return bool(row["verdict"]) or row["state"] != "queued"
+    return row["state"] != "queued"
 
 
 def open_decision(me: str, body: str) -> tuple[bool, str, int | None]:
@@ -1943,15 +1943,16 @@ def reason_gaps(con, window_days: int = 30) -> dict:
             f"SELECT COUNT(*) FROM requests WHERE state_at >= ? AND {where}",
             (cutoff,)).fetchone()[0]
     withdrawn_total = one("state = 'withdrawn'")
-    withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")
-    dismissed_total = one(f"({db.DISMISSED_WHERE} OR verdict = 'read - no reply' "
-                          "OR verdict LIKE 'read - no reply: %')")
+    closing = db.CLOSING_SQL
+    withdrawn_blank = one(f"state = 'withdrawn' AND {closing} IS NULL")
+    dismissed_total = one(f"({db.DISMISSED_WHERE} OR {closing} = 'read - no reply' "
+                          f"OR {closing} LIKE 'read - no reply: %')")
     dismissed_blank = one(f"(({db.DISMISSED_WHERE} AND NOT EXISTS (SELECT 1 FROM events e WHERE e.kind = 'dismissed' "
                           f"AND {db.EVENT_REQUEST.replace('payload', 'e.payload')} = requests.id "
                           "AND json_extract(e.payload, '$.reason') IS NOT NULL)) "
-                          "OR verdict = 'read - no reply')")
+                          f"OR {closing} = 'read - no reply')")
     replaced_total = one("state = 'replaced'")
-    replaced_blank = one("state = 'replaced' AND verdict NOT LIKE '%: %'")
+    replaced_blank = one(f"state = 'replaced' AND {closing} NOT LIKE '%: %'")
     def closures(via: str) -> int:
         return con.execute(
             "SELECT COUNT(*) FROM tasks WHERE done_via = ? AND done_at >= ?",

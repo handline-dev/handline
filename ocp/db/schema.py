@@ -450,6 +450,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _answers_told_on_the_say(con)
     _closed_rows_leave_the_queue(con)
     _dismissals_are_events(con)
+    _reasons_are_events(con)
     _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
@@ -874,6 +875,23 @@ def _dismissals_are_events(con) -> None:
     set_cursor(con, "migrated:dismissals_are_events", 1)
 
 
+def _reasons_are_events(con) -> None:
+    """T835 step 4d: why a request closed without an answer (a denial, a withdrawal) is an event
+    naming it, not the verdict column. Each closed row that has a verdict, no answering say and no
+    dismissal gets one, at the time it closed. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:reasons_are_events"):
+        return
+    for r in con.execute(
+            "SELECT id, verdict, COALESCE(state_at, ts) AS at FROM requests WHERE verdict IS NOT NULL AND verdict != '' "
+            "AND settles IS NULL AND dismissed_by IS NULL AND id NOT IN "
+            "(SELECT settles FROM requests WHERE settles IS NOT NULL) AND id NOT IN "
+            "(SELECT " + EVENT_REQUEST + " FROM events WHERE kind = 'request_reason' AND "
+            + EVENT_REQUEST + " IS NOT NULL) ORDER BY id").fetchall():
+        con.execute("INSERT INTO events(ts, agent, kind, payload) VALUES(?, '', 'request_reason', ?)",
+                    (r["at"], json.dumps({"request_id": r["id"], "reason": r["verdict"]})))
+    set_cursor(con, "migrated:reasons_are_events", 1)
+
+
 def _requests_one_state(con) -> None:
     """T797 (T763 branch 6): a request has one state and one time. done becomes landed; rejected
     becomes landed when it had been delivered and withdrawn when it had not; every row gets the time
@@ -1076,6 +1094,8 @@ def _drop_daemon_close_notes(con) -> None:
     con.execute("DELETE FROM requests WHERE id IN (SELECT a.id FROM requests a JOIN requests p "
                 f"ON p.id = a.parent_id WHERE ({answer}) AND a.body = p.verdict AND p.kind = 'say' "
                 f"AND p.verdict IN ({marks}))", _DAEMON_CLOSE_NOTES)
+    con.execute(f"DELETE FROM events WHERE kind = 'request_reason' AND {EVENT_REQUEST} IN (SELECT id FROM requests "
+                f"WHERE kind = 'say' AND state = 'done' AND verdict IN ({marks}))", _DAEMON_CLOSE_NOTES)
     con.execute(f"UPDATE requests SET verdict = NULL WHERE kind = 'say' AND state = 'done' "
                 f"AND verdict IN ({marks})", _DAEMON_CLOSE_NOTES)
     set_cursor(con, "migrated:close_notes", 1)

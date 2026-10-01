@@ -12,10 +12,14 @@ from .schema import EVENT_REQUEST
 HUMAN = "human"
 
 
-# The text of the say that answered a request (its `settles` row), as a column of any query on
-# `requests`: `shown_verdict` prefers it to the request's own verdict, which says the same.
-ANSWER_SQL = ("(SELECT a.body FROM requests a WHERE a.settles = requests.id "
-              "ORDER BY a.id LIMIT 1) AS answer, "
+# What a request closed with, as text: the say that answered it (its `settles` row), else the reason
+# it closed without one (a denial, a withdrawal: a `request_reason` event). As an expression and as a
+# column (`answer`) of any query on `requests`; `shown_verdict` prefers it to the request's own verdict.
+_REASON_EVENT = ("FROM events e WHERE e.kind = 'request_reason' AND "
+                 + EVENT_REQUEST.replace("payload", "e.payload") + " = requests.id")
+CLOSING_SQL = ("COALESCE((SELECT a.body FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1), "
+               f"(SELECT json_extract(e.payload, '$.reason') {_REASON_EVENT} ORDER BY e.id DESC LIMIT 1))")
+ANSWER_SQL = (CLOSING_SQL + " AS answer, "
               "(SELECT a.ts FROM requests a WHERE a.settles = requests.id "
               "ORDER BY a.id LIMIT 1) AS answered_at")
 
@@ -82,6 +86,11 @@ def mark_announced(con, ids: list[int]) -> None:
 
 
 # ---------------------------------------------------------------- requests
+def add_reason(con, rid: int, text: str) -> None:
+    """Why a request closed without an answer (refused, taken back): an event naming it."""
+    add_event(con, "", "request_reason", {"request_id": rid, "reason": text})
+
+
 def add_request(con, requester: str, target: str, body: str, files: str | None,
                 relation: str | None, response: str | None, kind: str | None,
                 chain_depth: int, parent_id: int | None, state: str = "queued",
@@ -108,6 +117,8 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
          now if landed else None, now if landed else None, now if landed else None, now),
     )
     rid = int(cur.lastrowid)
+    if verdict:
+        add_reason(con, rid, verdict)
     if chain_id is None:
         # A request with no parent starts its own chain, named after itself.
         con.execute("UPDATE requests SET chain_id = ? WHERE id = ?", (str(rid), rid))
@@ -451,6 +462,8 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
         "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?), queue_order = NULL "
         "WHERE id = ? AND state = 'queued'", (stored_state(con, rid, state), now, verdict, now, now, rid))
     if cur.rowcount > 0:
+        if verdict:
+            add_reason(con, rid, verdict)
         _settle(con, rid, state, verdict)
     return cur.rowcount > 0
 
@@ -527,6 +540,8 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
               and (verdict or get_request(con, rid)["kind"] != "say")):
             # A say closed with nothing said asks nothing back; anything else tells its asker.
             add_answer(con, rid, verdict or "", told=announced)
+        elif verdict and dismissed_by is None:
+            add_reason(con, rid, verdict)       # closed without an answer (a task moved on): why
         if settle:
             _settle(con, rid, state, verdict, dismissed_by)
         else:
@@ -591,6 +606,8 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
         (stored_state(con, rid, state), now, verdict, now, now, rid))
     if cur.rowcount > 0:
+        if verdict:
+            add_reason(con, rid, verdict)
         _settle(con, rid, state, verdict)
     return cur.rowcount > 0
 

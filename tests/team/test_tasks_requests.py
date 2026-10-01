@@ -7000,8 +7000,8 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
         con.execute("DELETE FROM requests WHERE id = ?", (said,))
         check("answered_at: with no answering say, the time it entered its state",
               db.answered_at(db.get_request(con, real)) == db.get_request(con, real)["state_at"])
-        check("shown_verdict: with no answering say the verdict is shown",
-              db.shown_verdict(db.get_request(con, real)) == "stale copy")
+        check("shown_verdict: with no answering say the reason it closed with is shown",
+              db.shown_verdict(db.get_request(con, real)) == "read - no reply is not what I mean")
 
         for rid, label in ((new, "new"), (old, "old")):
             rc, out = _cli(["read", str(rid)])

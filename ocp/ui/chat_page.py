@@ -254,7 +254,7 @@ def messages_of(rows, agent: str) -> list[dict]:
         for part, speaker, to, text, at in (
                 (0, r["requester"], r["target"], r["body"], r["ts"]),
                 (1, r["target"], r["requester"], shown, db.answered_at(r))):
-            cancelled = r["state"] in ("landed", "withdrawn") and r["verdict"] == askmod.CANCEL_VERDICT
+            cancelled = r["state"] in ("landed", "withdrawn") and shown == askmod.CANCEL_VERDICT
             if part == 1 and (not shown or cancelled or db.dismissal(r)[0]):
                 continue
             side = "you" if speaker == human else "agent" if speaker == agent else "other"

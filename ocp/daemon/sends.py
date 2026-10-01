@@ -176,6 +176,6 @@ def notify_cancelled_verb(con, log, **kw) -> tuple[bool, str]:
     if row["state"] != "landed" or not row["delivered_at"] or not db.closed_under(con, row["id"]):
         return False, f"#{row['id']} was not cancelled after it was delivered"
     _background(f"notify-cancelled-{row['id']}",
-                lambda c: delivery.notify_cancelled(c, row, str(row["verdict"] or "")), log)
+                lambda c: delivery.notify_cancelled(c, row, str(db.shown_verdict(row) or "")), log)
     return True, _HANDED
 

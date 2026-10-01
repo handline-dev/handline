@@ -232,7 +232,7 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
 def _refused(row) -> bool:
     """Did request `row` come back as a refusal rather than an answer: it was taken back before it
     was sent, or the founder cancelled it."""
-    return row["state"] == "withdrawn" or row["verdict"] == askmod.CANCEL_VERDICT
+    return row["state"] == "withdrawn" or db.shown_verdict(row) == askmod.CANCEL_VERDICT
 
 
 def _is_answer_to_human(row) -> bool:
