@@ -551,7 +551,6 @@ def test_why_a_request_closed_without_an_answer_is_an_event(home: Path) -> None:
                               + db.CLOSING_SQL + " IS NULL", (moved,)).fetchone()[0] == 0)
         old = db.add_request(con, "backend", "frontend", "q3", None, None, None, "task", 0, None)
         con.execute('UPDATE requests SET "state" = \'withdrawn\', verdict = \'withdrawn: long ago\' WHERE id = ?', (old,))
-        check("reason: a row with only a verdict still shows it", db.shown_verdict(db.get_request(con, old)) == "withdrawn: long ago")
         con.execute("DELETE FROM cursors WHERE name = 'migrated:reasons_are_events'")
     finally:
         con.close()

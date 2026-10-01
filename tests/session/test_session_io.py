@@ -523,7 +523,7 @@ def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) 
         blockedmod.sweep(con, lines.append, t0 + blockedmod.DECISION_AFTER_S + 1100)
         check("blocked: the record goes the tick it can be given its work", db.block_get(con, "backend") is None)
         check("blocked: the request closes itself",
-              _decisions(con)[0]["state"] == "landed" and "cleared" in _decisions(con)[0]["verdict"],
+              _decisions(con)[0]["state"] == "landed" and "cleared" in db.shown_verdict(_decisions(con)[0]),
               str([dict(r) for r in _decisions(con)]))
         check("blocked: nothing is left on the list",
               not any(w["kind"] in ("blocked", "decision") for w in actions.founder_waits(con)))

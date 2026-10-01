@@ -24,7 +24,7 @@ UNTOLD_TAB = "ANSWERS IT HAS NOT BEEN TOLD"
 def _chat_rows(con, agent: str) -> list:
     """Every row of every chain the human and `agent` have a row in."""
     return con.execute(
-        "SELECT id, ts, state_at, resolved_at, requester, target, state, body, verdict, "
+        "SELECT id, ts, state_at, requester, target, state, body, "
         f"{db.DISMISSED_SQL}, chain_id, delivered_at, typed_at, landed_at, "
         f"{db.ANSWER_SQL} FROM requests "
         "WHERE state != 'denied' AND settles IS NULL AND chain_id IN ("
@@ -226,7 +226,7 @@ def chat_unread(con, agent: str) -> int:
     row = con.execute(
         "SELECT COUNT(*) AS n FROM requests WHERE state != 'denied' AND "
         "((requester = ? AND target = ? AND ts > ? AND settles IS NULL) OR "
-        " (requester = ? AND target = ? AND (verdict IS NOT NULL OR " + db.DISMISSED_WHERE + ") "
+        " (requester = ? AND target = ? AND (" + db.CLOSING_SQL + " IS NOT NULL OR " + db.DISMISSED_WHERE + ") "
         "  AND " + db.touched_sql("requests") + " > ?))",
         (agent, HUMAN, seen, HUMAN, agent, seen)).fetchone()
     return int(row["n"])

@@ -103,7 +103,7 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
             tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
     """Take one row off the mailbox without replying to it. A still-queued
     row is closed as dismissed - by `me`, with `reason` as typed, at the
-    time resolved_at holds - and carries no verdict, so nothing draws it as
+    time it closed - and carries no answer, so nothing draws it as
     anyone's words; a row that already carries a real verdict keeps it.
 
     A row that has already left 'queued' carries somebody's real verdict.
@@ -144,7 +144,7 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         record_human_resolve(con, rid, tasks, no_task, me)
     # Closed, not announced: a dismissal is not an answer, so nothing is typed
     # at the asker. An async asker that was parked goes back to idle
-    # (`_after_close`), and resolve() stamps announced_at in the same write as
+    # (`_after_close`), and resolve() closes it already told, in the same write as
     # the state change.
     ok, msg = askmod.resolve(rid, None, state="done", notify=False,
                              dismissed_by=by, dismissed_reason=reason)
@@ -524,7 +524,7 @@ def _exchange(con, other: str, skip: set[int]) -> list[str]:
     of things the human sent.
     """
     rows = con.execute(
-        "SELECT id, ts, state_at, resolved_at, requester, target, state, body, verdict, "
+        "SELECT id, ts, state_at, requester, target, state, body, "
         f"{db.DISMISSED_SQL}, {db.ANSWER_SQL} "
         "FROM requests WHERE ((requester = ? AND target = ?) OR (requester = ? AND target = ?)) "
         "AND state != 'denied' AND settles IS NULL ORDER BY id DESC LIMIT ?",

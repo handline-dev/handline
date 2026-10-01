@@ -256,7 +256,7 @@ def _human_inbox(show_all: bool = False) -> int:
             # not "already dealt with", and printing it twice would say it was.
             waiting = {m["id"] for m in rows}
             done = con.execute(
-                "SELECT id, ts, requester, target, state, body, verdict, "
+                "SELECT id, ts, requester, target, state, body, "
                 f"{db.DISMISSED_SQL}, {db.ANSWER_SQL} FROM requests "
                 "WHERE (target = ? OR requester = ?) AND state != 'queued' "
                 "ORDER BY id DESC LIMIT 20", (actions.HUMAN, actions.HUMAN)).fetchall()

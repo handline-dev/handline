@@ -679,7 +679,7 @@ limits:
     try:
         check("reply: it settles the ask it answers",
               db.get_request(con, rid)["state"] == "landed"
-              and db.get_request(con, rid)["verdict"] == "looked, fine")
+              and db.shown_verdict(db.get_request(con, rid)) == "looked, fine")
     finally:
         con.close()
     # An agent's own session cannot verify team.yaml: the daemon re-checks its request at
@@ -1418,7 +1418,7 @@ def test_any_request_that_landed_is_landed(home: Path) -> None:
             rows[kind] = rid
             r = db.get_request(con, rid)
             check(f"landed any: a {kind} request reads landed and is marked told",
-                  r["state"] == "landed" and r["announced_at"] is not None and r["state_at"] is not None, str(dict(r)))
+                  r["state"] == "landed" and r["state_at"] is not None, str(dict(r)))
             ok, msg = askmod.cancel(rid)
             check(f"landed any: a landed {kind} request cannot be cancelled", not ok and "already landed" in msg, msg)
             check(f"landed any: and is not an open ask of its requester", rid not in db.open_ask_ids_of(con, "product"))
@@ -2666,7 +2666,7 @@ edges:
             check("race 2: the withdraw won", ok and hr.load_proposal(pid2)["state"] == "withdrawn",
                   said)
             check("race 2: the founder's answer refuses, the row keeps the withdraw",
-                  got2 and not got2[0][0] and row["verdict"] == "withdrawn by hr", str(got2))
+                  got2 and not got2[0][0] and db.shown_verdict(row) == "withdrawn by hr", str(got2))
             ok, said = hr.apply(pid2)
             check("race 2: apply enacts nothing", not ok and "racer2" not in paths.list_agents(), said)
         finally:
@@ -3341,7 +3341,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         check("mailbox: and what was replied to leaves the mailbox",
               rid not in [m["id"] for m in actions.messages(con)])
         check("mailbox: without overwriting what the agent said",
-              db.get_request(con, rid)["verdict"] == "MERGE.")
+              db.shown_verdict(db.get_request(con, rid)) == "MERGE.")
 
         # A conversation with a human cannot be a runaway: the limit exists to
         # reach a human, and one is typing. Five turns is past max_chain_depth.
@@ -3363,7 +3363,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         check("mailbox: dismissing an answer takes it off the list",
               parent not in [m["id"] for m in actions.messages(con)])
         check("mailbox: and leaves the verdict standing",
-              db.get_request(con, parent)["verdict"] == "last word")
+              db.shown_verdict(db.get_request(con, parent)) == "last word")
 
         # The human's name is the human's. It reaches every agent and
         # it is exempt from the loop guards, so an agent that could borrow it
@@ -3387,15 +3387,13 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
                             "peer", "fire_and_forget", None, 0, None)
         actions.dismiss(con, ff)
         check("mailbox: a dismissal nobody waited on is not read out to anyone",
-              db.get_request(con, ff)["announced_at"] is not None
-              and ff not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+              ff not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
               str(dict(db.get_request(con, ff))))
         parked = db.add_request(con, "reviewer", actions.HUMAN, "which one ships?", None,
                                 "peer", "async", None, 0, None)
         actions.dismiss(con, parked)
         check("mailbox: nor is one that parked on a reply - the close is all it gets",
-              db.get_request(con, parked)["announced_at"] is not None
-              and parked not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
+              parked not in [r["id"] for r in db.unannounced_answers(con, "reviewer")],
               str(dict(db.get_request(con, parked))))
 
         # #185: `resolve` used to call push_answer unconditionally, so a
@@ -3452,8 +3450,8 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
             direct = db.add_request(con, "marina", actions.HUMAN, "direct check", None,
                                     "peer", "fire_and_forget", None, 0, None)
             askmod.resolve(direct, "read - no reply", state="done", notify=False)
-            check("resolve: notify=False stamps announced_at in its own UPDATE",
-                  db.get_request(con, direct)["announced_at"] is not None,
+            check("resolve: notify=False writes its answer already told, in its own close",
+                  db.answer_row_of(con, direct)["delivered_at"] is not None,
                   str(dict(db.get_request(con, direct))))
             check("resolve: ...so it is never in unannounced_answers, even transiently",
                   direct not in [r["id"] for r in db.unannounced_answers(con, "marina")])
@@ -3545,7 +3543,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         said = actions.cancel(con, head)
         row = db.get_request(con, head)
         check("cancel: a delivered head is closed as rejected with the verdict",
-              row["state"] == "landed" and row["verdict"] == "withdrawn by the founder",
+              row["state"] == "landed" and db.shown_verdict(row) == "withdrawn by the founder",
               str(dict(row)))
         check("cancel: and is still in the log, not deleted", row is not None)
         check("cancel: the target is told to stop, at its own terminal",
@@ -3614,7 +3612,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         check("cancel: the close is one write - it loses to a resolve that got there first",
               db.close_if_queued(con, racer, "done", "agent's own answer")
               and not db.close_if_queued(con, racer, "rejected", "withdrawn by the founder")
-              and db.get_request(con, racer)["verdict"] == "agent's own answer")
+              and db.shown_verdict(db.get_request(con, racer)) == "agent's own answer")
 
         # The other direction: cancel's own close wins, and the resolve that
         # lands after it - the target typing an answer to a row the founder
@@ -3624,7 +3622,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         ok, msg = askmod.resolve(overtaken, "did it anyway")
         check("cancel: a resolve landing after the close is refused, not applied",
               not ok and "already withdrawn" in msg
-              and db.get_request(con, overtaken)["verdict"] == askmod.CANCEL_VERDICT, msg)
+              and db.shown_verdict(db.get_request(con, overtaken)) == askmod.CANCEL_VERDICT, msg)
         check("cancel: a request that is already closed says so",
               "already" in actions.cancel(con, head), actions.cancel(con, head))
         ok, why = actions.cancel_plan(con, 99999)
@@ -3762,8 +3760,7 @@ limits:
         check("task end: a top-level task's opener is told in a say from the task board", ok and len(told) == 1
               and told[0]["requester"] == "task-board", msg)
         check("task end: the delivery is closed quietly - no verdict, no answer row, nothing to announce",
-              db.get_request(con, drid)["state"] in ("landed", "withdrawn") and db.get_request(con, drid)["verdict"] is None
-              and db.get_request(con, drid)["announced_at"] is not None
+              db.get_request(con, drid)["state"] in ("landed", "withdrawn") and db.get_request(con, drid)["answer"] is None
               and not db.unannounced_answers(con, "manager")
               and con.execute("SELECT COUNT(*) FROM requests WHERE settles = ?", (drid,)).fetchone()[0] == 0)
         check("task end: and its inbox file is removed, as a resolve removes it",
@@ -4938,7 +4935,7 @@ def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> No
               ans["delivered_at"] is None and rid in [r["id"] for r in db.unannounced_answers(con, "worker")])
         db.append_verdict(con, rid, "and one more line")
         check("answer row: a line added to the verdict is added to the message",
-              db.get_request(con, rid)["verdict"].endswith("one more line")
+              db.shown_verdict(db.get_request(con, rid)).endswith("one more line")
               and db.answer_row_of(con, rid)["body"] == "the answer\n\nand one more line")
 
         ok, msg, rid2 = askmod.ask("manager", "another?", requester="worker")
@@ -4976,7 +4973,7 @@ edges:
         # An old verdict, written before answer rows existed, is given one - once.
         old = db.add_request(con, "worker", "manager", "old question", None, None, None, None, 0,
                              None, verdict="old verdict")
-        con.execute("UPDATE requests SET state = 'done', resolved_at = 1000 WHERE id = ?", (old,))      # the old shape
+        con.execute("UPDATE requests SET state = 'done', resolved_at = 1000, verdict = 'old verdict' WHERE id = ?", (old,))      # the old shape
         db.set_cursor(con, "migrated:answer_rows", 0)
         con.close()
         con = db.connect()
@@ -5097,7 +5094,7 @@ limits:
               row["done_evidence"] == "call it x", str(dict(row)))
         req = db.get_request(con, card)
         check("decide: the card's request is settled with the same text",
-              req["state"] == "landed" and req["verdict"] == "call it x")
+              req["state"] == "landed" and db.shown_verdict(req) == "call it x")
         ok, said = actions.decide(con, tid, "again")
         check("decide: a task already decided is refused and keeps the first decision",
               not ok and "already decided" in said and db.get_task(con, tid)["done_evidence"] == "call it x", said)
@@ -6925,14 +6922,14 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
         row = db.get_request(con, e)
         check("reason: a withdraw stores it, labelled like the other two", ok
               and row["state"] == "withdrawn"
-              and row["verdict"] == "withdrawn: not needed after all", str(dict(row)))
+              and db.shown_verdict(row) == "withdrawn: not needed after all", str(dict(row)))
         ok, _, f = askmod.ask("worker", "fourth", requester="manager")
         askmod.withdraw(f, requester="manager")
-        check("reason: a withdraw with none stores none", db.get_request(con, f)["verdict"] is None)
+        check("reason: a withdraw with none stores none", db.shown_verdict(db.get_request(con, f)) is None)
         g = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
         actions.dismiss(con, g, me="manager", reason="duplicate of #1")
         check("reason: a dismiss stores it, as a state and no verdict",
-              (db.dismissal(db.get_request(con, g))[2], db.get_request(con, g)["verdict"])
+              (db.dismissal(db.get_request(con, g))[2], db.get_request(con, g)["answer"])
               == ("duplicate of #1", None))
         h = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
         actions.dismiss(con, h, me="manager")
@@ -6968,9 +6965,9 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
                                   no_task="nothing to build")
         row = db.get_request(con, new)
         check("dismissed: state done, who and why recorded, no verdict",
-              ok and row["state"] == "landed" and row["verdict"] is None
+              ok and row["state"] == "landed" and row["answer"] is None
               and db.dismissal(row) == (True, "manager", "dup of #9")
-              and row["resolved_at"], str(dict(row)))
+              and row["queue_order"] is None, str(dict(row)))
         old = db.add_request(con, askmod.HUMAN, "manager", "q2", None, "supervisor",
                              "fire_and_forget", None, 0, None, state="done",
                              verdict="read - no reply: dup of #9")
@@ -7017,7 +7014,7 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
         con.execute("UPDATE requests SET resolved_at = ? WHERE id IN (?, ?, ?)",
                     (int(time.time()), old, old_blank, real))
         for legacy in (old, old_blank):         # as the upgrade leaves an untold old answer: it has a say
-            db.add_answer(con, legacy, db.get_request(con, legacy)["verdict"])
+            db.add_answer(con, legacy, db.get_request(con, legacy)["answer"])
         mail = {m["id"]: m for m in actions.mailbox_rows(con)}
         check("dismissed: the founder's mailbox draws the label, not the literal",
               all(rid in mail and "dismissed" in mail[rid]["body"]
@@ -7080,14 +7077,14 @@ def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path)
     try:
         actions.dismiss(con, rid)
         check("dismiss: an agent's own answered request keeps its verdict",
-              db.get_request(con, rid)["verdict"] == "yes, ship it",
-              db.get_request(con, rid)["verdict"])
+              db.shown_verdict(db.get_request(con, rid)) == "yes, ship it",
+              db.shown_verdict(db.get_request(con, rid)))
         check("dismiss: and is marked read", db.answer_row_of(con, rid)["delivered_at"] is not None)
 
         actions.dismiss(con, rid)
         check("dismiss: dismissing it a second time still keeps the verdict",
-              db.get_request(con, rid)["verdict"] == "yes, ship it",
-              db.get_request(con, rid)["verdict"])
+              db.shown_verdict(db.get_request(con, rid)) == "yes, ship it",
+              db.shown_verdict(db.get_request(con, rid)))
     finally:
         con.close()
 
@@ -7112,7 +7109,7 @@ def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
         check("dismiss: the target is told there is nothing more to do",
               ok and "nothing more" in out, out)
         check("dismiss: the verdict is untouched",
-              db.get_request(con, rid)["verdict"] == "yes, ship it")
+              db.shown_verdict(db.get_request(con, rid)) == "yes, ship it")
         check("dismiss: ...and the requester is still owed the answer",
               rid in [r["id"] for r in db.unannounced_answers(con, "a")],
               str(dict(db.get_request(con, rid))))
@@ -8494,7 +8491,6 @@ limits:
         settled = db.settle_leftover_deliveries(con)
         check("sweep: the leftovers are settled quietly - closed, nobody told, their tasks untouched",
               {frid, ghost} <= set(settled) and db.get_request(con, frid)["state"] == "landed"
-              and db.get_request(con, frid)["announced_at"] is not None
               and db.get_task(con, fg)["done_evidence"] == "x" and not db.leftover_deliveries(con))
         rep2 = doctormod.Report()
         doctormod._check_leftover_deliveries(rep2)
@@ -8532,7 +8528,7 @@ limits:
         try:
             gone = db.get_request(con2, upr)
             check("upgrade migration: an ended task's delivery is closed quietly, once",
-                  gone["state"] == "landed" and gone["announced_at"] is not None
+                  gone["state"] == "landed" and gone["queue_order"] is None
                   and db.get_cursor(con2, "migrated:task_leftovers_settled") == 1)
             check("upgrade migration: a delivery whose task moved on is left queued",
                   db.get_request(con2, upmr)["state"] == "queued")

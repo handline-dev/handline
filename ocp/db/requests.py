@@ -62,7 +62,7 @@ def unannounced_answers(con, agent: str) -> list:
     prevent, one layer down.
     """
     return con.execute(
-        "SELECT id, ts, state_at, resolved_at, target, kind, state, verdict, body, parent_id, "
+        "SELECT id, ts, state_at, target, kind, state, body, parent_id, "
         f"chain_id, {DISMISSED_SQL}, {ANSWER_SQL} FROM requests WHERE requester = ? "
         "AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "
         "WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id",
@@ -109,12 +109,10 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     state = LANDED if landed or state == "done" else state
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, verdict, chain_id, edge_ok, "
-        "landed_at, resolved_at, announced_at, state_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "kind, chain_depth, parent_id, state, chain_id, edge_ok, landed_at, state_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now, requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, verdict, chain_id, edge_ok,
-         now if landed else None, now if landed else None, now if landed else None, now),
+         chain_depth, parent_id, state, chain_id, edge_ok, now if landed else None, now),
     )
     rid = int(cur.lastrowid)
     if verdict:
@@ -349,8 +347,8 @@ def mark_landed(con, rid: int) -> None:
     # What landed is sent: 'queued' is only what has not reached the other side. For a task the task
     # rows say what is still held (`db.live_delivery`).
     if not _would_strand_a_proposal(con, rid, "landed", None):
-        con.execute("UPDATE requests SET state = 'landed', state_at = ?, announced_at = COALESCE(announced_at, ?) "
-                    "WHERE id = ? AND state = 'queued' AND target != ?", (now, now, rid, HUMAN))
+        con.execute("UPDATE requests SET state = 'landed', state_at = ? "
+                    "WHERE id = ? AND state = 'queued' AND target != ?", (now, rid, HUMAN))
 
 
 def awaiting_landing(con, target: str):
@@ -458,9 +456,8 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
         return False
     now = int(time.time())
     cur = con.execute(
-        "UPDATE requests SET state = ?, state_at = ?, verdict = COALESCE(?, verdict), "
-        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?), queue_order = NULL "
-        "WHERE id = ? AND state = 'queued'", (stored_state(con, rid, state), now, verdict, now, now, rid))
+        "UPDATE requests SET state = ?, state_at = ?, queue_order = NULL "
+        "WHERE id = ? AND state = 'queued'", (stored_state(con, rid, state), now, rid))
     if cur.rowcount > 0:
         if verdict:
             add_reason(con, rid, verdict)
@@ -474,30 +471,28 @@ LEGACY_DISMISS = "read - no reply"
 
 
 def dismissal(row) -> tuple[bool, str | None, str | None]:
-    """(dismissed, by, reason) for a request row. A row is dismissed when it
-    says so in its own columns, or holds the old literal verdict (whose
-    author is unknown). A row read from a SELECT that leaves the columns out
-    reads as not dismissed unless it is the old literal."""
+    """(dismissed, by, reason) for a request row. A row is dismissed when a `dismissed` event says
+    so (`DISMISSED_SQL`), or it closed with the old literal (whose author is unknown). A row read
+    from a SELECT that leaves them out reads as not dismissed."""
     keys = row.keys()
     by = row["dismisser"] if "dismisser" in keys else None
     if by:
         return True, by, row["dismiss_reason"]
-    verdict = row["verdict"] if "verdict" in keys else None
-    if verdict == LEGACY_DISMISS:
+    text = row["answer"] if "answer" in keys else None
+    if text == LEGACY_DISMISS:
         return True, None, None
-    if verdict and verdict.startswith(LEGACY_DISMISS + ": "):
-        return True, None, verdict[len(LEGACY_DISMISS) + 2:]
+    if text and text.startswith(LEGACY_DISMISS + ": "):
+        return True, None, text[len(LEGACY_DISMISS) + 2:]
     return False, None, None
 
 
 def shown_verdict(row) -> str | None:
-    """What a screen may print as this row's answer: the say that answered it, else the verdict
-    (a reason it closed without one), or for a dismissal a state label that cannot be read as
-    anyone's words."""
+    """What a screen may print as this row's answer: the say that answered it, else the reason it
+    closed without one, or for a dismissal a state label that cannot be read as anyone's words.
+    The row needs `ANSWER_SQL`."""
     dismissed, by, reason = dismissal(row)
     if not dismissed:
-        answer = row["answer"] if "answer" in row.keys() else None
-        return answer if answer is not None else row["verdict"]
+        return row["answer"]
     return ("dismissed" + (f" by {by}" if by else "")
             + (f" - {reason}" if reason else ""))
 
@@ -522,11 +517,8 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
         return False
     now = int(time.time())
     cur = con.execute(
-        "UPDATE requests SET state = ?, state_at = ?, verdict = ?, resolved_at = ?, "
-        "announced_at = COALESCE(announced_at, ?), dismissed_by = ?, dismissed_reason = ?, queue_order = NULL "
-        "WHERE id = ? AND state = 'queued'",
-        (stored_state(con, rid, state), now, verdict, now, now if announced else None,
-         dismissed_by, dismissed_reason, rid))
+        "UPDATE requests SET state = ?, state_at = ?, queue_order = NULL WHERE id = ? AND state = 'queued'",
+        (stored_state(con, rid, state), now, rid))
     if cur.rowcount > 0:
         if dismissed_by is not None:
             add_event(con, dismissed_by, "dismissed", {"request_id": rid, "by": dismissed_by,
@@ -568,10 +560,10 @@ def add_answer(con, rid: int, text: str, at: int | None = None, told: bool = Fal
     when = int(time.time()) if at is None else at
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, kind, chain_depth, parent_id, "
-        "settles, chain_id, state, delivered_at, resolved_at, state_at, edge_ok) "
-        "VALUES(?,?,?,?,'say',?,?,?,?,?,?,?,?,1)",
+        "settles, chain_id, state, delivered_at, state_at, edge_ok) "
+        "VALUES(?,?,?,?,'say',?,?,?,?,?,?,?,1)",
         (when, row["target"], row["requester"], text, row["chain_depth"], rid, rid,
-         row["chain_id"], LANDED, when if told else None, when, when))
+         row["chain_id"], LANDED, when if told else None, when))
     aid = int(cur.lastrowid)
     con.execute("UPDATE requests SET queue_order = ? WHERE id = ?", (aid, aid))
     return aid
@@ -586,7 +578,6 @@ def answer_row_of(con, rid: int):
 
 def append_verdict(con, rid: int, text: str) -> None:
     """Add a line to the verdict of a request already closed, before its requester is told."""
-    con.execute("UPDATE requests SET verdict = verdict || ? WHERE id = ?", ("\n\n" + text, rid))
     con.execute("UPDATE requests SET body = body || ? WHERE settles = ?", ("\n\n" + text, rid))
 
 
@@ -601,10 +592,9 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
         return False
     now = int(time.time())
     cur = con.execute(
-        "UPDATE requests SET state = ?, state_at = ?, verdict = COALESCE(?, verdict), "
-        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?), queue_order = NULL "
+        "UPDATE requests SET state = ?, state_at = ?, queue_order = NULL "
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
-        (stored_state(con, rid, state), now, verdict, now, now, rid))
+        (stored_state(con, rid, state), now, rid))
     if cur.rowcount > 0:
         if verdict:
             add_reason(con, rid, verdict)

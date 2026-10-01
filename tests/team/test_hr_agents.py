@@ -3107,9 +3107,9 @@ edges:
               hr.load_proposal(pid)["state"] == "applied"
               and hr.load_proposal(pid)["verdict"] == "approve")
         check("approve: the proposer's answer carries the outcome",
-              f"proposal {pid} applied" in db.get_request(con, rid)["verdict"]
-              and db.get_request(con, rid)["verdict"].startswith("approve"),
-              db.get_request(con, rid)["verdict"])
+              f"proposal {pid} applied" in db.shown_verdict(db.get_request(con, rid))
+              and db.shown_verdict(db.get_request(con, rid)).startswith("approve"),
+              db.shown_verdict(db.get_request(con, rid)))
 
         # The apply fails: the table no longer lists the agent to be retired.
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="gone")
@@ -3124,7 +3124,7 @@ edges:
         ok, said = askmod.resolve(rid2, "approve")
         row = db.get_request(con, rid2)
         check("approve: a failed apply is still an answer, and says it failed",
-              ok and "could not be applied" in row["verdict"], row["verdict"])
+              ok and "could not be applied" in db.shown_verdict(row), db.shown_verdict(row))
         check("approve: and the proposal stays open to retry or withdraw",
               hr.load_proposal(pid2)["state"] == "proposed")
         check("approve: and the founder gets a report of it",
@@ -3136,7 +3136,7 @@ edges:
         rid3 = int(said.split("#")[1].split(".")[0])
         askmod.resolve(rid3, "reject - no")
         check("reject: nothing is applied", "yerin" not in paths.list_agents()
-              and db.get_request(con, rid3)["verdict"] == "reject - no")
+              and db.shown_verdict(db.get_request(con, rid3)) == "reject - no")
         check("reject: and the proposal's file records it", hr.load_proposal(pid3)["state"] == "rejected")
 
         ok, said = hr.propose("add", "mira", repo="/repo", requester="hr", why="three")
@@ -3145,7 +3145,7 @@ edges:
         ok, said = askmod.resolve(rid4, "reject - not yet\nask again next week")
         check("reject: a two-line reject still answers the proposer, and the file records it",
               ok and hr.load_proposal(pid4)["state"] == "rejected"
-              and "ask again" in db.get_request(con, rid4)["verdict"], said)
+              and "ask again" in db.shown_verdict(db.get_request(con, rid4)), said)
     finally:
         con.close()
 
@@ -3778,7 +3778,7 @@ def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> Non
         ok2 = delivery.enforce_edges(con, "keeper", logged.append)
         row = db.get_request(con, rid)
         check("daemon: with the founder's text back, the request is refused at delivery",
-              ok2 and row["state"] == "denied" and "refused at delivery" in (row["verdict"] or ""),
+              ok2 and row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or ""),
               str(dict(row)))
         check("daemon: nothing is left for keeper to be told", db.head_of_queue(con, "keeper") is None)
         ok3, said3, rid3 = askmod.ask("keeper", "hello", requester="scout")
@@ -3824,7 +3824,7 @@ def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out
         delivery.enforce_edges(con, "keeper", lambda _m: None)
         row = db.get_request(con, rid)
         check("edge: the daemon refuses it for differing from the founder's table",
-              row["state"] == "denied" and "refused at delivery" in (row["verdict"] or ""),
+              row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or ""),
               str(dict(row)))
         os.environ["OCP_AGENT"] = "scout"
         root.chmod(0)
@@ -3910,7 +3910,7 @@ def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Pat
         evaluate.tick(con, lambda _m: None)
         row = db.get_request(con, rid2)
         check("human: a request the table no longer allows is denied at the tick",
-              row["state"] == "denied" and "refused at delivery" in (row["verdict"] or "")
+              row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or "")
               and not row["edge_ok"], str(dict(row)))
     finally:
         con.close()

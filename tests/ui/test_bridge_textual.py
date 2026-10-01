@@ -488,7 +488,7 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
         after = db.get_request(con, rid)
         check("reply: a reply to a waiting question is its verdict",
-              ok1 and after["state"] == "landed" and after["verdict"] == "yes", str(dict(after)))
+              ok1 and after["state"] == "landed" and db.shown_verdict(after) == "yes", str(dict(after)))
         ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
         child = db.get_request(con, rid + 1)
         check("reply: a second reply is a new request to the agent under it",
@@ -862,7 +862,7 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     from ocp.ui import chat_page as cp
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
-                "state": "queued", "body": f"m{i}", "verdict": None, "dismisser": None,
+                "state": "queued", "body": f"m{i}", "answer": None, "dismisser": None,
                 "dismiss_reason": None, "delivered_at": delivered, "typed_at": delivered,
                 "landed_at": delivered, "landing_tries": None, "parent_id": None,
                 "kind": None, "tasks": None, "task_title": None, "task_state": None}
@@ -890,7 +890,7 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
     now = int(time.time())
     def row(typed, landed, tries=None):
         return {"id": 1, "ts": 100, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
-                "state": "queued", "body": "m", "verdict": None, "dismisser": None,
+                "state": "queued", "body": "m", "answer": None, "dismisser": None,
                 "dismiss_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
                 "landing_tries": tries}
     def label_and_buttons(r):
