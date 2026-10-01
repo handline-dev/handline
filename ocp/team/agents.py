@@ -5,6 +5,7 @@ name, the Orca task label and the folder name are all the same string.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +64,30 @@ def chrome(cfg: dict) -> bool:
     """Whether this agent's sessions start with the browser integration
     (`--chrome`) instead of `--no-chrome`. Only a real true turns it on."""
     return cfg.get("chrome") is True
+
+
+def mcp_config_text(text: str) -> str:
+    """`text` as one line of JSON, if it is a {"mcpServers": {...}} object (what
+    `--mcp-config` takes); ValueError otherwise."""
+    data = json.loads(text)
+    if not (isinstance(data, dict) and isinstance(data.get("mcpServers"), dict)):
+        raise ValueError('not a {"mcpServers": {...}} object')
+    return json.dumps(data, separators=(",", ":"))
+
+
+def mcp_config_args(cfg: dict) -> list[str]:
+    """This agent's own MCP servers (T885), as `--mcp-config <json>`. They come
+    from agent.yaml, which is sealed, not from a project .mcp.json: claude holds
+    those until someone approves them in each account's own config, and an
+    agent-writable file would be a way to run any command outside the sandbox.
+    A value that is not a valid config adds nothing."""
+    v = cfg.get("mcp_config")
+    if not isinstance(v, str):
+        return []
+    try:
+        return ["--mcp-config", mcp_config_text(v)]
+    except ValueError:        # JSONDecodeError is one
+        return []
 
 
 _SKIP_NS = "skip_permissions"
@@ -143,7 +168,8 @@ def register(name: str, role: str = "", model: str | None = None,
              role_file: str | None = None, repo: str | None = None,
              vendor: str | None = None, context_tokens: int | None = None,
              skip_permissions: bool | None = None,
-             chrome: bool | None = None) -> Path:
+             chrome: bool | None = None,
+             mcp_config: str | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
     # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
@@ -176,7 +202,8 @@ def register(name: str, role: str = "", model: str | None = None,
                      "enabled": True, **({"repo": repo} if repo else {}),
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
                      **({"skip_permissions": True} if skip_permissions else {}),
-                     **({"chrome": True} if chrome else {})})
+                     **({"chrome": True} if chrome else {}),
+                     **({"mcp_config": mcp_config_text(mcp_config)} if mcp_config else {})})
     for sub in ("inbox", "journal", "memory"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
@@ -211,6 +238,11 @@ def register(name: str, role: str = "", model: str | None = None,
                 cfg["chrome"] = True
             else:
                 cfg.pop("chrome", None)
+        if mcp_config is not None:
+            if mcp_config:
+                cfg["mcp_config"] = mcp_config_text(mcp_config)
+            else:
+                cfg.pop("mcp_config", None)
         if vendor and vendor != DEFAULT_VENDOR:
             cfg["vendor"] = vendor
         cfg.setdefault("effort", DEFAULT_EFFORT)

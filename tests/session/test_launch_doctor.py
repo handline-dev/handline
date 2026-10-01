@@ -527,6 +527,48 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
         argv = launch.build("backend")[0]
         check("chrome: and off from the CLI gives --no-chrome back",
               "--no-chrome" in argv and "--chrome" not in argv and "chrome" not in agents.read("backend"), argv)
+        # T885: an agent's own MCP servers, from a file through the parser into the launch.
+        mcpf = home / "own-mcp.json"
+        mcpf.write_text('{"mcpServers": {"browser": {"command": "sh", "args": ["-c", "echo \\"x y\\""]}}}')
+        def mcp_args(argv):
+            return [argv[i + 1] for i, x in enumerate(argv) if x == "--mcp-config"]
+        check("mcp: none by default", mcp_args(launch.build("backend")[0]) == [])
+        fp_off = launch.fingerprint("backend")
+        out = _capture(lambda: climod.main(["agent", "register", "backend", "--mcp-config", str(mcpf)]))
+        got = mcp_args(launch.build("backend")[0])
+        check("mcp: the CLI stores it and the launch passes it as --mcp-config",
+              len(got) == 1 and json.loads(got[0])["mcpServers"]["browser"]["command"] == "sh"
+              and "next launch" in out, (got, out))
+        check("mcp: and the fingerprint moves", launch.fingerprint("backend") != fp_off)
+        agents.register("backend", effort="high")
+        check("mcp: a re-registration that omits it keeps it", len(mcp_args(launch.build("backend")[0])) == 1)
+        bad = home / "bad-mcp.json"
+        bad.write_text('{"servers": {}}')
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = climod.main(["agent", "register", "backend", "--mcp-config", str(bad)])
+        check("mcp: a file that is not {mcpServers: {...}} is refused, the old one kept",
+              rc == 1 and len(mcp_args(launch.build("backend")[0])) == 1)
+        cfgp = agents.agent_file("backend")
+        cfg = agents.load(cfgp.read_text())
+        cfg["mcp_config"] = "not json"
+        cfgp.write_text(agents.dump(cfg))
+        reseal(cfgp)
+        check("mcp: a value in agent.yaml that is not valid adds nothing, launch still builds",
+              mcp_args(launch.build("backend")[0]) == [])
+        _capture(lambda: climod.main(["agent", "register", "backend", "--mcp-config", "off"]))
+        check("mcp: off removes the key and the argument, and the old fingerprint returns",
+              "mcp_config" not in agents.read("backend") and mcp_args(launch.build("backend")[0]) == []
+              and launch.fingerprint("backend") == fp_off)
+        os.environ["OCP_AGENT"] = "backend"
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = climod.main(["agent", "register", "backend", "--mcp-config", str(mcpf)])
+            check("mcp: an agent's own session is refused cleanly, nothing written",
+                  rc == 1 and "founder's" in err.getvalue() and "mcp_config" not in agents.read("backend"),
+                  err.getvalue())
+        finally:
+            os.environ.pop("OCP_AGENT")
         os.environ["OCP_AGENT"] = "backend"
         try:
             err = io.StringIO()
