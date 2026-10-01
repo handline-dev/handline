@@ -102,17 +102,18 @@ def refresh_sent(con, tid: int) -> None:
         "UPDATE tasks SET sent_at = CASE WHEN EXISTS "
         "(SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id WHERE l.task_id = tasks.id "
         "AND (r.state = 'queued' OR (r.state = 'landed' AND r.kind = 'task' "
-        "AND r.target = tasks.owner AND r.resolved_at IS NULL))) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
+        "AND r.target = tasks.owner AND r.queue_order IS NOT NULL))) THEN COALESCE(sent_at, ?) ELSE NULL END WHERE id = ?",
         (int(time.time()), tid))
 
 
 def end_held(con, tid: int, owner: str | None = None) -> None:
     """The task no longer holds the landed delivery that asked `owner` (anyone when None) for it:
-    stamped answered, so it is history and can never be held again - not when the task is reopened,
-    nor when it comes back to a previous holder."""
+    out of that agent's queue (no `queue_order`), so it is history and can never be held again - not
+    when the task is reopened, nor when it comes back to a previous holder."""
     con.execute(
-        "UPDATE requests SET resolved_at = COALESCE(resolved_at, ?) WHERE state = 'landed' AND kind = 'task' "
-        "AND resolved_at IS NULL AND (? IS NULL OR target = ?) "
+        "UPDATE requests SET resolved_at = COALESCE(resolved_at, ?), queue_order = NULL "
+        "WHERE state = 'landed' AND kind = 'task' "
+        "AND queue_order IS NOT NULL AND (? IS NULL OR target = ?) "
         "AND id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", (int(time.time()), owner, owner, tid))
 
 
@@ -404,11 +405,10 @@ def open_decision_tasks_of(con, agent: str) -> int:
 def live_delivery(con, tid: int, owner: str):
     """The request that asks `owner` to do task `tid` - the latest task delivery to that owner,
     queued or landed and not answered - or None. A landed one is the task held, not history: the
-    task rows say whether it is still open. (`resolved_at` tells an answered one apart until the
-    answers go.)"""
+    task rows say whether it is still open. (No `queue_order` tells one whose hold ended apart.)"""
     rows = [r for r in task_requests(con, tid)
             if r["kind"] == "task" and r["target"] == owner
-            and (r["state"] == "queued" or r["state"] == "landed" and r["resolved_at"] is None)]
+            and (r["state"] == "queued" or r["state"] == "landed" and r["queue_order"] is not None)]
     return rows[-1] if rows else None
 
 

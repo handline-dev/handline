@@ -8795,7 +8795,7 @@ limits:
             told.clear()
             db.set_current_task(con, "worker", None)
             for r in db.task_requests(con, bt):
-                con.execute("UPDATE requests SET state = 'landed', resolved_at = 1 WHERE id = ?", (r["id"],))   # answered
+                con.execute("UPDATE requests SET state = 'landed', resolved_at = 1, queue_order = NULL WHERE id = ?", (r["id"],))   # answered
                 db.refresh_sent_of_request(con, r["id"])
             _cli(["task", "edit", f"T{bt}", "--body", "cli brief, not doing"], as_agent="manager")
             check("T689: nobody is told for a task that is not being worked", told == [], str(told))

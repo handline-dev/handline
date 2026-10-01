@@ -172,8 +172,9 @@ def settle_leftover_deliveries(con) -> list[int]:
 
 # A task delivery that landed and was not answered is the task its target still holds: it stays in
 # that agent's queue, ahead of the ones not yet told, until the task ends or moves on. Read off the
-# task rows (open, still this owner's), so a delivery of a task that ended is never held.
-HELD_DELIVERY = ("(requests.state = 'landed' AND requests.kind = 'task' AND requests.resolved_at IS NULL "
+# task rows (open, still this owner's), so a delivery of a task that ended is never held. A row that
+# has left its target's queue (closed, or its hold ended) has no `queue_order`.
+HELD_DELIVERY = ("(requests.state = 'landed' AND requests.kind = 'task' AND requests.queue_order IS NOT NULL "
                  "AND EXISTS (SELECT 1 FROM task_requests l JOIN tasks t ON t.id = l.task_id "
                  "WHERE l.request_id = requests.id AND t.owner = requests.target "
                  "AND t.done_evidence IS NULL AND t.discarded_by IS NULL))")
@@ -433,7 +434,7 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, state_at = ?, verdict = COALESCE(?, verdict), "
-        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?) "
+        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?), queue_order = NULL "
         "WHERE id = ? AND state = 'queued'", (stored_state(con, rid, state), now, verdict, now, now, rid))
     if cur.rowcount > 0:
         _settle(con, rid, state, verdict)
@@ -495,7 +496,7 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, state_at = ?, verdict = ?, resolved_at = ?, "
-        "announced_at = COALESCE(announced_at, ?), dismissed_by = ?, dismissed_reason = ? "
+        "announced_at = COALESCE(announced_at, ?), dismissed_by = ?, dismissed_reason = ?, queue_order = NULL "
         "WHERE id = ? AND state = 'queued'",
         (stored_state(con, rid, state), now, verdict, now, now if announced else None,
          dismissed_by, dismissed_reason, rid))
@@ -569,7 +570,7 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, state_at = ?, verdict = COALESCE(?, verdict), "
-        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?) "
+        "resolved_at = COALESCE(resolved_at, ?), announced_at = COALESCE(announced_at, ?), queue_order = NULL "
         "WHERE id = ? AND state = 'queued' AND delivered_at IS NULL",
         (stored_state(con, rid, state), now, verdict, now, now, rid))
     if cur.rowcount > 0:

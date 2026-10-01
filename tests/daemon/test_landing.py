@@ -474,6 +474,31 @@ def test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(home: Pat
         con.close()
 
 
+def test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(home: Path) -> None:
+    """T835 step 4b: `queue_order` NULL is what says a request is out of its target's queue - closed,
+    or its task hold ended; the upgrade clears it on every row that was resolved."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        held = db.add_request(con, "orcapipe", "backend", "task one", None, None, None, "task", 0, None)
+        db.mark_landed(con, held)
+        gone = db.add_request(con, "orcapipe", "backend", "task two", None, None, None, "task", 0, None)
+        db.close_if_queued(con, gone, "done", "ok")
+        check("closing a request takes it out of the queue", db.get_request(con, gone)["queue_order"] is None)
+        check("a landed one still has its place", db.get_request(con, held)["queue_order"] is not None)
+        old = db.add_request(con, "orcapipe", "backend", "task three", None, None, None, "task", 0, None)
+        con.execute('UPDATE requests SET "state" = \'landed\', resolved_at = 50 WHERE id = ?', (old,))
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:closed_rows_leave_the_queue'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("migration: a resolved row loses its place, an unresolved one keeps it",
+              db.get_request(con, old)["queue_order"] is None and db.get_request(con, held)["queue_order"] is not None)
+    finally:
+        con.close()
+
+
 def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
     """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
     every row gets a state_at; ledgered, a second connect changes nothing."""
@@ -669,6 +694,7 @@ def main() -> int:
         run(lambda: test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(Path(td) / "l16"))
         run(lambda: test_an_fyi_report_before_the_upgrade_becomes_a_say(Path(td) / "l16f"))
         run(lambda: test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(Path(td) / "l16t"))
+        run(lambda: test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(Path(td) / "l16q"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))
