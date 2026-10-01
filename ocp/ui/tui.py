@@ -514,7 +514,7 @@ def messages_data(con) -> tuple[str, list[MessageRow], list[str]]:
         # sign anything sits behind it.
         behind = f" {DIM}(+{m['unread'] - 1}){R}" if m["unread"] > 1 else ""
         rows.append(MessageRow(m["key"], when, flavour, m["id"], oneline(m["from"]),
-                               oneline(m["kind"] or "ask"),
+                               oneline(m["kind"] or "say"),
                                drawable(actions.first_line(m["body"]))[0], behind))
     return (f"FOR YOU — {said}" if said else "FOR YOU"), rows, \
         [] if waiting else ["nothing waiting on you"]

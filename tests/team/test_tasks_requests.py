@@ -4283,6 +4283,18 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
                           "(kind IS NULL OR kind IN ('report', 'escalate'))", (q_delivered,)).fetchone()["c"] == 0
               and con.execute("SELECT COUNT(*) c FROM requests WHERE state = 'queued' AND kind IS NULL "
                               "AND fyi = 0 AND delivered_at IS NULL").fetchone()["c"] == 0)
+        old_kinds = {}
+        for k in (None, "", "answer", "escalate", "report", "task_note"):
+            rid_k = db.add_request(con, "worker", "manager", f"old {k}", None, None, None, k, 0, None, state="denied")
+            old_kinds[k] = rid_k
+        q_old = db.add_request(con, "worker", "manager", "still waiting", None, None, None, "report", 0, None)
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:kinds_are_say'")
+        con.close()
+        con = db.connect()
+        check("kinds: every kind but say and task, on a finished row, becomes say (T766)",
+              all(kind(r) == "say" for r in old_kinds.values()) and kind(task_row) == "task"
+              and con.execute("SELECT 1 FROM cursors WHERE name = 'migrated:kinds_are_say'").fetchone() is not None)
+        check("kinds: and a queued row is left as it is", kind(q_old) == "report")
         con.close()
         con = db.connect()
         check("kinds: a second connect changes nothing",
