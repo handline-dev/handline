@@ -209,7 +209,7 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
 
 def first_linked_request(con, tid: int):
     """The request T<tid> was opened with: the first one linked to it, in link order (the link's
-    rowid, not the request id - a later `task link` of an older request does not come first)."""
+    rowid, not the request id - a later link of an older request, `say --task`, does not come first)."""
     return con.execute("SELECT r.* FROM task_requests l JOIN requests r ON r.id = l.request_id "
                        "WHERE l.task_id = ? ORDER BY l.rowid LIMIT 1", (tid,)).fetchone()
 

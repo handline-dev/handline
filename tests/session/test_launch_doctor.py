@@ -921,6 +921,9 @@ def test_doctor_checks_team_yaml_and_that_its_agents_are_registered(home: Path) 
     r = doctor.Report()
     doctor._check_team(r)
     check("doctor: a team.yaml that does not parse fails", r.rows[-1][0] == doctor.FAIL, str(r.rows))
+    rows = doctor._run().rows
+    check("doctor: and the whole run includes the team check",
+          any(lvl == doctor.FAIL and "team.yaml" in msg for lvl, msg, _d in rows), str(rows)[:300])
 
 
 def test_doctor_says_one_thing_per_account(home: Path) -> None:
@@ -1681,6 +1684,14 @@ def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
         check("ps: the screen says it too",
               any(l.startswith("backend") and "·drift" in l for l in printed.splitlines()),
               printed)
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent = 'backend'")
+        printed = _capture(lambda: clidaemon.cmd_daemon_status(None))
+        line = next(l for l in printed.splitlines() if l.startswith("backend"))
+        check("ps: an agent with no account recorded shows -", line.split()[1] == "-", line)
+        con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'backend'")
+        printed = _capture(lambda: clidaemon.cmd_daemon_status(None))
+        line = next(l for l in printed.splitlines() if l.startswith("backend"))
+        check("ps: and its account shows on its row", line.split()[1] == "alpha", line)
 
         db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"))
         r = doctor.Report()
