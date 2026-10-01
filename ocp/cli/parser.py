@@ -244,8 +244,6 @@ def build_parser() -> argparse.ArgumentParser:
                         "replying to the founder's request, the task it becomes")
     p.add_argument("--no-task", default=None, metavar="REASON",
                    help="replying to the founder's request: nothing needs building, and why")
-    p.add_argument("--fyi", default=None, metavar="WHY",
-                   help="a say to your report that is not work: say why (the reason is a check, not stored)")
     p.set_defaults(fn=cmd_say)
 
     p = sub.add_parser("withdraw", help="take back your own request before it is delivered")

@@ -442,6 +442,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _task_leftovers_settled(con)
     _kinds_are_say(con)
     _founder_says_landed(con)
+    _fyi_are_says(con)
     _requests_one_state(con)
     _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
@@ -803,6 +804,22 @@ def _founder_says_landed(con) -> None:
         if close_if_queued(con, r["id"], "done", None, announced=True, settle=False):
             con.execute("UPDATE requests SET landed_at = COALESCE(landed_at, ts) WHERE id = ?", (r["id"],))
     set_cursor(con, "migrated:founder_says_landed", 1)
+
+
+def _fyi_are_says(con) -> None:
+    """T835 step 1: a report to the founder is a say, so the `fyi` flag says nothing more. Every
+    row that carries it becomes a say; one still queued becomes landed and unread, as a say to
+    him is born, and one already dealt with reads as read. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:fyi_are_says"):
+        return
+    now = int(time.time())
+    con.execute("UPDATE requests SET kind = 'say' WHERE fyi = 1")
+    con.execute("UPDATE requests SET read_at = COALESCE(read_at, resolved_at, ts) "
+                "WHERE fyi = 1 AND state != 'queued' AND read_at IS NULL")
+    con.execute("UPDATE requests SET \"state\" = 'landed', state_at = ?, landed_at = COALESCE(landed_at, ts), "
+                "resolved_at = COALESCE(resolved_at, ts), announced_at = COALESCE(announced_at, ts) "
+                "WHERE fyi = 1 AND \"state\" = 'queued'", (now,))
+    set_cursor(con, "migrated:fyi_are_says", 1)
 
 
 def _requests_one_state(con) -> None:

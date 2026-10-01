@@ -408,6 +408,32 @@ def test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unre
         con.close()
 
 
+def test_an_fyi_report_before_the_upgrade_becomes_a_say(home: Path) -> None:
+    """T835: the fyi flag is gone; a row that carries it is a say, unread while it was queued."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        old_q = db.add_request(con, "backend", "human", "report queued", None, None, None, "report", 0, None)
+        con.execute('UPDATE requests SET fyi = 1, "state" = \'queued\', landed_at = NULL WHERE id = ?', (old_q,))
+        old_done = db.add_request(con, "backend", "human", "report read", None, None, None, None, 0, None)
+        con.execute('UPDATE requests SET fyi = 1, "state" = \'landed\', resolved_at = 77, read_at = NULL '
+                    'WHERE id = ?', (old_done,))
+        plain = db.add_request(con, "backend", "frontend", "a plain ask", None, None, None, "task", 0, None)
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:fyi_are_says'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        r = db.get_request(con, old_q)
+        check("migration: a queued fyi is a say, landed and unread",
+              r["kind"] == "say" and r["state"] == "landed" and r["landed_at"] and r["read_at"] is None, str(dict(r)))
+        d = db.get_request(con, old_done)
+        check("migration: a closed fyi is a say that reads as read", d["kind"] == "say" and d["read_at"] == 77)
+        check("migration: a row without the flag is untouched", db.get_request(con, plain)["kind"] == "task")
+    finally:
+        con.close()
+
+
 def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
     """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
     every row gets a state_at; ledgered, a second connect changes nothing."""
@@ -601,6 +627,7 @@ def main() -> int:
         run(lambda: test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_again(Path(td) / "l10"))
         run(lambda: test_a_say_to_the_founder_is_landed_and_unread_and_never_typed(Path(td) / "l15"))
         run(lambda: test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unread(Path(td) / "l16"))
+        run(lambda: test_an_fyi_report_before_the_upgrade_becomes_a_say(Path(td) / "l16f"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))

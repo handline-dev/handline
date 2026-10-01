@@ -62,7 +62,7 @@ def _said(con, tid: int) -> str:
 
 
 def _reports(con) -> int:
-    return con.execute("SELECT COUNT(*) FROM requests WHERE target = ? AND fyi = 1", (db.HUMAN,)).fetchone()[0]
+    return con.execute("SELECT COUNT(*) FROM requests WHERE target = ? AND kind = 'say'", (db.HUMAN,)).fetchone()[0]
 
 
 def test_a_task_behind_the_owners_current_one_says_which(home: Path) -> None:

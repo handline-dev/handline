@@ -267,7 +267,7 @@ def mailbox_rows(con) -> list[dict]:
     out = []
     gates = set(db.open_decision_card_ids(con))
     for r in con.execute(
-        "SELECT id, ts, requester, target, kind, response, body, parent_id, fyi "
+        "SELECT id, ts, requester, target, kind, response, body, parent_id "
         "FROM requests WHERE target = ? AND (state = 'queued' OR "
         "(kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL)) "
         "ORDER BY id",
@@ -283,17 +283,14 @@ def mailbox_rows(con) -> list[dict]:
         # is what it did at the time; whether it is still parked now is the
         # agent's own state, and the screen says what the row records rather
         # than reading one as the other. A say asks for no reply either - it is the
-        # message that needs none - so it never waits. A report is `fyi` by definition
-        # asking for no reply, whatever response the routing happened to pick
-        # for that sender's other traffic - `response == "async"` alone would
-        # let one hand-edited routing line pin every report from an agent and
-        # switch the fold off with nothing failing.
+        # message that needs none - so it never waits. A report is a say, asking
+        # for no reply whatever response the routing picked for that sender.
         out.append({
             "id": r["id"], "ts": r["ts"], "from": r["requester"],
             "kind": r["kind"], "body": r["body"], "parent_id": r["parent_id"],
             "seq": r["id"],
             "gate": int(r["id"]) in gates,
-            "waiting": r["response"] == "async" and not r["fyi"] and r["kind"] != "say",
+            "waiting": r["response"] == "async" and r["kind"] != "say",
             "answer": False,
         })
 
@@ -448,9 +445,7 @@ def opened_by_human(con, rid: int) -> None:
     """
     row = db.get_request(con, rid)
     db.mark_read(con, [rid])
-    if row and row["fyi"] and row["target"] == HUMAN:
-        db.retire_queued(con, rid, "done", None)
-    elif row and _is_answer_to_human(row):
+    if row and _is_answer_to_human(row):
         db.mark_announced(con, [rid])
 
 

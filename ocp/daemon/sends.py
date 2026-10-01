@@ -14,8 +14,7 @@ import threading
 
 from .. import actions, db
 from ..infra import paths
-from ..infra.yamlcompat import ConfigError
-from ..team import ask as askmod, team
+from ..team import ask as askmod
 
 from . import messaging
 
@@ -62,20 +61,12 @@ _NO_WHO = ("cannot tell who is asking: the request named nobody. Agents are star
            "`ocp launch <agent>`, which sets OCP_AGENT.")
 
 
-def _is_report_of(me: str, target: str) -> bool:
-    """Is `target` one of `me`'s reports, by the supervisor edge in team.yaml?"""
-    try:
-        return actions.supervisor_of(team.Team.load(), target) == me
-    except (ConfigError, OSError):      # an unreadable table refuses nothing here
-        return False
-
-
 def say_verb(con, log, **kw) -> tuple[bool, str]:
     """`ocp say TARGET BODY`: a message that needs no answer, typed at once."""
     me, speaker = _who(kw)
     if me is None:
         return False, _NO_WHO
-    target, task, fyi = kw["target"], kw.get("task"), kw.get("fyi")
+    target, task = kw["target"], kw.get("task")
     no_task = kw.get("no_task")
     parent = db.get_request(con, kw["parent"]) if kw.get("parent") is not None else None
     # A reply to the founder's own open request says what it becomes, as `resolve` did (T361).
@@ -87,8 +78,6 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
                                               one_task=True)
         if refusal:
             return False, refusal
-        if fyi is not None and not str(fyi).strip():
-            return False, "--fyi says why this is not work: give the reason"
         ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw["parent"],
                                   speaker=speaker, notify=False)
         if ok:
@@ -99,10 +88,6 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
     if no_task is not None:
         return False, ("--no-task is for replying to the founder's request (--parent <its id>): "
                        "say what it becomes there")
-    if fyi is not None and not str(fyi).strip():
-        return False, "--fyi says why this is not work: give the reason"
-    if task is not None and fyi:
-        return False, "--task and --fyi contradict each other: use one"
     if task is not None:
         # Structural, not read from the text: a say to a report about a task is
         # that task's memo, delivered as one.
@@ -113,9 +98,6 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
             return False, f"T{task} is with {row['owner']}, not {target}"
         ok, msg, _ = actions.memo_add(con, task, me, kw["body"])
         return ok, msg
-    if kw.get("parent") is None and not fyi and _is_report_of(me, target):
-        return False, ("make it a task (`ocp task new`), or say --task T<n> to memo one, "
-                       "or say --fyi 'why' to say it is not work")
     ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw.get("parent"),
                               speaker=speaker, notify=False)
     if ok:

@@ -120,10 +120,10 @@ def task_asker(con, row) -> str:
 
 
 def _asks(r) -> bool:
-    """Is this linked request work still being asked for? A report (`--fyi`) asks
-    nothing, so linking one never makes a task doing (T266)."""
-    return not r["fyi"] and (r["state"] == "queued" or (
-        r["state"] == "landed" and r["kind"] == "task" and r["resolved_at"] is None))
+    """Is this linked request work still being asked for? A report to the founder is a
+    say, born landed, so linking one never makes a task doing (T266)."""
+    return r["state"] == "queued" or (
+        r["state"] == "landed" and r["kind"] == "task" and r["resolved_at"] is None)
 
 
 def _begun(con, tid: int) -> bool:
@@ -875,7 +875,7 @@ def parse_expects(text) -> str:
 
 def _current_task_still_asking(con, agent: str) -> bool:
     """Does `agent`'s current task still have its own (not a child's) request
-    queued and not a mere fyi report - the one thing left to deliver? A begun
+    queued - the one thing left to deliver? A begun
     task (`_begun`) always does, until it is done."""
     tid = db.current_task(con, agent)
     if tid is None:
@@ -925,7 +925,7 @@ def _waiting_tasks(con, agent: str):
         linked = db.task_requests(con, row["id"])
         req = next((r for r in linked if _asks(r)), None)
         after = _reset_after(con, row["id"]) if not sent else 0
-        if not sent and any(r["target"] == agent and not r["fyi"] and r["id"] > after
+        if not sent and any(r["target"] == agent and r["id"] > after
                             and r["state"] not in db.NEVER_REACHED_TARGET for r in linked):
             continue  # delivered and answered since it last came due: not a reason to send it again
         if sent or row["queued_by"] is not None:
@@ -1696,7 +1696,7 @@ class _board_facts:
     def __init__(self, con, open_tasks: list):
         self.links: dict[int, list] = {}
         for r in con.execute(
-                "SELECT l.task_id AS tid, r.id, r.state, r.fyi, r.requester, r.ts, r.resolved_at "
+                "SELECT l.task_id AS tid, r.id, r.state, r.kind, r.requester, r.ts, r.resolved_at "
                 "FROM task_requests l JOIN requests r ON r.id = l.request_id "
                 "ORDER BY l.task_id, r.id"):
             self.links.setdefault(r["tid"], []).append(r)
@@ -1923,11 +1923,7 @@ def reason_gaps(con, window_days: int = 30) -> dict:
     stores a NULL verdict; a dismiss or a replace with none stores the fixed
     phrase with no ": " suffix.
 
-    Two corrections from auditor #1366's should-fix 2, measured against the
-    live board: `fyi=0` excludes the rows ask.py's own supersede loop
-    replaces - nobody was ever asked for a reason there, so counting them as
-    a human omission overstated the gap (20% of one bucket, that day). And
-    `resolved_at >= cutoff` bounds the count to the last `window_days`: with
+    From auditor #1366's should-fix 2: `resolved_at >= cutoff` bounds the count to the last `window_days`: with
     no window the line reports history forever, dominated by rows that
     predate `--reason` existing rather than current practice.
 
@@ -1944,7 +1940,7 @@ def reason_gaps(con, window_days: int = 30) -> dict:
     cutoff = int(time.time()) - window_days * 86400
     def one(where: str) -> int:
         return con.execute(
-            f"SELECT COUNT(*) FROM requests WHERE fyi = 0 AND resolved_at >= ? AND {where}",
+            f"SELECT COUNT(*) FROM requests WHERE resolved_at >= ? AND {where}",
             (cutoff,)).fetchone()[0]
     withdrawn_total = one("state = 'withdrawn'")
     withdrawn_blank = one("state = 'withdrawn' AND verdict IS NULL")

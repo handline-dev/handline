@@ -2849,7 +2849,7 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
     from ocp.ui import chat_page as cp
     _home("replyreport")
     agents.register("reviewer")
-    ok, _, said = askmod.ask(actions.HUMAN, "done, FYI", requester="reviewer", fyi=True)
+    ok, _, said = askmod.say(actions.HUMAN, "done, FYI", requester="reviewer")
     con = db.connect()
     try:
         ok, sent = cp.send_reply(con, "reviewer", said, "thanks, one question")
