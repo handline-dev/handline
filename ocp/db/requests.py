@@ -95,10 +95,17 @@ def leftover_deliveries(con):
 
 
 def settle_leftover_deliveries(con) -> list[int]:
-    """Close every `LEFTOVER_DELIVERY` quietly, as settled (design #7986, MIGRATION): nobody is told,
-    nothing is typed, and no task is touched. The ids closed."""
+    """Close quietly, as settled (design #7986, MIGRATION), every queued delivery whose tasks have all
+    ended: nobody is told, nothing is typed, and no task is touched. A task moved to someone else is
+    not settled here - `send_moved_task` takes the old row back and asks the new owner, and a sweep
+    between `edit_task`'s commit and that would leave the new owner never asked. The ids closed."""
     done = []
-    for r in leftover_deliveries(con):
+    for r in con.execute(
+            "SELECT * FROM requests WHERE state = 'queued' AND kind = 'task' "
+            "AND EXISTS (SELECT 1 FROM task_requests l0 WHERE l0.request_id = requests.id) "
+            "AND NOT EXISTS (SELECT 1 FROM task_requests l JOIN tasks t ON t.id = l.task_id "
+            "WHERE l.request_id = requests.id AND t.done_evidence IS NULL AND t.discarded_by IS NULL) "
+            "ORDER BY id").fetchall():
         if close_if_queued(con, int(r["id"]), "done", "its task is no longer this agent's to do",
                            announced=True, settle=False):
             done.append(int(r["id"]))

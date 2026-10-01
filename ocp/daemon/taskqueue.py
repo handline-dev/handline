@@ -21,7 +21,7 @@ def sweep(con, log, now: int) -> None:
 
     taskmod.release_ended_blockers(con, log)
     for rid in db.settle_leftover_deliveries(con):
-        log(f"  #{rid}: a task delivery whose task ended or moved on - settled, quietly")
+        log(f"  #{rid}: a task delivery whose task ended - settled, quietly")
     owners = sorted({r["owner"] for r in db.open_tasks(con)
                      if r["queued_by"] and not r["done_evidence"] and r["owner"] != db.HUMAN})
     for agent in owners:

@@ -8091,7 +8091,9 @@ limits:
         check("doctor: warns of each leftover, and does not point at `ocp cancel`",
               len(rep.rows) >= 2 and all(lv == doctormod.WARN for lv, _, _ in rep.rows)
               and not any("ocp cancel" in d for _, _, d in rep.rows), str(rep.rows))
-        check("doctor: the check is part of the run", "_check_leftover_deliveries(r)" in inspect.getsource(doctormod._run))
+        full = doctormod.run()
+        check("doctor: the check is part of the run - `doctor.run()` reports the leftover as a WARN",
+              any(lv == doctormod.WARN and f"request #{ghost} " in str(t) for lv, t, _ in full.rows), str(full.rows))
         settled = db.settle_leftover_deliveries(con)
         check("sweep: the leftovers are settled quietly - closed, nobody told, their tasks untouched",
               {frid, ghost} <= set(settled) and db.get_request(con, frid)["state"] == "done"
@@ -8107,7 +8109,17 @@ limits:
         check("ghost: a delivery whose task is with someone else is a leftover too",
               away in [r["id"] for r in db.leftover_deliveries(con)]
               and away not in [r["id"] for r in db.queued_for(con, "worker")])
+        check("sweep: a task moved to someone else is not settled - only an ended one is",
+              away not in db.settle_leftover_deliveries(con) and db.get_request(con, away)["state"] == "queued")
         con.execute("UPDATE tasks SET owner = 'worker' WHERE id = ?", (g3,))
+        ok, _, mv = actions.task_new("manager", "worker", "moved between commit and send", "w")
+        mvr = db.task_requests(con, mv)[0]["id"]
+        ok, msg = actions.edit_task(con, mv, "manager", owner="helper")
+        db.settle_leftover_deliveries(con)                  # a daemon tick in the window after the commit
+        actions.send_moved_task(con, mv, "worker", "manager")
+        check("sweep: a tick between edit_task and send_moved_task still leaves the new owner asked",
+              ok and [r["target"] for r in db.task_requests(con, mv) if r["state"] == "queued"] == ["helper"]
+              and db.get_request(con, mvr)["state"] == "withdrawn", msg)
         check("ghost: and an open task with its owner is never one",
               away not in [r["id"] for r in db.leftover_deliveries(con)])
         # a founder's card is delivered when drawn
