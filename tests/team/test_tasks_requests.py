@@ -6932,12 +6932,12 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
         g = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
         actions.dismiss(con, g, me="manager", reason="duplicate of #1")
         check("reason: a dismiss stores it, as a state and no verdict",
-              (db.get_request(con, g)["dismissed_reason"], db.get_request(con, g)["verdict"])
+              (db.dismissal(db.get_request(con, g))[2], db.get_request(con, g)["verdict"])
               == ("duplicate of #1", None))
         h = db.add_request(con, "worker", "manager", "q", None, "peer", "async", None, 0, None)
         actions.dismiss(con, h, me="manager")
         check("reason: a dismiss with none stores no reason",
-              (db.get_request(con, h)["dismissed_by"], db.get_request(con, h)["dismissed_reason"])
+              db.dismissal(db.get_request(con, h))[1:]
               == ("manager", None))
     finally:
         con.close()
@@ -6969,7 +6969,7 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
         row = db.get_request(con, new)
         check("dismissed: state done, who and why recorded, no verdict",
               ok and row["state"] == "landed" and row["verdict"] is None
-              and (row["dismissed_by"], row["dismissed_reason"]) == ("manager", "dup of #9")
+              and db.dismissal(row) == (True, "manager", "dup of #9")
               and row["resolved_at"], str(dict(row)))
         old = db.add_request(con, askmod.HUMAN, "manager", "q2", None, "supervisor",
                              "fire_and_forget", None, 0, None, state="done",

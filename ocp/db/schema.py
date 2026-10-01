@@ -14,6 +14,8 @@ from .cursors import get_cursor, set_cursor
 
 # The task an event names, as the index and every lookup by it spell it.
 EVENT_TASK = "CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END"
+# The request an event names, likewise (a dismissal, a close made under its target).
+EVENT_REQUEST = "CASE WHEN json_valid(payload) THEN json_extract(payload, '$.request_id') END"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -32,6 +34,7 @@ CREATE INDEX IF NOT EXISTS events_agent_id ON events(agent, id);
 -- (`db.EVENT_TASK`); the json_valid guard is so that a payload that is not JSON
 -- is a row the index skips, not an insert or a build that fails.
 CREATE INDEX IF NOT EXISTS events_kind_task ON events(kind, CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END);
+CREATE INDEX IF NOT EXISTS events_kind_request ON events(kind, CASE WHEN json_valid(payload) THEN json_extract(payload, '$.request_id') END);
 
 CREATE TABLE IF NOT EXISTS requests (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -446,6 +449,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _requests_one_state(con)
     _answers_told_on_the_say(con)
     _closed_rows_leave_the_queue(con)
+    _dismissals_are_events(con)
     _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
@@ -852,6 +856,22 @@ def _closed_rows_leave_the_queue(con) -> None:
         return
     con.execute("UPDATE requests SET queue_order = NULL WHERE resolved_at IS NOT NULL AND queue_order IS NOT NULL")
     set_cursor(con, "migrated:closed_rows_leave_the_queue", 1)
+
+
+def _dismissals_are_events(con) -> None:
+    """T835 step 4c: a dismissal is an event naming the request, who dismissed it and why, not two
+    columns of the row. Each dismissed row that has none gets one, at the time it was closed.
+    Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:dismissals_are_events"):
+        return
+    for r in con.execute(
+            "SELECT id, dismissed_by, dismissed_reason, COALESCE(resolved_at, state_at, ts) AS at FROM requests "
+            "WHERE dismissed_by IS NOT NULL AND id NOT IN (SELECT " + EVENT_REQUEST + " FROM events "
+            "WHERE kind = 'dismissed' AND " + EVENT_REQUEST + " IS NOT NULL) ORDER BY id").fetchall():
+        con.execute("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'dismissed', ?)",
+                    (r["at"], r["dismissed_by"], json.dumps({"request_id": r["id"], "by": r["dismissed_by"],
+                                                              "reason": r["dismissed_reason"]})))
+    set_cursor(con, "migrated:dismissals_are_events", 1)
 
 
 def _requests_one_state(con) -> None:

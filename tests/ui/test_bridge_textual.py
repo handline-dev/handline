@@ -862,8 +862,8 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
     from ocp.ui import chat_page as cp
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
-                "state": "queued", "body": f"m{i}", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": delivered, "typed_at": delivered,
+                "state": "queued", "body": f"m{i}", "verdict": None, "dismisser": None,
+                "dismiss_reason": None, "delivered_at": delivered, "typed_at": delivered,
                 "landed_at": delivered, "landing_tries": None, "parent_id": None,
                 "kind": None, "tasks": None, "task_title": None, "task_state": None}
     msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
@@ -890,8 +890,8 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
     now = int(time.time())
     def row(typed, landed, tries=None):
         return {"id": 1, "ts": 100, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
-                "state": "queued", "body": "m", "verdict": None, "dismissed_by": None,
-                "dismissed_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
+                "state": "queued", "body": "m", "verdict": None, "dismisser": None,
+                "dismiss_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
                 "landing_tries": tries}
     def label_and_buttons(r):
         m = cp.messages_of([r], "reviewer")[0]
