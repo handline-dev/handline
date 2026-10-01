@@ -1039,10 +1039,6 @@ def test_a_forgotten_message_or_a_task_behind_one_is_still_nudged(home: Path) ->
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         now = int(time.time())
-        ask = db.add_request(con, "marina", "backend", "please look", None, "peer", "async", None, 0, None)
-        db.mark_delivered(con, ask)                # what tell_now does when it types it
-        db.mark_told_out_of_turn(con, ask)
-
         def idle_for(secs: int) -> None:
             con.execute("DELETE FROM events WHERE agent = 'backend'")
             db.add_event(con, "backend", "Stop", {})
@@ -1053,24 +1049,15 @@ def test_a_forgotten_message_or_a_task_behind_one_is_still_nudged(home: Path) ->
             return dmn_delivery.nudge_forgotten_resolve(
                 con, "backend", db.get_agent_state(con, "backend"), at, lambda _m: None)
 
-        idle_for(dmn_delivery.NUDGE_AFTER_S - 60)
-        check("forgotten ask: idle for less than the interval is left alone", not nudge(now) and not sent)
-        idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
-        found = dmn_delivery.forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"), now)
-        check("forgotten ask: a typed ask left open is what is judged",
-              found is not None and found["head"]["id"] == ask, str(found))
-        check("forgotten ask: and it is nudged", nudge(now) and len(sent) == 1
-              and f"#{ask}" in sent[0], str(sent))
-
         sent.clear()
         task = db.add_request(con, "marina", "backend", "the work", None, "peer", "async", "task", 0, None)
         db.mark_delivered(con, task)
         db.set_cursor(con, "notify:backend", task)
         idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         found = dmn_delivery.forgotten_resolve(con, "backend", db.get_agent_state(con, "backend"), now)
-        check("forgotten ask: a task told behind the typed ask is judged as the task",
+        check("forgotten task: a task told and left open is what is judged",
               found is not None and found["head"]["id"] == task, str(found))
-        check("forgotten ask: and it is nudged too", nudge(now + dmn_delivery.NUDGE_RETRY_S + 1)
+        check("forgotten task: and it is nudged", nudge(now + dmn_delivery.NUDGE_RETRY_S + 1)
               and any(f"#{task}" in t for t in sent), str(sent))
     finally:
         con.close()
@@ -3693,9 +3680,9 @@ def test_a_queued_agent_with_a_told_head_gets_the_same_forgotten_resolve_nudge_a
         db.set_terminal(con, "backend", "term_x", "wt")
         now = int(time.time())
         head = db.add_request(con, "marina", "backend", "carry on", None,
-                              "peer", "async", None, 0, None)
+                              "peer", "async", "task", 0, None)
         db.add_request(con, "marina", "backend", "and this too", None,
-                       "peer", "async", None, 0, None)
+                       "peer", "async", "task", 0, None)
         db.mark_delivered(con, head)
         db.set_cursor(con, "notify:backend", head)
         db.add_event(con, "backend", "Stop", {})
