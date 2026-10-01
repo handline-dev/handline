@@ -30,22 +30,41 @@ def sweep_endings(con, log, now: int) -> None:
     ahead = cycle.warn_days(cfg) * 86400
     for acct in paths.list_accounts():
         end = cycle.end_of(acct, cfg)
-        if end is None or now >= end or end - now > ahead:
+        day = str(cycle.end_date(acct, cfg)) if end else None
+        told = db.get_meta(con, f"sub_ending_told:{acct}")
+        if end is None or now >= end or day != told:
+            _settle(con, log, acct, "subscription ended; the account is shown as ended"
+                    if end and now >= end else "the account's end date changed or the cycle was turned off")
+        if end is None or now >= end or end - now > ahead or told == day:
             continue
-        day = str(cycle.end_date(acct, cfg))
-        key = f"sub_ending_told:{acct}"
-        if db.get_meta(con, key) == day:
-            continue
-        askmod.raise_decision(
+        rid = askmod.raise_decision(
             con, _opener(con, acct),
             f"{acct} subscription ends {day}\n\n"
             f"Account {acct}'s one-month subscription ends {day} (its last usable day), in "
             f"{(end - now) // 3600} h. After that it is shown as ended and no agent is placed on it; "
             f"it is not removed. To keep it, resubscribe and run "
-            f"`ocp account cycle {acct} --end YYYY-MM-DD`; to let it end, do nothing.",
+            f"`ocp account cycle {acct} --end YYYY-MM-DD`; to let it end, do nothing. "
+            f"This task closes by itself once the account has ended or its end date changes.",
             "subscription ending")
-        db.set_meta(con, key, day)
+        row = con.execute("SELECT task_id FROM task_requests WHERE request_id = ?", (rid,)).fetchone()
+        if row:
+            db.set_meta(con, f"sub_ending_task:{acct}", str(row["task_id"]))
+        db.set_meta(con, f"sub_ending_told:{acct}", day)
         log(f"  {acct}: subscription ends {day} - founder told")
+
+
+def _settle(con, log, acct: str, why: str) -> None:
+    """Close the founder's notice for this account: it is about an end date
+    that has passed or no longer holds. The daemon marks it done as the founder's
+    own card, and says so in the reason."""
+    from .. import actions
+    key = f"sub_ending_task:{acct}"
+    tid = db.get_meta(con, key)
+    if not tid:
+        return
+    ok, msg = actions.mark_task_done(con, int(tid), actions.HUMAN, reason=f"closed by the daemon: {why}")
+    db.clear_meta(con, key)
+    log(f"  {acct}: subscription notice T{tid} closed ({why})" if ok else f"  {acct}: notice T{tid}: {msg}")
 
 
 def _opener(con, acct: str) -> str:

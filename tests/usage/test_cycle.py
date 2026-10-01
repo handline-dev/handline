@@ -163,26 +163,42 @@ def test_the_founder_is_told_once_before_the_end(home: Path) -> None:
                   f'sub_end_off: "{(today + dt.timedelta(days=1)).isoformat()}"\n')
 
     cfg(2)
-    for _ in range(3):
-        subscriptions.sweep_endings(con, lambda s: None, now)
+    for hour in range(3):                       # the text names the hours left, so only the memory keeps it to one
+        subscriptions.sweep_endings(con, lambda s: None, now + hour * 3600)
     rows = told()
-    check("ending: the founder's board holds one task for the account inside the window, however many ticks",
+    check("ending: the founder's board holds one task for the account inside the window, however many hours pass",
           len(rows) == 1 and rows[0]["title"] == f"soon subscription ends {today + dt.timedelta(days=2)}",
           str([r["title"] for r in rows]))
+    check("ending: and only one was ever opened - the memory, not a close and reopen each hour",
+          con.execute("SELECT COUNT(*) FROM tasks WHERE owner = ?", (db.HUMAN,)).fetchone()[0] == 1)
     body = con.execute("SELECT body FROM requests WHERE target = ? ORDER BY id DESC", (db.HUMAN,)).fetchone()["body"]
-    check("ending: the task says what happens after and how to extend",
-          "not removed" in body and "ocp account cycle soon --end" in body, body)
+    check("ending: the task says what happens after, how to extend, and that it closes itself",
+          "not removed" in body and "ocp account cycle soon --end" in body and "closes by itself" in body, body)
     check("ending: it is the founder's own, open, as the home page counts 'for you'",
           rows[0]["owner"] == actions.HUMAN and rows[0]["state"] in actions.DELEGATED_STATES)
+    first = rows[0]["id"]
 
     cfg(1)
     subscriptions.sweep_endings(con, lambda s: None, now)
-    check("ending: a new end date is a new subscription and is told again",
-          sorted(r["title"] for r in told())[0].startswith("soon subscription ends") and len(told()) == 2)
+    now_open = told()
+    check("ending: a new end date closes the old notice and opens one for the new date",
+          len(now_open) == 1 and now_open[0]["id"] != first
+          and now_open[0]["title"] == f"soon subscription ends {today + dt.timedelta(days=1)}",
+          str([r["title"] for r in now_open]))
+    check("ending: the old one is done, with the daemon's reason",
+          "closed by the daemon" in (db.get_task(con, first)["done_evidence"] or ""))
 
     cfg(-1)
     subscriptions.sweep_endings(con, lambda s: None, now)
-    check("ending: after the end it is shown ended, not warned again", len(told()) == 2)
+    check("ending: once the account has ended its notice is closed, not left open", told() == [])
+    subscriptions.sweep_endings(con, lambda s: None, now + 3600)
+    check("ending: and an ended account is never told again", told() == [])
+
+    cfg(2)
+    subscriptions.sweep_endings(con, lambda s: None, now)
+    write_cfg("")
+    subscriptions.sweep_endings(con, lambda s: None, now)
+    check("ending: turning the cycle off closes the notice too", told() == [])
     con.close()
 
 
