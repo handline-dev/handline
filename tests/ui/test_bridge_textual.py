@@ -2322,15 +2322,16 @@ def test_assign_offers_recent_targets_then_the_holders_team() -> None:
     try:
         ok, _, t1 = actions.task_new("product", "backend", "One", "the work and its done")
         ok, _, t2 = actions.task_new("product", "backend", "Two", "the work and its done")
-        check("assign to: a task nobody else held has no recent group",
-              actions.recent_assignees(con, t1) == [], str(actions.recent_assignees(con, t1)))
+        check("assign to: a task opened for its holder offers whoever opened it",
+              actions.recent_assignees(con, t1) == ["product"], str(actions.recent_assignees(con, t1)))
         said = [actions.assign_task(con, t2, "archivist", "you take it"),
                 actions.assign_task(con, t2, "reviewer", "you review it"),
                 actions.assign_task(con, t2, "archivist", "again")]
         check("assign to: the handoffs used here went through", all(ok for ok, _ in said), str(said))
-        check("assign to: this task's earlier holders, latest first, without the founder, the product that asked, or its holder now",
-              actions.recent_assignees(con, t2) == ["reviewer", "backend"] and
-              actions.recent_assignees(con, t1) == [], str(actions.recent_assignees(con, t2)))
+        check("assign to: opener, then each agent by when they first took part, each once",
+              db.task_holders(con, t2) == ["product", "backend", "archivist", "reviewer"], str(db.task_holders(con, t2)))
+        check("assign to: recent is that without the holder now",
+              actions.recent_assignees(con, t2) == ["product", "backend", "reviewer"], str(actions.recent_assignees(con, t2)))
         ok, said = actions.task_handoff(con, "archivist", t2, "human", "done, back to you")
         check("assign to: a task that went back to the founder keeps the founder out of recent",
               ok and "human" not in actions.recent_assignees(con, t2)

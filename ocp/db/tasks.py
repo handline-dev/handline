@@ -283,15 +283,26 @@ def task_handoffs(con, tid: int) -> list[dict]:
 
 
 def task_holders(con, tid: int) -> list[str]:
-    """Everyone who took part in T<tid>, the most recent first, each once: those in its handoffs
-    (the one handed to, then the one handing), then the targets of the requests linked to it."""
+    """Everyone who took part in T<tid>, in the order they first did, each once: the one who opened
+    it and the one it was opened for, then each handoff (who handed, who was handed to) and each
+    request linked to it (its target), by when they happened."""
+    row = con.execute("SELECT opened_by, owner, created_at FROM tasks WHERE id = ?", (tid,)).fetchone()
+    if row is None:
+        return []
+    made = con.execute(f"SELECT payload FROM events WHERE kind = 'task_new' AND {EVENT_TASK} = ? "
+                       "ORDER BY id LIMIT 1", (tid,)).fetchone()
+    handoffs = task_handoffs(con, tid)
+    first = (json.loads(made["payload"]).get("owner") if made else None) \
+        or (handoffs[0]["from"] if handoffs else row["owner"])
+    seen: list[tuple[float, str | None]] = [(row["created_at"] or 0, row["opened_by"]), (row["created_at"] or 0, first)]
+    for h in handoffs:
+        seen += [(h["at"], h["from"]), (h["at"], h["to"])]
+    seen += [(r["ts"], r["target"]) for r in con.execute(
+        "SELECT r.ts, r.target FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ?", (tid,))]
     out: list[str] = []
-    for h in reversed(task_handoffs(con, tid)):
-        out += [a for a in (h["to"], h["from"]) if a and a not in out]
-    for r in con.execute("SELECT r.target FROM requests r JOIN task_requests l "
-                         "ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id DESC", (tid,)):
-        if r["target"] not in out:
-            out.append(r["target"])
+    for _, who in sorted(seen, key=lambda e: e[0]):     # stable: at one moment, the order they were added
+        if who and who not in out:
+            out.append(who)
     return out
 
 
