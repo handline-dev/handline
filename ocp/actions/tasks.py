@@ -22,6 +22,19 @@ from .routing import HUMAN, routing, supervisor_of
 TASK_REF = re.compile(r"[Tt](\d+)")
 
 
+# A T<digits> that stands alone: no ASCII letter, digit or _ touches either end
+# (Hangul next to it is fine: "T835를"). Skipped: a URL, and a `code span`.
+_TASK_REF_IN_TEXT = re.compile(r"(?<![A-Za-z0-9_#])T([0-9]{1,9})(?![A-Za-z0-9_])")
+_NOT_PROSE = re.compile(r"`[^`\n]*`|\b[a-zA-Z][\w+.-]*://\S+")
+
+
+def task_refs_in(text: str) -> list[tuple[int, int, int]]:
+    """(start, end, task id) of each T<digits> in `text` that stands on its own."""
+    skip = [m.span() for m in _NOT_PROSE.finditer(text)]
+    return [(m.start(), m.end(), int(m.group(1))) for m in _TASK_REF_IN_TEXT.finditer(text)
+            if not any(a <= m.start() < b for a, b in skip)]
+
+
 def task_ref(tid) -> str:
     """How a task is written wherever it is printed or typed: T79. A request
     is a bare number, so the two can never be read for each other."""
