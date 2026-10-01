@@ -92,7 +92,7 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
     `limit` when None); `since` reads every request from that id on, which is
     how a window already on screen is brought up to date."""
     where, params = _scope(agent, everyone)
-    sql = (f"SELECT id, ts, resolved_at, requester, target, state, body, verdict, {db.ANSWER_SQL}, "
+    sql = (f"SELECT id, ts, state_at, resolved_at, requester, target, state, body, verdict, {db.ANSWER_SQL}, "
            "dismissed_by, dismissed_reason, delivered_at, typed_at, landed_at, parent_id, kind, "
            "(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, "
            "(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id "
@@ -221,7 +221,7 @@ def signature(con, agent: str, everyone: bool) -> tuple:
     request, or a request answered, closed or changed."""
     where, params = _scope(agent, everyone)
     row = con.execute(
-        "SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX(resolved_at), 0), "
+        f"SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX({db.touched_sql('requests')}), 0), "
         "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), COALESCE(MAX(landed_at), 0), "
         "COUNT(landed_at), COALESCE(MAX(typed_at), 0), "
         f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
@@ -253,7 +253,7 @@ def messages_of(rows, agent: str) -> list[dict]:
         shown = db.shown_verdict(r)
         for part, speaker, to, text, at in (
                 (0, r["requester"], r["target"], r["body"], r["ts"]),
-                (1, r["target"], r["requester"], shown, r["resolved_at"] or r["ts"])):
+                (1, r["target"], r["requester"], shown, db.answered_at(r))):
             cancelled = r["state"] in ("landed", "withdrawn") and r["verdict"] == askmod.CANCEL_VERDICT
             if part == 1 and (not shown or cancelled or db.dismissal(r)[0]):
                 continue
@@ -311,7 +311,7 @@ def tasks_of(con, agent: str) -> list[tuple]:
         f"SELECT * FROM tasks WHERE {db.OPEN_SQL} AND (owner = ? OR opened_by = ?) ORDER BY id",
         (agent, agent)).fetchall()
     touched = {r[0]: r[1] for r in con.execute(
-        "SELECT l.task_id, MAX(COALESCE(MAX(r.ts), 0), COALESCE(MAX(r.resolved_at), 0)) "
+        f"SELECT l.task_id, MAX(COALESCE(MAX(r.ts), 0), COALESCE(MAX({db.touched_sql('r')}), 0)) "
         "FROM task_requests l JOIN requests r ON r.id = l.request_id "
         f"WHERE l.task_id IN (SELECT id FROM tasks WHERE {db.OPEN_SQL} AND "
         "(owner = ? OR opened_by = ?)) GROUP BY l.task_id", (agent, agent))}
@@ -1761,7 +1761,7 @@ class ChatPage(JobsAware, Screen):
             con.close()
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
-        key = (tuple((r["id"], r["state"], r["resolved_at"], r["delivered_at"], r["landed_at"], r["typed_at"],
+        key = (tuple((r["id"], r["state"], db.answered_at(r), r["delivered_at"], r["landed_at"], r["typed_at"],
                       r["dismissed_by"])
                      for r in rows), tuple((c["tasks"][0], c["when"], c["change"]) for c in changes))
         live = (state == "RUNNING", why, wait)

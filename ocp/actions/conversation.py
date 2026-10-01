@@ -24,7 +24,7 @@ UNTOLD_TAB = "ANSWERS IT HAS NOT BEEN TOLD"
 def _chat_rows(con, agent: str) -> list:
     """Every row of every chain the human and `agent` have a row in."""
     return con.execute(
-        "SELECT id, ts, resolved_at, requester, target, state, body, verdict, "
+        "SELECT id, ts, state_at, resolved_at, requester, target, state, body, verdict, "
         "dismissed_by, dismissed_reason, chain_id, delivered_at, typed_at, landed_at, "
         f"{db.ANSWER_SQL} FROM requests "
         "WHERE state != 'denied' AND settles IS NULL AND chain_id IN ("
@@ -150,7 +150,7 @@ def conversation_and_drawn(con, agent: str, hint: bool = True) -> tuple[list[str
                               r["state"] == "queued" and r["target"] == HUMAN, r["id"], 0, r["id"])))
             shown = db.shown_verdict(r)
             if shown:
-                at = r["resolved_at"] or r["ts"]
+                at = db.answered_at(r)
                 ans = db.answer_row_of(con, r["id"])
                 msgs.append((at, r["id"], 1, said(r["target"], r["requester"], shown,
                                                   at, f"answers #{r['id']}",
@@ -227,7 +227,7 @@ def chat_unread(con, agent: str) -> int:
         "SELECT COUNT(*) AS n FROM requests WHERE state != 'denied' AND "
         "((requester = ? AND target = ? AND ts > ? AND settles IS NULL) OR "
         " (requester = ? AND target = ? AND (verdict IS NOT NULL OR dismissed_by IS NOT NULL) "
-        "  AND resolved_at > ?))",
+        "  AND " + db.touched_sql("requests") + " > ?))",
         (agent, HUMAN, seen, HUMAN, agent, seen)).fetchone()
     return int(row["n"])
 

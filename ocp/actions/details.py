@@ -58,7 +58,7 @@ def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str
     chat, drawn = conversation_and_drawn(con, agent, hint)
     others = [Entry(r["id"], r["requester"], r["body"] or "", r["ts"])
               for r in db.queued_for(con, agent) if r["id"] not in drawn]
-    untold = [Entry(r["id"], r["target"], db.shown_verdict(r) or r["state"], r["resolved_at"] or r["ts"])
+    untold = [Entry(r["id"], r["target"], db.shown_verdict(r) or r["state"], db.answered_at(r))
               for r in db.unannounced_answers(con, agent) if r["id"] not in drawn]
     if others or untold:
         # Where the reader is left, at the end of the conversation.

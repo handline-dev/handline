@@ -13,7 +13,24 @@ HUMAN = "human"
 # The text of the say that answered a request (its `settles` row), as a column of any query on
 # `requests`: `shown_verdict` prefers it to the request's own verdict, which says the same.
 ANSWER_SQL = ("(SELECT a.body FROM requests a WHERE a.settles = requests.id "
-              "ORDER BY a.id LIMIT 1) AS answer")
+              "ORDER BY a.id LIMIT 1) AS answer, "
+              "(SELECT a.ts FROM requests a WHERE a.settles = requests.id "
+              "ORDER BY a.id LIMIT 1) AS answered_at")
+
+
+def touched_sql(alias: str) -> str:
+    """The latest a request was touched, as SQL: when it entered its state, or when its answer
+    landed - an answer can come long after the line was delivered."""
+    return (f"MAX(COALESCE({alias}.state_at, 0), COALESCE((SELECT MAX(a.ts) FROM requests a "
+            f"WHERE a.settles = {alias}.id), 0))")
+
+
+def answered_at(row) -> int:
+    """When this request's answer landed: the answering say's own time, else the time the request
+    entered the state it closed in, else when it was made. The row needs `ANSWER_SQL` and `state_at`."""
+    keys = row.keys()
+    return ((row["answered_at"] if "answered_at" in keys else None)
+            or (row["state_at"] if "state_at" in keys else None) or row["ts"])
 
 
 def unannounced_answers(con, agent: str) -> list:
@@ -27,7 +44,7 @@ def unannounced_answers(con, agent: str) -> list:
     prevent, one layer down.
     """
     return con.execute(
-        "SELECT id, ts, resolved_at, target, kind, state, verdict, body, parent_id, "
+        "SELECT id, ts, state_at, resolved_at, target, kind, state, verdict, body, parent_id, "
         f"chain_id, dismissed_by, dismissed_reason, {ANSWER_SQL} FROM requests WHERE requester = ? "
         "AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "
         "WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id",

@@ -5,7 +5,7 @@ import json
 import time
 
 from .events import add_event
-from .requests import HUMAN
+from .requests import HUMAN, touched_sql
 from .schema import EVENT_TASK
 
 
@@ -460,7 +460,7 @@ def task_last_activity(con, tid: int) -> int:
     r = con.execute(
         "SELECT MAX(COALESCE(t.created_at, 0), COALESCE(t.edited_at, 0), "
         "COALESCE(t.done_at, 0), COALESCE(t.discarded_at, 0), "
-        "COALESCE((SELECT MAX(MAX(q.ts), COALESCE(MAX(q.resolved_at), 0)) FROM requests q "
+        f"COALESCE((SELECT MAX(MAX(q.ts), COALESCE(MAX({touched_sql('q')}), 0)) FROM requests q "
         "JOIN task_requests l ON l.request_id = q.id WHERE l.task_id = t.id), 0)) "
         "FROM tasks t WHERE t.id = ?", (tid,)).fetchone()
     return int(r[0] or 0)
