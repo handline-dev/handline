@@ -454,7 +454,7 @@ def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | N
     when = time.strftime("%Y-%m-%d %H:%M",
                          time.localtime((row["resolved_at"] if answer else None) or row["ts"]))
     kind = ("answer" if row["state"] == "done" else "refusal") if answer \
-        else (row["kind"] or "ask")
+        else (row["kind"] or "say")
     title = f"#{rid} from {other} · {kind} · {when}"
     text = (db.shown_verdict(row) if answer else row["body"]) or ""
     sections: list[tuple[str, list[str]]] = [("", text.splitlines() or ["(empty)"])]

@@ -194,13 +194,12 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) 
     return None
 
 
-# T292/T293: the `kind` overrides `ask` accepts for a task, an old stored task note
-# or a say, regardless of what the routing edge itself carries. `enforce_edges`
-# (daemon delivery) must not treat that override as a changed edge, so it
-# skips the kind half of its re-check for these - it still checks relation
-# and response.
+# T292/T293: the `kind` overrides `ask` accepts for a task or a say, regardless
+# of what the routing edge itself carries. `enforce_edges` (daemon delivery)
+# must not treat that override as a changed edge, so it skips the kind half of
+# its re-check for these - it still checks relation and response.
 SAY_KIND = "say"
-OVERRIDE_KINDS = {"task", "task_note", SAY_KIND}
+OVERRIDE_KINDS = {"task", SAY_KIND}
 
 
 # `speaker=` left out means "whoever's environment this runs in" (OCP_AGENT);
@@ -289,7 +288,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         if not decision.allowed:
             if db.standing_denial(con, requester, target, body, files,
                                   int(time.time()) - team.ASK_WINDOW_S) is None:
-                db.add_request(con, requester, target, body, files, None, None, None,
+                db.add_request(con, requester, target, body, files, None, None, kind or SAY_KIND,
                                depth, parent_id, state="denied", verdict=decision.reason,
                                chain_id=chain_id)
             # Hitting the depth limit is a runaway, not an ordinary refusal.
@@ -312,7 +311,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             rid = db.standing_denial(con, requester, target, body, files, window)
             if rid is None:
                 rid = db.add_request(con, requester, target, body, files, decision.relation,
-                                     decision.response, kind or decision.kind, depth, parent_id,
+                                     decision.response, kind or decision.kind or SAY_KIND, depth, parent_id,
                                      state="denied", verdict=note, chain_id=chain_id)
             oldest = db.oldest_counted_ask(con, requester, window)
             free_at = now + team.ASK_WINDOW_S if oldest is None else oldest + team.ASK_WINDOW_S

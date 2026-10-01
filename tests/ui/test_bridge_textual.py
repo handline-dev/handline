@@ -1629,6 +1629,14 @@ def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
           [r.sender for r in rows] == ["reviewer"] and not notes, rows)
     check("messages_data: the first line is the first with something on it, inert",
           rows[0].first == "please review this", repr(rows[0].first))
+    con = db.connect()
+    try:
+        db.add_request(con, "reviewer", "human", "no kind at all", None, None, None, None, 0, None)
+        rows = tui.messages_data(con)[1]
+    finally:
+        con.close()
+    check("messages_data: a row with no kind is labelled say", [r.kind for r in rows if r.first == "no kind at all"] == ["say"],
+          str([(r.first, r.kind) for r in rows]))
 
 def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     import sys

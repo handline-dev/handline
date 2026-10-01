@@ -446,6 +446,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _task_sent_at(con)
     _task_sent_at_from_events(con)
     _task_leftovers_settled(con)
+    _kinds_are_say(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -775,6 +776,20 @@ def _task_deliveries_settled(con) -> None:
     for g in ghosts:      # no open task of its target is left for it to deliver: it ended, or was handed on
         close_if_queued(con, g["id"], "done", "its task is no longer this agent's to do", announced=True, settle=False)
     set_cursor(con, "migrated:task_deliveries_settled", 1)
+
+
+def _kinds_are_say(con) -> None:
+    """T766 (T763 design, branch 1): a request is a say or a task. Every other kind left on a row
+    that is over - no kind at all (an ask, or a refusal written before the kind was known), answer,
+    escalate, report, task_note - is a say: history, and nothing reads the old words any more. A
+    queued row is not touched. Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:kinds_are_say"):
+        return
+    con.execute("UPDATE requests SET settles = parent_id WHERE kind = 'answer' AND settles IS NULL "
+                "AND parent_id IS NOT NULL")       # as `_answers_are_says` did, for the ones written since
+    con.execute("UPDATE requests SET kind = 'say' WHERE state != 'queued' "
+                "AND (kind IS NULL OR kind IN ('', 'answer', 'escalate', 'report', 'task_note'))")
+    set_cursor(con, "migrated:kinds_are_say", 1)
 
 
 def _task_leftovers_settled(con) -> None:
