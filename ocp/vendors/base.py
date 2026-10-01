@@ -240,12 +240,13 @@ class Driver(Protocol):
                     mcp: list[str], preamble: str | None,
                     hide: list[str] | None = None,
                     memory_dir: Path | None = None,
-                    trusted: list[str] | None = None) -> list[str]:
+                    trusted: list[str] | None = None,
+                    chrome: bool = False) -> list[str]:
         """argv for one session, before any caller-supplied extras. `hide` is
         paths the session may not read; `memory_dir` is the folder the session
         keeps its own memory in (`memory_settings`); `trusted` is prose naming
         what its permission classifier should treat as inside the team's
-        boundary."""
+        boundary. `chrome` is the agent's opt-in to the browser integration."""
 
     def auto_mode_argv(self) -> list[str]:
         """argv that starts the session in the vendor's classifier-approved

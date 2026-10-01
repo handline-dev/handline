@@ -436,7 +436,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS, mcp_arg, preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
                            memory_dir=memory_dir,
-                           trusted=trusted_environment(Path.cwd()) if mode else None)
+                           trusted=trusted_environment(Path.cwd()) if mode else None,
+                           chrome=agents.chrome(cfg))
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):
@@ -590,6 +591,8 @@ def fingerprint(agent: str) -> str:
                             _static_preamble(agent)])
     if agents.skip_permissions_in_effect(agent, cfg):
         material += "\x1eskip-permissions"     # only when on: turning it off returns to the old hash
+    if agents.chrome(cfg):
+        material += "\x1echrome"                # only when on, like skip-permissions
     return hashlib.sha256(material.encode()).hexdigest()[:16]
 
 

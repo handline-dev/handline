@@ -59,6 +59,12 @@ def skip_permissions(cfg: dict) -> bool:
     return cfg.get("skip_permissions") is True
 
 
+def chrome(cfg: dict) -> bool:
+    """Whether this agent's sessions start with the browser integration
+    (`--chrome`) instead of `--no-chrome`. Only a real true turns it on."""
+    return cfg.get("chrome") is True
+
+
 _SKIP_NS = "skip_permissions"
 
 
@@ -136,7 +142,8 @@ def register(name: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
              role_file: str | None = None, repo: str | None = None,
              vendor: str | None = None, context_tokens: int | None = None,
-             skip_permissions: bool | None = None) -> Path:
+             skip_permissions: bool | None = None,
+             chrome: bool | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
     # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
@@ -168,7 +175,8 @@ def register(name: str, role: str = "", model: str | None = None,
                      "effort": effort or DEFAULT_EFFORT, "weight": weight or "light",
                      "enabled": True, **({"repo": repo} if repo else {}),
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
-                     **({"skip_permissions": True} if skip_permissions else {})})
+                     **({"skip_permissions": True} if skip_permissions else {}),
+                     **({"chrome": True} if chrome else {})})
     for sub in ("inbox", "journal", "memory"):
         (d / sub).mkdir(parents=True, exist_ok=True)
 
@@ -198,6 +206,11 @@ def register(name: str, role: str = "", model: str | None = None,
                 cfg["skip_permissions"] = True
             else:
                 cfg.pop("skip_permissions", None)
+        if chrome is not None:
+            if chrome:
+                cfg["chrome"] = True
+            else:
+                cfg.pop("chrome", None)
         if vendor and vendor != DEFAULT_VENDOR:
             cfg["vendor"] = vendor
         cfg.setdefault("effort", DEFAULT_EFFORT)

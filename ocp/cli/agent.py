@@ -42,6 +42,10 @@ def cmd_agent_register(args) -> int:
         print("skipping permission prompts is the founder's to turn on or off, from a "
               "terminal or the bridge, not an agent's", file=sys.stderr)
         return 1
+    if args.chrome and protected.in_agent_session():
+        print("the browser integration is the founder's to turn on or off, from a "
+              "terminal or the bridge, not an agent's", file=sys.stderr)
+        return 1
     try:
         has_repo = bool(agents.read(args.name).get("repo"))
     except Exception:  # noqa: BLE001 - a new agent has no agent.yaml yet
@@ -55,10 +59,13 @@ def cmd_agent_register(args) -> int:
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo, vendor=args.vendor,
                         skip_permissions=None if args.skip_permissions is None
-                        else args.skip_permissions == "on")
+                        else args.skip_permissions == "on",
+                        chrome=None if args.chrome is None else args.chrome == "on")
     print(f"registered agent '{args.name}': {d}")
     if args.skip_permissions:
         print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
+    if args.chrome:
+        print(f"chrome {args.chrome}: applies from its next launch")
     print("launch it from Orca with:")
     print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
     return 0
