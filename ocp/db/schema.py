@@ -445,6 +445,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _fyi_are_says(con)
     _requests_one_state(con)
     _answers_told_on_the_say(con)
+    _closed_rows_leave_the_queue(con)
     _moot_trust_proposals(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
@@ -841,6 +842,16 @@ def _answers_told_on_the_say(con) -> None:
     con.execute("UPDATE requests SET delivered_at = (SELECT q.announced_at FROM requests q "
                 "WHERE q.id = requests.settles) WHERE settles IS NOT NULL AND delivered_at IS NULL")
     set_cursor(con, "migrated:answers_told_on_the_say", 1)
+
+
+def _closed_rows_leave_the_queue(con) -> None:
+    """T835 step 4b: a request that was closed, or whose task hold ended, has no place in its
+    target's queue: `queue_order` NULL, which is what `HELD_DELIVERY` reads instead of `resolved_at`.
+    Ledgered, so it runs once."""
+    if get_cursor(con, "migrated:closed_rows_leave_the_queue"):
+        return
+    con.execute("UPDATE requests SET queue_order = NULL WHERE resolved_at IS NOT NULL AND queue_order IS NOT NULL")
+    set_cursor(con, "migrated:closed_rows_leave_the_queue", 1)
 
 
 def _requests_one_state(con) -> None:

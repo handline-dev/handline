@@ -123,7 +123,7 @@ def _asks(r) -> bool:
     """Is this linked request work still being asked for? A report to the founder is a
     say, born landed, so linking one never makes a task doing (T266)."""
     return r["state"] == "queued" or (
-        r["state"] == "landed" and r["kind"] == "task" and r["resolved_at"] is None)
+        r["state"] == "landed" and r["kind"] == "task" and r["queue_order"] is not None)
 
 
 def _begun(con, tid: int) -> bool:
@@ -1696,7 +1696,7 @@ class _board_facts:
     def __init__(self, con, open_tasks: list):
         self.links: dict[int, list] = {}
         for r in con.execute(
-                f"SELECT l.task_id AS tid, r.id, r.state, r.requester, r.ts, {db.touched_sql('r')} AS touched, r.resolved_at "
+                f"SELECT l.task_id AS tid, r.id, r.state, r.requester, r.ts, {db.touched_sql('r')} AS touched, r.kind, r.queue_order "
                 "FROM task_requests l JOIN requests r ON r.id = l.request_id "
                 "ORDER BY l.task_id, r.id"):
             self.links.setdefault(r["tid"], []).append(r)
