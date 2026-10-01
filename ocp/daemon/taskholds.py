@@ -47,6 +47,9 @@ def agent_reason(con, agent: str, now: int) -> tuple[str, bool]:
     from .. import actions
 
     row = db.get_agent_state(con, agent)
+    failed = delivery.failed_reason(agent, now)
+    if failed:
+        return failed, False
     blk = db.block_get(con, agent)
     if blk:
         return blocked.reason(blk["kind"], blk["detail"]), False

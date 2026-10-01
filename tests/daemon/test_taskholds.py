@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from ocp import actions  # noqa: E402
-from ocp.daemon import delivery, locks, taskholds, taskqueue  # noqa: E402
+from ocp.daemon import delivery, evaluate, lifecycle, locks, taskholds, taskqueue  # noqa: E402
 
 
 REAL_PUSH = askmod.push
@@ -23,6 +23,7 @@ def _world(home: Path) -> None:
     """manager and worker; worker idle in a live terminal with a session, nothing on its screen."""
     _board_world(home)
     delivery._NOTED.clear()
+    delivery._FAILED.clear()
     actions._WORLD["at"] = 0.0
     sessions_are("worker")
     orcamod.available = lambda: True
@@ -205,7 +206,7 @@ def test_every_state_of_the_owner_gives_its_own_reason(home: Path) -> None:
         check("closed: it is woken for the task, and says so", why is not None and "closed" in why[0], str(why))
         con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'worker'")
 
-        delivery.note_hold("worker", "could not be woken - launch refused")
+        delivery.note_failure("worker", "could not be woken - launch refused")
         why = _why(con, t)
         check("wake failed: the failure's words, not able", why == ("could not be woken - launch refused", False), str(why))
     finally:
@@ -343,6 +344,74 @@ def test_a_free_owner_is_given_the_next_task_on_the_next_tick(home: Path) -> Non
         con.close()
 
 
+def test_a_real_tick_records_why_a_task_waits(home: Path) -> None:
+    """The sweep is wired into the tick: take it out and the recording and the warning go with it."""
+    _world(home)
+    orcamod.send = lambda h, t, enter=True: (True, "")
+    con = db.connect()
+    try:
+        ok, msg, first = actions.task_new("manager", "worker", "first", "first")
+        t = _waiting(con)
+        evaluate.tick(con, lambda _m: None)
+        rec = db.get_meta(con, taskholds.PREFIX + str(t))
+        check("tick: the waiting task has its reason in meta after one tick",
+              rec is not None and f"behind T{first}" in rec, str(rec))
+    finally:
+        con.close()
+
+
+def test_the_daemons_own_paths_note_why_they_did_not_type(home: Path) -> None:
+    """No test writes the note here: deliver_queued and supervise do."""
+    _world(home)
+    sent: list[str] = []
+    orcamod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
+    con = db.connect()
+    try:
+        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+        orcamod.typeable_now = lambda h: False
+        check("screen: deliver_queued declines", not delivery.deliver_queued(con, "worker", lambda _m: None))
+        why = _why(con, t)
+        check("screen: and the task says why, able on an idle row",
+              why == ("its screen is not idle (mid-turn, or a dialog is open)", True), str(why))
+        orcamod.typeable_now = lambda h: True
+        check("screen: a later delivery lands it", delivery.deliver_queued(con, "worker", lambda _m: None) and sent)
+        check("screen: and nothing is held or waiting any more",
+              delivery.held_reason("worker", int(time.time())) is None and _why(con, t) is None,
+              str(_why(con, t)))
+    finally:
+        orcamod.typeable_now = lambda h: True
+        con.close()
+
+
+def test_a_wake_or_start_that_fails_in_the_tick_is_noted(home: Path) -> None:
+    _world(home)
+    con = db.connect()
+    real_wake, real_start = lifecycle.wake_agent, lifecycle._start_for_work
+    try:
+        orcamod.send = lambda h, t, enter=True: (True, "")
+        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+        sessions_are()                      # nothing runs: the sweep leaves it closed
+        db.set_closed(con, "worker", "sess-1")
+        lifecycle.wake_agent = lambda c, a, log, **k: (False, "launch refused")
+        evaluate.tick(con, lambda _m: None)
+        held = delivery.held_reason("worker", int(time.time()))
+        check("wake: the daemon noted the failed wake", held is None and delivery.failed_reason("worker", int(time.time())) == "could not be woken - launch refused",
+              str(held))
+        db.clear_closed(con, "worker")
+        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'worker'")
+        lifecycle._start_for_work = lambda c, a, log: "worker: no repo"
+        evaluate.tick(con, lambda _m: None)
+        held = delivery.held_reason("worker", int(time.time()))
+        check("start: and the failed start", delivery.failed_reason("worker", int(time.time())) == "could not be started - worker: no repo",
+              str(held))
+        check("start: and the task's reason is that, not able",
+              (_why(con, t) or ("", True))[0] == "could not be started - worker: no repo"
+              and _why(con, t)[1] is False, str(_why(con, t)))
+    finally:
+        lifecycle.wake_agent, lifecycle._start_for_work = real_wake, real_start
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         try:
@@ -363,6 +432,9 @@ def main() -> int:
         run(lambda: test_the_reason_is_kept_for_other_processes_and_dropped_when_told(Path(td) / "h10"))
         run(lambda: test_a_queued_task_never_reads_without_a_reason(Path(td) / "h11"))
         run(lambda: test_a_free_owner_is_given_the_next_task_on_the_next_tick(Path(td) / "h12"))
+        run(lambda: test_a_real_tick_records_why_a_task_waits(Path(td) / "h13"))
+        run(lambda: test_the_daemons_own_paths_note_why_they_did_not_type(Path(td) / "h14"))
+        run(lambda: test_a_wake_or_start_that_fails_in_the_tick_is_noted(Path(td) / "h15"))
     return run_area(tests)
 
 

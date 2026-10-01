@@ -456,7 +456,18 @@ _HELD: dict[str, str] = {}
 # What stopped each agent's delivery or wake on its latest try, and when (T721): the daemon records
 # it per waiting task (`taskholds`). A reason not renewed within HELD_FRESH_S has stopped being true.
 _NOTED: dict[str, tuple[str, int, bool]] = {}
+# A wake or start that failed, kept apart so the delivery that follows in the same tick ("no live
+# terminal") does not hide the failure behind it.
+_FAILED: dict[str, tuple[str, int]] = {}
 HELD_FRESH_S = 30
+
+
+def note_failure(agent: str, why: str | None) -> None:
+    """Remember why `agent`'s wake or start failed this tick; None forgets it."""
+    if why:
+        _FAILED[agent] = (why, int(time.time()))
+    else:
+        _FAILED.pop(agent, None)
 
 
 def note_hold(agent: str, why: str | None, contestable: bool = False) -> None:
@@ -466,6 +477,12 @@ def note_hold(agent: str, why: str | None, contestable: bool = False) -> None:
         _NOTED[agent] = (why, int(time.time()), contestable)
     else:
         _NOTED.pop(agent, None)
+
+
+def failed_reason(agent: str, now: int) -> str | None:
+    """Why `agent`'s latest wake or start failed, or None when that is not recent."""
+    failed = _FAILED.get(agent)
+    return failed[0] if failed and now - failed[1] <= HELD_FRESH_S else None
 
 
 def held_reason(agent: str, now: int) -> tuple[str, bool] | None:

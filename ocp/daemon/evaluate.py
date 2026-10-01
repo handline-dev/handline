@@ -172,7 +172,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         else:
             woke, why = lifecycle.wake_agent(con, agent, log)
         if restored and not woke:
-            delivery.note_hold(agent, f"could not be woken - {why}")
+            delivery.note_failure(agent, f"could not be woken - {why}")
             # Same rule reconcile's step 2 writes: for an agent whose session
             # was closed, the wake is the whole point of the deadline, and the
             # deadline is the only thing that makes it due again. Clearing it
@@ -217,7 +217,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         actions.append(said)
         row = db.get_agent_state(con, agent)
         started_now = bool(row and row["terminal"])
-        delivery.note_hold(agent, None if started_now else f"could not be started - {said}")
+        delivery.note_failure(agent, None if started_now else f"could not be started - {said}")
         if started_now:
             _SAID.pop(agent, None)
         elif _SAID.get(agent) != said:
@@ -241,7 +241,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         # woken for alone it closes again on the next idle window, forever.
         what = need[1]
         ok, why = lifecycle.wake_agent(con, agent, log)
-        delivery.note_hold(agent, None if ok else f"could not be woken - {why}")
+        delivery.note_failure(agent, None if ok else f"could not be woken - {why}")
         actions.append(f"{agent}: woken for {what}"
                        if ok else f"{agent}: could not wake - {why}")
         if not ok and _SAID.get(agent) != why:
