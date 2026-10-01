@@ -10,6 +10,16 @@ def get_meta(con, name: str) -> str | None:
     return row["value"] if row else None
 
 
+def meta_names(con, prefix: str) -> list[str]:
+    """The names of every small value whose name starts with `prefix`."""
+    return [r["name"] for r in con.execute(
+        "SELECT name FROM meta WHERE substr(name, 1, ?) = ?", (len(prefix), prefix))]
+
+
+def clear_meta(con, name: str) -> None:
+    con.execute("DELETE FROM meta WHERE name = ?", (name,))
+
+
 def agent_progress_key(agent: str) -> str:
     """The progress note of an agent with no request in hand and no current task
     (T366). Whatever gives the agent work - a delivery, a current task - clears

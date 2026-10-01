@@ -242,6 +242,8 @@ def restore_world() -> None:
     # world does not answer the next test's question.
     dmn_delivery._seen.clear()
     dmn_delivery._seen_at["t"] = 0.0
+    dmn_delivery._NOTED.clear()
+    dmn_delivery._FAILED.clear()
     actions._WORLD["at"] = 0.0
 
 
