@@ -22,6 +22,7 @@ from pathlib import Path
 
 from textual.app import App
 
+from .. import actions
 from . import jobs as jobsmod, tui
 from .clipboard_app import ClipboardApp
 from .theme import follow_os_theme
@@ -37,6 +38,11 @@ class BridgeApp(ClipboardApp):
     def __init__(self) -> None:
         super().__init__()
         self.jobs = jobsmod.Jobs()
+
+    def action_open_path(self, path: str) -> None:
+        """A path in a message was clicked: open it in the default app."""
+        ok, said = actions.open_path(path)
+        self.notify(said, severity="information" if ok else "warning", timeout=3 if ok else 6)
 
     def on_mount(self) -> None:
         from .pages.home import HomePage
