@@ -8052,6 +8052,40 @@ limits:
               ok and not any(r["state"] == "queued" for r in db.task_requests(con, st)), msg)
         ok, msg = actions.mark_task_done(con, st, "helper", reason="again")
         check("T706: with nothing left it is refused as before", not ok and "already done" in msg, msg)
+        # T707: the T696/T698/T699 shape - the review is a child of the work, the re-review a child of the review
+        W, A = "dev.merger", "dev.auditor"
+        ok, _, w = actions.task_new("manager", W, "T696 work", "work")
+        ok, msg, rv = actions.task_new(W, A, "review T696 @old", "review", parent=w)
+        check("T707: the work waits on its review (a child)", ok and [b["id"] for b in db.task_blockers(con, w)] == [rv], msg)
+        ok, msg = actions.task_handoff(con, A, rv, W, "FAIL: fix it")
+        check("T707: a failed review handed back does not leave its holder blocked by itself",
+              ok and db.task_blockers(con, w) == [] and db.get_task(con, rv)["owner"] == W, msg)
+        ok, msg, rv2 = actions.task_new(W, A, "re-review T696 @new", "again", parent=rv)
+        check("T707: the re-review is filed under the stale review", ok and db.get_task(con, rv2)["parent_task"] == rv, msg)
+        ok, msg = actions.task_handoff(con, W, rv, A, "fixed, look again")
+        check("T707: handed back to the auditor the wait counts again - the work cannot be marked done past its review",
+              ok and [b["id"] for b in db.task_blockers(con, w)] == [rv], msg)
+        ok, msg = actions.mark_task_done(con, w, W, reason="skip the review")
+        check("T707: and is refused", not ok, msg)
+        ok, msg = actions.task_handoff(con, A, rv, W, "FAIL again")
+        ok, msg = actions.discard_task(con, rv, W, "superseded")
+        check("T707: the asker cannot discard a stale review past its open child", not ok and "open child" in msg, msg)
+        ok, msg = actions.discard_task(con, rv, actions.HUMAN, "superseded by the re-review", stop=True)
+        check("T707: the founder can, and the live re-review moves up to the work",
+              ok and db.task_ended(db.get_task(con, rv)) and db.get_task(con, rv2)["parent_task"] == w, msg)
+        check("T707: and the work now waits on the re-review",
+              [b["id"] for b in db.task_blockers(con, w)] == [rv2], str([b["id"] for b in db.task_blockers(con, w)]))
+        ok, msg = actions.mark_task_done(con, rv2, A, reason="PASS")
+        released = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'released_at_done' AND "
+                               f"{db.EVENT_TASK} = ?", (w,)).fetchone()[0]
+        check("T707: the re-review's PASS releases the work", ok and released == 1, f"{msg} {released}")
+        ok, _, e1 = actions.task_new("manager", A, "edit owner A", "a")
+        ok, _, e2 = actions.task_new("manager", W, "edit owner B", "b")
+        actions.add_block(con, e1, e2, "manager")
+        ok, msg = actions.edit_task(con, e2, "manager", owner=A)
+        check("T707: giving a blocker to the agent it blocks stops the wait counting", ok and db.task_blockers(con, e1) == [], msg)
+        ok, msg = actions.edit_task(con, e2, "manager", owner=W)
+        check("T707: and it counts again once the owners differ", ok and [b["id"] for b in db.task_blockers(con, e1)] == [e2], msg)
         # T689: a task's body is editable by whoever may edit its title, recorded, and told to the holder
         ok, _, bt = actions.task_new("manager", "worker", "fix the parser", "old brief: fix the parser")
         ok, msg = actions.edit_task(con, bt, "worker", body="worker rewrites it")
