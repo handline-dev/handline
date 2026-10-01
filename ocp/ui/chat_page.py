@@ -2043,9 +2043,10 @@ class ChatPage(JobsAware, Screen):
         if not lost:
             self.app.pop_screen()
             return
+        # The answer runs on the pump that asked (the Back button), which the pop removes: pop from the app's.
         self.app.push_screen(Confirm("Go back to the main screen", "This leaves " + " and ".join(lost) + ".",
                                      yes="Go back", no="Stay"),
-                             lambda yes: yes and self.app.pop_screen())
+                             lambda yes: yes and self.app.call_later(self.app.pop_screen))
 
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         self.everyone = event.tab.id == "all"
