@@ -540,6 +540,8 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
               and (verdict or get_request(con, rid)["kind"] != "say")):
             # A say closed with nothing said asks nothing back; anything else tells its asker.
             add_answer(con, rid, verdict or "", told=announced)
+        elif verdict and dismissed_by is None:
+            add_reason(con, rid, verdict)       # closed without an answer (a task moved on): why
         if settle:
             _settle(con, rid, state, verdict, dismissed_by)
         else:

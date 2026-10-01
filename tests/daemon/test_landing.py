@@ -542,6 +542,13 @@ def test_why_a_request_closed_without_an_answer_is_an_event(home: Path) -> None:
         check("reason: a denial and a withdrawal read their reason from the event, the verdict gone",
               db.shown_verdict(db.get_request(con, denied)) == "no such route"
               and db.shown_verdict(db.get_request(con, taken)) == "withdrawn: changed my mind")
+        moved = db.add_request(con, "backend", "frontend", "q4", None, None, None, "task", 0, None)
+        db.close_if_queued(con, moved, "withdrawn", "moved to someone", announced=True, settle=False)
+        con.execute("UPDATE requests SET verdict = NULL WHERE id = ?", (moved,))
+        check("reason: a close without an answer (a task moved on) keeps why, and is not a blank retirement",
+              db.shown_verdict(db.get_request(con, moved)) == "moved to someone"
+              and con.execute("SELECT COUNT(*) FROM requests WHERE state = 'withdrawn' AND id = ? AND "
+                              + db.CLOSING_SQL + " IS NULL", (moved,)).fetchone()[0] == 0)
         old = db.add_request(con, "backend", "frontend", "q3", None, None, None, "task", 0, None)
         con.execute('UPDATE requests SET "state" = \'withdrawn\', verdict = \'withdrawn: long ago\' WHERE id = ?', (old,))
         check("reason: a row with only a verdict still shows it", db.shown_verdict(db.get_request(con, old)) == "withdrawn: long ago")
