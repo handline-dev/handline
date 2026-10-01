@@ -8040,6 +8040,49 @@ limits:
             db.refresh_sent(con, gh)
             check(f"sent_at: and a refresh re-derives it from the request still out (what reopen does)",
                   db.get_task(con, gh)["sent_at"] is not None)
+        # T751 D3, the #7789 shape: a done task whose delivery is still queued reaches nobody
+        ok, _, g1 = actions.task_new("manager", "worker", "ghost first", "w")
+        ghost = db.task_requests(con, g1)[0]["id"]
+        ok, _, g2 = actions.task_new("manager", "worker", "waits behind the ghost", "w")
+        behind = db.task_requests(con, g2)[0]["id"]
+        before_head = db.head_of_queue(con, "worker")["id"]
+        db.mark_task_done(con, g1, "done elsewhere")          # the task ends; its delivery is left queued
+        check("ghost: the delivery is still queued (the #7789 shape)", db.get_request(con, ghost)["state"] == "queued")
+        head = db.head_of_queue(con, "worker")
+        check("ghost: it is never the inbox head, and what waited behind it is",
+              head is not None and head["id"] != ghost
+              and ghost in [r["id"] for r in db.task_requests(con, g1)] and behind in [r["id"] for r in db.queued_for(con, "worker")],
+              str(head and head["id"]))
+        check("ghost: nor counted in the queue, nor handed out by the delivery reads",
+              ghost not in [r["id"] for r in db.queued_for(con, "worker")]
+              and ghost not in [r["id"] for r in db.undelivered_for(con, "worker")]
+              and ghost not in [r["id"] for r in db.send_now_pending(con, "worker")])
+        import importlib
+        stuckmod = importlib.import_module("ocp.actions.stuck")
+        con.execute("UPDATE requests SET ts = ts - 100000 WHERE id = ?", (ghost,))
+        from ocp.session import observe as obsmod, orca as orcamod
+        was = (orcamod.available, obsmod.live_sessions)
+        orcamod.available, obsmod.live_sessions = (lambda: False), (lambda: {})
+        actions._WORLD["at"] = 0.0
+        try:
+            stuck_now = stuckmod.stuck(con)
+        finally:
+            orcamod.available, obsmod.live_sessions = was
+        check("ghost: and the stuck list does not carry it, however old",
+              not any(f"#{ghost} " in str(i) for i in stuck_now) and any(f"#{behind} " in str(i) for i in stuck_now),
+              str(stuck_now))
+        check("ghost: `ocp doctor` lists it", ghost in [r["id"] for r in db.leftover_deliveries(con)])
+        db.close_if_queued(con, ghost, "done", None)
+        check("ghost: closed, it is no leftover", ghost not in [r["id"] for r in db.leftover_deliveries(con)])
+        ok, _, g3 = actions.task_new("manager", "worker", "handed on", "w")
+        away = db.task_requests(con, g3)[0]["id"]
+        con.execute("UPDATE tasks SET owner = 'helper' WHERE id = ?", (g3,))
+        check("ghost: a delivery whose task is with someone else is a leftover too",
+              away in [r["id"] for r in db.leftover_deliveries(con)]
+              and away not in [r["id"] for r in db.queued_for(con, "worker")])
+        con.execute("UPDATE tasks SET owner = 'worker' WHERE id = ?", (g3,))
+        check("ghost: and an open task with its owner is never one",
+              away not in [r["id"] for r in db.leftover_deliveries(con)])
         # a founder's card is delivered when drawn
         ok, _, card = actions.task_new("manager", "human", "decide", "decide")
         crid = db.task_requests(con, card)[0]["id"]

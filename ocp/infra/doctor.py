@@ -601,6 +601,18 @@ def _check_autocontinue(r: Report) -> None:
             r.add(OK, "autoContinueAtUsageLimit=false", str(p))
 
 
+def _check_leftover_deliveries(r: Report) -> None:
+    """A task's delivery left queued after the task ended or went to someone else (T751, #7789).
+    Nothing hands it out or counts it any more; it only stays on the record until it is closed."""
+    con = db.connect()
+    try:
+        for row in db.leftover_deliveries(con):
+            r.add(WARN, f"request #{row['id']} to {row['target']}: its task has ended or moved on",
+                  "it is skipped by the inbox and the stuck list; `ocp cancel` closes it")
+    finally:
+        con.close()
+
+
 def run() -> Report:
     with sealed.observing():
         return _run()
@@ -622,6 +634,7 @@ def _run() -> Report:
     _check_team(r)
     _check_protected(r)
     _check_stuck_running(r)
+    _check_leftover_deliveries(r)
     _check_launch_drift(r)
     _check_session_matches_the_record(r)
     _check_one_daemon(r)
