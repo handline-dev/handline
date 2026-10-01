@@ -574,6 +574,13 @@ def release_task(con, tid: int, by: str) -> tuple[bool, str]:
     # whatever did get retired.
     retired, said, failed = [], [], []
     for r in direct:
+        if r["state"] == "landed":      # held by its agent: ended here, and the agent told to stop
+            db.end_held(con, tid, r["target"])
+            db.refresh_sent(con, tid)
+            _type_say(con, r["target"], f"T{tid} released by {by} - stop work on it", "task released")
+            retired.append(r["id"])
+            said.append(f"#{r['id']} ended; {r['target']} told to stop")
+            continue
         ok, msg = askmod.retire_open(con, r["id"], f"T{tid} released by {by}")
         if ok:
             retired.append(r["id"])
@@ -1219,6 +1226,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
         if r["state"] == "queued" and r["target"] == old and r["id"] != rid:
             # not settling: a decision card closing here would mark the task done, mid-handoff (T684)
             askmod.resolve(r["id"], f"handed to {to}", notify=False, settle=False)
+    db.end_held(con, tid, old)
     db.edit_task(con, tid, me, owner=to)
     _sync_self_blocks(con, tid, me, old)
     db.link_request(con, tid, rid)
@@ -1512,6 +1520,7 @@ def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
     for r in taken:
         if r["state"] == "queued":
             askmod.resolve(r["id"], f"moved to {new_owner}", state="withdrawn", notify=False)
+    db.end_held(con, tid, old_owner)
     if db.current_task(con, old_owner) == tid:
         db.set_current_task(con, old_owner, None)
         if advance_current_task(con, old_owner):

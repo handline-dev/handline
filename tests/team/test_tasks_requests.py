@@ -1414,6 +1414,51 @@ def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> No
         check("handed on: the old holder holds nothing - nothing left in its line",
               not db.queued_for(con, "backend"), str([r["id"] for r in db.queued_for(con, "backend")]))
 
+        from ocp.actions import tasks as taskacts
+        said: list = []
+        real_say = taskacts._type_say
+        taskacts._type_say = lambda _con, owner, body, why: said.append((owner, body))
+        try:
+            ok, msg = actions.task_handoff(con, "reviewer", t1, "backend", "back to you")
+            check("hand back: a task can go back to a previous holder", ok, msg)
+            held = [r["id"] for r in db.queued_for(con, "backend")]
+            check("hand back: only the new delivery is in the previous holder's line, not its old landed one",
+                  held == [db.live_delivery(con, t1, "backend")["id"]] and r1 not in held and db.live_delivery(con, t1, "backend")["id"] != r1,
+                  str(held))
+            ok, _, t3 = actions.task_new("product", "reviewer", "to release", "to release")
+            r3 = db.task_requests(con, t3)[0]["id"]
+            db.mark_delivered(con, r3)
+            db.mark_landed(con, r3)
+            ok, msg = actions.release_task(con, t3, "product")
+            check("release: a landed task is released, its agent told to stop", ok and said and said[-1][0] == "reviewer" and "stop work" in said[-1][1], f"{msg} {said}")
+            check("release: and nothing is left in its agent's line", not db.queued_for(con, "reviewer"),
+                  str([r["id"] for r in db.queued_for(con, "reviewer")]))
+            ok, _, t4 = actions.task_new("product", "reviewer", "to finish and reopen", "to finish and reopen")
+            r4 = db.task_requests(con, t4)[0]["id"]
+            db.mark_delivered(con, r4)
+            db.mark_landed(con, r4)
+            db.mark_task_done(con, t4, "done it")
+            ok, msg = actions.reopen_task(con, t4, "product", "not right")
+            check("reopen: a done task is reopened", ok, msg)
+            check("reopen: its old delivery is not held again", r4 not in [r["id"] for r in db.queued_for(con, "reviewer")],
+                  str([r["id"] for r in db.queued_for(con, "reviewer")]))
+            ok, _, t5 = actions.task_new("product", "reviewer", "to move", "to move")
+            r5 = db.task_requests(con, t5)[0]["id"]
+            db.mark_delivered(con, r5)
+            db.mark_landed(con, r5)
+            ok, msg = actions.edit_task(con, t5, "product", owner="backend")
+            actions.send_moved_task(con, t5, "reviewer", "product")
+            check("move: edit --owner leaves the old holder nothing in its line and asks the new one",
+                  ok and r5 not in [r["id"] for r in db.queued_for(con, "reviewer")]
+                  and db.live_delivery(con, t5, "backend")["state"] == "queued", msg)
+            ok, msg = actions.edit_task(con, t5, "product", owner="reviewer")
+            actions.send_moved_task(con, t5, "backend", "product")
+            check("move: and moved back, the first holder's old landed delivery is not held again - the new one is",
+                  ok and r5 not in [r["id"] for r in db.queued_for(con, "reviewer")]
+                  and db.live_delivery(con, t5, "reviewer")["id"] != r5, msg)
+        finally:
+            taskacts._type_say = real_say
+
         ok, _, t2 = actions.task_new("product", "backend", "to discard", "to discard")
         r2 = db.task_requests(con, t2)[0]["id"]
         db.mark_delivered(con, r2)
@@ -1422,7 +1467,7 @@ def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> No
         check("discard: the asker is refused while the task is held - a request is open", not ok, msg)
         ok, msg = actions.discard_task(con, t2, db.HUMAN, "not needed", stop=True)
         check("discard: the founder stops and discards a held task", ok, msg)
-        check("discard: a discarded landed task leaves nothing in the line", not db.queued_for(con, "backend"),
+        check("discard: a discarded landed task leaves nothing in the line", r2 not in [r["id"] for r in db.queued_for(con, "backend")],
               str([r["id"] for r in db.queued_for(con, "backend")]))
         check("discard: and reads not sent", db.get_task(con, t2)["sent_at"] is None)
     finally:

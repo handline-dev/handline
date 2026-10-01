@@ -106,6 +106,16 @@ def refresh_sent(con, tid: int) -> None:
         (int(time.time()), tid))
 
 
+def end_held(con, tid: int, owner: str | None = None) -> None:
+    """The task no longer holds the landed delivery that asked `owner` (anyone when None) for it:
+    stamped answered, so it is history and can never be held again - not when the task is reopened,
+    nor when it comes back to a previous holder."""
+    con.execute(
+        "UPDATE requests SET resolved_at = COALESCE(resolved_at, ?) WHERE state = 'landed' AND kind = 'task' "
+        "AND resolved_at IS NULL AND (? IS NULL OR target = ?) "
+        "AND id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", (int(time.time()), owner, owner, tid))
+
+
 def _unsend(con, tid: int) -> None:
     con.execute("UPDATE tasks SET sent_at = NULL WHERE id = ?", (tid,))
 
@@ -127,6 +137,8 @@ def mark_task_done(con, tid: int, evidence: str, via: str = "reason") -> bool:
         "WHERE id = ? AND done_evidence IS NULL AND discarded_by IS NULL",
         (evidence, int(time.time()), via, tid))
     _unsend(con, tid)
+    if cur.rowcount:
+        end_held(con, tid)
     return cur.rowcount > 0
 
 
@@ -137,6 +149,8 @@ def discard_task(con, tid: int, by: str, reason: str) -> bool:
         "UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ? "
         f"WHERE id = ? AND {OPEN_SQL}", (by, int(time.time()), reason, tid))
     _unsend(con, tid)
+    if cur.rowcount:
+        end_held(con, tid)
     return cur.rowcount > 0
 
 
