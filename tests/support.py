@@ -63,7 +63,7 @@ from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, 
                      health as clihealth, setup as clisetup, task as clitask)
 from ocp.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from ocp import actions, cli as climod, db, vendors  # noqa: E402
-from ocp.session import blocked as blockedmod, digest, drift, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
+from ocp.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
 from ocp.vendors import claude_meter as claudemeter  # noqa: E402
 from ocp.vendors import claude_collect  # noqa: E402
 from ocp.vendors.base import Window  # noqa: E402
@@ -242,6 +242,8 @@ def restore_world() -> None:
     # world does not answer the next test's question.
     dmn_delivery._seen.clear()
     dmn_delivery._seen_at["t"] = 0.0
+    dmn_delivery._NOTED.clear()
+    dmn_delivery._FAILED.clear()
     actions._WORLD["at"] = 0.0
 
 
@@ -921,19 +923,6 @@ def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
 def _reports(con) -> list:
     return con.execute("SELECT id, kind, fyi, state, body FROM requests WHERE target = 'human' "
                        "AND kind = 'say' AND fyi = 1 ORDER BY id").fetchall()
-
-
-# ---------------------------------------------------------------- drift
-def _mkrepo(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    run = lambda *a: subprocess.run(["git", *a], cwd=path, capture_output=True, env=env)  # noqa: E731
-    run("init", "-q", "-b", "main")
-    (path / "shared.txt").write_text("base\n")
-    (path / "other.txt").write_text("base\n")
-    run("add", "-A")
-    run("commit", "-qm", "base")
 
 
 def _worktree_with_a_dirty_file(root: Path) -> Path:
@@ -2008,7 +1997,6 @@ __all__ = [
     'decisions',
     'digest',
     'doctor',
-    'drift',
     'evmod',
     'foldmod',
     'handoffmod',
@@ -2122,7 +2110,6 @@ __all__ = [
     '_bg_of',
     '_decline_world',
     '_reports',
-    '_mkrepo',
     '_worktree_with_a_dirty_file',
     'DIFFERENTIAL_CASES',
     'DUMP_STRINGS',

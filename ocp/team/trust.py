@@ -25,53 +25,13 @@ from ..infra.yamlcompat import dump, load
 
 
 # The declared roots are the founder's alone to change, so they live in the
-# protected store, not in a file every agent can write. `legacy_path` is where
-# they used to be; it is read once, by the founder's own session, to move them.
+# protected store, not in a file every agent can write.
 _NS = "trust"
 _ROOTS = "roots.json"
-_MIGRATED = "migrated"
-
-
-def legacy_path() -> Path:
-    return paths.home() / "trust_roots.json"
-
-
-def migrate_legacy() -> str | None:
-    """Move the old trust_roots.json into the protected store, once. Returns
-    what was done, or None when there was nothing to do or this is an agent's
-    session (which cannot write there). The marker makes it once: a file put
-    back afterwards by anything is never read as the founder's."""
-    if protected.get(_NS, _MIGRATED) is not None:
-        return None
-    old = legacy_path()
-    if not old.exists():
-        return None
-    try:
-        rows = json.loads(old.read_text())
-        if not isinstance(rows, list):
-            rows = []
-    except (OSError, json.JSONDecodeError):
-        rows = []
-    try:
-        protected.put(_NS, _ROOTS, json.dumps(rows, indent=2))
-        protected.put(_NS, _MIGRATED, "1")
-    except PermissionError:
-        return None
-    old.unlink(missing_ok=True)
-    listed = "".join(f"\n  {r.get('root')}  ({r.get('added_by', '?')}: {r.get('why', '')})"
-                     for r in rows if isinstance(r, dict))
-    return (f"moved {len(rows)} declared root(s) out of {old} into the protected store - "
-            f"check they are all yours:{listed}")
 
 
 def list_roots() -> list[dict]:
     """Every declared root, as {root, why, added_by, added_at}."""
-    migrate_legacy()
-    return stored_roots()
-
-
-def stored_roots() -> list[dict]:
-    """The roots in the protected store as they are, without moving anything."""
     raw = protected.get(_NS, _ROOTS)
     if raw is None:
         return []
@@ -84,7 +44,6 @@ def stored_roots() -> list[dict]:
 
 def _save(rows: list[dict]) -> None:
     protected.put(_NS, _ROOTS, json.dumps(rows, indent=2))
-    protected.put(_NS, _MIGRATED, "1")
 
 
 def _resolved(path) -> str | None:

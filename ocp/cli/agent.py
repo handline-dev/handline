@@ -1,4 +1,4 @@
-"""Commands on one agent: register, move, show, launch, resume, spawn, unstall."""
+"""Commands on one agent: register, move, launch, resume, spawn, unstall."""
 from __future__ import annotations
 
 import os
@@ -9,13 +9,9 @@ from .. import actions
 from ..team import agents
 from ..daemon import handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
-from ..session import handoff as handoffmod
 from ..session import launch
-from ..usage import load
-from ..infra import paths, protected
+from ..infra import protected
 from ..team import spawn as spawnmod
-from ..usage import status
-from ..infra import textsafe
 
 
 def cmd_agent_move(args) -> int:
@@ -68,59 +64,6 @@ def cmd_agent_register(args) -> int:
     return 0
 
 
-def cmd_agent_show(args) -> int:
-    try:
-        cfg = agents.read(args.name)
-    except Exception as e:  # noqa: BLE001
-        print(f"error: {e}")
-        return 1
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, args.name)
-        queued = db.unreached_count(con, args.name)
-        st = status.read_for_agent(args.name, agents.current_account(args.name, con))
-    finally:
-        con.close()
-    info = {
-        "agent": args.name, "config": cfg,
-        "state": (row["state"] if row else "IDLE"),
-        "wake_at": (row["wake_at"] if row else None),
-        "terminal": (row["terminal"] if row else None),
-        "failed_attempts": (row["failed_attempts"] if row else 0),
-        "continuations": (row["continuations"] if row else 0),
-        "throttle_count": (row["throttle_count"] if row else 0),
-        "windows": st.window_report(), "ctx_pct": st.ctx_pct,
-        "inbox_queued": queued,
-        "budget": {fn: {"bytes": size, "limit": lim, "over": over}
-                   for fn, size, lim, over in agents.budget_report(args.name)},
-    }
-    if args.json:
-        print(textsafe.json_dumps(info, indent=2))
-        return 0
-    for k, v in info.items():
-        print(f"{k:<17}{textsafe.oneline(str(v))}")
-    return 0
-
-
-def cmd_base_promote(args) -> int:
-    ok, msg = agents.promote_to_base(args.agent, args.item, force=args.force)
-    print(msg)
-    return 0 if ok else 1
-
-
-def cmd_handoff_write(args) -> int:
-    """Record a handoff now, without waiting for a trigger."""
-    con = db.connect()
-    try:
-        missing = handoffmod.record(con, args.agent)
-        print(textsafe.text(db.get_handoff(con, args.agent) or ""))
-    finally:
-        con.close()
-    if missing:
-        print(f"could not read: {', '.join(missing)}")
-    return 1 if missing else 0
-
-
 def cmd_resume(args) -> int:
     con = db.connect()
     try:
@@ -134,43 +77,11 @@ def cmd_resume(args) -> int:
     return 0 if ok else 1
 
 
-def cmd_agent_list(args) -> int:
-    names = paths.list_agents()
-    if not names:
-        print("no agents registered.")
-        return 0
-    loads = load.read_all()
-    con = db.connect()
-    try:
-        for n in names:
-            try:
-                cfg = agents.read(n)
-            except Exception as e:  # noqa: BLE001
-                print(f"{n:<14} <error: {e}>")
-                continue
-            acct = agents.current_account(n, con)
-            ld = loads.get(acct)
-            allowed = acct and status.read(acct).takes_work(ld.active if ld else 0)[0]
-            budget = " ".join(f"{fn}:{size}B{'!' if over else ''}"
-                              for fn, size, _, over in agents.budget_report(n))
-            print(f"{n:<11} -> {acct or '-':<7} {textsafe.oneline(str(cfg.get('model'))):<7} "
-                  f"{textsafe.oneline(str(cfg.get('effort') or agents.DEFAULT_EFFORT)):<7} "
-                  f"{('ok' if allowed else 'BLOCKED') if acct else '-':<8} {budget}")
-    finally:
-        con.close()
-    return 0
-
-
 # ---------------------------------------------------------------- launch
 def cmd_launch(args) -> int:
     launch.exec_agent(args.agent, args.extra, force=args.force,
                       prompt_file=args.prompt_file, account=args.account)
     return 0  # unreachable when execve succeeds
-
-
-def cmd_command(args) -> int:
-    print(launch.command_for(args.agent))
-    return 0
 
 
 def cmd_spawn(args) -> int:

@@ -818,80 +818,6 @@ def test_doctor_service_check(home: Path) -> None:
         service.crash_loop_detected = orig_loop
 
 
-def test_drift(tmp: Path) -> None:
-    origin = tmp / "origin"
-    _mkrepo(origin)
-    work = tmp / "work"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work)], capture_output=True)
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    run = lambda cwd, *a: subprocess.run(["git", *a], cwd=cwd, capture_output=True, env=env)  # noqa: E731
-
-    d = drift.check(work, base="main", fetch=False)
-    check("drift: a fresh clone has no drift", d.ok and d.behind == 0, d.summary())
-
-    # The agent works on shared.txt.
-    (work / "shared.txt").write_text("agent edit\n")
-    run(work, "add", "-A")
-    run(work, "commit", "-qm", "agent work")
-    d = drift.check(work, base="main", fetch=False)
-    check("drift: the agent's own commits are not drift", d.behind == 0, d.summary())
-    check("drift: own commits are counted as touched files",
-          "shared.txt" in d.touched, str(d.touched))
-
-    # The base moves, on a file the agent did not touch.
-    (origin / "other.txt").write_text("base moved\n")
-    run(origin, "add", "-A")
-    run(origin, "commit", "-qm", "base moves other.txt")
-    run(work, "fetch", "-q")
-    d = drift.check(work, base="main", fetch=False)
-    check("drift: base movement is detected", d.behind == 1, d.summary())
-    check("drift: no overlap means not significant", not d.significant, str(d.overlap))
-    check("drift: no overlap uses the reassuring header",
-          d.resume_header() == drift.NO_OVERLAP_HEADER)
-
-    # The base moves again, this time on the agent's own file.
-    (origin / "shared.txt").write_text("base changed the shared file\n")
-    run(origin, "add", "-A")
-    run(origin, "commit", "-qm", "base moves shared.txt")
-    run(work, "fetch", "-q")
-    d = drift.check(work, base="main", fetch=False)
-    check("drift: overlap with the agent's files is detected",
-          d.significant and "shared.txt" in d.overlap, str(d.overlap))
-    check("drift: overlap switches to the cautious header",
-          d.resume_header() == drift.OVERLAP_HEADER)
-    check("drift: the verdict is the file intersection, not the commit count",
-          d.behind == 2 and d.overlap == ["shared.txt"], d.summary())
-
-    # Unknown drift must not reassure.
-    bad = drift.check(tmp / "nope", base="main", fetch=False)
-    check("drift: an unknown result is fail-closed",
-          not bad.ok and bad.resume_header() == drift.OVERLAP_HEADER, bad.summary())
-
-
-def test_drift_git_gives_one_clean_entry_per_file(tmp: Path) -> None:
-    """auditor's #1194: drift._git itself hands back sanitised records, one per
-    file, rather than leaning on cmd_drift sanitising at the sink. Split on
-    newlines only: a name holding U+0085 or U+2028 is still one file."""
-    repo = tmp / "repo"
-    repo.mkdir(parents=True)
-
-    def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
-    git("init", "-q", "-b", "main")
-    git("config", "core.quotePath", "false")      # names come back verbatim, as they do here
-    names = ["a\u0085b.txt", "c\u2028d.txt", "e\x9b31mf.txt", "plain.txt"]
-    for n in names:
-        (repo / n).write_text("x")
-    git("add", ".")
-    ok, out = drift._git(["ls-files"], repo)
-    entries = out.split("\n")
-    check("drift._git: one entry per file, whatever the name holds",
-          ok and len(entries) == len(names), repr(entries))
-    check("drift._git: and nothing a terminal would obey reaches a caller",
-          not any(c in out for c in "\x9b\x85\u2028"), repr(out))
-
-
 def test_spawn_base_selection(tmp: Path) -> None:
     """Branching from the stale side silently loses work, so pick_base must not
     guess - and must refuse outright when the two have diverged."""
@@ -975,6 +901,29 @@ def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
                   False, str(e))
     finally:
         accounts.logged_in = real_login
+
+
+def test_doctor_checks_team_yaml_and_that_its_agents_are_registered(home: Path) -> None:
+    """`ocp team check` is gone: doctor says it (T713)."""
+    use_home(home)
+    hand_edit_team("agents:\n  backend: {}\n  ghost: {}\nedges: []\n")
+    agents.register("backend")
+    r = doctor.Report()
+    doctor._check_team(r)
+    check("doctor: an agent team.yaml names that ocp does not have is a warning naming it",
+          r.rows[-1][0] == doctor.WARN and "ghost" in r.rows[-1][2], str(r.rows))
+    hand_edit_team("agents:\n  backend: {}\nedges: []\n")
+    r = doctor.Report()
+    doctor._check_team(r)
+    check("doctor: a team.yaml whose agents are all registered is ok",
+          r.rows[-1][0] == doctor.OK and "1 agents" in r.rows[-1][1], str(r.rows))
+    hand_edit_team("agents: [not, a, map\n")
+    r = doctor.Report()
+    doctor._check_team(r)
+    check("doctor: a team.yaml that does not parse fails", r.rows[-1][0] == doctor.FAIL, str(r.rows))
+    rows = doctor._run().rows
+    check("doctor: and the whole run includes the team check",
+          any(lvl == doctor.FAIL and "team.yaml" in msg for lvl, msg, _d in rows), str(rows)[:300])
 
 
 def test_doctor_says_one_thing_per_account(home: Path) -> None:
@@ -1735,6 +1684,14 @@ def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
         check("ps: the screen says it too",
               any(l.startswith("backend") and "·drift" in l for l in printed.splitlines()),
               printed)
+        con.execute("UPDATE agent_state SET account = NULL WHERE agent = 'backend'")
+        printed = _capture(lambda: clidaemon.cmd_daemon_status(None))
+        line = next(l for l in printed.splitlines() if l.startswith("backend"))
+        check("ps: an agent with no account recorded shows -", line.split()[1] == "-", line)
+        con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'backend'")
+        printed = _capture(lambda: clidaemon.cmd_daemon_status(None))
+        line = next(l for l in printed.splitlines() if l.startswith("backend"))
+        check("ps: and its account shows on its row", line.split()[1] == "alpha", line)
 
         db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"))
         r = doctor.Report()
@@ -2347,10 +2304,9 @@ def main() -> int:
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
-        run(lambda: test_drift(Path(td) / 'drift'))
-        run(lambda: test_drift_git_gives_one_clean_entry_per_file(Path(td) / 'driftgit'))
         run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
+        run(lambda: test_doctor_checks_team_yaml_and_that_its_agents_are_registered(Path(td) / 'docteam'))
         run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
         run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
             Path(td) / 'docactive'))
@@ -2386,4 +2342,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

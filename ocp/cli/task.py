@@ -9,7 +9,7 @@ from .. import actions
 from ..infra import timefmt
 from ..team import agents
 from ..team import ask as askmod
-from ..daemon import lifecycle as dmn_lifecycle
+from ..daemon import lifecycle as dmn_lifecycle, taskholds
 from .. import db
 from ..session import handoff as handoffmod
 from ..infra import paths
@@ -38,10 +38,6 @@ def cmd_progress(args) -> int:
         return 0 if ok else 1
     finally:
         con.close()
-
-
-def _ambiguous_number(raw: str) -> str:
-    return actions.parse_task_ref_error(raw)
 
 
 def _task_arg(text: str) -> int:
@@ -389,22 +385,6 @@ def cmd_task_memo(args) -> int:
         con.close()
 
 
-def cmd_task_link(args) -> int:
-    con = db.connect()
-    try:
-        if db.get_task(con, args.task) is None:
-            print(f"no task T{args.task}")
-            return 1
-        if db.get_request(con, args.request) is None:
-            print(f"no request #{args.request}")
-            return 1
-        db.link_request(con, args.task, args.request)
-    finally:
-        con.close()
-    print(f"request #{args.request} linked to task T{args.task}")
-    return 0
-
-
 def cmd_task_edit(args) -> int:
     """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`) is
     one transaction, so a later part's refusal never leaves an earlier one
@@ -535,6 +515,9 @@ def _print_board(con, tasks: list) -> None:
         odd = actions.task_mismatch(con, t, state, open_requests)
         if odd:
             print(f"        ! {odd}")
+        wait = taskholds.wait_line(con, t, state)
+        if wait:
+            print(f"        {wait}")
         for r in db.task_requests(con, t["id"]):
             when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
             print(f"        request #{r['id']} {r['requester']} → {r['target']} "
@@ -628,6 +611,9 @@ def cmd_task_board(args) -> int:
             parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
             print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
             print(_fit100(f"      now: {now}"))
+            wait = taskholds.wait_line(con, t, actions.task_state(con, t))
+            if wait:
+                print(_fit100(f"      {wait}"))
             odd = actions.task_mismatch(con, t, actions.task_state(con, t), open_requests)
             if odd:
                 print(_fit100(f"      ! {odd}"))

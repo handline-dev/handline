@@ -1,4 +1,4 @@
-"""Reads of the whole system: doctor, status, drift, triggers, events, fold, rollover, backup."""
+"""Reads of the whole system: doctor, status, triggers, events, fold, backup."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +11,6 @@ from ..infra import backup as backupmod
 from ..daemon import lifecycle as dmn_lifecycle
 from .. import db
 from ..infra import doctor
-from ..session import drift
 from ..session import events
 from ..session import fold as foldmod
 from ..session import launch
@@ -49,20 +48,6 @@ def cmd_status(args) -> int:
     print(f"picked: {picked}" if picked
           else "picked: none - no account may take work (fail-closed)")
     return 0 if picked else 1
-
-
-def cmd_drift(args) -> int:
-    # Filenames come from git, which C-quotes a control byte in a path - but
-    # only by default (core.quotePath=false, standard advice for readable
-    # Korean/Japanese names, turns that off), so this prints its own way.
-    d = drift.check(Path(args.repo).resolve(), base=args.base, fetch=not args.no_fetch)
-    print(textsafe.oneline(d.summary()))
-    if d.overlap:
-        print("\noverlapping files:")
-        for f in d.overlap[:20]:
-            print(f"  {textsafe.oneline(f)}")
-    print(f"\nresume header:\n  {d.resume_header()}")
-    return 0 if d.ok and not d.significant else 1
 
 
 def _name_col(names, least: int = 12) -> int:
@@ -127,14 +112,6 @@ def cmd_fold(args) -> int:
         print(textsafe.text(msg))
         bad += 0 if ok else 1
     return 1 if bad else 0
-
-
-def cmd_rollover(args) -> int:
-    targets = [args.agent] if args.agent else paths.list_agents()
-    for a in targets:
-        _, msg = foldmod.rollover(a)
-        print(msg)
-    return 0
 
 
 def cmd_backup(args) -> int:

@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ..team import accounts, agents, trust
+from ..team import accounts, agents, team as teammod, trust
 from .. import db, vendors
 from ..session import launch, observe as obs, orca
 from ..usage import load as loadmod, status
@@ -235,19 +235,10 @@ def _check_protected(r: Report) -> None:
             r.add(WARN, "protected store is not out of the agents' reach", why)
     else:
         r.add(OK, "protected store", str(protected.root()))
-    roots = trust.stored_roots()
+    roots = trust.list_roots()
     r.add(OK, f"declared trust roots: {len(roots)}",
           "; ".join(f"{x.get('root')} ({x.get('added_by', '?')})" for x in roots
                     if isinstance(x, dict)) or "none")
-    if trust.legacy_path().exists():
-        if protected.get("trust", "migrated") is None:
-            r.add(WARN, "declared trust roots are not moved yet",
-                  f"{trust.legacy_path()} is still the only copy; `ocp trust migrate` "
-                  "from your own terminal moves it into the protected store")
-        else:
-            r.add(WARN, "a trust_roots.json is back in OCP_HOME",
-                  f"{trust.legacy_path()} is ignored - the roots are in the protected "
-                  "store now; delete it")
 
 
 def _check_seals(r: Report) -> None:
@@ -310,6 +301,21 @@ def _check_agents(r: Report) -> None:
             if over:
                 r.add(WARN, f"agent {n}: {fn} over budget",
                       f"{size}B > {budget}B, and this is per-session overhead")
+
+
+def _check_team(r: Report) -> None:
+    """team.yaml parses, and every agent it names is registered."""
+    try:
+        t = teammod.Team.load()
+    except Exception as e:  # noqa: BLE001 - a bad file is reported as it is
+        r.add(FAIL, "team.yaml is invalid", textsafe.oneline(str(e)))
+        return
+    names = sorted(set(t.agents) | {a for m in t.teams.values() for a in (m or [])})
+    gone = [n for n in names if n not in set(paths.list_agents())]
+    if gone:
+        r.add(WARN, "team.yaml names agents ocp does not have", ", ".join(gone))
+    else:
+        r.add(OK, f"team.yaml: {len(t.teams)} teams, {len(names)} agents, {len(t.edges)} edges")
 
 
 def _check_stuck_running(r: Report) -> None:
@@ -613,6 +619,7 @@ def _run() -> Report:
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)
+    _check_team(r)
     _check_protected(r)
     _check_stuck_running(r)
     _check_launch_drift(r)

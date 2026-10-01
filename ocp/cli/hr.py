@@ -152,13 +152,6 @@ def cmd_trust(args) -> int:
         ok, said = trust.apply(args.id)
         print(said)
         return 0 if ok else 1
-    if args.trust_cmd == "migrate":
-        if protected.in_agent_session():
-            print("moving the declared roots is the founder's, from a terminal or the bridge, "
-                  "not an agent's", file=sys.stderr)
-            return 1
-        print(trust.migrate_legacy() or "nothing to move")
-        return 0
     if args.trust_cmd == "remove":
         ok, said = trust.remove(args.root)
         print(said)

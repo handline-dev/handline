@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from .. import db
 
-# A refused delivery is recorded as an event each time it is tried; this is how long between tries.
+# A delivery that landed nothing (every candidate refused) is tried again after this long. One that
+# landed is not throttled: the owner's next task is told on the very next tick (T721).
 RETRY_S = 60
 
 
@@ -29,7 +30,8 @@ def sweep(con, log, now: int) -> None:
         key = f"taskqueue:{agent}"
         if now - (db.get_cursor(con, key) or 0) < RETRY_S:
             continue
-        db.set_cursor(con, key, now)
         if actions.advance_current_task(con, agent):
             askmod.push(con, agent)
             log(f"  {agent}: a queued task was waiting and it is free - delivered")
+        else:
+            db.set_cursor(con, key, now)

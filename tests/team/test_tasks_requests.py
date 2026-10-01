@@ -1897,7 +1897,7 @@ def test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(home: Path)
 
 
 def test_an_agent_may_not_list_another_agents_messages(home: Path) -> None:
-    """T39: inbox, digest, handoff and events naming another agent are refused
+    """T39: inbox and events naming another agent are refused
     to an agent, unless it is that agent's supervisor; the human is exempt."""
     _daemon_home(home, 20)
     hand_edit_team("""
@@ -1920,8 +1920,8 @@ edges:
                        "peer", "async", None, 0, None)
     finally:
         con.close()
-    for cmd in (["inbox", "marina"], ["inbox", "marina", "--all"], ["digest", "marina"],
-                ["handoff", "marina"], ["events", "--agent", "marina"]):
+    for cmd in (["inbox", "marina"], ["inbox", "marina", "--all"],
+                ["events", "--agent", "marina"]):
         rc, out = _cli(cmd, as_agent="dohyun")
         check(f"T39: a peer is refused `ocp {' '.join(cmd)}`",
               rc == 1 and "may not list marina's messages" in out
@@ -1953,7 +1953,7 @@ edges:
           rc == 1 and "may not list manager's messages" in out, out)
     rc, out = _cli(["inbox", "marina", "--all"], as_agent=askmod.HUMAN)
     check("T39: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
-    for cmd in (["handoff", "marina"], ["digest", "marina"], ["inbox", "marina"], ["events"]):
+    for cmd in (["inbox", "marina"], ["events"]):
         rc, out = _cli(cmd, as_agent=None)
         check(f"T39: a caller with no name is refused `ocp {' '.join(cmd)}`",
               rc == 1 and "cannot tell who is asking" in out and "secret of marina" not in out, out)
@@ -2366,7 +2366,6 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         "task edit": ["task", "edit", n, "--title", "x"],
         "task edit --blocked-by": ["task", "edit", f"T{other}", "--blocked-by", n],
         "task edit --unblock": ["task", "edit", f"T{other}", "--unblock", n],
-        "task link": ["task", "link", n, "1"],
         "task new --parent": ["task", "new", "--owner", "worker", "y", "y", "--parent", n, "-t", "1h"],
         "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "y", "--blocked-by", n,
                                   "-t", "1h"],
@@ -3781,8 +3780,11 @@ def test_task_new_list_and_link(home: Path) -> None:
     rc, out = _cli(["task", "new", "--owner", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
     check("task new: a child task", rc == 0, out)
     rid = _human_request()
-    rc, out = _cli(["task", "link", "T1", str(rid)])
-    check("task link: attaches a further request", rc == 0, out)
+    con = db.connect()
+    try:
+        db.link_request(con, 1, rid)
+    finally:
+        con.close()
     rc, out = _cli(["task", "list"])
     check("task list: the board shows title, owner, child and linked request",
           "build the board" in out and "[worker]" in out and "under T1" in out
@@ -8052,6 +8054,40 @@ limits:
               ok and not any(r["state"] == "queued" for r in db.task_requests(con, st)), msg)
         ok, msg = actions.mark_task_done(con, st, "helper", reason="again")
         check("T706: with nothing left it is refused as before", not ok and "already done" in msg, msg)
+        # T707: the T696/T698/T699 shape - the review is a child of the work, the re-review a child of the review
+        W, A = "dev.merger", "dev.auditor"
+        ok, _, w = actions.task_new("manager", W, "T696 work", "work")
+        ok, msg, rv = actions.task_new(W, A, "review T696 @old", "review", parent=w)
+        check("T707: the work waits on its review (a child)", ok and [b["id"] for b in db.task_blockers(con, w)] == [rv], msg)
+        ok, msg = actions.task_handoff(con, A, rv, W, "FAIL: fix it")
+        check("T707: a failed review handed back does not leave its holder blocked by itself",
+              ok and db.task_blockers(con, w) == [] and db.get_task(con, rv)["owner"] == W, msg)
+        ok, msg, rv2 = actions.task_new(W, A, "re-review T696 @new", "again", parent=rv)
+        check("T707: the re-review is filed under the stale review", ok and db.get_task(con, rv2)["parent_task"] == rv, msg)
+        ok, msg = actions.task_handoff(con, W, rv, A, "fixed, look again")
+        check("T707: handed back to the auditor the wait counts again - the work cannot be marked done past its review",
+              ok and [b["id"] for b in db.task_blockers(con, w)] == [rv], msg)
+        ok, msg = actions.mark_task_done(con, w, W, reason="skip the review")
+        check("T707: and is refused", not ok, msg)
+        ok, msg = actions.task_handoff(con, A, rv, W, "FAIL again")
+        ok, msg = actions.discard_task(con, rv, W, "superseded")
+        check("T707: the asker cannot discard a stale review past its open child", not ok and "open child" in msg, msg)
+        ok, msg = actions.discard_task(con, rv, actions.HUMAN, "superseded by the re-review", stop=True)
+        check("T707: the founder can, and the live re-review moves up to the work",
+              ok and db.task_ended(db.get_task(con, rv)) and db.get_task(con, rv2)["parent_task"] == w, msg)
+        check("T707: and the work now waits on the re-review",
+              [b["id"] for b in db.task_blockers(con, w)] == [rv2], str([b["id"] for b in db.task_blockers(con, w)]))
+        ok, msg = actions.mark_task_done(con, rv2, A, reason="PASS")
+        released = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'released_at_done' AND "
+                               f"{db.EVENT_TASK} = ?", (w,)).fetchone()[0]
+        check("T707: the re-review's PASS releases the work", ok and released == 1, f"{msg} {released}")
+        ok, _, e1 = actions.task_new("manager", A, "edit owner A", "a")
+        ok, _, e2 = actions.task_new("manager", W, "edit owner B", "b")
+        actions.add_block(con, e1, e2, "manager")
+        ok, msg = actions.edit_task(con, e2, "manager", owner=A)
+        check("T707: giving a blocker to the agent it blocks stops the wait counting", ok and db.task_blockers(con, e1) == [], msg)
+        ok, msg = actions.edit_task(con, e2, "manager", owner=W)
+        check("T707: and it counts again once the owners differ", ok and [b["id"] for b in db.task_blockers(con, e1)] == [e2], msg)
         # T689: a task's body is editable by whoever may edit its title, recorded, and told to the holder
         ok, _, bt = actions.task_new("manager", "worker", "fix the parser", "old brief: fix the parser")
         ok, msg = actions.edit_task(con, bt, "worker", body="worker rewrites it")

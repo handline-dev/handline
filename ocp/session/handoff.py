@@ -204,7 +204,7 @@ def _worktree_lines(worktree: str | None) -> tuple[list[str], str | None]:
     lines = [f"worktree: {worktree}",
             f"branch: {textsafe.oneline(branch)} @ {textsafe.oneline(head)}"]
     # A status line names a path the agent's own worktree chose - the same
-    # class of text a filename in `ocp drift` is, and not one git quotes for
+    # class of text a filename is, and not one git quotes for
     # us here (`status --porcelain` is meant for scripts to parse, not shown
     # to a terminal, so it never has git's own quoting to lean on).
     changed = dirty.splitlines()

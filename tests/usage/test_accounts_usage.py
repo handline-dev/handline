@@ -1284,13 +1284,8 @@ def test_the_zai_meter_reads_the_plan_and_hides_its_key(home: Path) -> None:
               usage_api.read("zai", refresh=False) is None)
         body["raw"] = json.dumps(zai_quota(now_ms)).encode()
 
-        real_live = obsmod.live_sessions
-        obsmod.live_sessions = lambda: {}
-        try:
-            out = _capture(lambda: climod.main(["usage", "zai"]))
-        finally:
-            obsmod.live_sessions = real_live
-        check("zai meter: `ocp usage` prints the figures, never the key",
+        out = repr(usage_api.read("zai", refresh=False))
+        check("zai meter: the reading holds the figures, never the key",
               "SECRET-ZAI-KEY" not in out and "13" in out and "2" in out, out)
 
         argv, env = launch.build("glm")
@@ -2830,7 +2825,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "release_task", "background_work_ended",
-                    "block_task", "unblock_task", "released_at_done", "task_unblocked", "child_result_told", "task_deliver_refused",
+                    "block_task", "unblock_task", "dormant_block", "released_at_done", "task_unblocked", "child_result_told", "task_deliver_refused",
                     "demoted_doing", "queue_task", "draft_task",
                     "fold", "fold_failed",
                     "forced_move", "handoff", "moved_account", "nudged",

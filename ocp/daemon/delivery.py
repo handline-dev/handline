@@ -453,10 +453,47 @@ def effective_task_head(con, agent: str):
 # What each agent's next task was last said to be held for, so the reason is logged when it
 # changes and not on every tick (T456): a stall must never be silent.
 _HELD: dict[str, str] = {}
+# What stopped each agent's delivery or wake on its latest try, and when (T721): the daemon records
+# it per waiting task (`taskholds`). A reason not renewed within HELD_FRESH_S has stopped being true.
+_NOTED: dict[str, tuple[str, int, bool]] = {}
+# A wake or start that failed, kept apart so the delivery that follows in the same tick ("no live
+# terminal") does not hide the failure behind it.
+_FAILED: dict[str, tuple[str, int]] = {}
+HELD_FRESH_S = 30
 
 
-def _held(agent: str, head, why: str, log) -> bool:
+def note_failure(agent: str, why: str | None) -> None:
+    """Remember why `agent`'s wake or start failed this tick; None forgets it."""
+    if why:
+        _FAILED[agent] = (why, int(time.time()))
+    else:
+        _FAILED.pop(agent, None)
+
+
+def note_hold(agent: str, why: str | None, contestable: bool = False) -> None:
+    """Remember why work could not reach `agent` this tick; None forgets it. `contestable` is for a
+    reason that a screen read gives and the agent's own state may contradict - not one that is a fact."""
+    if why:
+        _NOTED[agent] = (why, int(time.time()), contestable)
+    else:
+        _NOTED.pop(agent, None)
+
+
+def failed_reason(agent: str, now: int) -> str | None:
+    """Why `agent`'s latest wake or start failed, or None when that is not recent."""
+    failed = _FAILED.get(agent)
+    return failed[0] if failed and now - failed[1] <= HELD_FRESH_S else None
+
+
+def held_reason(agent: str, now: int) -> tuple[str, bool] | None:
+    """(why, contestable) `agent`'s work was not typed on its latest try, or None when that is not recent."""
+    noted = _NOTED.get(agent)
+    return (noted[0], noted[2]) if noted and now - noted[1] <= HELD_FRESH_S else None
+
+
+def _held(agent: str, head, why: str, log, contestable: bool = False) -> bool:
     """Say once per reason why `head` is not typed at `agent` yet; always False, the delivery's answer."""
+    note_hold(agent, why, contestable)
     if _HELD.get(agent) != why:
         _HELD[agent] = why
         log(f"  {agent}: #{head['id']} is held - {why}")
@@ -493,6 +530,7 @@ def deliver_queued(con, agent: str, log) -> bool:
     head = effective_task_head(con, agent)
     if not head:
         _HELD.pop(agent, None)
+        note_hold(agent, None)
         return False
     head_due = db.get_cursor(con, f"notify:{agent}") != int(head["id"]) \
         or _session_changed(con, agent)
@@ -507,6 +545,7 @@ def deliver_queued(con, agent: str, log) -> bool:
         ahead_of, head = head, _next_behind(con, agent, head)
         if not head:
             _HELD.pop(agent, None)
+            note_hold(agent, None)
             return False
         if not _idle_on(con, agent, ahead_of):
             return _held(agent, head, f"#{ahead_of['id']}, told and still open, is ahead of it "
@@ -526,18 +565,19 @@ def deliver_queued(con, agent: str, log) -> bool:
     # Typing at an agent mid-turn leaves the text sitting in its input box
     # unsent, which is how three agents once came up having been told nothing.
     if not orca.typeable_now(handle):
-        return _held(agent, head, "its screen is not idle (mid-turn, or a dialog is open)", log)
+        return _held(agent, head, "its screen is not idle (mid-turn, or a dialog is open)", log, contestable=True)
     depth = sum(1 for r in db.queued_for(con, agent) if r["kind"] == "task")
     with lock.terminal(agent) as mine:
         if not mine:
-            return _held(agent, head, "its terminal is locked by another send", log)
+            return _held(agent, head, "its terminal is locked by another send", log, contestable=True)
         if _type_gate(con, agent, handle):
-            return _held(agent, head, "its screen changed before the send", log)
+            return _held(agent, head, "its screen changed before the send", log, contestable=True)
         # One task per pass: it starts the agent's turn, so a second would be typed
         # mid-turn. The rest go out on later ticks, each behind its own typeable check.
         told = _tell(con, agent, head, depth, handle, log, ahead_of, parked=ahead_of is not None)
         if told:
             _HELD.pop(agent, None)
+            note_hold(agent, None)
         return told
 
 

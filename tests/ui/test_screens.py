@@ -2494,63 +2494,29 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         journal.write_text(f"## 완료\n- done {p}\n")
         service.out_log().parent.mkdir(parents=True, exist_ok=True)
         service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
-        repo = where / "repo"                  # for `drift`: a file name is text someone chose
+        repo = where / "repo"                  # for `spawn --dry-run`
         repo.mkdir()
-        name = "a" + p + "b.txt"
-
-        def git(*args: str) -> None:
-            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
-        git("init", "-q", "-b", "main")
-        git("config", "user.email", "t@example.com")
-        git("config", "user.name", "t")
-        # The standard advice for readable Korean/Japanese filenames, which this
-        # project is full of - and it also stops git quoting a control byte in a
-        # path, so the fixture is driven where that actually bites (auditor,
-        # #1003/#1048): with the default left on, git's own quoting of the C1
-        # byte in `name` would pass this test whether or not cmd_drift sanitised
-        # a thing.
-        git("config", "core.quotePath", "false")
-        (repo / "base.txt").write_text("x")
-        git("add", ".")
-        git("commit", "-qm", "base")
-        git("checkout", "-q", "-b", "work")
-        (repo / name).write_text("y")
-        git("add", ".")
-        git("commit", "-qm", "work")
-        git("checkout", "-q", "main")
-        (repo / name).write_text("z")
-        git("add", ".")
-        git("commit", "-qm", "main moves")
-        git("update-ref", "refs/remotes/origin/main", "HEAD")
-        git("checkout", "-q", "work")
-        (repo / name).write_text("w")
 
         # Every leaf of the CLI is one of these two, so a subcommand that is added
         # is noticed: it is driven here, or it is skipped with a reason.
         driven = {
             "status": [["status"], ["status", "--json"]], "doctor": [["doctor", "--no-color"]],
-            "team check": [["team", "check"]], "team seal": [["team", "seal"]], "ps": [["ps"]], "triggers": [["triggers"]],
+            "team seal": [["team", "seal"]], "ps": [["ps"]], "triggers": [["triggers"]],
             "events": [["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"]],
             "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
                       ["inbox", "human", "--all"]],
             "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
-            "digest": [["digest", "reviewer"]], "handoff": [["handoff", "reviewer"]],
-            "collect": [["collect"], ["collect", "reviewer"]],
-            "agent list": [["agent", "list"]],
-            "agent show": [["agent", "show", "reviewer"], ["agent", "show", "reviewer", "--json"]],
             "account list": [["account", "list"], ["account", "list", "--json"]],
             "hr list": [["hr", "list"]], "service logs": [["service", "logs"]],
             "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
-            "command": [["command", "reviewer"]], "org": [["org"]], "rollover": [["rollover", "reviewer"]], "backup": [["backup"]],
+            "backup": [["backup"]],
             "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
                        None, "spawn --dry-run")],
-            "drift": [(["drift", str(repo), "--no-fetch"], None, "drift --no-fetch")],
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
             "hr withdraw": [(["hr", "withdraw", "withdrawtest"], {"OCP_AGENT": "reviewer"},
                              "hr withdraw")],
             "guide": [["guide"]], "task list": [["task", "list"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
-            "write-handoff": [["write-handoff", "reviewer"]],
             "progress": [(["progress"], {"OCP_AGENT": "reviewer"}, "progress")],
             "withdraw": [(["withdraw", str(d + 1)], {"OCP_AGENT": "marina"}, "withdraw")],
             "unstall": [["unstall", "reviewer"]],
@@ -2560,7 +2526,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
 
         def run_it(argv: list[str], env: dict | None = None, key: str | None = None) -> None:
             buf, err = io.StringIO(), io.StringIO()
-            if env is None and argv[0] in ("inbox", "digest", "handoff", "events"):
+            if env is None and argv[0] in ("inbox", "events"):
                 env = {"OCP_AGENT": "human"}  # listings refuse a caller with no name (T39)
             saved = {k: os.environ.get(k) for k in (env or {})}
             os.environ.update(env or {})
@@ -2637,8 +2603,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                     "(tests/daemon/test_schedules.py), not this scene",
         "ignore-cache-expiry": "writes the global or a per-agent switch; prints it - driven in "
                                "test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line, not this scene",
-        "usage": "calls the usage endpoint and the Keychain against a real login "
-                 "(usage_api's own parsing is driven above, without either)",
         "agent move": "a confirm, and Orca", "agent register": "writes agent.yaml; a name with a control byte is refused before it prints",
         "launch": "execs claude",
         "hooks sync": "rewrites the shared settings", "hooks status": "reads the shared settings; prints paths",
@@ -2671,7 +2635,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                       "test_a_founder_message_lets_the_agent_begin_its_own_task, not this scene",
         "task handoff": "T377: changes a task's owner and delivers a note; driven in "
                         "test_a_task_is_handed_over_with_a_note_along_the_fixed_chain, not this scene",
-        "task link": "writes a row; prints two ids",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",
         "task queue": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes, not this scene",
@@ -2684,7 +2647,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                      "not this scene",
         "task board": "own open tasks and who holds each; driven in "
                        "test_task_board_shows_who_holds_each_open_task, not this scene",
-        "base promote": "writes base.md; prints sizes and a path",
         "memory status": "prints each agent's memory against budget; driven in "
                          "test_agent_memory_budget_migration_and_team_layer, not this scene",
         "memory migrate": "a dry run, or --apply copies files; driven in "
@@ -2698,8 +2660,6 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust remove": "driven in test_ocp_trust_cli_is_wired",
         "trust proposals": "lists proposal files; prints their ids",
         "trust apply": "founder-only; applies a proposal and prints its id",
-        "trust migrate": "founder-only; moves the old trust_roots.json once - driven in "
-                         "test_trust_roots_live_in_the_protected_store",
         "venv install": "creates a real venv and pip installs into it",
         "say": "T293: opens and delivers a say (send_now, never a head), or --needs-task "
                "replies to the sender; driven in tests/team/test_say.py, not this scene",
@@ -2717,9 +2677,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
     shows = {k for k, v in clean.items() if "MARKED" in v}
     must = {"ps", "events --limit 50 --all", "events --agent reviewer", "inbox reviewer",
             "inbox reviewer --all", "inbox human --all", "read 1", "read 2", "read 3",
-            "digest reviewer", "handoff reviewer", "write-handoff reviewer",
-            "drift --no-fetch", "agent show reviewer",
-            "agent show reviewer --json", "service logs", "fold reviewer (model lost a done item)"}
+            "service logs", "fold reviewer (model lost a done item)"}
     check("cli: the poison is really on screen for every command this test claims to grade",
           must <= shows, str(sorted(must - shows)))
     # (JSON writes a control byte as the text \\u001b, and git quotes one in a path as
@@ -2732,7 +2690,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
           all(v == "" or "MARKED" not in v for k, v in clean.items() if k not in shows))
     check("cli: what it keeps of a body is its text - a tab stays a tab, so a patch reads as written",
           "\tsecond" in dirty["read 1"] and "\tsecond" in dirty["inbox reviewer"], repr(dirty["read 1"])[:200])
-    dumped = dirty["agent show reviewer --json"]
+    dumped = dirty["status --json"]
     seen = subprocess.run([sys.executable, "-c",
                            f"import sys; sys.path.insert(0, {str(ROOT)!r}); import ocp.infra.textsafe; "
                            "print(sorted(m for m in sys.modules if m.startswith('ocp.')))"],
@@ -2751,7 +2709,7 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
     """orcapipe #1091: sanitising at each sink is a game the project loses -
     157 unsanitised `print(` calls in ocp/, and hand-triaging them one review
     at a time IS that game. The boundary foreign bytes actually enter through
-    is small: orca._run, spawn._run, drift._git, a file read, the database.
+    is small: orca._run, spawn._run, a file read, the database.
     This is the subprocess third of it, found by the suite from here on
     instead of by a reviewer reading the diff: a module that reads what a
     subprocess said (`.stdout`/`.stderr`) and hands it back as part of a
@@ -2792,10 +2750,10 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
           not (set(exempt) & set(clean)), str(exempt.keys() & set(clean)))
     # Real files today, both directions: cli/hr/tui/textsafe pass on the merits
     # (hr never touches a subprocess at all; the other three do and are clean),
-    # and orca.py/spawn.py/drift.py/fold.py/handoff.py are exactly the ones
+    # and orca.py/spawn.py/fold.py/handoff.py are exactly the ones
     # this branch touched (the last three read git through gitrun).
     check("boundary: the modules this branch closed are the ones found dirty",
-          {"session/orca.py", "team/spawn.py", "session/drift.py", "session/fold.py",
+          {"session/orca.py", "team/spawn.py", "session/fold.py",
            "session/handoff.py"} <= set(clean),
           str(clean))
 
