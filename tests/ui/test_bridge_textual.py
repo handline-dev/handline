@@ -2550,8 +2550,11 @@ async def test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_u
             yield cp.ChatMessage(m)
 
         def reply_to(self, msg):
-            self.replying = None if self.replying is msg else msg
-            msg.show_id(self.replying is msg)
+            if self.replying is not None:
+                self.replying.show_id(False)
+            self.replying = msg
+            if msg is not None:
+                msg.show_id(True)
 
     class Host(ClipboardApp):
         def on_mount(self):
@@ -2567,7 +2570,7 @@ async def test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_u
         await pilot.mouse_down(body, offset=(0, 1))
         await pilot.hover(body, offset=(5, 1))
         await pilot.mouse_up(body, offset=(5, 1))
-        body.post_message(events.Click(body, 5, 1, 5, 1, 1, False, False, False))   # a terminal sends it after the mouse-up
+        app.screen._forward_event(events.Click(body, 5, 1, 5, 1, 1, False, False, False))   # once, as App.on_event does after a mouse-up
         await pilot.pause()
         check("selection: a drag on a picked message copies exactly the dragged text",
               app.screen.get_selected_text() == "hello ", repr(app.screen.get_selected_text()))
