@@ -1997,6 +1997,23 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
           not ok and idle_close.close_timeout_s("backend") == before[1], said)
 
 
+def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
+    from ocp.daemon import handoff_note
+    from ocp.session import autoaccept, idle_close
+    _home("global_switches")
+    check("switches: they start where the fixture left them (the note is off there)",
+          actions.global_switches() == {"handoff_note": False, "auto_accept": True,
+                                        "ignore_cache_expiry": False, "dev_mode": False}, str(actions.global_switches()))
+    actions.save_global_switches({"handoff_note": True})
+    check("switches: the note is on again", handoff_note.default_enabled())
+    ok, said = actions.save_global_switches({"handoff_note": False, "auto_accept": False, "ignore_cache_expiry": True})
+    check("switches: Save writes the ones the daemon reads from",
+          ok and not handoff_note.default_enabled() and not autoaccept.enabled()
+          and idle_close.default_ignore_cache_expiry() and "handoff note off" in said, said)
+    check("switches: an agent with no switch of its own follows the global one", not handoff_note.enabled("backend"))
+    check("switches: unchanged ones write nothing", actions.save_global_switches(actions.global_switches()) == (True, ""))
+
+
 def test_home_settings_marks_and_the_delegated_view() -> None:
     from ocp.ui.pages.home import AnswerMarks
     from ocp.ui.components.tasks_view import LISTED, TasksView
@@ -4169,6 +4186,7 @@ async def _run_all() -> None:
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
+    test_global_switches_read_and_write_the_keys_the_daemon_reads()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_marks_and_the_delegated_view()
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()

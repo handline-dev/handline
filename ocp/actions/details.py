@@ -258,6 +258,43 @@ def set_idle_close(text: str, agent: str | None = None) -> tuple[bool, str]:
     return True, f"idle close {'never' if seconds == idle_close.NEVER else idle_close_minutes(seconds) + ' min'}"
 
 
+# The on/off switches of the global settings: (key, label, what it does). Each reads and writes
+# the one place the daemon reads it from.
+GLOBAL_SWITCHES = (
+    ("handoff_note", "handoff note", "agents write a note for their next session before a close or a move"),
+    ("auto_accept", "auto-accept", "ocp accepts a dialog on an agent's terminal when it has been stuck on it"),
+    ("ignore_cache_expiry", "ignore cache expiry", "a resume reuses the session even past its prompt cache's life"),
+    ("dev_mode", "dev mode", "the daemon restarts itself when ocp's own code changes"),
+)
+
+
+def _switch_accessors() -> dict:
+    from ..daemon import devmode, handoff_note
+    from ..session import autoaccept
+    return {"handoff_note": (handoff_note.default_enabled, handoff_note.set_default_enabled),
+            "auto_accept": (autoaccept.enabled, autoaccept.set_enabled),
+            "ignore_cache_expiry": (idle_close.default_ignore_cache_expiry, idle_close.set_ignore_cache_expiry),
+            "dev_mode": (devmode.dev_mode_enabled, devmode.set_dev_mode)}
+
+
+def global_switches() -> dict[str, bool]:
+    """Where each global switch stands now."""
+    return {k: get() for k, (get, _) in _switch_accessors().items()}
+
+
+def save_global_switches(values: dict[str, bool]) -> tuple[bool, str]:
+    """Write the switches that differ from where they stand; the rest are left alone."""
+    now, changed = global_switches(), []
+    try:
+        for key, (_, put) in _switch_accessors().items():
+            if key in values and bool(values[key]) != now[key]:
+                put(bool(values[key]))
+                changed.append(f"{key.replace('_', ' ')} {'on' if values[key] else 'off'}")
+    except (ConfigError, OSError) as e:
+        return False, str(e)
+    return True, ", ".join(changed)
+
+
 def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Every registered agent's worktree, split (declared, undeclared).
 

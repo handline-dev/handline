@@ -14,7 +14,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.errors import NoWidget
 from textual.screen import Screen
 from textual.worker import get_current_worker
-from textual.widgets import Button, DataTable, Input, Static, Tabs
+from textual.widgets import Button, DataTable, Input, Static, Switch, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
 from ... import actions, db
@@ -31,6 +31,7 @@ from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
 from ..components.section_head import SectionHead
+from ..components.switch_row import SwitchRow
 from ..components.table_sync import sync_rows
 from ..components.key_guide import Key, KeyGuide, KeyHelp
 from ..components.outlook_view import OutlookView
@@ -197,6 +198,9 @@ class HomePage(RowActions, JobsAware, Screen):
                     yield ImeInput(id="idle_close", compact=True, restrict=r"[0-9]*")
                     yield Static("  min idle before the window closes, 0 = never (background work gets 5 more)",
                                  classes="fhint")
+                yield SectionHead("switches")
+                for key, label, hint in actions.GLOBAL_SWITCHES:
+                    yield SwitchRow(label, hint, f"g_{key}")
                 yield SectionHead("auto-answer", "what ocp answers by itself on an agent's terminal; "
                                   "the modal's \"always\" adds one too")
                 yield DataTable(id="answers", cursor_type="row", show_header=False)
@@ -245,6 +249,8 @@ class HomePage(RowActions, JobsAware, Screen):
         """Fill the settings form from what is saved, dropping what was typed or marked."""
         self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
         self.query_one("#idle_close", Input).value = actions.idle_close_minutes(idle_close.default_close_timeout_s())
+        for key, on in actions.global_switches().items():
+            self.query_one(f"#g_{key}", Switch).value = on
         self._removing.clear()
         self._draw_answers()
 
@@ -302,12 +308,15 @@ class HomePage(RowActions, JobsAware, Screen):
         self.query_one("#answers", DataTable).move_cursor(row=row)
 
     def _save_settings(self) -> None:
-        """Everything on the settings tab at once: the cap, the idle close time and the marked answers
+        """Everything on the settings tab at once: the cap, the idle close time, the switches and the marked answers
         to remove."""
         problems, saved = [], []
         for ok, said in (actions.set_default_cap(self.query_one("#default_cap", Input).value),
-                         actions.set_idle_close(self.query_one("#idle_close", Input).value)):
-            (saved if ok else problems).append(said)
+                         actions.set_idle_close(self.query_one("#idle_close", Input).value),
+                         actions.save_global_switches({key: self.query_one(f"#g_{key}", Switch).value
+                                                       for key, _, _ in actions.GLOBAL_SWITCHES})):
+            if said:
+                (saved if ok else problems).append(said)
         for kind, key in sorted(self._removing.marked, key=repr):
             ok, said = actions.remove_answer(kind, key)
             (saved if ok else problems).append(said)

@@ -126,6 +126,9 @@ class AgentSettings(Vertical):
         self.show_context_share()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
+        follows = "on" if actions.global_switches()["handoff_note"] else "off"
+        self.query_one("#s_handoff_note", Select).set_options(
+            [(f"{label} ({follows})" if value == "default" else label, value) for label, value in HANDOFF_NOTES])
         self.query_one("#s_handoff_note", Select).value = cfg["handoff_note"]
         self.post_message(self.Loaded())
 
