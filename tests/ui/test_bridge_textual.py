@@ -2668,6 +2668,67 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holde
         con.close()
 
 
+async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("newbar")
+    agents.register("reviewer")
+    for i in range(15):
+        askmod.ask("reviewer", f"message number {i}", requester=actions.HUMAN)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause(0.5)
+        pane = page.query_one("#transcript")
+        bar = page.query_one("#newbar")
+
+        def arrive(text: str) -> None:
+            askmod.ask(actions.HUMAN, text, requester="reviewer")
+
+        async def refresh() -> None:
+            page.refresh_view()
+            await pilot.pause(0.5)
+        check("newbar: at the bottom nothing shows", pane.is_vertical_scroll_end and not bar.display)
+        arrive("while at the bottom")
+        await refresh()
+        check("newbar: at the bottom the view follows and no bar shows",
+              pane.is_vertical_scroll_end and not bar.display)
+        pane.scroll_to(y=0, animate=False)
+        await pilot.pause(0.3)
+        check("newbar: scrolled up with nothing new, a plain bottom button",
+              bar.display and "↓ bottom" in str(bar.render()), str(bar.render()))
+        arrive("first news")
+        await refresh()
+        check("newbar: a message arriving while scrolled up is counted",
+              bar.display and "1 new message (click) ↓" in str(bar.render()), str(bar.render()))
+        arrive("second news")
+        arrive("third news")
+        await refresh()
+        check("newbar: what arrived since is counted", "3 new messages (click) ↓" in str(bar.render()),
+              str(bar.render()))
+        await pilot.click("#newbar")
+        await pilot.pause(0.4)
+        check("newbar: a click jumps to the newest and clears it", pane.is_vertical_scroll_end and not bar.display)
+        pane.scroll_to(y=0, animate=False)
+        await pilot.pause(0.3)
+        arrive("fourth news")
+        await refresh()
+        await pilot.press("end")
+        await pilot.pause(0.4)
+        check("newbar: End does the same", pane.is_vertical_scroll_end and not bar.display)
+        pane.scroll_to(y=0, animate=False)
+        await pilot.pause(0.3)
+        arrive("fifth news")
+        await refresh()
+        pane.scroll_end(animate=False)
+        await pilot.pause(0.4)
+        check("newbar: scrolling to the bottom by hand clears it", not bar.display and page._unseen == 0)
+        pane.scroll_to(y=0, animate=False)
+        await pilot.pause(0.3)
+        check("newbar: and the count starts again from none", "↓ bottom" in str(bar.render()), str(bar.render()))
+
+
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
     """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
     closes it, a second answer is dropped, and the page under it has focus back after."""
@@ -4210,6 +4271,7 @@ async def _run_all() -> None:
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
     await test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
+    await test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest()
     await test_assign_enter_sends_the_note_whole()
     await test_a_changed_timeline_entry_remounts_only_itself()
     test_account_settings_alias_and_default_cap()
