@@ -46,6 +46,7 @@ def _iso_epoch(v) -> float | None:
 
 class Claude:
     name = "claude"
+    hides_paths = True      # `launch_argv(hide=...)` reaches its sandbox settings
     # Nothing is read from the status line any more (D11), so this is no longer
     # about its payload. It stays because it is the floor everything here was
     # measured against: the usage endpoint answers the `claude-code/2.1.0` client
