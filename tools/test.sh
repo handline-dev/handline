@@ -23,4 +23,4 @@ else
     target=(tests/test_ocp.py)
 fi
 echo "tools/test.sh: $py -u ${target[*]} $*" >&2
-env -u OCP_AGENT -u OCP_ACCOUNT OCP_HOME="$scratch" PYTHONUNBUFFERED=1 "$py" -u "${target[@]}" "$@"
+env -u OCP_AGENT -u OCP_ACCOUNT -u HANDLINE_AGENT -u HANDLINE_ACCOUNT -u HANDLINE_HOME OCP_HOME="$scratch" PYTHONUNBUFFERED=1 "$py" -u "${target[@]}" "$@"

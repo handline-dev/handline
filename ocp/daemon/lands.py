@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import gitrun, paths, textsafe
+from ..infra import gitrun, names, paths, textsafe
 from ..team import ask as askmod, team
 
 REQUESTER = "land"
@@ -31,7 +31,7 @@ _worker: dict = {"thread": None, "swept": False}
 
 
 def repo() -> Path:
-    return Path(os.environ.get("OCP_LAND_REPO") or paths.repo_root())
+    return Path(names.getenv("OCP_LAND_REPO") or paths.repo_root())
 
 
 def _git(*args: str, cwd=None, timeout: int = 120) -> tuple[int | None, str, str]:

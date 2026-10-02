@@ -6,6 +6,8 @@ import pwd
 import shutil
 from pathlib import Path
 
+from . import names
+
 # Set by tests/support.py to a temp directory that stands in for the user's
 # home. While it is set, nothing ocp does may reach the real one.
 TEST_ROOT_ENV = "OCP_TEST_ROOT"
@@ -25,25 +27,27 @@ def user_home() -> Path:
     """The user's home directory, or its stand-in under the test suite.
 
     Every path ocp builds under ~ starts here, never at Path.home()."""
-    test_root = os.environ.get(TEST_ROOT_ENV)
+    test_root = names.getenv(TEST_ROOT_ENV)
     return Path(test_root) if test_root else Path.home()
 
 
 def default_home() -> Path:
-    """Where OCP_HOME points when nothing has set it."""
+    """Where the home is when nothing has set it: ~/.handline once it exists, else ~/.orcapipe."""
+    if (user_home() / ".handline").is_dir():
+        return user_home() / ".handline"
     return user_home() / ".orcapipe"
 
 
 def home() -> Path:
-    raw = os.environ.get("OCP_HOME")
+    raw = names.getenv("OCP_HOME")
     if raw is not None and not raw.strip():
         # Path("") is the current directory: `ocp init` would set up wherever it was run.
-        raise SystemExit("OCP_HOME is set but empty: unset it to use ~/.orcapipe, or give it a folder")
+        raise SystemExit("HANDLINE_HOME (or OCP_HOME) is set but empty: unset it to use the default home, or give it a folder")
     h = Path(raw or default_home()).expanduser()
-    if os.environ.get(TEST_ROOT_ENV):
-        real = (_real_user_home() / ".orcapipe").resolve()
-        if real == h.resolve() or real in h.resolve().parents:
-            raise RealHomeInTest(f"a test reached the real OCP_HOME: {h}")
+    if names.getenv(TEST_ROOT_ENV):
+        for real in ((_real_user_home() / d).resolve() for d in (".orcapipe", ".handline")):
+            if real == h.resolve() or real in h.resolve().parents:
+                raise RealHomeInTest(f"a test reached the real home: {h}")
     return h
 
 
@@ -117,7 +121,7 @@ def repo_root() -> Path:
 
 def ocp_exe() -> str:
     """The command a hook or launch line should call `ocp` with."""
-    return os.environ.get("OCP_BIN") or shutil.which("ocp") or str(repo_root() / "bin" / "ocp")
+    return names.getenv("OCP_BIN") or shutil.which("handline") or shutil.which("ocp") or str(repo_root() / "bin" / "ocp")
 
 
 def list_accounts() -> list[str]:

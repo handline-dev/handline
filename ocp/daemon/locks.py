@@ -48,7 +48,7 @@ def _supervises_this_home(pid: int) -> bool:
     # the default home - not against ours just because we could not name one.
     home = None
     for token in env.split():
-        if token.startswith("OCP_HOME="):
+        if token.startswith(("OCP_HOME=", "HANDLINE_HOME=")):
             home = token.split("=", 1)[1]
             break
     home_path = Path(home).expanduser() if home else paths.default_home()

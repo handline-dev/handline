@@ -204,7 +204,7 @@ def live_sessions() -> dict[str, int] | None:
             if not_ours:
                 continue
             return None
-        name = _extract(env, "OCP_AGENT")
+        name = _extract(env, "HANDLINE_AGENT") or _extract(env, "OCP_AGENT")
         if name:
             found.setdefault(name, pid)
     return found

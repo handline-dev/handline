@@ -14,6 +14,7 @@ import sys
 
 from ..usage import collect
 from .. import db
+from ..infra import names
 from . import bgjobs, memoryguard, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
@@ -127,8 +128,8 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         raw = {}
 
     event = raw.get("hook_event_name") or event
-    agent = os.environ.get("OCP_AGENT")
-    account = os.environ.get("OCP_ACCOUNT")
+    agent = names.getenv("OCP_AGENT")
+    account = names.getenv("OCP_ACCOUNT")
     if agent and event in GUARDS:
         try:
             why = (memoryguard.guard(agent, raw.get("tool_name"), raw.get("tool_input"))

@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 from . import agents
-from ..infra import paths
+from ..infra import names, paths
 from .. import vendors
 from ..infra.yamlcompat import is_plain_text
 
@@ -579,8 +579,8 @@ def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
     # dropping it here would strip that plugin from every opencode relaunch.
     env.pop("OPENCODE_CONFIG_CONTENT", None)
     env[vendors.for_account(acct).config_dir_env()] = str(vendors.config_dir(acct))
-    env["OCP_HOME"] = str(paths.home())
-    env["OCP_ACCOUNT"] = acct
+    names.setenv(env, "OCP_HOME", str(paths.home()))
+    names.setenv(env, "OCP_ACCOUNT", acct)
     if agent:
-        env["OCP_AGENT"] = agent
-    return env
+        names.setenv(env, "OCP_AGENT", agent)
+    return names.both(env)

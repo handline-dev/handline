@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-from ...infra import paths, yamlcompat
+from ...infra import names, paths, yamlcompat
 from .base import Backend
 from .orca_cli import OrcaBackend
 from .tmux import TmuxBackend
@@ -63,7 +63,7 @@ _name: dict = {}
 
 
 def configured_name() -> str:
-    env = os.environ.get("OCP_TERMINAL", "").strip().lower()
+    env = (names.getenv("OCP_TERMINAL") or "").strip().lower()
     if env:
         return env
     # Every screen read asks, so config.yaml is parsed again only when it has changed.

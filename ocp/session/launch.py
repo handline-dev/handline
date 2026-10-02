@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 from ..team import accounts, agents
 from .. import db, vendors
-from ..infra import gitrun, paths, sessiontoken, textsafe
+from ..infra import gitrun, names, paths, sessiontoken, textsafe
 from ..usage import status
 from . import events, triggers
 
@@ -650,7 +650,8 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
             con.close()
     token = sessiontoken.mint(agent)       # the proof this session is the agent's, for the daemon's land verbs
     if token:
-        env[sessiontoken.ENV] = token
+        names.setenv(env, sessiontoken.ENV, token)
+    env = names.both(env)
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it
     sys.stdout.flush()
@@ -712,5 +713,5 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
 
 def command_for(agent: str, account: str | None = None) -> str:
     """The --command string to hand to Orca; `account` fixes where a move lands."""
-    exe = os.environ.get("OCP_BIN") or shutil.which("ocp") or "ocp"
+    exe = names.getenv("OCP_BIN") or shutil.which("handline") or shutil.which("ocp") or "ocp"
     return f"{exe} launch {agent}" + (f" --account {shlex.quote(account)}" if account else "")

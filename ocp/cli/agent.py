@@ -10,13 +10,13 @@ from ..team import agent_settings, agents, ask as askmod, hr
 from ..daemon import client as dmn_client, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
 from ..session import launch
-from ..infra import protected
+from ..infra import names, protected
 from ..team import spawn as spawnmod
 
 
 def cmd_agent_move(args) -> int:
     """Move an agent's live session to another account now (a human's call)."""
-    if os.environ.get("OCP_AGENT"):
+    if names.getenv("OCP_AGENT"):
         print("a forced move ends a session: it is the founder's, from a terminal or "
               "the bridge, not an agent's", file=sys.stderr)
         return 1

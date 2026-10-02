@@ -21,7 +21,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from . import paths
+from . import names, paths
 
 _PLAIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
@@ -78,7 +78,7 @@ def is_off(namespace: str, name: str) -> bool:
 def in_agent_session() -> bool:
     """$OCP_AGENT names an agent - anyone but the founder's own `human`."""
     from ..team import ask
-    return os.environ.get("OCP_AGENT", "") not in ("", ask.HUMAN)
+    return (names.getenv("OCP_AGENT") or "") not in ("", ask.HUMAN)
 
 
 def _founder_only() -> None:

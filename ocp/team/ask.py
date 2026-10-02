@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import atomic, paths, textsafe
+from ..infra import atomic, names, paths, textsafe
 from ..infra.yamlcompat import ConfigError
 from . import team
 from ..infra import timefmt
@@ -39,7 +39,7 @@ HUMAN = db.HUMAN
 
 def current_agent() -> str | None:
     """Who is asking, or None when nothing says. Set by `ocp launch`."""
-    return os.environ.get("OCP_AGENT") or None
+    return names.getenv("OCP_AGENT") or None
 
 
 def asking_agent() -> str | None:
