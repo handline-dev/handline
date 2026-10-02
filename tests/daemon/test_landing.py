@@ -622,6 +622,24 @@ def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_
         con.close()
 
 
+def test_a_database_dropped_of_the_legacy_columns_without_the_mark_still_connects(home: Path) -> None:
+    """A database whose legacy request columns are gone but which was never marked (dropped by a
+    doctor from before the mark) runs none of the migrations that read them, and is marked at connect."""
+    from ocp.db import schema as dbschema
+    _daemon_home(home, 20)
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM cursors WHERE name IN (?, 'migrated:answer_rows')", (dbschema.LEGACY_DROPPED,))
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("unmarked and column-less: connect does not crash, and marks it",
+              dbschema._legacy_columns_dropped(con))
+    finally:
+        con.close()
+
+
 def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: Path) -> None:
     """T797: done becomes landed, rejected becomes landed when it was delivered and withdrawn when not,
     every row gets a state_at; ledgered, a second connect changes nothing."""
@@ -890,6 +908,7 @@ def main() -> int:
         run(lambda: test_a_dismissal_is_an_event_and_an_old_one_gets_one(Path(td) / "l16d"))
         run(lambda: test_why_a_request_closed_without_an_answer_is_an_event(Path(td) / "l16r"))
         run(lambda: test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_the_doctor(Path(td) / "l16x"))
+        run(lambda: test_a_database_dropped_of_the_legacy_columns_without_the_mark_still_connects(Path(td) / "l16y"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
         run(lambda: test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(Path(td) / "l16s"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))

@@ -414,12 +414,14 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     # the doctor, or made without them, never grows them back and runs no migration that names them.
     fresh = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'requests'").fetchone() is None
     legacy = not fresh and not _legacy_columns_dropped(con)
+    unmarked = legacy and not set(_LEGACY_REQUEST_COLUMNS) & _cols(con, "requests")
+    legacy = legacy and not unmarked       # dropped without the mark: nothing left for a migration to read
     # This runs before the schema: new indexes reference columns an old table
     # may not have yet, and CREATE INDEX would fail before any migration had a
     # chance to act.
     _pre_schema_migrate(con, legacy)
     con.executescript(SCHEMA)
-    if fresh:
+    if fresh or unmarked:
         set_cursor(con, LEGACY_DROPPED, 1)
     _add_missing_columns(con, legacy)
     if legacy:
