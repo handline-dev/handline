@@ -2051,9 +2051,19 @@ class ChatPage(JobsAware, Screen):
             self.query_one("#compose", ChatBox).focus()
         self.query_one("#status", Static).update(self._status())
 
+    def _to_chat(self) -> None:
+        self.query_one("#scope", Tabs).active = self.last_chat
+
     def action_back(self) -> None:
         menu = self.query_one("#menu", OptionList)
-        if self.showing_tasks or self.showing_settings:
+        if self.showing_settings:
+            problems = self.query_one("#settings_form", AgentSettings).settle()
+            if problems:
+                Confirm.ask(self.app, self._to_chat, "Leave the settings without saving", "Not saved: " + "; ".join(problems),
+                            yes="Leave", no="Stay")
+            else:
+                self._to_chat()
+        elif self.showing_tasks:
             self.query_one("#scope", Tabs).active = self.last_chat
         elif menu.display or self.history_mode:
             self._menu_closed = True

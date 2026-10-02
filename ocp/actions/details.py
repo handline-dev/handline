@@ -262,7 +262,7 @@ def set_idle_close(text: str, agent: str | None = None) -> tuple[bool, str]:
 # the one place the daemon reads it from.
 GLOBAL_SWITCHES = (
     ("handoff_note", "handoff note", "agents write a note for their next session before a close or a move"),
-    ("auto_accept", "auto-accept", "ocp accepts a dialog on an agent's terminal when it has been stuck on it"),
+    ("auto_accept", "auto-accept", "ocp answers a dialog on an agent's terminal that a standing answer covers"),
     ("ignore_cache_expiry", "ignore cache expiry", "a resume reuses the session even past its prompt cache's life"),
     ("dev_mode", "dev mode", "the daemon restarts itself when ocp's own code changes"),
 )

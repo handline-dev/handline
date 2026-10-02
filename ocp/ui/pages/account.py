@@ -20,6 +20,8 @@ from ...infra import paths, textsafe
 from .. import tui
 from ...infra import timefmt
 from ..components import gauge
+from ..components.confirm import leave_or_ask
+from ..components.field_note import FieldNote
 from ..components.ime import ImeInput
 from ..components.account_actions import AccountActions
 from ..components.action_bar import ActionBar
@@ -74,6 +76,7 @@ class AccountPage(AccountActions, Screen):
                     yield ImeInput(id=f"a_{key}", compact=True, restrict=r"[0-9]*" if key != "name" else None,
                                 placeholder=self.account if key == "name" else "")
                     yield Static(hint, classes="fhint")
+                    yield FieldNote(id=f"n_a_{key}")
             yield SwitchRow("usage recovery", "one real turn that renews a dead credential or restarts the usage window",
                             "a_recover", True)
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
@@ -81,7 +84,6 @@ class AccountPage(AccountActions, Screen):
                     yield Static(label, classes="flabel")
                     yield Static(id=f"a_{key}")
         with ActionBar(id="a_buttons"):
-            yield Button("Save", id="a_save", variant="primary", compact=True)
             yield Button("Login  l", id="a_login", compact=True)
             yield Button("Remove  x", id="a_remove", variant="error", compact=True)
 
@@ -203,19 +205,50 @@ class AccountPage(AccountActions, Screen):
         self.app.push_screen(ChatPage(str(event.row_key.value)))
 
     def action_back(self) -> None:
-        self.app.pop_screen()
+        leave_or_ask(self.app, self.settle())
 
     # ------------------------------------------------------------------ settings
 
-    def _save(self) -> None:
-        box = {k: self.query_one(sel, Input).value for k, sel in _INPUTS.items()}
-        ok, said = actions.save_account_settings(self.account, box["name"], box["cap"],
-                                                 bool(self.query_one("#a_recover", Switch).value))
-        self.toast(said, ok)
-        if ok:
-            self._recover_shown = bool(self.query_one("#a_recover", Switch).value)
-            self._shown.clear()     # a saved form shows the config again, even where a blank wrote nothing
+    def _shown_value(self, key: str) -> str:
+        label = loadmod.label_of(self.account)
+        if key == "name":
+            return "" if label == self.account else label
+        own = loadmod.own_cap(self.account)
+        return "" if own is None else str(own)
+
+    def _save(self, which: str) -> bool:
+        """Save the one setting that was changed, at once; the others are left as they stand, so
+        one that is refused does not hold the rest. The note beside it says what came of it."""
+        note = self.query_one(f"#n_a_{which}", FieldNote)
+        recover = bool(self.query_one("#a_recover", Switch).value)
+        if which == "recover":
+            ok, said = actions.save_account_settings(self.account, self._shown_value("name"), "", recover)
+        else:
+            typed = self.query_one(_INPUTS[which], Input).value
+            if typed.strip() == self._shown_value(which):
+                note.clear()
+                return True
+            ok, said = actions.save_account_settings(self.account, typed if which == "name" else self._shown_value("name"),
+                                                     typed if which == "cap" else "", None)
+        if not ok:
+            note.error(said)
+            return False
+        if said != "nothing changed":
+            note.saved()
+        else:
+            note.clear()
+        self._shown.clear()     # a saved form shows the config again, even where a blank wrote nothing
+        if which == "recover":
+            self._recover_shown = recover
         self._load()
+        return True
+
+    def settle(self) -> list[str]:
+        """Save every typed field that differs from the config; what is still refused is what going
+        back must ask about."""
+        for key in _INPUTS:
+            self._save(key)
+        return [n.problem for n in self.query("#a_settings FieldNote") if n.problem]
 
     async def _run(self, act) -> None:
         await act(self.account)
@@ -223,15 +256,25 @@ class AccountPage(AccountActions, Screen):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
-        self._save()
+        for key, sel in _INPUTS.items():
+            if event.input.id == sel[1:]:
+                self._save(key)
+
+    def on_descendant_blur(self, event) -> None:
+        for key, sel in _INPUTS.items():
+            if getattr(event.widget, "id", None) == sel[1:]:
+                self._save(key)
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        if event.switch.id == "a_recover" and bool(event.value) != loadmod.usage_recover_enabled(self.account):
+            event.stop()
+            self._save("recover")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
         bid = event.button.id
         if bid == "leave":
             self.action_back()
-        elif bid == "a_save":
-            self._save()
         else:
             # Login and Remove open a prompt or hand the terminal over, which Textual
             # only allows from inside a worker.

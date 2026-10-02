@@ -9,10 +9,11 @@ from textual.widgets import Static
 
 from ...infra import textsafe
 from .agent_settings import AgentSettings
+from .confirm import leave_or_ask
 
 
 class AgentSettingsScreen(Screen):
-    BINDINGS = [Binding("escape", "app.pop_screen", "back")]
+    BINDINGS = [Binding("escape", "back", "back")]
     DEFAULT_CSS = "AgentSettingsScreen #as_title { height: 1; margin: 1 3 0 3; text-style: bold; }"
 
     def __init__(self, agent: str) -> None:
@@ -22,6 +23,9 @@ class AgentSettingsScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Static(f"settings of {textsafe.oneline(self.agent)}   ·   esc to go back", id="as_title", markup=False)
         yield AgentSettings(self.agent, id="settings_form")
+
+    def action_back(self) -> None:
+        leave_or_ask(self.app, self.query_one("#settings_form", AgentSettings).settle())
 
     def on_mount(self) -> None:
         self.query_one("#settings_form", AgentSettings).load()
