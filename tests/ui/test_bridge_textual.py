@@ -2227,7 +2227,6 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.6)
         check("account cycle: an end day alone turns the cycle on, as the command does",
               cyclemod.enabled("alpha") and acct.query_one("#a_cycle", Switch).value is True)
-        Path(os.environ.get("ACCOUNT_SHOT", os.devnull)).write_text(app.export_screenshot())
         await pilot.press("escape")
         await pilot.pause(0.4)
 
