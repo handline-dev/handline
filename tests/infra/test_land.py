@@ -4,6 +4,7 @@ Run on its own: python3 tests/infra/test_land.py   (all areas: python3 tests/tes
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -106,10 +107,127 @@ def test_a_red_suite_or_a_dirty_checkout_lands_nothing(home: Path) -> None:
           and (main / "c.py").read_text() == "in the way\n", r.stdout + r.stderr)
 
 
+def _check(main: Path, sha: str) -> str:
+    r = subprocess.run([str(LAND), "--check", sha], cwd=main, capture_output=True, text=True, env=ENV, timeout=60)
+    return r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else f"rc={r.returncode} {r.stderr}"
+
+
+def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(home: Path) -> None:
+    """The merger tests in its own sandbox (`land.sh --check`) and records the tree it saw; the auditor
+    records a PASS; both only from the process of that agent's session. The daemon merges with git alone
+    and fast-forwards only to the tree that was tested."""
+    from ocp.daemon import lands, socket_server
+    from ocp import vendors
+    from ocp.infra import sessiontoken
+    main = _repo(home / "repo")
+    sent = []
+    keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
+    real = lands._tell
+    os.environ["OCP_LAND_REPO"] = str(main)
+    os.environ.update({k: v for k, v in ENV.items() if k.startswith("GIT_")})
+    lands._tell = lambda con, to, body, log: sent.append((to, body))
+    con = db.connect()
+    try:
+        # A suite.sh on the branch that would leave a mark if anything ran it.
+        feat = _branch(main, "feat", "b.py", "z = 3\n")
+        _git(main, "checkout", "-q", "feat")
+        (main / "tools" / "suite.sh").write_text('#!/usr/bin/env bash\ntouch "$(dirname "$0")/../RAN"\n')
+        _git(main, "commit", "-q", "-am", "suite leaves a mark")
+        feat = _git(main, "rev-parse", "HEAD")
+        _git(main, "checkout", "-q", "main")
+        tree = _check(main, feat)
+        (main / "RAN").unlink(missing_ok=True)
+        check("check: the merger's test names the tree of the merge it tested", len(tree) == 40, tree)
+
+        t_merger, t_auditor, t_core = (sessiontoken.mint(a) for a in (lands.MERGER, lands.AUDITOR, "orcapipe.core"))
+        check("token: minted into the protected store, one distinct secret per agent",
+              all((t_merger, t_auditor, t_core)) and len({t_merger, t_auditor, t_core}) == 3
+              and sessiontoken.verify(lands.MERGER, t_merger))
+        was = os.environ.get("OCP_AGENT")
+        os.environ["OCP_AGENT"] = "orcapipe.core"
+        try:
+            check("token: a session cannot mint one, so it cannot replace another agent's",
+                  sessiontoken.mint(lands.MERGER) is None and sessiontoken.verify(lands.MERGER, t_merger))
+        finally:
+            os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
+        agents.register("orcapipe.core")
+        launch_src = (ROOT / "ocp" / "session" / "launch.py").read_text()
+        argv = vendors.for_agent("orcapipe.core").launch_argv(
+            "claude", None, "high", "", [], None, hide=[str(sessiontoken.folder())])
+        settings = json.loads(argv[argv.index("--settings") + 1])
+        check("token: the session's sandbox settings deny reading the whole token folder, for Bash and for Read",
+              settings["sandbox"]["filesystem"]["denyRead"] == [str(sessiontoken.folder())]
+              and any(str(sessiontoken.folder()).lstrip("/") in d for d in settings["permissions"]["deny"]), str(settings))
+        check("token: launch hides that folder from every session",
+              "[str(sessiontoken.folder())]" in launch_src)
+
+        def ask_daemon(verb, agent, token, **kw):
+            return socket_server._handle_request({"verb": verb, "sha": feat, "message": "m", "tree": tree,
+                                                  "agent": agent, "token": token, **kw}, lambda m: None)
+        said = ask_daemon("land", lands.MERGER, None)
+        check("land: a process that only names itself the merger (any cmdline, any OCP_AGENT) is refused",
+              not said["ok"] and "no valid session token" in said["said"], str(said))
+        said = ask_daemon("land", lands.MERGER, t_core)
+        check("land: another agent's token cannot land as the merger", not said["ok"], str(said))
+        said = ask_daemon("land_pass", lands.AUDITOR, t_merger)
+        check("land: the merger's token cannot record the auditor's PASS", not said["ok"], str(said))
+        said = ask_daemon("land", "orcapipe.core", t_core)
+        check("land: an agent with its own valid token that is not the merger is refused",
+              not said["ok"] and "may not land" in said["said"], str(said))
+        said = ask_daemon("land_pass", lands.AUDITOR, t_auditor)
+        check("land: the auditor's own token records a PASS", said["ok"], str(said))
+        con.execute("DELETE FROM land_passes")
+
+        ok, said = lands.request(con, feat, "Merge feat", tree, lands.MERGER)
+        check("land: no PASS, no land", not ok and "no auditor PASS" in said, said)
+        other = _branch(main, "other", "o.py", "o = 1\n")
+        lands.record_pass(con, other, lands.AUDITOR)
+        ok, said = lands.request(con, feat, "Merge feat", tree, lands.MERGER)
+        check("land: a PASS for another sha does not count", not ok and "no auditor PASS" in said, said)
+        ok, said = lands.record_pass(con, feat, lands.AUDITOR)
+        ok, said = lands.request(con, feat, "Merge feat", tree, lands.MERGER)
+        check("land: a passed, tested sha is queued", ok and "queued" in said, said)
+        ok, said = lands.request(con, feat, "again", tree, lands.MERGER)
+        check("land: the same sha while queued is refused", not ok and "already queued" in said, said)
+        lands.sweep(con, lambda m: None)
+        lands._worker["thread"].join(60)
+        row = con.execute("SELECT * FROM lands WHERE sha = ?", (feat,)).fetchone()
+        check("land: the daemon fast-forwards main to the tested tree",
+              row["state"] == "landed" and row["merged"] == _git(main, "rev-parse", "HEAD")
+              and _git(main, "rev-parse", "HEAD^{tree}") == tree, str(dict(row)))
+        check("land: the daemon ran nothing the branch carries", not (main / "RAN").exists())
+        check("land: the merger is told", sent and sent[-1][0] == lands.MERGER and "is on main" in sent[-1][1], str(sent))
+        ok, said = lands.request(con, feat, "again", tree, lands.MERGER)
+        check("land: a landed sha is refused", not ok and "landed as" in said, said)
+
+        # Main moves after the merger's test: the daemon's merge is a different tree, so nothing lands.
+        late = _branch(main, "late", "l.py", "l = 1\n")
+        lands.record_pass(con, late, lands.AUDITOR)
+        stale = _check(main, late)
+        mover = _branch(main, "mover", "m.py", "m = 1\n")
+        _git(main, "merge", "-q", "--ff-only", mover)
+        head = _git(main, "rev-parse", "HEAD")
+        lands.request(con, late, "Merge late", stale, lands.MERGER)
+        lands.sweep(con, lambda m: None)
+        lands._worker["thread"].join(60)
+        row = con.execute("SELECT state, output FROM lands WHERE sha = ?", (late,)).fetchone()
+        check("land: a merge that is not the tree tested lands nothing, main untouched",
+              row["state"] == "failed" and "test again" in row["output"] and _git(main, "rev-parse", "HEAD") == head,
+              str(dict(row)))
+        ok, said = lands.request(con, late, "retry", _check(main, late), lands.MERGER)
+        check("land: a failed sha may be recorded again", ok, said)
+    finally:
+        con.close()
+        lands._tell = real
+        for k, v in keep.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_branch_lands_by_fast_forward_and_a_conflict_never_touches_the_checkout(Path(td) / "l1"))
         run(lambda: test_a_red_suite_or_a_dirty_checkout_lands_nothing(Path(td) / "l2"))
+        run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
     return run_area(tests)
 
 

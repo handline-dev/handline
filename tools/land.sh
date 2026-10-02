@@ -8,12 +8,35 @@
 # only ever moves by a fast-forward to a commit that is already finished.
 #
 #   tools/land.sh [--test] <sha> <merge message>
+#   tools/land.sh --check <sha>
+#
+# --check is the merger's own test, run in its sandbox: it merges <sha> into main in a throwaway
+# clone (reads main's repo, writes only $TMPDIR), runs the suite, and prints the tree of the merge it
+# tested. Exit 1 on a conflict or a red suite. The daemon lands only a merge with that tree.
 #
 # --test runs tools/suite.sh on the merge result first; red lands nothing.
 # Exit 0: landed, prints the merge sha. Exit 1: nothing changed in main's
 # checkout - a conflict (the files are named), a red suite, or main moved
 # meanwhile (run it again).
 set -euo pipefail
+
+if [ "${1:-}" = "--check" ]; then
+    [ $# -eq 2 ] || { echo "usage: land.sh --check <sha>" >&2; exit 2; }
+    sha="$(git rev-parse --verify "$2^{commit}")"
+    main_dir="$(git worktree list --porcelain | awk '/^worktree /{d=substr($0,10)} /^branch refs\/heads\/main$/{print d; exit}')"
+    [ -n "$main_dir" ] || { echo "no worktree has main checked out" >&2; exit 1; }
+    work="$(mktemp -d "${TMPDIR:-/tmp}/landcheck.XXXXXX")"
+    trap 'rm -rf "$work"' EXIT
+    git clone -q --shared "$main_dir" "$work" >/dev/null 2>&1
+    git -C "$work" checkout -q main >/dev/null 2>&1
+    if ! git -C "$work" -c user.name=land -c user.email=land@localhost merge --no-ff -q -m check "$sha" >/dev/null 2>&1; then
+        echo "conflicts with main in: $(git -C "$work" diff --name-only --diff-filter=U | tr '\n' ' ')" >&2
+        exit 1
+    fi
+    "$work/tools/suite.sh" >&2 || { echo "the suite is red on the merge result" >&2; exit 1; }
+    git -C "$work" rev-parse 'HEAD^{tree}'
+    exit 0
+fi
 
 run_tests=0
 if [ "${1:-}" = "--test" ]; then run_tests=1; shift; fi

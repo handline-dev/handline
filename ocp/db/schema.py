@@ -215,6 +215,25 @@ CREATE TABLE IF NOT EXISTS meta (
   updated INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS lands (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  sha       TEXT NOT NULL,
+  message   TEXT NOT NULL,
+  tree      TEXT NOT NULL,
+  requester TEXT NOT NULL,
+  state     TEXT NOT NULL,
+  merged    TEXT,
+  output    TEXT,
+  ts        INTEGER NOT NULL,
+  done_at   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS land_passes (
+  sha TEXT PRIMARY KEY,
+  by  TEXT NOT NULL,
+  ts  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS cursors (
   name    TEXT PRIMARY KEY,
   row_id  INTEGER NOT NULL,

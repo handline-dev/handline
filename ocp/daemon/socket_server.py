@@ -26,10 +26,10 @@ import time
 
 from .. import db
 from ..actions import control, details, prompt_blocks
-from ..infra import paths
+from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import messaging, sends
+from . import lands, messaging, sends
 
 # A request this old with nothing read yet is not going to finish reading;
 # closed rather than left to hold a thread forever on a client that connected
@@ -81,7 +81,17 @@ def _agent_set(con, log, **kw) -> tuple[bool, str]:
     return agent_settings.set_by_agent(kw["agent"], dict(kw.get("values") or {}), kw.get("speaker"))
 
 
+def _land(con, log, **kw) -> tuple[bool, str]:
+    return lands.request(con, kw["sha"], kw["message"], kw.get("tree"), kw.get("caller"))
+
+
+def _land_pass(con, log, **kw) -> tuple[bool, str]:
+    return lands.record_pass(con, kw["sha"], kw.get("caller"))
+
+
 VERBS = {
+    "land": _land,
+    "land_pass": _land_pass,
     "agent_set": _agent_set,
     "message": _message,
     "say": sends.say_verb,
@@ -99,12 +109,24 @@ VERBS = {
 }
 
 
+# Verbs that act on the strength of who the caller is: the name in the request counts only with the
+# session token `ocp launch` minted for that agent (infra/sessiontoken.py).
+TOKEN_VERBS = ("land", "land_pass")
+
+
 def _handle_request(payload: dict, log) -> dict:
     verb = payload.get("verb")
     fn = VERBS.get(verb)
     if fn is None:
         return {"ok": False, "said": f"not a socket verb: {verb!r}"}
-    kw = {k: v for k, v in payload.items() if k != "verb"}
+    kw = {k: v for k, v in payload.items() if k not in ("verb", "caller", "token")}
+    if verb in TOKEN_VERBS:
+        agent = payload.get("agent")
+        if not sessiontoken.verify(agent, payload.get("token")):
+            log(f"  {verb} refused: no valid session token for {str(agent)[:60]!r}")
+            return {"ok": False, "said": f"{agent or 'the caller'} has no valid session token: the session "
+                    f"must be one `ocp launch` started after tokens existed - relaunch it"}
+        kw["caller"] = agent
     con = db.connect()
     try:
         ok, said = fn(con, log, **kw)
