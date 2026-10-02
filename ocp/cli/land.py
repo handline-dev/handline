@@ -1,4 +1,4 @@
-"""`ocp land` - the merger tests a branch in its own sandbox and records it; the auditor records a PASS;
+"""`ocp land` - the merger tests a branch in its own sandbox (`--check`) and records it (`--tree`); the auditor records a PASS;
 the daemon, which runs no branch code, merges and fast-forwards main."""
 from __future__ import annotations
 
@@ -48,15 +48,18 @@ def cmd_land(args) -> int:
     if args.list:
         return _list()
     if not args.sha:
-        print("usage: ocp land <sha> <merge message> | ocp land --pass <sha> | ocp land --list")
+        print("usage: ocp land --check <sha> | ocp land <sha> <merge message> --tree <tree> | ocp land --pass <sha> | ocp land --list")
         return 1
+    if args.check:
+        tree = _tested_tree(args.sha)
+        if tree is None:
+            print("the merge did not test green here; nothing to record")
+            return 1
+        print(tree)
+        return 0
     if args.passed:
         return _send({"verb": "land_pass", "sha": args.sha})
-    if not args.message:
-        print("usage: ocp land <sha> <merge message>")
+    if not args.message or not args.tree:
+        print("usage: ocp land --check <sha>, then ocp land <sha> <merge message> --tree <tree it printed>")
         return 1
-    tree = _tested_tree(args.sha)
-    if tree is None:
-        print("the merge did not test green here; nothing recorded")
-        return 1
-    return _send({"verb": "land", "sha": args.sha, "message": args.message, "tree": tree})
+    return _send({"verb": "land", "sha": args.sha, "message": args.message, "tree": args.tree})

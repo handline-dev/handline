@@ -781,6 +781,26 @@ def test_a_session_may_not_write_the_files_that_move_main(home: Path) -> None:
           str(both["permissions"]))
 
 
+def test_launch_hides_the_hook_key_folder_and_makes_it_first(home: Path) -> None:
+    """The hook key (session/landgate.py) must not be readable by a session's Bash or Read tool, and the
+    folder must exist when the first launch on a machine names it."""
+    from ocp.infra import sessiontoken
+    use_home(home)
+    accounts.register("alpha")
+    agents.register("backend")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    vendors.get("claude").binary = lambda: "/x/bin/claude"
+    check("hook key: the folder does not exist before the first launch", not sessiontoken.key_folder().exists())
+    argv = launch.build("backend")[0]
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    folder = str(sessiontoken.key_folder())
+    check("hook key: the folder exists once a launch has been built", sessiontoken.key_folder().is_dir())
+    check("hook key: Bash is denied reading it", folder in settings["sandbox"]["filesystem"]["denyRead"],
+          str(settings["sandbox"]))
+    check("hook key: and so is the Read tool", f"Read(/{folder.rstrip('/')}/**)" in settings["permissions"]["deny"],
+          str(settings["permissions"]))
+
+
 def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
     """#43: accounts.env_for starts from the launching process's environment,
     and an opencode session's own tools carry OPENCODE_CONFIG_CONTENT - another
@@ -2454,6 +2474,7 @@ def main() -> int:
         run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_a_session_may_not_write_the_files_that_move_main(Path(td) / 'mainrefs'))
+        run(lambda: test_launch_hides_the_hook_key_folder_and_makes_it_first(Path(td) / 'keyhide'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
         run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))

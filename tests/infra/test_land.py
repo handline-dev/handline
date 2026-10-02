@@ -176,7 +176,11 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
               (protected.put(sessiontoken.NS, "backend.stale", f"{p_core} Thu Jan  1 00:00:00 1970"),
                not sessiontoken.verify("backend.stale", p_core))[1])
 
-        def ask_daemon(verb, agent, peer, **kw):
+        from ocp.daemon import landauth
+
+        def ask_daemon(verb, agent, peer, vouched=True, **kw):
+            if vouched:
+                landauth.grant(agent, verb, feat)
             return socket_server._handle_request({"verb": verb, "sha": feat, "message": "m", "tree": tree,
                                                   "agent": agent, **kw}, lambda m: None, peer)
         said = ask_daemon("land", lands.MERGER, os.getpid())
@@ -194,6 +198,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
 
         def over_the_wire(agent):
             """One request through the daemon's own connection handler; the peer is this process."""
+            landauth.grant(agent, "land", feat)
             client, server = socket.socketpair()
             client.sendall(json.dumps({"verb": "land", "sha": feat, "message": "m", "tree": tree,
                                        "agent": agent}).encode() + b"\n")
@@ -206,6 +211,44 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         said = over_the_wire(lands.MERGER)
         check("peer: the same process naming itself the merger is refused",
               "not this request's session" in said["said"], str(said))
+        import time
+        landauth._grants.clear()            # grants an earlier refusal left unspent
+        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: the auditor's own session, but nothing vouched for the command, is refused",
+              not said["ok"] and "own `ocp land` command" in said["said"], str(said))
+        landauth.grant(lands.AUDITOR, "land_pass", feat)
+        first = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        again = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: a vouched request is accepted once", first["ok"] and not again["ok"], f"{first} {again}")
+        landauth.grant(lands.AUDITOR, "land_pass", "0" * 40)
+        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: it covers the sha in the command and no other", not said["ok"], str(said))
+        landauth.grant(lands.AUDITOR, "land_pass", feat, now=time.time() - 3600)
+        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: it expires", not said["ok"], str(said))
+        landauth.grant(lands.AUDITOR, "land", feat)
+        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: and covers the verb in the command, not the other land verb", not said["ok"], str(said))
+        landauth.take(lands.AUDITOR, "land", feat)
+
+        # A branch's test run is a child of the session; only the hook, which holds the key, can vouch.
+        test_run = subprocess.Popen(["sleep", "300"], **quiet)
+        sleepers.append(test_run)
+        key_set = sessiontoken.mint_key(lands.AUDITOR)
+        key = sessiontoken.key_held(lands.AUDITOR)
+        check("vouch: the hook's key is minted into the protected store", key_set and key and len(key) > 20)
+        authorize = {"verb": "land_authorize", "agent": lands.AUDITOR, "land_verb": "land_pass", "sha": feat}
+        for label, extra in (("no key", {}), ("a wrong key", {"key": "x" * 43}), ("a key of another agent",
+                              {"key": sessiontoken.key_held("backend") or "y"})):
+            said = socket_server._handle_request({**authorize, **extra}, lambda m: None)
+            check(f"vouch: land_authorize with {label} vouches for nothing", not said["ok"], str(said))
+        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: so a land_pass from the session's own process is still refused", not said["ok"], str(said))
+        said = socket_server._handle_request({**authorize, "key": key}, lambda m: None)
+        check("vouch: the right key vouches", said["ok"], str(said))
+        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: and then the session's land_pass is accepted", said["ok"], str(said))
+
         said = ask_daemon("land", "backend", p_core)
         check("land: an agent with its own valid session that is not the merger is refused",
               not said["ok"] and "may not land" in said["said"], str(said))
@@ -303,12 +346,111 @@ def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Pat
         os.environ.pop("OCP_LAND_REPO") if keep is None else os.environ.__setitem__("OCP_LAND_REPO", keep)
 
 
+def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(home: Path) -> None:
+    from ocp.session import landgate
+    from ocp.daemon import client as dmn_client
+    from ocp.infra import sessiontoken
+    tree, sha = "a" * 40, "abc1234"
+    ok = {
+        f"ocp land --pass {sha}": ("land_pass", sha),
+        f"bin/ocp land --pass {sha}": ("land_pass", sha),
+        f"handline land {sha} 'Merge feat (x & y)' --tree {tree}": ("land", sha),
+        f"ocp land {sha} \"Merge feat\" --tree {tree}": ("land", sha),
+        f"ocp land --tree {tree} {sha} msg": ("land", sha),
+        "ocp land --pass abc#x": ("land_pass", "abc#x"),
+    }
+    no = [f"ocp land --check {sha}", "ocp land --list", f"ocp land {sha} msg", f"ocp land --pass",
+          f"ocp land --pass {sha} && tools/suite.sh", f"tools/suite.sh; ocp land --pass {sha}",
+          f"ocp land --pass {sha} | cat", f"ocp land --pass $(cat x)", f"ocp land --pass `cat x`",
+          f"ocp land {sha} \"$(cat x)\" --tree {tree}", f"ocp land --pass {sha}\nrm x",
+          f"python3 tests/x.py ocp land --pass {sha}", f"echo ocp land --pass {sha}", f"ocp land --pass a b",
+          f"ocp land --tree {tree} {sha} #x", f"ocp land --pass {sha} #x", f"ocp land --pass {sha} # note", "ocp land #c --pass abc1234",
+          f"ocp land --bogus {sha}", f"ocp land --pass {sha} > out", "ocp land"]
+    for cmd, want in ok.items():
+        check(f"gate: vouches for {cmd[:50]!r}", landgate.parse("Bash", {"command": cmd}) == want,
+              str(landgate.parse("Bash", {"command": cmd})))
+    for cmd in no:
+        check(f"gate: vouches for nothing in {cmd[:50]!r}", landgate.parse("Bash", {"command": cmd}) is None,
+              str(landgate.parse("Bash", {"command": cmd})))
+    check("gate: and for no tool but Bash", landgate.parse("Write", {"command": f"ocp land --pass {sha}"}) is None)
+    sent, real = [], dmn_client.send
+    dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True})[1]
+    try:
+        check("gate: with no key (the sandbox's view) it sends nothing",
+              not landgate.authorize("backend", "Bash", {"command": f"ocp land --pass {sha}"}) and not sent)
+        sessiontoken.mint_key("backend")
+        done = landgate.authorize("backend", "Bash", {"command": f"ocp land --pass {sha}"})
+        check("gate: with the key it sends the agent, verb, sha and key",
+              done and sent and sent[0]["land_verb"] == "land_pass" and sent[0]["sha"] == sha
+              and sent[0]["key"] == sessiontoken.key_held("backend") and sent[0]["agent"] == "backend", str(sent))
+        sent.clear()
+        check("gate: a command that is not a land sends nothing",
+              not landgate.authorize("backend", "Bash", {"command": "tools/suite.sh"}) and not sent)
+    finally:
+        dmn_client.send = real
+
+
+def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
+    import argparse
+    import contextlib
+    import io
+    from ocp.cli import land as cli_land
+    sent, real_tree, real_send = [], cli_land._tested_tree, cli_land.dmn_client.send
+    cli_land._tested_tree = lambda sha: "t" * 40
+    cli_land.dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True, "said": "ok"})[1]
+
+    def run_land(**kw):
+        args = argparse.Namespace(**{"sha": None, "message": None, "passed": False, "list": False,
+                                     "check": False, "tree": None, **kw})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = cli_land.cmd_land(args)
+        return rc, out.getvalue()
+    try:
+        rc, out = run_land(sha="abc1234", check=True)
+        check("land cli: --check prints the tree and sends nothing", rc == 0 and out.strip() == "t" * 40 and not sent, out)
+        rc, out = run_land(sha="abc1234", message="m")
+        check("land cli: a land without the tree sends nothing and says how", rc == 1 and "--check" in out and not sent, out)
+        rc, out = run_land(sha="abc1234", message="m", tree="t" * 40)
+        check("land cli: with the tree it sends the land and runs no test",
+              rc == 0 and sent == [{"verb": "land", "sha": "abc1234", "message": "m", "tree": "t" * 40,
+                                    "agent": sent[0]["agent"]}], str(sent))
+    finally:
+        cli_land._tested_tree, cli_land.dmn_client.send = real_tree, real_send
+
+
+def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Path) -> None:
+    import contextlib
+    import io
+    from ocp.daemon import client as dmn_client
+    from ocp.infra import sessiontoken
+    from ocp.session import events
+    sessiontoken.mint_key("backend")
+    sent, real, was, was_in = [], dmn_client.send, os.environ.get("OCP_AGENT"), sys.stdin
+    dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True})[1]
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        for command in ("tools/suite.sh", "ocp land --pass abc1234"):
+            sys.stdin = io.StringIO(json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                                "tool_input": {"command": command}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                events.record_from_stdin(["PreToolUse"])
+        check("hook: of two Bash calls, only the land command is vouched for",
+              len(sent) == 1 and sent[0]["verb"] == "land_authorize" and sent[0]["sha"] == "abc1234", str(sent))
+    finally:
+        dmn_client.send, sys.stdin = real, was_in
+        os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_branch_lands_by_fast_forward_and_a_conflict_never_touches_the_checkout(Path(td) / "l1"))
         run(lambda: test_a_red_suite_or_a_dirty_checkout_lands_nothing(Path(td) / "l2"))
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
+        run(lambda: test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(Path(td) / "l4"))
+        run(lambda: test_ocp_land_checks_and_sends_in_two_steps(Path(td) / "l5"))
+        run(lambda: test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(Path(td) / "l6"))
     return run_area(tests)
 
 

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import hmac
 import os
+import secrets
 import socket
 import struct
 import sys
@@ -21,6 +23,7 @@ import sys
 from . import protected
 
 NS = "session-tokens"      # the store folder keeps its name; renaming it would orphan the records
+KEY_NS = "hook-keys"
 _MAX_DEPTH = 64
 
 
@@ -88,3 +91,39 @@ def verify(agent: str | None, pid: int | None) -> bool:
             return info[1] == started       # a reused pid has another start time
         pid = info[0]
     return False
+
+
+def key_folder():
+    return protected.root() / KEY_NS
+
+
+def ensure_key_folder() -> None:
+    """The folder exists before a launch hides it: the first launch on a machine would otherwise name a
+    path the sandbox rule then does not cover once it appears. Quietly nothing when the store is unwritable."""
+    try:
+        key_folder().mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+
+def mint_key(agent: str) -> bool:
+    """A new key for `agent`'s hook (see session/landgate.py), kept where the session's sandbox cannot read
+    it. False when the store cannot be written, which is what an agent's session gets."""
+    try:
+        protected.put(KEY_NS, agent, secrets.token_urlsafe(32))
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def key_held(agent: str) -> str | None:
+    """The key, for the hook, which the harness runs outside the sandbox. None inside it."""
+    try:
+        return (protected.get(KEY_NS, agent) or "").strip() or None
+    except ValueError:
+        return None
+
+
+def key_ok(agent: str | None, key: str | None) -> bool:
+    kept = key_held(agent) if agent else None
+    return bool(kept and key) and hmac.compare_digest(kept, str(key))

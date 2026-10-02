@@ -29,7 +29,7 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import lands, messaging, sends
+from . import landauth, lands, messaging, sends
 
 # A request this old with nothing read yet is not going to finish reading;
 # closed rather than left to hold a thread forever on a client that connected
@@ -114,8 +114,21 @@ VERBS = {
 TOKEN_VERBS = ("land", "land_pass")
 
 
+def _land_authorize(payload: dict, log) -> dict:
+    """The session's PreToolUse hook vouching for the `ocp land` command it is about to run
+    (session/landgate.py). Only the hook can name the per-session key."""
+    agent, verb = payload.get("agent"), payload.get("land_verb")
+    if verb not in TOKEN_VERBS or not sessiontoken.key_ok(agent, payload.get("key")):
+        log(f"  land_authorize refused for {str(agent)[:60]!r}")
+        return {"ok": False, "said": "not authorized"}
+    landauth.grant(agent, verb, str(payload.get("sha")))
+    return {"ok": True, "said": "vouched"}
+
+
 def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
     verb = payload.get("verb")
+    if verb == "land_authorize":
+        return _land_authorize(payload, log)
     fn = VERBS.get(verb)
     if fn is None:
         return {"ok": False, "said": f"not a socket verb: {verb!r}"}
@@ -126,6 +139,10 @@ def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
             log(f"  {verb} refused: caller is not the session of {str(agent)[:60]!r}")
             return {"ok": False, "said": f"{agent or 'the caller'} is not this request's session: it must come from a "
                     f"session `ocp launch` recorded for that agent (relaunch an older one)"}
+        if not landauth.take(agent, verb, str(payload.get("sha"))):
+            log(f"  {verb} refused: nothing the session's own command vouched for ({str(agent)[:60]!r})")
+            return {"ok": False, "said": f"{verb} is accepted only from the session's own `ocp land` command, "
+                    f"not from other code it runs (a test run, a script)"}
         kw["caller"] = agent
     con = db.connect()
     try:
