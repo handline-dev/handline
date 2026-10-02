@@ -12,7 +12,7 @@ from ..team import ask as askmod
 from ..daemon import lifecycle as dmn_lifecycle, taskholds
 from .. import db
 from ..session import handoff as handoffmod
-from ..infra import paths
+from ..infra import gitrun, paths
 from ..usage import status
 from ..infra import textsafe
 
@@ -301,6 +301,10 @@ def cmd_task_handoff(args) -> int:
         print(msg)
     finally:
         con.close()
+    behind = gitrun.commits_behind_main(Path.cwd()) if ok else None
+    if behind is not None and behind > gitrun.BEHIND_WARN:
+        print(f"warning (T935): this branch was forked {behind} commits before main's tip. "
+              f"If its diff or merge looks wrong, rebase onto `main` (not `orcapipe`) first.")
     return 0 if ok else 1
 
 

@@ -168,11 +168,13 @@ def tell_now(con, rid: int, log) -> str:
             db.mark_typed(con, rid, delivery._live_session(con, agent))
             db.mark_landed(con, rid)
             return "already in its transcript"
-        sent, err = delivery._send(handle, delivery.tell_text(con, row, 1))
+        folded = delivery.folded_notices(con, agent)
+        sent, err = delivery._send(handle, delivery.tell_text(con, row, 1, folded=folded))
         if not sent:
             db.clear_delivered(con, rid)
             return f"queued - {err or 'the send failed'}"
         delivery._mark_typed(con, agent)
+        db.mark_notices_shown(con, [int(r["id"]) for r in folded], delivery._live_session(con, agent))
         db.mark_told_ahead(con, agent, rid, [int(r["id"]) for r in db.queued_for(con, agent)])   # becoming the head is not news
         db.mark_typed(con, rid, delivery._live_session(con, agent))
         landing.note_typed(rid)
