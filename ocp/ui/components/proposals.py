@@ -11,12 +11,15 @@ from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Static
 
 from ... import actions, db
-from ...team import hr
+from ...infra import paths
+from ...team import agents, hr
 from ...infra import textsafe, timefmt
 from .confirm import Confirm
 from .text_prompt import TextPrompt
 from .action_bar import ActionBar
 from .table_sync import sync_rows
+from .agent_settings_screen import AgentSettingsScreen
+from .section_head import SectionHead
 
 # Proposal fields worth showing after the kind and agent, in this order.
 _FIELDS = ("vendor", "model", "effort", "team", "repo", "to")
@@ -60,6 +63,9 @@ def describe(p: dict) -> Text:
         if p.get(key):
             out.append(f"{key:<8}", style="dim")
             out.append(textsafe.oneline(str(p[key])) + "\n")
+    for key, value in hr._sets_of(p).items():
+        out.append(f"{'set ' + key:<18}", style="dim")
+        out.append(textsafe.oneline(value) + "\n")
     out.append("why\n", style="dim")
     out.append("\n".join(textsafe.drawable(str(p.get("why") or ""))))
     if p["status"] == STRANDED:
@@ -74,11 +80,12 @@ class ProposalsView(Vertical):
     Approve / Reject. `refresh_rows` redraws it and is called on the page's tick."""
 
     BINDINGS = [Binding("a", "approve", "approve"), Binding("r", "reject", "reject"),
-                Binding("w", "withdraw", "withdraw")]
+                Binding("w", "withdraw", "withdraw"), Binding("e", "edit", "edit settings")]
     DEFAULT_CSS = """
     ProposalsView { height: 1fr; }
-    ProposalsView #hr_table { height: auto; max-height: 40%; }
+    ProposalsView #hr_table { height: auto; max-height: 30%; }
     ProposalsView #hr_detail { height: 1fr; padding: 1 3; }
+    ProposalsView #hr_agents { height: auto; max-height: 40%; }
     """
 
     def __init__(self, **kw) -> None:
@@ -89,13 +96,17 @@ class ProposalsView(Vertical):
         yield DataTable(id="hr_table", cursor_type="row", zebra_stripes=True)
         with VerticalScroll(id="hr_detail"):
             yield Static(id="hr_text")
+        yield SectionHead("agents", "Enter or e edits one's settings")
+        yield DataTable(id="hr_agents", cursor_type="row", zebra_stripes=True)
         with ActionBar():
             yield Button("Approve  a", id="hr_approve", variant="success", compact=True)
             yield Button("Reject  r", id="hr_reject", variant="error", compact=True)
             yield Button("Withdraw  w", id="hr_withdraw", compact=True)
+            yield Button("Edit settings  e", id="hr_edit", compact=True)
 
     def on_mount(self) -> None:
         self.query_one("#hr_table", DataTable).add_columns("#", "kind", "agent", "from", "asked", "")
+        self.query_one("#hr_agents", DataTable).add_columns("agent", "model", "effort", "browser", "skip prompts")
         self.refresh_rows()
 
     @property
@@ -120,7 +131,21 @@ class ProposalsView(Vertical):
         if rebuilt and self.rows:
             table.move_cursor(row=next((i for i, p in enumerate(self.rows) if p["rid"] == keep), 0),
                               scroll=False)
+        self._sync_agents()
         self._show()
+
+    def _sync_agents(self) -> None:
+        rows = []
+        for name in sorted(paths.list_agents()):
+            try:
+                cfg = agents.read(name)
+                vendor, model, effort = agents.parts(cfg)
+                cells = (model, effort, agents.browser_mode(cfg),
+                         "on" if agents.skip_permissions_in_effect(name, cfg) else "off")
+            except Exception:  # noqa: BLE001 - one unreadable file must not hide the rest
+                cells = ("unreadable", "", "", "")
+            rows.append((name, (Text(textsafe.oneline(name)), *(Text(c) for c in cells))))
+        sync_rows(self.query_one("#hr_agents", DataTable), rows)
 
     def _show(self) -> None:
         p = self.current
@@ -186,7 +211,25 @@ class ProposalsView(Vertical):
             TextPrompt(f"reject {p['kind']} {textsafe.oneline(str(p['agent']))} - why:"),
             lambda why: why and why.strip() and self._answer(rid, f"reject {why.strip()}"))
 
+    def action_edit(self) -> None:
+        """The settings of the agent under the cursor: in the agents table, that one;
+        in the proposals, the one the proposal is about."""
+        table = self.query_one("#hr_agents", DataTable)
+        if self.app.focused is table and 0 <= table.cursor_row < table.row_count:
+            name = table.coordinate_to_cell_key((table.cursor_row, 0)).row_key.value
+        else:
+            name = self.current["agent"] if self.current else None
+        if name not in paths.list_agents():
+            self.app.notify("pick an agent in the agents table", timeout=5, markup=False)
+            return
+        self.app.push_screen(AgentSettingsScreen(name), lambda _: self.refresh_rows())
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.id == "hr_agents":
+            event.stop()
+            self.action_edit()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
         {"hr_approve": self.action_approve, "hr_reject": self.action_reject,
-         "hr_withdraw": self.action_withdraw}[event.button.id]()
+         "hr_withdraw": self.action_withdraw, "hr_edit": self.action_edit}[event.button.id]()

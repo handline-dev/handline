@@ -2780,6 +2780,85 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
           str(r.rows)[:400])
 
 
+def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(home: Path) -> None:
+    os.environ["OCP_HOME"] = str(home)
+    os.environ.pop("OCP_AGENT", None)
+    agents.register("worker", model="sonnet", repo=str(home))
+    agents.register("other", repo=str(home))
+    _daemon_home(home, 20)
+    hand_edit_team("agents:\n  worker: {}\n  other: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
+    from ocp.daemon import client as dmn_client, socket_server
+    from ocp.team import agent_settings
+
+    def daemon_send(payload):       # the daemon is not an agent's session: no OCP_AGENT there
+        mine = os.environ.pop("OCP_AGENT", None)
+        try:
+            return socket_server._handle_request(payload, lambda *_: None)
+        finally:
+            if mine is not None:
+                os.environ["OCP_AGENT"] = mine
+    real = dmn_client.send
+    dmn_client.send = daemon_send
+    try:
+        rc, out = _cli(["agent", "set", "worker", "model=opus", "effort=high", "handoff_note=off"], as_agent="worker")
+        cfg = agents.read("worker")
+        check("settings: an agent's ordinary changes apply at once, its own handoff note off among them",
+              rc == 0 and cfg["model"] == "opus" and cfg["effort"] == "high" and cfg["handoff_note"] is False, out)
+        from ocp.daemon import handoff_note
+        check("settings: the daemon then reads that agent's handoff note as off", not handoff_note.enabled("worker"))
+        reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {"idle_close": "0"}})
+        check("settings: idle close needs the founder, since 0 keeps a session open for good",
+              not reply["ok"] and "park_timeout_s" not in agents.read("worker"), str(reply))
+        rc, out = _cli(["agent", "set", "other", "model=opus"], as_agent="worker")
+        check("settings: an agent changes only its own", rc == 1 and agents.read("other").get("model") != "opus", out)
+        rc, out = _cli(["agent", "set", "worker", "browser=chrome"], as_agent="worker")
+        check("settings: a privileged change needs a reason", rc == 1 and not hr.listing(), out)
+        reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker",
+                             "values": {"skip_permissions": "on"}})
+        check("settings: the daemon verb refuses a privileged one outright",
+              not reply["ok"] and not agents.skip_permissions(agents.read("worker")), str(reply))
+        os.environ["OCP_AGENT"] = "worker"
+        try:
+            agents.register("worker", chrome=True)
+            check("settings: the register path is shut to an agent", False, "it went through")
+        except PermissionError:
+            check("settings: the register path is shut to an agent", True)
+        finally:
+            os.environ.pop("OCP_AGENT", None)
+        rc, out = _cli(["agent", "set", "worker", "browser=playwright", "browser_sites=https://a.com https://b.org",
+                        "model=sonnet", "--why", "needs the docs site"], as_agent="worker")
+        cfg = agents.read("worker")
+        check("settings: the ordinary half applies and the privileged half is only proposed",
+              rc == 0 and cfg["model"] == "sonnet" and not agents.chrome(cfg) and not cfg.get("mcp_config")
+              and "proposal" in out, f"rc={rc} {out}")
+    finally:
+        dmn_client.send = real
+    pid = next(x["id"] for x in hr.listing() if x["kind"] == "settings")
+    prop = hr.load_proposal(pid)
+    con = db.connect()
+    try:
+        ok, said = hr.apply(pid, con)
+        check("settings: nothing applies before the founder answers", not ok and not agents.read("worker").get("mcp_config"), said)
+        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(prop))
+        answer_card(con, prop["request"], "approve")
+        edited = dict(prop)
+        edited["set.browser_sites"] = "https://evil.example"
+        hr.save(edited)
+        ok, said = hr.apply(pid, con)
+        check("settings: a proposal edited after the approval is refused",
+              not ok and not agents.read("worker").get("mcp_config"), said)
+        hr.save(prop)
+        ok, said = hr.apply(pid, con)
+    finally:
+        con.close()
+    cfg = agents.read("worker")
+    check("settings: the approval applies exactly what was proposed",
+          ok and agents.browser_mode(cfg) == "playwright"
+          and agents.browser_origins(cfg) == ["https://a.com", "https://b.org"] and cfg["model"] == "sonnet", said)
+    ok, said = agent_settings.set_values("worker", {"browser": "off"})
+    check("settings: the founder changes any setting directly", ok and agents.browser_mode(agents.read("worker")) == "off", said)
+
+
 def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
     """`hr add` writes `vendor:` into agent.yaml only when --vendor names a
     non-default one, both when the founder adds and when a proposal is applied."""
@@ -3982,6 +4061,7 @@ def main() -> int:
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
+        run(lambda: test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(Path(td) / 'agentsettings'))
         run(lambda: test_an_answer_binds_the_decisionion_the_founder_read(Path(td) / 'hrbind'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))

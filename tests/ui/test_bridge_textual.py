@@ -1002,6 +1002,43 @@ def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> N
           not ok and not agents.chrome(agents.read("backend")), said)
 
 
+async def test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposal() -> None:
+    import html
+    from textual.widgets import DataTable, Input, Select
+    from ocp.ui.components import proposals as pr
+    from ocp.ui.components.agent_settings_screen import AgentSettingsScreen
+    _home("hr-edit")
+    ok, said = hr.propose("settings", "backend", requester="backend", why="it reads the docs",
+                          sets={"browser": "playwright", "browser_sites": "https://docs.example.org"})
+    check("hr edit: a settings proposal is raised", ok, said)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 50)) as pilot:
+        await pilot.pause(0.3)
+        app.screen.query_one("#scope").active = "hr"
+        await pilot.pause(0.5)
+        table = app.screen.query_one("#hr_agents", DataTable)
+        check("hr edit: every agent is listed", table.row_count >= 1
+              and "backend" in [table.coordinate_to_cell_key((i, 0)).row_key.value for i in range(table.row_count)])
+        check("hr edit: the settings proposal shows what it would set",
+              "set browser_sites" in pr.describe({**hr.listing()[0], "rid": 1, "asked": 0, "status": pr.DECIDE}).plain)
+        Path(os.environ.get("HR_TAB_SHOT", os.devnull)).write_text(app.export_screenshot())
+        table.focus()
+        await pilot.press("e")
+        await pilot.pause(0.5)
+        check("hr edit: e opens the same settings form on that agent",
+              isinstance(app.screen, AgentSettingsScreen) and app.screen.query_one("#s_model", Input).value == agents.read("backend")["model"])
+        app.screen.query_one("#s_effort", Select).value = "high"
+        app.screen.query_one("#s_save").press()
+        await pilot.pause(0.4)
+        await pilot.press("y")
+        await pilot.pause(0.5)
+        check("hr edit: Save writes it through the founder's path", agents.read("backend")["effort"] == "high", str(agents.read("backend")))
+        Path(os.environ.get("HR_SHOT", os.devnull)).write_text(app.export_screenshot())
+        await pilot.press("escape")
+        await pilot.pause(0.4)
+        check("hr edit: escape is back on the HR tab", not isinstance(app.screen, AgentSettingsScreen))
+
+
 async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright() -> None:
     import html
     from ocp.ui import chat_page as cp
@@ -3975,6 +4012,7 @@ async def _run_all() -> None:
     test_the_settings_form_checks_and_saves_only_what_changed()
     test_the_browser_setting_writes_chrome_and_the_sites_through_register()
     await test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright()
+    await test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposal()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
     await test_the_chat_page_draws_a_handoff_as_one_card()

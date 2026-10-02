@@ -11,7 +11,7 @@ from ..team import team
 
 from .account import cmd_account_add, cmd_account_cap, cmd_account_cycle, cmd_account_list, cmd_account_recover, cmd_account_register, cmd_account_remove
 from .memory import cmd_memory_migrate, cmd_memory_status
-from .agent import cmd_agent_move, cmd_agent_register, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
+from .agent import cmd_agent_move, cmd_agent_register, cmd_agent_set, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
 from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_inbox, cmd_read, cmd_withdraw
 from .bridge import cmd_bridge
 from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
@@ -112,6 +112,14 @@ def build_parser() -> argparse.ArgumentParser:
                    "in its agent.yaml and passed as --mcp-config, so no per-account approval of a "
                    "project .mcp.json); 'off' removes them; on re-registration, omit to keep them")
     p.set_defaults(fn=cmd_agent_register)
+
+    p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, handoff_note apply "
+                                  "at once; the rest (idle_close, browser, browser_sites, skip_permissions, repo, weight) "
+                                  "go to HR for the founder to approve")
+    p.add_argument("name")
+    p.add_argument("values", nargs="+", metavar="setting=value")
+    p.add_argument("--why", default=None, help="what the founder is deciding, for a change that needs approval")
+    p.set_defaults(fn=cmd_agent_set)
 
     p = sub.add_parser("launch", help="exec claude as this agent's account")
     p.add_argument("agent")

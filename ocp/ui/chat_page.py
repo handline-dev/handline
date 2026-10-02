@@ -22,13 +22,15 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual.coordinate import Coordinate
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Header, Input, OptionList, Select, Static, Switch, Tabs, TextArea
+from textual.widgets import Button, DataTable, Header, Input, OptionList, Static, Tabs, TextArea
 from textual.widgets.option_list import Option
 
 from .. import actions, db
 from ..actions.prompt_blocks import PERMISSION, QUESTION
 from ..daemon import landing as landingmod
 from ..team import agents, ask as askmod
+from ..team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, EDITABLE, WEIGHTS,   # noqa: F401 - the tests read them here
+                                   save_settings, settings_changes, settings_of, settings_problem)
 from ..infra import paths, textsafe
 from ..session import idle_close
 from ..usage import status
@@ -46,12 +48,10 @@ from .components.ime import TextBox
 from .components.text_prompt import TextPrompt
 from .components.action_bar import ActionBar
 from .components.page_header import page_header
-from .components.section_head import SectionHead
 from .components.schedules_section import SchedulesSection
-from .components.sites_list import SitesList
+from .components.agent_settings import AgentSettings
 from .components.task_assign import TaskAsk, TaskAssign
 from .components.write_guard import WriteGuard
-from .components.switch_row import SwitchRow
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
 # They are not part of the conversation, so no chat query reads them.
@@ -356,114 +356,6 @@ def task_detail(con, tid: int) -> dict | None:
             "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing"),
             "ask": actions.previous_holders(con, tid) if state in ("draft", "queued", "doing") else []}
-
-
-EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
-            "context_k", "idle_close")
-BROWSER_MODES = (("off", "off"), ("Claude in Chrome", "chrome"), ("sandboxed Playwright", "playwright"))
-BROWSER_CUSTOM = ("custom, set in a terminal", "custom")   # shown only when the agent has one
-WEIGHTS = ("light", "heavy")
-
-
-def settings_of(agent: str) -> dict:
-    """An agent's configuration as the settings tab shows it: what its agent
-    file says, and the account its session is actually on."""
-    cfg = agents.read(agent)
-    return {"model_id": status.read_for_agent(agent, agents.current_account(agent)).model_id or "",
-            "session_account": agents.current_account(agent) or "",
-            "vendor": str(cfg.get("vendor") or agents.DEFAULT_VENDOR),
-            "enabled": bool(cfg.get("enabled", True)),
-            "model": str(cfg.get("model") or agents.DEFAULT_MODEL),
-            "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
-            "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
-            "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
-            "browser": agents.browser_mode(cfg), "browser_sites": " ".join(agents.browser_origins(cfg)),
-            "context_k": str(agents.context_tokens(cfg) // 1000),
-            "idle_close": actions.idle_close_minutes(cfg["park_timeout_s"])
-            if isinstance(cfg.get("park_timeout_s"), int) and not isinstance(cfg.get("park_timeout_s"), bool) else ""}
-
-
-def settings_problem(form: dict) -> str | None:
-    """Why `form` cannot be saved, or None. Checked here so nothing is written
-    that the agent file would refuse to load again."""
-    model, repo = form["model"].strip(), form["repo"].strip()
-    if not model:
-        return "model cannot be empty"
-    if textsafe.has_unsafe(model) or not agents.is_plain_text(model):
-        return f"model {model!r} would not be read back as text"
-    if form["effort"] not in agents.VALID_EFFORT:
-        return f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
-    if form["weight"] not in WEIGHTS:
-        return f"weight must be one of {', '.join(WEIGHTS)}"
-    if form["skip_permissions"] not in ("on", "off"):
-        return "skip permissions must be on or off"
-    if form["browser"] not in (*dict(BROWSER_MODES).values(), BROWSER_CUSTOM[1]):
-        return "browser must be off, chrome or playwright"
-    if form["browser"] == "playwright":
-        try:
-            if not agents.parse_origins(form["browser_sites"]):
-                return "name at least one site for the sandboxed browser"
-        except ValueError as e:
-            return str(e)
-    if not form["context_k"].strip().isdigit() or int(form["context_k"]) < 1:
-        return "context must be a whole number of thousands of tokens, at least 1"
-    if form["idle_close"].strip() and not form["idle_close"].strip().isdigit():
-        return "idle close must be a whole number of minutes (0 = never), or blank to follow the global time"
-    if repo and (textsafe.has_unsafe(repo) or not Path(repo).expanduser().is_dir()):
-        return f"repo {repo!r} is not a folder"
-    return None
-
-
-def settings_changes(current: dict, form: dict) -> list[tuple[str, str, str]]:
-    """(field, old, new) for each editable field the form changes. A blank repo
-    means leave it: the agent file cannot be told to forget one."""
-    out = []
-    for key in EDITABLE:
-        new = form[key].strip()
-        if key == "repo" and not new:
-            continue
-        if key == "browser_sites":
-            if form["browser"] != "playwright":      # Claude in Chrome has no site list
-                continue
-            new = " ".join(agents.parse_origins(new))
-        if new != current[key]:
-            out.append((key, current[key], new))
-    return out
-
-
-def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool, str]:
-    """Write `changes` to the agent's file through the same call `ocp agent
-    register` uses, which keeps every other field as it is. A running session
-    is not restarted."""
-    new = {k: v for k, _, v in changes}
-    idle = new.pop("idle_close", None)
-    if idle is not None:
-        try:
-            actions.parse_idle_close(idle)      # a bad one is refused before the file is written
-        except ValueError as e:
-            return False, f"not saved: {e}"
-    if new:
-        try:
-            chrome = mcp = None
-            if "browser" in new or "browser_sites" in new:
-                cfg = agents.read(agent)
-                mode = new.get("browser") or agents.browser_mode(cfg)
-                origins = agents.parse_origins(new["browser_sites"]) if "browser_sites" in new \
-                    else agents.browser_origins(cfg)
-                chrome, mcp = mode == "chrome", agents.browser_mcp_config(cfg, mode, origins)
-            agents.register(agent, model=new.get("model"), effort=new.get("effort"),
-                            weight=new.get("weight"), repo=new.get("repo"),
-                            skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
-                            chrome=chrome, mcp_config=mcp,
-                            context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
-        except (ValueError, agents.ConfigError, OSError) as e:
-            return False, f"not saved: {e}"
-    if idle is not None:
-        ok, said = actions.set_idle_close(idle, agent)
-        if not ok:
-            done = ", ".join(f"{k} {v}" for k, v in new.items())
-            return False, f"idle close not saved: {said}" + (f" ({done} was saved)" if done else "")
-    return True, "saved: " + ", ".join(f"{k} {v}" for k, _, v in changes)
 
 
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
@@ -1582,7 +1474,6 @@ class ChatPage(JobsAware, Screen):
         self.everyone = False
         self.showing_tasks = False
         self.showing_settings = False
-        self.settings: dict | None = None
         self._menu_closed = False
         self.agent_state = ("IDLE", "")
         self.verbs_pool: tuple = ()           # the agent actions `/` can offer right now
@@ -1618,50 +1509,7 @@ class ChatPage(JobsAware, Screen):
         from .components.tasks_view import TasksView    # it draws on this module
         yield TasksView(agent=self.agent, id="tasks_view")
         with Vertical(id="settings_view"):
-            with VerticalScroll(id="settings_pane"):
-                yield SectionHead("agent")
-                for key, label in (("session_account", "session runs on"),
-                                   ("vendor", "vendor"), ("enabled", "enabled")):
-                    with Horizontal(classes="frow"):
-                        yield Static(label, classes="flabel")
-                        yield Static(id=f"s_{key}", classes="fvalue")
-                yield SectionHead("model")
-                with Horizontal(classes="frow"):
-                    yield Static("model", classes="flabel")
-                    yield ImeInput(id="s_model", compact=True)
-                with Horizontal(classes="frow"):
-                    yield Static("effort", classes="flabel")
-                    yield Select([(e, e) for e in agents.VALID_EFFORT], id="s_effort", allow_blank=False, compact=True)
-                with Horizontal(classes="frow"):
-                    yield Static("weight", classes="flabel")
-                    yield Select([(w, w) for w in WEIGHTS], id="s_weight", allow_blank=False, compact=True)
-                with Horizontal(classes="frow"):
-                    yield Static("hand off at", classes="flabel")
-                    yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
-                    yield Static("k tokens", classes="unit")
-                    yield Static(id="s_context_share", classes="fvalue")
-                yield SectionHead("work")
-                with Horizontal(classes="frow"):
-                    yield Static("repo", classes="flabel")
-                    yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
-                yield SectionHead("session")
-                yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
-                yield SectionHead("browser")
-                with Horizontal(classes="frow"):
-                    yield Static("browser", classes="flabel")
-                    yield Select([(label, key) for label, key in BROWSER_MODES], id="s_browser", allow_blank=False, compact=True)
-                    yield Static("from the next launch", classes="unit")
-                with Horizontal(classes="frow sites"):
-                    yield Static("sites", classes="flabel")
-                    yield SitesList(id="s_browser_sites")
-                with Horizontal(classes="frow"):
-                    yield Static("idle close", classes="flabel")
-                    yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
-                    yield Static("min, 0 = never", classes="unit")
-                yield SchedulesSection(self.agent, id="s_schedules")
-            with ActionBar(id="s_buttons"):
-                yield Button("Save", id="s_save", variant="primary", compact=True)
-                yield Button("Reset", id="s_reset", compact=True)
+            yield AgentSettings(self.agent, extra=lambda: SchedulesSection(self.agent, id="s_schedules"), id="settings_form")
         with Vertical(id="dock"):
             yield OptionList(id="menu")
             with Vertical(id="composer"):
@@ -1694,12 +1542,6 @@ class ChatPage(JobsAware, Screen):
         if event.button.id == "leave":
             event.stop()
             self.leave()
-        elif event.button.id == "s_save":
-            event.stop()
-            self.save_form()
-        elif event.button.id == "s_reset":
-            event.stop()
-            self.load_settings()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
@@ -2161,87 +2003,11 @@ class ChatPage(JobsAware, Screen):
 
     def load_settings(self) -> None:
         """Fill the settings form from the agent's file."""
-        try:
-            self.settings = cfg = settings_of(self.agent)
-        except (OSError, agents.ConfigError) as e:
-            self.settings = None
-            self.notify(f"cannot read this agent's settings: {safe(e)}", severity="error", timeout=10, markup=False)
-            return
-        for key in ("session_account", "vendor"):
-            self.query_one(f"#s_{key}", Static).update(Text(safe(cfg[key])))
-        self.query_one("#s_enabled", Static).update("yes" if cfg["enabled"] else "no")
-        self.query_one("#s_model", Input).value = safe(cfg["model"])
-        self.query_one("#s_repo", Input).value = safe(cfg["repo"])
-        self.query_one("#s_context_k", Input).value = cfg["context_k"]
-        self.query_one("#s_skip", Switch).value = cfg["skip_permissions"] == "on"
-        modes = BROWSER_MODES + (BROWSER_CUSTOM,) if cfg["browser"] == "custom" else BROWSER_MODES
-        self.query_one("#s_browser", Select).set_options(modes)
-        self.query_one("#s_browser", Select).value = cfg["browser"]
-        self.query_one("#s_browser_sites", SitesList).set_sites(cfg["browser_sites"].split())
-        self.query_one("#s_browser_sites", SitesList).disabled = cfg["browser"] != "playwright"
-        self.query_one("#s_idle_close", Input).value = cfg["idle_close"]
-        self.query_one("#s_idle_close", Input).placeholder = actions.idle_close_minutes(idle_close.default_close_timeout_s())
-        self.show_context_share()
+        self.query_one("#settings_form", AgentSettings).load()
+
+    def on_agent_settings_loaded(self, event: AgentSettings.Loaded) -> None:
+        event.stop()
         self.query_one("#s_schedules", SchedulesSection).load()
-        self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
-        self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
-
-    def form(self) -> dict:
-        return {"model": self.query_one("#s_model", Input).value,
-                "effort": str(self.query_one("#s_effort", Select).value),
-                "weight": str(self.query_one("#s_weight", Select).value),
-                "repo": self.query_one("#s_repo", Input).value,
-                "skip_permissions": "on" if self.query_one("#s_skip", Switch).value else "off",
-                "browser": str(self.query_one("#s_browser", Select).value),
-                "browser_sites": " ".join(self.query_one("#s_browser_sites", SitesList).sites),
-                "context_k": self.query_one("#s_context_k", Input).value,
-                "idle_close": self.query_one("#s_idle_close", Input).value}
-
-    def show_context_share(self) -> None:
-        self.query_one("#s_context_share", Static).update(
-            Text("= " + actions.context_share(self.query_one("#s_context_k", Input).value,
-                                              self.settings["model_id"] or self.query_one("#s_model", Input).value)
-                 if self.query_one("#s_context_k", Input).value else ""))
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "s_browser":
-            self.query_one("#s_browser_sites", SitesList).disabled = event.value != "playwright"
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id in ("s_context_k", "s_model") and self.settings is not None:
-            self.show_context_share()
-
-    def save_form(self) -> None:
-        """Save what the form changes, after showing exactly what that is."""
-        if self.settings is None:
-            return
-        form = self.form()
-        problem = settings_problem(form)
-        if problem:
-            self.notify(safe(problem), severity="error", timeout=10, markup=False)
-            return
-        changes = settings_changes(self.settings, form)
-        if not changes:
-            self.notify("nothing changed", timeout=5, markup=False)
-            return
-        detail = "\n".join(f"{k}:  {old or '(none)'}  →  {new}" for k, old, new in changes)
-
-        def answered(yes: bool | None) -> None:
-            log_action(f"settings {self.agent}: answered {'yes' if yes else 'no'} - {detail!r}")
-            if not yes:
-                return
-            ok, said = save_settings(self.agent, changes)
-            log_action(f"settings {self.agent}: {'ok' if ok else 'refused'} - {said}")
-            later = ok and any(k in ("skip_permissions", "browser", "browser_sites") for k, _, _ in changes)
-            self.notify(safe(said) + ("\n(a running session is not restarted"
-                                      + ("; skip prompts and the browser apply from its next launch)" if later else ")") if ok else ""),
-                        title=f"settings {self.agent}", severity="information" if ok else "error",
-                        timeout=10, markup=False)
-            self.load_settings()
-        self.app.push_screen(Confirm(f"Change {self.agent}'s settings", detail,
-                                     yes="Save", no="Cancel",
-                                     danger=any(k == "skip_permissions" and new == "on" for k, _, new in changes)),
-                             answered)
 
     def action_show_message(self, rid: int) -> None:
         """Scroll to message `rid` and light it for a moment."""
