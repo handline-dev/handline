@@ -3,7 +3,8 @@
 
   tools/localrefs.py diff [--staged | RANGE]   the lines a diff adds (RANGE is a git revision range)
   tools/localrefs.py log RANGE                 the commit messages in RANGE
-  tools/localrefs.py message FILE              one commit message, as the commit-msg hook gets it
+  tools/localrefs.py message [--verbatim] FILE one commit message, as the commit-msg hook gets it;
+                                               --verbatim reads a line starting with # as text, not as git's comment
   tools/localrefs.py ident                     the author and committer email a commit made now would carry
 
 Exit 0: clean. Exit 1: findings, one per line as `where: kind: text`, then what to write instead.
@@ -206,7 +207,8 @@ def main(argv: list[str]) -> int:
             email = re.search(r"<([^>]*)>", _git("var", var))
             found += scan_emails([(role, email.group(1) if email else "")], "next commit")
     else:
-        found = scan_message(Path(rest[0]).read_text(encoding="utf-8"), "message", words)
+        verbatim = rest[:1] == ["--verbatim"]
+        found = scan_message(Path(rest[-1]).read_text(encoding="utf-8"), "message", words, comments=not verbatim)
     if found:
         print("\n".join(found), file=sys.stderr)
         print(f"localrefs: {len(found)} hit(s). {HINT}", file=sys.stderr)

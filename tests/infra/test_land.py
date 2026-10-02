@@ -223,11 +223,44 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
+def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Path) -> None:
+    """A branch whose diff adds an email fails the merger's `--check`, and the daemon refuses a merge
+    message carrying a task id, though the branch itself is clean."""
+    import shutil
+    from ocp.daemon import lands
+    main = _repo(home / "repo")
+    shutil.copy(ROOT / "tools" / "localrefs.py", main / "tools" / "localrefs.py")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "localrefs")
+    dirty = _branch(main, "dirty", "d.py", "owner = 'someone@" + "gmail.com'\n")
+    clean = _branch(main, "clean", "c.py", "z = 3\n")
+    r = subprocess.run([str(LAND), "--check", dirty], cwd=main, capture_output=True, text=True, env=ENV, timeout=60)
+    check("check: a diff that adds an email fails the merger's test and prints no tree",
+          r.returncode == 1 and "email" in r.stderr and not r.stdout.strip(), r.stdout + r.stderr)
+    check("check: a clean branch still passes it", len(_check(main, clean)) == 40, _check(main, clean))
+
+    keep = os.environ.get("OCP_LAND_REPO")
+    os.environ["OCP_LAND_REPO"] = str(main)
+    con = db.connect()
+    try:
+        lands.record_pass(con, clean, lands.AUDITOR)
+        tree = _check(main, clean)
+        for bad in ("Merge clean for T" + "1234", "#" + "1234 is why", "mail me at someone@" + "gmail.com"):
+            ok, said = lands.request(con, clean, bad, tree, lands.MERGER)
+            check(f"land: the merge message {bad[:24]!r} is refused", not ok and "personal data or a local id" in said, said)
+        ok, said = lands.request(con, clean, "Merge clean: states what changed", tree, lands.MERGER)
+        check("land: a message in words is queued", ok and "queued" in said, said)
+    finally:
+        con.close()
+        os.environ.pop("OCP_LAND_REPO") if keep is None else os.environ.__setitem__("OCP_LAND_REPO", keep)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_branch_lands_by_fast_forward_and_a_conflict_never_touches_the_checkout(Path(td) / "l1"))
         run(lambda: test_a_red_suite_or_a_dirty_checkout_lands_nothing(Path(td) / "l2"))
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
+        run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
     return run_area(tests)
 
 

@@ -12,7 +12,8 @@
 #
 # --check is the merger's own test, run in its sandbox: it merges <sha> into main in a throwaway
 # clone (reads main's repo, writes only $TMPDIR), runs the suite, and prints the tree of the merge it
-# tested. Exit 1 on a conflict or a red suite. The daemon lands only a merge with that tree.
+# tested. Exit 1 on a conflict, personal data or a local id in the merge (tools/localrefs.py), or a
+# red suite. The daemon lands only a merge with that tree, and checks the message it was given itself.
 #
 # --test runs tools/suite.sh on the merge result first; red lands nothing.
 # The merge result is also read by tools/localrefs.py: a diff or a message (this one
@@ -35,6 +36,13 @@ if [ "${1:-}" = "--check" ]; then
     if ! git -C "$work" -c user.name=land -c user.email=land@localhost merge --no-ff -q -m check "$sha" >/dev/null 2>&1; then
         echo "conflicts with main in: $(git -C "$work" diff --name-only --diff-filter=U | tr '\n' ' ')" >&2
         exit 1
+    fi
+    if [ -f "$work/tools/localrefs.py" ]; then
+        # The clone's main is the branch the merge just moved, so the range starts at the merge's first parent.
+        if ! (cd "$work" && python3 tools/localrefs.py diff 'HEAD^..HEAD' && python3 tools/localrefs.py log 'HEAD^..HEAD') >&2; then
+            echo "personal data or a local id in the merge result; send the branch back to its owner" >&2
+            exit 1
+        fi
     fi
     "$work/tools/suite.sh" >&2 || { echo "the suite is red on the merge result" >&2; exit 1; }
     git -C "$work" rev-parse 'HEAD^{tree}'

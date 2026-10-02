@@ -1,7 +1,7 @@
 """Landing a branch on main, done by the daemon - which runs none of the branch's code.
 
 The daemon is outside every agent's sandbox, so it alone can write main's checkout; whatever it runs
-runs unsandboxed. It therefore runs only git. The test is the merger's, in the merger's sandbox
+runs unsandboxed. It therefore runs only git, and main's own tools/localrefs.py on the message it is given. The test is the merger's, in the merger's sandbox
 (`tools/land.sh --check`), and it names the tree it tested. A sha lands when
   - the auditor recorded a PASS for that exact sha (`ocp land --pass`), and
   - the merger recorded it with the tree its test saw (`ocp land <sha> <message>`).
@@ -13,6 +13,8 @@ at most once.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -43,6 +45,20 @@ def _commit(sha: str) -> tuple[str | None, str]:
     return (out.strip(), "") if rc == 0 else (None, f"{sha} is not a commit here: {textsafe.oneline(err or out)}")
 
 
+def _message_refusal(message: str) -> str | None:
+    """Why `message` may not be a merge message (personal data or a machine-local id, tools/localrefs.py),
+    None when it may. Run from main's checkout, never from the branch being landed."""
+    tool = repo() / "tools" / "localrefs.py"
+    if not tool.is_file():
+        return None
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", encoding="utf-8") as f:
+        f.write(message)
+        f.flush()
+        r = subprocess.run([sys.executable, str(tool), "message", "--verbatim", f.name],
+                           capture_output=True, text=True, timeout=30)
+    return None if r.returncode == 0 else textsafe.oneline(r.stderr)[:400]
+
+
 def record_pass(con, sha: str, caller: str | None) -> tuple[bool, str]:
     """The auditor's PASS for `sha`."""
     if caller != AUDITOR:
@@ -61,6 +77,9 @@ def request(con, sha: str, message: str, tree: str | None, caller: str | None) -
     message = (message or "").strip()
     if not message or not (tree or "").strip():
         return False, "a land needs the merge message and the tree the test saw: use `ocp land <sha> <message>`"
+    refusal = _message_refusal(message)
+    if refusal:
+        return False, f"the merge message carries personal data or a local id: {refusal}"
     full, why = _commit(sha)
     if full is None:
         return False, why
