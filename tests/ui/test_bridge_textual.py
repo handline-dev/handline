@@ -3624,17 +3624,22 @@ def test_a_second_bridge_says_so_and_offers_to_take_over() -> None:
         asked = []
         return asked, lambda q: (asked.append(q), word)[1]
 
-    check("second bridge: with none running it just starts", bt._one_bridge(lambda q: "q") is True)
+    check("second bridge: with none running it just starts", bt._one_bridge(lambda q: "q", tty=True) is True)
     child = old_bridge()
     try:
         asked, ask = answer("q")
-        out = _capture_out(lambda: bt._one_bridge(ask))
+        out = _capture_out(lambda: bt._one_bridge(ask, tty=True))
         check("second bridge: it names the running pid and offers take over or quit",
               str(child.pid) in out[1] and "take over" in asked[0] and "quit" in asked[0], str((out, asked)))
         check("second bridge: quit leaves the old one running and does not start", child.poll() is None
-              and stall.running_pid() == child.pid and bt._one_bridge(ask) is False)
+              and stall.running_pid() == child.pid and bt._one_bridge(ask, tty=True) is False)
         asked, ask = answer("t")
-        started = bt._one_bridge(ask)
+        out = _capture_out(lambda: bt._one_bridge(ask, tty=False))
+        check("second bridge: with no terminal on stdin it names the pid, asks nothing and does not start",
+              out[1].count(str(child.pid)) == 1 and out[0] is False and not asked and child.poll() is None, str((out, asked)))
+        check("second bridge: a bridge that cannot take the lock says so and holds none",
+              stall._claim_pid_file(os.getpid()) is False and stall._pid_path != stall.pid_file())
+        started = bt._one_bridge(ask, tty=True)
         child.wait(timeout=5)
         check("second bridge: take over closes the old one and starts", started is True
               and stall.running_pid() is None, str((started, stall.running_pid())))

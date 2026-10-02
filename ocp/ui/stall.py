@@ -30,6 +30,7 @@ MAX_BYTES = 2_000_000       # past this the log is moved to `.1` and starts agai
 
 _fault_file = None
 _pid_fd: int | None = None      # held open for the lock
+_pid_path: Path | None = None   # the file `_pid_fd` locks
 
 
 def log_file() -> Path:
@@ -145,31 +146,37 @@ def install(app) -> int:
     pid = os.getpid()
     try:
         log_file().parent.mkdir(parents=True, exist_ok=True)
-        _claim_pid_file(pid)
+        held = _claim_pid_file(pid)
         _register_dump()
     except (OSError, ValueError, AttributeError):
-        pass
+        held = True         # a log or pid file that cannot be written is no second bridge
+    if not held:
+        app.exit(return_code=1, message="Another ocp bridge took the lock first; this one is closing.")
     log(f"bridge up: pid {pid} term {os.environ.get('TERM_PROGRAM', os.environ.get('TERM', '?'))} "
         f"python {sys.version.split()[0]}")
     Watchdog(asyncio.get_running_loop()).start()
     return pid
 
 
-def _claim_pid_file(pid: int) -> None:
+def _claim_pid_file(pid: int) -> bool:
     """Write `pid` into the pid file and hold a lock on it for as long as this process lives. The
     kernel drops the lock however the process dies (exit, SIGHUP, kill -9), so a file left behind
     is told from a live bridge by the lock, not by whether its pid is alive: pids get reused. A
-    second bridge cannot take the lock; the file keeps naming the first."""
-    global _pid_fd
+    second bridge cannot take the lock; the file keeps naming the first. False when another holds it
+    (this process has none); True when this process holds it, whether it took it now or before."""
+    global _pid_fd, _pid_path
+    if _pid_fd is not None and _pid_path == pid_file():
+        return True
     fd = os.open(pid_file(), os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         os.close(fd)
-        return
+        return False
     os.ftruncate(fd, 0)
     os.write(fd, f"{pid}\n".encode())
-    _pid_fd = fd
+    _pid_fd, _pid_path = fd, pid_file()
+    return True
 
 
 def started_at() -> float | None:

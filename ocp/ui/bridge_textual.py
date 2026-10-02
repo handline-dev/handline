@@ -126,15 +126,19 @@ class BridgeApp(ClipboardApp):
                          + " and ".join(lost) + ".")
 
 
-def _one_bridge(ask=input) -> bool:
+def _one_bridge(ask=input, tty: bool | None = None) -> bool:
     """Another bridge is live: say which and since when, and ask to take over (close it, go on) or
     quit. True when this one may start."""
     pid = stall.running_pid()
     if pid is None or pid == os.getpid():
         return True
+    if tty is None:
+        tty = sys.stdin.isatty()
     since = stall.started_at()
     print(f"An ocp bridge is already running: pid {pid}"
           + (f", since {time.strftime('%a %b %d %H:%M', time.localtime(since))}" if since else "") + ".")
+    if not tty:
+        return False
     while True:
         try:
             choice = ask("[t] take over: close it and start here   [q] quit > ").strip().lower()
@@ -156,6 +160,13 @@ def run(once: bool = False) -> int:
         print(tui.snapshot())
         return 0
     if not _one_bridge():
+        return 1
+    try:                    # the lock is taken before the app starts: a bridge that lost the race says so
+        held = stall._claim_pid_file(os.getpid())
+    except OSError:
+        held = True         # a pid file that cannot be written is no second bridge
+    if not held:
+        print("Another ocp bridge took the lock first.")
         return 1
     app = BridgeApp()
     app.run()
