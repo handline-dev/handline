@@ -2094,6 +2094,36 @@ def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
         owed["now"] = False
         bt.run()
         check("run: none owed, no exec", execs == [])
+        from ocp.ui import stall
+        _home("run_race")
+        stall.log_file().parent.mkdir(parents=True, exist_ok=True)
+        if stall._pid_fd is not None:       # the runs above took the lock in this process
+            _os.close(stall._pid_fd)
+            stall._pid_fd = None
+        child = subprocess.Popen([sys.executable, "-c", "import sys, time; sys.path.insert(0, sys.argv[1]); "
+                                  "from ocp.ui import stall; stall._claim_pid_file(__import__('os').getpid()); "
+                                  "print('up', flush=True); time.sleep(60)", str(ROOT)], stdout=subprocess.PIPE, text=True)
+        built, real_one = [], bt._one_bridge
+        bt.BridgeApp = lambda: built.append(1) or FakeApp()
+        bt._one_bridge = lambda *a, **k: True       # the other bridge came up after the prompt said none
+        try:
+            child.stdout.readline()
+            owed["now"] = True
+            execs.clear()
+            import contextlib, io
+
+            class Tty(io.StringIO):
+                def isatty(self) -> bool:
+                    return True
+            buf = Tty()
+            with contextlib.redirect_stdout(buf):
+                out = (bt.run(), buf.getvalue())
+            check("run: a bridge that lost the lock to another does not start the app",
+                  out[0] == 1 and "took the lock" in out[1] and not built and not execs, str((out, built, execs)))
+        finally:
+            bt._one_bridge = real_one
+            child.kill()
+            child.wait()
     finally:
         _os.execv, bt.BridgeApp, sys.argv = real_exec, real_app, real_argv
         sys.stdout.isatty = real_tty
