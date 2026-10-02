@@ -2487,7 +2487,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         keep_handoff("reviewer", f"handoff {p}\n- item {p}")
         journal = foldmod.journal_path("reviewer", foldmod.today())
         journal.parent.mkdir(parents=True, exist_ok=True)
-        journal.write_text(f"## 완료\n- done {p}\n")
+        journal.write_text(f"## Done\n- done {p}\n")
         service.out_log().parent.mkdir(parents=True, exist_ok=True)
         service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
         repo = where / "repo"                  # for `spawn --dry-run`
@@ -2542,7 +2542,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         # A fold whose model returns a digest that lost what was done: the refusal
         # names the lost items, which the agent wrote.
         real_model, real_record = foldmod.run_model, handoffmod.record
-        foldmod.run_model = lambda *a, **k: (True, "# 2026-01-01 · reviewer\n\n## 완료\n")
+        foldmod.run_model = lambda *a, **k: (True, "# 2026-01-01 · reviewer\n\n## Done\n")
         # `write-handoff` reads the agent's own terminal for the handoff, which
         # there is none of here: stand in for that step and print what it stored.
         handoffmod.record = lambda con, agent: []

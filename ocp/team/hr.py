@@ -40,9 +40,12 @@ from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
 # What the founder types to decide. Printed in the decision, so the words are
 # in front of whoever answers rather than in a document they have not read.
-# 승인 and 반려 are approve and reject: the founder answers in Korean.
-APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
-REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
+# The Korean words for approve and reject are still read for one release, so a founder who has
+# answered in Korean is not told their answer is unclear; the decision text shows only the English.
+LEGACY_APPROVE = ("\uc2b9\uc778",)
+LEGACY_REJECT = ("\ubc18\ub824",)
+APPROVE = ("approve", "approved", "yes", "ok", "go", *LEGACY_APPROVE)
+REJECT = ("reject", "rejected", "no", "deny", "denied", *LEGACY_REJECT)
 
 KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings")
 EDGE_KINDS = ("link", "unlink")

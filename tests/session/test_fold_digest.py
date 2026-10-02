@@ -32,8 +32,8 @@ def test_digest() -> None:
     ok, _ = digest.validate(text, None)
     check("digest: a good digest validates", ok)
 
-    ok, problems = digest.validate(text.replace("## 완료", "## Done"), None)
-    check("digest: a missing section fails validation", not ok and "완료" in problems[0])
+    ok, problems = digest.validate(text.replace("## Done", "## Finished"), None)
+    check("digest: a missing section fails validation", not ok and "Done" in problems[0])
 
     # The failure the design cares about: a fully written file that silently
     # drops completed work.
@@ -679,12 +679,55 @@ def test_fold_falls_back_to_claude_when_the_own_vendor_has_no_usable_account(hom
               foldmod._fold_account("zbackend") == "alpha", str(foldmod._fold_account("zbackend")))
 
 
+def test_korean_digests_read_and_are_migrated_to_english_headings(home: Path) -> None:
+    """Digests written before the headings were English still parse; the upgrade rewrites them once,
+    touching only heading lines; and the HR answer words the founder used before still count."""
+    old = ("# 2026-09-15 \u00b7 backend\nupdated: 14:32 \u00b7 folded_through: event 7\n\n"
+           "## \uc644\ub8cc\n- shipped \uc644\ub8cc in the item text\n\n## \uc9c4\ud589\uc911\n- rate limiter\n\n"
+           "## \uacb0\uc815\n\n## \ub9c9\ud78c \uac83\n\n## \ub2e4\uc74c\n\n## base \uc2b9\uaca9 \ud6c4\ubcf4\n\n"
+           "## \uc9c0\uac01 \ubc18\uc601\n- late one\n\n## \uae30\uacc4 \uae30\ub85d\nfacts here\n")
+    d = digest.parse(old)
+    check("old digest: the Korean headings parse into the same sections",
+          d.items("done") == ["shipped \uc644\ub8cc in the item text"] and d.items("in_progress") == ["rate limiter"]
+          and d.late == ["late one"] and d.facts == "facts here", str(d))
+    check("old digest: it still validates", digest.validate(old, None)[0])
+    new = digest.migrate_text(old)
+    check("migrate: headings are English, an item containing a Korean word is untouched",
+          "## Done" in new and "## In progress" in new and "## Late additions" in new
+          and "## Machine record" in new and "- shipped \uc644\ub8cc in the item text" in new
+          and "## \uc644\ub8cc" not in new, new)
+    check("migrate: the result parses as the same digest", digest.parse(new) == d)
+
+    agents.register("backend")
+    j = foldmod.journal_path("backend", "2026-09-15")
+    j.write_text(old)
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:english_digests'")
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("upgrade: the stored digest is rewritten in English, once",
+              j.read_text() == new and db.get_cursor(con, "migrated:english_digests") == 1, j.read_text())
+        j.write_text(old)
+    finally:
+        con.close()
+    con = db.connect()
+    con.close()
+    check("upgrade: a second connect does not touch it again", j.read_text() == old)
+    check("hr: the Korean approve and reject still decide, the English ones too",
+          hr.decision("\uc2b9\uc778") == "approved" and hr.decision("\ubc18\ub824 \u2014 no") == "rejected"
+          and hr.decision("approve") == "approved" and hr.decision("later") == "unclear")
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_digest())
         run(lambda: test_event_allowlist())
+        run(lambda: test_korean_digests_read_and_are_migrated_to_english_headings(Path(td) / 'enmig'))
         run(lambda: test_fold(Path(td) / 'foldhome'))
         run(lambda: test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_hash_n(
             Path(td) / 'reconhashn'))
