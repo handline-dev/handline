@@ -118,7 +118,7 @@ def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
         asks = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = ? "
                            "AND state = 'queued'", (r.name, actions.HUMAN)).fetchone()[0]
         out[r.name] = Extra(textsafe.oneline(kind_short(cfg)), cache_left(con, r.name), block,
-                            why.removeprefix(f"{r.name} is ")[:tui.DETAIL_CAP], asks,
+                            why.removeprefix(f"{r.name} is "), asks,
                             fold_urgency(con, hidden.get(r.name, []), stuck) if r.under else None,
                             idle_close.ignore_cache_expiry(r.name))
     return out

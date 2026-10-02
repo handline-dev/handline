@@ -23,6 +23,10 @@ from .routing import HUMAN
 # heard. A reason that does not resolve itself counts at once.
 STUCK_AFTER_S = dmn_states.STUCK_RUNNING_S
 
+# A closed agent with nothing to wake it for needs no one to act, so it is not shown.
+# One the daemon is about to wake is shown only once it has waited past STUCK_AFTER_S.
+QUIET_CLOSED = ("closed, nothing to wake it",)
+
 
 def _delivery_state(con, agent: str, sessions: dict | None,
                     handles: set | None, alive: bool = True) -> tuple[str, str, bool]:
@@ -56,8 +60,7 @@ def _delivery_state(con, agent: str, sessions: dict | None,
     pct = status.read(acct).short_trusted if acct else None
     if row["closed_at"]:
         if pct is not None and pct >= status.SHORT_BLOCK:
-            return ("closed, account full", f"{agent} is closed and {acct} is at {pct}% - it cannot be "
-                    f"launched into", False)
+            return ("closed, account full", f"{agent} is closed and {acct} is at {pct}%", False)
         if not alive:
             return "closed, no daemon", f"{agent} is closed and no daemon is running to wake it", False
         cause = dmn_lifecycle.closed_wake_cause(con, agent, row)
@@ -65,8 +68,8 @@ def _delivery_state(con, agent: str, sessions: dict | None,
             return "closed, waking", f"{agent} is closed; the next tick wakes it for {cause[1]}", True
         head = dmn_delivery.effective_head(con, agent)
         if head and head["delivered_at"]:
-            return ("closed, holding", f"{agent} is closed with #{head['id']} told and still open; nothing "
-                    f"wakes it for a request it already has (w wakes it, or resolve it)", False)
+            return ("closed, holding", f"{agent} is closed with #{head['id']} told and still open "
+                    f"(w wakes it, or resolve it)", False)
         return "closed, nothing to wake it", f"{agent} is closed and nothing is waiting to wake it for", False
     if sessions is not None and not sessions.get(agent):
         return "no session", f"no session is running in {agent}'s terminal", False
@@ -201,7 +204,9 @@ def stuck(con) -> list[dict]:
             continue
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         landed = dmn_landing.state(r, now)
-        why, self_clearing = _delivery_block(con, r["target"], sessions, handles, alive)
+        word, why, self_clearing = _delivery_state(con, r["target"], sessions, handles, alive)
+        if word in QUIET_CLOSED:
+            continue
         if not why:
             # The daemon can deliver it. Either it is about to, or it has
             # already been told and has not answered - which is a queue working
