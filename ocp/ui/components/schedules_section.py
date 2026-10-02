@@ -19,6 +19,7 @@ class SchedulesSection(Vertical):
 
     DEFAULT_CSS = """
     SchedulesSection { height: auto; }
+    SchedulesSection #sc_rows { height: auto; }
     SchedulesSection .sc_row { height: 1; }
     SchedulesSection .sc_text { width: 1fr; height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
     SchedulesSection .sc_x { width: 3; min-width: 0; margin-left: 1; }
