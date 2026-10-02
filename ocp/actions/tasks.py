@@ -1199,15 +1199,15 @@ def previous_holders(con, tid: int) -> list[str]:
 
 
 def ask_previous_holder(con, tid: int, to: str, text: str) -> tuple[bool, str]:
-    """The founder asking `to`, who held T<tid> before, about it: a say linked to the task, which the task
-    does not leave the founder for. The agent's reply to it joins the task (`say_verb`)."""
+    """The founder asking `to`, who held T<tid> before, about it: a say linked to the task, whose holder
+    does not change. The agent's reply to it joins the task (`say_verb`)."""
     if db.get_task(con, tid) is None:
         return False, f"no task T{tid}"
     if to not in previous_holders(con, tid):
         return False, f"{to} did not hold T{tid} before"
     if not text.strip():
         return False, "nothing sent: no question typed"
-    body = (f"Question on T{tid} from the founder (the task stays with them): {text.strip()}\n\n"
+    body = (f"Question on T{tid} from the founder (the task keeps its holder): {text.strip()}\n\n"
             "Answer by replying to this message: ocp say human --parent <this message's #id> '<answer>'")
     ok, msg, rid = askmod.say(to, body, requester=HUMAN)
     if ok and rid is not None:

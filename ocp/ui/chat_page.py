@@ -352,7 +352,7 @@ def task_detail(con, tid: int) -> dict | None:
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing"),
-            "ask": actions.previous_holders(con, tid) if t["owner"] == actions.HUMAN and state in ("draft", "queued", "doing") else []}
+            "ask": actions.previous_holders(con, tid) if state in ("draft", "queued", "doing") else []}
 
 
 EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "context_k", "idle_close")
@@ -1132,7 +1132,7 @@ class TaskActions:
             self.app.push_screen(TaskAssign(ref, self.d["owner"], agents_here, recent), answered)
 
     def action_ask_task(self) -> None:
-        """Ask who held the task before: a say that names the task; the task stays the founder's."""
+        """Ask who held the task before: a say that names the task; the holder does not change."""
         if not (self.d and self.d["ask"]):
             self.say("nobody held this task before you")
             return
