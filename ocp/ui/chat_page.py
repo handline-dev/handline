@@ -375,6 +375,7 @@ def task_detail(con, tid: int) -> dict | None:
             "discarded": (t["discarded_by"], t["discard_reason"], t["discarded_at"]) if t["discarded_by"] else None,
             "merged_into": t["merged_into"],
             "brief_text": actions.task_brief(con, tid),
+            "timeout": None if state in ("done", "discarded") else actions.task_timeout(con, t, state),
             "children": kids, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_done": state in ("draft", "queued", "doing"),
             "can_reopen": state == "done" and mine,
@@ -593,6 +594,11 @@ def task_page(d: dict) -> dict:
             facts.append(("merged into", link(d["merged_into"], actions.task_ref(d["merged_into"]))))
         elif why:
             facts.append(("reason", Text(safe(why))))
+    if d.get("timeout"):
+        first, *rest = actions.timeout_lines(d["timeout"])
+        facts.append(("timeout", Text(first.removeprefix("timeout "))))
+        for line in rest:
+            facts.append(("", Text(line, style="bold red" if d["timeout"]["state"] == "over" else "")))
     facts.append(("asked by", Text(safe(d["asker"]))))
     meta = Text()
     for label, value in facts:

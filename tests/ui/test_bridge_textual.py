@@ -226,7 +226,7 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     check("menu: /task lists the tasks, newest change first", names("/task ") == ["T84", "T85", "T7"])
     check("menu: /task narrows by a word of the title", names("/task audit") == ["T7"])
     check("menu: /task narrows by the digits of the number", names("/task 8") == ["T84", "T85"])
-    check("menu: /sort names the columns", names("/sort ti") == ["title"], str(names("/sort ti")))
+    check("menu: /sort names the columns", names("/sort tit") == ["title"], str(names("/sort tit")))
     check("menu: a hash lists tasks then requests", names("see #") == ["T84", "T85", "T7", "#2305", "#2289"])
     check("menu: /task also takes the T form, and a task inserts as T<n> but a request as its bare number",
           names("/task t8") == ["T84", "T85"]
@@ -2229,6 +2229,67 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
               cyclemod.enabled("alpha") and acct.query_one("#a_cycle", Switch).value is True)
         await pilot.press("escape")
         await pilot.pause(0.4)
+
+
+async def test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page() -> None:
+    from textual.widgets import DataTable, Tabs
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("task_timeout")
+    now = int(time.time())
+    con = db.connect()
+    try:
+        queued = db.new_task(con, "waiting", "backend", actions.HUMAN, timeout_s=7200)
+        running = db.new_task(con, "running", "backend", actions.HUMAN, timeout_s=3600)
+        late = db.new_task(con, "late", "backend", actions.HUMAN, timeout_s=3600)
+        for tid in (running, late):
+            _, _, rid = askmod.ask("reviewer", "work", requester=actions.HUMAN)
+            db.link_request(con, tid, rid)
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 4350, running))
+        # past its deadline twice over: the daemon told the opener at each, and began the next stretch
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 3600 - 5, late))
+        for ts in (now - 3600 - 5, now - 5):
+            db.add_event(con, actions.HUMAN, "task_timeout_exceeded", {"task_id": late, "timeout_s": 3600})
+            con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (ts,))
+        con.commit()
+        rows = {r["id"]: r for r in actions.task_rows(con)}
+        text = {tid: actions.timeout_text(rows[tid]["timeout"]) for tid in (queued, running, late)}
+        check("timeout: a queued task shows its length only", text[queued] == "2h00m", str(text))
+        check("timeout: a doing task shows the time left to the deadline the daemon holds", text[running] == "1h12m left", str(text))
+        check("timeout: one past its deadline shows how long it has been over, from the first notice",
+              text[late] == "over by 1h00m" and rows[late]["timeout"]["told"] == 2, str(rows[late]["timeout"]))
+        lines = actions.timeout_lines(rows[running]["timeout"])
+        check("timeout: the task page says the length, when it began counting and when it ends",
+              lines[0] == "timeout 1h00m" and "counting since" in lines[1] and "ends" in lines[1] and "1h12m left" in lines[1], str(lines))
+        ok, said = actions.edit_task(con, late, actions.HUMAN, timeout_s=7200)
+        con.commit()
+        after = actions.task_timeout(con, db.get_task(con, late), "doing")
+        check("timeout: edit --timeout is reflected: no longer over, a fresh 2h", ok and after["state"] == "left"
+              and after["length"] == 7200 and 7190 <= after["left"] <= 7200, f"{said} {after}")
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 3600 - 5, late))
+        for ts in (now - 3600 - 5, now - 5):
+            db.add_event(con, actions.HUMAN, "task_timeout_exceeded", {"task_id": late, "timeout_s": 3600})
+            con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (ts,))
+        con.execute("UPDATE tasks SET timeout_s = 3600 WHERE id = ?", (late,))
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(150, 30)) as pilot:
+        await pilot.pause(0.5)
+        app.screen.query_one("#scope", Tabs).active = "tasks"
+        await pilot.pause(1.0)
+        table = app.screen.query_one("#tasks_table", DataTable)
+        cells = {str(table.get_row(k)[1]): table.get_row(k) for k in [r.key for r in table.ordered_rows]}
+        shown = {ref: [str(c) for c in row] for ref, row in cells.items()}
+        check("timeout: the board has a timeout column with each task's cell",
+              "1h12m left" in shown.get(f"T{running}", []) and "2h00m" in shown.get(f"T{queued}", []), str(shown))
+        over = next(c for c in cells[f"T{late}"] if str(c).startswith("over by"))
+        check("timeout: over by is highlighted", "red" in str(over.style) and "bold" in str(over.style), str(over.style))
+        app.push_screen(cp.TaskDetail(running))
+        await pilot.pause(1.0)
+        page_text = _screen_text(app.screen)
+        check("timeout: the task page shows it", "timeout" in page_text and "counting since" in page_text, page_text[-400:])
 
 
 def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
@@ -4717,6 +4778,7 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_global_switches_read_and_write_the_keys_the_daemon_reads()
     await test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_value()
+    await test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_removal_and_the_delegated_view()
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()

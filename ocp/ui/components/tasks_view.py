@@ -83,6 +83,14 @@ def idle_text(row: dict, now: float) -> str:
     return f"{s // 86400}d" if s >= 86400 else f"{s // 3600}h" if s >= 3600 else "<1h"
 
 
+OVER_STYLE = "bold red"
+
+
+def timeout_cell(row: dict) -> str:
+    """"4h" for a task not running yet, "1h12m left" while it does, "over by 20m" past its timeout."""
+    return actions.timeout_text(row["timeout"]) if row.get("timeout") else ""
+
+
 MIN_TITLE = 12
 
 
@@ -181,7 +189,8 @@ class TasksView(Vertical):
     TREE_HEADS = (("", "mark"), ("task", "title"), ("owner", "owner"), ("state", "state"),
                   ("waits on", "blocked"))
     HEADS = (("", "mark"), ("#", "number"), ("P", "priority"), ("state", "state"), ("title", "title"),
-             ("owner", "owner"), ("idle", "idle"), ("asker", "closer"), ("blocked by", "blocked"))
+             ("owner", "owner"), ("idle", "idle"), ("timeout", "timeout"), ("asker", "closer"),
+             ("blocked by", "blocked"))
 
     def __init__(self, mine: bool = False, states: set[str] | None = None,
                  closer: str | None = None, agent: str | None = None, **kw) -> None:
@@ -338,7 +347,7 @@ class TasksView(Vertical):
                 continue
             cells = ("[x]" if r["id"] in self.checked else "[ ]", r["ref"], r["priority_ref"],
                      r["state"], _one_line(r["title"]), r["owner"],
-                     idle_text(r, now) + (" !" if stale else ""), r["closer"],
+                     idle_text(r, now) + (" !" if stale else ""), timeout_cell(r), r["closer"],
                      " ".join(actions.task_ref(b) for b in r["blocked_by"]) or "-")
             raw.append((str(r["id"]), cells, style))
         heads = self.TREE_HEADS if self.as_tree else self.HEADS
@@ -347,7 +356,9 @@ class TasksView(Vertical):
         room = title_room((self.size.width - beside) or 80, [
             max([cell_len(heads[i][0]) + 2] + [cell_len(c[i]) for _, c, _ in raw])
             for i in range(len(heads)) if i != at])
-        out = [(key, tuple(Text(clip(c, room) if i == at else c, style=style, no_wrap=True)
+        over = next((i for i, (_, key) in enumerate(heads) if key == "timeout"), None)
+        out = [(key, tuple(Text(clip(c, room) if i == at else c, no_wrap=True,
+                                style=OVER_STYLE if i == over and c.startswith("over") else style)
                            for i, c in enumerate(cells))) for key, cells, style in raw]
         if sync_rows(table, out) and self.rows:
             table.move_cursor(row=min(row, len(self.rows) - 1), scroll=False)
