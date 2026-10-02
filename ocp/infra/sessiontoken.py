@@ -1,52 +1,94 @@
 """The proof that a request comes from an agent's own session.
 
-`ocp launch` mints a fresh random token for the agent it becomes, keeps a copy in the protected store
-(which no agent session can write) and hands the session its own through the environment it execs
-with. Every session is launched with the store's token folder on its sandbox's read-deny list
-(`launch.build`), so one agent cannot read another's copy, and the folder is a single path whatever
-agents are added later. The daemon, outside the sandbox, compares what a request carries with the
-stored copy. A name in the request proves nothing; a token an agent cannot read, guess or overwrite
-does. A session launched before this existed holds no token and is not under the deny list until it is
-launched again.
+There is no secret. `ocp launch` records its own process id and start time for the agent it becomes
+(`record`) in the protected store, which no agent session can write; the process it execs keeps that
+id, so every process the session starts descends from it. The daemon asks the kernel who is on the
+other end of a socket request (`peer_pid`) and accepts a verb only when that process descends from the
+recorded one (`verify`). A name in the request proves nothing, and nothing an agent holds can be copied
+out of its environment, `ps` or a file: a token in the environment was readable by every other session
+through `sysctl` (T1145). A process that does not descend from the session, such as a daemonized
+child, is refused. A session launched before this holds no record and is refused until relaunched.
 """
 from __future__ import annotations
 
-import hmac
+import ctypes
+import ctypes.util
 import os
-import secrets
-from pathlib import Path
+import socket
+import struct
+import sys
 
-from . import names, protected
+from . import protected
 
-NS = "session-tokens"
-ENV = "OCP_SESSION_TOKEN"
+NS = "session-tokens"      # the store folder keeps its name; renaming it would orphan the records
+_MAX_DEPTH = 64
 
 
-def folder() -> Path:
+def folder():
     return protected.root() / NS
 
 
-def mint(agent: str) -> str | None:
-    """A new token for `agent`, or None when the store cannot be written (an agent's session may not)."""
-    token = secrets.token_urlsafe(32)
+def _proc(pid: int) -> tuple[int, str] | None:
+    """(parent pid, start time) of `pid`, or None when no such process is running. Read from the
+    kernel, not from `ps`, which a session's sandbox forbids."""
+    if sys.platform == "darwin":
+        libproc = ctypes.CDLL(ctypes.util.find_library("proc"))
+        buf = ctypes.create_string_buffer(136)
+        if libproc.proc_pidinfo(pid, 3, 0, buf, 136) != 136:        # PROC_PIDTBSDINFO
+            return None
+        ppid = struct.unpack_from("I", buf, 16)[0]
+        start = struct.unpack_from("QQ", buf, 120)                  # pbi_start_tvsec, pbi_start_tvusec
+        return ppid, f"{start[0]}.{start[1]:06d}"
     try:
-        protected.put(NS, agent, token)
-    except (OSError, ValueError):       # PermissionError, NotTheFounder and a bad name all say no
+        with open(f"/proc/{pid}/stat") as f:
+            rest = f.read().rsplit(")", 1)[1].split()
+    except (OSError, IndexError):
         return None
-    return token
+    return int(rest[1]), rest[19]                                   # ppid, starttime in ticks
 
 
-def held() -> str | None:
-    """The token this session was launched with."""
-    return names.getenv(ENV) or None
+def record(agent: str, pid: int | None = None) -> bool:
+    """Remember `pid` (default: this process) as `agent`'s session. False when the store cannot be
+    written, which is what an agent's session gets."""
+    pid = os.getpid() if pid is None else pid
+    info = _proc(pid)
+    if info is None:
+        return False
+    try:
+        protected.put(NS, agent, f"{pid} {info[1]}")
+    except (OSError, ValueError):       # PermissionError, NotTheFounder and a bad name all say no
+        return False
+    return True
 
 
-def verify(agent: str | None, token: str | None) -> bool:
-    """Whether `token` is the one minted for `agent`'s current session."""
-    if not agent or not token:
+def peer_pid(conn: socket.socket) -> int | None:
+    """The process id of the other end of a unix socket, as the kernel reports it."""
+    try:
+        if sys.platform == "darwin":
+            return conn.getsockopt(0, 2) or None            # SOL_LOCAL, LOCAL_PEERPID
+        return struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[0] or None
+    except (OSError, AttributeError):
+        return None
+
+
+def verify(agent: str | None, pid: int | None) -> bool:
+    """Whether process `pid` is, or descends from, the session recorded for `agent`."""
+    if not agent or not pid:
         return False
     try:
         kept = protected.get(NS, agent)
     except ValueError:
         return False
-    return kept is not None and hmac.compare_digest(kept.strip(), str(token))
+    if not kept:
+        return False
+    head, _, started = kept.strip().partition(" ")
+    if not head.isdigit():
+        return False
+    for _ in range(_MAX_DEPTH):
+        info = _proc(pid)
+        if info is None or pid <= 1:
+            return False
+        if pid == int(head):
+            return info[1] == started       # a reused pid has another start time
+        pid = info[0]
+    return False
