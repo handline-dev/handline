@@ -115,6 +115,7 @@ class Claude:
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
                     mcp: list[str], preamble: str | None,
                     hide: list[str] | None = None,
+                    no_write: list[str] | None = None,
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
                     chrome: bool = False) -> list[str]:
@@ -132,9 +133,15 @@ class Claude:
             argv += ["--append-system-prompt", preamble]
         # One --settings object: a second one would replace the first.
         settings = self.memory_settings(memory_dir) if memory_dir else {}
+        if hide or no_write:
+            fs = {}
+            if hide:
+                fs["denyRead"] = hide
+            if no_write:
+                fs["denyWrite"] = no_write
+            settings["sandbox"] = {"filesystem": fs}
         if hide:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.
-            settings["sandbox"] = {"filesystem": {"denyRead": hide}}
             settings["permissions"] = {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}
         if trusted:
             # The classifier reads autoMode from --settings, not from the
