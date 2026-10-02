@@ -29,13 +29,14 @@ def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
     try:
         lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
         lex.whitespace_split = True
+        lex.commenters = ""                 # a `#` inside a word is part of the word; the shell agrees
         words = list(lex)
     except ValueError:
         return None
     if len(words) < 3 or words[0].rsplit("/", 1)[-1] not in ("ocp", "handline") or words[1] != "land":
         return None
-    if any(set(w) <= _OPERATORS for w in words):
-        return None
+    if any(set(w) <= _OPERATORS or w.startswith("#") for w in words):
+        return None                         # an operator, or a comment the shell would drop
     rest, positional, tree, i = words[2:], [], False, 0
     while i < len(rest):
         w = rest[i]

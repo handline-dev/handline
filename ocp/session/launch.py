@@ -329,6 +329,7 @@ def hidden_transcripts(agent: str, drv) -> list[str]:
 def build(agent: str, extra: list[str] | None = None, force: bool = False,
           account: str | None = None) -> tuple[list[str], dict]:
     """Return (argv, env) ready to hand to execve."""
+    sessiontoken.ensure_key_folder()
     try:
         drv = vendors.for_agent(agent)
     except vendors.UnknownVendor as e:

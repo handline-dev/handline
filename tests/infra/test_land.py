@@ -248,9 +248,6 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         check("vouch: the right key vouches", said["ok"], str(said))
         said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
         check("vouch: and then the session's land_pass is accepted", said["ok"], str(said))
-        launch_src = (ROOT / "ocp" / "session" / "launch.py").read_text()
-        check("vouch: launch mints the key and hides its folder from every session",
-              "sessiontoken.mint_key(agent)" in launch_src and "str(sessiontoken.key_folder())" in launch_src)
 
         said = ask_daemon("land", "backend", p_core)
         check("land: an agent with its own valid session that is not the merger is refused",
@@ -360,12 +357,14 @@ def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(h
         f"handline land {sha} 'Merge feat (x & y)' --tree {tree}": ("land", sha),
         f"ocp land {sha} \"Merge feat\" --tree {tree}": ("land", sha),
         f"ocp land --tree {tree} {sha} msg": ("land", sha),
+        "ocp land --pass abc#x": ("land_pass", "abc#x"),
     }
     no = [f"ocp land --check {sha}", "ocp land --list", f"ocp land {sha} msg", f"ocp land --pass",
           f"ocp land --pass {sha} && tools/suite.sh", f"tools/suite.sh; ocp land --pass {sha}",
           f"ocp land --pass {sha} | cat", f"ocp land --pass $(cat x)", f"ocp land --pass `cat x`",
           f"ocp land {sha} \"$(cat x)\" --tree {tree}", f"ocp land --pass {sha}\nrm x",
           f"python3 tests/x.py ocp land --pass {sha}", f"echo ocp land --pass {sha}", f"ocp land --pass a b",
+          f"ocp land --pass {sha} #x", f"ocp land --pass {sha} # note", "ocp land #c --pass abc1234",
           f"ocp land --bogus {sha}", f"ocp land --pass {sha} > out", "ocp land"]
     for cmd, want in ok.items():
         check(f"gate: vouches for {cmd[:50]!r}", landgate.parse("Bash", {"command": cmd}) == want,

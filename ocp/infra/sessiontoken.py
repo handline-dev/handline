@@ -97,6 +97,15 @@ def key_folder():
     return protected.root() / KEY_NS
 
 
+def ensure_key_folder() -> None:
+    """The folder exists before a launch hides it: the first launch on a machine would otherwise name a
+    path the sandbox rule then does not cover once it appears. Quietly nothing when the store is unwritable."""
+    try:
+        key_folder().mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+
 def mint_key(agent: str) -> bool:
     """A new key for `agent`'s hook (see session/landgate.py), kept where the session's sandbox cannot read
     it. False when the store cannot be written, which is what an agent's session gets."""
