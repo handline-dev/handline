@@ -35,7 +35,11 @@ def default_home() -> Path:
 
 
 def home() -> Path:
-    h = Path(os.environ.get("OCP_HOME", default_home())).expanduser()
+    raw = os.environ.get("OCP_HOME")
+    if raw is not None and not raw.strip():
+        # Path("") is the current directory: `ocp init` would set up wherever it was run.
+        raise SystemExit("OCP_HOME is set but empty: unset it to use ~/.orcapipe, or give it a folder")
+    h = Path(raw or default_home()).expanduser()
     if os.environ.get(TEST_ROOT_ENV):
         real = (_real_user_home() / ".orcapipe").resolve()
         if real == h.resolve() or real in h.resolve().parents:

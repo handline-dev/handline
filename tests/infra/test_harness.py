@@ -398,6 +398,30 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
         check("runner: the file that ran is still counted", "1 passed, 0 failed" in said, said)
 
 
+def test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory() -> None:
+    """`Path("")` is the current directory, so an OCP_HOME set but empty made `ocp init` set up
+    wherever it was run. Empty or blank is refused with the way out; unset still means ~/.orcapipe."""
+    from ocp.infra import paths
+    saved = os.environ.get("OCP_HOME")
+    try:
+        for value in ("", "   "):
+            os.environ["OCP_HOME"] = value
+            try:
+                paths.home()
+                said = ""
+            except SystemExit as e:
+                said = str(e)
+            check(f"empty home: {value!r} is refused and says how to fix it",
+                  "set but empty" in said and "unset it" in said, said)
+        os.environ.pop("OCP_HOME")
+        check("empty home: unset is still the default home", paths.home() == paths.default_home())
+    finally:
+        if saved is None:
+            os.environ.pop("OCP_HOME", None)
+        else:
+            os.environ["OCP_HOME"] = saved
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -406,6 +430,7 @@ def main() -> int:
         run(lambda: test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs())
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
+        run(lambda: test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory())
         run(lambda: test_run_recovers_from_an_uncaught_error())
         run(lambda: test_restore_world_pops_orca_env_vars_a_real_terminal_would_leave_set())
         run(lambda: test_run_restores_current_test_after_its_own_nested_run_calls(Path(td) / 'nestedrun'))
