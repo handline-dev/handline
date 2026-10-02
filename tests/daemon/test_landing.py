@@ -806,7 +806,7 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
         finally:
             con.close()
         real_started = health._started_at
-        args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, no_color=True)
+        args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, dry_run=False, no_color=True)
         err = io.StringIO()
         health._started_at = lambda pid, rec: code - 60
         try:

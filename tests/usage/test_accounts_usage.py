@@ -2417,6 +2417,7 @@ def test_a_new_account_gets_its_first_reading_without_anyone_asking(home: Path) 
         dmn_usage_poll.poll_usage(con, lambda _m: None)
         check("new account: epsilon was asked about", asked == ["epsilon"], str(asked))
         accounts.logged_in = lambda a: False  # noqa: E731 - logout took
+        fresh_backup()                      # an account is not removed without a backup from the last minutes
         ok, msg = accounts.remove_account("epsilon", lambda: True, lambda a, e: 0, con)
         check("new account: removing it forgets its poll cooldown",
               ok and db.get_cursor(con, "usage-poll:epsilon") == 0, msg)

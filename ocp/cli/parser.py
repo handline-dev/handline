@@ -53,7 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_account_add)
     p = acc.add_parser("remove", help="log an account out and take it off the roster")
     p.add_argument("name")
-    p.add_argument("--yes", action="store_true", help="do not ask to confirm")
+    p.add_argument("--yes", action="store_true",
+                   help="do not ask to confirm (a backup from the last 5 minutes is still required)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print what would be removed and the newest backup, change nothing; exit 1 if the real "
+                        "run would be refused")
     p.set_defaults(fn=cmd_account_remove)
     p = acc.add_parser("register", help="create the account dir and link it to shared")
     p.add_argument("name")
@@ -148,7 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="close, quietly, the task deliveries still queued on a task that has ended")
     p.add_argument("--drop-dead-columns", action="store_true",
                    help="drop the request columns nothing uses any more - only after the bridge and every "
-                        "long-lived session have been restarted on current code")
+                        "long-lived session have been restarted on current code, and with a backup from the "
+                        "last 5 minutes (`ocp backup`)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="with --drop-dead-columns: print what would be dropped and the newest backup, change "
+                        "nothing; exit 1 if the real run would be refused")
     p.set_defaults(fn=cmd_doctor)
 
     p = sub.add_parser("status", help="which account may take work")

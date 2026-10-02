@@ -981,6 +981,12 @@ _UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries", "
                            *_LEGACY_REQUEST_COLUMNS)
 
 
+def unread_request_columns(con) -> list[str]:
+    """The request columns nothing reads that are still there, in the order they would be dropped."""
+    present = _cols(con, "requests")
+    return [c for c in _UNREAD_REQUEST_COLUMNS if c in present]
+
+
 def drop_unread_request_columns(con) -> list[str]:
     """Drop what `_UNREAD_REQUEST_COLUMNS` finds still present, in one write transaction with the
     columns read again inside it, so two of these racing cannot both try the same drop; a column

@@ -3507,6 +3507,7 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
             rc = climod.main(list(argv))
         return rc, buf.getvalue() + err.getvalue()
 
+    fresh_backup()                      # a removal is not run without a backup from the last minutes
     rc, out = run_cli("account", "add", "delta", "--no-login")
     check("account add: registers the account", rc == 0 and "delta" in paths.list_accounts(), out)
     rc, out = run_cli("account", "add", "delta", "--no-login")

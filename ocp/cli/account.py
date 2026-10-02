@@ -102,6 +102,15 @@ def _offer_to_trust_worktrees(acct: str, ask) -> None:
 
 def cmd_account_remove(args) -> int:
     """Log an account out and take it off the roster."""
+    if args.dry_run:
+        con = db.connect()
+        try:
+            would, lines = accounts.remove_preview(args.name, con)
+        finally:
+            con.close()
+        print("\n".join(lines))
+        return 0 if would else 1
+
     def confirm() -> bool:
         if args.yes:
             return True

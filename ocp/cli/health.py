@@ -69,6 +69,33 @@ def stale_long_lived(started_at=None) -> list[str]:
     return stale
 
 
+def _dry_run_drop_dead_columns(stale: list[str]) -> int:
+    """What `--drop-dead-columns` would do, changing nothing; 1 when the real run would be refused."""
+    from ..db import schema
+    con = db.connect()
+    try:
+        cols = schema.unread_request_columns(con)
+    finally:
+        con.close()
+    print("would drop from the requests table: " + (", ".join(cols) if cols else "nothing (no dead columns left)"))
+    if cols:
+        print("  first moving what a process on older code still holds only in them (answers, reasons, "
+              "dismissals) to where the readers look")
+    refused = []
+    if stale:
+        refused.append(f"{' and '.join(stale)} started before the code now on disk or not known to have started "
+                       "after it; restart it first")
+    gate = backupmod.require_recent()
+    print(backupmod.describe_newest())
+    if gate:
+        refused.append(gate)
+    for why in refused:
+        print(f"would refuse: {why}")
+    if not refused:
+        print("backup gate and long-lived processes: passed")
+    return 1 if refused else 0
+
+
 def cmd_doctor(args) -> int:
     if args.settle_leftovers:
         con = db.connect()
@@ -77,12 +104,21 @@ def cmd_doctor(args) -> int:
                 print(f"#{rid}: settled, quietly")
         finally:
             con.close()
+    if args.dry_run and not args.drop_dead_columns:
+        print("--dry-run is for --drop-dead-columns", file=sys.stderr)
+        return 2
     if args.drop_dead_columns:
         from ..db import schema
         stale = stale_long_lived()
+        if args.dry_run:
+            return _dry_run_drop_dead_columns(stale)
         if stale:
             print(f"not dropping: {' and '.join(stale)} - started before the code now on disk or not known to have "
                   "started after it; restart it, then run this again", file=sys.stderr)
+            return 1
+        no_backup = backupmod.require_recent()
+        if no_backup:
+            print(f"not dropping: {no_backup}", file=sys.stderr)
             return 1
         con = db.connect()
         try:

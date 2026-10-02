@@ -1358,6 +1358,7 @@ def test_each_account_guard_fails_under_its_own_mutation(home: Path) -> None:
               accounts.users_of("alpha") == [], str(accounts.users_of("alpha")))
         (home / "agents" / "backend" / "agent.yaml").unlink()
         # remove: one condition per test. Nothing uses gamma from here on.
+        fresh_backup()                      # an account is not removed without a backup from the last minutes
         (home / "agents" / "backend" / "agent.yaml").write_text("account: alpha\n")
         put_session_on("alpha")
         yes = lambda: True  # noqa: E731

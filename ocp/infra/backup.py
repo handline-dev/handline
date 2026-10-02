@@ -40,6 +40,10 @@ PREFIX = "orcapipe-"
 SUFFIX = ".tar.gz"
 PARTIAL = ".partial"
 PARTIAL_STALE_S = 600   # a run still writing one is younger than this
+# A command that cannot be undone needs a backup this young: five minutes, since the launchd job runs
+# every minute and a person making one by hand has just done it.
+GATE_MAX_AGE_S = 300
+FINGERPRINT = ".last-fingerprint"
 
 
 def backup_dir(home: Path | None = None) -> Path:
@@ -159,13 +163,67 @@ def snapshot(home: Path | None = None, dest: Path | None = None,
         else:
             db_copy = None
         fp = _fingerprint(home, db_copy)
-        last = dest / ".last-fingerprint"
+        last = dest / FINGERPRINT
         if last.exists() and last.read_text() == fp:
+            last.touch()          # checked now and nothing changed: the newest snapshot is still the state
             return None
         out = _write(home, dest, db_copy, now)
         last.write_text(fp)
     prune(dest, now)
     return out
+
+
+def newest(home: Path | None = None) -> tuple[Path | None, float | None]:
+    """(path, when it was taken) of the newest snapshot, or (None, None) when there is none."""
+    best: tuple[Path, float] | None = None
+    for p in backup_dir(home).glob(PREFIX + "*" + SUFFIX):
+        try:
+            t = p.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        if best is None or t > best[1]:
+            best = (p, t)
+    return best if best else (None, None)
+
+
+def current_as_of(home: Path | None = None) -> float | None:
+    """When the newest snapshot last matched the state: when it was taken, or later if a check since
+    found nothing changed (`snapshot` records that). None with no snapshot at all."""
+    path, taken = newest(home)
+    if path is None:
+        return None
+    try:
+        return max(taken, (backup_dir(home) / FINGERPRINT).stat().st_mtime)
+    except FileNotFoundError:
+        return taken
+
+
+def describe_newest(home: Path | None = None, now: float | None = None) -> str:
+    """The newest backup's path and time, in one line."""
+    now = time.time() if now is None else now
+    path, taken = newest(home)
+    if path is None:
+        return f"newest backup: none in {backup_dir(home)}"
+    line = f"newest backup: {path} ({timefmt.stamp(taken)}, {timefmt.ago(now - taken)} ago)"
+    as_of = current_as_of(home)
+    if as_of is not None and as_of - taken > 1:
+        line += f"; checked unchanged {timefmt.ago(now - as_of)} ago"
+    return line
+
+
+def require_recent(home: Path | None = None, now: float | None = None) -> str | None:
+    """None when a backup of OCP_HOME is at most GATE_MAX_AGE_S old, otherwise why not and the command
+    that makes one. A backup counts as that old when a snapshot was taken then, or checked unchanged
+    then: a state nothing has touched is backed up by the snapshot it already has."""
+    now = time.time() if now is None else now
+    as_of = current_as_of(home)
+    if as_of is not None and now - as_of <= GATE_MAX_AGE_S:
+        return None
+    window = f"{GATE_MAX_AGE_S // 60} minutes"
+    path, taken = newest(home)
+    seen = ("there is no backup yet" if path is None
+            else f"the newest, {path.name}, was taken {timefmt.ago(now - taken)} ago")
+    return f"no backup from the last {window} ({seen}). Make one with `ocp backup`, then run this again."
 
 
 def expired(taken: list[float], now: float) -> set[float]:

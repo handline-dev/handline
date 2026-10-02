@@ -71,7 +71,7 @@ from ocp.vendors import claude_collect  # noqa: E402
 from ocp.vendors.base import Window  # noqa: E402
 from ocp.usage import windows  # noqa: E402
 from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
-from ocp.infra import doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
+from ocp.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from ocp.ui import jobs as jobsmod, tui  # noqa: E402
 from ocp.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
@@ -1680,6 +1680,21 @@ def _test_name(one) -> str:
     return next((n for n in named if n.startswith("test_")), "<test>")
 
 
+def fresh_backup(age_s: float = 0.0) -> Path:
+    """A snapshot of the test home taken `age_s` ago, for the commands that will not run without one
+    (an account removal, dropping the dead columns). A stand-in file: what is tested is that one exists
+    and how old it is."""
+    d = backupmod.backup_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    for old in d.glob("*"):
+        old.unlink()
+    p = d / "orcapipe-20260101-000000.tar.gz"
+    p.write_bytes(b"stand-in")
+    t = time.time() - age_s
+    os.utime(p, (t, t))
+    return p
+
+
 def run(one) -> None:
     """Every test starts from the real world.
 
@@ -2041,6 +2056,7 @@ __all__ = [
     'hr',
     'decisions',
     'digest',
+    'backupmod',
     'doctor',
     'evmod',
     'foldmod',
@@ -2100,6 +2116,7 @@ __all__ = [
     'sessions_are',
     '_SESSION_TABLE',
     'exit_ends_session',
+    'fresh_backup',
     '_deadline',
     '_capture',
     'LABEL_LOG',

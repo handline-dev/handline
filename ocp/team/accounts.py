@@ -416,6 +416,35 @@ def remove_plan(acct: str, con=None) -> tuple[bool, str]:
     return True, ""
 
 
+def remove_preview(name: str, con=None, now: float | None = None) -> tuple[bool, list[str]]:
+    """What `remove_account` would do to `name`, line by line, and whether it would go ahead. Changes
+    nothing: it is the dry run, so it names the backup gate's verdict as well as the account's own."""
+    from ..infra import backup
+    ok, why = remove_plan(name, con)
+    if not ok:
+        return False, [f"would refuse: {why}"]
+    lines = [f"would remove account '{name}':"]
+    argv, _env = logout_argv(name)
+    lines.append(f"  log it out with `{' '.join(argv)}`" if argv else "  log it out: not logged in, nothing to do")
+    src = paths.accounts_dir() / name
+    lines.append(f"  move {src} to {paths.accounts_dir() / '.retired'}/{name}-<time> (kept, not deleted)")
+    own = con is None
+    from .. import db
+    c = con or db.connect()
+    try:
+        on_it = [r["agent"] for r in c.execute("SELECT agent FROM agent_state WHERE account = ?", (name,))]
+    finally:
+        if own:
+            c.close()
+    lines.append("  forget it on " + (f"agent(s) {', '.join(on_it)} (they start fresh on whatever account has room)"
+                                      if on_it else "no agent (none is recorded on it)"))
+    lines.append("  clear its usage polls and login check")
+    gate = backup.require_recent(now=now)
+    lines.append("  " + backup.describe_newest(now=now))
+    lines.append("would refuse: " + gate if gate else "backup gate: passed")
+    return gate is None, lines
+
+
 def add_account(name: str, run, no_login: bool = False,
                 vendor: str | None = None) -> tuple[bool, str]:
     """The one add sequence, for the CLI and the screen: register, log in, check.
@@ -461,6 +490,11 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
     ok, why = remove_plan(name, con)
     if not ok:
         return False, why
+    # After the account's own refusal, before the question: `--yes` skips the question and never this.
+    from ..infra import backup
+    no_backup = backup.require_recent()
+    if no_backup:
+        return False, f"not removing '{name}': {no_backup}"
     if not confirm():
         return False, "not removed"
     marker = paths.accounts_dir() / name / ".removing"
