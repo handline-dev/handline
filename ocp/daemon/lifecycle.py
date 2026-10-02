@@ -827,7 +827,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 f" -- --resume {session}" if resume else "")
             ok, why = _launch_in_pane(
                 con, agent, handle, wt, cmd,
-                started=lambda: delivery.wait_for_session(agent, delivery.WAKE_SESSION_TIMEOUT_S, pf))
+                started=lambda: _took_prompt(con, agent, pf))
             if ok:
                 resumed = resume
                 break
@@ -882,13 +882,14 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         if not ok:
             if resumed and waiting:
                 # The session took the message as its first prompt and reads it
-                # once past the screen. Recorded now, after the close, so the
-                # `clear_closed` that follows when the sweep sees it running
-                # does not void it and have it told twice (T126).
+                # once past the screen. Recorded now, after the closed mark came
+                # off (`_took_prompt`), so nothing later voids it and has it
+                # told twice.
                 waiting[1](session)
             return False, why
         db.reset_counter(con, agent, "wake_failures")
-        db.clear_closed(con, agent)
+        if db.get_agent_state(con, agent)["closed_at"]:
+            db.clear_closed(con, agent)
         if resumed and waiting:
             # After `clear_closed`, which voids what a session was told.
             waiting[1](session)
@@ -934,6 +935,17 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
 # The first prompt of a session resumed because a person opened its terminal, with no request behind it.
 FORCED_RESUME = ("Your session was closed while you were idle and has been resumed because someone "
                  "opened your terminal. Carry on where you were; the next item is typed to you when it comes.")
+
+
+def _took_prompt(con, agent: str, pf: Path) -> bool:
+    """`delivery.wait_for_session` for a wake's launch, and the closed mark goes
+    the moment a session has taken the prompt: what follows holds the terminal
+    until the session's first turn is over (`orca.wait_idle`, up to two
+    minutes), and a session that is running must not read as closed meanwhile."""
+    up = delivery.wait_for_session(agent, delivery.WAKE_SESSION_TIMEOUT_S, pf)
+    if up:
+        db.clear_closed(con, agent)
+    return up
 
 
 def _launch_in_pane(con, agent: str, handle: str | None, wt: str | None, cmd: str,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 
 from ..team import agents
-from ..infra import timefmt
+from ..infra import lock, timefmt
 from ..session import blocked
 from ..daemon import delivery as dmn_delivery, landing as dmn_landing, lifecycle as dmn_lifecycle, locks as dmn_locks, states as dmn_states
 from .. import db
@@ -59,6 +59,10 @@ def _delivery_state(con, agent: str, sessions: dict | None,
     acct = agents.current_account(agent, con)
     pct = status.read(acct).short_trusted if acct else None
     if row["closed_at"]:
+        # A wake holds the agent's terminal until its session has finished starting, and a `w` meanwhile is
+        # refused for it - so no advice to press it.
+        if lock.terminal_busy(agent):
+            return "closed, starting", f"{agent} is being started now; nothing to do", True
         if pct is not None and pct >= status.SHORT_BLOCK:
             return ("closed, account full", f"{agent} is closed and {acct} is at {pct}%", False)
         if not alive:

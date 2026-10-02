@@ -89,6 +89,24 @@ def terminal(agent: str):
     return _hold(agent, TERMINAL)
 
 
+def terminal_busy(agent: str) -> bool:
+    """Whether someone holds the right to type at `agent` right now. A lock file
+    that cannot be opened is not a holder. The probe takes a shared hold for an
+    instant, so a send arriving in that instant is refused once and retried."""
+    try:
+        fd = os.open(paths.home() / "locks" / f"{agent}.{TERMINAL}", os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError as e:
+            return e.errno in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK)
+        return False
+    finally:
+        os.close(fd)
+
+
 def singleton(name: str):
     """The right to be the only `name` running against this OCP_HOME."""
     return _hold(name, SINGLETON, record_pid=True)
