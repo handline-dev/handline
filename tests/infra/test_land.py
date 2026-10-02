@@ -364,7 +364,7 @@ def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(h
           f"ocp land --pass {sha} | cat", f"ocp land --pass $(cat x)", f"ocp land --pass `cat x`",
           f"ocp land {sha} \"$(cat x)\" --tree {tree}", f"ocp land --pass {sha}\nrm x",
           f"python3 tests/x.py ocp land --pass {sha}", f"echo ocp land --pass {sha}", f"ocp land --pass a b",
-          f"ocp land --pass {sha} #x", f"ocp land --pass {sha} # note", "ocp land #c --pass abc1234",
+          f"ocp land --tree {tree} {sha} #x", f"ocp land --pass {sha} #x", f"ocp land --pass {sha} # note", "ocp land #c --pass abc1234",
           f"ocp land --bogus {sha}", f"ocp land --pass {sha} > out", "ocp land"]
     for cmd, want in ok.items():
         check(f"gate: vouches for {cmd[:50]!r}", landgate.parse("Bash", {"command": cmd}) == want,
