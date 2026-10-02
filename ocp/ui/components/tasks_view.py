@@ -5,6 +5,7 @@ it. What a row says and what an action does or refuses is `actions`'s (`task_row
 (a reason, a name, a priority)."""
 from __future__ import annotations
 
+import asyncio
 import functools
 import time
 
@@ -196,6 +197,7 @@ class TasksView(Vertical):
         self.rows: list[dict] = []
         self._mark_head = ""
         self._agent_owners: list[str] | None = None
+        self._writing = 0                # tasks an action is changing now, off the loop
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks_filters"):
@@ -505,6 +507,9 @@ class TasksView(Vertical):
             self.app.push_screen(TaskDetail(self.rows[event.cursor_row]["id"]))
 
     def action_act(self, verb: str) -> None:
+        if self._writing:       # a new act would cancel the one that must still report its result
+            self.notify(f"still changing {self._writing} task{'s' if self._writing != 1 else ''}", severity="warning")
+            return
         self.run_worker(self._act(verb), exclusive=True, group="tasks_act")
 
     def _confirm(self, verb: str, tids: list[int], arg: str, keep: int | None = None) -> Confirm:
@@ -545,15 +550,20 @@ class TasksView(Vertical):
         if not await self.app.push_screen_wait(self._confirm(verb, tids, arg, keep)):
             self.notify("left alone")
             return
-        con = db.connect()
+        def write() -> list:
+            con = db.connect()       # on this thread: a handoff each is ~80 ms, and the screen must not wait for N of them
+            try:
+                if verb == "merge":
+                    ok, msg = actions.merge_tasks(con, keep, [t for t in tids if t != keep], actions.HUMAN)
+                    return [(keep, ok, msg)]
+                return actions.batch_task(con, verb, tids, actions.HUMAN, arg)
+            finally:
+                con.close()
+        self._writing = len(tids)
         try:
-            if verb == "merge":
-                ok, msg = actions.merge_tasks(con, keep, [t for t in tids if t != keep], actions.HUMAN)
-                results = [(keep, ok, msg)]
-            else:
-                results = actions.batch_task(con, verb, tids, actions.HUMAN, arg)
+            results = await asyncio.to_thread(write)
         finally:
-            con.close()
+            self._writing = 0
         for text, severity in result_notes(results, verb):
             self.notify(text, title=verb, severity=severity, timeout=5 if severity == "information" else 12,
                         markup=False)
