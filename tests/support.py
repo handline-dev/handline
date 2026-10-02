@@ -688,7 +688,7 @@ EXIT_DIALOG = """  Two things remain open and I've flagged both rather than deci
      2. Move to background and exit
      3. Stay
    Enter to confirm · Esc to cancel""".split("\n")
-PASTED_DRAFT = "ㅇㅇeck[Pasted text #1 +4 lines]"
+PASTED_DRAFT = "xxeck[Pasted text #1 +4 lines]"
 # Measured live 2026-09-21 on four idle agents (keeper, purser, chat, auditor):
 # two full-width rules around the composer's one content line, a status line
 # and a hint line under it.

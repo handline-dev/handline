@@ -427,17 +427,17 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     check("text: a task card is NEW TASK T<n> : title, then what happened; who and when are above it, not in it",
           t == ["NEW TASK T418 : Fix it", "assigned to reviewer"], str(t))
     reply = {**m, "kind": None, "tasks": [], "task_title": None, "task_state": None, "who": "you", "side": "you",
-             "rid": 5934, "mid": 5934, "text": "반영됨?", "reply_to": 5928}
+             "rid": 5934, "mid": 5934, "text": "applied?", "reply_to": 5928}
     check("text: a reply not picked is one line, the link and the text",
-          cp.message_text(reply, False, False, "me").plain == "↩ #5928 반영됨?")
+          cp.message_text(reply, False, False, "me").plain == "↩ #5928 applied?")
     picked = cp.message_text(reply, True, True, "me").plain
     lines = picked.split("\n")
     check("text: a reply picked is the head with #id, then the link and the text on one line",
-          len(lines) == 2 and lines[0].startswith("you") and lines[0].endswith("#5934") and lines[1] == "↩ #5928 반영됨?",
+          len(lines) == 2 and lines[0].startswith("you") and lines[0].endswith("#5934") and lines[1] == "↩ #5928 applied?",
           picked)
     check("text: an agent's reply is the same, head then link and text",
           cp.message_text({**reply, "who": "reviewer", "side": "agent"}, True, False, "them").plain.split("\n")[1]
-          == "↩ #5928 반영됨?")
+          == "↩ #5928 applied?")
     plain = {**m, "kind": None, "tasks": [], "task_title": None}
     check("text: the head is left out until it is shown, and #id joins it when picked",
           "backend" not in cp.message_text(plain, False, False, "them").plain
@@ -650,16 +650,16 @@ async def test_clicking_a_task_ref_in_a_message_opens_that_task_and_a_missing_on
 
 
 def test_a_file_path_in_a_message_becomes_a_link_that_opens_it() -> None:
-    """Founder #8235: ~/ and absolute .md paths (non-ASCII, @, digits, hyphens) are links, the sentence's
+    """~/ and absolute .md paths (non-ASCII, @, digits, hyphens) are links, the sentence's
     comma, period and bracket are not part of them, and what only looks like a path is not one."""
     from textual.actions import parse
     from ocp.ui import chat_page as cp
     from rich.text import Text
-    founder = "~/orca/workspaces/@personal/personal/면접/LINE-Pay-1차-면접준비.md"
+    founder = "~/notes/@work/café/Plan-2nd-draft.md"
     def found(s):
         return [s[h.start:h.end] for h in actions.find_paths(s)]
-    check("paths: the founder's example, then a comma", found(f"{founder}, /~~/.md 일단") == [founder, "/~~/.md"],
-          str(found(f"{founder}, /~~/.md 일단")))
+    check("paths: the founder's example, then a comma", found(f"{founder}, /~~/.md later") == [founder, "/~~/.md"],
+          str(found(f"{founder}, /~~/.md later")))
     check("paths: a closing bracket or a full stop ends it", found("(see /Users/a/b-2.md). Next") == ["/Users/a/b-2.md"],
           str(found("(see /Users/a/b-2.md). Next")))
     check("paths: quoted ones may hold spaces", found("`/Users/r/My Docs/a b.md` and \"~/x y/z\"") == ["/Users/r/My Docs/a b.md", "~/x y/z"])
