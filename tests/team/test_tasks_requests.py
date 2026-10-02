@@ -4395,6 +4395,15 @@ limits:
     rc, out = _cli(["task", "done", f"T{tid}", "not a sha"], as_agent="worker")
     check("task done: a sha-expecting task refuses a reason from its target",
           rc == 1 and "expects a sha" in out, out)
+    import re
+    from ocp.cli import parser as cli_parser
+    said = re.search(r"`ocp (task done [^`]+)`", out)
+    try:
+        cli_parser.build_parser().parse_args(said.group(1).replace("<sha>", "abc1234").split())
+        parses = True
+    except SystemExit:
+        parses = False
+    check("task done: the command the refusal suggests parses", bool(said) and parses, out)
     rc, out = _cli(["task", "done", f"T{tid}", "not a sha"], as_agent="manager")
     check("task done: but its opener may still close it another way",
           rc == 0, out)
