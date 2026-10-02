@@ -60,7 +60,7 @@ def _sha256(path: Path) -> str:
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
     """The only place that shells out to build or fill a venv - tests replace
-    this name, the way service.run_launchctl and orca._run are replaced."""
+    this name, the way service.run_launchctl and the Orca backend's runner are replaced."""
     return subprocess.run(args, capture_output=True, text=True, timeout=300)
 
 
