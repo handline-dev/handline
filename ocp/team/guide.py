@@ -137,13 +137,13 @@ left the process table - a session that will not end is reported, not marked
 closed. The terminal, its worktree and its account stay, because Orca runs our
 launch command inside a shell and claude is that shell's child. Waking types
 the launch command back into the same shell with `--resume <session>` and the wake prompt as the session's first prompt, so the
-account comes back with it and the conversation is the one it had. If the agent
-last worked more than 55 minutes ago it is within 5 minutes of its prompt
-cache's one-hour life - the margin a resume needs to reach its first request
-before that cache is gone - so a resume risks re-reading the whole transcript
-at full price and it starts a fresh conversation instead: the handoff taken
-when it was closed - the request
-in hand, the transcript's path, the worktree's state - is in that session's
+account comes back with it and the conversation is the one it had. If the agent's
+last response is older than its prompt cache's real life it starts a fresh conversation
+instead: the cache lives an hour for a subscription and five minutes once an account draws on
+usage credits, and ocp reads which off the session's last response in its transcript, less the
+margin a resume needs to reach its first request. Past it a resume would re-read the whole
+transcript at full price, so the handoff taken when it was closed - the request in hand, the
+transcript's path, the worktree's state - is in that session's
 system prompt, and the wake prompt says why.
 
 This is not a handoff. No context is reclaimed, because there is nothing
@@ -151,12 +151,17 @@ wrong with an idle agent's context. The daemon does it by
 itself after 10 minutes of silence, unless the agent is working, mid-handoff,
 STALLED, or has a request waiting.
 
-Just before a close or a planned move, while the cache is warm, the agent is asked
-once to write `~/.orcapipe/agents/<you>/handoff.md`: only what `ocp` and your memory
-cannot tell the next session (judgments in progress, what you wait on as T/# numbers,
-unchecked hunches, how you read the founder's latest intent). It follows the facts in
-the handoff. It is never waited on past 5 minutes: with no note the handoff is the
-facts alone. `handoff_note: false` in config.yaml turns it off.""",
+While the cache is still warm the agent is asked once to write
+`~/.orcapipe/agents/<you>/handoff.md`: just before a close or a planned move, and, for a session
+that stays open and idle, at 90% of an hour's cache (54 minutes after its last response). Only what
+`ocp` and your memory cannot tell the next session: what you were deciding and why, what you meant
+to do next, promises or doubts on no task yet, the founder's preferences and pitfalls you learned,
+who you wait on as T/# numbers; about 30 lines. A cache whose life is five minutes gets no ask. It is
+asked once per stretch: idle time alone never earns a second ask, a delivered message or a working
+turn does. The note goes to a session that starts fresh, and only while nothing happened after it;
+a resume whose cache is alive gets nothing extra. It is never waited on past 5 minutes: with no
+note the handoff is the facts alone. `handoff_note: false` in an agent's agent.yaml turns it off
+for that agent, in config.yaml for all; the agents screen shows each cache's time left.""",
 
     "hooks": """Orca hooks
   ocp hooks status                 show drift

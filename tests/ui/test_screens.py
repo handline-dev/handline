@@ -432,11 +432,12 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
         row = db.get_agent_state(con, "spawny")
         return ((row["terminal"], row["worktree"]) if row else (None, None))
 
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+    real = (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
            dmn_delivery.wait_for_session)
     con = db.connect()
     try:
-        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        orcamod.available = lambda: True
+        spawnmod._run = lambda args, cwd=None: (0, "", "")      # git: no fetch, no comparison
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
         # spawn()/start_in() confirm a session came up before saying "started"
@@ -449,7 +450,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
               ["result"]["worktree"]["path"])
 
         # The path, refused where it is read: it reaches no message and no row.
-        spawnmod._run = fake_run
+        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
         check("spawn: a worktree path carrying a control is not read as a path",
               not ok and msg.startswith("could not read the new worktree path"), repr(msg))
@@ -463,7 +464,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
         # middle of start_in's line, forging a second one after it.
         for label, ch in (("a newline", "\n"), ("a tab", "\t"),
                           ("U+2028", "\u2028"), ("U+2029", "\u2029")):
-            spawnmod._run = lambda args, cwd=None, c=ch: fake_run(
+            orcacli._exec = lambda args, timeout=120, c=ch: fake_run(
                 args, wt=f"{good_wt}{c}error: forged line", handle=f"term{c}x")
             ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
             check(f"spawn: a worktree path carrying {label} is not read as a path",
@@ -483,7 +484,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
 
         # A value that is not a string cannot be tested for what it carries,
         # and it is not a path either: the same refusal, not a crash.
-        spawnmod._run = lambda args, cwd=None: fake_run(args, wt=["/tmp/x"])
+        orcacli._exec = lambda args, timeout=120: fake_run(args, wt=["/tmp/x"])
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
         check("spawn: nor is a worktree path that is not a string read as one",
               not ok and msg.startswith("could not read the new worktree path"), repr(msg))
@@ -502,7 +503,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
 
         # The handle alone. The worktree is good, so the spawn goes through -
         # with no handle at all, exactly as an unreadable one already behaved.
-        spawnmod._run = lambda args, cwd=None: fake_run(args, wt=good_wt)
+        orcacli._exec = lambda args, timeout=120: fake_run(args, wt=good_wt)
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
         check("spawn: a handle carrying a control is not read as a handle",
               ok and "\x9b" not in msg and "terminal unknown" in msg, repr(msg))
@@ -527,7 +528,7 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
     finally:
         os.environ.pop("ORCA_TERMINAL_HANDLE", None)
         os.environ.pop("ORCA_WORKTREE_ID", None)
-        (spawnmod._run, spawnmod.shutil.which,
+        (orcacli._exec, spawnmod._run, orcamod.available,
          orcamod.run_current, orcamod.run_create, dmn_delivery.wait_for_session) = real
         con.close()
 
@@ -780,12 +781,13 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         db.clear_closed(con, "backend")     # closed with a session to resume, it is woken instead (T407)
 
         started: list[list[str]] = []
-        real_run = spawnmod._run
+        real_run, real_exec = spawnmod._run, orcacli._exec
         try:
             # git finds `main` (T483 asks it); Orca is the one that is missing
             spawnmod._run = lambda argv, **kw: (started.append(argv),
                                                 (0, "", "") if argv[:2] == ["git", "rev-parse"]
                                                 else (1, "", "no orca here"))[1]
+            orcacli._exec = lambda argv, timeout=120: (started.append(argv), (1, "", "no orca here"))[1]
             actions.start(con, "backend", repo=str(home))
             check("start: an agent with a worktree is started in it, not given another",
                   [a[1] for a in started] == ["terminal"], str(started))
@@ -795,7 +797,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
             check("start: and one with nowhere to run gets a worktree first",
                   any(a[:2] == ["orca", "worktree"] for a in started), str(started))
         finally:
-            spawnmod._run = real_run
+            spawnmod._run, orcacli._exec = real_run, real_exec
         db.set_terminal(con, "backend", "term_x", "wt")
         orcamod.live_terminals = lambda: {"term_x"}
         sessions_are("backend")
@@ -833,13 +835,14 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
             orcamod.focus, spawnmod.spawn = real_focus, real_spawn
         db.set_terminal(con, "backend", None, None)
         check("top: one with none is", actions.can(con, "backend", "start")[0])
-        real_run = spawnmod._run
+        real_run, real_exec = spawnmod._run, orcacli._exec
         # The Orca that refuses: `worktree create` on a folder that is not a repository.
         spawnmod._run = lambda args, cwd=None: (1, "", "orca: not a git repository")
+        orcacli._exec = lambda args, timeout=120: (1, "", "orca: not a git repository")
         try:
             said = actions.start(con, "backend", repo=str(home))
         finally:
-            spawnmod._run = real_run
+            spawnmod._run, orcacli._exec = real_run, real_exec
         check("top: and starting it says why when it cannot",
               "orca" in said or "worktree" in said or "base" in said or "commit" in said, said)
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -2704,7 +2707,7 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
     """orcapipe #1091: sanitising at each sink is a game the project loses -
     157 unsanitised `print(` calls in ocp/, and hand-triaging them one review
     at a time IS that game. The boundary foreign bytes actually enter through
-    is small: orca._run, spawn._run, a file read, the database.
+    is small: the backends' runners, spawn._run, a file read, the database.
     This is the subprocess third of it, found by the suite from here on
     instead of by a reviewer reading the diff: a module that reads what a
     subprocess said (`.stdout`/`.stderr`) and hands it back as part of a
@@ -2748,8 +2751,8 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
     # and orca.py/spawn.py/fold.py/handoff.py are exactly the ones
     # this branch touched (the last three read git through gitrun).
     check("boundary: the modules this branch closed are the ones found dirty",
-          {"session/orca.py", "team/spawn.py", "session/fold.py",
-           "session/handoff.py"} <= set(clean),
+          {"session/backends/orca_cli.py", "session/backends/tmux.py", "team/spawn.py",
+           "session/fold.py", "session/handoff.py"} <= set(clean),
           str(clean))
 
     # Proof by mutation: the same two functions, run on synthetic source, so

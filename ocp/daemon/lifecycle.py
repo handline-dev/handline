@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..team import agents
 from ..team import ask as askmod
-from ..session import autoaccept, blocked
+from ..session import autoaccept, blocked, cachettl
 from .. import db
 from ..session import handoff as handoffmod
 from ..session import idle_close
@@ -405,10 +405,13 @@ def _close_pane(con, agent: str, handle: str, log) -> str:
 def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
     """Should this closed agent start a fresh conversation rather than resume?
 
-    Only when its prompt cache can no longer serve the resume: RESUME_WARM_S
-    since it last did anything, or no clock at all, where a wrong "warm" costs
-    the whole transcript and a wrong "cold" costs a handoff. Whether a handoff
-    exists does not decide it; the wake takes one when it is missing.
+    Only when its prompt cache can no longer serve the resume: the cache's real
+    life (an hour, or five minutes after an overage - `cachettl`, read off the
+    session's last response) less the margin a resume needs to reach its first
+    request. Where the transcript gives no clock, RESUME_WARM_S since it last did
+    anything, or no clock at all, where a wrong "warm" costs the whole transcript
+    and a wrong "cold" costs a handoff. Whether a handoff exists does not decide
+    it; the wake takes one when it is missing.
 
     Unless `idle_close.ignore_cache_expiry` (T52) says this agent's resume
     may reuse the cache past that margin regardless - a human call that the
@@ -417,6 +420,9 @@ def cache_expired(con, agent: str, session: str | None, now: int) -> bool:
     """
     if not session or idle_close.ignore_cache_expiry(agent):
         return False
+    clock = handoff_note.cache_clock(con, agent, session)
+    if clock is not None and clock.ttl is not None:
+        return now - clock.at >= clock.ttl - cachettl.margin(clock.ttl)
     last = db.last_activity(con, agent)
     return last is None or now - last >= RESUME_WARM_S
 

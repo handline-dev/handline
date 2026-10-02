@@ -422,7 +422,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     # T292 (#1655 section 4): a sha task can't close on a reason unless the
     # opener or the founder does it; verdict/decision/report are just labels.
     if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], HUMAN):
-        return False, (f"task T{tid} expects a sha - `ocp task done T{tid} --sha <sha>`, "
+        return False, (f"task T{tid} expects a sha - `ocp task done T{tid} <sha>`, "
                        f"or its opener ({row['opened_by']}) or the founder may close it "
                        "another way")
     kids = db.open_child_tasks(con, tid)
@@ -1194,7 +1194,7 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
 
 
 def recent_assignees(con, tid: int) -> list[str]:
-    """Who held T<tid> before, the latest holder first, without the founder and its holder now."""
+    """Who held T<tid> before, the earliest first (the opener leads), without the founder and its holder now."""
     row = db.get_task(con, tid)
     return [a for a in db.task_holders(con, tid) if a != HUMAN and (row is None or a != row["owner"])]
 

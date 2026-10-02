@@ -109,9 +109,9 @@ def _rename_all(pairs: list[tuple[Path, Path]]) -> None:
 
 def _orca_entry(path: Path) -> dict | None:
     """Orca's entry for the checkout at `path`, or None."""
-    if not orca.available():
+    if not orca.has_labels():
         return None
-    ok, out = orca._run(["worktree", "show", "--worktree", f"path:{path}", "--json"])
+    ok, out = orca.host_cli(["worktree", "show", "--worktree", f"path:{path}", "--json"])
     try:
         w = json.loads(out)["result"]["worktree"] if ok else None
     except (json.JSONDecodeError, KeyError, TypeError):
@@ -122,9 +122,9 @@ def _orca_entry(path: Path) -> dict | None:
 def _orca_unreadable(path: Path) -> bool:
     """True when Orca is there but did not give a usable answer about `path`.
     An answer that says it has no such worktree is an answer."""
-    if not orca.available():
+    if not orca.has_labels():
         return False
-    ok, out = orca._run(["worktree", "show", "--worktree", f"path:{path}", "--json"])
+    ok, out = orca.host_cli(["worktree", "show", "--worktree", f"path:{path}", "--json"])
     try:
         data = json.loads(out)
     except json.JSONDecodeError:
@@ -136,7 +136,7 @@ def _orca_unreadable(path: Path) -> bool:
 
 def _set_ok(args: list[str]) -> tuple[bool, str]:
     """(took, Orca's reply): `took` is False on a non-zero exit or an ok:false reply."""
-    ok, out = orca._run(args)
+    ok, out = orca.host_cli(args)
     try:
         return ok and bool(json.loads(out).get("ok")), out
     except (json.JSONDecodeError, AttributeError):
@@ -150,7 +150,7 @@ def _reparent_cmd(child: str, dest: Path) -> str:
 def _relabel(old: dict | None, dest: Path, agent: str) -> str:
     """Name Orca's new entry for the moved checkout `agent`, fixed, and carry
     over what the old entry held. "" when done or when Orca is not there."""
-    if not orca.available():
+    if not orca.has_labels():
         return ""
     for _ in range(10):
         if _orca_entry(dest):
@@ -193,7 +193,7 @@ def _orca_blockers(src: Path) -> str:
     entry = _orca_entry(src)
     if entry is None:
         return ""
-    ok, out = orca._run(["terminal", "list", "--json"])
+    ok, out = orca.host_cli(["terminal", "list", "--json"])
     try:
         terms = json.loads(out)["result"]["terminals"] if ok else None
     except (json.JSONDecodeError, KeyError, TypeError):

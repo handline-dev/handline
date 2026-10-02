@@ -2156,11 +2156,11 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     _home("pageassign")
     agents.register("reviewer")
     ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
-    on, toasts = {}, []
+    on, toasts, gate = {}, [], threading.Event()
 
     def spy(con, t, to, text):
         on["thread"], on["to"], on["calls"] = threading.get_ident(), to, on.get("calls", 0) + 1
-        time.sleep(1.2)
+        gate.wait(30)           # the handoff ends when the test says so, not after a wait a loaded run can outlast
         return True, "handed"
     real = actions.assign_task
     actions.assign_task = spy
@@ -2181,16 +2181,56 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
             for ch in "ok":
                 await pilot.press(ch)
             await pilot.press("enter")
-            await pilot.pause(1.6)
+            await pilot.pause(0.3)
             check("task page assign: a second one during it is refused, with a note, and makes no second handoff",
                   on["calls"] == 1 and any("still changing 1 task" in str(n.message) for n in app._notifications),
                   str((on, [n.message for n in app._notifications])))
+            gate.set()
+            for _ in range(100):
+                if any("handed" in str(n.message) for n in app._notifications):
+                    break
+                await pilot.pause(0.1)
             check("task page assign: the handoff was made", on.get("to") is not None, str(on))
             check("task page assign: ... off the event loop", on.get("thread") != threading.get_ident(), str(on))
             check("task page assign: ... and its answer is toasted",
                   any("handed" in str(n.message) for n in app._notifications), str(list(app._notifications)))
     finally:
         actions.assign_task = real
+
+
+async def test_a_second_assign_answered_before_the_first_worker_starts_is_refused() -> None:
+    """The guard is taken where the assign is decided: two answers with no event-loop turn between
+    them start one handoff, not two."""
+    from ocp.ui.chat_page import TaskDetail
+    _home("assignrace")
+    ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause(0.5)
+        page = TaskDetail(tid)
+        app.push_screen(page)
+        await pilot.pause(0.8)
+        started = []
+
+        def hold(coro, **kw):       # the worker has not started: what a loaded loop looks like
+            started.append(1)
+            coro.close()
+        body = page._body()
+        body.run_worker = hold
+        answers = []
+        real_push = app.push_screen
+        app.push_screen = lambda screen, cb=None, **kw: answers.append(cb)
+        try:
+            body.action_assign_task()
+            body.action_assign_task()
+        finally:
+            app.push_screen = real_push
+        answers[0](("backend", "one"))
+        answers[1](("backend", "two"))
+        await pilot.pause(0.2)
+        check("task page assign: an answer before the first worker starts blocks the second",
+              len(started) == 1 and any("still changing" in str(n.message) for n in app._notifications),
+              str((started, answers, [n.message for n in app._notifications])))
 
 
 async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
@@ -2290,6 +2330,36 @@ def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
         owed["now"] = False
         bt.run()
         check("run: none owed, no exec", execs == [])
+        from ocp.ui import stall
+        _home("run_race")
+        stall.log_file().parent.mkdir(parents=True, exist_ok=True)
+        if stall._pid_fd is not None:       # the runs above took the lock in this process
+            _os.close(stall._pid_fd)
+            stall._pid_fd = None
+        child = subprocess.Popen([sys.executable, "-c", "import sys, time; sys.path.insert(0, sys.argv[1]); "
+                                  "from ocp.ui import stall; stall._claim_pid_file(__import__('os').getpid()); "
+                                  "print('up', flush=True); time.sleep(60)", str(ROOT)], stdout=subprocess.PIPE, text=True)
+        built, real_one = [], bt._one_bridge
+        bt.BridgeApp = lambda: built.append(1) or FakeApp()
+        bt._one_bridge = lambda *a, **k: True       # the other bridge came up after the prompt said none
+        try:
+            child.stdout.readline()
+            owed["now"] = True
+            execs.clear()
+            import contextlib, io
+
+            class Tty(io.StringIO):
+                def isatty(self) -> bool:
+                    return True
+            buf = Tty()
+            with contextlib.redirect_stdout(buf):
+                out = (bt.run(), buf.getvalue())
+            check("run: a bridge that lost the lock to another does not start the app",
+                  out[0] == 1 and "took the lock" in out[1] and not built and not execs, str((out, built, execs)))
+        finally:
+            bt._one_bridge = real_one
+            child.kill()
+            child.wait()
     finally:
         _os.execv, bt.BridgeApp, sys.argv = real_exec, real_app, real_argv
         sys.stdout.isatty = real_tty
@@ -2665,7 +2735,7 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
             actions.memo_add(con, tid, "reviewer", "posted while it was open")
         finally:
             con.close()
-        for _ in range(60):     # the page's own timer, no poll() by hand
+        for _ in range(400):    # the page's own timer, no poll() by hand; a loaded run may take seconds to tick
             await pilot.pause(0.05)
             if body.d and body.d["timeline"]:
                 break
@@ -2774,6 +2844,10 @@ def test_assign_offers_recent_targets_then_the_holders_team() -> None:
               db.task_holders(con, t2) == ["product", "backend", "archivist", "reviewer"], str(db.task_holders(con, t2)))
         check("assign to: recent is that without the holder now",
               actions.recent_assignees(con, t2) == ["product", "backend", "reviewer"], str(actions.recent_assignees(con, t2)))
+        ok, _, t3 = actions.task_new("product", "backend", "Three", "the work and its done")
+        con.execute("UPDATE tasks SET created_at = created_at + 5 WHERE id = ?", (t3,))   # the row made a second after its request
+        check("assign to: the opener and its owner lead even when the request that asked the owner is older than the row",
+              db.task_holders(con, t3) == ["product", "backend"], str(db.task_holders(con, t3)))
         ok, said = actions.task_handoff(con, "archivist", t2, "human", "done, back to you")
         check("assign to: a task that went back to the founder keeps the founder out of recent",
               ok and "human" not in actions.recent_assignees(con, t2)
@@ -3804,6 +3878,46 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
         sleeper.wait()
 
 
+def test_a_second_bridge_says_so_and_offers_to_take_over() -> None:
+    _home("second_bridge")
+    from ocp.ui import stall
+    stall.log_file().parent.mkdir(parents=True, exist_ok=True)
+    code = ("import sys, time; sys.path.insert(0, sys.argv[1]); from ocp.ui import stall; "
+            "stall._claim_pid_file(__import__('os').getpid()); print('up', flush=True); time.sleep(60)")
+
+    def old_bridge() -> subprocess.Popen:
+        child = subprocess.Popen([sys.executable, "-c", code, str(ROOT)], stdout=subprocess.PIPE, text=True)
+        child.stdout.readline()
+        return child
+
+    def answer(word: str):
+        asked = []
+        return asked, lambda q: (asked.append(q), word)[1]
+
+    check("second bridge: with none running it just starts", bt._one_bridge(lambda q: "q", tty=True) is True)
+    child = old_bridge()
+    try:
+        asked, ask = answer("q")
+        out = _capture_out(lambda: bt._one_bridge(ask, tty=True))
+        check("second bridge: it names the running pid and offers take over or quit",
+              str(child.pid) in out[1] and "take over" in asked[0] and "quit" in asked[0], str((out, asked)))
+        check("second bridge: quit leaves the old one running and does not start", child.poll() is None
+              and stall.running_pid() == child.pid and bt._one_bridge(ask, tty=True) is False)
+        asked, ask = answer("t")
+        out = _capture_out(lambda: bt._one_bridge(ask, tty=False))
+        check("second bridge: with no terminal on stdin it names the pid, asks nothing and does not start",
+              out[1].count(str(child.pid)) == 1 and out[0] is False and not asked and child.poll() is None, str((out, asked)))
+        check("second bridge: a bridge that cannot take the lock says so and holds none",
+              stall._claim_pid_file(os.getpid()) is False and stall._pid_path != stall.pid_file())
+        started = bt._one_bridge(ask, tty=True)
+        child.wait(timeout=5)
+        check("second bridge: take over closes the old one and starts", started is True
+              and stall.running_pid() is None, str((started, stall.running_pid())))
+    finally:
+        child.kill()
+        child.wait()
+
+
 def _capture_out(fn) -> "tuple[int, str]":
     import contextlib, io
     buf = io.StringIO()
@@ -3854,7 +3968,9 @@ async def _run_all() -> None:
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
     await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
     await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
+    await test_a_second_assign_answered_before_the_first_worker_starts_is_refused()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
+    test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
@@ -3968,6 +4084,9 @@ async def _run_all() -> None:
 
 
 def main() -> int:
+    if "-k" in sys.argv[1:]:        # its tests run in one fixed sequence on one app loop: a filter would run them all
+        print("test_bridge_textual.py has no -k filter; it runs whole", file=sys.stderr)
+        return 2
     os.environ.pop("OCP_AGENT", None)
     asyncio.run(_run_all())
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")

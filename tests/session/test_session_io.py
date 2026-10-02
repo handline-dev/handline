@@ -1941,8 +1941,8 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             if "draft" in screen:
                 term["draft"] = screen["draft"]
             return screen["ok"], json.dumps({"result": {"terminal": term}})
-        real_run = orcamod._run
-        orcamod._run = fake_run
+        real_run = orcacli._run
+        orcacli._run = fake_run
         try:
             screen["tail"] = ["Teach auto mode about your environment?", "Enter to confirm · Esc to cancel"]
             check("modal: the auto-mode prompt is read as a modal", orcamod.modal_open("h"))
@@ -1997,7 +1997,7 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             ok_c, why_c = REAL_ORCA["clear_context"]("h")
             check("composer: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
-            orcamod._run = real_run
+            orcacli._run = real_run
     finally:
         con.close()
 
@@ -3089,23 +3089,23 @@ def test_orca_idle_parsing() -> None:
     Reading `ok` alone treats a timeout as idle, and clearing mid-turn throws
     away work the fold has not recorded yet.
     """
-    real = orcamod._run
+    real = orcacli._run
     try:
-        orcamod._run = lambda *a, **k: (True, json.dumps(
+        orcacli._run = lambda *a, **k: (True, json.dumps(
             {"ok": True, "result": {"wait": {"satisfied": True}}}))
         check("orca: satisfied=true reads as idle", orcamod.wait_idle("h", 1000))
 
-        orcamod._run = lambda *a, **k: (True, json.dumps(
+        orcacli._run = lambda *a, **k: (True, json.dumps(
             {"ok": True, "result": {"wait": {"satisfied": False}}}))
         check("orca: a timed-out wait is not idle", not orcamod.wait_idle("h", 1000))
 
-        orcamod._run = lambda *a, **k: (False, "boom")
+        orcacli._run = lambda *a, **k: (False, "boom")
         check("orca: a failed wait is not idle", not orcamod.wait_idle("h", 1000))
 
-        orcamod._run = lambda *a, **k: (True, "not json at all")
+        orcacli._run = lambda *a, **k: (True, "not json at all")
         check("orca: unparseable output is not idle", not orcamod.wait_idle("h", 1000))
     finally:
-        orcamod._run = real
+        orcacli._run = real
 
 
 def test_confirm_trust_presses_down_then_enter() -> None:
@@ -3116,9 +3116,9 @@ def test_confirm_trust_presses_down_then_enter() -> None:
     the cursor happened to be sitting on instead."""
     from ocp.vendors import claude as claudemod
     calls: list[list[str]] = []
-    real = orcamod._run
+    real = orcacli._run
     try:
-        orcamod._run = lambda args, *a, **k: (calls.append(args), (True, "{}"))[1]
+        orcacli._run = lambda args, *a, **k: (calls.append(args), (True, "{}"))[1]
         ok, why = orcamod.confirm_trust("term_x")
         check("confirm_trust: reports success", ok, why)
         check("confirm_trust: sends exactly two commands", len(calls) == 2, str(calls))
@@ -3130,16 +3130,16 @@ def test_confirm_trust_presses_down_then_enter() -> None:
               calls[1] == ["terminal", "send", "--terminal", "term_x", "--text", "", "--enter"],
               str(calls[1]))
     finally:
-        orcamod._run = real
+        orcacli._run = real
 
-    real = orcamod._run
+    real = orcacli._run
     try:
-        orcamod._run = lambda *a, **k: (False, "no such terminal")
+        orcacli._run = lambda *a, **k: (False, "no such terminal")
         ok, why = orcamod.confirm_trust("term_x")
         check("confirm_trust: a failed first key is reported, not silently retried",
               not ok and "trust dialog" in why, why)
     finally:
-        orcamod._run = real
+        orcacli._run = real
 
 
 def test_clear_refuses_mid_turn() -> None:
@@ -3884,7 +3884,7 @@ def test_an_idle_agent_is_asked_for_its_handoff_note_once_and_closed_when_it_is_
         check("note: the close waits while the ask goes out",
               handoff_note.hold(con, "backend", now, lambda _m: None) and len(asks) == 1, str(asks))
         check("note: the ask names the file and what belongs in it",
-              str(handoff_note.note_path("backend")) in asks[0] and "T123/#1234" in asks[0], asks[0][:200])
+              str(handoff_note.note_path("backend")) in asks[0] and "T<n>/#<n>" in asks[0], asks[0][:200])
         check("note: it is not asked again while the turn has not begun",
               handoff_note.hold(con, "backend", now + 30, lambda _m: None) and len(asks) == 1, str(asks))
 

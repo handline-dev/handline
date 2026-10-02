@@ -13,8 +13,6 @@ branch from that one, and refuse when they have diverged.
 """
 from __future__ import annotations
 
-import json
-import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -51,35 +49,11 @@ def _confirm_session(agent: str) -> str | None:
 
 
 def _run(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
-    """`git`'s or Orca's own text, clean at the source, so a caller that embeds
-    `out` or `err` in a message it returns need not sanitise it first. This
-    does not cover a caller that `json.loads` `out`: a control byte sent
-    escaped comes back real from the parse, so such a caller reads the value
-    through `_parsed`."""
+    """`git`'s own text, clean at the source, so a caller that embeds `out` or
+    `err` in a message it returns need not sanitise it first."""
     r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
     return (r.returncode, textsafe.oneline(r.stdout.strip()),
             textsafe.oneline(r.stderr.strip()))
-
-
-def _parsed(out: str, *keys: str) -> str | None:
-    """One string out of Orca's `--json`, or None if it is not usable.
-
-    A worktree path and a terminal handle are identifiers: stored in the db,
-    handed back to Orca, and named in messages written much later by callers
-    that no longer see where the value came from. Sanitising one here would
-    keep a name for something that does not exist, and leave every sink
-    downstream to remember. So one carrying a control byte is refused instead,
-    which is what a value that could not be read at all already does.
-    """
-    try:
-        value = json.loads(out)
-        for k in keys:
-            value = value[k]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
-    if not isinstance(value, str) or textsafe.has_unsafe(value):
-        return None
-    return value
 
 
 def _has_commit(repo: Path, ref: str) -> bool:
@@ -173,17 +147,13 @@ def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, s
     `cmd` is what the terminal runs; a wake passes its launch with the resume id
     and prompt file, since a closed session's pane is closed with it (T407).
     """
-    if not shutil.which("orca"):
-        return False, "orca is not on PATH"
+    if not orca.available():
+        return False, orca.missing()
     if not Path(worktree).exists():
         return False, f"{agent}: its worktree {worktree} is gone"
-    code, out, err = _run([
-        "orca", "terminal", "create", "--worktree", f"path:{worktree}",
-        "--title", agent, "--command", cmd or launch.command_for(agent), "--json",
-    ])
-    if code != 0:
-        return False, f"{agent}: could not start in {worktree}: {err or out}"
-    handle = _parsed(out, "result", "terminal", "handle")
+    handle, why = orca.open_terminal(cmd or launch.command_for(agent), cwd=worktree, title=agent)
+    if handle is None and why:
+        return False, f"{agent}: could not start in {worktree}: {why}"
     if handle:
         con = db.connect()
         try:
@@ -198,11 +168,29 @@ def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, s
     return True, said
 
 
+def _dry_run_text(wt: str | None, repo: Path, agent: str, base_ref: str | None, why: str, cmd: str) -> str:
+    """What `spawn` would do, as the host's own commands where it has them (Orca's)."""
+    if orca.host_name() == "orca":
+        if wt:
+            return (f"would start in its own worktree {wt}\n"
+                    f"  orca terminal create --worktree path:{wt} --command \"{cmd}\"")
+        return (f"would branch from {base_ref} ({why})\n"
+                f"  orca worktree create --repo path:{repo} --name {agent} "
+                f"--base-branch {base_ref}\n"
+                f"  orca terminal create --worktree <new> --command \"{cmd}\"")
+    host = orca.host_name()
+    if wt:
+        return f"would start in its own worktree {wt}\n  {host}: a terminal there running \"{cmd}\""
+    return (f"would branch from {base_ref} ({why})\n"
+            f"  {host}: a worktree of {repo} named {agent} from {base_ref}, "
+            f"then a terminal in it running \"{cmd}\"")
+
+
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
           dry_run: bool = False) -> tuple[bool, str]:
     """Start the agent in its worktree: the one it has, else a new one named after it."""
-    if not shutil.which("orca"):
-        return False, "orca is not on PATH"
+    if not orca.available():
+        return False, orca.missing()
     try:
         agents.read(agent)
     except Exception as e:  # noqa: BLE001
@@ -226,39 +214,17 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
             return False, why
 
     cmd = launch.command_for(agent)
-    if dry_run and wt:
-        return True, (f"would start in its own worktree {wt}\n"
-                      f"  orca terminal create --worktree path:{wt} --command \"{cmd}\"")
     if dry_run:
-        return True, (f"would branch from {base_ref} ({why})\n"
-                      f"  orca worktree create --repo path:{repo} --name {agent} "
-                      f"--base-branch {base_ref}\n"
-                      f"  orca terminal create --worktree <new> --command \"{cmd}\"")
+        return True, _dry_run_text(wt, repo, agent, base_ref, why, cmd)
 
     if not wt:
-        create = ["orca", "worktree", "create", "--repo", f"path:{repo}",
-                  "--name", agent, "--base-branch", base_ref, "--json"]
-        code, out, err = _run(create)
-        if code != 0 and "repo_not_found" in f"{out} {err}":
-            # Orca does not have this folder as a repo yet: register it (never
-            # one it already has, nor a folder without `git init`) and try once more.
-            state, said = orca.ensure_repo(str(repo))
-            if state != "added":
-                return False, f"worktree create failed: {err or out} - {said}"
-            code, out, err = _run(create)
-        if code != 0:
-            return False, f"worktree create failed: {err or out}"
-        wt = _parsed(out, "result", "worktree", "path")
+        wt, failed = orca.create_worktree(str(repo), agent, base_ref)
         if wt is None:
-            return False, f"could not read the new worktree path from: {out[:200]}"
+            return False, failed
 
-    code, out, err = _run([
-        "orca", "terminal", "create", "--worktree", f"path:{wt}",
-        "--title", agent, "--command", cmd, "--json",
-    ])
-    if code != 0:
-        return False, f"worktree {wt} is ready, but starting the agent failed: {err or out}"
-    handle = _parsed(out, "result", "terminal", "handle")
+    handle, failed = orca.open_terminal(cmd, cwd=wt, title=agent)
+    if handle is None and failed:
+        return False, f"worktree {wt} is ready, but starting the agent failed: {failed}"
 
     if handle:
         con = db.connect()
@@ -302,8 +268,7 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         if not orca.wait_idle(handle, SUBMIT_WAIT_S * 1000):
             lines.append("  WARNING: could not wait for the agent to be ready; "
                          "the first task may have been typed into a booting TUI")
-        _run(["orca", "terminal", "send", "--terminal", handle,
-              "--text", prompt, "--enter", "--wait-submit", "30"])
+        orca.submit(handle, prompt, 30)
         if prompt_landed(agent, since):
             lines.append("  first task submitted")
         else:
@@ -357,7 +322,7 @@ def register_worker(con, agent: str, handle: str) -> str | None:
     only child it knew how to make. The tree comes from `team.yaml`, so the
     card and the routing cannot disagree about who reports to whom.
     """
-    if not orca.available():
+    if not orca.has_runs():
         return None
     run = ensure_run(con)
     if not run:

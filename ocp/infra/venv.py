@@ -60,7 +60,7 @@ def _sha256(path: Path) -> str:
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
     """The only place that shells out to build or fill a venv - tests replace
-    this name, the way service.run_launchctl and orca._run are replaced."""
+    this name, the way service.run_launchctl and the Orca backend's runner are replaced."""
     return subprocess.run(args, capture_output=True, text=True, timeout=300)
 
 
@@ -85,6 +85,13 @@ def status(vdir: Path | None = None) -> tuple[bool, str]:
     return True, ""
 
 
+def pip_error(output: str) -> str:
+    """The `ERROR:` lines of pip's output, or all of it when there are none: the retries and cache
+    warnings before them bury the cause when the whole thing is joined onto one line."""
+    lines = [ln for ln in output.splitlines() if ln.startswith("ERROR:")]
+    return textsafe.oneline("\n".join(lines) if lines else output)
+
+
 def install(vdir: Path | None = None, log=print) -> tuple[bool, str]:
     """Create the venv if it is not there, install requirements.txt into it,
     and stamp it - only on success, so a failed install leaves it reading as
@@ -100,6 +107,6 @@ def install(vdir: Path | None = None, log=print) -> tuple[bool, str]:
     log(f"installing {reqs} into {vdir}")
     r = _run([str(py), "-m", "pip", "install", "-q", "-r", str(reqs)])
     if r.returncode != 0:
-        return False, f"pip install failed: {textsafe.oneline(r.stderr or r.stdout)}"
+        return False, f"pip install failed: {pip_error(r.stderr or r.stdout)}"
     (vdir / STAMP_NAME).write_text(_sha256(reqs) + "\n")
     return True, f"venv at {vdir} is ready"

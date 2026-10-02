@@ -666,8 +666,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
     from . import orca
     from ..team import spawn
 
-    handle = orca.terminal_handle()
-    wt = os.environ.get("ORCA_WORKTREE_ID")
+    handle, wt = orca.terminal_handle(), orca.worktree_id()
     # The other door into the same two columns `spawn` writes, and the values
     # come in no cleaner for arriving as environment rather than as JSON. Both
     # are identifiers, read back and named in messages long after this - so one

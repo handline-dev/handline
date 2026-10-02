@@ -1,228 +1,96 @@
 # orcapipe
 
-Run a team of role-based Claude agents across several accounts, cheaply and
-unattended, on top of Orca.
+orcapipe runs a team of Claude Code agents and keeps them working while you are away.
 
-The priority is not features. It is **not dying overnight without a human**, and
-not spending tokens to decide things that can be decided deterministically.
+You give an agent a task. A daemon delivers it, resumes the agent if its session was closed, and
+moves it to another Claude account when the first one runs low. No model makes these decisions.
+They are plain rules you can read and change.
+
+It is a command-line tool called `ocp`, plus a terminal screen (`ocp bridge`) for watching the team.
+
+## Who it is for
+
+It fits you if you run several Claude Code agents at once and you are tired of watching usage
+limits, nudging idle terminals, and re-explaining work after a session dies. It works best with
+two or more Claude accounts, but one is enough to try it.
+
+It does not fit if you want a hosted service or a general agent framework. orcapipe only
+supervises Claude Code sessions that run in [Orca](https://github.com/stablyai/orca) terminals on
+your own Mac.
+
+## What you need
+
+- macOS. The background service uses launchd. Other systems are untested.
+- Python 3 and git. It is developed on Python 3.14; older versions are untested.
+- [Claude Code](https://claude.com/claude-code), with the `claude` command on your PATH.
+- [Orca](https://github.com/stablyai/orca), with the `orca` command on your PATH.
+- One Claude login per account you want to add. You type each login yourself. `ocp` never reads
+  or copies credentials.
 
 ## Install
 
 ```bash
-ln -s "$PWD/bin/ocp" /usr/local/bin/ocp     # or put bin/ on PATH
-ocp init
-ocp account add alpha      # registers it, then hands the terminal to claude to log in
-ocp account add beta       # use a different Anthropic login for each
+git clone <this repository> orcapipe && cd orcapipe
+ln -s "$PWD/bin/ocp" /usr/local/bin/ocp    # or add bin/ to your PATH
+ocp venv install                           # one dependency (Textual) for the bridge screen
+ocp init                                   # creates ~/.orcapipe
+ocp doctor                                 # lists what is still missing
 ```
 
-The login is claude's own screen, so **a human** types into it. `ocp account
-remove <name>` logs an account out and moves its directory aside; it refuses
-while an agent is on it. Both are also `a` and `x` in the accounts panel.
+`ocp doctor` will report a red line for no accounts and no agents. That is expected at this point.
 
-`ocp` never reads, writes or copies credentials. A refresh token rotates on
-single use, so two copies of one credential invalidate each other.
+## Your first team
+
+Add an account. This opens Claude's own login screen, and you type into it:
 
 ```bash
-ocp agent register backend   --model sonnet
-ocp agent register reviewer  --model opus
-ocp agent register archivist --model haiku
-ocp team init && ocp doctor
+ocp account add alpha
 ```
 
-## Run an agent
+Register an agent. `--repo` is the git repository it works in:
 
 ```bash
-orca terminal create --worktree path:/path/to/wt --command "ocp launch backend"
+ocp agent register backend --model sonnet --repo ~/code/myproject
+ocp team init
+ocp doctor
 ```
 
-`ocp launch` execs claude with that agent's `CLAUDE_CONFIG_DIR`. Orca preserves
-the launch command across hibernation and restore, so a resumed agent comes
-back on the same account.
+`ocp team init` writes `~/.orcapipe/team.yaml`, which says who may send work to whom. Open it
+once; it is short. The starting file also names `reviewer` and `archivist`. Either register them
+the same way, or delete them from the file, or `ocp doctor` warns about them. Fix any red line
+it shows.
 
-## Give an agent work
+Start the agent in an Orca terminal. Use the full path to the repository:
 
 ```bash
-ocp task new --owner keeper -t 2h "rebase onto main" "rebase onto main and re-run the suite"
-ocp say keeper "the suite is green on main"   # a message: typed at once, needs no answer
-ocp inbox                       # what is waiting on you, and what came back
-ocp read 12                     # one of them whole, with its answer
-ocp task done T7 "rebased, suite green"   # finish the task you hold
+orca terminal create --worktree path:/Users/you/code/myproject --command "ocp launch backend"
 ```
 
-That is all of it: work and questions are tasks, everything else is a say. The
-daemon delivers: an idle agent is told, a closed one is
-resumed first and then told, and a busy one is left alone until it is free.
-Nobody has to go and nudge a terminal. An interactive shell with no `OCP_AGENT`
-is a human's, so `ocp say` from your own prompt comes from `human`; a
-script that lost the variable is refused rather than promoted; agents start
-with `ocp launch`, which sets it.
-
-## Run the supervisor
+Give it work, from your own shell:
 
 ```bash
-ocp daemon            # parks agents before they hit the wall, resumes them after
-ocp ps                # daemon and agent state, and which supervisor is running it
-ocp triggers          # what the daemon would decide right now, without acting
+ocp task new --owner backend -t 2h "fix the flaky test" "tests/test_sync.py fails about one run in ten. Find the cause and fix it. Done means ten green runs in a row."
+ocp inbox        # what is waiting on you
+ocp bridge       # the screen: agents, accounts, inbox
 ```
 
-`ocp daemon` on its own dies with the terminal that started it. To survive a
-reboot or a crash without a human restarting it, install it as a launchd
-LaunchAgent:
+When the agent finishes, its result shows up in `ocp inbox`. That is the whole loop: you
+write a task with a clear "done", an agent does it and reports, and you read the report.
+
+To keep the daemon running after you close the terminal or reboot:
 
 ```bash
-ocp service install    # write the plist, load it into launchd (RunAtLoad + KeepAlive)
-ocp service status     # installed / loaded / pid / crash-looping
-ocp service logs       # tail the daemon's launchd-captured stdout
-ocp service uninstall  # unload the job and remove the plist
+ocp service install
 ```
 
-One daemon runs, whoever started it: it holds an flock for its whole life, and
-a second one exits rather than supervise beside it. The holder writes its pid
-into that lock file, and `ocp ps`, `ocp doctor` and the bridge ask the lock
-itself whether a daemon is running, so what refuses a second daemon and what is
-reported are one fact and there is no pidfile to go stale. `ocp ps` and
-`ocp doctor` also count daemons in the process table and say so when there are
-two.
-
-An agent ocp has work for and cannot give it - a dialog open on its screen (such
-as `/exit` meeting background shells), a conversation moved to the background
-(the screen is a session picker, whose box would start a new session), a screen
-ocp cannot read, no terminal or session - is written to `delivery_blocks` and is not silent: `ocp ps` and the
-bridge list it under WAITING ON YOU after `blocked.SHOW_AFTER_S`, naming the
-dialog or picker from the screen, and it becomes one request to `human` after
-`blocked.DECISION_AFTER_S`, closed by the daemon when the agent can be given its
-work again. ocp names the dialog and never answers it.
-
-## Commands
+## Read next
 
 | | |
 |---|---|
-| `ocp close <agent>` | end an idle session, keep its terminal (`ocp resume` brings it back) |
-| `ocp task new --owner NAME "<title>"` / `ocp task list` | the task board: a task is its own row, never a message, and is always written `T<n>` - a bare number is a request, and a task command refuses one. `list` draws each open task with its linked requests read live. A task is a draft until the founder or its owner's manager runs `ocp task queue T<n>` (`ocp task draft` sends it back), and is doing while a request on it is out |
-| `ocp task done T<n> <sha or reason>` | finish a task - final; a sha must be an ancestor of `main`, and a task with an open child task or an open blocker is not done yet. A wrong result is `ocp task reopen T<n> "<why>"`, by whoever asked. A task ends only by done or discard (`ocp task discard`); a task folded in by `ocp task merge` is discarded, "merged into T<n>" |
-| `ocp say <who> "<answer>" --parent <id> --task T<n>` / `--no-task "<reason>"` | answering a request: a reply that names it settles it, and the reply is the one answer. A request the founder made also says what it becomes - the task, or that nothing needs building; agent-to-agent replies are never guarded. (`ocp ask`, `ocp resolve` and `ocp dismiss` no longer exist: work is `ocp task new`, an answer is `ocp say`.) |
-| | *Why requests link to tasks through `task_requests` and not a column on `requests`:* `--task` takes a list and a request can be attached later, so one column could hold only one task and would drift the first time it mattered. Do not fold it back into a column to save a join. |
-| `ocp doctor` | verify the preconditions of every phase |
-| `ocp account list` | how the accounts stand now: usage windows, the agents assigned to each and how many are running, and whether it may take work |
-| `ocp status` | why the daemon picked the account it picked, and the price of one more agent it rests on |
-| `ocp task new --owner NAME -t <time> "<title>" "<body>"` / `ocp say <target> "<msg>"` | give an agent work or a question that needs an answer (a task, body required); or send a message that needs none |
-| `ocp inbox` / `ocp read <id>` / `ocp cancel <id>` (founder) | the queue |
-| `ocp fold [agent]` | fold events into the digest (the one model call) |
-| `ocp hooks sync --watch` | keep Orca's agent hooks mirrored |
-| `ocp service install/uninstall/status/logs` | run the daemon as a launchd LaunchAgent |
-| `ocp bridge` | the screen the team is run from (`top` and `watch` still work) |
-| `ocp guide [topic]` | detail, loaded on demand |
-
-## How it decides things
-
-**Fail-closed.** A `pct_5h` we cannot trust - no snapshot, unreadable, or too old
-- is not a full tank, it is a refusal to assign. Reading it as 0 makes the 90%
-trigger false forever: the feature is dead while the dashboard stays green.
-
-**But quiet is not unknown.** An account nobody has spent on reports no
-`five_hour` window at all, which means nothing has been spent in this one - not
-that we cannot see. That reads as 0% and assigns, marked `*`. Refusing here
-parked five idle agents. The exception is ours: `ocp fold` runs headless and
-leaves no event, so its own small spend is never observed.
-
-**A figure has a provenance, and it is drawn.** `~` is carried - an earlier
-reading whose window is still open, since a payload that does not mention a
-window must not erase what we knew. `!` is carried past the age we will assign
-on: still used as a floor for triggers, because usage inside a window only
-rises, but no new work goes to it. Inside one window the account figure never
-goes down, because every session reports from the moment of its own last API
-response and the staler one must not win.
-
-**An account is a preference, not a destination.** `agent.yaml` says which
-account an agent would rather be on, and a session goes there unless what is
-known says it is a bad place to start: at the wall, at its cap of agents
-mid-turn (2 by default, `ocp account cap <name> <n>` or `c` on the bridge), or
-filling so fast that one more agent would last under half an hour. How fast it
-is filling - the account's measured burn - is what says it has room, not a
-fixed line, and the agent being placed is priced by its own kind: what one more
-agent costs is the median of what agents of its model and effort were measured
-spending, falling back to its model's, all agents', and 0.75%/min of the window
-until enough has been seen.
-
-**A working agent runs to the wall.** Nothing below 100% moves or parks it: a
-turn that ends on the usage limit, or a reading at 100%, is the wall, and
-nothing is lost there because the transcript keeps the work. An account nobody
-can read is not a wall. At the wall the choice to move is a cost comparison: an
-idle agent stays parked, and so does one whose account resets within T (39
-minutes, then the measured cost of a cold start as a share of a 5h window -
-`measure.py`). Otherwise it moves once, to the account the pick chooses - the
-weekly headroom that expires soonest first - and never back to the one it just
-left before that resets. If every account is capped or walled the work waits in
-the queue. A resume goes back to the account its session lives on, because a
-session id exists only under that account's config directory.
-
-**Context and memory are different problems.** A handoff reclaims *context*: it
-records the agent's request, its transcript path and its worktree's state,
-clears the session, and costs no model call. Closing reclaims
-*memory*: an idle session holds 250-500MB and no one is using it, so the session
-ends and the terminal, worktree and account stay. Waking resumes that same
-session, which costs nothing extra - measured, a resumed session read its whole
-68k prefix from cache exactly as a resident one did, because the cache lives on
-the server and expires on time, not on whether our process stayed alive.
-
-**No model in the loop.** Triggers, account choice and resume decisions are all
-deterministic, and so is the handoff. The only model call is `ocp fold`, which
-nothing on the handoff path runs.
-
-**Conditions, not edges.** Triggers are re-evaluated from persisted state every
-tick, so a threshold crossed while the daemon was dead is still acted on.
-
-**Unlisted edges are denied.** Agents cannot spray requests around, and a
-refusal explains itself so they do not try to route around it.
-
-**A result goes back the way the work came.** `ocp task done` records the
-evidence on the task; the daemon reads it out to the agent that asked, and a
-human reads it in `ocp inbox` and on `ocp bridge`. Both directions, or the team
-learns to talk around it: with only one drawn, agents took to sending a second,
-unrelated task repeating what they had already reported.
-
-## Layout
-
-```
-~/.orcapipe/                 git repo; accounts/ and logs/ are ignored
-  config.yaml team.yaml db.sqlite locks/
-  logs/daemon.out.log logs/daemon.err.log   # launchd's StandardOut/ErrorPath
-  shared/.claude/            settings, symlinked into each account
-  shared/mcp.json            MCP servers every launch passes via --mcp-config;
-                             founder-filled, optional, never generated from ~/.claude.json
-  accounts/<acct>/.claude/   CLAUDE_CONFIG_DIR; credentials stay here, untouched
-  accounts/<acct>/status.json
-  agents/<name>/             agent.yaml ROLE.md base.md inbox/ journal/
-```
-
-The daemon also records each API call's tokens from an account's transcripts
-(`projects/**/*.jsonl` only, never the credentials beside them) into
-`token_calls`, kept 60 days; no rule that decides anything reads them.
-`tools/usage/` measures where the usage goes from them (see its README).
-
-Each account's `.claude/` links to the items of `shared/.claude/` that exist
-(settings.json, CLAUDE.md, skills, agents, commands, plugins). An item added
-there later is linked into every account that lacks it, by the daemon, on its
-next tick - it fills an *absent* slot, so a link deleted on purpose comes back.
-To opt an account out of a shared item, put a real file or a link of its own at
-that path: the daemon leaves it alone, and `ocp doctor` names it as a shared
-file that does not reach that account.
-
-## Tests
-
-```bash
-tools/test.sh     # every area file in parallel, ~4800 checks, no network, no tokens
-tools/test.sh tests/session/test_daemon_session.py    # one area file on its own (tests/<group>/test_<area>.py)
-tools/test.sh -k reconcile --write-labels before.txt   # a subset, labels saved
-tools/test.sh --diff-labels before.txt after.txt       # labels that changed state
-```
-
-`tools/test.sh` runs them under the machine's venv python, unbuffered, with `OCP_AGENT` unset and a
-temp `OCP_HOME`; `tools/suite.sh` is the same thing.
-
-The tests live in `tests/<group>/test_<area>.py` over the shared fixtures in
-`tests/support.py`; `tests/test_ocp.py` runs every area file (`-j N` sets how
-many at once) and adds their counts.
-
-Design docs are in `design/`; the Phase 0 findings and their evidence are in
-`docs/phase0-findings.md`.
+| [docs/setup.md](docs/setup.md) | Install in detail, accounts, the daemon, and what to do when a step fails |
+| [docs/configuration.md](docs/configuration.md) | `team.yaml`, `agent.yaml`, `ROLE.md`, and the other files in `~/.orcapipe` |
+| [docs/guidelines.md](docs/guidelines.md) | How to run a team well: tasks, roles, review, cost |
+| [docs/best-cases.md](docs/best-cases.md) | Setups that work, taken from how this project is built |
+| [docs/reference.md](docs/reference.md) | Every command, one line each |
+| [docs/how-it-works.md](docs/how-it-works.md) | The rules the daemon follows, and why |
+| [docs/development.md](docs/development.md) | Running the tests and working on orcapipe itself |

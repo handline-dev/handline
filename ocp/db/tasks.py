@@ -294,7 +294,9 @@ def task_holders(con, tid: int) -> list[str]:
     handoffs = task_handoffs(con, tid)
     first = (json.loads(made["payload"]).get("owner") if made else None) \
         or (handoffs[0]["from"] if handoffs else row["owner"])
-    seen: list[tuple[float, str | None]] = [(row["created_at"] or 0, row["opened_by"]), (row["created_at"] or 0, first)]
+    # The opener and who it was opened for come first by definition: the request that asked its owner
+    # is made before the row (`created_at`), so in another second it would sort ahead of the opener.
+    seen: list[tuple[float, str | None]] = [(0, row["opened_by"]), (0, first)]
     for h in handoffs:
         seen += [(h["at"], h["from"]), (h["at"], h["to"])]
     seen += [(r["ts"], r["target"]) for r in con.execute(
