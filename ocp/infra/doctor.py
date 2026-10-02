@@ -426,6 +426,22 @@ def _check_session_matches_the_record(r: Report) -> None:
         con.close()
 
 
+def _check_terminal_handles(r: Report) -> None:
+    """A terminal saved by the other host: switching `OCP_TERMINAL` leaves every agent's recorded handle
+    in the old host's shape, and the new host reads each as gone."""
+    con = db.connect()
+    try:
+        odd = [(row["agent"], row["terminal"]) for row in db.all_agent_states(con)
+               if row["terminal"] and not orca.knows_handle(row["terminal"])]
+    finally:
+        con.close()
+    host = orca.host_name()
+    for agent, handle in odd:
+        r.add(WARN, f"agent {agent}: its saved terminal {handle!r} is not a {host} terminal",
+              f"it was made under another host, so {host} reads it as gone: the daemon forgets it and starts "
+              f"the agent again in its worktree. The old window is still open in the other host; close it there")
+
+
 def _check_claude_version(r: Report) -> None:
     drv = vendors.get(agents.DEFAULT_VENDOR)
     exe = drv.binary()
@@ -628,6 +644,7 @@ def _run() -> Report:
     _check_home(r)
     _check_mcp_config(r)
     _check_orca_hooks(r)
+    _check_terminal_handles(r)
     _check_ocp_hooks(r)
     _check_home_socket(r)
     _check_accounts(r)

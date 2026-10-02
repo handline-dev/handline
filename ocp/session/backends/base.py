@@ -25,6 +25,11 @@ class Backend:
     def available(self) -> bool:
         raise NotImplementedError
 
+    def knows_handle(self, handle: str) -> bool:
+        """Whether `handle` has the shape this host gives its terminals: a handle saved under another
+        host is not one, and reads as gone here."""
+        return True
+
     def own_terminal(self) -> tuple[str | None, str | None]:
         """(handle, worktree id) of the terminal this process runs in, when the host started it."""
         raise NotImplementedError

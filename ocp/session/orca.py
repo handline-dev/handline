@@ -82,6 +82,11 @@ def host_cli(args: list[str], timeout: int = 180) -> tuple[bool, str]:
     return backends.current().host_cli(args, timeout)
 
 
+def knows_handle(handle: str) -> bool:
+    """Whether `handle` looks like one the configured host made."""
+    return backends.current().knows_handle(handle)
+
+
 def has_runs() -> bool:
     """Whether the host is there and draws a team (runs and tasks with workers under them)."""
     return backends.current().supports_runs and available()

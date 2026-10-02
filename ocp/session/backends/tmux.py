@@ -75,6 +75,9 @@ class TmuxBackend(Backend):
     def available(self) -> bool:
         return shutil.which("tmux") is not None
 
+    def knows_handle(self, handle: str) -> bool:
+        return bool(_PANE.match(handle or ""))
+
     def own_terminal(self) -> tuple[str | None, str | None]:
         """The pane we run in, only when it is on our server: a pane id of someone else's tmux means
         nothing on ours."""

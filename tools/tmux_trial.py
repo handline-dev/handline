@@ -9,8 +9,13 @@ message and the turn it starts, /clear, /exit, then the window closed. After eac
 what the screen readers made of the screen, and the last rows of the screen itself, so a parser that
 needs a change for tmux shows up as a step that failed or a reading that is wrong for what is drawn.
 
-It types into a real claude and uses a little of the account's quota (one short turn). It does not
-need a running daemon. `--keep` leaves the window open at the end to look at.
+It types into a real claude and uses a little of the account's quota (one short turn). Use an agent
+made for the trial (`ocp agent register trialbot --model sonnet`), not a working one: the trial
+records its terminal on the agent's row. And stop the daemon first (`ocp service uninstall`, then
+`ocp service install` after): a daemon running on Orca reads the trial's tmux handle as a terminal
+that is gone and starts the agent again over it. The trial refuses to run beside one. About five
+minutes. `--keep` leaves the window open at the end to look at; end the tmux server with
+`tmux -L ocp kill-server`.
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("OCP_TERMINAL", "tmux")
 
 from ocp import db  # noqa: E402
+from ocp.daemon import locks as daemon_locks  # noqa: E402
 from ocp.session import backends, orca  # noqa: E402
 from ocp.team import spawn  # noqa: E402
 
@@ -73,6 +79,11 @@ def main() -> int:
     print(f"backend: {host.name} (available: {host.available()})")
     if host.name != "tmux" or not host.available():
         print("this trial is for tmux: set OCP_TERMINAL=tmux and have tmux on PATH", file=sys.stderr)
+        return 2
+    pid = daemon_locks.running_elsewhere()
+    if pid:
+        print(f"a daemon is running (pid {pid}); stop it first (`ocp service uninstall`), or it will "
+              f"treat the trial's tmux handle as a terminal that is gone", file=sys.stderr)
         return 2
     state: dict = {}
 

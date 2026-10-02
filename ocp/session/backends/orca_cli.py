@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -102,6 +103,9 @@ class OrcaBackend(Backend):
 
     def available(self) -> bool:
         return shutil.which("orca") is not None
+
+    def knows_handle(self, handle: str) -> bool:
+        return bool(handle) and not re.match(r"^%\d+$", handle)     # tmux's pane ids are %N
 
     def own_terminal(self) -> tuple[str | None, str | None]:
         return os.environ.get("ORCA_TERMINAL_HANDLE"), os.environ.get("ORCA_WORKTREE_ID")

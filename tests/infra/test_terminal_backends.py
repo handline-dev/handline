@@ -309,6 +309,143 @@ def test_spawn_runs_an_agent_on_any_backend(home: Path) -> None:
         spawnmod._run, spawnmod.prompt_landed, dmn_delivery.wait_for_session = real
 
 
+class Bare(FakeHost):
+    """A host with no runs and no worktree labels, that records any call to its own CLI."""
+    name = "bare"
+    supports_runs = False
+    supports_labels = False
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cli: list = []
+
+    def host_cli(self, args, timeout=180):
+        self.cli.append(args)
+        return True, "{}"
+
+
+def test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(home: Path) -> None:
+    use_home(home)
+    host = Bare()
+    backends.use(host)
+    agents.register("labelled")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "labelled", None, str(home))
+        check("no labels: hr.label succeeds at once with nothing to say", hr.label(con, "labelled") == (True, ""))
+        check("no labels: and made no call to the host's own CLI", host.cli == [], str(host.cli))
+        labels = FakeLabels()
+        backends.use(labels)
+        ok, said = hr.label(con, "labelled")
+        check("no labels: while a host that keeps them is asked, and its answer is read, not assumed",
+              labels.cli and labels.cli[0][:2] == ["worktree", "set"] and ok is False, f"{ok} {said} {labels.cli}")
+    finally:
+        con.close()
+
+
+class FakeLabels(Bare):
+    """Keeps labels, but its CLI is not there (the reply is not Orca's JSON)."""
+    name = "labels"
+    supports_labels = True
+
+
+def test_a_doctor_run_on_tmux_names_tmux_and_leaves_orcas_hooks_alone(home: Path) -> None:
+    use_home(home)
+    real_path = os.environ["PATH"]
+    _fake_tmux(home)
+    try:
+        os.environ["OCP_TERMINAL"] = "tmux"
+        r = doctor.Report()
+        doctor._check_tools(r)
+        rows = {name: (lv, d) for lv, name, d in r.rows}
+        check("doctor on tmux: it names tmux and finds it, and says nothing of orca",
+              "tmux found" in rows and rows["tmux found"][0] == doctor.OK and "orca found" not in rows
+              and "orca missing" not in rows, str(r.rows))
+        quiet = doctor.Report()
+        doctor._check_orca_hooks(quiet)
+        check("doctor on tmux: Orca's hook check does not run", quiet.rows == [], str(quiet.rows))
+        os.environ["OCP_TERMINAL"] = "orca"
+        loud = doctor.Report()
+        doctor._check_orca_hooks(loud)
+        check("doctor on Orca: the same check does run (so the silence above is the host's doing)",
+              loud.rows != [], str(loud.rows))
+        missing = doctor.Report()
+        os.environ["OCP_TERMINAL"] = "tmx"
+        doctor._check_tools(missing)
+        check("doctor: a host name nobody knows is reported missing by name",
+              any("tmx missing" == n for _l, n, _d in missing.rows), str(missing.rows))
+    finally:
+        os.environ["PATH"] = real_path
+
+
+def test_a_saved_terminal_of_the_other_host_is_named_by_the_doctor(home: Path) -> None:
+    use_home(home)
+    agents.register("alpha1")
+    agents.register("beta1")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "alpha1", "term_orca_made", "/wt/a")
+        db.set_terminal(con, "beta1", "%7", "/wt/b")
+        os.environ["OCP_TERMINAL"] = "tmux"
+        r = doctor.Report()
+        doctor._check_terminal_handles(r)
+        check("handles: on tmux an Orca-made handle is named, with what happens to it and what to close",
+              len(r.rows) == 1 and "alpha1" in r.rows[0][1] and "term_orca_made" in r.rows[0][1]
+              and "another host" in r.rows[0][2] and r.rows[0][0] == doctor.WARN, str(r.rows))
+        os.environ["OCP_TERMINAL"] = "orca"
+        r = doctor.Report()
+        doctor._check_terminal_handles(r)
+        check("handles: on Orca it is the tmux pane id that is named", len(r.rows) == 1 and "beta1" in r.rows[0][1], str(r.rows))
+        db.set_terminal(con, "beta1", None, "/wt/b")
+        r = doctor.Report()
+        doctor._check_terminal_handles(r)
+        check("handles: and a host's own handles, or none, are quiet", r.rows == [], str(r.rows))
+        check("handles: the shapes each host knows",
+              orcacli.OrcaBackend().knows_handle("term_x") and not orcacli.OrcaBackend().knows_handle("%3")
+              and tmuxbackend.TmuxBackend().knows_handle("%3") and not tmuxbackend.TmuxBackend().knows_handle("term_x")
+              and not tmuxbackend.TmuxBackend().knows_handle(""))
+    finally:
+        con.close()
+
+
+def test_a_rehome_over_a_host_without_labels_moves_the_worktree_and_goes_quiet_about_labels(home: Path) -> None:
+    _daemon_home(home, 20)
+    host = Bare()
+    backends.use(host)
+    repo = home / "repo"
+    repo.mkdir()
+
+    def git(*a, cwd=repo):
+        return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, check=True)
+    git("init", "-q", "-b", "main")
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "x")
+    old_wt = home / "wts" / "marina"
+    git("worktree", "add", "-q", "-b", "work", str(old_wt))
+    (old_wt / "Strings.swift").write_text("uncommitted\n")
+    new_wt = home / "wts" / "harbor.marina"
+    agents.register("harbor.marina")
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        db.set_terminal(con, "harbor.marina", "%4", str(old_wt))
+        check("rehome quiet: the entry, the unreadable check and the blockers all answer nothing",
+              rehome._orca_entry(old_wt) is None and rehome._orca_unreadable(old_wt) is False
+              and rehome._orca_blockers(old_wt) == "" and rehome._relabel({"id": "x", "childWorktreeIds": ["c"]},
+                                                                         new_wt, "harbor.marina") == "",
+              "")
+        check("rehome quiet: and none of them asked the host", host.cli == [], str(host.cli))
+        obsmod.live_sessions = lambda: {}
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome quiet: the move itself goes through, naming no Orca label or parent",
+              ok and new_wt.is_dir() and not old_wt.exists() and (new_wt / "Strings.swift").exists()
+              and "Orca" not in said and "label" not in said, said)
+        check("rehome quiet: with the host's CLI still untouched, and the old terminal forgotten",
+              host.cli == [] and db.get_agent_state(con, "harbor.marina")["terminal"] is None, str(host.cli))
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
 def test_no_module_outside_the_backends_starts_an_orca_process() -> None:
     """The boundary is only a boundary if nothing walks around it. Orca's CLI is spoken in ocp/session/backends
     and nowhere else; text for a person (a command to run by hand) is not a call and may name it."""
@@ -612,6 +749,10 @@ def main() -> int:
         run(lambda: test_the_terminal_layer_reaches_the_host_only_through_the_backend(Path(td) / "b4"))
         run(lambda: test_spawn_runs_an_agent_on_any_backend(Path(td) / "b5"))
         run(lambda: test_no_module_outside_the_backends_starts_an_orca_process())
+        run(lambda: test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(Path(td) / "b11"))
+        run(lambda: test_a_doctor_run_on_tmux_names_tmux_and_leaves_orcas_hooks_alone(Path(td) / "b12"))
+        run(lambda: test_a_saved_terminal_of_the_other_host_is_named_by_the_doctor(Path(td) / "b13"))
+        run(lambda: test_a_rehome_over_a_host_without_labels_moves_the_worktree_and_goes_quiet_about_labels(Path(td) / "b14"))
         run(lambda: test_the_tmux_backend_drives_windows_over_tmux_verbs(Path(td) / "b6"))
         run(lambda: test_tmux_idle_is_a_screen_that_has_stopped_and_shows_no_turn_in_progress(Path(td) / "b7"))
         run(lambda: test_tmux_own_terminal_is_a_pane_on_our_server_only(Path(td) / "b8"))
