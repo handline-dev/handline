@@ -6,6 +6,7 @@ name, the Orca task label and the folder name are all the same string.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,6 +89,74 @@ def mcp_config_args(cfg: dict) -> list[str]:
         return ["--mcp-config", mcp_config_text(v)]
     except ValueError:        # JSONDecodeError is one
         return []
+
+
+BROWSER_SERVER = "browser"
+DEFAULT_BROWSER_PROFILE = "Profile 17"
+_ORIGIN = re.compile(r"https?://[A-Za-z0-9.-]+(:[0-9]+)?")
+_ORIGINS_ARG = re.compile(r'--allowed-origins "([^"]*)"')
+_PROFILE_ARG = re.compile(r'--profile-dir-name "([^"]*)"')
+
+
+def _browser_command(cfg: dict) -> str:
+    """The shell line of the agent's own `browser` MCP server, or ""."""
+    try:
+        servers = json.loads(cfg.get("mcp_config") or "{}")["mcpServers"]
+        return str(servers[BROWSER_SERVER]["args"][-1])
+    except (ValueError, KeyError, IndexError, TypeError):
+        return ""
+
+
+def browser_mode(cfg: dict) -> str:
+    """How this agent browses: "chrome" (Claude in Chrome), "playwright" (its
+    own sandboxed `browser` MCP server) or "off"."""
+    if chrome(cfg):
+        return "chrome"
+    return "playwright" if _browser_command(cfg) else "off"
+
+
+def browser_origins(cfg: dict) -> list[str]:
+    """The sites its Playwright server may open."""
+    m = _ORIGINS_ARG.search(_browser_command(cfg))
+    return [o for o in m.group(1).split(";") if o] if m else []
+
+
+def parse_origins(text: str) -> list[str]:
+    """The origins in `text` (separated by spaces, commas, semicolons or lines);
+    ValueError for one that is not http(s)://host[:port]. They end up inside a
+    shell line, so nothing else is let through."""
+    out = []
+    for o in text.replace(",", " ").replace(";", " ").split():
+        o = o.rstrip("/")
+        if not _ORIGIN.fullmatch(o):
+            raise ValueError(f"{o!r} is not a site like https://example.com")
+        if o not in out:
+            out.append(o)
+    return out
+
+
+def browser_mcp_config(cfg: dict, mode: str, origins: list[str]) -> str:
+    """The `mcp_config` text for `mode`: the agent's other MCP servers as they
+    are, and its `browser` server set to `origins` for "playwright" or removed
+    otherwise. "" when nothing is left."""
+    try:
+        data = json.loads(cfg.get("mcp_config") or "{}")
+    except ValueError:
+        data = {}
+    servers = data.get("mcpServers") if isinstance(data, dict) else None
+    servers = dict(servers) if isinstance(servers, dict) else {}
+    old = _browser_command(cfg)
+    found = _PROFILE_ARG.search(old)
+    profile = found.group(1) if found else DEFAULT_BROWSER_PROFILE
+    servers.pop(BROWSER_SERVER, None)
+    if mode == "playwright":
+        if not origins:
+            raise ValueError("name at least one site for the sandboxed browser")
+        servers[BROWSER_SERVER] = {"command": "sh", "args": ["-c", (
+            'PLAYWRIGHT_MCP_EXTENSION_TOKEN=$(cat "$HOME/.orcapipe/browser/token") '
+            'exec "$HOME/.orcapipe/browser/node_modules/.bin/playwright-mcp" --extension '
+            f'--profile-dir-name "{profile}" --allowed-origins "{";".join(origins)}"')]}
+    return mcp_config_text(json.dumps({"mcpServers": servers})) if servers else ""
 
 
 _SKIP_NS = "skip_permissions"
