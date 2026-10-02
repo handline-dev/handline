@@ -983,8 +983,8 @@ def _orca_entry(path: str) -> dict | None:
     """Orca's entry for the checkout at `path`, or None."""
     from ..session import orca
 
-    ok, out = orca._run(["worktree", "show", "--worktree", f"path:{path}", "--json"],
-                        timeout=LABEL_TIMEOUT_S)
+    ok, out = orca.host_cli(["worktree", "show", "--worktree", f"path:{path}", "--json"],
+                            timeout=LABEL_TIMEOUT_S)
     try:
         entry = json.loads(out)["result"]["worktree"] if ok else None
     except (json.JSONDecodeError, KeyError, TypeError):
@@ -1007,10 +1007,12 @@ def label(con, agent: str) -> tuple[bool, str]:
         return True, ""
     cmd = ("orca worktree set --worktree " + shlex.quote(f"path:{path}")
            + " --display-name " + shlex.quote(agent))
-    if not orca.available():
+    if not orca.keeps_labels():
+        return True, ""             # a host with no worktree labels has nothing to rename
+    if not orca.has_labels():
         return False, f"Orca is not on PATH, so its label is not set: `{cmd}`"
-    ok, out = orca._run(["worktree", "set", "--worktree", f"path:{path}",
-                         "--display-name", agent, "--json"], timeout=LABEL_TIMEOUT_S)
+    ok, out = orca.host_cli(["worktree", "set", "--worktree", f"path:{path}",
+                             "--display-name", agent, "--json"], timeout=LABEL_TIMEOUT_S)
     try:
         ok = ok and bool(json.loads(out).get("ok"))
     except (json.JSONDecodeError, AttributeError):

@@ -429,9 +429,9 @@ edges:
   - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
-    real_run, real_avail = orcamod._run, orcamod.available
+    real_run, real_avail = orcacli._run, orcamod.available
     fake = FakeOrca({})
-    orcamod._run, orcamod.available = fake.run, lambda: True
+    orcacli._run, orcamod.available = fake.run, lambda: True
     try:
         repo = str(home / "proj")
         for d in (repo, repo + "2"):
@@ -472,7 +472,7 @@ edges:
         check("repo: with no Orca on PATH it says what to run, and calls nothing",
               ok and "not on PATH" in said and len(fake.calls) == n, said)
     finally:
-        orcamod._run, orcamod.available = real_run, real_avail
+        orcacli._run, orcamod.available = real_run, real_avail
 
 
 def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
@@ -484,9 +484,9 @@ def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
     shared, own = home / "shared-proj", home / "own-proj"
     for d in (shared, own):
         (d / ".git").mkdir(parents=True)
-    real_run, real_avail = orcamod._run, orcamod.available
+    real_run, real_avail = orcacli._run, orcamod.available
     fake = FakeOrca({})
-    orcamod._run, orcamod.available = fake.run, lambda: True
+    orcacli._run, orcamod.available = fake.run, lambda: True
     try:
         prop = {"agent": "crew", "members": "a,b,c", "repo": str(shared), "repo.a": str(shared),
                 "repo.b": str(own), "why": "w", "requested_by": "human", "created": int(time.time())}
@@ -512,7 +512,7 @@ def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
         check("ensure_repo: a ~ path is expanded before the git check and the add",
               state == "added" and fake.repos[-1] == str((own.parent / "tilde").resolve()), msg)
     finally:
-        orcamod._run, orcamod.available = real_run, real_avail
+        orcacli._run, orcamod.available = real_run, real_avail
 
 
 def test_a_rename_names_the_agents_orca_worktree(home: Path) -> None:
@@ -534,12 +534,12 @@ edges:
     wt = home / "trees" / "oldname"
     wt.mkdir(parents=True)
     con = db.connect()
-    real_run, real_avail = orcamod._run, orcamod.available
+    real_run, real_avail = orcacli._run, orcamod.available
     fake = FakeOrca({str(wt): "oldname"})
     try:
         sessions_are()
         db.set_terminal(con, "oldname", "term_x", f"repo-id::{wt}")
-        orcamod._run, orcamod.available = fake.run, lambda: True
+        orcacli._run, orcamod.available = fake.run, lambda: True
         ok, said = hr.enact("rename", "oldname", to="newname", why="the name it should have had")
         check("label: the rename went through", ok and "newname" in paths.list_agents(), said)
         check("label: Orca's worktree is now named for the agent, and the message says so",
@@ -584,7 +584,7 @@ edges:
         check("label: nothing but show and set ever reached Orca",
               all(c[0] == "worktree" and c[1] in ("show", "set") for c in fake.calls))
     finally:
-        orcamod._run, orcamod.available = real_run, real_avail
+        orcacli._run, orcamod.available = real_run, real_avail
         con.close()
 
 
@@ -687,7 +687,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         # Orca as measured: the old entry has a comment and a parent; after the
         # move it knows the new path only as an automatic entry.
         calls: list[list[str]] = []
-        real_avail, real_run, real_sleep = orcamod.available, orcamod._run, time.sleep
+        real_avail, real_run, real_sleep = orcamod.available, orcacli._run, time.sleep
         moved_yet = {"v": False}
         def fake_run(args, timeout=180):
             calls.append(args)
@@ -710,7 +710,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
             return True, json.dumps({"ok": True})
         tabs = {"v": []}
         orcamod.available = lambda: True
-        orcamod._run = fake_run
+        orcacli._run = fake_run
         time.sleep = lambda s_: moved_yet.update(v=True)
         try:
             tabs["v"] = [{"worktreePath": str(old_wt), "handle": "term_1"}]
@@ -720,7 +720,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
             tabs["v"] = []
             ok, said = rehome.move(con, "harbor.marina", "marina")
         finally:
-            orcamod.available, orcamod._run, time.sleep = real_avail, real_run, real_sleep
+            orcamod.available, orcacli._run, time.sleep = real_avail, real_run, real_sleep
         sets = [c for c in calls if c[:2] == ["worktree", "set"]]
         check("rehome: Orca's new entry is named for the agent, fixed, with the old "
               "entry's comment, parent and status carried",
@@ -760,11 +760,11 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         for reply, want in ((lambda a, timeout=180: (False, "timeout"), True),
                             (lambda a, timeout=180: (False, json.dumps(
                                 {"ok": False, "error": {"code": "selector_not_found"}})), False)):
-            orcamod.available, orcamod._run = (lambda: True), reply
+            orcamod.available, orcacli._run = (lambda: True), reply
             try:
                 blocked = rehome._orca_blockers(new_wt)
             finally:
-                orcamod.available, orcamod._run = real_avail, real_run
+                orcamod.available, orcacli._run = real_avail, real_run
             check(f"rehome: Orca {'unreadable' if want else 'not knowing the path'} "
                   f"{'refuses' if want else 'does not block'}", bool(blocked) == want, blocked)
         # A terminal list that fails after a good show is no licence to move.
@@ -772,23 +772,23 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
             if args[:2] == ["worktree", "show"]:
                 return True, json.dumps({"ok": True, "result": {"worktree": {"id": "i"}}})
             return False, "timeout"
-        orcamod.available, orcamod._run = (lambda: True), show_only
+        orcamod.available, orcacli._run = (lambda: True), show_only
         try:
             blocked = rehome._orca_blockers(new_wt)
         finally:
-            orcamod.available, orcamod._run = real_avail, real_run
+            orcamod.available, orcacli._run = real_avail, real_run
         check("rehome: a failed terminal list refuses the move", "unknown" in blocked, blocked)
         # The move happened but Orca never shows the new path: the children's
         # commands are printed, not dropped.
         old_entry = {"id": "i", "childWorktreeIds": ["repo-id::/kid"]}
         orcamod.available = lambda: True
-        orcamod._run = lambda a, timeout=180: (False, json.dumps(
+        orcacli._run = lambda a, timeout=180: (False, json.dumps(
             {"ok": False, "error": {"code": "selector_not_found"}}))
         time.sleep = lambda s_: None
         try:
             said = rehome._relabel(old_entry, Path("/new/place"), "harbor.marina")
         finally:
-            orcamod.available, orcamod._run, time.sleep = real_avail, real_run, real_sleep
+            orcamod.available, orcacli._run, time.sleep = real_avail, real_run, real_sleep
         check("rehome: when Orca never sees the new path, each child's re-parent command is printed",
               "orca worktree set --worktree id:repo-id::/kid --parent-worktree path:/new/place"
               in said and "--display-name harbor.marina" in said, said)
@@ -797,11 +797,11 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
             if args[:2] == ["worktree", "show"]:
                 return True, json.dumps({"ok": True, "result": {"worktree": {"id": "n"}}})
             return False, json.dumps({"ok": False, "error": {"code": "busy_now"}})
-        orcamod.available, orcamod._run = (lambda: True), refuses
+        orcamod.available, orcacli._run = (lambda: True), refuses
         try:
             said = rehome._relabel(old_entry, Path("/new/place"), "harbor.marina")
         finally:
-            orcamod.available, orcamod._run = real_avail, real_run
+            orcamod.available, orcacli._run = real_avail, real_run
         check("rehome: a refused label and a refused re-parent both say why",
               said.count("busy_now") == 2 and "would not set the label" in said
               and "would not re-parent repo-id::/kid" in said, said)
@@ -1998,7 +1998,8 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
     drv = vendors.get("opencode")
     drv.binary = lambda: "/x/bin/opencode"
     drv.credential_present = lambda config_dir: True
-    real = {n: getattr(orcamod, n) for n in ("_run", "_screen", "alive", "send", "SCREEN_POLL_S")}
+    real = {n: getattr(orcamod, n) for n in ("_screen", "alive", "send", "SCREEN_POLL_S")}
+    real_cli_run = orcacli._run
     real_execve, real_record = os.execve, launch._record_terminal
     try:
         accounts.register("alpha")
@@ -2077,7 +2078,7 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
         def fake_run(args, timeout=180):
             waits.append(args[0])
             return True, json.dumps({"result": {"wait": {"satisfied": orca_says["satisfied"]}}})
-        orcamod._run = fake_run
+        orcacli._run = fake_run
         reads = iter([OC_WORKING, OC_WORKING, OC_IDLE])
         orcamod._screen = lambda h: _screen_of(next(reads))
         check("opencode session: idle once the screen stops offering an interrupt",
@@ -2118,6 +2119,7 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
     finally:
         for n, f in real.items():
             setattr(orcamod, n, f)
+        orcacli._run = real_cli_run
         os.execve, launch._record_terminal = real_execve, real_record
         del drv.binary, drv.credential_present
 

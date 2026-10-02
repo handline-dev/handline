@@ -309,12 +309,12 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
     it as well, on every retry, which is a line per tick for the same sentence."""
     _daemon_home(home, 100)
     con = db.connect()
-    real_avail, real_alive, real_run = orcamod.available, orcamod.alive, orcamod._run
+    real_avail, real_alive, real_run = orcamod.available, orcamod.alive, orcacli._run
 
     def no_orca(args, timeout=180):
         raise AssertionError(f"reached the real orca: {args}")
     try:
-        orcamod.available, orcamod.alive, orcamod._run = (lambda: True), (lambda h: True), no_orca
+        orcamod.available, orcamod.alive, orcacli._run = (lambda: True), (lambda h: True), no_orca
         db.set_closed(con, "backend", "sess-1")
         db.add_request(con, "marina", "backend", "please look", None, "peer", "async",
                        None, 0, None)
@@ -335,7 +335,7 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
         check("wall wake: a direct wake does not log it either - its caller has the reason",
               not [m for m in logged if "5h window" in m], str(logged))
     finally:
-        orcamod.available, orcamod.alive, orcamod._run = real_avail, real_alive, real_run
+        orcamod.available, orcamod.alive, orcacli._run = real_avail, real_alive, real_run
         dmn_evaluate._SAID.clear()
         con.close()
 
@@ -1075,11 +1075,12 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which,
+    real = (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, orcamod.available,
            dmn_delivery.wait_for_session)
     try:
-        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        orcamod.available = lambda: True
         spawnmod._run = fake_run
+        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
         spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.run_current = lambda: None       # register_worker looks for a Run to join;
@@ -1102,7 +1103,7 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
         check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
     finally:
-        (spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, spawnmod.shutil.which,
+        (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, orcamod.available,
         dmn_delivery.wait_for_session) = real
 
 
@@ -1127,11 +1128,12 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
             return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+    real = (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
            dmn_delivery.wait_for_session)
     try:
-        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        orcamod.available = lambda: True
         spawnmod._run = fake_run
+        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
@@ -1156,7 +1158,7 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
         check("dispatch: and it counts as a failed wake, not a fresh streak",
               row["wake_failures"] == 1, str(dict(row)))
     finally:
-        (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+        (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
         dmn_delivery.wait_for_session) = real
         con.close()
 
@@ -1183,12 +1185,13 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
         return 0, "", ""
 
     fake = FakeOrca({})
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod._run, orcamod.available,
+    real = (orcacli._exec, spawnmod._run, orcamod.available, orcacli._run, orcamod.available,
             orcamod.wait_idle, dmn_delivery.wait_for_session)
     try:
-        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        orcamod.available = lambda: True
         spawnmod._run = fake_run
-        orcamod._run, orcamod.available = fake.run, lambda: True
+        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
+        orcacli._run, orcamod.available = fake.run, lambda: True
         orcamod.wait_idle = lambda *_a, **_k: True
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
@@ -1201,7 +1204,7 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
             if args[:2] == ["repo", "add"]:
                 have_repo["ok"] = True
             return r
-        orcamod._run = add_then_ready
+        orcacli._run = add_then_ready
         real_rc, real_rcr = orcamod.run_current, orcamod.run_create
         orcamod.run_current, orcamod.run_create = (lambda: None), (lambda objective: None)
         ok, msg = spawnmod.spawn("regy", ROOT, base="main")
@@ -1218,7 +1221,7 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
               not ok and len(creates) == 1 and "repo_not_found" in msg
               and all(c[:2] != ["repo", "add"] for c in fake.calls[n:]), f"{msg} {fake.calls[n:]}")
     finally:
-        (spawnmod._run, spawnmod.shutil.which, orcamod._run, orcamod.available,
+        (orcacli._exec, spawnmod._run, orcamod.available, orcacli._run, orcamod.available,
          orcamod.wait_idle, dmn_delivery.wait_for_session) = real
         orcamod.run_current, orcamod.run_create = real_rc, real_rcr
 
@@ -1244,12 +1247,13 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_k"}}}), ""
         return 0, "", ""
 
-    real = (spawnmod._run, spawnmod.shutil.which, orcamod.run_current, orcamod.run_create,
+    real = (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
            dmn_delivery.wait_for_session)
     con = db.connect()
     try:
-        spawnmod.shutil.which = lambda _n: "/usr/bin/orca"
+        orcamod.available = lambda: True
         spawnmod._run = fake_run
+        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
         orcamod.run_current = lambda: None
         orcamod.run_create = lambda objective: None
         # spawn() confirms a session came up before it says "started" (#1976,
@@ -1278,7 +1282,7 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
               any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
     finally:
         con.close()
-        (spawnmod._run, spawnmod.shutil.which, orcamod.run_current,
+        (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current,
         orcamod.run_create, dmn_delivery.wait_for_session) = real
 
 

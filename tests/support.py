@@ -65,6 +65,8 @@ from ocp.team import accounts, agents, ask as askmod, decisions, hr, rehome, spa
 from ocp import actions, cli as climod, db, vendors  # noqa: E402
 from ocp.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
 from ocp.vendors import claude_meter as claudemeter  # noqa: E402
+from ocp.session import backends  # noqa: E402
+from ocp.session.backends import orca_cli as orcacli, tmux as tmuxbackend  # noqa: E402
 from ocp.vendors import claude_collect  # noqa: E402
 from ocp.vendors.base import Window  # noqa: E402
 from ocp.usage import windows  # noqa: E402
@@ -2008,6 +2010,7 @@ __all__ = [
     'actions',
     'agents',
     'askmod',
+    'backends',
     'blockedmod',
     'burnrate',
     'climod',
@@ -2047,6 +2050,7 @@ __all__ = [
     'lock',
     'measure',
     'obsmod',
+    'orcacli',
     'orcamod',
     'paths',
     'recovermod',
@@ -2059,6 +2063,7 @@ __all__ = [
     'textsafe',
     'timefmt',
     'triggers',
+    'tmuxbackend',
     'trustmod',
     'tui',
     'usage_api',

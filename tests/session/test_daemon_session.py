@@ -2618,20 +2618,20 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
 
     # The distinction has to survive into the implementation, not only the fake.
     restore_world()
-    real_run = orcamod._run
+    real_run = orcacli._run
     try:
-        orcamod._run = lambda *a, **k: (False, "connection refused")
+        orcacli._run = lambda *a, **k: (False, "connection refused")
         check("sweep: Orca failing to answer reads as unknown, not as empty",
               orcamod.live_terminals() is None, str(orcamod.live_terminals()))
-        orcamod._run = lambda *a, **k: (True, "not json at all")
+        orcacli._run = lambda *a, **k: (True, "not json at all")
         check("sweep: and so does an answer we cannot parse",
               orcamod.live_terminals() is None)
-        orcamod._run = lambda *a, **k: (True, json.dumps(
+        orcacli._run = lambda *a, **k: (True, json.dumps(
             {"result": {"terminals": [{"handle": "term_a"}, {"nohandle": 1}]}}))
         check("sweep: a real answer is the set of handles",
               orcamod.live_terminals() == {"term_a"}, str(orcamod.live_terminals()))
     finally:
-        orcamod._run = real_run
+        orcacli._run = real_run
 
 
 def test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(home: Path) -> None:

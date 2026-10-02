@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass
 
 from ..infra import textsafe
+from . import backends
 
 
 # Sending /clear mid-turn would discard work in flight, so we never force it.
@@ -49,88 +50,55 @@ from ..infra import textsafe
 # for an answer that was free elsewhere.
 IDLE_TIMEOUT_MS = 120_000
 IDLE_PROBE_MS = 3_000
-# `--tab` waits for Orca to persist the layout; a wedged Orca must not hold the tick.
-CLOSE_TIMEOUT_S = 30
 
 
 def available() -> bool:
-    return shutil.which("orca") is not None
-
-
-def _repo_paths(out: str) -> set[str] | None:
-    """Every real path `orca repo list --json` names, or None if it is not the
-    JSON of a successful reply. Read for any `path` string wherever it sits, so
-    a change in how Orca nests the list does not lose a repo."""
-    try:
-        reply = json.loads(out)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(reply, dict) or not reply.get("ok"):
-        return None
-    found: set[str] = set()
-
-    def walk(node) -> None:
-        if isinstance(node, dict):
-            for k, v in node.items():
-                if k == "path" and isinstance(v, str):
-                    found.add(os.path.realpath(v))
-                else:
-                    walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-
-    walk(reply.get("result"))
-    return found
+    return backends.current().available()
 
 
 def ensure_repo(path: str) -> tuple[str, str]:
-    """Make sure Orca has `path` as a repo: (state, what to tell the founder).
-
-    state is 'known' (already there, left alone), 'added', 'not_git' (Orca is
-    not asked: a folder that is not a git repository needs the founder's
-    `git init` first), 'no_orca' or 'failed'. The list is read first, so a
-    repo Orca already has is never added twice."""
-    path = os.path.realpath(os.path.expanduser(path))
-    add = "orca repo add --path " + shlex.quote(path)
-    if not available():
-        return "no_orca", f"Orca is not on PATH, so {path} is not registered there: `{add}`"
-    ok, out = _run(["repo", "list", "--json"])
-    known = _repo_paths(out) if ok else None
-    if known is None:
-        return "failed", f"Orca would not list its repos ({out.strip()[:160]}); `{add}` once it does"
-    if path in known:
-        return "known", f"Orca already has {path}"
-    if not os.path.exists(os.path.join(path, ".git")):
-        return "not_git", (f"{path} is not a git repository, so Orca cannot have it: "
-                           f"run `git init` there, then `{add}`")
-    ok, out = _run(["repo", "add", "--path", path, "--json"])
-    try:
-        ok = ok and bool(json.loads(out).get("ok"))
-    except (json.JSONDecodeError, AttributeError):
-        ok = False
-    if not ok:
-        return "failed", f"Orca would not add {path} ({out.strip()[:160]}): `{add}`"
-    return "added", f"Orca now has {path}"
+    """Make sure the terminal host knows `path` as a repo: (state, what to tell the founder).
+    The states are the backend's: 'known', 'added', 'not_git', 'no_orca' and 'failed'."""
+    return backends.current().ensure_repo(path, available())
 
 
 def terminal_handle() -> str | None:
-    """The terminal we are running inside, if Orca launched us."""
-    return os.environ.get("ORCA_TERMINAL_HANDLE")
+    """The terminal we are running inside, if the host launched us."""
+    return backends.current().own_terminal()[0]
 
 
-def _run(args: list[str], timeout: int = 180) -> tuple[bool, str]:
-    """Every caller's `out` is Orca's own text - clean at the source, so a
-    message built from it (an error embedded in what a caller returns) is
-    clean by construction and nothing downstream has to remember to sanitise
-    it. `--json` output survives this: JSON is whitespace-insensitive outside
-    its strings, and a conformant writer already escapes a control byte
-    inside one rather than emitting it raw."""
-    try:
-        r = subprocess.run(["orca", *args], capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.SubprocessError) as e:
-        return False, textsafe.oneline(str(e))
-    return r.returncode == 0, textsafe.oneline((r.stdout or r.stderr).strip())
+def keeps_labels() -> bool:
+    """Whether the configured host keeps worktree labels at all, there or not."""
+    return backends.current().supports_labels
+
+
+def has_labels() -> bool:
+    """Whether the host is there and keeps worktree labels and parents (Orca does, tmux does not)."""
+    return backends.current().supports_labels and available()
+
+
+def host_cli(args: list[str], timeout: int = 180) -> tuple[bool, str]:
+    """One command to the host's own CLI; only for what `has_labels` gates."""
+    return backends.current().host_cli(args, timeout)
+
+
+def has_runs() -> bool:
+    """Whether the host is there and draws a team (runs and tasks with workers under them)."""
+    return backends.current().supports_runs and available()
+
+
+def host_name() -> str:
+    return backends.current().name
+
+
+def missing() -> str:
+    """What to say when `available()` is False."""
+    return f"{backends.current().name} is not on PATH"
+
+
+def worktree_id() -> str | None:
+    """The host's id for the worktree of the terminal we are running inside."""
+    return backends.current().own_terminal()[1]
 
 
 def wait_idle(handle: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> bool:
@@ -166,17 +134,7 @@ SCREEN_POLL_S = 1.0
 
 
 def _orca_idle(handle: str, timeout_ms: int) -> bool:
-    ok, out = _run(
-        ["terminal", "wait", "--terminal", handle, "--for", "tui-idle",
-         "--timeout-ms", str(timeout_ms), "--json"],
-        timeout=timeout_ms // 1000 + 30,
-    )
-    if not ok:
-        return False
-    try:
-        return bool(json.loads(out)["result"]["wait"]["satisfied"])
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return False
+    return backends.current().wait_idle(handle, timeout_ms)
 
 
 # Drivers already looked up inside the running `driver_scope`, by handle. Each
@@ -235,23 +193,7 @@ def clear_command(handle: str) -> str:
 
 
 def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
-    args = ["terminal", "send", "--terminal", handle, "--text", text]
-    if enter:
-        args.append("--enter")
-    return _run(args)
-
-
-def _result(out: str, *path: str):
-    """Dig one value out of an `--json` reply, or None."""
-    try:
-        node = json.loads(out).get("result", {})
-    except (json.JSONDecodeError, TypeError):
-        return None
-    for key in path:
-        if not isinstance(node, dict):
-            return None
-        node = node.get(key)
-    return node
+    return backends.current().send(handle, text, enter)
 
 
 def screen_text(handle: str) -> str | None:
@@ -327,125 +269,100 @@ def confirm_trust(handle: str) -> tuple[bool, str]:
     callers decide *whether* to press it. Writes nothing to any vendor's own
     config file.
     """
-    ok, out = _run(["terminal", "send", "--terminal", handle,
-                    "--text", _driver_for(handle).trust_answer()])
+    ok, out = send(handle, _driver_for(handle).trust_answer(), enter=False)
     if not ok:
         return False, f"could not accept the trust dialog: {out[:200]}"
     ok, out = send(handle, "")
     return ok, "trusted" if ok else f"could not confirm the trust prompt: {out[:200]}"
 
 
-def create_terminal(command: str, worktree: str = "current",
+def create_terminal(command: str, cwd: str | None = None,
                     title: str | None = None) -> str | None:
-    """Start a fresh terminal running `command`, or None if Orca could not.
+    """Start a fresh terminal running `command`, or None if the host could not.
 
-    `worktree` is a selector as `orca terminal create --worktree` takes it -
-    "current" runs inside whatever worktree this process is already in, which
+    `cwd` None runs inside whatever directory this process is already in, which
     is what a throwaway probe wants (a directory `command` itself `cd`s into,
-    not one Orca has to know about).
+    not one the host has to know about).
     """
-    args = ["terminal", "create", "--worktree", worktree, "--command", command]
-    if title:
-        args += ["--title", title]
-    ok, out = _run(args)
-    if not ok:
-        return None
-    return _result(out, "terminal", "handle")
+    return backends.current().create_terminal(command, cwd, title)[0]
+
+
+def open_terminal(command: str, cwd: str | None = None,
+                  title: str | None = None) -> tuple[str | None, str]:
+    """`create_terminal` with the reason it could not: (handle, "") or (None, why). A terminal that
+    started but whose handle could not be read is (None, "")."""
+    return backends.current().create_terminal(command, cwd, title)
 
 
 def close_terminal(handle: str, tab: bool = True) -> tuple[bool, str]:
     """Close one terminal, and its tab unless told to leave the tab standing."""
-    args = ["terminal", "close", "--terminal", handle]
-    if tab:
-        args.append("--tab")
-    return _run(args, timeout=CLOSE_TIMEOUT_S)
+    return backends.current().close_terminal(handle, tab)
 
 
 def run_create(objective: str) -> str | None:
-    """Start an orchestration Run - the card a team's work hangs under.
+    """Start an orchestration Run - the card a team's work hangs under, on a host that draws one.
 
     It also *binds* the calling terminal to that Run, which is why this is
     called once and remembered: calling it again makes a second card with the
     same name and moves the binding to it, and a team split across two cards
     is a tree that draws half of itself.
     """
-    ok, out = _run(["orchestration", "run-create", "--objective", objective, "--json"])
-    if not ok:
-        return None
-    return _result(out, "run", "id") or _result(out, "id")
+    return backends.current().run_create(objective)
 
 
 def run_current() -> str | None:
     """The Run this terminal is already bound to, if any."""
-    ok, out = _run(["orchestration", "run-current", "--json"])
-    return _result(out, "run", "id") if ok else None
+    return backends.current().run_current()
 
 
 def run_exists(run: str) -> bool:
-    """Is this Run still there? `--id`, not `--run`: the flag differs per verb,
-    and reading the wrong one as "gone" made a new Run for every agent."""
-    ok, out = _run(["orchestration", "run-show", "--id", run, "--json"])
-    return ok and bool(_result(out, "run", "id"))
+    return backends.current().run_exists(run)
 
 
 def run_use(run: str) -> bool:
     """Bind this terminal to an existing Run, so tasks land in the team's card."""
-    ok, _out = _run(["orchestration", "run-use", "--id", run, "--json"])
-    return ok
+    return backends.current().run_use(run)
 
 
 def task_create(spec: str, title: str, display_name: str, run: str,
                 parent: str | None = None) -> str | None:
-    """A task in the Run, optionally under another - this is the tree Orca draws."""
-    args = ["orchestration", "task-create", "--spec", spec, "--task-title", title,
-            "--display-name", display_name, "--run", run, "--json"]
-    if parent:
-        args += ["--parent", parent]
-    ok, out = _run(args)
-    if not ok:
-        return None
-    return _result(out, "task", "id") or _result(out, "id")
+    """A task in the Run, optionally under another - this is the tree the host draws."""
+    return backends.current().task_create(spec, title, display_name, run, parent)
 
 
 def dispatch(task: str, handle: str, run: str) -> str | None:
-    """Bind a task to a terminal, which is what makes it a worker in the card.
+    """Bind a task to a terminal, which is what makes it a worker in the card."""
+    return backends.current().dispatch(task, handle, run)
 
-    No `--inject`: the terminal is already running `ocp launch`, and the spec
-    is metadata for the card rather than an instruction for the agent. Orca
-    injecting it too would deliver the same thing twice.
-    """
-    ok, out = _run(["orchestration", "dispatch", "--task", task, "--to", handle,
-                    "--run", run, "--json"])
-    if not ok:
-        return None
-    return _result(out, "dispatch", "id") or _result(out, "dispatchId") or task
+
+def submit(handle: str, text: str, wait_submit_s: int) -> tuple[bool, str]:
+    """Type `text` and Enter, asking a host that can to watch the prompt land (it never resends)."""
+    return backends.current().send(handle, text, True, wait_submit_s)
+
+
+def create_worktree(repo: str, name: str, base_ref: str) -> tuple[str | None, str]:
+    """A new worktree named `name` branched from `base_ref`: (its path, "") or (None, why not)."""
+    return backends.current().create_worktree(repo, name, base_ref)
 
 
 def focus(handle: str) -> tuple[bool, str]:
-    """Bring this terminal's tab to the front in the Orca window.
+    """Bring this terminal to the front in the host's window.
 
     The one thing the screen does that is not about state: the reader stops
     deciding and starts working, in the agent's own session, with everything it
     can see. Nothing is typed and nothing is read - which is why it is safe on
     an agent that is mid-turn, where every other key here is not.
     """
-    return _run(["terminal", "switch", "--terminal", handle], timeout=20)
+    return backends.current().focus(handle)
 
 
 def live_terminals() -> set[str] | None:
-    """Every handle Orca currently has, or None when it could not say.
+    """Every handle the host currently has, or None when it could not say.
 
     None is not an empty set. Reading "I could not ask" as "there are none"
-    would tear down a healthy team the first time Orca was slow to answer.
+    would tear down a healthy team the first time the host was slow to answer.
     """
-    ok, out = _run(["terminal", "list", "--json"])
-    if not ok:
-        return None
-    try:
-        terms = json.loads(out)["result"]["terminals"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
-    return {t["handle"] for t in terms if isinstance(t, dict) and t.get("handle")}
+    return backends.current().list_terminals()
 
 
 def alive(handle: str) -> bool:
@@ -468,10 +385,7 @@ def _screen(handle: str, limit: int = 40) -> dict | None:
     """The rendered screen, or None when it cannot be read. `limit` is how
     many of the bottom rows come back - `dialog_on_screen` widens it past the
     default when a dialog's own top border has scrolled out of a narrower read."""
-    ok, out = _run(["terminal", "read", "--terminal", handle, "--screen",
-                    "--limit", str(limit), "--json"], timeout=30)
-    term = _result(out, "terminal") if ok else None
-    return term if isinstance(term, dict) else None
+    return backends.current().read_screen(handle, limit)
 
 
 # Why a line typed now would not land, named.
