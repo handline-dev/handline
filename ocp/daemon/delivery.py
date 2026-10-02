@@ -82,6 +82,23 @@ def _wait_session_gone(agent: str) -> bool:
         time.sleep(END_POLL_S)
 
 
+def session_still_drawn(handle: str | None, wait: bool = True) -> bool:
+    """Is an agent's session still drawn on this terminal's screen?
+
+    The second witness to the process table, whose one costly mistake is a live session missing from
+    it. With `wait` the screen is given END_WAIT_S to clear, since a session that has just exited
+    repaints within moments. A screen that cannot be read is not a yes: the table's word stands."""
+    if not handle:
+        return False
+    deadline = time.time() + (END_WAIT_S if wait else 0)
+    while True:
+        if not orca.session_on_screen(handle):
+            return False
+        if time.time() >= deadline:
+            return True
+        time.sleep(END_POLL_S)
+
+
 # How long a relaunched session has to show up in the process table. `ocp
 # launch` execs claude, so it appears at once when it appears at all; this is
 # slack for a slow start, not a wait for the TUI to be usable.

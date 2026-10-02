@@ -633,6 +633,23 @@ def _composer_shape(tail: list) -> bool:
     return _composer_box(tail) is not None
 
 
+def session_on_screen(handle: str) -> bool | None:
+    """Whether this terminal's screen shows an agent's session: the vendor's composer box, a dialog's
+    footer, or a turn the vendor's screen says is running. A shell prompt is none of those, so this is
+    the second witness to the process table: it is what stops a launch line typed at a live session
+    when the table failed to list it. None when the screen cannot be read - not "no session"."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return None
+    if _composer_shape(tail):
+        return True
+    rows = [str(r) for r in tail[-MODAL_ROWS - 3:]]
+    if any(m in r for r in rows for m in MODAL_MARKERS):
+        return True
+    return _driver_for(handle).working_on_screen(tail) is not None
+
+
 def screen_blocker(handle: str) -> Blocker | None:
     """What on the screen a typed line would answer or merge into, from one read.
 
@@ -1266,6 +1283,10 @@ def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
     """
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
+    if session_on_screen(handle):
+        # Whatever the process table says, a session is drawn there: the line would reach it as a
+        # prompt, and a session that obeyed it would start a second copy of itself.
+        return False, "a session is on the terminal's screen; not typing a launch line at it"
     # The line and its Enter go as two sends, in case an Enter that arrives with the line is swallowed
     # by a shell taking it as a paste (T663: a hypothesis, not an observed cause).
     ok, out = send(handle, command, enter=False)

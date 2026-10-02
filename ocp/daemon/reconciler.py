@@ -187,6 +187,10 @@ def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
     log(f"  {agent}: its folder-trust prompt is answered; the stall is lifted")
 
 
+# Once per terminal: the sweep comes round every tick, and a screen can stay drawn for a long time.
+_SAID_DRAWN: dict[str, str] = {}
+
+
 def sweep(con, log, actions: list[str]) -> None:
     """Ask the world what is true, and correct the record where it is not.
 
@@ -284,6 +288,14 @@ def sweep(con, log, actions: list[str]) -> None:
                 db.set_agent_state(con, agent, IDLE,
                                    detail="a session is running; the wake stall is lifted")
                 actions.append(f"{agent}: STALLED -> IDLE (it is running after all)")
+        elif not alive and not closed and row["terminal"] and delivery.session_still_drawn(row["terminal"], wait=False):
+            # The table lists no session but the terminal's screen draws one: the table missed a live
+            # session (it has done so), and recording it closed would have a wake type a launch line
+            # at it. Left as it is; the next reading either lists it or the screen clears.
+            if _SAID_DRAWN.get(agent) != row["terminal"]:
+                _SAID_DRAWN[agent] = row["terminal"]
+                log(f"  {agent}: the process table lists no session but one is drawn on its terminal; "
+                    f"not recorded as closed")
         elif not alive and not closed and row["terminal"]:
             # It died, or a human ended it. Recording it as closed is what makes
             # work arriving wake it instead of being typed at a bash prompt.
