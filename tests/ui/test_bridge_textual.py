@@ -3086,6 +3086,67 @@ async def test_a_and_e_on_a_home_message_open_the_answer_with_its_whole_body() -
             await pilot.pause(0.4)
 
 
+async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal() -> None:
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("sessionmark")
+    agents.register("reviewer")
+    askmod.ask("reviewer", "before the restart", requester=actions.HUMAN)
+    handoff = "\n".join(["# handoff", *[f"line {i} of what it knew" for i in range(60)], "THE LAST LINE"])
+    con = db.connect()
+    try:
+        db.note_session_start(con, "reviewer", "restart", False, None, handoff, "")
+        db.note_session_start(con, "reviewer", "wake", True, "sess-1", "", "")
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause(0.5)
+        marks = list(page.query(cp.SessionMark))
+        lines = [str(m.render()) for m in marks]
+        check("session mark: a fresh start and a resume are each one line, newest last",
+              len(marks) == 2 and lines[0].startswith("new session") and "restarted" in lines[0]
+              and lines[1].startswith("session resumed") and "woken" in lines[1], str(lines))
+        check("session mark: only the one with a handoff says it can be read",
+              lines[0].endswith("handoff ▸") and "handoff" not in lines[1], str(lines))
+        check("session mark: it is not drawn as a message from anyone",
+              not any(isinstance(m, cp.ChatMessage) for m in marks))
+        await pilot.click(marks[1])
+        await pilot.pause(0.3)
+        check("session mark: a resume with no handoff opens nothing", app.screen is page)
+        await pilot.click(marks[0])
+        await pilot.pause(0.4)
+        check("session mark: a click opens that session's handoff in a modal",
+              isinstance(app.screen, cp.HandoffModal) and app.screen.text == handoff, type(app.screen).__name__)
+        body = app.screen.query_one("#handoff_body")
+        check("session mark: the modal is scrollable and shows the text from its top",
+              body.max_scroll_y > 0 and "line 0 of what it knew" in str(app.screen.query_one("#handoff_body Static").render()))
+        await pilot.press("pagedown")
+        await pilot.pause(0.2)
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        check("session mark: esc closes the modal", app.screen is page)
+        marks[0].focus()
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("session mark: Enter on it opens it as well", isinstance(app.screen, cp.HandoffModal))
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        con = db.connect()
+        try:
+            db.note_session_start(con, "reviewer", "restart", True, "sess-2", "", "")
+            con.commit()
+        finally:
+            con.close()
+        page.refresh_view()
+        await pilot.pause(0.4)
+        check("session mark: a start written while the page is open is drawn on the next refresh, with no new message",
+              len(list(page.query(cp.SessionMark))) == 3, str(len(list(page.query(cp.SessionMark)))))
+
+
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
     """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
     closes it, a second answer is dropped, and the page under it has focus back after."""
@@ -4686,6 +4747,7 @@ async def _run_all() -> None:
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
     await test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
+    await test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal()
     await test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest()
     await test_older_messages_loaded_above_are_not_counted_as_new()
     await test_answering_a_message_shows_its_whole_body()

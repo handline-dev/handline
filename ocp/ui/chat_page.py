@@ -41,6 +41,7 @@ from .theme import follow_os_theme
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
+from .components.dialog import Dialog
 from .components.dialog_modal import DialogModal
 from .components.permission_modal import PermissionModal
 from .components.question_modal import QuestionModal
@@ -206,6 +207,23 @@ def task_changes(con, msgs: list[dict], agent: str = "") -> list[dict]:
     return out
 
 
+START_WORDS = {"restart": "restarted", "wake": "woken", "move": "moved", "launch": "opened by hand"}
+
+
+def session_marks(con, agent: str, msgs: list[dict]) -> list[dict]:
+    """The session starts of `agent` since the first of `msgs`, as entries for the chat: {session: the
+    row, when}. Older ones are above what is drawn."""
+    since = min((m["when"] for m in msgs if m["when"]), default=0)
+    return [{"session": dict(r), "when": r["ts"]} for r in db.session_starts(con, agent) if r["ts"] >= since]
+
+
+def session_line(r: dict) -> str:
+    """The one line a session start is drawn as: when, new or resumed, why, and that a handoff can be read."""
+    cause = START_WORDS.get(r["cause"], r["cause"])
+    return (f"{'session resumed' if r['resumed'] else 'new session'} · {timefmt.stamp(r['ts'], timefmt.CLOCK)}"
+            f" · {cause}" + (" · handoff ▸" if r["text"] else ""))
+
+
 def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
     """The messages with each change of a task set among them at its time; a message still waiting to
     go stays last."""
@@ -222,7 +240,7 @@ def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
 
 def signature(con, agent: str, everyone: bool) -> tuple:
     """A cheap reading that changes whenever something in the chat does: a new
-    request, or a request answered, closed or changed."""
+    request, or a request answered, closed or changed, or a session started."""
     where, params = _scope(agent, everyone)
     row = con.execute(
         f"SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX({db.touched_sql('requests')}), 0), "
@@ -232,7 +250,9 @@ def signature(con, agent: str, everyone: bool) -> tuple:
         params).fetchone()
     events = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM events WHERE kind IN "
                          f"({','.join('?' * len(_STATE_AFTER))})", tuple(_STATE_AFTER)).fetchone()
-    return (*row, *events)
+    starts = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM session_starts WHERE agent = ?",
+                         (agent,)).fetchone()
+    return (*row, *events, *starts)
 
 
 def _col(r, name: str):
@@ -595,6 +615,46 @@ class TaskChange(Vertical):
         self.m = m
 
 
+class SessionMark(Static, can_focus=True):
+    """Where a session started, drawn as a system line, not as anyone's message. Where it was given a
+    handoff, a click (or Enter) reads it."""
+
+    BINDINGS = [("enter", "open", "read the handoff")]
+
+    def __init__(self, m: dict) -> None:
+        super().__init__(Text(session_line(m["session"]), style="dim"), classes="sessionmark")
+        self.m = m
+
+    def on_click(self) -> None:
+        self.action_open()
+
+    def action_open(self) -> None:
+        r = self.m["session"]
+        if r["text"]:
+            self.app.push_screen(HandoffModal(session_line(r).removesuffix(" ▸"), r["text"]))
+
+
+class HandoffModal(Dialog):
+    """The handoff a session was started with, whole and scrollable; Esc closes."""
+
+    FOCUS = "#handoff_body"
+    DEFAULT_CSS = """
+    HandoffModal #dialog { width: 90; height: 80%; }
+    HandoffModal #handoff_title { text-style: bold; margin-bottom: 1; }
+    HandoffModal #handoff_body { height: 1fr; }
+    """
+
+    def __init__(self, title: str, text: str) -> None:
+        super().__init__()
+        self.title_text, self.text = title, text
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static(Text(textsafe.oneline(self.title_text)), id="handoff_title")
+            with VerticalScroll(id="handoff_body"):
+                yield Static(Text("\n".join(textsafe.drawable(self.text))))
+
+
 class WorkLine(Static):
     """The spare row under the last message: a spinner while the agent is working, and what
     it waits on when idle."""
@@ -629,6 +689,9 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     out: list = []
     first = True
     for m in msgs:
+        if "session" in m:
+            out.append(SessionMark(m))
+            continue
         if "change" in m and not is_card(m):
             out.append(TaskChange(m))
             continue
@@ -1605,7 +1668,7 @@ class ChatPage(JobsAware, Screen):
                 return
             self._block_modal = None
         if block is None or not block["answerable"] or block["id"] in self._blocks_done \
-                or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal, TextPrompt)):
+                or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal, TextPrompt, HandoffModal)):
             return
         self._block_id, self._block_pressing = block["id"], False
         detail = {**block["detail"], "title": block["title"]}
@@ -1735,14 +1798,17 @@ class ChatPage(JobsAware, Screen):
             actions.for_you_seen(con, self.agent, max((max(r["id"], r["answer_id"] or 0) for r in rows), default=0))
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
             fold_handoffs(con, msgs)
-            changes = task_changes(con, msgs, self.agent)
+            changes = task_changes(con, msgs, self.agent) + session_marks(con, self.agent, msgs)
         finally:
             con.close()
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
         key = (tuple((r["id"], r["state"], db.answered_at(r), r["delivered_at"], r["landed_at"], r["typed_at"],
                       r["dismisser"])
-                     for r in rows), tuple((c["tasks"][0], c["when"], c["change"]) for c in changes))
+                     for r in rows),
+               tuple((c["tasks"][0], c["when"], c["change"]) for c in changes if "change" in c),
+               tuple((c["when"], c["session"]["session_id"], c["session"]["cause"], bool(c["session"]["text"]))
+                     for c in changes if "session" in c))
         live = (state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:
             if live != self._live:      # only the spinner, the wait or a reason: redraw those, not the chat
