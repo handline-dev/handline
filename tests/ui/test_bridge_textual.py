@@ -1879,6 +1879,7 @@ async def test_changing_owners_on_the_task_board_does_not_hold_the_screen() -> N
 
     def slow_batch(con, verb, tids, who, arg):
         on["thread"] = threading.get_ident()
+        on["calls"] = on.get("calls", 0) + 1
         time.sleep(0.5)
         return [(t, True, "ok") for t in tids]
     real = actions.batch_task
@@ -1904,11 +1905,17 @@ async def test_changing_owners_on_the_task_board_does_not_hold_the_screen() -> N
             await pilot.press("enter")
             await pilot.pause(0.3)
             await pilot.press("y")
+            await pilot.pause(0.2)
+            view.action_act("priority")          # while the batch is writing
             await pilot.pause(1.2)
             task.cancel()
             check("task board: the owner change ran", "thread" in on, str(on))
             check("task board: ... off the event loop", on.get("thread") != threading.get_ident(), str(on))
             check("task board: ... and the screen kept turning while it ran", max(lags) < 0.3, f"{max(lags):.2f}s")
+            msgs = [n.message for n in app._notifications]
+            check("task board: its result is noted", any(actions.task_ref(ids[0]) in m for m in msgs), str(msgs))
+            check("task board: a second act during it was refused, and started no second batch",
+                  any("still changing 3 tasks" in m for m in msgs) and on["calls"] == 1, str((msgs, on)))
     finally:
         actions.batch_task = real
 

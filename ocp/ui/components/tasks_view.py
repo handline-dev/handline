@@ -197,6 +197,7 @@ class TasksView(Vertical):
         self.rows: list[dict] = []
         self._mark_head = ""
         self._agent_owners: list[str] | None = None
+        self._writing = 0                # tasks an action is changing now, off the loop
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks_filters"):
@@ -506,6 +507,9 @@ class TasksView(Vertical):
             self.app.push_screen(TaskDetail(self.rows[event.cursor_row]["id"]))
 
     def action_act(self, verb: str) -> None:
+        if self._writing:       # a new act would cancel the one that must still report its result
+            self.notify(f"still changing {self._writing} task{'s' if self._writing != 1 else ''}", severity="warning")
+            return
         self.run_worker(self._act(verb), exclusive=True, group="tasks_act")
 
     def _confirm(self, verb: str, tids: list[int], arg: str, keep: int | None = None) -> Confirm:
@@ -555,7 +559,11 @@ class TasksView(Vertical):
                 return actions.batch_task(con, verb, tids, actions.HUMAN, arg)
             finally:
                 con.close()
-        results = await asyncio.to_thread(write)
+        self._writing = len(tids)
+        try:
+            results = await asyncio.to_thread(write)
+        finally:
+            self._writing = 0
         for text, severity in result_notes(results, verb):
             self.notify(text, title=verb, severity=severity, timeout=5 if severity == "information" else 12,
                         markup=False)
