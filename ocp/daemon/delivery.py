@@ -603,7 +603,12 @@ def deliver_queued(con, agent: str, log) -> bool:
     # Typing at an agent mid-turn leaves the text sitting in its input box
     # unsent, which is how three agents once came up having been told nothing.
     if not orca.typeable_now(handle):
-        return _held(agent, head, "its screen is not idle (mid-turn, or a dialog is open)", log, contestable=True)
+        # An open dialog is a reason the agent cannot take it, not a delivery gone wrong: only a screen
+        # that is busy with nothing to explain it (the row says idle) is worth contesting.
+        blocker = orca.screen_blocker(handle)
+        if blocker is not None and blocker.kind != orca.UNREADABLE:
+            return _held(agent, head, blocker.reason(), log)
+        return _held(agent, head, "its screen is not idle (mid-turn, or unreadable)", log, contestable=True)
     depth = sum(1 for r in db.queued_for(con, agent) if r["kind"] == "task")
     with lock.terminal(agent) as mine:
         if not mine:

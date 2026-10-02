@@ -372,7 +372,7 @@ def test_the_daemons_own_paths_note_why_they_did_not_type(home: Path) -> None:
         check("screen: deliver_queued declines", not delivery.deliver_queued(con, "worker", lambda _m: None))
         why = _why(con, t)
         check("screen: and the task says why, able on an idle row",
-              why == ("its screen is not idle (mid-turn, or a dialog is open)", True), str(why))
+              why == ("its screen is not idle (mid-turn, or unreadable)", True), str(why))
         orcamod.typeable_now = lambda h: True
         check("screen: a later delivery lands it", delivery.deliver_queued(con, "worker", lambda _m: None) and sent)
         check("screen: and nothing is held or waiting any more",
@@ -380,6 +380,55 @@ def test_the_daemons_own_paths_note_why_they_did_not_type(home: Path) -> None:
               str(_why(con, t)))
     finally:
         orcamod.typeable_now = lambda h: True
+        con.close()
+
+
+def test_an_open_dialog_holds_the_task_as_a_reason_not_a_missed_delivery(home: Path) -> None:
+    """A permission dialog is the owner's own question: nothing is typed at it, the task says so and
+    does not count the owner as able, so the founder is not told a delivery was missed; once the dialog
+    is gone the task is typed."""
+    _world(home)
+    sent: list[str] = []
+    orcamod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
+    con = db.connect()
+    try:
+        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
+        dialog = orcamod.Blocker(orcamod.MODAL, '"Do you want to proceed?"')
+        orcamod.typeable_now = lambda h: False
+        orcamod.screen_blocker = lambda h: dialog
+        check("dialog: deliver_queued types nothing", not delivery.deliver_queued(con, "worker", lambda _m: None)
+              and not sent, str(sent))
+        why = _why(con, t)
+        check("dialog: the task says a dialog is open, and the owner is not able",
+              why is not None and "a dialog is open on its screen" in why[0] and why[1] is False, str(why))
+        warned = []
+        real_report = askmod.report
+        askmod.report = lambda *a, **k: warned.append(a)
+        try:
+            taskholds.sweep(con, lambda _m: None, int(time.time()))
+            taskholds.sweep(con, lambda _m: None, int(time.time()) + taskholds.ABLE_WARN_S + 60)
+        finally:
+            askmod.report = real_report
+        check("dialog: and no missed-delivery notice goes out however long it stands", not warned, str(warned))
+        # A conversation sent to the background is the owner's own state too; a screen that cannot be
+        # read says nothing about why, so that one stays worth contesting.
+        for kind, blocker, reason, able in (
+                ("background", orcamod.Blocker(orcamod.BACKGROUNDED, "2 sessions"),
+                 "its conversation moved to the background", False),
+                ("unreadable", orcamod.Blocker(orcamod.UNREADABLE),
+                 "its screen is not idle (mid-turn, or unreadable)", True)):
+            orcamod.screen_blocker = lambda h, b=blocker: b
+            delivery.deliver_queued(con, "worker", lambda _m: None)
+            why = _why(con, t)
+            check(f"{kind}: nothing is typed, and the reason reads {reason!r}, able {able}",
+                  not sent and why is not None and reason in why[0] and why[1] is able, f"{sent} {why}")
+        orcamod.typeable_now = lambda h: True
+        orcamod.screen_blocker = lambda h: None
+        check("dialog: once it is answered the task is typed",
+              delivery.deliver_queued(con, "worker", lambda _m: None) and sent, str(sent))
+    finally:
+        orcamod.typeable_now = lambda h: True
+        orcamod.screen_blocker = lambda h: None
         con.close()
 
 
@@ -460,6 +509,7 @@ def main() -> int:
         run(lambda: test_a_free_owner_is_given_the_next_task_on_the_next_tick(Path(td) / "h12"))
         run(lambda: test_a_real_tick_records_why_a_task_waits(Path(td) / "h13"))
         run(lambda: test_the_daemons_own_paths_note_why_they_did_not_type(Path(td) / "h14"))
+        run(lambda: test_an_open_dialog_holds_the_task_as_a_reason_not_a_missed_delivery(Path(td) / "hdlg"))
         run(lambda: test_a_wake_or_start_that_fails_in_the_tick_is_noted(Path(td) / "h15"))
         run(lambda: test_a_parked_agents_due_wake_notes_its_failure_and_clears_it_when_it_works(Path(td) / "h16"))
     return run_area(tests)
