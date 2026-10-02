@@ -148,7 +148,7 @@ def test_the_command_checks_without_changing_anything(home: Path) -> None:
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "migrate_home.py"), "check", "--user-home", str(p.user)],
                        capture_output=True, text=True, timeout=60)
     check("migrate: check names the move and the store and changes nothing",
-          ".orcapipe" in r.stdout and ".handline" in r.stdout and "store" in r.stdout and _tree(p.user) == before,
+          r.returncode == 0 and ".orcapipe" in r.stdout and ".handline" in r.stdout and "store" in r.stdout and _tree(p.user) == before,
           r.stdout + r.stderr)
 
 
