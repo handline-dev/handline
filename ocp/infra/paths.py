@@ -44,6 +44,8 @@ def home() -> Path:
         # Path("") is the current directory: `ocp init` would set up wherever it was run.
         raise SystemExit("HANDLINE_HOME (or OCP_HOME) is set but empty: unset it to use the default home, or give it a folder")
     h = Path(raw or default_home()).expanduser()
+    if h.is_symlink():
+        h = h.resolve()     # after the home moved, the old path is a link: sandbox rules match real paths
     if names.getenv(TEST_ROOT_ENV):
         for real in ((_real_user_home() / d).resolve() for d in (".orcapipe", ".handline")):
             if real == h.resolve() or real in h.resolve().parents:
