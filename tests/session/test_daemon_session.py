@@ -2086,8 +2086,9 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
         check("pane: the wake opens a terminal running the resume with the wake prompt",
               len(created) == 1 and " launch backend" in created[0] and "--resume sess-4" in created[0]
               and "--prompt-file " in created[0], str(created))
-        check("pane: the resume's first prompt is the message",
-              any(t and "look at this" in t for t in sent), str(sent))
+        check("pane: the resume's first prompt is the message, with no notice of the resume in front of it",
+              any(t and "look at this" in t for t in sent)
+              and not any(t and ("closed" in t or "resumed" in t) for t in sent), str(sent))
         check("pane: the new terminal is the agent's and it is no longer closed",
               row["terminal"] == "term_new" and not row["closed_at"], str(dict(row)))
 
@@ -2105,7 +2106,21 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
         said = control.start(con, "backend")
         check("pane: the terminal key on a closed agent resumes its session",
               len(created) == 1 and "--resume sess-4" in created[0]
-              and any(t and "opened your terminal" in t for t in sent), f"{said} {created} {sent}")
+              and "--prompt-file " in created[0], f"{said} {created} {sent}")
+        pf = shlex.split(created[0].split("--prompt-file ")[1])[0]
+        check("pane: and a resume only because a terminal was opened types nothing at it",
+              not Path(pf).exists() and launched_prompt(created[0]) == ""
+              and not any(sent), f"{pf} {sent}")
+        # No turn followed, so nothing the agent did is recent: the resume itself starts its idle window.
+        con.execute("UPDATE events SET ts = ts - 7200 WHERE agent = 'backend' AND kind != 'wake'")
+        row = db.get_agent_state(con, "backend")
+        st = status.read_for_agent("backend", "alpha")
+        later = int(time.time()) + idle_close.close_timeout_s("backend")
+        check("pane: and the pane it opened is not closed under the person who opened it",
+              not dmn_lifecycle.should_close(con, "backend", row["state"], row, int(time.time()) + 30, st),
+              str(dict(row)))
+        check("pane: but it still closes one idle window later",
+              dmn_lifecycle.should_close(con, "backend", row["state"], row, later + 5, st), str(later))
 
         # One that never closes keeps its pane.
         idle_close.set_agent_close_timeout("backend", idle_close.NEVER)

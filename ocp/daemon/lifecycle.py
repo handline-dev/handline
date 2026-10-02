@@ -479,8 +479,10 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
     """What an agent is told when it comes back.
 
     A resume is started for a message and is handed that message, nothing
-    else (`waiting`, from `delivery.waiting_prompt`); there is no resume with
-    nothing to say.
+    else (`waiting`, from `delivery.waiting_prompt`). One a person asked for,
+    with nothing waiting, is handed nothing: the prompt file is empty, which
+    the launch still takes (that is how a launch is known to be ours) and
+    starts no turn from.
 
     A resumed session already holds everything it knew, so it is told where it
     is rather than what it did. One that was parked is given its handoff here;
@@ -495,24 +497,21 @@ def wake_prompt(agent: str, resumed: bool, was_closed: bool = False,
         # `launch.context_for` has already put it in this session's system
         # prompt.
         parts.append(f"Your account was at its 5h limit, so this session was started on "
-                     f"{moved_to} instead of waiting for that window to roll over. Your "
-                     f"handoff is in your system prompt above. Carry on from there.")
+                     f"{moved_to}. Your handoff is in your system prompt above; carry on from there.")
     elif resumed:
         return waiting or ""
     elif cold:
         # The handoff is in the system prompt, and carries the transcript's
         # path: nothing more is appended for it below.
         record = db.get_handoff(con, agent)
-        parts.append("Your session was closed while idle and this is a fresh one (cheaper than "
-                     "resuming). Your handoff is in your system prompt above; pick the task "
-                     "back up from it.")
+        parts.append("Your session was closed while idle and this is a fresh one. Your handoff "
+                     "is in your system prompt above; pick the task back up from it.")
     elif was_closed:
         # Taking the parked branch here would tell an agent that was never
         # parked that its context was cleared. What the close recorded is in
         # the system prompt of the session it started, if it recorded one.
         record = db.get_handoff(con, agent) if con else None
-        parts.append("Your session was closed while you were idle and could not be "
-                     "resumed, so this is a fresh one. "
+        parts.append("Your session could not be resumed, so this is a fresh one. "
                      + ("Your handoff is in your system prompt above."
                         if record else
                         "There is no handoff. Read your journal and your inbox "
@@ -822,7 +821,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
             pf = _write_wake_prompt(
                 agent, wake_prompt(agent, resume, was_closed=closed,
                                    moved_to=moved_to, con=con, cold=cold,
-                                   waiting=waiting[0] if waiting else FORCED_RESUME if resume else None))
+                                   waiting=waiting[0] if waiting else None))
             cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
                 f" -- --resume {session}" if resume else "")
             ok, why = _launch_in_pane(
@@ -930,11 +929,6 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")
     return ok, why
-
-
-# The first prompt of a session resumed because a person opened its terminal, with no request behind it.
-FORCED_RESUME = ("Your session was closed while you were idle and has been resumed because someone "
-                 "opened your terminal. Carry on where you were; the next item is typed to you when it comes.")
 
 
 def _took_prompt(con, agent: str, pf: Path) -> bool:
