@@ -422,7 +422,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     # T292 (#1655 section 4): a sha task can't close on a reason unless the
     # opener or the founder does it; verdict/decision/report are just labels.
     if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], HUMAN):
-        return False, (f"task T{tid} expects a sha - `ocp task done T{tid} --sha <sha>`, "
+        return False, (f"task T{tid} expects a sha - `ocp task done T{tid} <sha>`, "
                        f"or its opener ({row['opened_by']}) or the founder may close it "
                        "another way")
     kids = db.open_child_tasks(con, tid)
