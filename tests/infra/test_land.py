@@ -145,16 +145,16 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         p_merger, p_auditor, p_core = (s.pid for s in sleepers)
         check("session: recorded in the protected store, one process per agent",
               all(sessiontoken.record(a, p) for a, p in ((lands.MERGER, p_merger), (lands.AUDITOR, p_auditor),
-                                                         ("orcapipe.core", p_core)))
+                                                         ("backend", p_core)))
               and sessiontoken.verify(lands.MERGER, p_merger))
         was = os.environ.get("OCP_AGENT")
-        os.environ["OCP_AGENT"] = "orcapipe.core"
+        os.environ["OCP_AGENT"] = "backend"
         try:
             check("session: an agent's session cannot record one, so it cannot replace another agent's",
                   not sessiontoken.record(lands.MERGER, p_core) and sessiontoken.verify(lands.MERGER, p_merger))
         finally:
             os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
-        agents.register("orcapipe.core")
+        agents.register("backend")
         launch_src = (ROOT / "ocp" / "session" / "launch.py").read_text()
         check("session: no secret goes into the session's environment",
               "OCP_SESSION_TOKEN" not in launch_src and not hasattr(sessiontoken, "mint"))
@@ -166,15 +166,15 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         child = subprocess.Popen(["sh", "-c", "sleep 300 >/dev/null 2>&1 & echo $!; wait"],
                                  stdout=subprocess.PIPE, text=True)
         grand = child.stdout.readline().strip()
-        sessiontoken.record("orcapipe.parent", child.pid)
+        sessiontoken.record("backend.parent", child.pid)
         check("session: a grandchild of the recorded process counts",
-              grand.isdigit() and sessiontoken.verify("orcapipe.parent", int(grand)))
+              grand.isdigit() and sessiontoken.verify("backend.parent", int(grand)))
         child.kill()
         child.stdout.close()
         os.kill(int(grand), 9)
         check("session: a recorded pid with another start time (a reused pid) is refused",
-              (protected.put(sessiontoken.NS, "orcapipe.stale", f"{p_core} Thu Jan  1 00:00:00 1970"),
-               not sessiontoken.verify("orcapipe.stale", p_core))[1])
+              (protected.put(sessiontoken.NS, "backend.stale", f"{p_core} Thu Jan  1 00:00:00 1970"),
+               not sessiontoken.verify("backend.stale", p_core))[1])
 
         def ask_daemon(verb, agent, peer, **kw):
             return socket_server._handle_request({"verb": verb, "sha": feat, "message": "m", "tree": tree,
@@ -199,14 +199,14 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
                                        "agent": agent}).encode() + b"\n")
             socket_server._serve_one(server, lambda m: None)
             return json.loads(client.recv(65536).decode())
-        sessiontoken.record("orcapipe.core", os.getpid())
-        said = over_the_wire("orcapipe.core")
-        check("peer: a request is judged by the process that sent it (this one is orcapipe.core's session)",
+        sessiontoken.record("backend", os.getpid())
+        said = over_the_wire("backend")
+        check("peer: a request is judged by the process that sent it (this one is backend's session)",
               "may not land" in said["said"], str(said))
         said = over_the_wire(lands.MERGER)
         check("peer: the same process naming itself the merger is refused",
               "not this request's session" in said["said"], str(said))
-        said = ask_daemon("land", "orcapipe.core", p_core)
+        said = ask_daemon("land", "backend", p_core)
         check("land: an agent with its own valid session that is not the merger is refused",
               not said["ok"] and "may not land" in said["said"], str(said))
         said = ask_daemon("land_pass", lands.AUDITOR, p_auditor)

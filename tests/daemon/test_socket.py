@@ -446,7 +446,7 @@ def test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(home
 
 def test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
     """The daemon takes the peer pid from the kernel and accepts `land_pass` only from the process tree
-    of the session recorded for the auditor (T1145)."""
+    of the session recorded for the auditor."""
     from ocp.daemon import lands
     from ocp.infra import sessiontoken
     _daemon_home(home, 20)

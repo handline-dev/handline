@@ -6,7 +6,7 @@ id, so every process the session starts descends from it. The daemon asks the ke
 other end of a socket request (`peer_pid`) and accepts a verb only when that process descends from the
 recorded one (`verify`). A name in the request proves nothing, and nothing an agent holds can be copied
 out of its environment, `ps` or a file: a token in the environment was readable by every other session
-through `sysctl` (T1145). A process that does not descend from the session, such as a daemonized
+through `sysctl`. A process that does not descend from the session, such as a daemonized
 child, is refused. A session launched before this holds no record and is refused until relaunched.
 """
 from __future__ import annotations
