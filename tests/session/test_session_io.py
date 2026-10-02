@@ -3884,7 +3884,7 @@ def test_an_idle_agent_is_asked_for_its_handoff_note_once_and_closed_when_it_is_
         check("note: the close waits while the ask goes out",
               handoff_note.hold(con, "backend", now, lambda _m: None) and len(asks) == 1, str(asks))
         check("note: the ask names the file and what belongs in it",
-              str(handoff_note.note_path("backend")) in asks[0] and "T123/#1234" in asks[0], asks[0][:200])
+              str(handoff_note.note_path("backend")) in asks[0] and "T<n>/#<n>" in asks[0], asks[0][:200])
         check("note: it is not asked again while the turn has not begun",
               handoff_note.hold(con, "backend", now + 30, lambda _m: None) and len(asks) == 1, str(asks))
 
