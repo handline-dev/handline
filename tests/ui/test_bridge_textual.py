@@ -2200,6 +2200,40 @@ async def test_the_task_board_and_a_task_page_read_on_a_worker_after_an_action()
         check("task board: a refresh after an action reads nothing on the loop", on_loop == [], str(on_loop))
 
 
+async def test_switching_tasks_blanks_the_page_until_the_new_one_is_read() -> None:
+    """The page shows one task. After show(B) and before B is read, an action finds no task: it never
+    runs on B with A's text."""
+    from ocp.ui import chat_page as cp
+    _home("switchtask")
+    ok, _, a = actions.task_new("product", "backend", "A", "brief of A and its done")
+    ok, _, b = actions.task_new("product", "backend", "B", "brief of B and its done")
+    app = bt.BridgeApp()
+    real = cp.task_detail
+    async with app.run_test(size=(150, 40)) as pilot:
+        await pilot.pause(0.5)
+        app.push_screen(cp.TaskDetail(a))
+        await pilot.pause(1.0)
+        body = app.screen._body()
+        check("switch task: the first task is read", body.d is not None and body.d["id"] == a)
+        depth = len(app.screen_stack)
+        cp.task_detail = lambda con, tid: (time.sleep(1.0), real(con, tid))[1]
+        try:
+            body.show(b)
+            check("switch task: at once the page holds no task", body.d is None and body.tid == b)
+            body.action_edit_brief()
+            body.action_assign_task()
+            await pilot.pause(0.2)
+            check("switch task: an action before the read opens no box on the old data",
+                  len(app.screen_stack) == depth, str(app.screen_stack))
+            for _ in range(100):
+                if body.d is not None:
+                    break
+                await pilot.pause(0.1)
+        finally:
+            cp.task_detail = real
+        check("switch task: the new task is drawn when read", body.d is not None and body.d["id"] == b)
+
+
 async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     """The handoff of one task is ~60 ms and more; it is made off the event loop and its answer is toasted."""
     import threading
@@ -4024,6 +4058,7 @@ async def _run_all() -> None:
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
     await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
     await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
+    await test_switching_tasks_blanks_the_page_until_the_new_one_is_read()
     await test_a_second_assign_answered_before_the_first_worker_starts_is_refused()
     await test_the_task_board_and_a_task_page_read_on_a_worker_after_an_action()
     await test_the_bridge_asks_once_before_restarting_on_new_code()

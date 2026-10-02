@@ -286,8 +286,8 @@ class TasksView(Vertical):
         return rows, every
 
     def refresh_rows(self) -> None:
-        """Redraw from the database: the read is on a worker thread (a board of hundreds of tasks takes
-        a second or more), the newest request replacing one still reading, and the rows are drawn when it lands."""
+        """Redraw from the database: the read is on a worker thread (opening the database can wait on a
+        writer), the newest request replacing one still reading, and the rows are drawn when it lands."""
         if not self.display:
             return
 

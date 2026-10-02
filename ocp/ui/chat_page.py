@@ -1211,7 +1211,12 @@ class TaskBody(TaskActions, Vertical):
         self._poller = self.set_interval(self.POLL_S, self.poll)
 
     def show(self, tid: int | None) -> None:
-        self.tid = tid or 0
+        """Another task: the page is blank until its read lands, so no action can run on the new id
+        with the old task's data."""
+        tid = tid or 0
+        if tid != self.tid:
+            self.tid, self.d = tid, None
+            self._blank("loading" if tid else "no task")
         self.load()
 
     def poll(self) -> None:
