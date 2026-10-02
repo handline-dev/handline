@@ -2990,6 +2990,102 @@ async def test_older_messages_loaded_above_are_not_counted_as_new() -> None:
               bar.display and "1 new message (click) ↓" in str(bar.render()), str(bar.render()))
 
 
+async def test_answering_a_message_shows_its_whole_body() -> None:
+    """A long multi-line message is drawn whole (wrapped, scrollable) over the answer box, whose
+    input stays focused."""
+    from textual.containers import VerticalScroll
+    from textual.widgets import Static
+    _home("answerbody")
+    body = "\n".join([f"line {i} " + "word " * 40 for i in range(1, 31)] + ["THE LAST LINE"])
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        box = TextPrompt("answer #7:", context=body)
+        app.push_screen(box)
+        await pilot.pause()
+        scroll = box.query_one("#context", VerticalScroll)
+        shown = box.query_one("#context Static", Static).render().plain
+        check("answer: every line of the message is in the view", shown == body, shown[-40:])
+        check("answer: a long message scrolls inside the space left",
+              scroll.max_scroll_y > 0 and scroll.size.height <= 15, f"{scroll.max_scroll_y} {scroll.size}")
+        check("answer: the input is still visible and focused",
+              app.focused is box.query_one("#box") and box.query_one("#box").region.y < 30,
+              str(app.focused))
+        box.finish(None)
+
+
+async def test_the_answer_box_fits_a_short_terminal_and_pages_the_message() -> None:
+    from textual.containers import VerticalScroll
+    _home("answershort")
+    body = "\n".join(f"line {i} " + "word " * 12 for i in range(1, 31))
+    app = bt.BridgeApp()
+    async with app.run_test(size=(80, 14)) as pilot:
+        await pilot.pause()
+        box = TextPrompt("answer #7:", context=body)
+        app.push_screen(box)
+        await pilot.pause(0.3)
+        ctx = box.query_one("#context", VerticalScroll)
+        dialog = box.query_one("#dialog")
+        check("answer 80x14: the whole dialog is on screen, its first message line too",
+              dialog.region.y >= 0 and dialog.region.bottom <= 14 and ctx.region.y >= 0,
+              f"{dialog.region} {ctx.region}")
+        check("answer 80x14: the input is on screen and focused",
+              app.focused is box.query_one("#box") and box.query_one("#box").region.bottom <= 14)
+        await pilot.press("pagedown")
+        await pilot.pause(0.2)
+        check("answer: PageDown in the input scrolls the message", ctx.scroll_y > 0, str(ctx.scroll_y))
+        was = ctx.scroll_y
+        await pilot.press("pageup")
+        await pilot.pause(0.2)
+        check("answer: PageUp scrolls it back", ctx.scroll_y < was, str(ctx.scroll_y))
+        check("answer: the hint says so", "pgup/pgdn" in str(box.query_one("#hint").render()))
+        box.finish(None)
+    for size in ((80, 14), (100, 24), (80, 10)):
+        app = bt.BridgeApp()
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            box = TextPrompt("answer #7:", context=body, multi=True)
+            app.push_screen(box)
+            await pilot.pause(0.3)
+            for i in range(8):
+                await pilot.press(*f"typed {i}")
+                await pilot.press("shift+enter")
+            await pilot.pause(0.5)
+            dialog, field, hint = (box.query_one(q) for q in ("#dialog", "#box", "#hint"))
+            check(f"answer e {size[0]}x{size[1]}: with 8 typed lines the dialog top, box and hint are on screen",
+                  dialog.region.y >= 0 and field.region.bottom <= size[1] and hint.region.bottom <= size[1]
+                  and dialog.region.bottom <= size[1],
+                  f"{dialog.region} {field.region} {hint.region}")
+            check(f"answer e {size[0]}x{size[1]}: the message keeps a line to show",
+                  box.query_one("#context").region.height >= 1, str(box.query_one("#context").region))
+            box.finish(None)
+
+
+async def test_a_and_e_on_a_home_message_open_the_answer_with_its_whole_body() -> None:
+    from textual.widgets import DataTable
+    from ocp.team import ask as askmod
+    _home("answerrow")
+    agents.register("reviewer")
+    body = "\n".join(f"line {i} " + "word " * 30 for i in range(1, 25)) + "\nTHE LAST LINE"
+    askmod.ask("human", body, requester="reviewer")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause(0.5)
+        app.screen.sel[tui.MESSAGES] = tui._keys_of(tui.MESSAGES)[0]
+        app.screen.panel = tui.MESSAGES
+        app.screen._redraw()
+        await pilot.pause()
+        for key in ("a", "e"):
+            await pilot.press(key)
+            await pilot.pause(0.4)
+            check(f"answer row ({key}): the box opens with the message's whole body",
+                  isinstance(app.screen, TextPrompt) and app.screen.context == body,
+                  type(app.screen).__name__)
+            if isinstance(app.screen, TextPrompt):
+                app.screen.finish(None)
+            await pilot.pause(0.4)
+
+
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
     """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
     closes it, a second answer is dropped, and the page under it has focus back after."""
@@ -4592,6 +4688,9 @@ async def _run_all() -> None:
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest()
     await test_older_messages_loaded_above_are_not_counted_as_new()
+    await test_answering_a_message_shows_its_whole_body()
+    await test_a_and_e_on_a_home_message_open_the_answer_with_its_whole_body()
+    await test_the_answer_box_fits_a_short_terminal_and_pages_the_message()
     await test_assign_enter_sends_the_note_whole()
     await test_a_changed_timeline_entry_remounts_only_itself()
     test_account_settings_alias_and_default_cap()

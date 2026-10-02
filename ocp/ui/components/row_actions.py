@@ -129,7 +129,8 @@ class RowActions(AccountActions):
                                    {"me": actions.HUMAN}), False)
             return
         if key in ("a", "e"):
-            text = await self.app.push_screen_wait(TextPrompt(f"answer #{rid}:", multi=key == "e"))
+            text = await self.app.push_screen_wait(TextPrompt(
+                f"answer #{rid}:", multi=key == "e", context=row["body"] or ""))
             if not text:
                 self.toast("nothing sent: a or e again to retry")
                 return
