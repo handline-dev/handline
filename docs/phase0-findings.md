@@ -1,52 +1,52 @@
-# Phase 0 판정 근거
+# Phase 0 evidence for the verdicts
 
-측정 환경: macOS 15 (Darwin 25.5.0) · Claude Code **2.1.273** · Orca **1.4.203** · 2026-09-16
-모든 프로브는 `--model sonnet` 으로 돌렸다.
+Measured on: macOS 15 (Darwin 25.5.0) · Claude Code **2.1.273** · Orca **1.4.203** · 2026-09-16
+Every probe ran with `--model sonnet`.
 
 ---
 
-## H · `~/.claude.json` 이 `CLAUDE_CONFIG_DIR` 을 따라가는가 → **참**
+## H · Does `~/.claude.json` follow `CLAUDE_CONFIG_DIR`? → **True**
 
 ```bash
 BEFORE=$(stat -f %m ~/.claude.json)
 CLAUDE_CONFIG_DIR=/tmp/ocp-probe/h/.claude claude --model sonnet -p "reply with the single word ok"
 ```
 
-출력: `Not logged in · Please run /login`
+Output: `Not logged in · Please run /login`
 
 ```
-/tmp/ocp-probe/h/.claude/.claude.json                       ← 프로필 안에 생겼다
+/tmp/ocp-probe/h/.claude/.claude.json                       ← created inside the profile
 /tmp/ocp-probe/h/.claude/backups/.claude.json.backup...
-/tmp/ocp-probe/h/.claude/projects/-Users-ron-workspaces/
-~/.claude.json mtime: 1789526410 → 1789526410  (변화 없음)
+/tmp/ocp-probe/h/.claude/projects/-Users-<user>-workspaces/
+~/.claude.json mtime: 1789526410 → 1789526410  (unchanged)
 ```
 
-`.claude.json` 은 `CLAUDE_CONFIG_DIR` 안에 생성되고 홈의 것은 건드리지 않는다. **격리 완전.**
+`.claude.json` is created inside `CLAUDE_CONFIG_DIR` and the one in home is left alone. **Isolation is complete.**
 
-### 덤으로 확인된 것 — credential 도 따라간다 (설계서가 열어둔 위험)
+### A bonus finding: the credential follows too (a risk the design left open)
 
-빈 `CLAUDE_CONFIG_DIR` 이 `Not logged in` 을 냈다는 것은, macOS Keychain 의
-`Claude Code-credentials`(acct=`ron`, 존재 확인함 — 값은 읽지 않았다)를 **기본 디렉토리만** 쓴다는 뜻이다.
-비기본 `CLAUDE_CONFIG_DIR` 은 자기 디렉토리의 credential 을 쓴다.
-→ **가정 A(계정 2개 동시 실행)의 전제가 macOS 에서 성립한다.** Keychain 전역 공유로 무너지지 않는다.
+That an empty `CLAUDE_CONFIG_DIR` gave `Not logged in` means that only the **default directory** uses the macOS Keychain entry
+`Claude Code-credentials` (acct=`<user>`; we confirmed it exists and did not read its value).
+A non-default `CLAUDE_CONFIG_DIR` uses the credential in its own directory.
+→ **The premise of assumption A (two accounts running at once) holds on macOS.** It does not collapse into one globally shared Keychain entry.
 
 ---
 
-## I · 컨텍스트 사용률을 statusLine 에서 얻을 수 있는가 → **참 (설계 예상보다 좋다)**
+## I · Can context usage come from the statusLine? → **True (better than the design expected)**
 
-> 배포된 `probe.sh i` 는 `claude -p` 를 쓴다. **헤드리스에는 statusLine 이 없다** — 그대로 돌리면
-> 거짓 음성이 난다. 실제로 처음엔 `status.json` 이 안 만들어졌다.
-> 진짜 pty 에서 인터랙티브로 띄워야 한다 (`libexec/ptyrun.py`).
-> 사용자의 `settings.json` 은 건드리지 않고 `--settings` 로 주입했다.
+> The shipped `probe.sh i` uses `claude -p`. **A headless run has no statusLine**, so running it as is
+> gives a false negative. In fact `status.json` was not created at first.
+> It must be started interactively in a real pty (`libexec/ptyrun.py`).
+> The user's `settings.json` was left alone and ours was injected with `--settings`.
 
-statusLine stdin 최상위 키:
+Top-level keys of the statusLine stdin:
 
 ```
 context_window  cost  cwd  effort  exceeds_200k_tokens  fast_mode  model
 output_style  rate_limits  scratchpad_dir  session_id  thinking  transcript_path  version  workspace
 ```
 
-턴이 1회 발생한 뒤:
+After one turn has happened:
 
 ```json
 "rate_limits":    { "five_hour":  { "used_percentage": 4,  "resets_at": 1789543200 },
@@ -59,172 +59,171 @@ output_style  rate_limits  scratchpad_dir  session_id  thinking  transcript_path
 "cost":           { "total_cost_usd": 0.0780496 }
 ```
 
-§4 표가 요구한 값이 **전부** 온다. 그리고 설계서는 컨텍스트 사용률을
-"세션 토큰 / 모델 한도"로 **계산**하려 했는데, `context_window.used_percentage` 가 **그대로 온다.**
+**Every** value the §4 table asked for arrives. And where the design meant to **compute** context usage
+as "session tokens / model limit", `context_window.used_percentage` **arrives as is.**
 
-### 이것이 바꾸는 것
+### What this changes
 
-- **§8.1 컨텍스트 트리거에 transcript 집계가 필요 없다.** 따라서 그 경로의 `message.id` dedup 도 불필요하다.
-  (dedup 은 transcript 로 **번레이트**를 계산할 때는 여전히 필수다 — 가정 E 는 유효)
-- `context_window.used_percentage` 는 **턴 발생 전 `null`** 이다. 0 이 아니다. 미상이므로
-  fail-closed 로 다룬다. (`pct_5h` 의 null 은 §M 이후 **미상과 조용함으로 갈린다** — 컨텍스트에는
-  그 구분이 없다. 턴 전이라 값이 없는 것과 세션이 죽은 것이 구별되지 않기 때문이다.)
+- **The §8.1 context trigger needs no transcript aggregation.** So the `message.id` dedup on that path is not needed either.
+  (Dedup is still required when the **burn rate** is computed from the transcript: assumption E stands)
+- `context_window.used_percentage` is **`null` before a turn happens.** It is not 0. It is unknown, so it is
+  handled fail-closed. (A null `pct_5h` **splits into unknown and quiet** after §M; context has
+  no such split, because before a turn "no value yet" cannot be told apart from "the session died".)
 
-`seven_day_opus` 는 이 표본에 **없었다**. 수집기는 `// null` 로 받는다.
-
----
-
-## J0 · Orca 가 자기 statusLine 을 강제하는가 → **거짓 (= 우리에게 유리. 데이터 출처 살아있다)**
-
-```
-which -a claude   → /Users/ron/.local/bin/claude  (2회 출력이지만 PATH 중복일 뿐 동일 경로)
-file              → Mach-O 64-bit executable arm64   ← 셸 래퍼가 아니다
-ps -o args=       → claude                            ← --settings / --status-line 없음
-managed-settings.json  → 3개 표준 위치 전부 없음
-```
-
-Orca 의 Claude 통합은 **statusLine 이 아니라 훅**이다. `~/.claude/settings.json` 의
-`SessionStart` / `UserPromptSubmit` 등이 `~/.orca/agent-hooks/claude-hook.sh` 를 부르고,
-터미널에 주입된 `ORCA_AGENT_HOOK_*` 로 Orca 런타임에 보고한다.
-`ORCA_OMP_STATUS_EXTENSION` 은 Orca 자체 에이전트 상태용(OMP/pi 런타임)이지 Claude Code statusLine 이 아니다.
-
-현재 `~/.claude/settings.json` 의 `statusLine` 은 `ccstatusline` — **사용자가 직접 설치한 것이고 Orca 와 무관하다.**
-
-**결정적 증거**: 이 Orca 세션 안에서 `claude --settings <우리 것>` 으로 띄운 인터랙티브 세션에서
-**우리 수집기가 실제로 실행됐고 `status.json` 이 쓰였다.**
+`seven_day_opus` was **not present** in this sample. The collector takes it as `// null`.
 
 ---
 
-## J4 · worktree `.envrc`(direnv) 가 먹히는가 → **해당 없음. direnv 가 필요 없다**
-
-`direnv` 는 이 머신에 **미설치**다. 그런데 설치할 이유가 없어졌다.
-
-### README 의 J4 대안은 오독이다
-
-`orca skills get orca-per-workspace-env` 를 읽어보니 `orca.yaml environmentRecipes` 는
-**워크스페이스마다 일회용 원격 머신**(클라우드 샌드박스 · VM · SSH 호스트 · 컨테이너)을 띄우는 기능이다.
-로컬 worktree 에 환경변수를 주입하는 장치가 **아니다.** J4 거짓 시의 1순위 대안으로는 쓸 수 없다.
-
-### 실측 — Orca 가 띄운 터미널의 환경
-
-`orca terminal create --worktree path:... --command "env > /tmp/..."` 로 캡처:
+## J0 · Does Orca force its own statusLine? → **False (which favors us. The data source is alive)**
 
 ```
-CLAUDE_CONFIG_DIR=                    ← 비어 있다. Orca 는 이 변수를 건드리지 않는다
+which -a claude   → /Users/<user>/.local/bin/claude  (printed twice, but only a PATH duplicate of the same path)
+file              → Mach-O 64-bit executable arm64   ← not a shell wrapper
+ps -o args=       → claude                            ← no --settings / --status-line
+managed-settings.json  → absent from all 3 standard locations
+```
+
+Orca's Claude integration is **not a statusLine but hooks.** `SessionStart` / `UserPromptSubmit` and others in `~/.claude/settings.json`
+call `~/.orca/agent-hooks/claude-hook.sh`, and it reports to the Orca runtime through the `ORCA_AGENT_HOOK_*` injected into the terminal.
+`ORCA_OMP_STATUS_EXTENSION` is for Orca's own agent status (the OMP/pi runtime), not the Claude Code statusLine.
+
+The `statusLine` in the current `~/.claude/settings.json` is `ccstatusline`, **which the user installed themselves and which has nothing to do with Orca.**
+
+**Decisive evidence**: in an interactive session started with `claude --settings <ours>` inside this Orca session,
+**our collector really ran and `status.json` was written.**
+
+---
+
+## J4 · Does the worktree `.envrc` (direnv) take effect? → **Not applicable. direnv is not needed**
+
+`direnv` is **not installed** on this machine. And there is no longer a reason to install it.
+
+### The J4 alternative in the README is a misreading
+
+Reading `orca skills get orca-per-workspace-env` shows that `orca.yaml environmentRecipes` is a feature that starts
+**a disposable remote machine per workspace** (a cloud sandbox, a VM, an SSH host, a container).
+It is **not** a way to inject environment variables into a local worktree. It cannot serve as the first alternative if J4 is false.
+
+### Measured: the environment of a terminal Orca started
+
+Captured with `orca terminal create --worktree path:... --command "env > /tmp/..."`:
+
+```
+CLAUDE_CONFIG_DIR=                    ← empty. Orca does not touch this variable
 ORCA_AGENT_HOOK_PORT=56558
 ORCA_AGENT_HOOK_TOKEN=<redacted>
-ORCA_AGENT_HOOK_ENDPOINT=/Users/ron/Library/Application Support/orca/agent-hooks/endpoint.env
+ORCA_AGENT_HOOK_ENDPOINT=/Users/<user>/Library/Application Support/orca/agent-hooks/endpoint.env
 ORCA_PANE_KEY=<redacted>
-ORCA_WORKTREE_ID=...::/Users/ron/workspaces/harbor-app
+ORCA_WORKTREE_ID=...::/Users/<user>/workspaces/harbor-app
 ```
 
-두 가지가 확정된다:
+Two things are settled:
 
-1. `CLAUDE_CONFIG_DIR` 은 **비어 있다** — 우리가 자유롭게 정한다. 충돌 없음
-2. `--command` 는 **임의의 셸 문자열**이다 — `env CLAUDE_CONFIG_DIR=... claude` 로 끝난다
+1. `CLAUDE_CONFIG_DIR` is **empty**, so we set it freely. No conflict
+2. `--command` is an **arbitrary shell string**, and `env CLAUDE_CONFIG_DIR=... claude` is all it takes
 
-→ **direnv 도, environmentRecipes 도, tmux 도 필요 없다.** 런처 래퍼 한 겹이면 된다.
+→ **Neither direnv, nor environmentRecipes, nor tmux is needed.** One layer of launcher wrapper is enough.
 
 ---
 
-## Orca 가 이미 멀티 계정을 지원한다 — 그런데 우리 문제는 못 푼다
+## Orca already supports multiple accounts, but it cannot solve our problem
 
-설계서 phase0/README §1 은 [stablyai/orca#11557] 이 **미구현**이라고 적었다. **지금은 구현돼 있다.**
+The design's phase0/README §1 said [stablyai/orca#11557] was **not implemented.** **It is implemented now.**
 
 ```
 $ orca account list
 Managed Claude accounts (2):
-  ehalim111@gmail.com
-  funccoder@gmail.com (active)
+  account-a@example.com
+  account-b@example.com (active)
 ```
 
-사용자 머신에 이미 계정 2개가 등록돼 있다. 그러나 `--json` 을 보면:
+Two accounts are already registered on the user's machine. But `--json` shows:
 
 ```json
 "activeAccountId": "8464aac1-...",
 "activeAccountIdsByRuntime": { "host": "8464aac1-...", "wsl": {} }
 ```
 
-**런타임당 활성 계정이 하나다.** `worktree create` 에도 `terminal create` 에도 `--account` 플래그가 없고,
-`orca agent-context` 스키마에 `account` 가 등장하지 않는다.
+**There is one active account per runtime.** Neither `worktree create` nor `terminal create` has an `--account` flag,
+and `account` does not appear in the `orca agent-context` schema.
 
-→ 설계서가 정황으로 추론한 **"Orca 는 전역 스왑 부류다"** 가 **정확히 맞다.**
-동시 실행 다계정에는 못 쓴다. **`CLAUDE_CONFIG_DIR` 방식은 그대로 유효하다.**
-다만 근거 문장은 "미구현"이 아니라 "구현됐으나 전역 스왑이라 동시성이 없다"로 갱신해야 한다.
+→ The design's circumstantial inference that **"Orca is the global-swap kind"** is **exactly right.**
+It cannot be used for concurrent multi-account runs. **The `CLAUDE_CONFIG_DIR` way is still valid.**
+Only the wording of the reason must be updated, from "not implemented" to "implemented, but a global swap with no concurrency".
 
 ---
 
-## F · `autoContinueAtUsageLimit` → **기능 존재 확인. 택일 강제 필요**
+## F · `autoContinueAtUsageLimit` → **The feature exists. A forced choice is needed**
 
 ```
 $ strings ~/.local/bin/claude | grep -o autoContinueAtUsageLimit
 autoContinueAtUsageLimit
 ```
 
-`disableAllHooks` · `allowManagedHooksOnly` 도 실재하는 설정 키다 → `ocp doctor` 가 셋 다 점검해야 한다.
+`disableAllHooks` and `allowManagedHooksOnly` are also real settings keys → `ocp doctor` must check all three.
 
 ---
 
-## M · `rate_limits` 는 **그 세션이 마지막 응답에서 배운 만큼만** 온다 (2026-09-17 신규)
+## M · `rate_limits` arrives **only as much as that session learned at its last response** (new 2026-09-17)
 
-같은 계정, 같은 시각에 두 세션의 statusLine stdin 원본을 받아 비교했다.
+We took the raw statusLine stdin of two sessions on the same account at the same time and compared them.
 
-방금 띄운 세션 (alpha, 10:50):
+A session just started (alpha, 10:50):
 
 ```json
 "rate_limits": {"five_hour": {"used_percentage": 0, "resets_at": 1789614000},
                 "seven_day": {"used_percentage": 41, "resets_at": 1789783200}}
 ```
 
-어제 20시에 시작해 그 뒤로 요청이 없는 세션 (같은 alpha, 같은 10:50) — `five_hour` **키 자체가 없다**:
+A session started at 20:00 yesterday with no request since (same alpha, same 10:50): the `five_hour` **key itself is missing**:
 
 ```json
 {"pct_5h": null, "reset_5h": null, "pct_7d": 41, ...}
 ```
 
-5h 창은 07:00 에 굴러갔다(`resets_at` 12:00 − 5h). 사용량이 0 이라 생략하는 게 아니다 — 방금 띄운
-세션도 0% 였지만 값이 왔다.
+The 5h window rolled over at 07:00 (`resets_at` 12:00 minus 5h). It is not omitted because usage is 0: the session just
+started was also at 0% but the value came.
 
-**외부 근거.** [claude-code#75408] 이 메커니즘을 명시한다 — *"The value appears to reflect the
+**External evidence.** [claude-code#75408] states the mechanism: *"The value appears to reflect the
 rate-limit state attached to that specific session's last actual API response, not a live re-check
-… each terminal is showing a stale snapshot from a different moment."* 즉 세션마다 **관측 시각이
-다르다.** 다만 "창이 굴러간 뒤 키를 통째로 떨어뜨린다"는 부분까지 적은 문서·이슈는 못 찾았다
-(가장 가까운 #45133 은 `rate_limits` 객체 전체가 없는 별개 버그다). **그 절반은 우리 실측이 근거고,
-문서로 확인된 것은 아니다.**
+… each terminal is showing a stale snapshot from a different moment."* So every session has a **different
+observation time.** But we found no doc or issue that covers the part where "the whole key is dropped after the window rolls over"
+(the closest, #45133, is a separate bug where the whole `rate_limits` object is absent). **That half rests on our own measurement
+and is not confirmed by any documentation.**
 
-**이것이 만든 버그.** 수집기가 그 null 을 계정 파일에 그대로 써서, 같은 계정에서 **일하는 세션이
-방금 보고한 값을 노는 세션이 지웠다.** 그러면 모든 판독기가 "usage unknown" 을 보고, fail-closed
-규칙이 멀쩡한 에이전트 5개를 handoff 시킨다(에이전트당 fold 1회). `ocp triggers` 가 전원 `YES ·
-usage_unknown` 이었던 게 이 상태다. 같은 원인이 대시보드 값이 **왔다갔다하는** 증상으로도 나온다 —
-더 낡은 세션이 마지막에 그리면 계정 값이 뒤로 간다.
+**The bug this caused.** The collector wrote that null into the account file as is, so on the same account **an idle session
+erased the value a working session had just reported.** Then every reader saw "usage unknown", and the fail-closed
+rule handed off 5 perfectly healthy agents (one fold per agent). `ocp triggers` showing every agent as `YES ·
+usage_unknown` was this state. The same cause also shows up as the dashboard value **jumping around**:
+when an older session draws last, the account value goes backwards.
 
-**고친 규칙** (설계서 §4 에 정본)
+**The fixed rules** (canonical in design §4)
 
-- 어떤 창을 보고하지 않는 페이로드는 그 창의 이전 값을 **지우지 않는다** (`resets_at` 이 남은 동안)
-- 창이 끝났는지 볼 `resets_at` 이 **아예 없으면** 그 값을 버리되 `rl_lost` 로 표시한다 — 잃은 값은
-  조용함이 아니라 미상이고, **그 상태는 창을 다시 보고받을 때까지 유지된다**(한 틱만 버티면
-  다음 리프레시에 0% 로 읽힌다). 7d 도 같다
-- **한 창 안에서 계정 수치는 내려가지 않는다** (세션마다 관측 시각이 다르므로)
-- 이월값의 나이는 `rl_at` 이 재고, `collected_at` 이 아니다. 900초를 넘으면 트리거에는 하한으로
-  계속 쓰되 **새 배정은 거부**한다
-- 그러고도 값이 없으면 그건 **조용함**이라 0% 로 읽고 배정한다
+- A payload that does not report a window does **not erase** that window's earlier value (while `resets_at` is still ahead)
+- If there is **no `resets_at` at all** to tell whether the window ended, drop the value but mark it `rl_lost`. A lost value is
+  unknown, not quiet, and **that state is kept until the window is reported again** (if it held for one tick only,
+  the next refresh would read 0%). The same for 7d
+- **Within one window the account number does not go down** (since each session has a different observation time)
+- The age of a carried value is measured by `rl_at`, not `collected_at`. Past 900 seconds it is still used
+  as a floor for triggers, but **a new assignment is refused**
+- If there is still no value, that is **quiet**, so it reads as 0% and assigns
 
-**알려진 예외 두 가지.** (1) `ocp fold` 는 `claude -p` 헤드리스라 statusLine 이 없다 — fold 가 쓴
-쿼터는 어떤 수집기도 못 본다. 그래서 `quiet` 은 "아무도 안 썼다"가 아니라 **"보고된 사용이 없다"**
-이다. (2) ocp 가 수집하지 않는 설정 디렉토리에서 같은 구독을 쓰면(데스크톱 앱, 다른 기계, 사람의
-`~/.claude` = `default` 계정) 역시 안 보인다. 5h 창은 **구독 단위지 설정 디렉토리 단위가 아니다.**
+**Two known exceptions.** (1) `ocp fold` is headless `claude -p` and has no statusLine, so the quota fold uses
+is seen by no collector. So `quiet` means **"no reported use"**, not "no one used it". (2) If the same subscription is used from a settings
+directory ocp does not collect (the desktop app, another machine, a person's own `~/.claude` = the `default` account), that is not seen either. The 5h window is
+**per subscription, not per settings directory.**
 
 [claude-code#75408]: https://github.com/anthropics/claude-code/issues/75408
 
 ---
 
-## 남은 미확인
+## Still unchecked
 
-| # | 가정 | 왜 아직 못 닫았나 |
+| # | Assumption | Why it is not closed yet |
 |---|---|---|
-| **A** (장시간) | 계정 2개 **동시 장시간** 실행에서 토큰 refresh 충돌 없음 | 2번째 계정이 `CLAUDE_CONFIG_DIR` 에 로그인돼 있어야 한다. **사람이 `claude /login` 1회** 해야 함 (AGENTS.md rule 1) |
-| **D** | 헤드리스 주입 + clear | Phase 3 전까지 불필요 |
-| **G** | `CLAUDE_CODE_OAUTH_TOKEN` 경로에서 `rate_limits` | 토큰이 없다. 계정이 모자랄 때만 필요 |
-| **J4-full** | 래퍼로 띄운 에이전트를 Orca 가 **에이전트로 인식**하고 hibernate/restore 가 env 를 보존하는가 | A 와 같은 이유로 막혀 있다 |
+| **A** (long run) | No token refresh conflict when two accounts run **at once for a long time** | The second account must be logged in under `CLAUDE_CONFIG_DIR`. **A person must run `claude /login` once** (AGENTS.md rule 1) |
+| **D** | Headless injection + clear | Not needed before Phase 3 |
+| **G** | `rate_limits` on the `CLAUDE_CODE_OAUTH_TOKEN` path | There is no token. Needed only when accounts run short |
+| **J4-full** | Does Orca **recognize as an agent** one started by the wrapper, and does hibernate/restore keep the env | Blocked for the same reason as A |
 
 [stablyai/orca#11557]: https://github.com/stablyai/orca/issues/11557

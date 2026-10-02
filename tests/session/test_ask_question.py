@@ -202,7 +202,7 @@ class _TwoStageTerm:
 
 
 def test_multiselect_boxes_and_other_together_toggle_then_reach_other(home: Path) -> None:
-    """T322/T336 follow-up (founder #2013, live 2026-09-28): checking boxes and
+    """Live finding, 2026-09-28: checking boxes and
     typing Other together used to be refused outright. It is sent now, in two
     stages - the toggles, a re-read for where they actually left the cursor,
     then Other from there - never as one sequence computed blind."""
@@ -210,11 +210,11 @@ def test_multiselect_boxes_and_other_together_toggle_then_reach_other(home: Path
     q = Claude().ask_question(MULTI_SELECT_CURSOR_AT_TOP)
     term = _TwoStageTerm(MULTI_SELECT_CURSOR_AT_TOP, toggle_count=2,
                          after_toggle=MULTI_SELECT_AFTER_TOGGLING_1_AND_3)
-    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="좋아")
+    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="sounds good")
     check("answer: the toggles land first, options 0 and 2 in ascending order",
           term.sent[:2] == [("1", False), ("3", False)], str(term.sent))
     check("answer: Other is reached from the re-read cursor (row 3), not the one first shown",
-          term.sent[2:] == [(DOWN, False), (DOWN, False), ("좋아", False),
+          term.sent[2:] == [(DOWN, False), (DOWN, False), ("sounds good", False),
                             (DOWN, False), ("", True), ("1", False)], str(term.sent))
     check("answer: confirmed cleared", out[0] == orcamod.CLEARED, str(out))
 
@@ -222,7 +222,7 @@ def test_multiselect_boxes_and_other_together_toggle_then_reach_other(home: Path
     # key landed differently on the real screen) - refused, nothing further sent.
     term = _TwoStageTerm(MULTI_SELECT_CURSOR_AT_TOP, toggle_count=2,
                          after_toggle=MULTI_SELECT_CURSOR_AT_TOP)      # still unchecked
-    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="좋아")
+    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="sounds good")
     check("answer: a re-read that does not show what was toggled stops there",
           term.sent == [("1", False), ("3", False)] and out[0] == orcamod.STILL_OPEN
           and "not what was toggled" in out[2], str((term.sent, out)))

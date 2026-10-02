@@ -1,333 +1,329 @@
-# Orca 기반 멀티 에이전트 파이프라인 — 인프라 설계서 v0.5
+# Orca-based multi-agent pipeline: infrastructure design v0.5
 
-> v0.5는 **v1 범위를 잘라낸 판**이다. 계정 동적 재배치를 v2로 미루면서 파생 기능 대부분이 v1에서 빠졌다(§0.5).
-> 실행은 Orca 네이티브 + `ocp launch` 래퍼. tmux 하이브리드는 폐기. 기각 사유는 부록 A.
-> 팀 구성·관계·라우팅은 동반 문서 `design/02-team.md`.
-
----
-
-## 0. 요약
-
-세션이 이미 쓰는 파일과 사용량 엔드포인트를 읽어 상태를 받고(§4, D11 — 수집기는 심지 않는다),
-Orca orchestration 위에 얹은 얇은 CLI `ocp`가 **계정 = 슬롯**으로 임대하며,
-기록은 **세션 밖에서 fold**하고, 트리거·재개는 **영속 상태 + 기동 시 reconciliation**으로 돌린다.
-
-세 가지 원칙:
-
-- **우리 코드에 credential을 읽거나 쓰는 줄은 0줄이다**
-- **오케스트레이션에 모델을 쓰지 않는다** — 전부 결정론적이라 데몬이 한다
-- **지표는 하나다** — `runway`. 배정도 정렬도 이것만 본다
-
+> v0.5 is the version that **cut the v1 scope**. Deferring dynamic account reallocation to v2 removed most of the features that came from it (§0.5).
+> Execution is Orca native plus the `ocp launch` wrapper. The tmux hybrid is dropped; the reasons are in appendix A.
+> Team composition, relations and routing are in the companion document `design/02-team.md`.
 
 ---
 
-## 0.5 v1 범위 — 복잡도의 출처는 하나다
+## 0. Summary
 
-설계를 다시 읽어보면 **전체의 절반 이상이 "계정 동적 재배치" 하나에서 파생됐다.**
+State comes from files the session already writes and from the usage endpoint (§4, D11; no collector is planted).
+A thin CLI, `ocp`, on top of Orca orchestration **leases accounts as slots**.
+Records are **folded outside the session**, and triggers and resumes run on **persisted state plus reconciliation at startup**.
+
+Three principles:
+
+- **Our code has zero lines that read or write a credential**
+- **No model in orchestration.** Everything is deterministic, so the daemon does it
+- **One metric**: `runway`. Assignment and ordering look only at it
+
+
+---
+
+## 0.5 v1 scope: the complexity has one source
+
+Reading the design again, **more than half of it derives from one thing, dynamic account reallocation.**
 
 ```
-계정 동적 재배치
- ├ lease 테이블 · UNIQUE 인덱스 2개 · reaper · PID 생존 확인 · flock
- ├ 큐 · 에이징 · prio · 헤드 블로킹 방지 · min_runway_eff
- ├ runway 게이트 · burn floor · 콜드스타트 특례 · 리셋 경계 보정
- ├ thundering herd · 지터 · convoy 방지
- ├ 중재자 단일화 · 획득 실패 재선택
- └ tmux 하이브리드 (PID 소유권 때문에)
+dynamic account reallocation
+ ├ lease table · 2 UNIQUE indexes · reaper · PID liveness check · flock
+ ├ queue · aging · prio · head-of-line blocking guard · min_runway_eff
+ ├ runway gate · burn floor · cold-start special case · reset-boundary correction
+ ├ thundering herd · jitter · convoy guard
+ ├ single arbiter · re-pick on acquire failure
+ └ tmux hybrid (for PID ownership)
 ```
 
-### 그런데 이득이 생각보다 작다
+### The gain is smaller than it looks
 
-**총 처리량은 `계정 수 × 5시간 할당`으로 고정이다.** 동적 재배치가 늘리는 건 총량이 아니라 **활용률**이다 — 어떤 계정이 노는 동안 다른 에이전트가 그걸 쓰는 것.
+**Total throughput is fixed at `accounts x 5-hour quota`.** Dynamic reallocation raises not the total but the **utilization**: while one account idles, another agent uses it.
 
-활용률 이득은 **에이전트 수 ÷ 계정 수**에 비례한다. 에이전트가 계정보다 훨씬 많을 때만 크고, 비슷하면 거의 없다.
+The utilization gain scales with **agents / accounts**. It is large only when there are far more agents than accounts, and nearly nothing when the two are close.
 
-### v1은 고정 매핑으로 간다
+### v1 uses a fixed mapping
 
-> **현재**: 에이전트는 실제로 계정을 옮긴다 — 한도에 닿으면 pick이 고른 계정으로 한 번 이동한다(README). 아래는 v1 범위를 자를 때의 판단 기록이다.
+> **Now**: an agent does move accounts. At a limit it moves once, to the account `pick` chooses (README). What follows is the record of the call made when v1 scope was cut.
 
 ```yaml
 backend   → alpha
 frontend  → beta
-reviewer  → gamma      # serial, 가벼움
-archivist → gamma      # ephemeral, 짧게 쓰고 나감
+reviewer  → gamma      # serial, light
+archivist → gamma      # ephemeral, writes briefly and leaves
 ```
 
-자기 계정이 벽(100%)에 닿으면 handoff한다. 일이 기다리고 리셋이 멀면 자리가 있는 다른 계정으로 한 번 옮기고, 아니면 **리셋까지 쉰다.**
+When its own account hits the wall (100%), the agent hands off. If work is waiting and the reset is far, it moves once to another account with room; otherwise it **rests until the reset.**
 
-위 파생 목록이 **전부 사라진다.** 남는 것:
+The derived list above **disappears entirely.** What remains:
 
-| v1에 남는 것 | 왜 |
+| What stays in v1 | Why |
 |---|---|
-| 에이전트 폴더 + ROLE/base/handoff/journal + fold | 계정과 무관하게 가치 있고 복잡도가 낮다 |
-| `team.yaml` 라우팅 + `ocp task new`/`ocp say` | 팀이 돌아가는 핵심. 계정과 직교 |
-| 상태 읽기 (D11: 세션 파일 + 엔드포인트) | 읽기 전용. 여러 계정 상태를 한눈에 |
-| 데몬 (축소판) | 트리거 → handoff(세 가지 사실 기록) → park → 리셋 시 재개 |
-| Orca orchestration | 그대로 |
+| Agent folder + ROLE/base/handoff/journal + fold | Valuable whatever the accounts are, and low complexity |
+| `team.yaml` routing + `ocp task new`/`ocp say` | The core of how the team runs. Orthogonal to accounts |
+| State reading (D11: session files + endpoint) | Read-only. Several accounts' state at a glance |
+| Daemon (reduced) | trigger → handoff (record three facts) → park → resume at reset |
+| Orca orchestration | As is |
 
-데몬은 리스도 큐도 없이 **에이전트별 독립 루프**가 된다: `내 계정이 87%인가 / 컨텍스트가 60%인가 → handoff → park → 리셋 시각에 재개.`
+With no lease and no queue, the daemon becomes an **independent loop per agent**: `is my account at 87% / is context at 60% → handoff → park → resume at the reset time.`
 
-### v2로 미뤄도 안전한 이유
+### Why deferring to v2 is safe
 
-journal이 **에이전트 이름으로 묶이고 계정과 독립**이라(§5), 나중에 계정을 옮겨도 이력이 끊기지 않는다. 설계가 이미 그걸 보장하므로 **나중에 슬롯 모델을 얹어도 기록 계층은 그대로다.**
+The journal is **keyed by agent name, independent of the account** (§5), so moving accounts later does not break the history. The design already guarantees that, so **the record layer stays the same if the slot model is added later.**
 
-전환 신호: **에이전트 수가 계정 수의 2배를 넘으면** 활용률 손실이 체감된다. 그때 §6·§7을 켠다.
+Signal to switch: when **agents outnumber accounts 2 to 1**, the utilization loss becomes noticeable. Then turn on §6 and §7.
 
-> 아래 §6(슬롯)·§7(스케줄링)은 **만들지 않았다** — 코드는 측정한 번레이트로 계정을 고른다(lease 테이블 없음). 기록으로만 남긴다.
+> §6 (slots) and §7 (scheduling) below were **not built**. The code picks an account by measured burn rate (no lease table). They stay as a record only.
 
 ---
 
-## 1. 의존성
+## 1. Dependencies
 
-| 대상 | 판정 |
+| Item | Verdict |
 |---|---|
-| **Orca orchestration / worktree** | 유지. DAG·워커·게이트를 그대로 쓴다 |
-| ~~Claude Code statusLine~~ | D11 로 대체 — 세션 파일 + 사용량 엔드포인트가 출처 (§4) |
-| cswap / clauth | **삭제** — 읽으려던 사용률 파일이 존재하지 않고, statusLine으로 대체됨 |
-| ccusage | **사후 분석 전용** — 블록이 rate limit 윈도우가 아니라 로컬 재구성이라 스케줄링에 쓸 수 없다 |
-| handoff·파서류 | 내재화 |
+| **Orca orchestration / worktree** | Keep. Use the DAG, workers and gates as they are |
+| ~~Claude Code statusLine~~ | Replaced by D11: session files + the usage endpoint are the source (§4) |
+| cswap / clauth | **Removed.** The usage file we meant to read does not exist, and statusLine replaced it |
+| ccusage | **Post-hoc analysis only.** Its blocks are a local reconstruction, not the rate-limit window, so scheduling cannot use them |
+| handoff and parsers | Built in |
 
-### 보안 — credential을 옮기지 않는다
+### Security: never move a credential
 
-계정 전환 도구가 다루는 것은 구독 OAuth token이고, API 키와 달리 계정 전체 권한이며 개별 revoke가 어렵다. 그런데 "서드파티냐 직접 구현이냐"는 틀린 질문이었다 — 직접 구현해도 락·로테이션 문제는 Claude Code 본체도 미해결이다.
+What an account-switching tool handles is the subscription OAuth token. Unlike an API key it carries the whole account's authority and is hard to revoke individually. "Third party or our own implementation" turned out to be the wrong question: even a direct implementation has the lock and rotation problems, which Claude Code itself has not solved.
 
 ```
-계정당 CLAUDE_CONFIG_DIR 을 1회 /login 하고 그 디렉토리를 영구 보존한다.
-"스왑" = 환경변수를 바꿔 새 프로세스를 띄우는 것.
-credential 파일을 읽지도, 쓰지도, 복사하지도 않는다.
+Run /login once per account in its own CLAUDE_CONFIG_DIR and keep that directory for good.
+A "swap" = changing an environment variable and starting a new process.
+Never read, write or copy a credential file.
 ```
 
-공식 문서가 `CLAUDE_CONFIG_DIR`별 격리를 보장한다 — macOS Keychain 항목까지 config dir 기준으로 키잉된다.
+The official docs guarantee isolation per `CLAUDE_CONFIG_DIR`. Even the macOS Keychain entry is keyed by config dir.
 
-**복사는 절대 금지.** refresh token은 1회용 로테이션이라 복사본 둘이 각자 refresh하면 먼저 성공한 쪽이 나머지를 무효화하고 재인증 캐스케이드가 난다. 그래서 계정 공유(`max_concurrent ≥ 2`)를 설계에서 뺐다. 슬롯이 부족하면 큐잉으로 푼다.
+**Never copy.** A refresh token is a one-time rotation. If two copies each refresh, the first to succeed invalidates the other and a re-authentication cascade follows. That is why sharing an account (`max_concurrent >= 2`) was left out of the design. A shortage of slots is solved by queueing.
 
-### 다중 계정 도구 조사 — 쓸 수 있는 건 거의 없다
+### Survey of multi-account tools: almost none is usable
 
-Orca는 **전역 활성 계정 1개** 개념이다(공식 문서: 상태바는 항상 *active* 계정을 반영). 그래서 별도 수단이 필요한데, 생태계를 훑어보니 두 부류로 갈리고 **별이 많은 쪽이 우리에게 쓸모없는 쪽**이었다.
+Orca has the notion of **one global active account** (official docs: the status bar always reflects the *active* account). So another mechanism is needed. A look at the ecosystem splits the tools in two kinds, and **the one with more stars is the one that is useless to us.**
 
-| 부류 | 동작 | 동시 실행 | 예 |
+| Kind | Behavior | Concurrent runs | Examples |
 |---|---|---|---|
-| **A. 전역 스왑** | credential/Keychain을 원자적으로 교체 | **✘ 한 번에 1계정** | `aisw`(116★, Rust) · `claude-switch` · `multi-account-tool` · 목록의 대부분 |
-| **B. CONFIG_DIR 격리** | 프로필별 디렉토리, 프로세스별 env | **✔** | `claude-profile-manager`(15★, Go) · `claude-profile-switch`(shell) · `clauth`(Rust, `start --isolated`) |
+| **A. Global swap** | Replaces the credential/Keychain atomically | **No: one account at a time** | `aisw` (116 stars, Rust), `claude-switch`, `multi-account-tool`, most of the list |
+| **B. CONFIG_DIR isolation** | A directory per profile, env per process | **Yes** | `claude-profile-manager` (15 stars, Go), `claude-profile-switch` (shell), `clauth` (Rust, `start --isolated`) |
 
-A 부류는 **Orca와 똑같은 제약**을 가진다. 도구를 바꿔도 문제가 그대로다. 가장 인기 있는 `aisw`가 여기 속한다.
+Kind A has **the same constraint as Orca.** Changing tools leaves the problem as it was. The most popular one, `aisw`, belongs here.
 
-B 부류 중 `claude-profile-manager`는 우리 §3 레이아웃과 **독립적으로 같은 결론**에 도달했다 — 프로필별 `CLAUDE_CONFIG_DIR`, credential은 프로필 안에, commands·skills·plugins는 심볼릭 공유. 설계 검증으로는 의미가 있다.
+Among kind B, `claude-profile-manager` reached **the same conclusion independently** as our §3 layout: a `CLAUDE_CONFIG_DIR` per profile, the credential inside the profile, commands, skills and plugins shared by symlink. As a check on the design, that counts.
 
-**그럼에도 도구를 붙이지 않는다.** 이유 셋:
+**Even so, we attach no tool.** Three reasons:
 
-1. 우리에게 필요한 건 런처 한 겹뿐이다 — `CLAUDE_CONFIG_DIR=accounts/<a>/.claude claude ...`. `ocp`가 이미 하는 일이다
-2. **어느 도구도 우리 스케줄러를 대신하지 못한다.** 그들의 "best account" 로직은 `runway`·큐·리스 개념이 없다
-3. 전부 2~116★이고, 무엇보다 도구를 붙이는 순간 **"credential을 만지는 코드 0줄"이 깨진다**
+1. All we need is one layer of launcher: `CLAUDE_CONFIG_DIR=accounts/<a>/.claude claude ...`. `ocp` already does that
+2. **No tool replaces our scheduler.** Their "best account" logic has no notion of `runway`, a queue or a lease
+3. All of them have 2 to 116 stars, and above all, attaching a tool **breaks "zero lines of code that touch a credential"**
 
-베낄 것만 베낀다: 레이아웃과 심볼릭 대상 목록, `CLAUDE_CONFIG_DIR=... claude /login` 부트스트랩(=`ocp account add`, 10줄), 링크 무결성 `doctor`.
+We copy only what is worth copying: the layout and the list of symlink targets, the `CLAUDE_CONFIG_DIR=... claude /login` bootstrap (= `ocp account add`, 10 lines), and a link-integrity `doctor`.
 
-### 실행 계층 — Orca 안에서, `ocp launch` 로
+### Execution layer: inside Orca, through `ocp launch`
 
-Orca는 **전역 스왑 부류**다. 근거는 공식 문서 두 문장인데, *"switching accounts works even with live Claude sessions running"* 과 *"a guard so you don't trigger overlapping auth refreshes"* 가 결정적이다. 전환이 실행 시 env 주입이었다면 이미 돌고 있는 세션이 영향받을 수 없고 guard도 필요 없다.
+Orca is of the **global swap kind.** The evidence is two sentences of the official docs, and *"switching accounts works even with live Claude sessions running"* and *"a guard so you don't trigger overlapping auth refreshes"* are decisive. If switching were an env injection at launch, a session already running could not be affected and no guard would be needed.
 
-그리고 Orca 이슈 트래커에 **우리와 똑같은 요청이 이미 올라와 있다** — [#11557 "Support multiple Claude Code subscriptions (separate config dirs / env vars)"](https://github.com/stablyai/orca/issues/11557). **미구현**이고, 요청자도 "터미널에서는 config dir을 나눠 쓰는데 Orca 안에서는 같은 걸 할 방법을 못 찾았다"고 적었다.
+And the Orca issue tracker **already holds the same request as ours**: [#11557 "Support multiple Claude Code subscriptions (separate config dirs / env vars)"](https://github.com/stablyai/orca/issues/11557). It is **not implemented**, and the requester also wrote "in the terminal I split config dirs, but inside Orca I could not find a way to do the same."
 
-그래서 Orca 안에서 되는 방법은 하나다: **`ocp launch <agent>` 가 `CLAUDE_CONFIG_DIR` 을 정하고 에이전트를 띄운다.** Orca 는 그 변수를 비워 두고 `--command` 가 임의 셸이라 래퍼로 충분하다 (J4, §12).
+So there is one way that works inside Orca: **`ocp launch <agent>` sets `CLAUDE_CONFIG_DIR` and starts the agent.** Orca leaves that variable empty and `--command` is an arbitrary shell, so a wrapper is enough (J4, §12).
 
-그러면 hibernation·session restore·대시보드가 전부 그대로 동작한다. v1이 **고정 매핑**(§0.5)이라 계정은 에이전트마다 정적이다. 이게 고정 매핑의 가장 큰 실익이다.
+Then hibernation, session restore and the dashboard all keep working. Since v1 is a **fixed mapping** (§0.5), an agent's account is static. That is the biggest practical gain of the fixed mapping.
 
-**보너스**: Orca의 agent hibernation은 재개 시 *"launch command, arguments, and environment"* 를 보존한다. 한 번 들어간 env가 재개 후에도 유지된다.
+**Bonus**: Orca's agent hibernation keeps the *"launch command, arguments, and environment"* on resume. An env set once survives the resume.
 
-**폐기**: tmux 하이브리드. PID 소유권이 필요했던 이유가 리스 회수(§6)였는데 v1에는 리스가 없다. v2에서 슬롯 모델을 켤 때 다시 꺼낸다.
+**Dropped**: the tmux hybrid. PID ownership was needed for lease reclaim (§6), and v1 has no leases. It comes back out when the slot model is turned on in v2.
 
-**남은 위험**: **J0** — Orca가 자기 statusLine을 CLI 플래그로 강제하는가. 근거는 `docs/phase0-findings.md`.
+**Remaining risk**: **J0**, whether Orca forces its own statusLine through a CLI flag. The evidence is in `docs/phase0-findings.md`.
 
-### 도구 두 개가 `.claude.json`을 다르게 처리한다
+### Two tools treat `.claude.json` differently
 
-`claude-profile-manager`는 `.claude.json`을 **프로필 디렉토리 안에** 두고, `claude-profile-switch`는 **`~/.claude.json`을 전역으로 스왑**한다. 후자는 동시 실행 시 두 세션이 한 파일을 공유한다는 뜻이다.
+`claude-profile-manager` keeps `.claude.json` **inside the profile directory**, and `claude-profile-switch` **swaps `~/.claude.json` globally**. The latter means two concurrent sessions share one file.
 
-**두 도구가 서로 다르게 푼다는 것 자체가 Phase 0 가정 H가 진짜 갈림길이라는 증거다.**
+**That the two tools solve it differently is itself evidence that Phase 0 assumption H is the real fork.**
 
-### 어댑터 규칙
+### Adapter rule
 
-**allowlist로 필드만 추출**한다. `--json` 출력을 통째로 저널·DB에 덤프하지 않는다. 토큰을 subprocess `argv`에 넣지 않는다(`/proc/*/cmdline` 노출).
-
----
-
-## 2. 도메인 모델
-
-```
-Run       (Orca) ── 목표 단위
- └ Task   (Orca) ── 작업/하위작업. 의존성 + 상태
-    └ Dispatch (Orca) ── 태스크 1회 시도 = 터미널 1개
-       └ Session ── transcript 1개 + status.json 1개
-          ├ Agent (우리) ── 이름 + 역할 + 전용 폴더
-          └ Lease (우리) ── 이 세션이 점유한 슬롯
-```
-
-**Agent 이름이 모든 시스템의 조인 키.** worktree 이름 · task label · 폴더명이 같은 문자열을 쓴다.
+**Extract fields by allowlist.** Never dump `--json` output whole into a journal or the DB. Never put a token in a subprocess `argv` (exposed through `/proc/*/cmdline`).
 
 ---
 
-## 3. 레이아웃
+## 2. Domain model
 
-`~/.orcapipe` 전체를 **git repo로 둔다.** 다이제스트 세대 보존·롤백·변경 이력이 전부 공짜로 따라온다. `accounts/*/` 는 `.gitignore`.
+```
+Run       (Orca) ── a goal
+ └ Task   (Orca) ── work/sub-work. Dependencies + state
+    └ Dispatch (Orca) ── one attempt at a task = one terminal
+       └ Session ── one transcript + one status.json
+          ├ Agent (ours) ── name + role + its own folder
+          └ Lease (ours) ── the slot this session holds
+```
+
+**The agent name is the join key of every system.** Worktree name, task label and folder name use the same string.
+
+---
+
+## 3. Layout
+
+Keep all of `~/.orcapipe` **as a git repo.** Digest generations, rollback and change history come free. `accounts/*/` is in `.gitignore`.
 
 ```
 ~/.orcapipe/                    ← git repo
   config.yaml
   team.yaml
-  db.sqlite                     # 리스 · 이벤트 · handoff 진행상태 · wake_at   (gitignore)
-  locks/daemon.lock             # 데몬이 flock 을 쥐고 자기 PID 를 기록
-  shared/.claude/               # 계정 공통 설정. 각 계정이 심볼릭으로 참조
+  db.sqlite                     # leases · events · handoff progress · wake_at   (gitignored)
+  locks/daemon.lock             # the daemon holds the flock and writes its own PID
+  shared/.claude/               # settings common to accounts. Each account links to it by symlink
     settings.json CLAUDE.md skills/ agents/ commands/ hooks/
-  accounts/                     ← gitignore 전체
+  accounts/                     ← all gitignored
     alpha/
-      .claude/                  # CLAUDE_CONFIG_DIR. credential만 실파일, 나머지는 shared 링크
-      status.json               # statusLine 수집기가 원자적으로 쓰는 스냅샷
+      .claude/                  # CLAUDE_CONFIG_DIR. Only the credential is a real file, the rest are shared links
+      status.json               # snapshot the statusLine collector writes atomically
   agents/
     <name>/
       agent.yaml
       ROLE.md                   # ≤1KB
-      base.md                   # ≤2KB — 매 세션 주입되는 고정비
+      base.md                   # ≤2KB: fixed cost injected into every session
       inbox/
-      journal/2026-09-15.md     # 다이제스트. 세대 보존은 git이 한다
+      journal/2026-09-15.md     # digest. Git keeps the generations
 ```
 
 ---
 
-## 4. 데이터 출처 — 세션 파일 pull + 사용량 엔드포인트
+## 4. Data sources: pull from session files + the usage endpoint
 
-**2026-09-21 (#1402, D11) 에 출처가 바뀌었다.** 이 절의 원래 계약은 statusLine 스크립트의 stdin JSON 이었다 — 우리가 각 `CLAUDE_CONFIG_DIR` 의 `settings.json` 에 수집기를 심고, 그게 매 턴 payload 를 받아 `status.json` 을 썼다. 지금은 **아무것도 심지 않는다**: 세션이 어차피 쓰고 있는 파일을 읽는다. statusLine 슬롯은 건드리지 않는다.
+**The source changed on 2026-09-21 (D11).** The original contract of this section was the statusLine script's stdin JSON: we planted a collector in the `settings.json` of each `CLAUDE_CONFIG_DIR`, it received the payload every turn and wrote `status.json`. Now **we plant nothing**: we read the files the session writes anyway. The statusLine slot is left alone.
 
-`~/.claude` 아래에 사용률 파일은 **없다.** 없는 파일을 읽어 `pct=0`을 반환하면 모든 슬롯이 만점이 되고 벽 트리거는 영원히 거짓이 된다 — **기능이 죽었는데 대시보드는 초록색**인 fail-open이다. 그래서 출처는 둘이고, 실패하는 방식이 다르다:
+There is **no** usage file under `~/.claude`. Reading a file that does not exist and returning `pct=0` would make every slot a perfect score and the wall trigger forever false. That is a fail-open where **the feature is dead and the dashboard is green.** So there are two sources, and they fail in different ways:
 
-- **세션의 transcript** (`ocp/usage/collect.py`) — 컨텍스트·세션 신원·모델·비용. 우리 훅(`Stop` 등, 매 턴)이 쓰고, 훅이 말하지 못한 세션은 데몬 틱이 줍는다. 어느 계정인지도 **transcript 의 경로**가 말해준다 (`accounts/<acct>/.claude/...`) — `CLAUDE_CONFIG_DIR` 만큼 1차 정보다.
-- **사용량 엔드포인트** (`ocp/usage/usage_api.py`) — 레이트리밋. transcript 에는 없다(벽에 부딪힌 뒤의 429 뿐). 틱당 한 계정, 그리고 변할 수 있었을 때만 묻는다.
+- **The session's transcript** (`ocp/usage/collect.py`): context, session identity, model, cost. Our hook (`Stop` etc., every turn) writes it, and the daemon tick picks up a session the hook did not report. Which account it is also comes from **the transcript's path** (`accounts/<acct>/.claude/...`), as first-hand as `CLAUDE_CONFIG_DIR`.
+- **The usage endpoint** (`ocp/usage/usage_api.py`): the rate limit. It is not in the transcript (only a 429 after hitting the wall). One account per tick, and only when it could have changed.
 
-파일이 여전히 `accounts/<acct>/status.json` 과 `agents/<agent>/status.json` 이고 필드 모양도 같아서, 판독기는 하나도 바뀌지 않았다.
+The files are still `accounts/<acct>/status.json` and `agents/<agent>/status.json` with the same field shapes, so no reader changed.
 
-| 필요한 값 | 출처 |
+| Value needed | Source |
 |---|---|
-| `pct_5h` | 엔드포인트의 `five_hour.utilization`. statusLine 시절에는 **그 세션의 마지막 API 응답 시점의 값**이었다 ([claude-code#75408]) — 엔드포인트는 세션 없이도 지금을 답한다 |
-| 5h 리셋 시각 | 엔드포인트의 `five_hour.resets_at` |
-| 주간 여유 | 엔드포인트의 `seven_day.*` |
-| `rl_at` · `rl_carried` · `rl_lost` | 그 5h **창을 언제 관측했는지**(수치를 언제 정했는지가 아니다 — 페이로드가 창을 보고했으면 그 값이 고수위에 져도 관측이다), 이번 페이로드가 아니라 이월된 것인지, 창 경계를 몰라 **잃었는지**. `collected_at` 은 수집기가 살아있다는 말일 뿐이라 수치의 나이를 못 준다 |
-| `rl7_at` · `rl7_carried` · `rl7_lost` | 7d 에 대한 같은 것. 7d 는 창이 일주일이라 **나이 제한은 두지 않되**, 잃은 7d 는 배정을 거부한다 — 95% 게이트가 "값이 있고 높으면 막는다"라서 값이 없으면 거부가 아니라 **거부의 부재**가 되기 때문이다 |
-| 컨텍스트 사용률 | transcript 의 마지막 assistant 턴 `usage` 합 / 모델 창 → **트리거 (§8)**. 모델별 창 크기는 표다(`collect.CTX_SIZE`): 모르는 모델은 **수치 없음**이고, 작게 찍어두면 모든 에이전트가 제 창의 1/5 에서 park 된다 |
-| 세션 조인키 | transcript **파일 자체**가 둘 다다 — 이름이 `session_id`, 경로가 `transcript_path` |
-| 비용 | transcript 의 `cost-state.totalCostUSD` (없는 버전도 있다. 판독기가 하나뿐인 표시용이라 없어도 실패가 아니다) |
+| `pct_5h` | The endpoint's `five_hour.utilization`. In the statusLine days it was **the value at that session's last API response** ([claude-code#75408]); the endpoint answers for now, with no session needed |
+| 5h reset time | The endpoint's `five_hour.resets_at` |
+| Weekly headroom | The endpoint's `seven_day.*` |
+| `rl_at` · `rl_carried` · `rl_lost` | **When that 5h window was observed** (not when the number was set: if the payload reported the window, it is an observation even when its value lost to the high-water mark), whether it is carried over rather than from this payload, and whether it was **lost** because the window boundary was unknown. `collected_at` only says the collector is alive, so it cannot give the age of the number |
+| `rl7_at` · `rl7_carried` · `rl7_lost` | The same for 7d. The 7d window is a week, so **no age limit is set**, but a lost 7d refuses assignment. The 95% gate says "block if there is a value and it is high", so with no value the result is not a refusal but **the absence of a refusal** |
+| Context usage | Sum of the `usage` of the transcript's last assistant turn / model window → **trigger (§8)**. The window size per model is a table (`collect.CTX_SIZE`): an unknown model gives **no number**, and a small default would park every agent at 1/5 of its window |
+| Session join keys | The transcript **file itself** is both: its name is the `session_id`, its path the `transcript_path` |
+| Cost | The transcript's `cost-state.totalCostUSD` (some versions lack it. It is display-only with a single reader, so missing is not a failure) |
 
-`collected_at` 은 **transcript 의 mtime**이다 — 우리가 읽은 시각이 아니라 세션이 마지막으로 쓴 시각. 이게 `status.stale` 의 의미("세션이 글쓰기를 멈췄다")를 그대로 지켜주고, 데몬이 죽은 세션 파일을 읽는 것만으로 살아있어 보이지 않게 한다.
+`collected_at` is **the transcript's mtime**: not when we read it but when the session last wrote. That keeps the meaning of `status.stale` ("the session stopped writing") and keeps the daemon from looking alive just by reading a dead session's file.
 
-### 제약 — `ocp doctor`가 강제 점검
+### Constraints: `ocp doctor` enforces the check
 
-- 세션이 살아있을 때만 갱신된다 — 이건 그대로다. 심장박동은 우리 훅(`Stop`)이 대신하고, 훅이 안 뜬 세션은 틱이 줍는다
-- managed settings의 `disableAllHooks` 계열이 걸리면 **경고 없이 비활성화** — 이제 이게 statusLine 이 아니라 **훅**을 죽이므로, 컨텍스트·세션 신원이 틱 간격(30초)으로만 갱신된다
-- usage 엔드포인트 자체에 rate limit이 있다. 공격적 폴링 시 stale 값으로 fail-open
-- `pct_5h`가 null이라고 다 같은 null이 아니다. 판정은 **다섯 가지**다 (2026-09-17 실측)
-  - `live` — 이번 페이로드가 그 창을 보고했다
-  - `carried` — 이전 관측값이고, 창이 아직 안 끝났으며, 관측한 지 `CARRY_MAX_AGE_S`(900s) 이내다
-  - `carried_old` — 같은 이월값인데 그보다 오래됐다. **트리거에는 쓰되**(창 안에서 사용량은 오르기만
-    하므로 하한이다) **새 배정은 거부한다**
-  - `quiet` — 살아있는 수집기가 그 창에 대해 아무 말도 안 한다. 이 창에서 아무도 안 썼다는
-    **관측**이므로 0%로 읽고 배정한다. 여기서 거부하면 노는 에이전트를 handoff 시키고 fold 비용만 태운다
-  - `unknown` — 스냅샷이 없거나·판독 불가(NaN·문자열·불리언)거나·**이월하지 못하고 잃었다**.
-    이것만 fail-closed 다. 배정에서는 낡은 값을 unknown으로 거부하지 않는다 — 창 안에서는 하한(floor)이고,
-    창이 끝나면 그 하한도 의미를 잃어 probe로 다시 묻는다 (`status.idle_floor`)
-- 그래서 **쓰는 쪽**이 지키는 규칙 넷. 원래 수집기의 jq 에 있었고, 지금은 `ocp/usage/usage_api.record` 에 있는 것이 둘(고수위, 롤오버)이다. 나머지 둘 — 창을 보고하지 않는 payload 의 이월과 `rl_lost` — 은 **적용될 대상이 없어졌다**: 엔드포인트는 두 창을 다 말하거나 아무 답도 안 한다. 판독 규칙(아래 다섯 가지)은 전부 그대로다: 폴이 실패하거나 토큰이 죽으면 그게 남은 전부다
-  - 어떤 창을 보고하지 않는 페이로드는 **그 창의 이전 값을 지우지 않는다** (`resets_at`이 남아 있는 동안.
-    로컬 시계 오차 60초는 봐준다 — `resets_at` 은 서버가 정하고 비교는 로컬 시계로 한다)
-  - **창이 끝났는지 판단할 `resets_at` 자체가 없으면** 그 값을 버리되 `rl_lost` 로 표시한다. 잃은 값은
-    조용함이 아니라 **미상**이다. 그리고 **그 상태는 끈적해야 한다** — 다음 페이로드에서 조용함으로
-    풀리면 95% 를 알고 있던 계정이 **한 번의 리프레시 뒤에** 0% 로 읽힌다. 창을 다시 보고하는
-    페이로드가 올 때까지 미상으로 남는다
-  - **한 창 안에서 계정 수치는 내려가지 않는다.** 세션마다 관측 시각이 달라서, 이게 없으면
-    더 낡은 세션이 마지막에 그릴 때마다 계정 값이 뒤로 간다 ([claude-code#75408] 의 그 증상이다).
-    비교는 **판독기가 쓰는 해상도(올림한 정수)로** 한다. 원시 float 에는 잡음이 있고
-    (`28.999999999999996` = 29), 아래로 난 잡음 한 톨이 이 규칙을 영구히 걸어 잠근다.
-    끝난 창은 새 값을 누르지 못한다 — 리셋으로 0 이 된 걸 옛 고수위가 덮으면 안 된다
-  - **창을 보고한 페이로드는 그 값이 고수위에 지더라도 관측이다.** `rl_at` 을 안 올리면
-    살아서 매 초 보고하는 계정이 `carried_old` 로 늙어 새 일을 못 받는다
-- **조용함 추론의 알려진 예외**: `ocp fold` 는 `claude -p` 로 도는데 헤드리스라 statusLine 이 없다.
-  그래서 fold 가 쓴 쿼터는 **어떤 수집기도 보지 못한다.** 한 번에 작은 호출이지만, `quiet` 은
-  "아무도 안 썼다"가 아니라 **"보고된 사용이 없다"**로 읽어야 한다
-- Claude Code v2.1.234+의 **`autoContinueAtUsageLimit`**이 우리 재개 A와 겹친다. 끄고 우리가 관리하거나 켜고 위임하거나 **택일**을 강제한다
+- It is refreshed only while the session is alive. This is unchanged. Our hook (`Stop`) stands in for the heartbeat, and the tick picks up a session where the hook did not fire
+- If managed settings set anything in the `disableAllHooks` family, hooks are **disabled without a warning.** This now kills the **hooks**, not the statusLine, so context and session identity refresh only at the tick interval (30 seconds)
+- The usage endpoint has a rate limit of its own. Aggressive polling fails open on a stale value
+- A null `pct_5h` is not always the same null. There are **five verdicts** (measured 2026-09-17)
+  - `live`: this payload reported that window
+  - `carried`: an earlier observation, the window has not ended, and it was observed within `CARRY_MAX_AGE_S` (900s)
+  - `carried_old`: the same carried value, but older. It is **used for triggers** (usage only rises within a window, so it is a floor) and **refuses new assignment**
+  - `quiet`: a live collector says nothing about that window. This is an **observation** that no one used it in this window, so it reads as 0% and assigns. Refusing here would hand off an idle agent and burn only fold cost
+  - `unknown`: no snapshot, or unreadable (NaN, a string, a boolean), or **lost without being carried.** Only this one fails closed. Assignment does not refuse a stale value as unknown: inside the window it is a floor, and when the window ends that floor loses its meaning and a probe asks again (`status.idle_floor`)
+- So the **writer** keeps four rules. Two of them lived in the original collector's jq and now live in `ocp/usage/usage_api.record` (the high-water mark and the rollover). The other two, carry-over for a payload that does not report a window and `rl_lost`, **no longer have anything to apply to**: the endpoint reports both windows or none. The reader rules (the five above) are all unchanged: when a poll fails or the token dies, that is all that is left
+  - A payload that does not report a window **does not erase that window's earlier value** (while `resets_at` is still ahead.
+    A local clock error of 60 seconds is tolerated, since `resets_at` is set by the server and compared by the local clock)
+  - **If there is no `resets_at` to tell whether the window ended**, drop the value but mark it `rl_lost`. A lost value is
+    **unknown**, not quiet. And **that state must be sticky**: if the next payload released it to quiet,
+    an account known to be at 95% would read as 0% **after one refresh**. It stays unknown until a
+    payload reports the window again
+  - **Within one window the account number does not go down.** Sessions observe at different times, and without this
+    every time an older session draws last, the account value goes backwards (that is the symptom in [claude-code#75408]).
+    Compare **at the resolution the reader uses (the rounded-up integer).** The raw float has noise
+    (`28.999999999999996` = 29), and one speck of downward noise would lock this rule shut for good.
+    An ended window cannot press down a new value: an old high-water mark must not overwrite the 0 that a reset produced
+  - **A payload that reports the window is an observation even if its value loses to the high-water mark.** If `rl_at` is not
+    raised, an account that is alive and reporting every second ages into `carried_old` and cannot take new work
+- **Known exception to the quiet inference**: `ocp fold` runs as `claude -p`, which is headless and has no statusLine.
+  So the quota fold uses is **seen by no collector.** It is a small call each time, but `quiet` must be read as
+  **"no reported use"**, not "no one used it"
+- **`autoContinueAtUsageLimit`** in Claude Code v2.1.234+ overlaps our resume A. It forces a **choice**: turn it off and manage it ourselves, or turn it on and delegate
 
-### transcript 집계 시 dedup 필수
+### Dedup is required when aggregating the transcript
 
-한 API 응답의 content block이 각각 JSONL 라인이 되면서 **같은 usage 객체를 복사**한다. `message.id`로 dedup하지 않으면 번레이트가 과대 계산되고, 그러면 `runway`가 과소 → **모든 슬롯이 게이트 탈락 → 전원 PARKED 고착**. 실측 표본 하나에서 2.4배였다.
+Each content block of one API response becomes its own JSONL line and **copies the same usage object.** Without dedup by `message.id` the burn rate is overcounted, so `runway` is undercounted, **every slot fails the gate and everyone sticks in PARKED.** One measured sample was 2.4x.
 
-**컨텍스트 pull 은 이 함정에 걸리지 않는다**: 합이 아니라 마지막 `usage` 레코드 **하나**를 읽기 때문이다. 같은 객체가 몇 줄에 복사돼 있어도 답은 같다 — 19개 에이전트 실측에서 statusLine 값과 토큰 단위로 일치했다. dedup 이 필요한 건 여전히 번레이트뿐이다.
+**The context pull does not fall into this trap**: it reads **one** last `usage` record, not a sum. The answer is the same however many lines the same object is copied to. Measured on 19 agents, it matched the statusLine value to the token. Dedup is still needed only for the burn rate.
 
 ---
 
-## 5. 기록
+## 5. Records
 
-### 계층
-
-```
-events (SQLite)   기계 이벤트. 훅이 INSERT. 사람도 모델도 안 읽음
-journal/<날짜>.md 다이제스트. `ocp fold` 가 통째 재작성 (handoff 경로는 호출하지 않는다)
-handoff        에이전트 행(agent_state.handoff)에 저장. 요청 id·직전 세션 transcript 경로·워크트리 branch/HEAD/status 세 가지를 모델 없이 읽어 만든다. 재개 시 한 번 주입하고 지운다
-```
-
-이벤트를 파일이 아니라 **SQLite에 넣는다.** 델타 경계가 `WHERE id > cursor` 한 줄이 되고, 훅이 늦게 도착해도 순서가 깨지지 않는다.
-
-### fold는 세션 밖에서
+### Layers
 
 ```
-fold 입력 = 이전 다이제스트 + events 델타 + transcript tail
-fold 실행 = 별도 호출. 해당 계정이 아니어도 되고, 저가 모델로 충분하다 (archivist)
-커서 전진 = 검증 통과한 fold가 커밋된 뒤, 같은 트랜잭션에서만
+events (SQLite)   machine events. The hook INSERTs. Neither a person nor a model reads them
+journal/<date>.md digest. `ocp fold` rewrites it whole (the handoff path does not call it)
+handoff        stored on the agent row (agent_state.handoff). Built with no model from three facts: request ids, the previous session's transcript path, and the worktree branch/HEAD/status. Injected once on resume, then cleared
 ```
 
-세션 안에서 요약하면 입력이 세션 길이에 비례해 무한 증가한다. 밖으로 빼면 캐시 만료 시각과 fold가 탈동조화되고, 90% 근처에서 예비분을 잠식하는 문제도 사라진다.
+Events go **into SQLite, not a file.** The delta boundary becomes one line, `WHERE id > cursor`, and a hook that arrives late does not break the order.
 
-### 기록 타이밍 — 주기적으로 하지 않는다
+### Fold runs outside the session
 
-| 시점 | 무엇 | 모델 |
+```
+fold input  = previous digest + events delta + transcript tail
+fold run    = a separate call. It need not be on that account, and a cheap model is enough (archivist)
+cursor move = only after a fold that passed validation is committed, in the same transaction
+```
+
+Summarizing inside the session grows the input without bound in proportion to the session's length. Moving it out decouples the fold from the cache expiry time and removes the problem of eating the reserve near 90%.
+
+### Record timing: not periodic
+
+| When | What | Model |
 |---|---|---|
-| `SessionStart` / `Stop` / `SessionEnd` | 이벤트 INSERT | 안 씀 |
-| git `post-commit` | 커밋·diffstat | 안 씀 |
-| handoff | 요청 id·transcript 경로·워크트리 상태를 읽어 기록 | 안 씀 |
+| `SessionStart` / `Stop` / `SessionEnd` | INSERT an event | none |
+| git `post-commit` | commit and diffstat | none |
+| handoff | read request ids, transcript path and worktree state, and record them | none |
 
-`PostToolUse`는 설치하지만 권한 대기만 해제한다 — 이벤트 행을 쓰지 않고, 기다리는 것이 없으면 stat 한 번이며, 도구 호출당 약 0.08초(측정)다.
+`PostToolUse` is installed but only releases a permission wait. It writes no event row, costs one stat when nothing waits, and is about 0.08 s per tool call (measured).
 
-### fold는 파괴적 재작성이다 — 검증 필수
+### Fold is a destructive rewrite: validation is required
 
-원자적 쓰기는 "반쯤 쓰인 파일"만 막는다. **완전하게 쓰인 쓰레기 파일이 좋은 파일을 덮는 것**은 못 막는다.
+An atomic write prevents only a "half-written file". It **cannot stop a fully written garbage file from overwriting a good one.**
 
 ```
-1. 스키마 검증: 5개 고정 섹션 헤더 존재
-2. 단조성 검증: 이전 다이제스트의 `완료` 항목이 하나도 사라지지 않았을 것
-3. 실패 시 git으로 롤백 + degraded 폴백
+1. Schema check: the 5 fixed section headers exist
+2. Monotonicity check: no `Done` item of the previous digest may have vanished
+3. On failure, roll back with git + a degraded fallback
 ```
 
-그리고 다이제스트에는 **모델 출력과 무관한 결정론적 블록을 항상 붙인다** — 브랜치·HEAD·직전 커밋 5개·변경 파일·최근 이벤트. fold가 망해도 사실이 남게. (handoff 자체는 fold 를 거치지 않고 전부 결정론이다.)
+And the digest **always carries a deterministic block independent of the model's output**: branch, HEAD, the last 5 commits, changed files, recent events. So the facts remain even if the fold fails. (The handoff itself does not go through the fold and is fully deterministic.)
 
-### 다이제스트 형식
+### Digest format
 
 ```markdown
 # 2026-09-15 · backend
-updated: 14:32 (handoff #3) · folded_through: event 18432
+updated: 14:32 (handoff 3) · folded_through: event 18432
 
-## 완료 / ## 진행중 / ## 결정 / ## 막힌 것 / ## 다음 / ## base 승격 후보
+## Done / ## In progress / ## Decided / ## Blocked / ## Next / ## Base candidates
 ```
 
-섹션이 고정이면 fold가 "항목을 섹션 간에 옮기는 연산"이 된다. 자유 서술이면 매번 구조가 흔들려 재작성이 불안정해진다.
+With fixed sections, the fold becomes "an operation that moves items between sections". With free prose the structure shifts each time and the rewrite becomes unstable.
 
-### 자정 롤오버 (모델 없음)
+### Midnight rollover (no model)
 
-날짜가 바뀌면 전날 `## 진행중`이 **영원히 진행중으로 남는다.** 00:00 타이머에:
+When the date changes, yesterday's `## In progress` **stays in progress forever.** On the 00:00 timer:
 
 ```
-1. 전날 델타가 남아 있으면 강제 fold 1회
-2. 오늘 다이제스트를 `진행중`/`막힌 것`/`다음`만 캐리포워드, `완료`는 비움
-3. 마감 이후 도착한 fold는 `## 지각 반영` 블록으로
+1. If yesterday has an unfolded delta, force one fold
+2. Carry forward into today's digest only `In progress`/`Blocked`/`Next`, and empty `Done`
+3. A fold that arrives after the cutoff goes into a `## Late additions` block
 ```
 
 ---
 
-## 6. 슬롯  **[만들지 않음 — 측정 번레이트로 대체]**
+## 6. Slots  **[not built: replaced by measured burn rate]**
 
-계정을 워커 슬롯으로 두고 **슬롯이 큐에서 일을 가져간다(pull).** 에이전트가 계정을 고르지 않는다.
-이 반전으로 예산 예측 불가·동시 만료·귀속 불가·인증 충돌이 동시에 사라진다.
+Accounts are worker slots, and **a slot pulls work from the queue.** The agent does not choose an account.
+This inversion removes unpredictable budget, simultaneous expiry, attribution failure and auth conflicts at once.
 
 ```sql
 CREATE TABLE lease (
@@ -338,177 +334,177 @@ CREATE UNIQUE INDEX one_per_account ON lease(account) WHERE state='active';
 CREATE UNIQUE INDEX one_per_agent   ON lease(agent)   WHERE state='active';
 ```
 
-`one_per_agent`가 없으면 같은 에이전트가 두 계정에서 동시에 리스를 갖고, 같은 journal에 두 세션이 쓴다.
+Without `one_per_agent`, the same agent holds leases on two accounts at once and two sessions write the same journal.
 
-### 회수는 PID로 — TTL로 하면 안 된다
+### Reclaim by PID, not by TTL
 
-SQLite는 TTL 만료를 해주지 않는다. 그리고 **TTL 만료가 프로세스 사망을 함의하지 않는다.** 데몬이 죽어도 워커는 Orca 소유라 계속 살아서 그 CONFIG_DIR을 쓴다. 리스만 만료되면 다른 에이전트가 같은 슬롯을 잡아 **CONFIG_DIR 이중 사용**이 된다.
-
-```
-회수 조건 = PID/프로세스 그룹 생존 확인. TTL은 보조 신호
-회수 전 SIGTERM으로 실제 종료시킨 뒤에만 state='released'
-계정 디렉토리에 flock으로 OS 레벨 배타성도 건다
-획득 트랜잭션 맨 앞 + 데몬 루프 30초마다 reaper 실행
-```
-
-DB 유니크 제약은 프로세스를 죽이지 않는다.
-
-### 중재자는 하나다
+SQLite does not expire a TTL for us. And **a TTL expiry does not imply the process died.** Even if the daemon dies, the worker is owned by Orca, stays alive and keeps using that CONFIG_DIR. If only the lease expires, another agent takes the same slot and the **CONFIG_DIR is used twice.**
 
 ```
-기상·배정은 단일 데몬 루프가 큐를 정렬해 순차 수행한다.
-에이전트가 직접 리스를 경쟁하지 않는다. UNIQUE는 안전망이지 스케줄러가 아니다.
-획득 실패 시 그 슬롯만 후보에서 빼고 즉시 재선택 — 후보 소진 시에만 QUEUED
-ocp start 도 직접 리스를 잡지 않고 큐에 최고 우선순위로 넣는다
+reclaim condition = a PID/process-group liveness check. TTL is a secondary signal
+state='released' only after really ending it with SIGTERM before reclaim
+also take OS-level exclusivity with flock on the account directory
+run the reaper at the start of the acquire transaction + every 30 s of the daemon loop
+```
+
+A DB unique constraint does not kill a process.
+
+### There is one arbiter
+
+```
+Wake-up and assignment are done in order by a single daemon loop that sorts the queue.
+Agents do not compete for leases themselves. UNIQUE is a safety net, not a scheduler.
+On acquire failure drop only that slot from the candidates and re-pick at once; QUEUED only when candidates run out
+ocp start does not take a lease directly either; it puts the request in the queue at top priority
 ```
 
 ---
 
-## 7. 스케줄링 — 지표는 `runway` 하나  **[만들지 않음 — 측정 번레이트로 대체]**
+## 7. Scheduling: one metric, `runway`  **[not built: replaced by measured burn rate]**
 
 ```
-headroom = max(0, (90 - pct_5h) / 100)          # 모든 곳에서 90% 캡 통일
-burn     = max( EWMA(최소 10분 창), weight별 floor )
-runway   = headroom / burn                       # 단위: 분
+headroom = max(0, (90 - pct_5h) / 100)          # the 90% cap is the same everywhere
+burn     = max( EWMA(10-minute minimum window), floor per weight )
+runway   = headroom / burn                       # unit: minutes
 
-effective_runway = (reset_in <= 15분) ? reset_in + 다음_윈도우_runway : runway
-weekly 보정      = × min(1, weekly_headroom / 0.2)
+effective_runway = (reset_in <= 15 min) ? reset_in + next_window_runway : runway
+weekly correction = x min(1, weekly_headroom / 0.2)
 ```
 
-**배정도 정렬도 `effective_runway` 하나로 한다.**
+**Both assignment and ordering use `effective_runway` alone.**
 
 ```
-heavy: effective_runway >= 60분
-light: effective_runway >= 15분
-pct_5h >= 90 인 슬롯은 후보 생성 단계에서 제외
-정렬: effective_runway 내림차순
+heavy: effective_runway >= 60 min
+light: effective_runway >= 15 min
+a slot with pct_5h >= 90 is excluded at candidate generation
+order: effective_runway descending
 ```
 
-`burn`의 floor가 중요하다. floor가 없으면 두 가지 실패가 난다 — 전원 PARKED면 번레이트 0 → runway 무한 → 전원 통과 → 3분 만에 90% → 진동. 표본이 0인 콜드스타트에서는 번레이트를 얻으려면 돌려야 하고 돌리려면 번레이트가 필요한 **순환 대기 데드락**.
+The floor on `burn` matters. Without a floor two failures follow. If everyone is PARKED the burn rate is 0, so runway is infinite, so everyone passes, so 90% in 3 minutes, and then it oscillates. At a cold start with zero samples there is a **circular-wait deadlock**: to get a burn rate you must run, and to run you need a burn rate.
 
-활성 블록이 없는 슬롯은 `runway = ∞`인 **최상위 후보로 명시 정의**한다.
+A slot with no active block is **defined explicitly as a top candidate** with `runway = ∞`.
 
-### 큐
+### Queue
 
 ```
 prio = blocks + wait_minutes / 30
-매칭 = "슬롯 하나에 대해 큐를 순회하며 첫 적격 에이전트"   (헤드 블로킹 방지)
-건너뛴 횟수를 에이징에 가산
-min_runway_eff = max(3분, min_runway - waited_minutes/20)   (기아 해소)
+match = "for one slot, walk the queue and take the first eligible agent"   (no head-of-line blocking)
+add the number of skips to the aging
+min_runway_eff = max(3 min, min_runway - waited_minutes/20)   (starvation relief)
 ```
 
-마지막 줄이 없으면 에이징이 **순서만 바꾸고** 게이트를 못 뚫어 기아가 영원히 안 풀린다. 진행 보장은 "언젠가 임계값이 반드시 만족된다"로만 증명 가능하다.
+Without the last line, aging **only changes the order**, cannot get through the gate, and starvation never clears. Progress can be proven only as "the threshold is eventually always met".
 
-### handoff는 선점점이다
+### Handoff is a preemption point
 
-handoff 시점에 리스를 일단 큐에 반납하고 재선택한다. 그러지 않으면 리스 해제 계기가 `worker_done`과 `90% 도달` 둘뿐이라 대기 에이전트가 5시간 내내 기회를 못 받는다. `max_lease_minutes` 상한도 둔다.
+At handoff the lease is returned to the queue and re-picked. Otherwise the only occasions to release a lease are `worker_done` and `reaching 90%`, and a waiting agent gets no chance for a full 5 hours. A `max_lease_minutes` cap is also set.
 
 ---
 
-## 8. 트리거 · 상태머신 · 재개
+## 8. Triggers, state machine, resume
 
-### 8.1 트리거는 둘, 레벨 기반
+### 8.1 Two triggers, level-based
 
 ```
-컨텍스트  : context_pct >= 60%          ← 캐시 만료를 대체 (부록 A-2)
-사용량    : pct_5h >= 100  (또는 pct_7d >= 100, 또는 한도로 끝난 턴)   ← 벽에서만
+context : context_pct >= 60%          ← replaces cache expiry (appendix A-2)
+usage   : pct_5h >= 100  (or pct_7d >= 100, or a turn that ended on the limit)   ← at the wall only
 ```
 
-엣지 트리거(이번 틱에 경계를 넘었는가)로 구현하면 **데몬이 죽어 있는 동안 지나간 크로싱을 영원히 감지하지 못한다.** 조건식으로 정의한다.
+Implemented as an edge trigger (did it cross the boundary this tick?), **a crossing that passed while the daemon was down is never detected.** Define them as conditions.
 
-일하는 에이전트는 퍼센트로 옮기지 않는다. 벽(한도로 끝난 턴, 또는 100% 읽기)까지 달리고, 작업은 transcript 에 남으니 잃는 것이 없다. 읽을 수 없는 계정은 벽이 아니다. 벽에서 옮길지는 선이 아니라 비용 비교다: 대기 중인 일이 없거나 그 계정이 T(39분, 이후 측정된 콜드스타트 비용) 안에 리셋되면 park 에 머물고, 아니면 한 번만 옮긴다. 계정 선택은 활성 에이전트 수 상한(기본 2)과, 계정의 현재 채워지는 속도(burn)에서 에이전트 하나가 더 붙어도 30분 이상 버티는지로 거른 뒤 주간 헤드룸이 가장 먼저 소멸하는 순서다.
+A working agent is not moved at a percentage. It runs to the wall (a turn that ended on the limit, or a read of 100%), and nothing is lost since the work stays in the transcript. An unreadable account is not a wall. Whether to move at the wall is a cost comparison, not a line: if no work is waiting, or the account resets within T (39 minutes, the cold-start cost measured since), it stays parked; otherwise it moves just once. Account choice filters by the active-agent cap (default 2) and by whether the account's current fill rate (burn) lasts 30 minutes or more even with one more agent on it, then goes in the order whose weekly headroom expires first.
 
-### 8.2 상태머신
+### 8.2 State machine
 
 ```
 IDLE → QUEUED → RUNNING → DONE
                    │
-                   ├─ 컨텍스트 / 사용량 ──▶ HANDOFF
+                   ├─ context / usage ──▶ HANDOFF
                    │                          │
-                   │            검증 통과 ─────┼──▶ 슬롯 재선택 ──▶ RUNNING
-                   │                          │         (후보 없음)
-                   │            실패·타임아웃 ─┴──▶ DEGRADED ──▶ PARKED
+                   │            validated ─────┼──▶ re-pick slot ──▶ RUNNING
+                   │                          │         (no candidate)
+                   │            fail·timeout ─┴──▶ DEGRADED ──▶ PARKED
                    │
-PARKED    ──wake_at──▶ QUEUED      (기다리는 요청·답이 없으면 IDLE)
-THROTTLED ──예산 창 롤오버──▶ QUEUED      (자동; 기다리는 요청·답이 없으면 IDLE)
-STALLED   ──사람만 해제──▶ QUEUED
+PARKED    ──wake_at──▶ QUEUED      (IDLE if no request or reply is waiting)
+THROTTLED ──budget window rollover──▶ QUEUED      (automatic; IDLE if no request or reply is waiting)
+STALLED   ──only a person releases──▶ QUEUED
 ```
 
-**HANDOFF에서 나가는 실패 간선이 있어야 한다.** 없으면 handoff 실패(읽지 못한 사실)·타임아웃이 전부 여기 수렴해서 에이전트가 어떤 상태도 아닌 채로 슬롯을 영구 점유한다.
+**There must be a failure edge out of HANDOFF.** Without one, handoff failures (a fact that could not be read) and timeouts all converge here, and the agent holds the slot forever in no state at all.
 
-### 8.3 handoff 타임아웃
-
-```
-타임아웃 90초 (시계만으로 판정한다 — 모델 호출이 없으니 기다릴 결과물이 없다)
-타임아웃 시: ① degraded 로 기록 ② 반복되면 THROTTLED
-```
-
-### 8.4 PARKED를 깨울 주체
-
-**"dispatched 상태만 평가"하면 전원 PARKED일 때 평가 대상이 0개가 된다.** 재개 계기인 리스 해제 이벤트도 활성 리스가 0이라 앞으로 영원히 발생하지 않는다. 계정이 텅 빈 채로 시스템이 영구 정지한다.
+### 8.3 Handoff timeout
 
 ```
-평가 대상 = RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED
-agent.wake_at 을 SQLite에 영속 (리셋 시각 · 리스 만료 중 이른 쪽)
-데몬 기동 시 reconciliation 1회 무조건:
-  - wake_at <= now 전수 스캔
-  - 리스 테이블 ↔ 실제 실행 중 워커 대조
+timeout 90 s (judged by the clock alone: there is no model call, so nothing to wait for)
+on timeout: (1) record as degraded  (2) if it repeats, THROTTLED
 ```
 
-인메모리 타이머는 최적화일 뿐 정확성의 근거가 될 수 없다. 이 reconciliation 하나가 "데몬 사망 중 지나간 트리거", "리스 좀비", "타이머 소실"을 **동시에** 막는다.
+### 8.4 Who wakes PARKED
 
-### 8.5 카운터는 옳은 것을 센다
-
-"태스크당 dispatch 5회 상한"은 **실패가 아니라 정상적인 연속을 센다.** 계정이 부족해 handoff가 잦으면 태스크가 순조롭게 전진하는 중에도 상한에 걸린다 — 시스템이 열심히 일할수록 빨리 멈춘다.
+**If only "dispatched" states are evaluated, then when everyone is PARKED the set to evaluate is empty.** The lease-release event that triggers a resume also never happens again, since active leases are 0. The system stops for good with the accounts empty.
 
 ```
-failed_attempts : 크래시 · 게이트 거부 · 오류 종료에서만 +1. 상한 3
-continuations   : handoff 기인. 무제한
-폭주 방지는 횟수가 아니라 자원으로: task_token_budget / task_wallclock_budget
-재개 예산은 성공한 dispatch만 카운트 — 실패한 재평가는 무료
+evaluate = RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED
+persist agent.wake_at in SQLite (the earlier of the reset time and lease expiry)
+at daemon start, one reconciliation, unconditionally:
+  - full scan of wake_at <= now
+  - compare the lease table against the workers actually running
 ```
 
-마지막 줄이 없으면 **리셋 순간에 전원이 깨어나 경합에 지고 그 실패로 STALLED가 된다.** 자원이 회복된 바로 그 순간에 시스템의 3/4이 정지한다.
+An in-memory timer is only an optimization and cannot be the basis of correctness. This one reconciliation guards against "a trigger that passed while the daemon was dead", "a zombie lease" and "a lost timer" **at once.**
 
-### 8.6 THROTTLED와 STALLED
+### 8.5 Counters count the right thing
+
+"A cap of 5 dispatches per task" **counts normal continuations, not failures.** If handoffs are frequent for lack of accounts, a task hits the cap while advancing smoothly: the harder the system works, the sooner it stops.
 
 ```
-THROTTLED : 자원 문제. 예산 창 롤오버 시 자동 → QUEUED (기다리는 요청·답이 없으면 IDLE). 연속 K회 상한 + 지수 백오프
-STALLED   : 태스크 결함. 사람만 해제. gate-create는 THROTTLED 자동해제 K회 실패 후에만
+failed_attempts : +1 only on a crash, a gate refusal or an error exit. Cap 3
+continuations   : caused by handoff. Unlimited
+runaway guard is by resource, not by count: task_token_budget / task_wallclock_budget
+the resume budget counts only dispatches that succeeded: a failed re-evaluation is free
 ```
 
-예산 초과를 STALLED로 보내면 예산은 1시간 뒤 복원되는데 상태는 복원되지 않는다. 23:40에 걸리면 **아침까지 슬롯이 유휴인 채로 정지** — 무인 운영이 목적인 시스템이 정확히 그 구간에서 무효화된다.
+Without the last line, **everyone wakes at the reset moment, loses the race, and those failures make them STALLED.** At the very moment the resource recovers, three quarters of the system stops.
+
+### 8.6 THROTTLED and STALLED
+
+```
+THROTTLED : a resource problem. At budget-window rollover, automatically → QUEUED (IDLE if no request or reply is waiting). Cap of K in a row + exponential backoff
+STALLED   : a defect in the task. Only a person releases it. gate-create only after K failed THROTTLED auto-releases
+```
+
+Sending a budget overrun to STALLED means the budget is restored an hour later but the state is not. If it hits at 23:40, **the slots sit idle and stopped until morning**, and a system meant for unattended operation is nullified in exactly that stretch.
 
 ### 8.7 Thundering herd  **[v2]**
 
 ```
-리셋 기상에 에이전트별 지터 0~30초, 슬롯 수만큼만 기상
-계정 블록 시작 시각을 의도적으로 스태거
-재기동 직후 HANDOFF 진입을 초당 1건으로 제한
+jitter of 0-30 s per agent on a reset wake-up, and wake only as many as there are slots
+stagger the account block start times on purpose
+limit HANDOFF entries right after a restart to 1 per second
 ```
 
-없으면 블록이 정렬되어 5시간마다 모든 슬롯이 동시에 비고 동시에 90%에 닿는 **convoy**가 생긴다.
+Without these, the blocks line up and a **convoy** forms: every 5 hours all slots empty at once and hit 90% at once.
 
-### 8.8 베이스 드리프트
+### 8.8 Base drift
 
 ```
 git fetch && git rev-list --count HEAD..origin/<base>
 git diff --name-only HEAD...origin/<base>
 
-판정은 커밋 수가 아니라 파일 교집합:
-  드리프트 파일 ∩ 에이전트 touched-files ≠ ∅ → 강제 리베이스 또는 gate
+judge by file intersection, not commit count:
+  drifted files ∩ the agent's touched-files ≠ ∅ → forced rebase or gate
 ```
 
-`main..HEAD`는 **에이전트 자신의 커밋**이라 드리프트를 측정하지 못한다. 방향이 반대다.
+`main..HEAD` is **the agent's own commits**, so it does not measure drift. The direction is reversed.
 
-재개 헤더도 여기에 맞춘다:
+The resume header follows this too:
 
 ```
-겹침 없음: 아래 "완료" 항목은 이미 끝났습니다. 재수행하지 마십시오.
-겹침 있음: 아래 "완료" 항목은 베이스 이동으로 무효일 수 있습니다. 해당 파일을 먼저 확인하십시오.
+No overlap: the "Done" items below are already finished. Do not redo them.
+Overlap:    the "Done" items below may be void because the base moved. Check those files first.
 ```
 
-### 8.9 handoff 진행 상태 영속화
+### 8.9 Persisting handoff progress
 
 ```sql
 CREATE TABLE handoff (
@@ -518,7 +514,7 @@ CREATE TABLE handoff (
 );
 ```
 
-각 단계 커밋. 기동 시 `in_flight` 행을 찾아 **그 단계부터** 재개한다. in_flight 행이 있는 에이전트는 트리거 평가에서 제외하고, 두 번째 트리거는 사유 추가로 병합한다. `min()` 수식은 상호배제 장치가 아니다.
+Commit each step. At startup find the `in_flight` rows and resume **from that step.** An agent with an in_flight row is excluded from trigger evaluation, and a second trigger is merged by adding a reason. The `min()` formula is not a mutual-exclusion device.
 
 ---
 
@@ -531,8 +527,8 @@ ocp run create --objective "..."
 ocp task add --spec "..." [--depends-on <id>]
 ocp start <agent> --task <id>
 
-ocp slot list [--json]        # runway 포함
-ocp slot why <agent>          # 게이트 통과·탈락 근거
+ocp slot list [--json]        # includes runway
+ocp slot why <agent>          # why it passed or failed the gate
 ocp slot release <account> --force
 ocp queue list
 
@@ -547,27 +543,27 @@ ocp bridge [--once]
 ocp doctor
 ```
 
-`ocp doctor`: 사용량 읽기 · `rate_limits` 존재 · Claude Code 버전 · `disableAllHooks` · `autoContinueAtUsageLimit` · 계정별 로그인 상태 · 심볼릭 링크 무결성 · `base.md` 크기 초과.
+`ocp doctor` checks: usage reading · presence of `rate_limits` · Claude Code version · `disableAllHooks` · `autoContinueAtUsageLimit` · per-account login state · symlink integrity · `base.md` over its size.
 
 ---
 
-## 10. 토큰 예산
+## 10. Token budget
 
-| 방식 | 비용 |
+| Way | Cost |
 |---|---|
-| 로직을 SKILL.md에 | 지침 ~3,000토큰이 관련 턴마다 상주, 컴팩션마다 재로드 |
-| 얇은 스텁 + CLI | 스텁 ~150토큰 + 호출한 명령의 출력만 |
+| Logic in SKILL.md | ~3,000 tokens of instructions resident on every relevant turn, reloaded at every compaction |
+| Thin stub + CLI | ~150-token stub + only the output of the command called |
 
-*(개략 추정. Phase 0에서 실측 교정)*
+*(Rough estimate. To be calibrated by measurement in Phase 0.)*
 
-- `SKILL.md`는 20줄 이하. 상세는 `ocp guide <topic>`로 필요할 때만
-- 상태 조회 출력은 사람·데몬용. 모델 컨텍스트에 상태 덤프를 넣지 않는다
-- 판단은 데몬이 한다. 모델은 결정에 참여하지 않는다
-- **모델이 토큰을 쓰는 유일한 지점 = fold 1회**, 세션 밖에서 저가 모델로
+- `SKILL.md` is at most 20 lines. Detail comes only when needed, through `ocp guide <topic>`
+- Status output is for people and the daemon. Never put a state dump into the model's context
+- The daemon decides. The model takes no part in decisions
+- **The only point where a model spends tokens = one fold**, outside the session on a cheap model
 
 ---
 
-## 11. 대시보드
+## 11. Dashboard
 
 ```
 ┌ RUNS / TASKS ───────────────┬ SLOTS ──────────────────────┐
@@ -577,135 +573,135 @@ ocp doctor
 │   └ ⏸ tests       reviewer  │        runway 4m   ✘        │
 ├ AGENTS ─────────────────────┴─────────────────────────────┤
 │ backend  [beta] ⟳ endpoints  ctx 61%  ⚠handoff            │
-│ reviewer —      ⏸ THROTTLED  자동해제 00:40               │
+│ reviewer —      ⏸ THROTTLED  auto-release 00:40           │
 └───────────────────────────────────────────────────────────┘
 ```
 
-읽기 전용 조인 뷰. 로직이 없다. **Phase 5** — `ocp bridge`로 만들었다. 한 프레임만 찍으려면 `ocp bridge --once`.
+A read-only join view. No logic. **Phase 5**: built as `ocp bridge`. To print a single frame, `ocp bridge --once`.
 
 ---
 
-## 11-b. 유휴 세션 닫기 — 메모리는 컨텍스트와 다른 자원이다
+## 11-b. Closing idle sessions: memory is a different resource from context
 
-**추가 2026-09-17.** 설계 원안에 없던 항목이고, 실측으로 들어왔다.
+**Added 2026-09-17.** It was not in the original design and came in from measurement.
 
-에이전트 세션 하나가 상주하며 **250~500MB** 를 쥔다(실측: 5개 1.7GB, 그중 하루 논 둘이 554MB).
-노는 동안 토큰은 한 푼도 안 쓴다. 즉 **메모리만 쓰고 아무것도 안 하는 상태**가 존재한다.
+One resident agent session holds **250 to 500 MB** (measured: 5 sessions 1.7 GB, of which two that idled all day were 554 MB).
+While idle it spends not one token. So a state exists that **uses only memory and does nothing.**
 
-**handoff 와 구분해야 한다.** handoff 는 *컨텍스트*를 반납한다 — 세 가지 사실을 기록하고 `/clear`. 모델 호출은 없다.
-닫기는 *메모리*를 반납한다 — fold 없음, 모델 호출 없음, `/exit` 한 번. 컨텍스트가 문제인 게
-아니라 아무도 안 쓰는 게 문제이므로 요약할 것도 없다.
+**Keep it apart from handoff.** Handoff returns *context*: record three facts and `/clear`. No model call.
+Closing returns *memory*: no fold, no model call, one `/exit`. The problem is not the context
+but that no one uses the session, so there is nothing to summarize.
 
-**터미널은 남는다.** Orca 가 우리 실행 커맨드를 로그인 셸 안에서 돌려서 claude 가 그 셸의
-자식이다(실측: pid 트리). `/exit` 하면 claude 만 죽고 셸·탭·워크트리·cwd 가 그대로 남는다.
-깨울 때는 같은 셸에 `ocp launch <agent> -- --resume <session>` 을 다시 친다. **되살리는 커맨드가
-우리 것이라 계정이 구조적으로 보장된다** — Orca 의 hibernation 이 env 를 보존하는지에 기대지 않는다.
+**The terminal stays.** Orca runs our launch command inside a login shell, so claude is a child of
+that shell (measured: the pid tree). `/exit` kills only claude, and the shell, tab, worktree and cwd stay.
+To wake it, type `ocp launch <agent> -- --resume <session>` again in the same shell. **Since the command that revives it
+is ours, the account is guaranteed by structure**: we do not lean on Orca's hibernation keeping the env.
 
-**닫힘 표시는 프로세스가 사라진 뒤에만 한다.** `/exit` 를 친 것과 세션이 끝난 것은 다르다 —
-모달이 삼키거나, 종료가 스윕 한 틱보다 오래 걸린다(2026-09-19 에 한 번: SessionEnd 후 다음 스윕, 31초 뒤에야 사라진 것을 확인). 프로세스
-테이블에서 사라질 때까지(`END_WAIT_S`, 60초) 기다린 뒤에 기록하고, 끝내 안 죽으면 재시도도 kill 도
-없이 실패로 보고하고 `close_failed` 를 남겨 `IDLE_CLOSE_S` 동안은 스케줄이 다시 닫으려 하지 않는다.
-모달이 떠 있으면 아예 치지 않는다.
+**Mark it closed only after the process is gone.** Having typed `/exit` is not the same as the session having ended:
+a modal swallows it, or the exit takes longer than one sweep tick (once on 2026-09-19: after SessionEnd, the next sweep, and only 31 seconds later was it seen gone). We wait until it
+leaves the process table (`END_WAIT_S`, 60 s) and then record it. If it never dies, we report failure with no retry and no kill
+and leave `close_failed`, so for `IDLE_CLOSE_S` the schedule does not try to close it again.
+If a modal is up, we do not type at all.
 
-**되살리는 비용은 0 이다** (실측, 2026-09-17, 컨텍스트 68k):
+**The cost of reviving is 0** (measured 2026-09-17, context 68k):
 
 | | cache_creation | cache_read |
 |---|---|---|
-| 상주 연속 턴 | 37 | 68,074 |
-| 닫았다 `--resume` 첫 턴 | 37 | 68,193 |
-| 프리앰블을 바꿔 `--resume` | 377 | 68,286 |
+| resident, next turn | 37 | 68,074 |
+| closed, first turn of `--resume` | 37 | 68,193 |
+| `--resume` with the preamble changed | 377 | 68,286 |
 
-캐시는 서버 쪽 프리픽스에 붙어 있어서 **프로세스의 생사와 무관**하다. "되살리면 캐시 미스"는
-닫아서가 아니라 TTL 이 끝나서 생기고, 그건 살려뒀어도 똑같이 생긴다. 세 번째 줄도 중요하다 —
-`--append-system-prompt` 를 바꿔도 전체 재작성이 아니라 377 토큰이었다. 그래서 깨울 때
-handoff·세션 id·트랜스크립트 경로를 **얼마든지 같이 줘도 된다.**
+The cache hangs on the server-side prefix, so it is **independent of whether the process lives or dies.** "Reviving causes a cache miss"
+happens because the TTL ended, not because we closed it, and that would happen just the same if we had kept it alive. The third row matters too:
+changing `--append-system-prompt` cost 377 tokens, not a full rewrite. So on waking we **may pass the
+handoff, session id and transcript path along freely.**
 
-**닫지 않는 경우 넷**: 일하는 중(RUNNING)·handoff 중·STALLED(사람이 봐야 함)·받은 요청이 대기 중.
-그 외에는 마지막 활동으로부터 `IDLE_CLOSE_S`(기본 1800초) 가 지나면 닫는다. 활동의 근거는
-**에이전트 자신의 훅 이벤트**지 데몬의 부기가 아니다.
+**Four cases we do not close**: working (RUNNING), in handoff, STALLED (a person must look), and a received request waiting.
+Otherwise it is closed once `IDLE_CLOSE_S` (default 1800 s) has passed since the last activity. The evidence of activity is
+**the agent's own hook events**, not the daemon's bookkeeping.
 
-**깨울 때 주는 것**: 되살린 세션에는 "아무것도 잃지 않았다"만, 새 세션에는 handoff 를. 양쪽 다
-자기 트랜스크립트의 절대경로를 받고, **"grep 해라, 통째로 읽지 마라"** 가 붙는다 — 통째로 읽으면
-방금 반납한 컨텍스트를 그대로 다시 채운다.
+**What we give on waking**: a revived session gets only "nothing was lost", a new session gets the handoff. Both
+get the absolute path of their own transcript, with **"grep it, do not read it whole"** attached: reading it whole
+refills the very context that was just returned.
 
 ---
 
-## 12. Phase 0 판정표
+## 12. Phase 0 verdict table
 
-> **갱신 2026-09-16** — 근거(명령·출력)는 `docs/phase0-findings.md`.
-> 측정: macOS · Claude Code 2.1.273 · Orca 1.4.203.
+> **Updated 2026-09-16.** The evidence (commands, output) is in `docs/phase0-findings.md`.
+> Measured on: macOS · Claude Code 2.1.273 · Orca 1.4.203.
 
-| # | 가정 | 판정 |
+| # | Assumption | Verdict |
 |---|---|---|
-| A | `CLAUDE_CONFIG_DIR` 분리로 계정 2개 동시 실행 | **✔ 참 · 실측 확인 (2026-09-16).** 계정 2개를 **동시에** 띄워 각각 자기 `status.json` 을 정확히 갱신했다 (alpha 5h 0%/7d 40%, beta 5h 20%/7d 49% — 서로 다른 세션·비용). credential 상호 무효화 없음 |
-| B | 사용률을 파일에서 읽기 | **✘ 거짓.** statusLine `rate_limits` 가 공식 계약 |
-| D | 헤드리스 주입 + clear | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal send --text "/clear"` 로 컨텍스트가 실제로 반납된다: 살아있는 에이전트에서 `total_input_tokens` 45028 → 0, 세션 ID 교체. 터미널·워크트리·계정은 유지된다. 깨울 때 저장해 둔 handoff(에이전트 행)를 첫 프롬프트로 주입하면 이어서 일한다 |
-| E | JSONL 라인 1개 = API 요청 1개 | **✘ 거짓.** `message.id` dedup 필수. **단 §8.1 트리거는 이제 transcript 를 안 쓴다** (I 참조) — dedup 은 번레이트 계산에만 필요 |
-| F | `autoContinueAtUsageLimit` 이 §8 과 충돌 안 함 | **✘ 기능 실재 확인** (바이너리 설정 키). 택일 강제 — `ocp doctor` 가 점검 |
-| G | `CLAUDE_CODE_OAUTH_TOKEN` 경로에서 `rate_limits` | **미확인.** 토큰 없음. 계정 부족 시에만 필요 |
-| H | `~/.claude.json` 이 `CLAUDE_CONFIG_DIR` 을 따라가는가 | **✔ 참.** 프로필 안에 생성되고 홈은 unchanged. 격리 완전 |
-| I | 컨텍스트 사용률을 statusLine 에서 얻을 수 있는가 | **✔ 참, 예상보다 좋다.** `context_window.used_percentage` 가 **직접** 온다. 계산 불필요. 턴 전에는 `null` → fail-closed 대상 |
-| **J0** | Orca 가 자기 statusLine 을 CLI 로 강제하는가 | **✘ 거짓 = 우리에게 유리.** argv 는 맨 `claude`. Orca 통합은 statusLine 이 아니라 **훅**이다. 수집기 실제 동작 확인 |
-| **J4** | Orca 에이전트에 `CLAUDE_CONFIG_DIR` 을 주입할 수 있는가 | **래퍼로 해결.** Orca 가 `CLAUDE_CONFIG_DIR` 을 비워 두고 `--command` 가 임의 셸이라 **런처 래퍼**로 끝난다. `environmentRecipes` 는 원격 머신 기능이라 대안이 아니었다 |
-| **J4-full** | 래퍼로 띄운 에이전트를 Orca 가 **에이전트로 인식**하는가 | **✔ 참 · 실측 확인 (2026-09-16).** `orca terminal create --command "ocp launch backend"` 로 띄우자 Orca 가 `agentIdentity: "claude"` 로 기록하고 탭 제목을 `✳ Claude Code` 로 바꿨다. 상태줄에 `alpha · 5h 0% · 7d 40%` — 우리 수집기가 그 안에서 동작 |
-| **L** | credential 저장 위치 (신규) | **macOS 는 Keychain, 설정 디렉토리별로 분리.** `Claude Code-credentials-<sha256(config_dir)[:8]>` (기본 디렉토리만 접미사 없음). `.credentials.json` 파일은 생기지 않는다 |
-| **K** | Orca 네이티브 멀티계정으로 대체 가능한가 | **✘ 거짓.** 구현은 됐으나 **런타임당 활성 계정 1개**(전역 스왑). `--account` 플래그 없음. `CLAUDE_CONFIG_DIR` 방식 유지 |
+| A | Two accounts can run at once with separate `CLAUDE_CONFIG_DIR`s | **True, confirmed by measurement (2026-09-16).** We started two accounts **at the same time** and each updated its own `status.json` correctly (alpha 5h 0%/7d 40%, beta 5h 20%/7d 49%, different sessions and costs). No credential invalidated the other |
+| B | Read usage from a file | **False.** statusLine `rate_limits` is the official contract |
+| D | Headless injection + clear | **True, confirmed by measurement (2026-09-16).** `orca terminal send --text "/clear"` really returns the context: on a live agent `total_input_tokens` went 45028 → 0 and the session ID changed. The terminal, worktree and account stay. On wake, injecting the saved handoff (the agent row) as the first prompt lets it carry on |
+| E | One JSONL line = one API request | **False.** Dedup by `message.id` is required. **But the §8.1 trigger no longer uses the transcript** (see I): dedup is needed only for the burn-rate calculation |
+| F | `autoContinueAtUsageLimit` does not conflict with §8 | **The feature exists** (a settings key in the binary). It forces a choice, and `ocp doctor` checks it |
+| G | `rate_limits` on the `CLAUDE_CODE_OAUTH_TOKEN` path | **Unchecked.** No token. Needed only when accounts run short |
+| H | `~/.claude.json` follows `CLAUDE_CONFIG_DIR` | **True.** It is created inside the profile and home is unchanged. Isolation is complete |
+| I | Can context usage come from the statusLine | **True, better than expected.** `context_window.used_percentage` arrives **directly**, no calculation. Before a turn it is `null` → fail-closed |
+| **J0** | Does Orca force its own statusLine through the CLI | **False, which favors us.** argv is a bare `claude`. Orca's integration is not a statusLine but **hooks**. The collector was confirmed to work |
+| **J4** | Can `CLAUDE_CONFIG_DIR` be injected into an Orca agent | **Solved with a wrapper.** Orca leaves `CLAUDE_CONFIG_DIR` empty and `--command` is an arbitrary shell, so a **launcher wrapper** is all it takes. `environmentRecipes` is a remote-machine feature, so it was not an alternative |
+| **J4-full** | Does Orca **recognize as an agent** one started by the wrapper | **True, confirmed by measurement (2026-09-16).** Started with `orca terminal create --command "ocp launch backend"`, Orca recorded `agentIdentity: "claude"` and changed the tab title to `✳ Claude Code`. The status line showed `alpha · 5h 0% · 7d 40%`: our collector works inside it |
+| **L** | Where the credential is stored (new) | **On macOS, the Keychain, separated per config directory.** `Claude Code-credentials-<sha256(config_dir)[:8]>` (only the default directory has no suffix). No `.credentials.json` file is created |
+| **K** | Can Orca's native multi-account replace this | **False.** It is implemented but has **one active account per runtime** (global swap). There is no `--account` flag. Keep the `CLAUDE_CONFIG_DIR` way |
 
 [claude-code#75408]: https://github.com/anthropics/claude-code/issues/75408
 
-*(C = 캐시 만료 계산: 부록 A-2 로 트리거 자체가 삭제되어 검증 불필요)*
+*(C = cache-expiry calculation: the trigger itself was deleted in appendix A-2, so no verification is needed)*
 
 ---
 
-## 13. 로드맵
+## 13. Roadmap
 
-| Phase | 산출물 | 완료 기준 |
+| Phase | Output | Done when |
 |---|---|---|
-| **0** | `phase0/probe.sh` (로컬, 저장소에 없음) — H · I · J0~J3, 이어서 A(장시간) · D · E · F · G | 판정표 갱신. 실행 계층 확정 |
-| **1** | statusLine 수집기, `agent register`, `doctor` | 계정 2개 상태가 status.json에 정확히. fail-closed 확인 |
-| **2** | 고정 매핑, `team.yaml`, `ocp task new`/`ocp say` | 에이전트 3개가 각자 계정에서 서로 요청을 주고받음 |
-| **3** | 훅 이벤트, fold, 검증·롤백, 자정 롤오버 | 모델 토큰 0으로 이벤트 누락·중복 0 |
-| **4** | 데몬 — 레벨 트리거, handoff, park, 리셋 재개, THROTTLED | 데몬 SIGKILL 후 전 상태 복구. 90% 도달 시 무인으로 park·재개 |
+| **0** | `phase0/probe.sh` (local, not in the repo): H · I · J0-J3, then A (long run) · D · E · F · G | Verdict table updated. Execution layer fixed |
+| **1** | statusLine collector, `agent register`, `doctor` | Two accounts' state is exact in status.json. Fail-closed confirmed |
+| **2** | Fixed mapping, `team.yaml`, `ocp task new`/`ocp say` | Three agents exchange requests, each on its own account |
+| **3** | Hook events, fold, validation and rollback, midnight rollover | Zero lost or duplicate events with zero model tokens |
+| **4** | Daemon: level triggers, handoff, park, resume at reset, THROTTLED | Full state recovery after a daemon SIGKILL. Unattended park and resume on reaching 90% |
 | **5** | TUI | — |
-| **v2** | 슬롯·리스·큐 (§6·§7) | 에이전트 수 > 계정 수 × 2 가 되면 |
+| **v2** | Slots, leases, queue (§6, §7) | When agents > accounts x 2 |
 
-Phase 1~2만으로도 실사용 가치가 있다. Phase 4가 진짜 이득이다.
-
----
-
-## 14. 남은 결정
-
-1. **계정 수 ↔ 에이전트 수** — v1 고정 매핑이 성립하는지(§0.5). 에이전트가 계정의 2배를 넘으면 v2를 앞당겨야 한다
-2. **`autoContinueAtUsageLimit`** — 우리가 관리 vs Claude Code에 위임
-3. **컨텍스트 트리거 임계 60%** — Phase 0에서 재적재 비용 실측 후 조정
-3-b. **`reviewer`와 `archivist`를 한 계정에 묶어도 되는가** — 둘 다 가볍지만 동시에 붙으면 §1의 credential 레이스 조건이다. `archivist`가 ephemeral이라 겹치는 창이 짧을 뿐, 0은 아니다. 계정이 4개면 분리하는 게 안전하다
-4. **부록 A-2 (캐시 트리거 삭제)** — 원래 요구사항 ④를 대체하는 제안이다. 근거는 부록에 있고, 반대하시면 되돌린다
-5. **journal 보존 정책** — git repo라 무한 보존이 기본. 압축 시점만 정하면 됨
+Phases 1 and 2 alone already have real value. Phase 4 is the real gain.
 
 ---
 
-## 부록 A. 기각한 것과 이유
+## 14. Open decisions
 
-v0.3까지 있었으나 v0.4에서 뺐다. 나중에 누가 다시 제안할 때를 위한 기록.
-
-**A-1. `score = headroom / max(time_left, 0.05)`** — 절대 여유가 아니라 **페이스 비율**이라 의도를 뒤집었다. pct=0인 빈 계정도 리셋 후 50분간 heavy 부적격이고, 리셋 15분 전 pct=89인 계정이 score 2.2로 통과했다. 여유가 적을수록 점수가 높았다. `runway` 하나로 배정과 정렬을 모두 하면 이 왜곡이 원천적으로 없다.
-
-**A-2. 캐시 만료 트리거 (원래 요구사항 ④)** — 캐시 미스의 실제 추가 비용은 `N × (캐시쓰기 1.25배 − 캐시읽기 0.1배) ≈ 1.15N`이고 **1회성**이다. 다음 턴에 캐시가 재생성되므로 반복되지 않는다. 반면 handoff는 새 세션 재적재(10~30k)가 든다.
-→ 컨텍스트가 작으면 캐시 만료를 **그냥 무시하는 게 싸고**, 컨텍스트가 크면 캐시와 무관하게 handoff해야 한다. **두 경우 모두 캐시가 결정에 영향을 주지 않는다.** 그래서 트리거를 `context_pct`로 일원화했다.
-부수 효과로 `prompt_cache` 감시, `lead_time` 검증(`lead_time >= ttl`이면 매 턴 handoff하는 버그), `min_handoff_interval`, TTL 1h↔5m 동적 전환 대응이 **전부 불필요해졌다.** `prompt_cache`는 대시보드 표시용으로만 남긴다.
-
-**A-3. `max_concurrent ≥ 2` / 서브쿼터 공유** — credential 복사가 refresh token 로테이션 때문에 재인증 캐스케이드를 일으킨다. 증상이 "무작위 재인증 요구"라 원인 추적이 거의 불가능하다. 계정이 부족하면 공유가 아니라 큐잉으로 푼다.
-
-**A-4. `pooled:N` intake** — 계정이 적으면 어차피 N=1이라 `dedicated`와 같다. 슬롯이 남아돌 때 다시 꺼낸다.
-
-**A-5. `blocking` response** — 요청자가 슬롯과 계정 할당을 물고 논다. 계정이 유한한 시스템에서 가장 아까운 낭비다. 옵션으로 남겨두면 누군가 쓴다.
-
-**A-6. `sticky` 계정 affinity** — 캐시는 세션 단위지 계정 단위가 아니라서 같은 계정으로 돌아갈 이점이 거의 없다. 유일한 이점이던 폴더 신뢰 상태는 `doctor`가 전 계정에 미리 심으면 사라진다.
-
-**A-7. `events.jsonl` 파일 + 바이트 오프셋 커서** — SQLite로 옮기면 `WHERE id > cursor` 한 줄이 된다. 파일이면 fold 중 도착한 이벤트의 경계 처리, 훅의 지각 append, 파일 순서와 timestamp 순서 불일치를 전부 따로 다뤄야 했다.
-
-**A-8. 다이제스트 `.md.1` 세대 파일** — `~/.orcapipe`를 git repo로 두면 세대 보존·롤백·diff가 공짜다.
+1. **Accounts vs agents.** Whether the v1 fixed mapping holds (§0.5). If agents exceed twice the accounts, v2 must be brought forward
+2. **`autoContinueAtUsageLimit`**: manage it ourselves, or delegate to Claude Code
+3. **Context trigger threshold 60%.** Adjust after measuring the reload cost in Phase 0
+3-b. **May `reviewer` and `archivist` share one account?** Both are light, but if they attach at the same time it is the credential race condition of §1. Only because `archivist` is ephemeral is the overlapping window short, not zero. With 4 accounts, splitting them is safer
+4. **Appendix A-2 (deleting the cache trigger).** A proposal that replaces the original requirement 4. The reasoning is in the appendix, and if you object it is reverted
+5. **Journal retention policy.** It is a git repo, so unlimited retention is the default. Only the compaction time needs deciding
 
 ---
 
-*v0.5 · 2026-09-16 — v1 범위 축소*
+## Appendix A. What was rejected, and why
+
+These were in up to v0.3 and removed in v0.4. A record for when someone proposes them again.
+
+**A-1. `score = headroom / max(time_left, 0.05)`.** It is a **pace ratio**, not absolute room, so it inverted the intent. Even an empty account at pct=0 was ineligible for heavy for 50 minutes after the reset, while an account at pct=89 fifteen minutes before the reset passed with a score of 2.2. The less room, the higher the score. If `runway` alone does both assignment and ordering, this distortion cannot arise.
+
+**A-2. Cache-expiry trigger (original requirement 4).** The real extra cost of a cache miss is `N x (cache write 1.25x - cache read 0.1x) ≈ 1.15N`, and it is **one-off.** The next turn rebuilds the cache, so it does not repeat. A handoff, by contrast, costs a fresh-session reload (10 to 30k).
+→ When the context is small, **just ignoring** the cache expiry is cheaper, and when the context is large you must hand off regardless of the cache. **In both cases the cache does not affect the decision.** So the trigger was unified to `context_pct`.
+As a side effect, `prompt_cache` monitoring, `lead_time` validation (the bug where `lead_time >= ttl` hands off every turn), `min_handoff_interval`, and handling of the TTL 1h↔5m dynamic switch **all became unnecessary.** `prompt_cache` stays only for the dashboard display.
+
+**A-3. `max_concurrent ≥ 2` / sub-quota sharing.** Copying a credential causes a re-authentication cascade through refresh token rotation. The symptom is "random re-auth prompts", so tracing the cause is nearly impossible. When accounts run short, solve it by queueing, not sharing.
+
+**A-4. `pooled:N` intake.** With few accounts N=1 anyway, so it equals `dedicated`. It comes back out when slots are left over.
+
+**A-5. `blocking` response.** The requester holds a slot and an account assignment while it plays. In a system with finite accounts that is the most wasteful loss. If kept as an option, someone will use it.
+
+**A-6. `sticky` account affinity.** The cache is per session, not per account, so there is almost no benefit in returning to the same account. The one benefit, folder-trust state, disappears if `doctor` plants it on every account in advance.
+
+**A-7. An `events.jsonl` file + a byte-offset cursor.** Moved to SQLite it becomes one line, `WHERE id > cursor`. With a file we would have to handle separately the boundary for events arriving during a fold, a hook's late append, and file order disagreeing with timestamp order.
+
+**A-8. A digest `.md.1` generation file.** With `~/.orcapipe` as a git repo, generation retention, rollback and diff are free.
+
+---
+
+*v0.5 · 2026-09-16: v1 scope reduced*
