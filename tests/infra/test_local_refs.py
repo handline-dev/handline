@@ -190,10 +190,10 @@ def test_land_refuses_dirty_work_and_keeps_the_ids_out_of_git(home: Path) -> Non
 
 def main() -> int:
     def tests(td):
-        run(test_each_pattern_is_caught)
-        run(test_clean_text_and_look_alikes_pass)
-        run(test_a_diff_is_read_for_its_added_lines_only)
-        run(test_a_message_skips_git_comment_lines_only_when_asked)
+        run(lambda: test_each_pattern_is_caught())
+        run(lambda: test_clean_text_and_look_alikes_pass())
+        run(lambda: test_a_diff_is_read_for_its_added_lines_only())
+        run(lambda: test_a_message_skips_git_comment_lines_only_when_asked())
         run(lambda: test_the_git_hooks_refuse_a_dirty_message_and_a_dirty_diff(Path(td) / "h1"))
         run(lambda: test_land_refuses_dirty_work_and_keeps_the_ids_out_of_git(Path(td) / "h2"))
     return run_area(tests)
