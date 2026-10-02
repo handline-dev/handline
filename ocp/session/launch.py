@@ -331,6 +331,13 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
         raise SystemExit(f"agent '{agent}' is a {drv.name} agent and account '{acct}' "
                          f"is a {theirs} account - refusing to start it there.")
 
+    if sessiontoken.folder().exists() and not getattr(drv, "hides_paths", False):
+        # Each session holds its own token and must not read the others'; a vendor that drops
+        # `hide` leaves the token folder open to its sessions.
+        raise SystemExit(f"agent '{agent}' runs on {drv.name}, which cannot hide the session-token folder "
+                         f"from its sessions, so another agent's token would be readable there - refusing "
+                         f"to start it.")
+
     hooks = drv.state_hooks()
     if hooks:
         try:

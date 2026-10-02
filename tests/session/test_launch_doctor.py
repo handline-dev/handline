@@ -743,6 +743,34 @@ def test_the_protected_store_is_outside_what_agents_write(home: Path) -> None:
         os.environ["OCP_HOME"] = str(home)
 
 
+def test_a_vendor_that_cannot_hide_the_token_folder_is_refused_while_it_exists(home: Path) -> None:
+    """Every session holds its own token and must not read the others'. opencode drops the launch's
+    `hide`, so while the protected token folder exists its agents are not started; claude's are."""
+    from ocp.infra import sessiontoken
+    use_home(home)
+    accounts.register("alpha")
+    accounts.register("zai", vendor="opencode")
+    agents.register("backend")
+    agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
+    _with_vendor("glm", "opencode")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    cdrv, odrv = vendors.get("claude"), vendors.get("opencode")
+    cdrv.binary = lambda: "/x/bin/claude"
+    odrv.binary = lambda: "/x/bin/opencode"
+    odrv.credential_present = lambda config_dir: True
+    check("hide: with no token folder an opencode agent still starts", launch.build("glm")[1] is not None)
+    sessiontoken.mint("backend")
+    check("hide: the token folder now exists", sessiontoken.folder().exists())
+    try:
+        launch.build("glm")
+        refused = ""
+    except SystemExit as e:
+        refused = str(e)
+    check("hide: an opencode launch is refused, naming the vendor",
+          "opencode" in refused and "cannot hide the session-token folder" in refused, refused)
+    check("hide: a claude launch is unaffected", launch.build("backend")[1] is not None)
+
+
 def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> None:
     """#43: accounts.env_for starts from the launching process's environment,
     and an opencode session's own tools carry OPENCODE_CONFIG_CONTENT - another
@@ -2385,6 +2413,7 @@ def main() -> int:
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
         run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
+        run(lambda: test_a_vendor_that_cannot_hide_the_token_folder_is_refused_while_it_exists(Path(td) / 'hidetok'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
         run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))
