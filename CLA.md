@@ -1,50 +1,111 @@
 # Contributor License Agreement
 
-This is a plain-language agreement between you ("You") and the owner of the orcapipe project
-("the Project"). It applies to everything You submit to the Project: code, documentation, tests and
-anything else ("Contributions"). Signing it is described in [CONTRIBUTING.md](CONTRIBUTING.md).
+This agreement is adapted from the Apache Software Foundation's Individual Contributor License
+Agreement, version 2.2, which is a standard text. The definitions, the copyright and patent grants,
+the representations and the support and warranty terms follow it, with "the Owner" in place of "the
+Foundation". Two things are added: one clause giving the Owner alone the right to relicense, and the
+signing method of this project (section 9).
 
-*This text is a draft written in plain words. It is not legal advice, and the project owner should
-have it reviewed before relying on it.*
+*Not legal advice. The Apache text could not be fetched when this was written, so the wording
+below is from memory of it: compare it with the original at https://www.apache.org/licenses/icla.pdf,
+and have the Owner's lawyer review it, before relying on it.*
 
-## 1. You keep your copyright
+## 1. Definitions
 
-You own what You wrote. This agreement does not take it from You.
+"Owner" means the owner of the orcapipe project, named in the project's repository.
 
-## 2. The license You give
+"Software" means the orcapipe project, in the repository the Owner manages.
 
-You give the Project, and everyone who receives the Project from it, a perpetual, worldwide,
-non-exclusive, royalty-free, irrevocable license to use, copy, modify, publicly display, publicly
-perform, sublicense and distribute Your Contributions and works made from them, **under any license
-the Project chooses**, including the GNU Affero General Public License v3.0 now used by the
-Project, other open-source licenses, and commercial, closed-source licenses. This is what lets the
-Project change its license later and offer commercial licenses.
+"You" (or "Your") means the copyright owner, or the legal entity authorized by the copyright owner,
+that is making this agreement with the Owner. For legal entities, the entity making a Contribution
+and all other entities that control, are controlled by, or are under common control with that entity
+are considered to be a single contributor. "Control" means (i) the power, direct or indirect, to
+cause the direction or management of such entity, whether by contract or otherwise, or (ii)
+ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of
+such entity.
 
-## 3. Patents
+"Contribution" means any original work of authorship, including any modifications or additions to
+an existing work, that is intentionally submitted by You to the Owner for inclusion in, or
+documentation of, the Software. "Submitted" means any form of electronic, verbal, or written
+communication sent to the Owner or its representatives, including communication on electronic
+mailing lists, source code control systems and issue tracking systems that are managed by, or on
+behalf of, the Owner for the purpose of discussing and improving the Software, but excluding
+communication that is conspicuously marked or otherwise designated in writing by You as "Not a
+Contribution."
 
-You give the Project, and everyone who receives the Project from it, a perpetual, worldwide,
-non-exclusive, royalty-free, irrevocable patent license under any patent claims You own or control
-that are necessarily infringed by Your Contribution alone or together with the Project, to make,
-use, sell, offer to sell, import and otherwise transfer the Contribution and the Project. If
-someone sues You claiming that the Project or a Contribution infringes a patent, the patent licenses
-You gave under this agreement for that work end on the day You are sued.
+You accept and agree to the following terms and conditions for Your present and future
+Contributions submitted to the Owner. Except for the license granted herein to the Owner and
+recipients of software distributed by the Owner, You reserve all right, title, and interest in and
+to Your Contributions.
 
-## 4. What You promise
+## 2. Grant of copyright license
 
-- Each Contribution is Your original work, or You have the right to submit it under this agreement.
-- If Your employer or anyone else has rights in it, You have their permission to submit it.
-- To the best of Your knowledge, it does not break anyone's rights, and it contains no malicious
-  code.
-- You will tell the Project if You later learn that any of this is not true.
+Subject to the terms and conditions of this agreement, You hereby grant to the Owner and to
+recipients of software distributed by the Owner a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly
+display, publicly perform, sublicense, and distribute Your Contributions and such derivative works.
 
-## 5. No obligations either way
+## 3. Grant of patent license
 
-You are not required to submit anything or to keep supporting it. The Project is not required to use
-Your Contribution, and may remove it at any time. Contributions are provided "as is", without
-warranty of any kind, except what You promise in section 4.
+Subject to the terms and conditions of this agreement, You hereby grant to the Owner and to
+recipients of software distributed by the Owner a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use,
+offer to sell, sell, import, and otherwise transfer the Software, where such license applies only to
+those patent claims licensable by You that are necessarily infringed by Your Contribution(s) alone
+or by combination of Your Contribution(s) with the Software to which such Contribution(s) was
+submitted. If any entity institutes patent litigation against You or any other entity (including a
+cross-claim or counterclaim in a lawsuit) alleging that Your Contribution, or the Software to which
+You have contributed, constitutes direct or contributory patent infringement, then any patent
+licenses granted to that entity under this agreement for that Contribution or Software shall
+terminate as of the date such litigation is filed.
 
-## 6. Signing
+## 4. The Owner's right to relicense (added to the Apache text)
+
+You also agree that the Owner, and only the Owner, may distribute Your Contributions, and the
+Software containing them, under any license terms the Owner chooses, including the GNU Affero
+General Public License v3.0 now used by the Software, other open-source licenses, and commercial,
+closed-source licenses. This section gives that right to the Owner alone: a recipient of the Software
+has the rights of the license under which the Owner distributes it to them, and no right to relicense
+Your Contributions beyond what that license allows.
+
+## 5. Your right to grant
+
+You represent that You are legally entitled to grant the above license. If Your employer(s) has
+rights to intellectual property that You create that includes Your Contributions, You represent that
+You have received permission to make Contributions on behalf of that employer, that Your employer
+has waived such rights for Your Contributions to the Owner, or that Your employer has executed a
+separate agreement with the Owner.
+
+## 6. Originality and third-party material
+
+You represent that each of Your Contributions is Your original creation (see section 7 for
+submissions on behalf of others). You represent that Your Contribution submissions include complete
+details of any third-party license or other restriction (including, but not limited to, related
+patents and trademarks) of which You are personally aware and which are associated with any part of
+Your Contributions.
+
+## 7. Support, warranty and others' work
+
+You are not expected to provide support for Your Contributions, except to the extent You desire to
+provide support. You may provide support for free, for a fee, or not at all. Unless required by
+applicable law or agreed to in writing, You provide Your Contributions on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any
+warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR
+PURPOSE.
+
+Should You wish to submit work that is not Your original creation, You may submit it to the Owner
+separately from any Contribution, identifying the complete details of its source and of any license
+or other restriction (including, but not limited to, related patents, trademarks, and license
+agreements) of which You are personally aware, and conspicuously marking the work as "Submitted on
+behalf of a third-party: [named here]".
+
+## 8. Telling the Owner
+
+You agree to notify the Owner of any facts or circumstances of which You become aware that would
+make these representations inaccurate in any respect.
+
+## 9. Signing (this project's method)
 
 You sign by posting the sentence given in [CONTRIBUTING.md](CONTRIBUTING.md) on a pull request from
 Your GitHub account. That is Your agreement to this text, for that Contribution and every later one
-from the same account, until You say otherwise in writing to the Project.
+from the same account, until You say otherwise in writing to the Owner.

@@ -7,7 +7,8 @@ Thanks for wanting to help. Two things to know before you open a pull request.
 orcapipe is released under the GNU Affero General Public License v3.0, and the project owner also
 offers commercial licenses to people who cannot meet the AGPL's terms. To be able to do both, the
 project needs the right to distribute every contribution under other licenses as well. The
-[CLA](CLA.md) gives it, in plain words. You keep the copyright in what you wrote.
+[CLA](CLA.md) gives it; it is adapted from the Apache Software Foundation's individual CLA. You keep
+the copyright in what you wrote.
 
 **How to sign.** Read [CLA.md](CLA.md), then add this exact sentence as a comment on your first
 pull request:
