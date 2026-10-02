@@ -273,7 +273,7 @@ def test_a_session_the_table_misses_is_a_block_the_founder_sees_with_how_the_tab
     con, screen = _world(home, COMPOSER_EMPTY, table=False)
     _table(False)
     real_diag = obsmod.diagnose
-    obsmod.diagnose = lambda: ["pid 77: OCP_AGENT=orcapipe.other", "pid 78: its environment could not be read"]
+    obsmod.diagnose = lambda: ["pid 77: OCP_AGENT=harbor.other", "pid 78: its environment could not be read"]
     try:
         now = int(time.time())
         lines: list[str] = []
@@ -286,7 +286,7 @@ def test_a_session_the_table_misses_is_a_block_the_founder_sees_with_how_the_tab
               rec is not None and rec["kind"] == blockedmod.TABLE_MISS and rec["origin"] == blockedmod.TABLE_ORIGIN,
               str(dict(rec) if rec else None))
         check("miss block: it says how each session-looking process was read, and nothing of the environment",
-              "pid 77: OCP_AGENT=orcapipe.other" in rec["detail"] and "could not be read" in rec["detail"], rec["detail"])
+              "pid 77: OCP_AGENT=harbor.other" in rec["detail"] and "could not be read" in rec["detail"], rec["detail"])
         check("miss block: it is on the founder's list after the usual wait, not at once",
               rec["show_at"] == now + blockedmod.SHOW_AFTER_S and "table misses" in "".join(lines), str(lines))
         check("miss block: and its words are the bridge's own label and advice",
