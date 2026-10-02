@@ -98,9 +98,11 @@ def _env_or_reason(pid: int) -> tuple[str | None, bool]:
     another user's process (T146) rather than one of the other misses that
     can happen to a live pid we should not give up on.
 
-    An environment `ps` withholds is another user's only if the process is another user's: one of
-    ours that comes back without it is a miss, looked at again once and then left unknown, never
-    read as "not an agent" - which is how a live session went missing from the table."""
+    An environment `ps` withholds is looked at again once if the process is ours, since `ps` gives
+    a live process of ours none now and then. If it is still withheld the process is left out of the
+    table, as another user's is: one process whose environment cannot be read must not make the whole
+    reading unreadable, which fails every agent's delivery closed at once (it did). The agent that
+    process is the session of is covered by the screen (`delivery.session_present`)."""
     argv = _ps_command(pid, "ww")
     with_env = _ps_command(pid, "eww")
     if argv is None or with_env is None:
@@ -112,7 +114,7 @@ def _env_or_reason(pid: int) -> tuple[str | None, bool]:
         time.sleep(ENV_RETRY_S)
         with_env = _ps_command(pid, "eww")
         if with_env is None or with_env == argv:
-            return None, False
+            return None, True
     prefix = argv.rstrip("\n")
     if not with_env.startswith(prefix):
         return None, False

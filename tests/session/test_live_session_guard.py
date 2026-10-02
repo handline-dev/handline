@@ -197,10 +197,21 @@ def test_a_process_whose_environment_ps_withholds_is_not_ours_only_if_it_is_not_
               notours is False and env and "OCP_AGENT=backend" in env, str((env, notours)))
         calls.clear()
         check("environment: and the live session is listed", obsmod.live_sessions() == {"backend": 900})
-        # One of ours that never gives it: unknown, never "not an agent" - so the whole reading is unknown.
+        # One of ours that never gives it: left out of the table like another user's, and the reading
+        # stays readable - one such process must not blank every agent's session (it did, for an hour).
         obsmod._ps_command = lambda pid, flags: argv
-        check("environment: our own process that withholds it for good is unknown, not skipped",
-              obsmod._env_or_reason(900) == (None, False) and obsmod.live_sessions() is None)
+        check("environment: our own process that withholds it for good is left out, the reading stays readable",
+              obsmod._env_or_reason(900) == (None, True) and obsmod.live_sessions() == {})
+        obsmod.process_table = lambda: [(900, "claude --resume abc"), (901, "claude --resume def")]
+        envs = {900: argv, 901: "claude --resume def\nOCP_AGENT=reviewer X=1\n"}
+
+        def one_unreadable(pid, flags):
+            if flags == "ww":
+                return argv if pid == 900 else "claude --resume def\n"
+            return envs[pid] if pid == 901 else argv
+        obsmod._ps_command = one_unreadable
+        check("environment: so another agent's session is still listed beside the one nobody could read",
+              obsmod.live_sessions() == {"reviewer": 901}, str(obsmod.live_sessions()))
         obsmod._owner_uid = lambda pid: None
         check("environment: an owner that cannot be read is what it always was: left out",
               obsmod._env_or_reason(900) == (None, True))
