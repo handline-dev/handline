@@ -48,6 +48,7 @@ from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.section_head import SectionHead
 from .components.schedules_section import SchedulesSection
+from .components.sites_list import SitesList
 from .components.task_assign import TaskAsk, TaskAssign
 from .components.write_guard import WriteGuard
 from .components.switch_row import SwitchRow
@@ -357,7 +358,10 @@ def task_detail(con, tid: int) -> dict | None:
             "ask": actions.previous_holders(con, tid) if state in ("draft", "queued", "doing") else []}
 
 
-EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "context_k", "idle_close")
+EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
+            "context_k", "idle_close")
+BROWSER_MODES = (("off", "off"), ("Claude in Chrome", "chrome"), ("sandboxed Playwright", "playwright"))
+BROWSER_CUSTOM = ("custom, set in a terminal", "custom")   # shown only when the agent has one
 WEIGHTS = ("light", "heavy")
 
 
@@ -373,6 +377,7 @@ def settings_of(agent: str) -> dict:
             "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
             "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
             "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
+            "browser": agents.browser_mode(cfg), "browser_sites": " ".join(agents.browser_origins(cfg)),
             "context_k": str(agents.context_tokens(cfg) // 1000),
             "idle_close": actions.idle_close_minutes(cfg["park_timeout_s"])
             if isinstance(cfg.get("park_timeout_s"), int) and not isinstance(cfg.get("park_timeout_s"), bool) else ""}
@@ -392,6 +397,14 @@ def settings_problem(form: dict) -> str | None:
         return f"weight must be one of {', '.join(WEIGHTS)}"
     if form["skip_permissions"] not in ("on", "off"):
         return "skip permissions must be on or off"
+    if form["browser"] not in (*dict(BROWSER_MODES).values(), BROWSER_CUSTOM[1]):
+        return "browser must be off, chrome or playwright"
+    if form["browser"] == "playwright":
+        try:
+            if not agents.parse_origins(form["browser_sites"]):
+                return "name at least one site for the sandboxed browser"
+        except ValueError as e:
+            return str(e)
     if not form["context_k"].strip().isdigit() or int(form["context_k"]) < 1:
         return "context must be a whole number of thousands of tokens, at least 1"
     if form["idle_close"].strip() and not form["idle_close"].strip().isdigit():
@@ -409,6 +422,10 @@ def settings_changes(current: dict, form: dict) -> list[tuple[str, str, str]]:
         new = form[key].strip()
         if key == "repo" and not new:
             continue
+        if key == "browser_sites":
+            if form["browser"] != "playwright":      # Claude in Chrome has no site list
+                continue
+            new = " ".join(agents.parse_origins(new))
         if new != current[key]:
             out.append((key, current[key], new))
     return out
@@ -427,9 +444,17 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
             return False, f"not saved: {e}"
     if new:
         try:
+            chrome = mcp = None
+            if "browser" in new or "browser_sites" in new:
+                cfg = agents.read(agent)
+                mode = new.get("browser") or agents.browser_mode(cfg)
+                origins = agents.parse_origins(new["browser_sites"]) if "browser_sites" in new \
+                    else agents.browser_origins(cfg)
+                chrome, mcp = mode == "chrome", agents.browser_mcp_config(cfg, mode, origins)
             agents.register(agent, model=new.get("model"), effort=new.get("effort"),
                             weight=new.get("weight"), repo=new.get("repo"),
                             skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
+                            chrome=chrome, mcp_config=mcp,
                             context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
         except (ValueError, agents.ConfigError, OSError) as e:
             return False, f"not saved: {e}"
@@ -1621,6 +1646,14 @@ class ChatPage(JobsAware, Screen):
                     yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
                 yield SectionHead("session")
                 yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
+                yield SectionHead("browser")
+                with Horizontal(classes="frow"):
+                    yield Static("browser", classes="flabel")
+                    yield Select([(label, key) for label, key in BROWSER_MODES], id="s_browser", allow_blank=False, compact=True)
+                    yield Static("from the next launch", classes="unit")
+                with Horizontal(classes="frow sites"):
+                    yield Static("sites", classes="flabel")
+                    yield SitesList(id="s_browser_sites")
                 with Horizontal(classes="frow"):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
@@ -2141,6 +2174,11 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#s_repo", Input).value = safe(cfg["repo"])
         self.query_one("#s_context_k", Input).value = cfg["context_k"]
         self.query_one("#s_skip", Switch).value = cfg["skip_permissions"] == "on"
+        modes = BROWSER_MODES + (BROWSER_CUSTOM,) if cfg["browser"] == "custom" else BROWSER_MODES
+        self.query_one("#s_browser", Select).set_options(modes)
+        self.query_one("#s_browser", Select).value = cfg["browser"]
+        self.query_one("#s_browser_sites", SitesList).set_sites(cfg["browser_sites"].split())
+        self.query_one("#s_browser_sites", SitesList).disabled = cfg["browser"] != "playwright"
         self.query_one("#s_idle_close", Input).value = cfg["idle_close"]
         self.query_one("#s_idle_close", Input).placeholder = actions.idle_close_minutes(idle_close.default_close_timeout_s())
         self.show_context_share()
@@ -2154,6 +2192,8 @@ class ChatPage(JobsAware, Screen):
                 "weight": str(self.query_one("#s_weight", Select).value),
                 "repo": self.query_one("#s_repo", Input).value,
                 "skip_permissions": "on" if self.query_one("#s_skip", Switch).value else "off",
+                "browser": str(self.query_one("#s_browser", Select).value),
+                "browser_sites": " ".join(self.query_one("#s_browser_sites", SitesList).sites),
                 "context_k": self.query_one("#s_context_k", Input).value,
                 "idle_close": self.query_one("#s_idle_close", Input).value}
 
@@ -2162,6 +2202,10 @@ class ChatPage(JobsAware, Screen):
             Text("= " + actions.context_share(self.query_one("#s_context_k", Input).value,
                                               self.settings["model_id"] or self.query_one("#s_model", Input).value)
                  if self.query_one("#s_context_k", Input).value else ""))
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "s_browser":
+            self.query_one("#s_browser_sites", SitesList).disabled = event.value != "playwright"
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in ("s_context_k", "s_model") and self.settings is not None:
@@ -2188,9 +2232,9 @@ class ChatPage(JobsAware, Screen):
                 return
             ok, said = save_settings(self.agent, changes)
             log_action(f"settings {self.agent}: {'ok' if ok else 'refused'} - {said}")
-            skip = ok and any(k == "skip_permissions" for k, _, _ in changes)
+            later = ok and any(k in ("skip_permissions", "browser", "browser_sites") for k, _, _ in changes)
             self.notify(safe(said) + ("\n(a running session is not restarted"
-                                      + ("; skip prompts applies from its next launch)" if skip else ")") if ok else ""),
+                                      + ("; skip prompts and the browser apply from its next launch)" if later else ")") if ok else ""),
                         title=f"settings {self.agent}", severity="information" if ok else "error",
                         timeout=10, markup=False)
             self.load_settings()

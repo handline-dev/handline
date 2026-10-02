@@ -912,6 +912,165 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
           and cp.settings_of("backend")["skip_permissions"] == "on", said)
 
 
+def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> None:
+    from ocp.ui import chat_page as cp
+    _home("browser-setting")
+    cfg = cp.settings_of("backend")
+    form = {k: cfg[k] for k in cp.EDITABLE}
+    check("browser: an agent that never set it reads off, with no sites",
+          cfg["browser"] == "off" and cfg["browser_sites"] == "", str(cfg["browser"]))
+    ok, said = cp.save_settings("backend", cp.settings_changes(cfg, {**form, "browser": "chrome"}))
+    check("browser: Chrome writes chrome in agent.yaml and reads back",
+          ok and agents.chrome(agents.read("backend")) and cp.settings_of("backend")["browser"] == "chrome", said)
+    check("browser: Chrome has no site list, so typed sites are not a change",
+          cp.settings_changes(cp.settings_of("backend"), {**form, "browser": "chrome", "browser_sites": "https://a.com"}) == [])
+    check("browser: Playwright needs a site",
+          cp.settings_problem({**form, "repo": "", "browser": "playwright", "browser_sites": " "}) is not None)
+    for bad in ("javascript:x", 'https://a.com" --evil', "https://a.com;rm", "ftp://a.com"):
+        check(f"browser: refused site {bad!r}",
+              cp.settings_problem({**form, "repo": "", "browser": "playwright", "browser_sites": bad}) is not None)
+    cur = cp.settings_of("backend")
+    ok, said = cp.save_settings("backend", cp.settings_changes(
+        cur, {**form, "browser": "playwright", "browser_sites": "https://a.com, https://b.org:8080/"}))
+    now = agents.read("backend")
+    check("browser: Playwright builds the browser server with those origins and drops chrome",
+          ok and not agents.chrome(now) and agents.browser_mode(now) == "playwright"
+          and agents.browser_origins(now) == ["https://a.com", "https://b.org:8080"], said)
+    check("browser: its command keeps the token read and the default profile",
+          'PLAYWRIGHT_MCP_EXTENSION_TOKEN=$(cat "$HOME/.orcapipe/browser/token")' in agents._browser_command(now)
+          and f'--profile-dir-name "{agents.DEFAULT_BROWSER_PROFILE}"' in agents._browser_command(now))
+    cur = cp.settings_of("backend")
+    ok, said = cp.save_settings("backend", cp.settings_changes(cur, {**form, "browser": "playwright", "browser_sites": "https://c.net"}))
+    check("browser: editing the list alone replaces the origins",
+          ok and agents.browser_origins(agents.read("backend")) == ["https://c.net"], said)
+    # another MCP server and a custom profile survive; off removes only the browser one
+    import json
+    cfgd = agents.read("backend")
+    other = json.loads(cfgd["mcp_config"])
+    other["mcpServers"]["other"] = {"command": "x"}
+    other["mcpServers"]["browser"]["args"][1] = other["mcpServers"]["browser"]["args"][1].replace("Profile 17", "Profile 3")
+    agents.register("backend", mcp_config=json.dumps(other))
+    cur = cp.settings_of("backend")
+    cp.save_settings("backend", cp.settings_changes(cur, {**form, "browser": "playwright", "browser_sites": "https://d.io"}))
+    now = agents.read("backend")
+    check("browser: a custom profile and other servers are kept",
+          '--profile-dir-name "Profile 3"' in agents._browser_command(now)
+          and "other" in json.loads(now["mcp_config"])["mcpServers"], str(now["mcp_config"]))
+    cur = cp.settings_of("backend")
+    cp.save_settings("backend", cp.settings_changes(cur, {**form, "browser": "off"}))
+    now = agents.read("backend")
+    check("browser: off removes the browser server and chrome, keeps the other server",
+          agents.browser_mode(now) == "off" and not agents.chrome(now)
+          and list(json.loads(now["mcp_config"])["mcpServers"]) == ["other"], str(now.get("mcp_config")))
+    hand = json.dumps({"mcpServers": {"browser": {"command": "npx", "args": ["playwright-mcp", "--headless"]}}})
+    agents.register("backend", mcp_config=hand)
+    cur = cp.settings_of("backend")
+    form = {k: cur[k] for k in cp.EDITABLE}
+    check("browser: a hand-made server with no site list reads as custom, with no sites",
+          cur["browser"] == "custom" and cur["browser_sites"] == "", str(cur["browser"]))
+    check("browser: it blocks no unrelated save", cp.settings_problem({**form, "repo": ""}) is None)
+    ok, said = cp.save_settings("backend", cp.settings_changes(cur, {**form, "model": "opus"}))
+    check("browser: a model change saves and leaves the server as it was",
+          ok and agents.read("backend")["mcp_config"] == agents.mcp_config_text(hand), said)
+    check("browser: custom is no change, and its sites box is not read",
+          cp.settings_changes(cur, {**form, "browser_sites": "https://x.com"}) == [])
+    ok, said = cp.save_settings("backend", [("browser", "off", "custom")])
+    check("browser: custom cannot be chosen as a mode", not ok and agents.read("backend")["mcp_config"] == agents.mcp_config_text(hand), said)
+    ok, said = cp.save_settings("backend", cp.settings_changes(cur, {**form, "browser": "chrome"}))
+    check("browser: picking Chrome turns it on and replaces the hand-made server",
+          ok and agents.chrome(agents.read("backend")) and not agents.read("backend").get("mcp_config"), said)
+    agents.register("backend", chrome=False, mcp_config=hand)
+    ok, said = cp.save_settings("backend", cp.settings_changes(cp.settings_of("backend"), {**form, "browser": "off"}))
+    check("browser: picking off removes the hand-made server",
+          ok and agents.browser_mode(agents.read("backend")) == "off" and not agents.read("backend").get("mcp_config"), said)
+    agents.register("backend", mcp_config=hand)
+    ok, said = cp.save_settings("backend", [("browser", "off", "playwright"), ("browser_sites", "", "https://z.org")])
+    check("browser: picking Playwright is what replaces it",
+          ok and agents.browser_origins(agents.read("backend")) == ["https://z.org"], said)
+    from ocp.infra import protected
+    import os
+    old = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        ok, said = cp.save_settings("backend", [("browser", "off", "chrome")])
+    finally:
+        if old is None:
+            os.environ.pop("OCP_AGENT")
+        else:
+            os.environ["OCP_AGENT"] = old
+    check("browser: an agent session cannot write it (founder-only, same register path)",
+          not ok and not agents.chrome(agents.read("backend")), said)
+
+
+async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright() -> None:
+    import html
+    from ocp.ui import chat_page as cp
+    from textual.widgets import Button, Input, Select, Static
+    from ocp.ui.components.sites_list import SitesList, SiteEdit
+    _home("browser-page")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        page = cp.ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause()
+        page.query_one("Tabs").active = "settings"
+        await pilot.pause(0.4)
+        mode, sites = page.query_one("#s_browser", Select), page.query_one("#s_browser_sites", SitesList)
+        check("browser page: it starts off and the site list is greyed out", mode.value == "off" and sites.disabled)
+        mode.value = "chrome"
+        await pilot.pause(0.2)
+        check("browser page: Claude in Chrome has no site list either", sites.disabled)
+        mode.value = "playwright"
+        await pilot.pause(0.2)
+        check("browser page: sandboxed Playwright opens the site list", not sites.disabled)
+        async def type_site(text):
+            box = app.screen.query_one("#se_site")
+            box.value = text
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+        sites.set_sites([])
+        await pilot.pause(0.2)
+        check("browser page: an empty list says none", "none" in _screen_text(page))
+        sites.query_one("#st_add").press()
+        await pilot.pause(0.3)
+        check("browser page: Add opens the site box", isinstance(app.screen, SiteEdit))
+        await type_site("ftp://nope.com")
+        check("browser page: a site that is not an origin is refused and the box stays",
+              isinstance(app.screen, SiteEdit) and sites.sites == [])
+        await type_site("https://news.ycombinator.com/")
+        check("browser page: a good site is added, trailing slash dropped",
+              isinstance(app.screen, cp.ChatPage) and sites.sites == ["https://news.ycombinator.com"], str(sites.sites))
+        sites.query_one("#st_add").press()
+        await pilot.pause(0.3)
+        await type_site("HTTPS://NEWS.ycombinator.com")
+        check("browser page: a duplicate is refused", isinstance(app.screen, SiteEdit) and sites.sites == ["https://news.ycombinator.com"])
+        await type_site("https://www.google.com")
+        check("browser page: a second site is a second row", sites.sites == ["https://news.ycombinator.com", "https://www.google.com"]
+              and sites.query_one("#st_ed_1", Button) is not None)
+        sites.query_one("#st_ed_0").press()
+        await pilot.pause(0.3)
+        check("browser page: edit opens on the site", app.screen.query_one("#se_site").value == "https://news.ycombinator.com")
+        await type_site("https://www.google.com")
+        check("browser page: an edit into another row's site is refused", isinstance(app.screen, SiteEdit))
+        await type_site("https://old.reddit.com")
+        check("browser page: an edit replaces that row", sites.sites == ["https://old.reddit.com", "https://www.google.com"], str(sites.sites))
+        sites.query_one("#st_rm_0").press()
+        await pilot.pause(0.2)
+        check("browser page: delete removes that row", sites.sites == ["https://www.google.com"], str(sites.sites))
+        sites.set_sites(["https://news.ycombinator.com", "https://www.google.com"])
+        await pilot.pause(0.2)
+        check("browser page: the list is as tall as its rows, so what follows it is not pushed away",
+              sites.region.height == 3 and page.query_one("#s_idle_close").region.y == sites.region.y + 4, str(sites.region))
+        page.query_one("#s_save").press()
+        await pilot.pause(0.4)
+        check("browser page: Save asks to confirm the browser change",
+              "browser:" in "\n".join(str(w.render()) for w in app.screen.query(Static)))
+        shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
+        Path(os.environ.get("BROWSER_SHOT", os.devnull)).write_text(app.export_screenshot())
+        check("browser page: the section names itself and the next-launch note", "from the next launch" in shown, shown[-400:])
+        await pilot.press("escape")
+
+
 def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() -> None:
     from ocp.ui import chat_page as cp
     def row(i, ts, delivered, requester=actions.HUMAN):
@@ -3814,6 +3973,8 @@ async def _run_all() -> None:
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_it_was_a_draft()
     test_the_settings_form_checks_and_saves_only_what_changed()
+    test_the_browser_setting_writes_chrome_and_the_sites_through_register()
+    await test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
     await test_the_chat_page_draws_a_handoff_as_one_card()
