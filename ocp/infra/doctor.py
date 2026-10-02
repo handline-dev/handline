@@ -74,7 +74,7 @@ def _vendors_in_use() -> list:
 def _check_tools(r: Report) -> None:
     for tool, found, why, hard in (
         *((drv.name, drv.binary(), "needed to run agents", True) for drv in _vendors_in_use()),
-        ("orca", shutil.which("orca"), "terminal and worktree control", False),
+        (orca.host_name(), shutil.which(orca.host_name()), "terminal and worktree control", False),
     ):
         if found:
             r.add(OK, f"{tool} found", found)
@@ -130,6 +130,8 @@ def _check_mcp_config(r: Report) -> None:
 
 
 def _check_orca_hooks(r: Report) -> None:
+    if orca.host_name() != "orca":     # Orca's agent hooks mean nothing to another host
+        return
     for h in vendors.state_hooks():
         src, dst, drift = h.plan()
         if not src:

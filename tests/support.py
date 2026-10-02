@@ -206,6 +206,8 @@ REAL_LOGGED_IN = accounts.logged_in
 
 def restore_world() -> None:
     subprocess.Popen.__init__ = _guarded_popen_init
+    backends.use(None)
+    os.environ.pop("OCP_TERMINAL", None)
     accounts.logged_in = REAL_LOGGED_IN
     for n, f in REAL_ORCA.items():
         setattr(orcamod, n, f)
