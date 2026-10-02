@@ -76,7 +76,7 @@ AGENT_KEYS = [
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "open"), ("a", "answer"), ("e", "answer in $EDITOR"),
-                ("x", "dismiss")]
+                ("x", "dismiss"), ("m", "mark read"), ("M", "mark all read")]
 # A stuck row is about an agent, so it answers to the agent keys.
 STUCK_KEYS = AGENT_KEYS
 # `wake` is not here - see _needs_confirm(): it asks only when the row is

@@ -4954,6 +4954,67 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
         Path(os.environ.get("BANG_SHOT", os.devnull)).write_text(app.export_screenshot())
 
 
+def test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays() -> None:
+    from ocp.team import ask as askmod
+    _home("foryouread")
+    agents.register("reviewer")
+    agents.register("backend")
+    askmod.say("human", "report one", requester="reviewer")
+    askmod.say("human", "report two", requester="reviewer")
+    askmod.say("human", "fyi", requester="backend")
+    askmod.ask("human", "decide this please", requester="backend")
+    con = db.connect()
+    try:
+        keys = [m["key"] for m in actions.messages(con)]
+        done, kept = actions.mark_read(con, actions.fold_key("reviewer"))
+        left = [m["key"] for m in actions.messages(con)]
+        check("for you read: reading a line reads the whole line away", (done, kept) == (2, 0) and actions.fold_key("reviewer") not in left,
+              str((keys, done, kept, left)))
+        done, kept = actions.mark_read(con)
+        rows = actions.messages(con)
+        check("for you read: reading all reads the rest but a reply owed stays, and says so",
+              done == 1 and kept == 1 and len(rows) == 1 and "decide" in rows[0]["body"], str((done, kept, rows)))
+        check("for you read: a row that is owed an answer cannot be read away", actions.mark_read(con, rows[0]["key"]) == (0, 0))
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("for you read: and it stays read in a fresh connection", len(actions.messages(con)) == 1)
+    finally:
+        con.close()
+
+
+async def test_m_and_M_on_the_for_you_panel_read_a_line_and_all() -> None:
+    from ocp.team import ask as askmod
+    _home("foryoukeys")
+    agents.register("reviewer")
+    agents.register("backend")
+    askmod.say("human", "report one", requester="reviewer")
+    askmod.say("human", "fyi", requester="backend")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause(0.5)
+        page = app.screen
+        page.panel = tui.MESSAGES
+        page.sel[tui.MESSAGES] = actions.fold_key("reviewer")
+        page._redraw()
+        await pilot.pause(0.5)
+        await pilot.press("m")
+        await pilot.pause(0.8)
+        con = db.connect()
+        left = [m["key"] for m in actions.messages(con)]
+        con.close()
+        check("for you keys: m read the line under the cursor", left == [actions.fold_key("backend")], str(left))
+        page.sel[tui.MESSAGES] = actions.fold_key("backend")
+        await pilot.press("M")
+        await pilot.pause(0.8)
+        con = db.connect()
+        left = actions.messages(con)
+        con.close()
+        check("for you keys: M read the rest", left == [], str(left))
+        Path(os.environ.get("FORYOU_SHOT", os.devnull)).write_text(app.export_screenshot())
+
+
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
@@ -5009,6 +5070,8 @@ async def _run_all() -> None:
     await test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposal()
     test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one()
     await test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing()
+    test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays()
+    await test_m_and_M_on_the_for_you_panel_read_a_line_and_all()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
     await test_the_chat_page_draws_a_handoff_as_one_card()

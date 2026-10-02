@@ -309,6 +309,27 @@ def unseen_rows(con) -> list[dict]:
     return [m for m in mailbox_rows(con) if m["seq"] > db.get_cursor(con, f"for_you_seen:{m['from']}")]
 
 
+def mark_read(con, key: str | int | None = None) -> tuple[int, int]:
+    """Mark FOR YOU read: the folded line `key` names, or every folded line when None. Returns (rows marked,
+    rows kept). A decision or a reply you owe is never read away, so a line is read only up to the agent's
+    oldest such row, and a row that is one cannot be marked at all. Kept across restarts like `for_you_seen`."""
+    raw = unseen_rows(con)
+    by_agent: dict[str, list[dict]] = {}
+    for m in raw:
+        by_agent.setdefault(m["from"], []).append(m)
+    done = kept = 0
+    for agent, rows in by_agent.items():
+        if key is not None and key != fold_key(agent):
+            continue
+        owed = min((m["seq"] for m in rows if m["gate"] or m["waiting"]), default=None)
+        readable = [m for m in rows if not (m["gate"] or m["waiting"]) and (owed is None or m["seq"] < owed)]
+        if readable:
+            for_you_seen(con, agent, max(m["seq"] for m in readable))
+        done += len(readable)
+        kept += len(rows) - len(readable)
+    return done, kept
+
+
 def fold_key(agent: str) -> str:
     """The stable key a folded line for `agent` carries - see `messages`."""
     return f"agent:{agent}"
