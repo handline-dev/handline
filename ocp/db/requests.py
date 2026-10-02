@@ -104,7 +104,8 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     `notice`: a say from the task board that is only information. Born landed, like a say to the
     founder, so nothing is owed on it and nothing wakes, waits on or types at its target; it stays
     undelivered (`delivered_at` NULL) until the target's next real delivery carries it
-    (`pending_notices`, `mark_notices_shown`).
+    (`pending_notices`, `mark_notices_shown`); the `notice` column is what marks it, so a task-board
+    say from before it existed is never carried.
     """
     # An agent's session cannot verify the routing table it read, so what it
     # writes waits for the daemon's check (`delivery.enforce_edges`) before
@@ -117,10 +118,11 @@ def add_request(con, requester: str, target: str, body: str, files: str | None,
     state = LANDED if landed or state == "done" else state
     cur = con.execute(
         "INSERT INTO requests(ts, requester, target, body, files, relation, response, "
-        "kind, chain_depth, parent_id, state, chain_id, edge_ok, landed_at, state_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "kind, chain_depth, parent_id, state, chain_id, edge_ok, landed_at, state_at, notice) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now, requester, target, body, files, relation, response, kind,
-         chain_depth, parent_id, state, chain_id, edge_ok, now if landed else None, now),
+         chain_depth, parent_id, state, chain_id, edge_ok, now if landed else None, now,
+         1 if notice else None),
     )
     rid = int(cur.lastrowid)
     if verdict:
@@ -316,17 +318,16 @@ def open_ask_ids_of(con, requester: str) -> list[int]:
 def pending_notices(con, target: str):
     """The notices (`add_request(notice=True)`) `target` has not been shown, oldest first."""
     return con.execute(
-        "SELECT * FROM requests WHERE target = ? AND requester = ? AND kind = 'say' "
-        "AND state = 'landed' AND delivered_at IS NULL ORDER BY id",
-        (target, NOTICE_REQUESTER)).fetchall()
+        "SELECT * FROM requests WHERE target = ? AND notice = 1 AND state = 'landed' "
+        "AND delivered_at IS NULL ORDER BY id", (target,)).fetchall()
 
 
 def mark_notices_shown(con, ids: list[int], session: str | None) -> None:
     """These notices went out inside a typed delivery to `session`."""
     now = int(time.time())
     con.executemany("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?), typed_at = ?, "
-                    "typed_session = ? WHERE id = ? AND requester = ? AND state = 'landed'",
-                    [(now, now, session, int(i), NOTICE_REQUESTER) for i in ids])
+                    "typed_session = ? WHERE id = ? AND notice = 1 AND state = 'landed'",
+                    [(now, now, session, int(i)) for i in ids])
 
 
 def mark_delivered(con, rid: int) -> bool:
