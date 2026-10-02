@@ -2578,6 +2578,10 @@ def test_assign_offers_recent_targets_then_the_holders_team() -> None:
               db.task_holders(con, t2) == ["product", "backend", "archivist", "reviewer"], str(db.task_holders(con, t2)))
         check("assign to: recent is that without the holder now",
               actions.recent_assignees(con, t2) == ["product", "backend", "reviewer"], str(actions.recent_assignees(con, t2)))
+        ok, _, t3 = actions.task_new("product", "backend", "Three", "the work and its done")
+        con.execute("UPDATE tasks SET created_at = created_at + 5 WHERE id = ?", (t3,))   # the row made a second after its request
+        check("assign to: the opener and its owner lead even when the request that asked the owner is older than the row",
+              db.task_holders(con, t3) == ["product", "backend"], str(db.task_holders(con, t3)))
         ok, said = actions.task_handoff(con, "archivist", t2, "human", "done, back to you")
         check("assign to: a task that went back to the founder keeps the founder out of recent",
               ok and "human" not in actions.recent_assignees(con, t2)
