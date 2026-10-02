@@ -242,4 +242,6 @@ class AgentSettings(Vertical):
         for control in controls:
             if any(form[k] != self.settings[k] for k in self.FIELDS[control]):
                 self.commit(control)
+            else:       # typed back to what is saved: an old refusal no longer holds anything
+                self.query_one(f"#n_{control}", FieldNote).clear()
         return [note.problem for c in controls if (note := self.query_one(f"#n_{c}", FieldNote)).problem]

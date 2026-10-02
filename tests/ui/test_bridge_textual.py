@@ -2003,6 +2003,7 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
     from ocp.ui.components.pick_or_type import PickOrType
     from ocp.session import idle_close
     from ocp.usage import load as loadmod
+    from ocp.ui import chat_page as cp
     _home("save_at_once")
     app = bt.BridgeApp()
     async with app.run_test(size=(130, 50)) as pilot:
@@ -2057,6 +2058,12 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.6)
         picked = agents.read("backend")["model"]
         check("save at once: (6) picking one saves it", picked in model.known and picked != "sonnet" and scr.query_one("#s_model", Input).value == picked, picked)
+        typed = scr.query_one("#s_model", Input)
+        typed.focus()
+        typed.value = "son"
+        await pilot.pause(0.3)
+        check("save at once: (6) typing narrows the list", scr.query_one(OptionList).option_count == 1
+              and scr.query_one(OptionList).get_option_at_index(0).prompt == "sonnet")
         scr.query_one("#s_model", Input).value = "my-own-model"
         await pilot.press("enter")
         await pilot.pause(0.5)
@@ -2065,6 +2072,30 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.4)
         await pilot.press("escape")
         await pilot.pause(0.3)
+        chat = cp.ChatPage("backend")
+        app.push_screen(chat)
+        await pilot.pause(0.6)
+        chat.query_one("Tabs").active = "settings"
+        await pilot.pause(0.6)
+        c_ctx = chat.query_one("#s_context_k", Input)
+        c_ctx.focus()
+        c_ctx.value = "0"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        await pilot.press("escape")
+        await pilot.pause(0.4)
+        check("save at once: (4) the chat page's settings tab asks too when going back with a refused value",
+              isinstance(app.screen, Confirm))
+        await pilot.press("n")
+        await pilot.pause(0.3)
+        c_ctx.value = "300"
+        await pilot.press("escape")
+        await pilot.pause(0.6)
+        check("save at once: (4) and asks nothing once it is right, going back to the chat",
+              not isinstance(app.screen, Confirm) and chat.showing_settings is False)
+        while len(app.screen_stack) > 2:
+            app.pop_screen()
+        await pilot.pause(0.4)
         page = app.screen
         page.query_one("#scope").active = "settings"
         await pilot.pause(0.8)
@@ -2079,6 +2110,19 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.press("enter")
         await pilot.pause(0.3)
         check("save at once: global: a good cap is saved on Enter", loadmod.default_cap() == 7)
+        cap.value = "9"
+        page.query_one("#idle_close", Input).focus()
+        await pilot.pause(0.4)
+        check("save at once: global: leaving a field saves it", loadmod.default_cap() == 9)
+        actions.add_answer(vendor="claude", title="Remove me?", label="Yes")
+        page._draw_answers()
+        await pilot.pause(0.3)
+        mine = next(i for i, a in enumerate(page._answers) if "Remove me" in a["text"])
+        page.query_one("#answers").move_cursor(row=mine)
+        page.query_one("#answer_remove").press()
+        await pilot.pause(0.4)
+        check("save at once: global: Remove takes the answer under the cursor out at once",
+              not any("Remove me" in a["text"] for a in actions.standing_answers()))
         from ocp.daemon import devmode, handoff_note
         from ocp.session import autoaccept
         shown = {k: page.query_one(f"#g_{k}", Switch).value for k in actions.global_switches()}
@@ -2117,13 +2161,21 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.press("enter")
         await pilot.pause(0.5)
         check("account page: the alias is saved on Enter", loadmod.label_of("alpha") == "first")
+        alias.value = "second"
+        acct.query_one("#a_cap", Input).focus()
+        await pilot.pause(0.5)
+        check("account page: leaving a field saves it", loadmod.label_of("alpha") == "second")
+        was = loadmod.usage_recover_enabled("alpha")
+        acct.query_one("#a_recover", Switch).value = not was
+        await pilot.pause(0.5)
+        check("account page: the usage recovery switch saves when flipped", loadmod.usage_recover_enabled("alpha") == (not was))
         cap = acct.query_one("#a_cap", Input)
         cap.focus()
         cap.value = "0"
         await pilot.press("enter")
         await pilot.pause(0.4)
         check("account page: a refused cap says why, and the alias is not held back",
-              "at least 1" in str(acct.query_one("#n_a_cap").render()) and loadmod.label_of("alpha") == "first")
+              "at least 1" in str(acct.query_one("#n_a_cap").render()) and loadmod.label_of("alpha") == "second")
         await pilot.press("escape")
         await pilot.pause(0.4)
         check("account page: going back with the refused cap still there asks", isinstance(app.screen, Confirm))
