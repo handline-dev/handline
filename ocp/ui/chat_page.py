@@ -48,6 +48,7 @@ from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.section_head import SectionHead
 from .components.schedules_section import SchedulesSection
+from .components.sites_list import SitesList
 from .components.task_assign import TaskAsk, TaskAssign
 from .components.write_guard import WriteGuard
 from .components.switch_row import SwitchRow
@@ -1643,10 +1644,9 @@ class ChatPage(JobsAware, Screen):
                     yield Static("browser", classes="flabel")
                     yield Select([(label, key) for label, key in BROWSER_MODES], id="s_browser", allow_blank=False, compact=True)
                     yield Static("from the next launch", classes="unit")
-                with Horizontal(classes="frow"):
+                with Horizontal(classes="frow sites"):
                     yield Static("sites", classes="flabel")
-                    yield ImeInput(id="s_browser_sites", compact=True, placeholder="https://example.com https://news.ycombinator.com")
-                    yield Static("Playwright only", classes="unit")
+                    yield SitesList(id="s_browser_sites")
                 with Horizontal(classes="frow"):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
@@ -2170,8 +2170,8 @@ class ChatPage(JobsAware, Screen):
         modes = BROWSER_MODES + (BROWSER_CUSTOM,) if cfg["browser"] == "custom" else BROWSER_MODES
         self.query_one("#s_browser", Select).set_options(modes)
         self.query_one("#s_browser", Select).value = cfg["browser"]
-        self.query_one("#s_browser_sites", Input).value = safe(cfg["browser_sites"])
-        self.query_one("#s_browser_sites", Input).disabled = cfg["browser"] != "playwright"
+        self.query_one("#s_browser_sites", SitesList).set_sites(cfg["browser_sites"].split())
+        self.query_one("#s_browser_sites", SitesList).disabled = cfg["browser"] != "playwright"
         self.query_one("#s_idle_close", Input).value = cfg["idle_close"]
         self.query_one("#s_idle_close", Input).placeholder = actions.idle_close_minutes(idle_close.default_close_timeout_s())
         self.show_context_share()
@@ -2186,7 +2186,7 @@ class ChatPage(JobsAware, Screen):
                 "repo": self.query_one("#s_repo", Input).value,
                 "skip_permissions": "on" if self.query_one("#s_skip", Switch).value else "off",
                 "browser": str(self.query_one("#s_browser", Select).value),
-                "browser_sites": self.query_one("#s_browser_sites", Input).value,
+                "browser_sites": " ".join(self.query_one("#s_browser_sites", SitesList).sites),
                 "context_k": self.query_one("#s_context_k", Input).value,
                 "idle_close": self.query_one("#s_idle_close", Input).value}
 
@@ -2198,7 +2198,7 @@ class ChatPage(JobsAware, Screen):
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "s_browser":
-            self.query_one("#s_browser_sites", Input).disabled = event.value != "playwright"
+            self.query_one("#s_browser_sites", SitesList).disabled = event.value != "playwright"
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in ("s_context_k", "s_model") and self.settings is not None:

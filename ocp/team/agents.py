@@ -139,6 +139,16 @@ def parse_origins(text: str) -> list[str]:
     return out
 
 
+def check_origin(text: str, others: list[str]) -> str:
+    """`text` as one origin, if it is one and `others` does not have it; ValueError saying why not."""
+    sites = parse_origins(text)
+    if len(sites) != 1:
+        raise ValueError("write one site, like https://example.com")
+    if sites[0].lower() in (o.lower() for o in others):
+        raise ValueError(f"{sites[0]} is already in the list")
+    return sites[0]
+
+
 def browser_mcp_config(cfg: dict, mode: str, origins: list[str]) -> str:
     """The `mcp_config` text for `mode`: the agent's other MCP servers as they
     are, and its `browser` server set to `origins` for "playwright" or, if it is

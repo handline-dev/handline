@@ -48,6 +48,8 @@ ChatPage { overflow: hidden; }
     #settings_view { display: none; height: 1fr; }
     #settings_pane { height: 1fr; padding: 1 3; }
     .frow { height: 1; margin-bottom: 1; }
+    .frow.sites { height: auto; }
+    .frow SitesList { width: 60; }
     .flabel { width: 18; color: $text-muted; }
     .fvalue { width: 1fr; }
     .frow Input, .frow Select { width: 40; }

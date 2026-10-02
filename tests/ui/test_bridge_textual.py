@@ -1000,7 +1000,8 @@ def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> N
 async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright() -> None:
     import html
     from ocp.ui import chat_page as cp
-    from textual.widgets import Input, Select, Static
+    from textual.widgets import Button, Input, Select, Static
+    from ocp.ui.components.sites_list import SitesList, SiteEdit
     _home("browser-page")
     app = bt.BridgeApp()
     async with app.run_test(size=(110, 50)) as pilot:
@@ -1009,7 +1010,7 @@ async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_f
         await pilot.pause()
         page.query_one("Tabs").active = "settings"
         await pilot.pause(0.4)
-        mode, sites = page.query_one("#s_browser", Select), page.query_one("#s_browser_sites", Input)
+        mode, sites = page.query_one("#s_browser", Select), page.query_one("#s_browser_sites", SitesList)
         check("browser page: it starts off and the site list is greyed out", mode.value == "off" and sites.disabled)
         mode.value = "chrome"
         await pilot.pause(0.2)
@@ -1017,7 +1018,44 @@ async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_f
         mode.value = "playwright"
         await pilot.pause(0.2)
         check("browser page: sandboxed Playwright opens the site list", not sites.disabled)
-        sites.value = "https://news.ycombinator.com https://www.google.com"
+        async def type_site(text):
+            box = app.screen.query_one("#se_site")
+            box.value = text
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+        sites.set_sites([])
+        await pilot.pause(0.2)
+        check("browser page: an empty list says none", "none" in _screen_text(page))
+        sites.query_one("#st_add").press()
+        await pilot.pause(0.3)
+        check("browser page: Add opens the site box", isinstance(app.screen, SiteEdit))
+        await type_site("ftp://nope.com")
+        check("browser page: a site that is not an origin is refused and the box stays",
+              isinstance(app.screen, SiteEdit) and sites.sites == [])
+        await type_site("https://news.ycombinator.com/")
+        check("browser page: a good site is added, trailing slash dropped",
+              isinstance(app.screen, cp.ChatPage) and sites.sites == ["https://news.ycombinator.com"], str(sites.sites))
+        sites.query_one("#st_add").press()
+        await pilot.pause(0.3)
+        await type_site("HTTPS://NEWS.ycombinator.com")
+        check("browser page: a duplicate is refused", isinstance(app.screen, SiteEdit) and sites.sites == ["https://news.ycombinator.com"])
+        await type_site("https://www.google.com")
+        check("browser page: a second site is a second row", sites.sites == ["https://news.ycombinator.com", "https://www.google.com"]
+              and sites.query_one("#st_ed_1", Button) is not None)
+        sites.query_one("#st_ed_0").press()
+        await pilot.pause(0.3)
+        check("browser page: edit opens on the site", app.screen.query_one("#se_site").value == "https://news.ycombinator.com")
+        await type_site("https://www.google.com")
+        check("browser page: an edit into another row's site is refused", isinstance(app.screen, SiteEdit))
+        await type_site("https://old.reddit.com")
+        check("browser page: an edit replaces that row", sites.sites == ["https://old.reddit.com", "https://www.google.com"], str(sites.sites))
+        sites.query_one("#st_rm_0").press()
+        await pilot.pause(0.2)
+        check("browser page: delete removes that row", sites.sites == ["https://www.google.com"], str(sites.sites))
+        sites.set_sites(["https://news.ycombinator.com", "https://www.google.com"])
+        await pilot.pause(0.2)
+        check("browser page: the list is as tall as its rows, so what follows it is not pushed away",
+              sites.region.height == 3 and page.query_one("#s_idle_close").region.y == sites.region.y + 4, str(sites.region))
         page.query_one("#s_save").press()
         await pilot.pause(0.4)
         check("browser page: Save asks to confirm the browser change",
