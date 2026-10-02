@@ -1902,6 +1902,12 @@ def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
         long_parent = db.add_request(con, "backend", "human", "q" * 100, None,
                                      "peer", "async", None, 0, None)
         cut = dmn_delivery.in_reply_to(con, {"parent_id": long_parent})
+        verdict = db.add_request(con, "human", "backend", "v" * 900, None,
+                                 "peer", "async", None, 0, parent)
+        dmn_delivery._tell(con, "backend", db.get_request(con, verdict), 1, "term_x", lambda _m: None)
+        check("a reply is typed whole, a verdict is not cut",
+              "v" * 900 in sent[-1] and "…" not in sent[-1], sent[-1][:200])
+        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (verdict,))
         check("reply notice: a long first line is cut at the limit with an ellipsis",
               cut == f"in reply to #{long_parent}: {'q' * dmn_delivery.ASKED_SHOWN}…", cut)
     finally:
@@ -5827,7 +5833,7 @@ def test_a_done_task_leaves_the_open_lists_and_shows_with_all(home: Path) -> Non
 
 
 def test_the_owner_records_what_its_task_waits_on_and_task_show_reads_it_whole(home: Path) -> None:
-    """T936: a task's owner may add and clear its blockers, not only its opener; anyone else is
+    """A task's owner may add and clear its blockers, not only its opener; anyone else is
     still refused. `ocp task show` prints the brief, memos, blockers and children in one call."""
     _board_world(home)
     con = db.connect()

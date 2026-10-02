@@ -1545,7 +1545,7 @@ def task_brief(con, tid: int) -> str | None:
 
 
 def task_detail(con, tid: int) -> list[str] | None:
-    """T936: one task as lines to read: where it stands, its brief, memos, what it waits on, its
+    """One task as lines to read: where it stands, its brief, memos, what it waits on, its
     children and its handoffs, each note whole. None when there is no such task. The brief lives in
     the first request sent for the task, so without this it took a list, a lookup and a read."""
     row = db.get_task(con, tid)

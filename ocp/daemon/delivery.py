@@ -1045,7 +1045,9 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded
                  f"Title: {title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN].rstrip() + '…'}")
     else:
         body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
-        shown = body if len(body) <= 400 else body[:400] + "…"
+        # A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
+        whole = head["parent_id"] is not None
+        shown = body if whole or len(body) <= 400 else body[:400] + "…"
     if head["kind"] == "task":
         from ..actions import tasks as taskmod      # actions -> daemon
         task = _task_of(con, head)
