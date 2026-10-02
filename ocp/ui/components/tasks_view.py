@@ -14,6 +14,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.worker import get_current_worker
 from textual.widgets import Button, DataTable, Select, SelectionList, Static
 
 from ... import actions, db
@@ -285,19 +286,18 @@ class TasksView(Vertical):
         return rows, every
 
     def refresh_rows(self) -> None:
-        if not self.display:
-            return
-        self._apply(*self._load())
-
-    def _tick(self) -> None:
-        """The two-second refresh and a resize: the database is read off the UI thread."""
+        """Redraw from the database: the read is on a worker thread (a board of hundreds of tasks takes
+        a second or more), the newest request replacing one still reading, and the rows are drawn when it lands."""
         if not self.display:
             return
 
         def work() -> None:
             data = self._load()
-            self.app.call_from_thread(self._apply, *data)
+            if not get_current_worker().is_cancelled:
+                self.app.call_from_thread(self._apply, *data)
         self.run_worker(work, thread=True, exclusive=True, group="tasks_rows", exit_on_error=False)
+
+    _tick = refresh_rows        # the two-second refresh and a resize
 
     def _apply(self, rows: list, every: list) -> None:
         if not self.display:
