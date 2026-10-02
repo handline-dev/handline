@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from ocp.daemon import subscriptions  # noqa: E402
 
 
 
@@ -5268,14 +5269,49 @@ def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
                  rl_at=now, collected_at=now)
     db.set_agent_state(con, "backend", dmn_states.RUNNING)
     db.set_account(con, "backend", "alpha")
-    dmn_evaluate.tick(con, logged.append)
+    # The tick's own lines go to a list of their own: it also starts the hourly plan question on a
+    # thread, which logs when it finds no plan and does so whenever the machine lets it - before or
+    # after the checks below. Joined, so none lands later, and kept apart, so it is not read as burn.
+    ticked: list[str] = []
+    dmn_evaluate.tick(con, ticked.append)
+    subscriptions.wait_for_plan_ask()
     check("burn: the daemon's own tick feeds it", db.get_meta(con, "burnseg:alpha") is not None,
-          str(logged))
+          str(ticked))
     db.set_agent_state(con, "backend", dmn_states.IDLE)
     dmn_evaluate.observe_burn(con, logged.append)
     check("burn: and an idle account adds none", len(_samples_of(con)) == 1 and not logged,
           str(logged))
     con.close()
+
+
+def test_the_plan_question_a_tick_starts_logs_to_the_tick_and_not_to_the_burn_check(home: Path) -> None:
+    """The cause of a flaky burn check: a tick starts the hourly plan question on a thread, and with no
+    plan to read it logs a line, whenever the machine schedules it. Slowed here so it always lands after
+    the tick returns, which is the order a loaded machine produces: the line is the tick's, it arrives
+    once the thread is joined, and a log the test keeps for the burn estimate never holds it."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = subscriptions.accounts.subscription_type
+    try:
+        def slow_none(acct, refresh=False):
+            time.sleep(0.2)
+            return None
+        subscriptions.accounts.subscription_type = slow_none
+        subscriptions._asking = None
+        db.set_cursor(con, "plan_checked:alpha", 0)
+        ticked: list[str] = []
+        dmn_evaluate.tick(con, ticked.append)
+        burn_log: list[str] = []
+        dmn_evaluate.observe_burn(con, burn_log.append)
+        check("plan thread: the tick returns before the question is answered", not any("no plan recorded" in m for m in ticked), str(ticked))
+        subscriptions.wait_for_plan_ask()
+        check("plan thread: its line is the tick's, once the thread is joined",
+              any("alpha: no plan recorded" in m for m in ticked), str(ticked))
+        check("plan thread: and the burn estimate's own log never holds it", not burn_log, str(burn_log))
+    finally:
+        subscriptions.wait_for_plan_ask()
+        subscriptions.accounts.subscription_type = real
+        con.close()
 
 
 def test_a_cold_start_is_not_priced_as_steady_work(home: Path) -> None:
@@ -5915,6 +5951,7 @@ def main() -> int:
         run(lambda: test_a_cheap_agent_is_admitted_where_a_dear_one_is_not(Path(td) / 'burncheap'))
         run(lambda: test_every_real_caller_prices_the_agent_it_is_placing(Path(td) / 'burncallers'))
         run(lambda: test_the_daemon_feeds_the_estimate_each_tick(Path(td) / 'burntick'))
+        run(lambda: test_the_plan_question_a_tick_starts_logs_to_the_tick_and_not_to_the_burn_check(Path(td) / 'plankick'))
         run(lambda: test_a_cold_start_is_not_priced_as_steady_work(Path(td) / 'burncold'))
         run(lambda: test_account_list_is_the_present_state_and_status_is_the_pick(Path(td) / 'acctlist'))
         run(lambda: test_choose_account_does_not_bounce_back_to_a_stale_full_account(
