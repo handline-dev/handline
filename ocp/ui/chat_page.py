@@ -360,7 +360,7 @@ def task_detail(con, tid: int) -> dict | None:
 EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
             "context_k", "idle_close")
 BROWSER_MODES = (("off", "off"), ("Claude in Chrome", "chrome"), ("sandboxed Playwright", "playwright"))
-BROWSER_CUSTOM = ("custom browser config, set in a terminal", "custom")   # shown only when the agent has one
+BROWSER_CUSTOM = ("custom, set in a terminal", "custom")   # shown only when the agent has one
 WEIGHTS = ("light", "heavy")
 
 
