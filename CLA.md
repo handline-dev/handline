@@ -3,8 +3,11 @@
 This agreement is adapted from the Apache Software Foundation's Individual Contributor License
 Agreement, version 2.2, which is a standard text. The definitions, the copyright and patent grants,
 the representations and the support and warranty terms follow it, with "the Owner" in place of "the
-Foundation". Two things are added: one clause giving the Owner alone the right to relicense, and the
-signing method of this project (section 9).
+Foundation". Three changes: the Foundation's preamble is dropped, including its sentence that "In
+return, the Foundation shall not use Your Contributions in a way that is contrary to the public benefit
+or inconsistent with its nonprofit status and bylaws", which is a nonprofit's commitment the Owner does
+not make; one clause is added giving the Owner alone the right to relicense (section 4); and the
+signing method is this project's own (section 9).
 
 *Not legal advice. The Apache text could not be fetched when this was written, so the wording
 below is from memory of it: compare it with the original at https://www.apache.org/licenses/icla.pdf,
@@ -24,8 +27,8 @@ cause the direction or management of such entity, whether by contract or otherwi
 ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of
 such entity.
 
-"Contribution" means any original work of authorship, including any modifications or additions to
-an existing work, that is intentionally submitted by You to the Owner for inclusion in, or
+"Contribution" means any work, as well as any modifications or additions to an existing work, that is
+intentionally submitted by You to the Owner for inclusion in, or
 documentation of, the Software. "Submitted" means any form of electronic, verbal, or written
 communication sent to the Owner or its representatives, including communication on electronic
 mailing lists, source code control systems and issue tracking systems that are managed by, or on
