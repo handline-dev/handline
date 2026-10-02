@@ -21,7 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from ...infra import textsafe
+from ...infra import names, textsafe
 from .base import Backend
 
 SOCKET = "ocp"
@@ -48,7 +48,7 @@ _NO_SERVER = ("no server running", "error connecting to", "no sessions", "can't 
 
 
 def _socket() -> str:
-    return os.environ.get("OCP_TMUX_SOCKET") or SOCKET
+    return names.getenv("OCP_TMUX_SOCKET") or SOCKET
 
 
 def _tmux(args: list[str], timeout: int = TMUX_TIMEOUT_S, stdin: str | None = None) -> tuple[int, str, str]:
@@ -92,7 +92,8 @@ class TmuxBackend(Backend):
     def create_terminal(self, command: str, cwd: str | None = None,
                         title: str | None = None) -> tuple[str | None, str]:
         place = ["-c", cwd] if cwd else []
-        env = ["-e", f"OCP_HOME={os.environ['OCP_HOME']}"] if os.environ.get("OCP_HOME") else []
+        home = names.getenv("OCP_HOME")
+        env = ["-e", f"OCP_HOME={home}", "-e", f"HANDLINE_HOME={home}"] if home else []
         name = ["-n", re.sub(r"[.:]", "_", title)] if title else []
         fmt = ["-P", "-F", "#{pane_id}"]
         if self._server_up():

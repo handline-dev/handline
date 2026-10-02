@@ -15,7 +15,15 @@
 # ready-ness and its reasoning must stay in sync with the check below.
 set -euo pipefail
 
-home_dir="${OCP_HOME:-$HOME/.orcapipe}"
+if [ -n "${HANDLINE_HOME:-}" ]; then
+    home_dir="$HANDLINE_HOME"
+elif [ -n "${OCP_HOME:-}" ]; then
+    home_dir="$OCP_HOME"
+elif [ -d "$HOME/.handline" ]; then
+    home_dir="$HOME/.handline"
+else
+    home_dir="$HOME/.orcapipe"
+fi
 venv="$home_dir/venv"
 py="$venv/bin/python3"
 

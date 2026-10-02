@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 from . import agents
-from ..infra import paths
+from ..infra import names, paths
 from .. import vendors
 from ..infra.yamlcompat import is_plain_text
 
@@ -583,4 +583,4 @@ def env_for(acct: str, agent: str | None = None) -> dict[str, str]:
     env["OCP_ACCOUNT"] = acct
     if agent:
         env["OCP_AGENT"] = agent
-    return env
+    return names.both(env)

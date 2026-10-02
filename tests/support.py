@@ -45,6 +45,10 @@ MACHINE_VENV = paths.default_home() / "venv"
 # ~/.orcapipe. An agent's session exports OCP_HOME=~/.orcapipe; a test that
 # ran against it once deleted the team's whole state.
 TEST_ROOT = Path(tempfile.mkdtemp(prefix="ocp-test-root-"))
+# A session also exports the new HANDLINE_ names, which are read first: left in, they would point
+# every test back at the real home.
+for _name in [k for k in os.environ if k.startswith("HANDLINE_")]:
+    del os.environ[_name]
 os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
 atexit.register(shutil.rmtree, TEST_ROOT, True)

@@ -16,7 +16,7 @@ import os
 import secrets
 from pathlib import Path
 
-from . import protected
+from . import names, protected
 
 NS = "session-tokens"
 ENV = "OCP_SESSION_TOKEN"
@@ -38,7 +38,7 @@ def mint(agent: str) -> str | None:
 
 def held() -> str | None:
     """The token this session was launched with."""
-    return os.environ.get(ENV) or None
+    return names.getenv(ENV) or None
 
 
 def verify(agent: str | None, token: str | None) -> bool:
