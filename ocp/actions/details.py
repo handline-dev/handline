@@ -14,7 +14,7 @@ from ..usage import load as loadmod
 from ..session import idle_close, orca
 from ..infra import paths
 from ..team import spawn as spawnmod
-from ..usage import status
+from ..usage import cycle, status
 from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
 from ..session import triggers
@@ -148,6 +148,7 @@ def account_facts(con, acct: str, logged_in=None) -> dict:
             "vendor": vendors.account_vendor(acct), "assign": (allowed, why),
             "cost": status.live_cost(acct), "cap": loadmod.cap_of(acct), "own_cap": loadmod.own_cap(acct),
             "recover": loadmod.usage_recover_enabled(acct),
+            "cycle": cycle.enabled(acct), "own_end": cycle.own_end(acct),
             "default_cap": loadmod.default_cap(), "agents": rows}
 
 
@@ -195,6 +196,34 @@ def save_account_settings(acct: str, label: str, cap: str,
     except ConfigError as e:
         return False, str(e)
     return True, "; ".join(said) or "nothing changed"
+
+
+def set_cycle_on(acct: str, on: bool) -> tuple[bool, str]:
+    """The one-month subscription switch; off leaves the end day, so on again finds it."""
+    try:
+        cycle.set_cycle(acct, on)
+    except ConfigError as e:
+        return False, str(e)
+    return True, f"{acct}: month cycle {'on' if on else 'off'}"
+
+
+def set_cycle_end(acct: str, text: str) -> tuple[bool, str]:
+    """The last usable day, typed as YYYY-MM-DD (a date alone turns the cycle on, as
+    `ocp account cycle --end` does); blank clears it."""
+    import datetime as dt
+    text = text.strip()
+    try:
+        if not text:
+            cycle.clear_end(acct)
+            return True, f"{acct}: end day cleared"
+        try:
+            end = dt.date.fromisoformat(text)
+        except ValueError:
+            return False, f"the last day is a date as YYYY-MM-DD, not {text!r}"
+        cycle.set_cycle(acct, True, end)
+    except ConfigError as e:
+        return False, str(e)
+    return True, f"{acct}: last day {end}"
 
 
 def context_share(k_text: str, model: str) -> str:

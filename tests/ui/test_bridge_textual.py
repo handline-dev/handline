@@ -2194,6 +2194,42 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.press("y")
         await pilot.pause(0.4)
         check("account page: Yes leaves", not isinstance(app.screen, (Confirm, AccountPage)))
+        from ocp.usage import cycle as cyclemod
+        loadmod.write_config({**loadmod.config_for_write(), "month_cycle_alpha": True, "sub_end_alpha": "2031-04-05"})
+        app.push_screen(AccountPage("alpha"))
+        await pilot.pause(0.6)
+        acct = app.screen
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.8)
+        check("account cycle: the page shows the saved switch and end day",
+              acct.query_one("#a_cycle", Switch).value is True and acct.query_one("#a_end", Input).value == "2031-04-05")
+        end = acct.query_one("#a_end", Input)
+        end.focus()
+        end.value = "2031-05-06"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("account cycle: an edit is saved to config.yaml", cyclemod.own_end("alpha") == "2031-05-06")
+        end.value = "next month"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        check("account cycle: a bad date is refused, shown on the field, and the old one stays",
+              cyclemod.own_end("alpha") == "2031-05-06" and "YYYY-MM-DD" in str(acct.query_one("#n_a_end").render()))
+        end.value = ""
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("account cycle: blank removes the end day from config.yaml",
+              "sub_end_alpha" not in loadmod.config_for_write() and cyclemod.enabled("alpha"))
+        acct.query_one("#a_cycle", Switch).value = False
+        await pilot.pause(0.5)
+        check("account cycle: the switch saves when flipped", not cyclemod.enabled("alpha"))
+        end.value = "2031-07-08"
+        await pilot.press("enter")
+        await pilot.pause(0.6)
+        check("account cycle: an end day alone turns the cycle on, as the command does",
+              cyclemod.enabled("alpha") and acct.query_one("#a_cycle", Switch).value is True)
+        Path(os.environ.get("ACCOUNT_SHOT", os.devnull)).write_text(app.export_screenshot())
+        await pilot.press("escape")
+        await pilot.pause(0.4)
 
 
 def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
