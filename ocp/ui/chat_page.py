@@ -1487,8 +1487,17 @@ class TaskDetail(Screen):
         self._body().action_discard_task()
 
 
+class NewBar(Static):
+    """The bar above the box while the transcript is scrolled up from its end: how many messages
+    arrived since, or a plain "↓ bottom". A click is a jump to the newest."""
+
+    def on_click(self) -> None:
+        self.screen.action_jump_bottom()
+
+
 class ChatPage(JobsAware, Screen):
-    BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history")]
+    BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history"),
+                Binding("end", "jump_bottom", "newest", show=False, priority=True)]
 
     def __init__(self, agent: str, focus: tuple[int, int] | None = None) -> None:
         super().__init__(classes="chat_page")
@@ -1525,6 +1534,9 @@ class ChatPage(JobsAware, Screen):
         self._block_modal = None
         self._block_pressing = False      # an answer is in flight: the block going away is its own doing
         self._blocks_done: set[int] = set()      # blocks closed by hand or answered: not offered again
+        self._newest: int | None = None          # the newest message number drawn so far, None before the first draw
+        self._rebuilding = False
+        self._unseen = 0                         # messages that arrived while scrolled up, not yet scrolled to
 
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
@@ -1537,6 +1549,7 @@ class ChatPage(JobsAware, Screen):
             yield AgentSettings(self.agent, extra=lambda: SchedulesSection(self.agent, id="s_schedules"), id="settings_form")
         with Vertical(id="dock"):
             yield OptionList(id="menu")
+            yield NewBar("", id="newbar")
             with Vertical(id="composer"):
                 yield ChatBox(id="compose", placeholder="message · ctrl+j new line, / for a command")
                 yield Static(self._status(), id="status")
@@ -1556,6 +1569,8 @@ class ChatPage(JobsAware, Screen):
     def on_mount(self) -> None:
         self.sub_title = f"agent {self.agent}"
         self.query_one("#tasks_view").display = False
+        self.query_one("#newbar").display = False
+        self.watch(self.query_one("#transcript", VerticalScroll), "scroll_y", lambda *_: self._sync_newbar())
         self.query_one("#compose", ChatBox).menu = self.query_one("#menu", OptionList)
         self.query_one("#compose", ChatBox).focus()
         if self._scope_wait == "all":
@@ -1743,11 +1758,17 @@ class ChatPage(JobsAware, Screen):
         keep = (self.replying.m["rid"], self.replying.m["part"]) if self.replying else None
         pane = self.query_one("#transcript", VerticalScroll)
         at_bottom = pane.is_vertical_scroll_end
+        self._rebuilding = True         # the emptied pane reads as "at its end" until laid out again
         pane.remove_children()
         widgets = transcript_widgets(with_task_changes(msgs, changes), state == "RUNNING", why, wait)
         pane.mount(*widgets)
         if at_bottom:
             pane.anchor()       # stays at its end as the new messages are laid out, until the reader scrolls
+        mids = [mid_of(w.m) for w in widgets if isinstance(w, ChatMessage)]
+        if self._newest is not None and not at_bottom:
+            self._unseen += sum(1 for m in mids if m > self._newest)    # older pages loaded above are not news
+        self._newest = max(mids + [self._newest or 0])
+        self.call_after_refresh(self._rebuilt)
         self.replying = None
         for w in widgets:
             if keep and isinstance(w, ChatMessage) and (w.m["rid"], w.m["part"]) == keep:
@@ -1759,6 +1780,37 @@ class ChatPage(JobsAware, Screen):
                 self.reply_to(picked)
                 self.call_after_refresh(picked.scroll_visible)
                 self._focus = None if self._tabbed else self._focus
+
+    def _rebuilt(self) -> None:
+        self._rebuilding = False
+        self._sync_newbar()
+
+    def _sync_newbar(self) -> None:
+        """Shown only while the transcript is scrolled up from its end; reaching the end by hand clears the count."""
+        if self._rebuilding:
+            return
+        pane = self.query_one("#transcript", VerticalScroll)
+        up = not self.showing_tasks and not self.showing_settings and not pane.is_vertical_scroll_end
+        if not up:
+            self._unseen = 0
+        bar = self.query_one("#newbar", NewBar)
+        bar.display = up
+        if up:
+            n = self._unseen
+            bar.update(f"{n} new message{'s' * (n != 1)} (click) ↓" if n else "↓ bottom")
+            bar.set_class(bool(n), "new")
+
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        if action == "jump_bottom":
+            return self.query_one("#newbar").display      # otherwise End is the box's own
+        return True
+
+    def action_jump_bottom(self) -> None:
+        self._unseen = 0
+        pane = self.query_one("#transcript", VerticalScroll)
+        pane.scroll_end(animate=False)
+        pane.anchor()
+        self._sync_newbar()
 
     def load_older(self) -> None:
         """Read the page of requests just older than the oldest on screen and

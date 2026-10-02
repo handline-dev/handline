@@ -9,6 +9,8 @@ ChatPage { overflow: hidden; }
     #body { height: 1fr; overflow: hidden; }
     #transcript { width: 1fr; scrollbar-size-vertical: 0; padding: 0 0 1 1; align-vertical: bottom; background: $surface-lighten-1; }
     #dock { dock: bottom; height: auto; padding-bottom: 1; background: $surface-lighten-1; }
+    #newbar { height: 1; width: 100%; text-align: center; color: $text-muted; background: $surface-lighten-1; }
+    #newbar.new { color: $text; text-style: bold; background: $primary; }
     #composer { height: auto; padding: 1 2; background: $panel; border-left: thick $primary; }
     #compose, #compose:focus { height: auto; min-height: 1; max-height: 8; border: none; padding: 0; background: transparent; }
     #status { height: 1; margin-top: 1; color: $text-muted; }
