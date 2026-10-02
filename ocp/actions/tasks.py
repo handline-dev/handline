@@ -1194,7 +1194,7 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
 
 
 def recent_assignees(con, tid: int) -> list[str]:
-    """Who held T<tid> before, the latest holder first, without the founder and its holder now."""
+    """Who held T<tid> before, the earliest first (the opener leads), without the founder and its holder now."""
     row = db.get_task(con, tid)
     return [a for a in db.task_holders(con, tid) if a != HUMAN and (row is None or a != row["owner"])]
 
