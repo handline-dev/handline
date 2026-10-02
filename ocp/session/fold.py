@@ -103,19 +103,19 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
 # asks an "answered" event closed - that event carries only a count (ocp/daemon/
 # deliver_answers), never the ids, because the row itself is the record and a
 # second copy in the event log would just be one more place to drift from it.
-# So a request an agent is still asking about, in the 진행중/막힌 것 prose the
+# So a request an agent is still asking about, in the In progress/Blocked prose the
 # model wrote last time, can sit there for folds after the store already has
 # it as done: nothing in the delta ever named it closed. This checks the
 # store directly for every id already on the page, rather than asking the
 # model to infer closure from a delta that structurally cannot say it.
 #
 # reconcile_resolved's errors are one-way: build_prompt (below) forbids the
-# very next fold from ever moving a line back out of 완료, so a wrong close
+# very next fold from ever moving a line back out of Done, so a wrong close
 # here is permanent, in the document an agent is told to read when it has no
 # handoff (ocp/daemon/'s no-handoff branch) and that the next fold itself reads
 # back as `previous`. That rules out guessing an id out of prose - \d+ moved
 # "step 2 of 7", "3 conflicts left" and "7d reset tracking needs founder
-# call" to 완료 once request ids 1-8 happened to be resolved, none of them
+# call" to Done once request ids 1-8 happened to be resolved, none of them
 # actually about those requests (auditor's #499/#1573). Only an explicit
 # reference is close enough to certain: #N, or "request N" the way an agent
 # writing prose about its own asks would say it. build_prompt's own rules
@@ -137,7 +137,7 @@ def _is_resolved(con, rid: int) -> bool:
 
 
 def reconcile_resolved(con, d: digest.Digest) -> digest.Digest:
-    """Move a 진행중/막힌 것 line to 완료 once every id it names is resolved.
+    """Move an In progress/Blocked line to Done once every id it names is resolved.
 
     A line with no ids, or with an id the store does not recognize or has not
     resolved, stays exactly where the model put it - this only closes what the
@@ -177,10 +177,10 @@ updated: {time.strftime('%H:%M')} · folded_through: event {events[-1]['id'] if 
 {headings}
 
 Rules:
-- Every item already under 완료 in the previous digest MUST still appear under 완료.
+- Every item already under Done in the previous digest MUST still appear under Done.
   Losing a completed item is the one unacceptable error.
 - Move items between sections as the new events warrant; do not invent work.
-- When a 진행중 or 막힌 것 item is about a request you asked, write its id as
+- When an In progress or Blocked item is about a request you asked, write its id as
   #N (e.g. "waiting on #7") ONLY when that request is what the item is
   waiting on - reconcile_resolved closes the item the moment that request
   is done, so #N there means "done" ends this. A request being resolved is
@@ -272,7 +272,7 @@ def fold(agent: str, use_model: bool = True, model: str | None = None,
             # No event of this agent's own to fold, but the store can still
             # have resolved an ask with no event to show it - a resolve event
             # can fall before this fold's own cursor, so the model never sees
-            # it in the delta and the line it wrote sits in 진행중/막힌 것
+            # it in the delta and the line it wrote sits in In progress/Blocked
             # forever. Reconcile against the store here too, and republish
             # only if that moved a line. reconcile_resolved mutates its
             # argument in place, so the comparison needs the text taken

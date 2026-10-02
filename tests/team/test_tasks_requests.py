@@ -488,13 +488,13 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
 
 def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: Path) -> None:
     """auditor's #499/#1573: a fold's own errors are one-way - build_prompt
-    forbids the very next fold from ever moving a line back out of 완료 - so
+    forbids the very next fold from ever moving a line back out of Done - so
     a wrong close is permanent in the document ocp/daemon/ tells an agent with
     no handoff to read. \\d+ read every number in a line as a request id, and
     request ids are small integers that nearly all resolve. Reproduced with
     requests 1-8 done: "Phase 4 daemon rewrite, step 2 of 7" (ids 4, 2, 7,
     all done), "rebase onto main, 3 conflicts left" and "7d reset tracking
-    needs founder call" (auditor's exact three) all moved to 완료 under the
+    needs founder call" (auditor's exact three) all moved to Done under the
     old regex. Only #N or "request N" is close enough to certain."""
     _reconcile_world(home)
     con = db.connect()
@@ -515,7 +515,7 @@ def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: 
         check("reconcile: a bare number in prose is not read as a request id",
               out.items("in_progress") == prose[:2] and out.items("blocked") == prose[2:],
               str(out.sections))
-        check("reconcile: nothing moved to 완료 on prose alone",
+        check("reconcile: nothing moved to Done on prose alone",
               out.items("done") == [], out.items("done"))
 
         # The control: an explicit #N to that same resolved request IS closed.

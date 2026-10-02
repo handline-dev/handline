@@ -4,8 +4,9 @@ The section list is fixed on purpose. With fixed sections a fold becomes
 "move items between sections", which is a stable rewrite. Free-form prose makes
 the structure wobble on every pass and the rewrite becomes unreliable.
 
-Section headings are the design's, kept verbatim because they are a data format
-that agents and the user both read. Only the identifiers here are English.
+Section headings are a data format that agents and the user both read, so they are fixed.
+Digests written before the headings were English carry the older Korean ones; `parse` reads
+both and `migrate_text` rewrites them.
 """
 from __future__ import annotations
 
@@ -14,21 +15,27 @@ from dataclasses import dataclass, field
 
 # (identifier, heading text as it appears in the file)
 SECTIONS: list[tuple[str, str]] = [
-    ("done", "완료"),
-    ("in_progress", "진행중"),
-    ("decided", "결정"),
-    ("blocked", "막힌 것"),
-    ("next", "다음"),
-    ("base_candidates", "base 승격 후보"),
+    ("done", "Done"),
+    ("in_progress", "In progress"),
+    ("decided", "Decided"),
+    ("blocked", "Blocked"),
+    ("next", "Next"),
+    ("base_candidates", "Base candidates"),
 ]
 SECTION_KEYS = [k for k, _ in SECTIONS]
 HEADINGS = {k: h for k, h in SECTIONS}
 BY_HEADING = {h: k for k, h in SECTIONS}
 
+# The headings digests had before they were English, by what they became.
+LEGACY_HEADINGS = {"완료": "Done", "진행중": "In progress", "결정": "Decided", "막힌 것": "Blocked",
+                   "다음": "Next", "base 승격 후보": "Base candidates",
+                   "기계 기록": "Machine record", "지각 반영": "Late additions"}
+BY_HEADING.update({old: BY_HEADING[new] for old, new in LEGACY_HEADINGS.items() if new in BY_HEADING})
+
 # Appended by us after every fold, independent of anything a model produced, so
 # a failed fold still leaves these facts in the digest (section 5).
-FACTS_HEADING = "기계 기록"
-LATE_HEADING = "지각 반영"
+FACTS_HEADING = "Machine record"
+LATE_HEADING = "Late additions"
 
 _H2 = re.compile(r"^##\s+(.+?)\s*$", re.M)
 _ITEM = re.compile(r"^\s*[-*]\s+(.*\S)\s*$", re.M)
@@ -67,11 +74,17 @@ def parse(text: str) -> Digest:
         body = text[m.end(): marks[i + 1].start() if i + 1 < len(marks) else len(text)]
         if heading in BY_HEADING:
             d.sections[BY_HEADING[heading]] = [x.group(1).strip() for x in _ITEM.finditer(body)]
-        elif heading == FACTS_HEADING:
+        elif heading in (FACTS_HEADING, "기계 기록"):
             d.facts = body.strip()
-        elif heading == LATE_HEADING:
+        elif heading in (LATE_HEADING, "지각 반영"):
             d.late = [x.group(1).strip() for x in _ITEM.finditer(body)]
     return d
+
+
+def migrate_text(text: str) -> str:
+    """`text` with its Korean section headings in English. Only a line that is a heading and nothing
+    else is touched, so an item that happens to contain one of the words is left as it was."""
+    return _H2.sub(lambda m: f"## {LEGACY_HEADINGS.get(m.group(1).strip(), m.group(1).strip())}", text)
 
 
 def render(d: Digest) -> str:
@@ -104,7 +117,7 @@ def validate(text: str, previous: Digest | None,
     these checks are for.
     """
     problems: list[str] = []
-    found = {m.group(1).strip() for m in _H2.finditer(text)}
+    found = {LEGACY_HEADINGS.get(h, h) for h in (m.group(1).strip() for m in _H2.finditer(text))}
     missing = [h for _, h in SECTIONS if h not in found]
     if missing:
         problems.append(f"missing sections: {', '.join(missing)}")

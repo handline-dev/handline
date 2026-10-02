@@ -427,6 +427,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     if legacy:
         _unhide_the_humans_answers(con)
     _rename_orchestrator(con)
+    _english_digests(con)
     if legacy:
         _give_answers_their_own_rows(con)
         _asks_reports_and_escalations_to_says(con)
@@ -1210,6 +1211,29 @@ def _rename_orchestrator(con) -> None:
             t.write_text(after)
             sealed.follow(sealed.TEAM, before, after)
     set_cursor(con, "migrated:human_name", 1)
+
+
+def _english_digests(con) -> None:
+    """Every agent's stored daily digests get English section headings in place of the Korean ones they
+    were written with. Once, ledgered; a digest written afterwards is English already, and one an older
+    process still writes is read by `digest.parse` either way."""
+    if get_cursor(con, "migrated:english_digests"):
+        return
+    from ..infra import atomic, paths
+    from ..session import digest
+    for agent in paths.list_agents():
+        for f in (paths.agent_dir(agent) / "journal").glob("*.md"):
+            try:
+                before = f.read_text()
+            except (OSError, UnicodeDecodeError):
+                continue
+            after = digest.migrate_text(before)
+            if after != before:
+                try:
+                    atomic.write_text(f, after)
+                except OSError:         # a folder it cannot write: the file stays Korean, which parse reads
+                    continue
+    set_cursor(con, "migrated:english_digests", 1)
 
 
 def _add_missing_columns(con, legacy: bool = True) -> None:
