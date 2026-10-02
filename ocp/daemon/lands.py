@@ -1,8 +1,9 @@
 """Landing a branch on main, done by the daemon - which runs none of the branch's code.
 
 The daemon is outside every agent's sandbox, so it alone can write main's checkout; whatever it runs
-runs unsandboxed. It therefore runs only git, and main's own tools/localrefs.py on the message it is given. The test is the merger's, in the merger's sandbox
-(`tools/land.sh --check`), and it names the tree it tested. A sha lands when
+runs unsandboxed. It therefore runs only git, and main's own tools/localrefs.py on the message it is
+given. The test is the merger's, in the merger's sandbox (`tools/land.sh --check`), and it names the
+tree it tested. A sha lands when
   - the auditor recorded a PASS for that exact sha (`ocp land --pass`), and
   - the merger recorded it with the tree its test saw (`ocp land <sha> <message>`).
 Both are accepted only with the session token `ocp launch` minted for that agent, which no other
@@ -54,8 +55,11 @@ def _message_refusal(message: str) -> str | None:
     with tempfile.NamedTemporaryFile("w", suffix=".txt", encoding="utf-8") as f:
         f.write(message)
         f.flush()
-        r = subprocess.run([sys.executable, str(tool), "message", "--verbatim", f.name],
-                           capture_output=True, text=True, timeout=30)
+        try:
+            r = subprocess.run([sys.executable, str(tool), "message", "--verbatim", f.name],
+                               capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            return f"the message could not be checked ({type(e).__name__}); try again"
     return None if r.returncode == 0 else textsafe.oneline(r.stderr)[:400]
 
 

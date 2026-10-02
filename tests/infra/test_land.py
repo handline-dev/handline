@@ -248,6 +248,17 @@ def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Pat
         for bad in ("Merge clean for T" + "1234", "#" + "1234 is why", "mail me at someone@" + "gmail.com"):
             ok, said = lands.request(con, clean, bad, tree, lands.MERGER)
             check(f"land: the merge message {bad[:24]!r} is refused", not ok and "personal data or a local id" in said, said)
+        real_run = lands.subprocess.run
+
+        def hung(*a, **kw):
+            raise subprocess.TimeoutExpired("localrefs", 30)
+        lands.subprocess.run = hung
+        try:
+            ok, said = lands.request(con, clean, "Merge clean: states what changed", tree, lands.MERGER)
+        finally:
+            lands.subprocess.run = real_run
+        check("land: a checker that hangs is a refusal to try again, not an exception",
+              not ok and "could not be checked" in said, said)
         ok, said = lands.request(con, clean, "Merge clean: states what changed", tree, lands.MERGER)
         check("land: a message in words is queued", ok and "queued" in said, said)
     finally:

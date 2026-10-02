@@ -107,16 +107,14 @@ def find(text: str, words: tuple[str, ...] = (), doc: bool = False) -> list[tupl
 
 
 def own_words() -> tuple[str, ...]:
-    """The login and git user name of whoever runs this, minus anything generic."""
-    words: set[str] = set()
+    """The login of whoever runs this, minus anything generic. Not the git user name: that can be a
+    word the product itself uses (the repo's identity is named for it), and a personal address in an
+    author line is caught by the email check."""
     try:
-        words.add(getpass.getuser())
+        login = getpass.getuser()
     except Exception:
-        pass
-    r = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True)
-    if r.returncode == 0:
-        words.add(r.stdout.strip())
-    return tuple(sorted(w for w in words if len(w) >= 3 and w.lower() not in GENERIC_LOGINS))
+        return ()
+    return (login,) if len(login) >= 3 and login.lower() not in GENERIC_LOGINS else ()
 
 
 def allowed_paths() -> list[str]:

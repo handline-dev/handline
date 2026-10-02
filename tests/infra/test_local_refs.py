@@ -48,6 +48,16 @@ def test_each_pattern_is_caught() -> None:
     check("localrefs: an id next to Hangul is still one", "task id" in kinds("T" + "835를"))
     check("localrefs: the machine's own name is caught as a whole word, not inside another word",
           kinds("by jo today", ("jo",)) == ["personal name"] and kinds("a major change", ("jo",)) == [])
+    # The git user name can be a word the product itself uses (it is this repo's own identity).
+    keep = {k: os.environ.get(k) for k in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0")}
+    os.environ.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="user.name", GIT_CONFIG_VALUE_0="Handline")
+    try:
+        check("localrefs: a git user name that is a word of the product's text does not count as personal",
+              "Handline" not in lr.own_words()
+              and kinds("read both the Handline and ocp names", lr.own_words()) == [], str(lr.own_words()))
+    finally:
+        for k, v in keep.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
 def test_clean_text_and_look_alikes_pass() -> None:
