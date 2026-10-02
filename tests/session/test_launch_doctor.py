@@ -1542,8 +1542,13 @@ def test_doctor_warns_while_ocp_is_excluded_from_the_agents_sandbox(home: Path) 
     check("sandboxed ocp: without the entries doctor says it is sandboxed",
           any(x[0] == doctor.OK and "inside the agents' sandbox" in x[1] for x in r.rows), str(r.rows))
     target.write_text("{not json")
-    check("sandboxed ocp: an unreadable settings file is doctor's other check to report, not a crash",
-          hook.unsandboxed_commands() == [])
+    check("sandboxed ocp: an unreadable settings file is unknown, not sandboxed",
+          hook.unsandboxed_commands() is None)
+    r = doctor.Report()
+    doctor._check_ocp_sandboxed(r)
+    check("sandboxed ocp: and doctor warns instead of passing the check",
+          any(x[0] == doctor.WARN and "could not read" in x[1] for x in r.rows)
+          and not any(x[0] == doctor.OK for x in r.rows), str(r.rows))
 
 
 def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
