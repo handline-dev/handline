@@ -179,6 +179,20 @@ def _check_home_socket(r: Report) -> None:
                       + (" (added just now)" if added else ""))
 
 
+def _check_ocp_sandboxed(r: Report) -> None:
+    """The session tokens and the protected store hold only if `ocp` runs inside an agent's sandbox:
+    an excluded command is not under its read-deny or its write limits."""
+    for h in vendors.state_hooks():
+        out = h.unsandboxed_commands()
+        if out:
+            r.add(WARN, "ocp runs outside the agents' sandbox",
+                  f"{h.target_settings()} excludes {', '.join(repr(e) for e in out)} from the sandbox, so "
+                  "an agent's ocp can read the session tokens; remove those entries from "
+                  "sandbox.excludedCommands (founder-only file)")
+        else:
+            r.add(OK, "ocp runs inside the agents' sandbox")
+
+
 def _check_accounts(r: Report) -> None:
     names = paths.list_accounts()
     if not names:
@@ -647,6 +661,7 @@ def _run() -> Report:
     _check_terminal_handles(r)
     _check_ocp_hooks(r)
     _check_home_socket(r)
+    _check_ocp_sandboxed(r)
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)

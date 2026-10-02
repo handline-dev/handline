@@ -1483,6 +1483,31 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
           r.returncode != 0 and "ocp install-hooks" in r.stderr, r.stdout + r.stderr)
 
 
+def test_doctor_warns_while_ocp_is_excluded_from_the_agents_sandbox(home: Path) -> None:
+    """An excluded `ocp` runs outside the sandbox, past the session-token folder's read-deny; the
+    entries are named, the warning goes once they are gone, and other exclusions are left alone."""
+    use_home(home)
+    target = home / "shared" / ".claude" / "settings.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    hook = vendors.state_hooks()[0]
+    check("sandboxed ocp: no settings file, nothing excluded", hook.unsandboxed_commands() == [])
+    target.write_text(json.dumps({"sandbox": {"excludedCommands": ["ocp", "ocp *", "ocp * | *", "xcrun *"]}}))
+    check("sandboxed ocp: the ocp entries are named, xcrun is not",
+          hook.unsandboxed_commands() == ["ocp", "ocp *", "ocp * | *"], str(hook.unsandboxed_commands()))
+    r = doctor.Report()
+    doctor._check_ocp_sandboxed(r)
+    check("sandboxed ocp: doctor warns and names the file",
+          any(x[0] == doctor.WARN and "outside the agents' sandbox" in x[1] for x in r.rows), str(r.rows))
+    target.write_text(json.dumps({"sandbox": {"excludedCommands": ["xcrun *"]}}))
+    r = doctor.Report()
+    doctor._check_ocp_sandboxed(r)
+    check("sandboxed ocp: without the entries doctor says it is sandboxed",
+          any(x[0] == doctor.OK and "inside the agents' sandbox" in x[1] for x in r.rows), str(r.rows))
+    target.write_text("{not json")
+    check("sandboxed ocp: an unreadable settings file is doctor's other check to report, not a crash",
+          hook.unsandboxed_commands() == [])
+
+
 def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
     """A sandboxed agent connecting to a unix socket under the home gets EPERM
     unless sandbox.network.allowUnixSockets names it."""
@@ -2435,6 +2460,7 @@ def main() -> int:
         run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))
         run(lambda: test_doctor_catches_a_wanted_event_installed_before_it_existed(Path(td) / 'hookgap'))
         run(lambda: test_init_installs_the_hooks_and_lets_agents_write_the_home(Path(td) / 'initw'))
+        run(lambda: test_doctor_warns_while_ocp_is_excluded_from_the_agents_sandbox(Path(td) / 'exclocp'))
         run(lambda: test_allow_home_socket_adds_one_path_and_keeps_the_rest(Path(td) / 'homes'))
         run(lambda: test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(Path(td) / 'safecmd'))
         run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))

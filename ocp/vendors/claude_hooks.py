@@ -200,6 +200,18 @@ def allow_home_socket() -> bool:
     return True
 
 
+def unsandboxed_commands() -> list[str]:
+    """The shared settings' `sandbox.excludedCommands` entries that start with the ocp command: those
+    run outside every agent's sandbox, so the session-token folder's read-deny and the protected
+    store's write protection do not bind them."""
+    try:
+        sandbox = _read_object(target_settings()).get("sandbox")
+    except ValueError:
+        return []
+    excluded = sandbox.get("excludedCommands") if isinstance(sandbox, dict) else None
+    return [e for e in excluded or [] if isinstance(e, str) and e.split(" ", 1)[0] == "ocp"]
+
+
 def _is_orca_entry(entry: dict) -> bool:
     cmd = entry.get("command")
     return isinstance(cmd, str) and any(m in cmd for m in ORCA_MARKERS)
@@ -472,6 +484,7 @@ class ClaudeHooks:
     missing = staticmethod(missing)
     allow_home_writes = staticmethod(allow_home_writes)
     allow_home_socket = staticmethod(allow_home_socket)
+    unsandboxed_commands = staticmethod(unsandboxed_commands)
     allow_safe_commands = staticmethod(allow_safe_commands)
     ensure_shared = staticmethod(ensure_shared)
     shared_problems = staticmethod(shared_problems)
