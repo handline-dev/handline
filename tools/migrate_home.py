@@ -182,7 +182,6 @@ def _daemon_running_for(home: Path) -> Callable[[], bool]:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         os.environ["OCP_HOME"] = str(home)
         os.environ.pop("HANDLINE_HOME", None)
-        import ocp.actions  # noqa: F401  ocp.daemon only imports cleanly after ocp.actions
         from ocp.daemon import locks
         return locks.running_elsewhere() is not None
     return check

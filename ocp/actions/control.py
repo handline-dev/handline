@@ -8,7 +8,7 @@ from ..team import accounts
 from ..team import agents
 from ..daemon import delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
-from ..infra import lock
+from ..infra import lock, waits
 from ..session import fold as foldmod
 from ..session import orca
 from ..team import spawn as spawnmod
@@ -251,7 +251,7 @@ ASYNC_VERBS = ("wake", "close", "park", "fold", "unstall", "terminal", "message"
                "dismiss", "cancel", "move", "chat_reply")
 
 _IDLE_WAIT_S = orca.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
-_DELIVERY_S = dmn_delivery.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
+_DELIVERY_S = waits.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
 
 # verb -> (what it can be waiting for, the longest that can take in seconds). The
 # longest is the sum of the waits on the path, each bounded by the constant that
@@ -261,7 +261,7 @@ _DELIVERY_S = dmn_delivery.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
 WAITS: dict[str, tuple[str, int]] = {
     "wake": ("its session to start and settle", _DELIVERY_S),
     "close": ("it to finish its turn, then its session to end",
-              _IDLE_WAIT_S + 30 + dmn_delivery.END_WAIT_S + 15),
+              _IDLE_WAIT_S + 30 + waits.END_WAIT_S + 15),
     "park": ("its handoff to be recorded and its context cleared", _DELIVERY_S),
     "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
     "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),
