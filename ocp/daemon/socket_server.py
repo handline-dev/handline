@@ -48,6 +48,10 @@ def _close(con, log, **kw) -> tuple[bool, str]:
     return control.close_result(con, kw["agent"], bool(kw.get("fresh")))
 
 
+def _restart(con, log, **kw) -> tuple[bool, str]:
+    return control.restart_result(con, kw["agent"], bool(kw.get("fresh")), bool(kw.get("force")))
+
+
 def _park(con, log, **kw) -> tuple[bool, str]:
     return True, control.park(con, kw["agent"])
 
@@ -100,6 +104,7 @@ VERBS = {
     "notify_cancelled": sends.notify_cancelled_verb,
     "wake": _wake,
     "close": _close,
+    "restart": _restart,
     "park": _park,
     "fold": _fold,
     "move": _move,

@@ -1186,6 +1186,127 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
         con.close()
 
 
+def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home: Path) -> None:
+    """`ocp restart`: a close and a wake in one step. It resumes the conversation by default (whatever
+    the prompt cache says) and types nothing at it unless something is waiting; --fresh starts a new
+    one; an agent mid-turn is refused unless --force."""
+    from ocp.actions import control
+    from ocp.daemon import socket_server
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[tuple[str, str]] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+            orcamod.close_terminal, handoffmod.capture)
+    order: list[str] = []
+    closed_panes: list[str] = []
+    try:
+        orca_seen()
+
+        def wait_idle(h, timeout_ms=0):
+            order.append("idle")
+            return True
+        orcamod.wait_idle = wait_idle
+        real_capture = handoffmod.capture
+
+        def capture(*a, **k):
+            order.append("capture")
+            return real_capture(*a, **k)
+        handoffmod.capture = capture
+        orcamod.close_terminal = lambda h, tab=True: (closed_panes.append(h), (True, "closed"))[1]
+        launch.find_room = lambda agent: "alpha"           # a fresh start goes where there is room
+        table = sessions_are("backend")
+
+        def send(handle: str, text: str, enter: bool = True):
+            sent.append((handle, text))
+            if text == "/exit":
+                table.pop("backend", None)
+            elif " launch " in text:
+                take_launched_prompt(text)
+                table["backend"] = 4242
+            return True, ""
+
+        orcamod.send = send
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status_json(home / "agents" / "backend", {
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
+
+        def restart(**kw):
+            sent.clear()
+            table["backend"] = 4200
+            db.set_agent_state(con, "backend", dmn_states.IDLE)
+            db.clear_cursor(con, "typed_at:backend")
+            ok, said = control.restart_result(con, "backend", **kw)
+            launched = [t for _h, t in sent if " launch " in t]
+            return ok, said, launched, db.get_agent_state(con, "backend")
+
+        ok, said, launched, row = restart()
+        check("restart: an idle agent is ended and launched again, in the terminal it had",
+              ok and [t for _h, t in sent][:1] == ["/exit"] and len(launched) == 1
+              and all(h == "term_x" for h, _t in sent), f"{ok} {said} {sent}")
+        check("restart: resuming the same conversation, with nothing typed at it",
+              "--resume sess-1" in launched[0] and launched_prompt(launched[0]) == "", launched[0])
+        check("restart: and it is not left closed", row["closed_at"] is None and row["terminal"] == "term_x",
+              str(dict(row)))
+
+        support.something_waiting(con, "backend")
+        ok, said, launched, row = restart()
+        check("restart: work queued for it is the resume's first prompt",
+              ok and "--resume sess-1" in launched[0] and "something for you" in launched_prompt(launched[0]),
+              f"{said} {launched}")
+        con.execute("UPDATE requests SET state = 'landed'")
+
+        con.execute("UPDATE events SET ts = ts - 7200 WHERE agent = 'backend'")
+        check("restart: (the cache is cold here)",
+              dmn_lifecycle.cache_expired(con, "backend", "sess-1", int(time.time())))
+        ok, said, launched, row = restart()
+        check("restart: a cold cache still resumes - the conversation was asked for",
+              ok and launched and "--resume sess-1" in launched[0], f"{said} {launched}")
+
+        ok, said, launched, row = restart(fresh=True)
+        check("restart: --fresh starts a new conversation, and no session is left to resume",
+              ok and len(launched) == 1 and "--resume" not in launched[0] and row["resume_session"] is None
+              and row["closed_at"] is None, f"{said} {launched} {dict(row)}")
+
+        sent.clear()
+        table["backend"] = 4200
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        ok, said = control.restart_result(con, "backend")
+        check("restart: an agent mid-turn is refused, and nothing is typed",
+              not ok and "mid-turn" in said and "--force" in said and not sent, f"{said} {sent}")
+        check("restart: and the board does not offer it", not control.can(con, "backend", "restart")[0])
+        db.clear_cursor(con, "typed_at:backend")
+        ok, said = control.restart_result(con, "backend", force=True)
+        check("restart: --force ends it as a close does and starts it again",
+              ok and any(t == "/exit" for _h, t in sent) and any(" launch " in t for _h, t in sent),
+              f"{said} {sent}")
+
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        db.set_handoff(con, "backend", None)
+        db.clear_cursor(con, "typed_at:backend")
+        table["backend"] = 4200
+        order.clear()
+        ok, said = control.restart_result(con, "backend", fresh=True, force=True)
+        check("restart: --fresh --force takes the handoff record only once the turn has ended",
+              ok and "capture" in order and order.index("idle") < order.index("capture"), f"{said} {order}")
+
+        db.set_agent_state(con, "backend", dmn_states.HANDOFF)
+        check("restart: mid-handoff is refused even with --force",
+              not control.restart_result(con, "backend", force=True)[0])
+
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        table["backend"] = 4200
+        ok, said = socket_server.VERBS["restart"](con, lambda _m: None, agent="backend", fresh=False, force=False)
+        check("restart: the daemon's verb does the same", ok and "restarted" in said, said)
+        check("restart: no restart closed the pane, and the agent's terminal is the one it had",
+              not closed_panes and db.get_terminal(con, "backend") == "term_x", f"{closed_panes}")
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+         orcamod.close_terminal, handoffmod.capture) = real
+        con.close()
+
+
 def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     """Memory is the scarce thing on one laptop running a team: an idle session
     holds 250-500MB and earns nothing with it. Closing keeps the terminal, and
@@ -4146,6 +4267,7 @@ def main() -> int:
         run(lambda: test_nothing_is_pressed_for_what_is_not_a_dialog(Path(td) / 'dcl6'))
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
+        run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
         run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))

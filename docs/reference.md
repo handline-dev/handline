@@ -29,6 +29,7 @@ One line each. `ocp <command> --help` has the options, and `ocp guide <topic>` p
 | `ocp triggers` | What the daemon would decide now, without acting. |
 | `ocp status` | Why the daemon picked the account it picked. |
 | `ocp close <agent>` | End an idle session and keep its terminal. |
+| `ocp restart <agent> [--fresh] [--force]` | End the session and start it again at once in the same terminal; `--fresh` is a new conversation, `--force` waits out a turn in progress. |
 | `ocp resume <agent>` | Hand a parked agent its handoff. |
 | `ocp bridge` | The screen the team is run from. |
 

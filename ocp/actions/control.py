@@ -40,6 +40,18 @@ def close_result(con, agent: str, fresh: bool = False) -> tuple[bool, str]:
     return ok, why if ok else f"{agent}: not closed - {why}"
 
 
+def restart_result(con, agent: str, fresh: bool = False, force: bool = False) -> tuple[bool, str]:
+    """`dmn_lifecycle.restart_agent`, for the daemon's `restart` verb."""
+    st = status.read_for_agent(agent, agents.current_account(agent, con))
+    ok, why = dmn_lifecycle.restart_agent(con, agent, lambda _m: None, st, fresh=fresh, force=force)
+    return ok, why if ok else f"{agent}: not restarted - {why}"
+
+
+def restart(con, agent: str, fresh: bool = False, force: bool = False) -> str:
+    """End this agent's session and start it again in the same terminal."""
+    return restart_result(con, agent, fresh, force)[1]
+
+
 def close(con, agent: str, fresh: bool = False) -> str:
     """Give the machine back an idle agent's memory, keeping its terminal."""
     return close_result(con, agent, fresh)[1]
@@ -209,6 +221,12 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
             return False, (f"{agent} has {len(waiting)} request(s) waiting - closing it now "
                            f"only delays them, the next tick wakes it again")
         return True, ""
+    if key == "restart":
+        if not closed and not row["terminal"]:
+            return False, f"{agent} has no terminal - there is no session to restart (t starts one)"
+        if busy:
+            return False, busy_why + " - `ocp restart --force` waits for the turn to end"
+        return True, ""
     if key == "park":
         if closed:
             return False, f"{agent} is closed - its context is already gone (w brings it back)"
@@ -247,7 +265,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 # bridge runs a verb in a process of its own (`ocp.ui.actrun`) and says, while it
 # runs, what it can be waiting for and how long the longest of those waits is.
 # The verbs are the ones a key on the bridge acts with; nothing else can be asked.
-ASYNC_VERBS = ("wake", "close", "park", "fold", "unstall", "terminal", "message", "answer",
+ASYNC_VERBS = ("wake", "close", "restart", "park", "fold", "unstall", "terminal", "message", "answer",
                "dismiss", "cancel", "move", "chat_reply")
 
 _IDLE_WAIT_S = orca.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
@@ -262,6 +280,8 @@ WAITS: dict[str, tuple[str, int]] = {
     "wake": ("its session to start and settle", _DELIVERY_S),
     "close": ("it to finish its turn, then its session to end",
               _IDLE_WAIT_S + 30 + waits.END_WAIT_S + 15),
+    "restart": ("its session to end, then a new one to start and settle",
+                _IDLE_WAIT_S + 30 + waits.END_WAIT_S + 15 + _DELIVERY_S),
     "park": ("its handoff to be recorded and its context cleared", _DELIVERY_S),
     "move": ("its handoff, then its session to end and start elsewhere", 2 * _DELIVERY_S),
     "fold": ("the model to fold the day's events", foldmod.FOLD_TIMEOUT_S + 30),

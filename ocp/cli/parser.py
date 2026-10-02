@@ -24,7 +24,7 @@ from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ig
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_show, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
+from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_restart, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_show, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
 from .team import cmd_team, cmd_team_init, cmd_team_seal
 
 
@@ -467,6 +467,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fresh", action="store_true",
                    help="also forget the session it would resume: its next wake is a new conversation")
     p.set_defaults(fn=cmd_close)
+
+    p = sub.add_parser("restart", help="end an agent's session and start it again in the same terminal")
+    p.add_argument("target", help="an agent's name")
+    p.add_argument("--fresh", action="store_true",
+                   help="start a new conversation from its handoff, not the one it was in")
+    p.add_argument("--force", action="store_true",
+                   help="restart an agent mid-turn: its handoff is taken as for a close, and the session "
+                        "ends once the turn has")
+    p.set_defaults(fn=cmd_restart)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
     p = tk.add_parser("new", help="open and deliver a task in one step (T292): a request "

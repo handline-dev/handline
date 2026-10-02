@@ -214,7 +214,8 @@ def _note_abandoned(con, agent: str, now: int) -> None:
                          f"told to finish or stop it, with nothing shown"})
 
 
-def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
+def close_agent(con, agent: str, log, st, keep_pane: bool = False,
+                force: bool = False) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
     This is not a handoff: no context is reclaimed, because there is nothing
@@ -225,6 +226,9 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     reading, the same one `should_close` approved. Reading it again here would
     let the predicate check one value and the act store another, in the one
     place where the difference means closing with no way back.
+
+    `keep_pane` and `force` are a restart's: it starts a session in the same pane at once, and
+    `force` lets a working agent be closed - the close still waits for the turn to end.
     """
     with lock.terminal(agent) as mine:
         if not mine:
@@ -237,13 +241,14 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
                          require_idle=False, require_settled=True)
         if why:
             return False, why
-        ok, said = _close_agent(con, agent, log, st)
+        ok, said = _close_agent(con, agent, log, st, keep_pane=keep_pane, force=force)
         if ok:
             delivery._mark_typed(con, agent)
         return ok, said
 
 
-def close_fresh(con, agent: str, log, st) -> tuple[bool, str]:
+def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
+                force: bool = False) -> tuple[bool, str]:
     """End this agent's session, if one runs, and forget the one it would resume: its next wake is a
     new conversation that starts from the handoff record. For an agent that came back as the same
     conversation after a human closed it (the daemon records a closed session and resumes it when
@@ -252,7 +257,7 @@ def close_fresh(con, agent: str, log, st) -> tuple[bool, str]:
     if not row:
         return False, f"{agent} has never been started"
     if not row["closed_at"]:
-        ok, said = close_agent(con, agent, log, st)
+        ok, said = close_agent(con, agent, log, st, keep_pane=keep_pane, force=force)
         if not ok:
             return False, said
     elif row["resume_session"] and not db.get_handoff(con, agent):
@@ -265,9 +270,37 @@ def close_fresh(con, agent: str, log, st) -> tuple[bool, str]:
     return True, f"{agent}: closed; its next wake starts a new session, not the old conversation"
 
 
-def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
+def restart_agent(con, agent: str, log, st, fresh: bool = False,
+                  force: bool = False) -> tuple[bool, str]:
+    """End this agent's session and start it again at once, in the same terminal: the close and the
+    wake, nothing of its own. By default it resumes the same conversation, whatever its prompt cache
+    says, so it picks up what a launch reads (settings, model, hooks); `fresh` starts a new one from
+    the handoff record, as `close_fresh` does. A working agent is refused unless `force`, which closes
+    it as any close does (the handoff record first, `/exit` once its turn has ended) and so waits for
+    that turn. Work queued for it is the resume's first prompt, as in any wake."""
     row = db.get_agent_state(con, agent)
-    if row and row["state"] in (RUNNING, HANDOFF):
+    if not row:
+        return False, "it has never been started"
+    live = not row["closed_at"]
+    if live and row["state"] == HANDOFF:
+        return False, "it is mid-handoff"
+    if live and row["state"] == RUNNING and not force:
+        return False, "it is mid-turn (--force waits for the turn to end first)"
+    if live or fresh:
+        close = close_fresh if fresh else close_agent
+        ok, said = close(con, agent, log, st, keep_pane=True, force=force)
+        if not ok:
+            return False, said
+    ok, why = wake_agent(con, agent, log, force=True, warm=not fresh)
+    if not ok:
+        return False, f"it was closed but not started again - {why}"
+    return True, f"{agent}: restarted" + (" as a new conversation" if fresh else ", resuming its conversation")
+
+
+def _close_agent(con, agent: str, log, st, keep_pane: bool = False,
+                 force: bool = False) -> tuple[bool, str]:
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] in (RUNNING, HANDOFF) and not (force and row["state"] == RUNNING):
         # `should_close` refuses these, and every path that closes on a
         # schedule goes through it - but a human's key does not, and a turn can
         # start between the moment they press it and the moment they confirm.
@@ -276,7 +309,15 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
         # A handoff is the exception and calls `_end_session` itself: it is the
         # one path that has already recorded the work, in its handoff record,
         # and then needs the session gone to start the next one somewhere else.
+        # `force` is a restart's own call for a working agent: the handoff record is taken below as
+        # for any close, and `/exit` is only typed once the turn has ended (`orca.close_session`).
         return False, f"{agent} is {row['state']}; not closing a session mid-work"
+    if row and row["state"] == RUNNING:
+        # Only a forced restart gets here. Its handoff record is taken after the turn, so the turn's
+        # last work is in it; `/exit` is typed once the turn has ended either way.
+        handle = db.get_terminal(con, agent)
+        if not handle or not orca.wait_idle(handle):
+            return False, "it is still mid-turn after waiting for it to finish; not closing"
     if not st.session_id:
         # Closing is only cheap because waking resumes the same session. With
         # no id to come back to, closing is just throwing the context away.
@@ -291,7 +332,7 @@ def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
         if not missing:
             db.set_handoff(con, agent, text)
             wrote = True
-    ok, why = _end_session(con, agent, log, st, resume=st.session_id)
+    ok, why = _end_session(con, agent, log, st, resume=st.session_id, keep_pane=keep_pane)
     if not ok and wrote:
         db.set_handoff(con, agent, None)
     if ok:
@@ -611,7 +652,7 @@ def _write_wake_prompt(agent: str, text: str, suffix: str = "txt") -> Path:
     return p
 
 
-def wake_agent(con, agent: str, log, force: bool = False) -> tuple[bool, str]:
+def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
     This is the other half of the cycle: the agent kept its account across the
@@ -619,7 +660,8 @@ def wake_agent(con, agent: str, log, force: bool = False) -> tuple[bool, str]:
     terminal (T407); a new one is opened for it in its worktree.
 
     `force` is a human asking for the session (the terminal key): a closed agent
-    is brought back with nothing waiting for it.
+    is brought back with nothing waiting for it. `warm` resumes the session whatever its prompt
+    cache says: a restart asked for that conversation.
     """
     with lock.terminal(agent) as mine:
         if not mine:
@@ -628,14 +670,14 @@ def wake_agent(con, agent: str, log, force: bool = False) -> tuple[bool, str]:
             return False, "someone else is typing at this agent; not waking twice"
         # Not `_type_gate`: closed means no live process to be mid-turn in,
         # and the sub-paths below that do meet a live one probe it themselves.
-        ok, said = _wake_agent(con, agent, log, force=force)
+        ok, said = _wake_agent(con, agent, log, force=force, warm=warm)
         if ok:
             delivery._mark_typed(con, agent)
         return ok, said
 
 
 def _wake_agent(con, agent: str, log, moved_to: str | None = None,
-                force: bool = False) -> tuple[bool, str]:
+                force: bool = False, warm: bool = False) -> tuple[bool, str]:
     """The body of a wake, without the lock. Callers already holding it use this.
 
     `moved_to` names the account this wake is starting the agent on when it is
@@ -773,7 +815,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # Past the cache's life a resume costs the whole transcript and a
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
-        cold = moved_to is None and cache_expired(con, agent, session, int(time.time()))
+        cold = moved_to is None and not warm and cache_expired(con, agent, session, int(time.time()))
         # A fresh start goes where there is room. With none, `ocp launch` would
         # refuse and the refusal would count against the agent's wake attempts,
         # though it is the accounts that are full.

@@ -713,12 +713,12 @@ PAGE_COMMANDS = (("chat", "My chat", "mine"), ("all", "All chat", "all"), ("task
 
 
 MENU_MAX = 8
-VERB_WHAT = {'terminal': 'go to its terminal', 'wake': 'wake it now', 'close': 'close its session',
+VERB_WHAT = {'terminal': 'go to its terminal', 'wake': 'wake it now', 'close': 'close its session', 'restart': 'restart its session, resuming the conversation',
              'park': 'park it', 'fold': 'fold it into its handoff', 'move': 'move it to another account'}
 
 # The home page's agent keys that make sense typed in the agent's own chat: `open` is this page,
 # and `message` and `editor` are the box itself.
-CHAT_VERBS = ('terminal', 'wake', 'close', 'park', 'fold', 'move')
+CHAT_VERBS = ('terminal', 'wake', 'close', 'restart', 'park', 'fold', 'move')
 
 
 def slash_action(body: str) -> tuple | None:
@@ -739,7 +739,9 @@ def slash_action(body: str) -> tuple | None:
     if word == "sort":
         return ("sort", arg) if arg in actions.TASK_SORTS else ("error", "/sort needs a column: " + ", ".join(actions.TASK_SORTS))
     if word in CHAT_VERBS:
-        return ("error", f"/{word} takes no argument") if arg and word != "move" else ("verb", word, arg)
+        if word == "restart" and arg not in ("", "fresh"):
+            return ("error", "/restart takes only 'fresh' (a new conversation)")
+        return ("error", f"/{word} takes no argument") if arg and word not in ("move", "restart") else ("verb", word, arg)
     return ("error", f"no command /{word} - /help lists them" if word else "type a command after the /, /help lists them")
 
 
@@ -866,7 +868,9 @@ def suggest(before: str, tasks: list[tuple], requests: list[tuple], verbs: tuple
             return [Suggestion("run", n, f"/{n} ", (f"/{n}", f"   {what}"))
                     for n, what, _ in PAGE_COMMANDS if n.startswith(name)] \
                 + [Suggestion("verb", v, f"/{v} ", (f"/{v}", f"   {VERB_WHAT[v]}"))
-                   for v in verbs if v.startswith(name)]
+                   for v in verbs if v.startswith(name)] \
+                + [Suggestion("verb", "restart fresh", "/restart fresh", ("/restart fresh", "   restart as a new conversation"))
+                   for _ in ("restart",) if "restart" in verbs and "restart fresh".startswith(name)]
         arg = arg.strip().lower()
         if name == "task":
             hits = [t for t in tasks if not arg or str(t[0]).startswith(arg.lstrip("#").lstrip("t"))
@@ -874,6 +878,9 @@ def suggest(before: str, tasks: list[tuple], requests: list[tuple], verbs: tuple
             hits.sort(key=lambda t: t[5], reverse=True)
             return [Suggestion("open", str(t[0]), f"/task {t[0]}", (actions.task_ref(t[0]), f"  {t[2]}  {safe(t[3])}"))
                     for t in hits[:MENU_MAX]]
+        if name == "restart" and "restart" in verbs:
+            return [Suggestion("verb", "restart fresh", "/restart fresh", ("fresh", "   restart as a new conversation"))
+                    for _ in ("fresh",) if "fresh".startswith(arg)]
         if name == "sort":
             return [Suggestion("sort", c, f"/sort {c}", (c, "   sort the tasks by this column"))
                     for c in actions.TASK_SORTS if c.startswith(arg)]
@@ -1909,7 +1916,8 @@ class ChatPage(JobsAware, Screen):
         if sg.action == "run":
             self.run_command(sg.arg)
         elif sg.action == "verb":
-            self.run_verb(sg.arg)
+            label, _, arg = sg.arg.partition(" ")
+            self.run_verb(label, arg)
         elif sg.action == "open":
             self.app.push_screen(TaskDetail(int(sg.arg)))
         elif sg.action == "sort":
