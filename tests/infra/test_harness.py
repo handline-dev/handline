@@ -422,10 +422,26 @@ def test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory() -> Non
             os.environ["OCP_HOME"] = saved
 
 
+def test_every_daemon_actions_and_team_module_imports_on_its_own() -> None:
+    """The daemon, actions and team packages import each other; a module imported first in a fresh
+    interpreter (as tools/migrate_home.py does with ocp.daemon.locks) must not hit a cycle."""
+    from concurrent.futures import ThreadPoolExecutor
+    mods = sorted(f"ocp.{pkg}.{f.stem}" for pkg in ("daemon", "actions", "team")
+                  for f in (ROOT / "ocp" / pkg).glob("*.py") if f.stem != "__init__")
+
+    def alone(mod: str) -> str:
+        r = subprocess.run([sys.executable, "-c", f"import {mod}"], capture_output=True, text=True, cwd=ROOT)
+        return "" if r.returncode == 0 else f"{mod}: {r.stderr.strip().splitlines()[-1][:160]}"
+    with ThreadPoolExecutor(8) as ex:
+        broken = [b for b in ex.map(alone, mods) if b]
+    check("imports: each daemon, actions and team module imports alone", not broken, "; ".join(broken[:3]))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
+        run(lambda: test_every_daemon_actions_and_team_module_imports_on_its_own())
         run(lambda: test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch())
         run(lambda: test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs())
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())

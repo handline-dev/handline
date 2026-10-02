@@ -13,6 +13,7 @@ from ..session import bgjobs, blocked, idle_close
 from .. import db
 from ..session import events
 from ..infra import lock
+from ..infra.waits import END_WAIT_S, WAKE_SESSION_TIMEOUT_S  # noqa: F401  (tests patch them here)
 from ..session import observe as obs
 from ..session import orca
 from ..usage import status
@@ -83,11 +84,6 @@ def session_present(agent: str) -> bool:
     return screen_draws_session(agent)
 
 
-# How long a session told `/exit` has to leave the process table. SessionEnd
-# fires at once and the process can outlive it by up to a sweep tick (gone by the
-# next sweep, 31s later, in the one case measured), and the sweep reads a closed
-# row over a live process as "running again" and clears the mark.
-END_WAIT_S = 60
 # How long after typing `/exit` to look for the dialog it may raise.
 EXIT_DIALOG_WAIT_S = 6
 END_POLL_S = 1
@@ -128,10 +124,6 @@ def session_still_drawn(handle: str | None, wait: bool = True) -> bool:
         time.sleep(END_POLL_S)
 
 
-# How long a relaunched session has to show up in the process table. `ocp
-# launch` execs claude, so it appears at once when it appears at all; this is
-# slack for a slow start, not a wait for the TUI to be usable.
-WAKE_SESSION_TIMEOUT_S = 15
 
 
 def wait_for_session(agent: str, timeout_s: int, prompt: Path | None = None) -> bool:
