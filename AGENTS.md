@@ -59,6 +59,19 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 5. Never dump `--json` output whole into a log or the db (a token leak path):
    take the fields with a reader, by allowlist.
 6. Do not finish a phase without `ocp doctor` checking its preconditions.
+7. Nothing the repo keeps (commit messages, code, comments, tests, docs) carries personal
+   data or an id that only means something on this machine: no email, real name, home
+   path (`/Users/<name>`), token or key; no task id (`T<n>`), chat message number (`#<n>`)
+   or internal agent name. Write the why in words instead, so a stranger reading the
+   repo can follow it. The task board keeps the ids; `tools/land.sh --note` records a
+   landing's ids locally, outside git. A real need (a fixture that must hold one) gets
+   `local-ref-ok` on its line, or its file an entry in `tools/localrefs.allow`. In a Markdown
+   file an id that is an argument of an `ocp` command is the product's own syntax and passes.
+   A commit's author and committer email must be a noreply address too
+   (`git config user.email <id>+<name>@users.noreply.github.com`).
+   `tools/localrefs.py` enforces it in `tools/land.sh` and in the git hooks
+   (`tools/install-git-hooks.sh`), and a review runs it too:
+   `tools/localrefs.py diff main...<sha>` and `tools/localrefs.py log main..<sha>`.
 
 Easy to get wrong:
 

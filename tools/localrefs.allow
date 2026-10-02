@@ -1,0 +1,2 @@
+# Paths tools/localrefs.py does not read (fnmatch globs, one per line). Keep this short.
+tests/infra/test_local_refs.py   # spells every pattern to prove the check catches it
