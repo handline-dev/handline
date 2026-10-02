@@ -151,8 +151,8 @@ def check_origin(text: str, others: list[str]) -> str:
 
 def browser_mcp_config(cfg: dict, mode: str, origins: list[str]) -> str:
     """The `mcp_config` text for `mode`: the agent's other MCP servers as they
-    are, and its `browser` server set to `origins` for "playwright" or, if it is
-    ours, removed otherwise. "" when nothing is left."""
+    are, and its `browser` server set to `origins` for "playwright" or removed
+    otherwise. "" when nothing is left."""
     try:
         data = json.loads(cfg.get("mcp_config") or "{}")
     except ValueError:
@@ -164,8 +164,7 @@ def browser_mcp_config(cfg: dict, mode: str, origins: list[str]) -> str:
     profile = found.group(1) if found else DEFAULT_BROWSER_PROFILE
     if mode == "custom":
         raise ValueError("a custom browser config is set in a terminal, not here")
-    if mode == "playwright" or _ORIGINS_ARG.search(old):    # a server set by hand stays unless replaced
-        servers.pop(BROWSER_SERVER, None)
+    servers.pop(BROWSER_SERVER, None)    # any mode picked replaces a server set by hand
     if mode == "playwright":
         if not origins:
             raise ValueError("name at least one site for the sandboxed browser")

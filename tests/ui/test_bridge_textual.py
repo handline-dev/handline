@@ -977,9 +977,14 @@ def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> N
     ok, said = cp.save_settings("backend", [("browser", "off", "custom")])
     check("browser: custom cannot be chosen as a mode", not ok and agents.read("backend")["mcp_config"] == agents.mcp_config_text(hand), said)
     ok, said = cp.save_settings("backend", cp.settings_changes(cur, {**form, "browser": "chrome"}))
-    check("browser: picking Chrome turns it on and still leaves the hand-made server",
-          ok and agents.chrome(agents.read("backend")) and agents.read("backend")["mcp_config"] == agents.mcp_config_text(hand), said)
-    ok, said = cp.save_settings("backend", [("browser", "chrome", "playwright"), ("browser_sites", "", "https://z.org")])
+    check("browser: picking Chrome turns it on and replaces the hand-made server",
+          ok and agents.chrome(agents.read("backend")) and not agents.read("backend").get("mcp_config"), said)
+    agents.register("backend", chrome=False, mcp_config=hand)
+    ok, said = cp.save_settings("backend", cp.settings_changes(cp.settings_of("backend"), {**form, "browser": "off"}))
+    check("browser: picking off removes the hand-made server",
+          ok and agents.browser_mode(agents.read("backend")) == "off" and not agents.read("backend").get("mcp_config"), said)
+    agents.register("backend", mcp_config=hand)
+    ok, said = cp.save_settings("backend", [("browser", "off", "playwright"), ("browser_sites", "", "https://z.org")])
     check("browser: picking Playwright is what replaces it",
           ok and agents.browser_origins(agents.read("backend")) == ["https://z.org"], said)
     from ocp.infra import protected
