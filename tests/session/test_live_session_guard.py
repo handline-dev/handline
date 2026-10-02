@@ -339,6 +339,24 @@ def test_the_diagnosis_names_each_session_looking_process_and_leaks_no_environme
         obsmod.process_table, obsmod._env_or_reason = real
 
 
+def test_a_preamble_with_a_dash_p_in_it_does_not_make_a_session_headless(home: Path) -> None:
+    """The cause of the process table missing the auditor from 14:35 (T1087): a session's command line carries
+    its whole preamble, the last session's handoff note among it, and one `git commit-tree -p main` in that
+    note read as claude's `-p`, so the live session was not a session."""
+    drv = vendors.get("claude")
+    exe = "/Users/ron/.local/bin/claude"
+    note = "--append-system-prompt written by the agent: made it with commit-tree $T -p main -p abc, then mkdir -p x"
+    sessions = (f"{exe} --model opus --effort high --no-chrome {note}",
+                f"{exe} --model opus --append-system-prompt {note} --settings {{\"deny\": [\"-p \"]}}",
+                f"{exe} --resume abc --append-system-prompt see ps -p 1")
+    for line in sessions:
+        check(f"is_session: a -p inside the preamble leaves {line[40:80]!r} a session", drv.is_session(line))
+    for line in (f"{exe} --model haiku -p fold it",
+                 f"{exe} --model haiku -p",
+                 f"{exe} -p {note}"):
+        check(f"is_session: claude's own -p still makes {line[:40]!r} headless", not drv.is_session(line))
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_screen_says_whether_a_session_is_drawn(Path(td) / "g1"))
@@ -351,6 +369,7 @@ def main() -> int:
         run(lambda: test_work_reaches_a_session_the_table_missed(Path(td) / "g8"))
         run(lambda: test_a_session_the_table_misses_is_a_block_the_founder_sees_with_how_the_table_read_it(Path(td) / "g9"))
         run(lambda: test_the_diagnosis_names_each_session_looking_process_and_leaks_no_environment(Path(td) / "g10"))
+        run(lambda: test_a_preamble_with_a_dash_p_in_it_does_not_make_a_session_headless(Path(td) / "g11"))
     return run_area(tests)
 
 

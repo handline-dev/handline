@@ -77,10 +77,17 @@ class Claude:
 
     def is_session(self, command: str) -> bool:
         """`claude` in the command line, headless runs excluded. Headless here
-        is `-p`, which is claude's spelling and nobody else's."""
+        is `-p`, which is claude's spelling and nobody else's.
+
+        Only the options up to the first one that carries free text are
+        looked at: a session's `--append-system-prompt` is its whole preamble,
+        handoff note included, and a ` -p ` in that (`mkdir -p`, `git log -p`)
+        made a live session read as a headless run and vanish from the table.
+        A headless run's `-p` comes before its prompt."""
         if "claude" not in command:
             return False
-        return " -p " not in command and not command.endswith(" -p")
+        head = re.split(r" --(?:append-system-prompt|settings)\b", command, maxsplit=1)[0]
+        return " -p " not in head and not head.endswith(" -p")
 
     def meter(self):
         from .claude_meter import ClaudeMeter       # it imports this module
