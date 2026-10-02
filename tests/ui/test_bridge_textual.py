@@ -2198,8 +2198,8 @@ async def test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of
               str((pane.scroll_y, pane.max_scroll_y, pane.virtual_size, pane.size)))
 
 
-async def test_the_founder_asks_the_previous_holder_and_the_task_stays_his() -> None:
-    """T932: Ask is offered on a founder-held task with an earlier holder; the question goes to that
+async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder() -> None:
+    """T932: Ask is offered on any open task with an earlier holder; the question goes to that
     agent as a say tied to the task, the owner does not change, and the agent's reply joins the task."""
     from textual.app import App
     from ocp.daemon import sends
@@ -2228,7 +2228,7 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_stays_his() -> 
         check("ask: it reached the agent, from the founder, with the task named, tied to the task",
               len(asked) == 1 and asked[0]["requester"] == actions.HUMAN and f"T{tid}" in asked[0]["body"]
               and "why did you do it this way?" in asked[0]["body"], str(asked))
-        check("ask: the task stays the founder's", db.get_task(con, tid)["owner"] == before == actions.HUMAN)
+        check("ask: the task stays with the founder", db.get_task(con, tid)["owner"] == before == actions.HUMAN)
         ok, said = sends.say_verb(con, lambda *_: None, target=actions.HUMAN, body="because of X",
                                   parent=asked[0]["id"], requester="archivist", speaker="archivist")
         check("ask: the agent answers with no --task needed", ok, said)
@@ -2265,7 +2265,15 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_stays_his() -> 
     app = Host()
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause(0.5)
-        check("ask: a task an agent holds has no Ask", not app.query_one("#ask").display)
+        button = app.query_one("#ask")
+        check("ask: a task an agent holds offers Ask too, never of the holder itself",
+              button.display and "archivist" not in str(button.label), str(button.label))
+    con = db.connect()
+    try:
+        ok, said = actions.ask_previous_holder(con, tid, "archivist", "me?")
+        check("ask: the current holder is not asked as a previous one", not ok, said)
+    finally:
+        con.close()
 
 
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
@@ -3750,7 +3758,7 @@ async def _run_all() -> None:
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
-    await test_the_founder_asks_the_previous_holder_and_the_task_stays_his()
+    await test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_assign_enter_sends_the_note_whole()
     await test_a_changed_timeline_entry_remounts_only_itself()
