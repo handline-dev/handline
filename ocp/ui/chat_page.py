@@ -1527,7 +1527,7 @@ class ChatPage(JobsAware, Screen):
         self._block_modal = None
         self._block_pressing = False      # an answer is in flight: the block going away is its own doing
         self._blocks_done: set[int] = set()      # blocks closed by hand or answered: not offered again
-        self._drawn: set[tuple] | None = None    # the messages the transcript showed last, None before the first draw
+        self._newest: int | None = None          # the newest message number drawn so far, None before the first draw
         self._rebuilding = False
         self._unseen = 0                         # messages that arrived while scrolled up, not yet scrolled to
 
@@ -1757,10 +1757,10 @@ class ChatPage(JobsAware, Screen):
         pane.mount(*widgets)
         if at_bottom:
             pane.anchor()       # stays at its end as the new messages are laid out, until the reader scrolls
-        drawn = {(w.m["rid"], w.m["part"]) for w in widgets if isinstance(w, ChatMessage)}
-        if self._drawn is not None and not at_bottom:
-            self._unseen += len(drawn - self._drawn)
-        self._drawn = drawn
+        mids = [mid_of(w.m) for w in widgets if isinstance(w, ChatMessage)]
+        if self._newest is not None and not at_bottom:
+            self._unseen += sum(1 for m in mids if m > self._newest)    # older pages loaded above are not news
+        self._newest = max(mids + [self._newest or 0])
         self.call_after_refresh(self._rebuilt)
         self.replying = None
         for w in widgets:

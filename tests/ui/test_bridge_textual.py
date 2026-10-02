@@ -2729,6 +2729,32 @@ async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_n
         check("newbar: and the count starts again from none", "↓ bottom" in str(bar.render()), str(bar.render()))
 
 
+async def test_older_messages_loaded_above_are_not_counted_as_new() -> None:
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("newbar-older")
+    agents.register("reviewer")
+    for i in range(18):
+        askmod.ask("reviewer", f"message number {i}", requester=actions.HUMAN)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause(0.5)
+        pane, bar = page.query_one("#transcript"), page.query_one("#newbar")
+        pane.scroll_to(y=0, animate=False)
+        await pilot.pause(0.3)
+        page.load_older()
+        await pilot.pause(0.5)
+        pane.scroll_to(y=0, animate=False)
+        await pilot.pause(0.3)
+        askmod.ask(actions.HUMAN, "one new one", requester="reviewer")
+        page.refresh_view()
+        await pilot.pause(0.5)
+        check("newbar: after older messages were loaded, one arrival counts as one",
+              bar.display and "1 new message (click) ↓" in str(bar.render()), str(bar.render()))
+
+
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
     """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
     closes it, a second answer is dropped, and the page under it has focus back after."""
@@ -4272,6 +4298,7 @@ async def _run_all() -> None:
     await test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest()
+    await test_older_messages_loaded_above_are_not_counted_as_new()
     await test_assign_enter_sends_the_note_whole()
     await test_a_changed_timeline_entry_remounts_only_itself()
     test_account_settings_alias_and_default_cap()
