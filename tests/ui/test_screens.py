@@ -2644,6 +2644,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                          "test_agent_memory_budget_migration_and_team_layer, not this scene",
         "memory migrate": "a dry run, or --apply copies files; driven in "
                           "test_agent_memory_budget_migration_and_team_layer, not this scene",
+        "agent set": "writes agent.yaml, or raises a proposal; driven in "
+                     "test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves, not this scene",
         "hr relabel": "calls Orca directly, no proposal; driven in "
                       "test_a_rename_names_the_agents_orca_worktree, not this scene",
         "hr rehome": "moves a git worktree and Claude's project directories; driven in "
