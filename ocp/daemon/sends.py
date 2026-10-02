@@ -83,14 +83,20 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
                 and parent["state"] == "queued" and parent["target"] == me
                 and target == actions.HUMAN and parent["kind"] != "task")
     if founders:
-        refusal = actions.check_human_resolve(con, parent, [task] if task else None, no_task, me,
-                                              one_task=True)
+        # An answer to the founder's question on a task is no work to name: it joins that task.
+        asked_on = [t["id"] for t in db.tasks_for_request(con, parent["id"])] if parent["kind"] == "say" else []
+        plain = bool(asked_on) and not task and no_task is None
+        refusal = None if plain else actions.check_human_resolve(con, parent, [task] if task else None, no_task,
+                                                                 me, one_task=True)
         if refusal:
             return False, refusal
         ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw["parent"],
                                   speaker=speaker, notify=False)
         if ok:
-            if db.get_request(con, kw["parent"])["state"] != "queued":     # it settled, not lost a race
+            if plain and rid is not None:
+                for tid in asked_on:
+                    db.link_request(con, tid, rid)
+            elif db.get_request(con, kw["parent"])["state"] != "queued":     # it settled, not lost a race
                 actions.record_human_resolve(con, kw["parent"], [task] if task else None, no_task, me)
             _after(rid, kw["target"], log)
         return ok, msg

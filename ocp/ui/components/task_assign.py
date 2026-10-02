@@ -34,9 +34,11 @@ class TaskAssign(Dialog):
                         + [(f"{a}  (other team)" if actions.has_team(holder) else a, a) for a in rest])
         self.others = [a for _, a in self.options]
 
+    VERB = "Assign"
+
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Static(Text(f"Assign {self.ref}", style="bold"), id="title")
+            yield Static(Text(f"{self.VERB} {self.ref}", style="bold"), id="title")
             with Horizontal(classes="frow", id="ta_to_row"):
                 yield Static("to", classes="flabel")
                 yield Select(self.options, id="ta_to", allow_blank=False, compact=True,
@@ -65,3 +67,15 @@ class TaskAssign(Dialog):
         event.stop()
         stall.crumb("assign modal: Enter in the note")
         self.finish(self.result())
+
+
+class TaskAsk(TaskAssign):
+    """The founder asking an agent that held the task before: pick whom (the latest holder is first)
+    and type the question. Dismisses with (to, text), or None."""
+
+    VERB = "Ask about"
+
+    def __init__(self, ref: str, holders: list[str]) -> None:
+        super().__init__(ref, "", [])
+        self.options = [(a, a) for a in holders]
+        self.others = holders
