@@ -14,7 +14,7 @@ from ...session import blocked, idle_close
 from ...usage import load as loadmod
 from ...infra import textsafe
 from .. import tui
-from ...daemon import delivery as dmn_delivery, states as dmn_states
+from ...daemon import delivery as dmn_delivery, handoff_note
 
 
 class Extra(NamedTuple):
@@ -35,12 +35,11 @@ def kind_short(cfg: dict) -> str:
 
 
 def cache_left(con, agent: str, now: int | None = None) -> int | None:
-    """Seconds until this agent's prompt cache lapses, negative once it has: it lives
-    PROMPT_CACHE_S from the agent's last activity, the clock `daemon.cache_expired` uses."""
-    last = db.last_activity(con, agent)
-    if last is None:
-        return None
-    return dmn_states.PROMPT_CACHE_S - ((int(time.time()) if now is None else now) - last)
+    """Seconds until this agent's prompt cache lapses, negative once it has: its real life off
+    its last response when the transcript says (an hour, or five minutes after an overage), else
+    an hour from the agent's last activity, the clock `daemon.cache_expired` falls back to."""
+    left = handoff_note.cache_left(con, agent, int(time.time()) if now is None else now)
+    return None if left is None else int(left)
 
 
 def cache_cell(left: int | None, ignored: bool = False) -> str:

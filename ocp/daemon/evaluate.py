@@ -287,6 +287,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
             if not delivery.deliver_queued(con, agent, log):
                 delivery.nudge_forgotten_resolve(con, agent, row, now, log)
 
+    # An open session that has sat idle until its prompt cache is nearly spent is asked once to
+    # write its handoff note: the turn that writes it is the last cheap one.
+    if open_idle:
+        handoff_note.at_cache_edge(con, agent, now, st, log)
+
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,
     # costs no tokens, and answers no one. Closing it is not a handoff -

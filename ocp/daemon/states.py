@@ -125,13 +125,11 @@ IDLE_CLOSE_S = 600
 # a subscription login - checked, not assumed (auditor's #1223):
 #   claude -p "hi" --output-format json | jq .usage.cache_creation
 #   -> ephemeral_1h_input_tokens: 15819, ephemeral_5m_input_tokens: 0
-# One condition this does not cover: once an account is over its plan's usage
-# limit and Claude Code is drawing on usage credits, the main conversation
-# drops to the same five-minute TTL as API billing. ocp mostly avoids this by
-# refusing at the wall before spending credits (the 5h and 7d-at-100% checks),
-# so the window is an account that is over its limit but not yet walled - rare
-# rather than absent, and RESUME_WARM_S below is wrong by a factor of twelve
-# for exactly that window.
+# Once an account is over its plan's usage limit and Claude Code is drawing on
+# usage credits, the main conversation drops to the same five-minute TTL as API
+# billing. Where a session's transcript is readable that is followed exactly
+# (`session.cachettl` reads the life off the last response); these two numbers
+# are what is used where it is not.
 PROMPT_CACHE_S = 3600
 
 # A closed session resumes only while its cache can still serve it. The clock is
