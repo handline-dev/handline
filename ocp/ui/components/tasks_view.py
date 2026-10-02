@@ -5,6 +5,7 @@ it. What a row says and what an action does or refuses is `actions`'s (`task_row
 (a reason, a name, a priority)."""
 from __future__ import annotations
 
+import asyncio
 import functools
 import time
 
@@ -545,15 +546,16 @@ class TasksView(Vertical):
         if not await self.app.push_screen_wait(self._confirm(verb, tids, arg, keep)):
             self.notify("left alone")
             return
-        con = db.connect()
-        try:
-            if verb == "merge":
-                ok, msg = actions.merge_tasks(con, keep, [t for t in tids if t != keep], actions.HUMAN)
-                results = [(keep, ok, msg)]
-            else:
-                results = actions.batch_task(con, verb, tids, actions.HUMAN, arg)
-        finally:
-            con.close()
+        def write() -> list:
+            con = db.connect()       # on this thread: a handoff each is ~80 ms, and the screen must not wait for N of them
+            try:
+                if verb == "merge":
+                    ok, msg = actions.merge_tasks(con, keep, [t for t in tids if t != keep], actions.HUMAN)
+                    return [(keep, ok, msg)]
+                return actions.batch_task(con, verb, tids, actions.HUMAN, arg)
+            finally:
+                con.close()
+        results = await asyncio.to_thread(write)
         for text, severity in result_notes(results, verb):
             self.notify(text, title=verb, severity=severity, timeout=5 if severity == "information" else 12,
                         markup=False)

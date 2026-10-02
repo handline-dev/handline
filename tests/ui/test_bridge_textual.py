@@ -1866,6 +1866,53 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
     check("home cursor: a selection no longer listed moves nothing", moves == [2], str(moves))
 
 
+async def test_changing_owners_on_the_task_board_does_not_hold_the_screen() -> None:
+    """Founder #9423: assigning from the board froze it. `batch_task` is a handoff per task (~80 ms
+    each), and it ran on the event loop; it runs on its own thread now, and the loop keeps turning."""
+    import threading
+    from ocp.ui.components.tasks_view import TasksView
+    _home("boardassign")
+    agents.register("reviewer")
+    ids = [actions.task_new("product", "backend", f"Task {i}", "the work and its done")[2] for i in range(3)]
+    app = bt.BridgeApp()
+    on, lags = {}, []
+
+    def slow_batch(con, verb, tids, who, arg):
+        on["thread"] = threading.get_ident()
+        time.sleep(0.5)
+        return [(t, True, "ok") for t in tids]
+    real = actions.batch_task
+    actions.batch_task = slow_batch
+    try:
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(0.5)
+            view = app.screen.query_one(TasksView)
+            view.display = True
+            await pilot.pause(0.5)
+            view.checked = set(ids)
+
+            async def beat():
+                while True:
+                    t = time.monotonic()
+                    await asyncio.sleep(0.01)
+                    lags.append(time.monotonic() - t - 0.01)
+            task = asyncio.create_task(beat())
+            view.action_act("owner")
+            await pilot.pause(0.3)
+            for ch in "reviewer":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            await pilot.press("y")
+            await pilot.pause(1.2)
+            task.cancel()
+            check("task board: the owner change ran", "thread" in on, str(on))
+            check("task board: ... off the event loop", on.get("thread") != threading.get_ident(), str(on))
+            check("task board: ... and the screen kept turning while it ran", max(lags) < 0.3, f"{max(lags):.2f}s")
+    finally:
+        actions.batch_task = real
+
+
 async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
     from ocp.daemon import devmode
     from ocp.ui import chat_page as cp
@@ -3446,6 +3493,7 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
+    await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
