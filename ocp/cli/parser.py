@@ -18,6 +18,7 @@ from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
 from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status, cmd_hooks_sync
 from .hr import cmd_hr, cmd_trust
+from .land import cmd_land
 from .schedule import cmd_schedule
 from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
@@ -396,6 +397,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
     p.set_defaults(fn=cmd_ignore_cache_expiry)
+
+    p = sub.add_parser("land", help="the merger tests a branch's merge in its own sandbox and records it "
+                       "(`land <sha> <message>`); the auditor records a PASS (`land --pass <sha>`); the "
+                       "daemon, which runs no branch code, merges and fast-forwards main. A sha lands once")
+    p.add_argument("sha", nargs="?")
+    p.add_argument("message", nargs="?")
+    p.add_argument("--pass", dest="passed", action="store_true", help="the auditor's PASS for this sha")
+    p.add_argument("--list", action="store_true", help="the recent lands and where each stands")
+    p.set_defaults(fn=cmd_land)
 
     p = sub.add_parser("schedule", help="show, add, edit or remove the messages the daemon types at an agent "
                        "on a cron schedule (T605); adding, editing and removing are the founder's")

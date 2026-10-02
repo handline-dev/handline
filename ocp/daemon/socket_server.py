@@ -29,7 +29,7 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths
 from ..team import agent_settings
 
-from . import messaging, sends
+from . import lands, messaging, peer, sends
 
 # A request this old with nothing read yet is not going to finish reading;
 # closed rather than left to hold a thread forever on a client that connected
@@ -81,7 +81,17 @@ def _agent_set(con, log, **kw) -> tuple[bool, str]:
     return agent_settings.set_by_agent(kw["agent"], dict(kw.get("values") or {}), kw.get("speaker"))
 
 
+def _land(con, log, **kw) -> tuple[bool, str]:
+    return lands.request(con, kw["sha"], kw["message"], kw.get("tree"), kw.get("caller"))
+
+
+def _land_pass(con, log, **kw) -> tuple[bool, str]:
+    return lands.record_pass(con, kw["sha"], kw.get("caller"))
+
+
 VERBS = {
+    "land": _land,
+    "land_pass": _land_pass,
     "agent_set": _agent_set,
     "message": _message,
     "say": sends.say_verb,
@@ -99,12 +109,19 @@ VERBS = {
 }
 
 
-def _handle_request(payload: dict, log) -> dict:
+# Verbs that act on the strength of who the caller is: the daemon reads that from the connection's
+# process, and what the payload says about it is dropped.
+PEER_VERBS = ("land", "land_pass")
+
+
+def _handle_request(payload: dict, log, caller_pid: int | None = None) -> dict:
     verb = payload.get("verb")
     fn = VERBS.get(verb)
     if fn is None:
         return {"ok": False, "said": f"not a socket verb: {verb!r}"}
-    kw = {k: v for k, v in payload.items() if k != "verb"}
+    kw = {k: v for k, v in payload.items() if k not in ("verb", "caller")}
+    if verb in PEER_VERBS:
+        kw["caller"] = peer.agent_of(caller_pid)
     con = db.connect()
     try:
         ok, said = fn(con, log, **kw)
@@ -143,7 +160,7 @@ def _serve_one(conn: socket.socket, log) -> None:
         except (ValueError, UnicodeDecodeError) as e:
             reply = {"ok": False, "said": f"bad request: {e}"}
         else:
-            reply = _handle_request(payload, log) if isinstance(payload, dict) \
+            reply = _handle_request(payload, log, peer.peer_pid(conn)) if isinstance(payload, dict) \
                 else {"ok": False, "said": "a request is a JSON object"}
         try:
             conn.sendall(json.dumps(reply).encode("utf-8") + b"\n")

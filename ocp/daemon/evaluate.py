@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, handoff_note, landing, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import delivery, handoff, handoff_note, landing, lands, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -523,6 +523,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
         taskholds.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a reason not recorded is recorded on the next tick
         log(f"  task holds: {type(e).__name__}: {e}")
+    try:
+        lands.sweep(con, log)
+    except Exception as e:  # noqa: BLE001 - a land not started is tried again, not the tick's failure
+        log(f"  lands: {type(e).__name__}: {e}")
     try:
         schedules.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a message not sent is tried again, not the tick's failure

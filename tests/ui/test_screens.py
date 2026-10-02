@@ -2659,6 +2659,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust remove": "driven in test_ocp_trust_cli_is_wired",
         "trust proposals": "lists proposal files; prints their ids",
         "trust apply": "founder-only; applies a proposal and prints its id",
+        "land": "queues a branch for the daemon to land on main; driven in "
+                "test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code, not this scene",
         "venv install": "creates a real venv and pip installs into it",
         "say": "T293: opens and delivers a say (send_now, never a head), or --needs-task "
                "replies to the sender; driven in tests/team/test_say.py, not this scene",
