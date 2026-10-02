@@ -2121,6 +2121,76 @@ async def test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of
               str((pane.scroll_y, pane.max_scroll_y, pane.virtual_size, pane.size)))
 
 
+async def test_the_founder_asks_the_previous_holder_and_the_task_stays_his() -> None:
+    """T932: Ask is offered on a founder-held task with an earlier holder; the question goes to that
+    agent as a say tied to the task, the owner does not change, and the agent's reply joins the task."""
+    from textual.app import App
+    from ocp.daemon import sends
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components.task_assign import TaskAsk
+    _home("ask_holder")
+    agents.register("backend")
+    agents.register("archivist")
+    agents.register("other")
+    ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
+    con = db.connect()
+    try:
+        h1 = actions.assign_task(con, tid, "archivist", "over to you")
+        h2 = actions.task_handoff(con, "archivist", tid, actions.HUMAN, "yours now")
+        check("ask: the setup went", h1[0] and h2[0], str((h1, h2)))
+        before = db.get_task(con, tid)["owner"]
+        check("ask: the latest holder before the founder comes first, the founder never",
+              actions.previous_holders(con, tid)[:2] == ["archivist", "backend"], str(actions.previous_holders(con, tid)))
+        ok, said = actions.ask_previous_holder(con, tid, "other", "why?")
+        check("ask: an agent that never held it is refused", not ok, said)
+        ok, said = actions.ask_previous_holder(con, tid, "archivist", "  ")
+        check("ask: an empty question is refused", not ok, said)
+        ok, said = actions.ask_previous_holder(con, tid, "archivist", "why did you do it this way?")
+        check("ask: the question is sent", ok, said)
+        asked = [r for r in db.task_requests(con, tid) if r["target"] == "archivist" and r["kind"] == "say"]
+        check("ask: it reached the agent, from the founder, with the task named, tied to the task",
+              len(asked) == 1 and asked[0]["requester"] == actions.HUMAN and f"T{tid}" in asked[0]["body"]
+              and "why did you do it this way?" in asked[0]["body"], str(asked))
+        check("ask: the task stays the founder's", db.get_task(con, tid)["owner"] == before == actions.HUMAN)
+        ok, said = sends.say_verb(con, lambda *_: None, target=actions.HUMAN, body="because of X",
+                                  parent=asked[0]["id"], requester="archivist", speaker="archivist")
+        check("ask: the agent answers with no --task needed", ok, said)
+        timeline = actions.task_timeline(con, tid)
+        check("ask: the question and its answer are both in the task's timeline",
+              any(e["kind"] == "request" and "archivist → human" in e["who"] for e in timeline)
+              and any(e["kind"] == "request" and "human → archivist" in e["who"] for e in timeline), str(timeline))
+    finally:
+        con.close()
+
+    class Host(App):
+        CSS_PATH = cp.Path(cp.__file__).with_name("chat_page.tcss")
+
+        def compose(self):
+            yield cp.TaskBody(tid, keys=True)
+
+    app = Host()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause(0.5)
+        button = app.query_one("#ask")
+        check("ask: the page offers Ask archivist with its key", button.display and "archivist" in str(button.label)
+              and "q" in str(button.label), str(button.label))
+        app.query_one(cp.TaskBody).action_ask_task()
+        await pilot.pause()
+        check("ask: Ask opens the box over the page", isinstance(app.screen, TaskAsk), str(app.screen_stack))
+        await pilot.press("escape")
+        await pilot.pause()
+    con = db.connect()
+    try:
+        back = actions.assign_task(con, tid, "archivist", "back to you")
+        check("ask: the task went back to an agent", back[0], str(back))
+    finally:
+        con.close()
+    app = Host()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause(0.5)
+        check("ask: a task an agent holds has no Ask", not app.query_one("#ask").display)
+
+
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
     """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
     closes it, a second answer is dropped, and the page under it has focus back after."""
@@ -3601,6 +3671,7 @@ async def _run_all() -> None:
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
+    await test_the_founder_asks_the_previous_holder_and_the_task_stays_his()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_assign_enter_sends_the_note_whole()
     await test_a_changed_timeline_entry_remounts_only_itself()

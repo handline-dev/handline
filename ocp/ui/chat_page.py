@@ -47,7 +47,7 @@ from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.section_head import SectionHead
 from .components.schedules_section import SchedulesSection
-from .components.task_assign import TaskAssign
+from .components.task_assign import TaskAsk, TaskAssign
 from .components.switch_row import SwitchRow
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
@@ -351,7 +351,8 @@ def task_detail(con, tid: int) -> dict | None:
             "can_done": state in ("draft", "queued", "doing"),
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing"),
-            "can_assign": state in ("draft", "queued", "doing")}
+            "can_assign": state in ("draft", "queued", "doing"),
+            "ask": actions.previous_holders(con, tid) if t["owner"] == actions.HUMAN and state in ("draft", "queued", "doing") else []}
 
 
 EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "context_k", "idle_close")
@@ -1130,6 +1131,26 @@ class TaskActions:
         with stall.timed(f"assign {ref}: TaskAssign built and pushed"):
             self.app.push_screen(TaskAssign(ref, self.d["owner"], agents_here, recent), answered)
 
+    def action_ask_task(self) -> None:
+        """Ask who held the task before: a say that names the task; the task stays the founder's."""
+        if not (self.d and self.d["ask"]):
+            self.say("nobody held this task before you")
+            return
+        ref = actions.task_ref(self.tid)
+
+        def answered(got: "tuple[str, str] | None") -> None:
+            if got is None:
+                return
+            to, text = got
+            log_action(f"task {ref} ask {to}")
+            con = db.connect()
+            try:
+                ok, said = actions.ask_previous_holder(con, self.tid, to, text)
+            finally:
+                con.close()
+            self.report("ask", ok, said)
+        self.app.push_screen(TaskAsk(ref, self.d["ask"]), answered)
+
     def action_done_task(self) -> None:
         if not (self.d and self.d["can_done"]):
             self.say("only a task that is not done can be marked done")
@@ -1240,6 +1261,7 @@ class TaskBody(TaskActions, Vertical):
                 yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
             yield Button(label("Assign", "a"), id="assign", variant="primary", compact=True)
+            yield Button(label("Ask", "q"), id="ask", compact=True)
             yield Button(label("Done", "x"), id="done", variant="success", compact=True)
             yield Button(label("Reopen", "r"), id="reopen", variant="warning", compact=True)
             yield Button(label("Discard", "d"), id="discard", variant="error", compact=True)
@@ -1291,6 +1313,10 @@ class TaskBody(TaskActions, Vertical):
         self.draw_memos(page["timeline"])
         for name in ("assign", "done", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = not d[f"can_{name}"]
+        ask = self.query_one("#ask", Button)
+        ask.display = bool(d["ask"])
+        if d["ask"]:
+            ask.label = f"Ask {safe(d['ask'][0])}" + ("  q" if self.keys else "")
 
     def _blank(self, said: str) -> None:
         self.query_one("#t_title", Static).update(Text(said, style="dim"))
@@ -1302,6 +1328,7 @@ class TaskBody(TaskActions, Vertical):
         self._tl_rows = []
         for name in ("assign", "done", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
+        self.query_one("#ask", Button).display = False
 
     def draw_memos(self, texts: list[Text]) -> None:
         """The timeline: a line each, and a memo's own line ends in edit and delete icons. A line
@@ -1406,7 +1433,7 @@ class TaskBody(TaskActions, Vertical):
             (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
             return
         call = {"memo_add": self.action_memo_add, "t_brief_edit": self.action_edit_brief, "assign": self.action_assign_task,
-                "done": self.action_done_task, "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
+                "ask": self.action_ask_task, "done": self.action_done_task, "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
         if call:
             event.stop()
             call()
@@ -1453,6 +1480,7 @@ class TaskDetail(Screen):
                 Binding("x", "done_task", "done"),
                 Binding("r", "reopen_task", "reopen"),
                 Binding("a", "assign_task", "assign"),
+                Binding("q", "ask_task", "ask"),
                 Binding("d", "discard_task", "discard")]
 
     def __init__(self, tid: int) -> None:
@@ -1487,6 +1515,9 @@ class TaskDetail(Screen):
 
     def action_assign_task(self) -> None:
         self._body().action_assign_task()
+
+    def action_ask_task(self) -> None:
+        self._body().action_ask_task()
 
     def action_discard_task(self) -> None:
         self._body().action_discard_task()

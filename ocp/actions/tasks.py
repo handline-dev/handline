@@ -1199,6 +1199,29 @@ def recent_assignees(con, tid: int) -> list[str]:
     return [a for a in db.task_holders(con, tid) if a != HUMAN and (row is None or a != row["owner"])]
 
 
+def previous_holders(con, tid: int) -> list[str]:
+    """The agents that took part in T<tid> before its holder now, the latest first, without the founder."""
+    row = db.get_task(con, tid)
+    return [a for a in reversed(db.task_holders(con, tid)) if a != HUMAN and (row is None or a != row["owner"])]
+
+
+def ask_previous_holder(con, tid: int, to: str, text: str) -> tuple[bool, str]:
+    """The founder asking `to`, who held T<tid> before, about it: a say linked to the task, which the task
+    does not leave the founder for. The agent's reply to it joins the task (`say_verb`)."""
+    if db.get_task(con, tid) is None:
+        return False, f"no task T{tid}"
+    if to not in previous_holders(con, tid):
+        return False, f"{to} did not hold T{tid} before"
+    if not text.strip():
+        return False, "nothing sent: no question typed"
+    body = (f"Question on T{tid} from the founder (the task stays with them): {text.strip()}\n\n"
+            "Answer by replying to this message: ocp say human --parent <this message's #id> '<answer>'")
+    ok, msg, rid = askmod.say(to, body, requester=HUMAN)
+    if ok and rid is not None:
+        db.link_request(con, tid, rid)
+    return ok, msg
+
+
 def has_team(holder: str) -> bool:
     """Does team.yaml put `holder` in a team?"""
     t = routing()
