@@ -5,7 +5,7 @@
 #   tools/after-agents.sh --apply    back the settings up, then make the changes
 #
 # Run it from your own terminal, not from an agent: the settings file is the founder's.
-# It changes two things in ~/.orcapipe/shared/.claude/settings.json (OCP_HOME if set):
+# It changes two things in ~/.orcapipe/shared/.claude/settings.json (HANDLINE_HOME or OCP_HOME if set):
 #   - removes the ocp entries from sandbox.excludedCommands, so ocp runs inside the sandbox
 #   - removes the main checkout and ~/.local/bin from permissions.additionalDirectories
 # It leaves the sandbox write entry for the main checkout's .git alone: agents commit through it.
@@ -14,7 +14,10 @@ set -euo pipefail
 
 apply=0
 [ "${1:-}" = "--apply" ] && apply=1
-home="${OCP_HOME:-$HOME/.orcapipe}"
+home="${HANDLINE_HOME:-${OCP_HOME:-}}"
+if [ -z "$home" ]; then
+    if [ -d "$HOME/.handline" ]; then home="$HOME/.handline"; else home="$HOME/.orcapipe"; fi
+fi
 settings="$home/shared/.claude/settings.json"
 [ -f "$settings" ] || { echo "no settings file at $settings" >&2; exit 1; }
 

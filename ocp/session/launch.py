@@ -650,7 +650,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
             con.close()
     token = sessiontoken.mint(agent)       # the proof this session is the agent's, for the daemon's land verbs
     if token:
-        env[sessiontoken.ENV] = token
+        names.setenv(env, sessiontoken.ENV, token)
     env = names.both(env)
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it

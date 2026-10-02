@@ -99,6 +99,50 @@ def test_the_session_scan_reads_either_name_of_a_process_environment() -> None:
     check("scan: the daemon-lock check knows both home spellings", '"HANDLINE_HOME="' in lock_src)
 
 
+def test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(home: Path) -> None:
+    """A session exports HANDLINE_ names, which are read first: a login, fold or launch started from
+    inside it must carry the new identity under both spellings, not the parent's."""
+    use_home(home)
+    accounts.register("alpha")
+    saved = _set(HANDLINE_AGENT="parent.agent", HANDLINE_ACCOUNT="omega", HANDLINE_HOME="/parent/home",
+                 OCP_AGENT="parent.agent", OCP_ACCOUNT="omega")
+    try:
+        env = accounts.env_for("alpha", "child.agent")
+        os.environ.update({k: v for k, v in env.items() if k.startswith(("OCP_", "HANDLINE_"))})
+        check("child env: the new agent and account are read, not the parent's",
+              names.getenv("OCP_AGENT") == "child.agent" and names.getenv("OCP_ACCOUNT") == "alpha",
+              str((names.getenv("OCP_AGENT"), names.getenv("OCP_ACCOUNT"))))
+        check("child env: so is the home, under both spellings",
+              env["HANDLINE_HOME"] == env["OCP_HOME"] == str(paths.home()), str(env))
+        e2 = {"OCP_X": "old", "HANDLINE_X": "kept"}
+        names.setenv(e2, "OCP_X", "new")
+        check("setenv: sets both spellings", e2 == {"OCP_X": "new", "HANDLINE_X": "new"}, str(e2))
+    finally:
+        _restore(saved)
+        for k in ("HANDLINE_HOME",):
+            os.environ.pop(k, None)
+
+
+def test_a_test_reaching_either_real_home_is_caught(home: Path) -> None:
+    real = home / "realuser"
+    (real / ".handline").mkdir(parents=True)
+    saved = _set(OCP_TEST_ROOT=str(home), HANDLINE_HOME=None, OCP_HOME=None)
+    old = paths._real_user_home
+    paths._real_user_home = lambda: real
+    try:
+        for d in (".handline", ".orcapipe"):
+            os.environ["OCP_HOME"] = str(real / d)
+            try:
+                paths.home()
+                caught = False
+            except paths.RealHomeInTest:
+                caught = True
+            check(f"guard: a test pointed at the real ~/{d} is caught", caught)
+    finally:
+        paths._real_user_home = old
+        _restore(saved)
+
+
 def test_the_handline_command_runs_the_same_program_as_ocp(home: Path) -> None:
     exe = ROOT / "bin" / "handline"
     check("command: bin/handline is a link to bin/ocp", exe.is_symlink() and os.readlink(exe) == "ocp")
@@ -119,6 +163,8 @@ def main() -> int:
         run(lambda: test_the_home_is_found_under_either_name_and_an_existing_dot_handline())
         run(lambda: test_the_default_home_is_dot_handline_only_once_it_exists(Path(td) / "dflt"))
         run(lambda: test_what_a_session_is_started_with_carries_both_names(Path(td) / "envboth"))
+        run(lambda: test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(Path(td) / "childenv"))
+        run(lambda: test_a_test_reaching_either_real_home_is_caught(Path(td) / "guard"))
         run(lambda: test_the_session_scan_reads_either_name_of_a_process_environment())
         run(lambda: test_the_handline_command_runs_the_same_program_as_ocp(Path(td) / "cmd"))
     return run_area(tests)

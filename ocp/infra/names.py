@@ -20,6 +20,14 @@ def getenv(name: str, default: str | None = None) -> str | None:
     return default
 
 
+def setenv(env: dict, name: str, value: str) -> None:
+    """Set `name` in both spellings in `env`, so whichever a reader tries first reads this value and
+    not one inherited from a parent."""
+    suffix = name.removeprefix(OLD).removeprefix(NEW)
+    env[OLD + suffix] = value
+    env[NEW + suffix] = value
+
+
 def both(env: dict) -> dict:
     """`env` with a HANDLINE_ twin for every OCP_ entry, and an OCP_ twin for every HANDLINE_ one,
     each taking the other's value only when it has none of its own."""
