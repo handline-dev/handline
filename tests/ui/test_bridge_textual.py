@@ -2318,6 +2318,32 @@ async def test_a_second_assign_answered_before_the_first_worker_starts_is_refuse
               str((started, answers, [n.message for n in app._notifications])))
 
 
+async def test_the_schedules_are_reachable_on_the_agents_settings_page() -> None:
+    """The Schedules section sits at the end of the agent's settings pane; its list hugs
+    its rows (no blank stretch below the title) and scrolling the pane to the end brings Add and each
+    row's edit and remove into the pane."""
+    from ocp.ui.components.schedules_section import SchedulesSection
+    _home("schedules_reach")
+    actions.schedule_add("backend", "0 9 * * *", "first one")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        page = app.screen
+        page.query_one("#scope").active = "settings"
+        await pilot.pause(0.5)
+        pane, sec = page.query_one("#settings_pane"), page.query_one(SchedulesSection)
+        check("schedules reach: the section is as tall as its title, one row and Add, not a stretch",
+              sec.region.height <= 8, str(sec.region))
+        pane.scroll_end(animate=False)
+        await pilot.pause(0.3)
+        shown = lambda w: pane.region.y <= w.region.y and w.region.bottom <= pane.region.bottom  # noqa: E731
+        check("schedules reach: scrolled to the end, Add, edit and remove are in the pane",
+              all(shown(page.query_one(i)) for i in ("#sc_add", "#sc_ed_1", "#sc_rm_1")),
+              str([(i, page.query_one(i).region) for i in ("#sc_add", "#sc_ed_1", "#sc_rm_1")]) + str(pane.region))
+
+
 async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
     from ocp.daemon import devmode
     from ocp.ui import chat_page as cp
@@ -4061,6 +4087,7 @@ async def _run_all() -> None:
     await test_switching_tasks_blanks_the_page_until_the_new_one_is_read()
     await test_a_second_assign_answered_before_the_first_worker_starts_is_refused()
     await test_the_task_board_and_a_task_page_read_on_a_worker_after_an_action()
+    await test_the_schedules_are_reachable_on_the_agents_settings_page()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
