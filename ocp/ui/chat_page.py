@@ -1128,12 +1128,19 @@ class TaskActions:
                     con.close()
 
             async def assign() -> None:
-                with self.write_guard.running(1):
+                try:
                     ok, said = await asyncio.to_thread(write)      # a handoff is ~60 ms and more: not on the loop
+                finally:
+                    self.write_guard.release()
                 self.report("assign", ok, said)
                 stall.crumb(f"assign {ref}: callback end ({'ok' if ok else 'refused'})")
                 self.app.call_after_refresh(stall.snapshot, self.app, f"assign {ref}: after the callback")
-            self.run_worker(assign(), exclusive=True, group="task_assign")
+            self.write_guard.take(1)        # now, not when the worker starts: a second answer in between is refused
+            try:
+                self.run_worker(assign(), exclusive=True, group="task_assign")
+            except Exception:
+                self.write_guard.release()
+                raise
         with stall.timed(f"assign {ref}: db.connect"):
             con = db.connect()
         try:

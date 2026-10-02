@@ -1960,11 +1960,11 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     _home("pageassign")
     agents.register("reviewer")
     ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
-    on, toasts = {}, []
+    on, toasts, gate = {}, [], threading.Event()
 
     def spy(con, t, to, text):
         on["thread"], on["to"], on["calls"] = threading.get_ident(), to, on.get("calls", 0) + 1
-        time.sleep(1.2)
+        gate.wait(30)           # the handoff ends when the test says so, not after a wait a loaded run can outlast
         return True, "handed"
     real = actions.assign_task
     actions.assign_task = spy
@@ -1985,16 +1985,56 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
             for ch in "ok":
                 await pilot.press(ch)
             await pilot.press("enter")
-            await pilot.pause(1.6)
+            await pilot.pause(0.3)
             check("task page assign: a second one during it is refused, with a note, and makes no second handoff",
                   on["calls"] == 1 and any("still changing 1 task" in str(n.message) for n in app._notifications),
                   str((on, [n.message for n in app._notifications])))
+            gate.set()
+            for _ in range(100):
+                if any("handed" in str(n.message) for n in app._notifications):
+                    break
+                await pilot.pause(0.1)
             check("task page assign: the handoff was made", on.get("to") is not None, str(on))
             check("task page assign: ... off the event loop", on.get("thread") != threading.get_ident(), str(on))
             check("task page assign: ... and its answer is toasted",
                   any("handed" in str(n.message) for n in app._notifications), str(list(app._notifications)))
     finally:
         actions.assign_task = real
+
+
+async def test_a_second_assign_answered_before_the_first_worker_starts_is_refused() -> None:
+    """The guard is taken where the assign is decided: two answers with no event-loop turn between
+    them start one handoff, not two."""
+    from ocp.ui.chat_page import TaskDetail
+    _home("assignrace")
+    ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause(0.5)
+        page = TaskDetail(tid)
+        app.push_screen(page)
+        await pilot.pause(0.8)
+        started = []
+
+        def hold(coro, **kw):       # the worker has not started: what a loaded loop looks like
+            started.append(1)
+            coro.close()
+        body = page._body()
+        body.run_worker = hold
+        answers = []
+        real_push = app.push_screen
+        app.push_screen = lambda screen, cb=None, **kw: answers.append(cb)
+        try:
+            body.action_assign_task()
+            body.action_assign_task()
+        finally:
+            app.push_screen = real_push
+        answers[0](("backend", "one"))
+        answers[1](("backend", "two"))
+        await pilot.pause(0.2)
+        check("task page assign: an answer before the first worker starts blocks the second",
+              len(started) == 1 and any("still changing" in str(n.message) for n in app._notifications),
+              str((started, answers, [n.message for n in app._notifications])))
 
 
 async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
@@ -2499,7 +2539,7 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
             actions.memo_add(con, tid, "reviewer", "posted while it was open")
         finally:
             con.close()
-        for _ in range(60):     # the page's own timer, no poll() by hand
+        for _ in range(400):    # the page's own timer, no poll() by hand; a loaded run may take seconds to tick
             await pilot.pause(0.05)
             if body.d and body.d["timeline"]:
                 break
@@ -3728,6 +3768,7 @@ async def _run_all() -> None:
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
     await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
     await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
+    await test_a_second_assign_answered_before_the_first_worker_starts_is_refused()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
