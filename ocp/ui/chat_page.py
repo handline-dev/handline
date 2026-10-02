@@ -1197,6 +1197,8 @@ class TaskBody(TaskActions, Vertical):
     DEFAULT_CSS = """
     TaskBody { height: 1fr; }
     TaskBody #detail_pane { height: 1fr; padding: 1 3; }
+    /* a Vertical is 1fr, the pane's own height: the pane could not grow past one screen */
+    TaskBody #t_memos { height: auto; }
     TaskBody .tl_row { height: auto; }
     TaskBody .tl_text { width: 1fr; height: auto; }
     TaskBody .tl_icon { width: 3; min-width: 0; margin-left: 1; }
