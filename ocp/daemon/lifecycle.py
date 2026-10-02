@@ -363,10 +363,15 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     # not end is reported, neither retried (a second `/exit` goes to whatever
     # ate the first) nor killed (that skips its own shutdown); the sweep
     # records the close if it does end later.
-    if not delivery._wait_session_gone(agent):
+    gone = delivery._wait_session_gone(agent)
+    on_screen = gone and delivery.session_still_drawn(handle)
+    if not gone or on_screen:
         pid = (obs.live_sessions() or {}).get(agent)
         why = (f"/exit was typed but the session is still running"
-               f"{f' (pid {pid})' if pid else ''} after {delivery.END_WAIT_S}s; not marked closed")
+               f"{f' (pid {pid})' if pid else ''} after {delivery.END_WAIT_S}s; not marked closed"
+               if not gone else
+               "/exit was typed and the process table lists no session, but one is still drawn on the "
+               "terminal's screen; not marked closed")
         db.add_event(con, agent, "close_failed", {"why": why, "pid": pid})
         blocked.note_close_failure(con, agent, log)
         return False, why
@@ -738,6 +743,11 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 return True, "the process table could not be confirmed just now"
             if sessions.get(agent):
                 return not taken, "a session it did not start is running"
+            # The table lists none. Its one failure that matters is a live session missing from it,
+            # so the screen is asked too: a launch line typed at a drawn session is a prompt to it.
+            if db.get_terminal(con, agent) and delivery.session_still_drawn(db.get_terminal(con, agent), wait=False):
+                return True, ("the process table lists no session, but one is drawn on the terminal's "
+                              "screen; typed nothing")
             return None
         # Past the cache's life a resume costs the whole transcript and a
         # fresh start costs the handoff; the record stays on the row for the

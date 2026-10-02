@@ -17,7 +17,9 @@ missing.
 """
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from dataclasses import dataclass
 
 from . import orca
@@ -77,16 +79,39 @@ def _ps_command(pid: int, flags: str) -> str | None:
     return r.stdout if r.returncode == 0 and r.stdout.strip() else None
 
 
+def _owner_uid(pid: int) -> int | None:
+    try:
+        r = subprocess.run(["ps", "-o", "uid=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
+        return int(r.stdout.strip()) if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+# `ps eww` gives a live process of ours no environment now and then (one being replaced, or `ps` raced
+# by it); a second look a moment later has it.
+ENV_RETRY_S = 0.3
+
+
 def _env_or_reason(pid: int) -> tuple[str | None, bool]:
     """`process_env`'s answer, plus whether a `None` there is definitely
     another user's process (T146) rather than one of the other misses that
-    can happen to a live pid we should not give up on."""
+    can happen to a live pid we should not give up on.
+
+    An environment `ps` withholds is another user's only if the process is another user's: one of
+    ours that comes back without it is a miss, looked at again once and then left unknown, never
+    read as "not an agent" - which is how a live session went missing from the table."""
     argv = _ps_command(pid, "ww")
     with_env = _ps_command(pid, "eww")
     if argv is None or with_env is None:
         return None, False
     if with_env == argv:
-        return None, True
+        owner = _owner_uid(pid)
+        if owner is None or owner != os.getuid():
+            return None, True
+        time.sleep(ENV_RETRY_S)
+        with_env = _ps_command(pid, "eww")
+        if with_env is None or with_env == argv:
+            return None, False
     prefix = argv.rstrip("\n")
     if not with_env.startswith(prefix):
         return None, False

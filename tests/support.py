@@ -919,7 +919,7 @@ class _ExitTerm:
             self.screen = list(self.dialog)
         elif text == self.exits_on and self.screen == list(self.dialog):
             self.table.pop("backend", None)
-            self.screen = list(COMPOSER_EMPTY)
+            self.screen = ["$ "]            # the session is gone and its shell is what is drawn
         elif text == "\x1b":
             self.screen = list(COMPOSER_EMPTY)
         return True, ""

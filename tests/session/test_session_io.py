@@ -2909,15 +2909,16 @@ def test_a_close_gets_past_the_dialog_before_it_types_exit(home: Path) -> None:
     on a park."""
     con, term = _park_behind(home, LIMIT_DIALOG)
     orcamod.close_session = REAL_ORCA["close_session"]
-    real = dmn_delivery._wait_session_gone
+    real = dmn_delivery._wait_session_gone, dmn_delivery.session_still_drawn
     dmn_delivery._wait_session_gone = lambda agent: True
+    dmn_delivery.session_still_drawn = lambda handle, wait=True: False     # the fake terminal never repaints
     try:
         st = status.read_for_agent("keeper", "alpha")
         ok, why = dmn_lifecycle._end_session(con, "keeper", lambda _m: None, st, resume=None)
         check("close through: it ended", ok, why)
         check("close through: Esc, then /exit", [t for t, _ in term.sent] == ["\x1b", "/exit"], str(term.sent))
     finally:
-        dmn_delivery._wait_session_gone = real
+        dmn_delivery._wait_session_gone, dmn_delivery.session_still_drawn = real
         con.close()
 
 
