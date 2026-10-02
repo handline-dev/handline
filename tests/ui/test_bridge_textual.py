@@ -962,6 +962,26 @@ def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> N
     check("browser: off removes the browser server and chrome, keeps the other server",
           agents.browser_mode(now) == "off" and not agents.chrome(now)
           and list(json.loads(now["mcp_config"])["mcpServers"]) == ["other"], str(now.get("mcp_config")))
+    hand = json.dumps({"mcpServers": {"browser": {"command": "npx", "args": ["playwright-mcp", "--headless"]}}})
+    agents.register("backend", mcp_config=hand)
+    cur = cp.settings_of("backend")
+    form = {k: cur[k] for k in cp.EDITABLE}
+    check("browser: a hand-made server with no site list reads as custom, with no sites",
+          cur["browser"] == "custom" and cur["browser_sites"] == "", str(cur["browser"]))
+    check("browser: it blocks no unrelated save", cp.settings_problem({**form, "repo": ""}) is None)
+    ok, said = cp.save_settings("backend", cp.settings_changes(cur, {**form, "model": "opus"}))
+    check("browser: a model change saves and leaves the server as it was",
+          ok and agents.read("backend")["mcp_config"] == agents.mcp_config_text(hand), said)
+    check("browser: custom is no change, and its sites box is not read",
+          cp.settings_changes(cur, {**form, "browser_sites": "https://x.com"}) == [])
+    ok, said = cp.save_settings("backend", [("browser", "off", "custom")])
+    check("browser: custom cannot be chosen as a mode", not ok and agents.read("backend")["mcp_config"] == agents.mcp_config_text(hand), said)
+    ok, said = cp.save_settings("backend", cp.settings_changes(cur, {**form, "browser": "chrome"}))
+    check("browser: picking Chrome turns it on and still leaves the hand-made server",
+          ok and agents.chrome(agents.read("backend")) and agents.read("backend")["mcp_config"] == agents.mcp_config_text(hand), said)
+    ok, said = cp.save_settings("backend", [("browser", "chrome", "playwright"), ("browser_sites", "", "https://z.org")])
+    check("browser: picking Playwright is what replaces it",
+          ok and agents.browser_origins(agents.read("backend")) == ["https://z.org"], said)
     from ocp.infra import protected
     import os
     old = os.environ.get("OCP_AGENT")

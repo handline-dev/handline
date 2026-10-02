@@ -360,6 +360,7 @@ def task_detail(con, tid: int) -> dict | None:
 EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
             "context_k", "idle_close")
 BROWSER_MODES = (("off", "off"), ("Claude in Chrome", "chrome"), ("sandboxed Playwright", "playwright"))
+BROWSER_CUSTOM = ("custom browser config, set in a terminal", "custom")   # shown only when the agent has one
 WEIGHTS = ("light", "heavy")
 
 
@@ -395,7 +396,7 @@ def settings_problem(form: dict) -> str | None:
         return f"weight must be one of {', '.join(WEIGHTS)}"
     if form["skip_permissions"] not in ("on", "off"):
         return "skip permissions must be on or off"
-    if form["browser"] not in dict(BROWSER_MODES).values():
+    if form["browser"] not in (*dict(BROWSER_MODES).values(), BROWSER_CUSTOM[1]):
         return "browser must be off, chrome or playwright"
     if form["browser"] == "playwright":
         try:
@@ -2166,6 +2167,8 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#s_repo", Input).value = safe(cfg["repo"])
         self.query_one("#s_context_k", Input).value = cfg["context_k"]
         self.query_one("#s_skip", Switch).value = cfg["skip_permissions"] == "on"
+        modes = BROWSER_MODES + (BROWSER_CUSTOM,) if cfg["browser"] == "custom" else BROWSER_MODES
+        self.query_one("#s_browser", Select).set_options(modes)
         self.query_one("#s_browser", Select).value = cfg["browser"]
         self.query_one("#s_browser_sites", Input).value = safe(cfg["browser_sites"])
         self.query_one("#s_browser_sites", Input).disabled = cfg["browser"] != "playwright"
