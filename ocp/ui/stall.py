@@ -172,6 +172,31 @@ def _claim_pid_file(pid: int) -> None:
     _pid_fd = fd
 
 
+def started_at() -> float | None:
+    """When the bridge named by the pid file took its lock (the file is written then)."""
+    try:
+        return pid_file().stat().st_mtime
+    except OSError:
+        return None
+
+
+def close_bridge(pid: int, grace: float = 5.0) -> bool:
+    """Ask the bridge `pid` to end (SIGTERM, then SIGKILL after `grace` s) and wait for its lock to go."""
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 2.0)):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return False
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            if running_pid() != pid:
+                return True
+            time.sleep(0.05)
+    return running_pid() != pid
+
+
 def running_pid() -> int | None:
     """The pid of the bridge that is up now: the pid file names it and something holds its lock."""
     try:

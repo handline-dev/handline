@@ -3608,6 +3608,41 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
         sleeper.wait()
 
 
+def test_a_second_bridge_says_so_and_offers_to_take_over() -> None:
+    _home("second_bridge")
+    from ocp.ui import stall
+    stall.log_file().parent.mkdir(parents=True, exist_ok=True)
+    code = ("import sys, time; sys.path.insert(0, sys.argv[1]); from ocp.ui import stall; "
+            "stall._claim_pid_file(__import__('os').getpid()); print('up', flush=True); time.sleep(60)")
+
+    def old_bridge() -> subprocess.Popen:
+        child = subprocess.Popen([sys.executable, "-c", code, str(ROOT)], stdout=subprocess.PIPE, text=True)
+        child.stdout.readline()
+        return child
+
+    def answer(word: str):
+        asked = []
+        return asked, lambda q: (asked.append(q), word)[1]
+
+    check("second bridge: with none running it just starts", bt._one_bridge(lambda q: "q") is True)
+    child = old_bridge()
+    try:
+        asked, ask = answer("q")
+        out = _capture_out(lambda: bt._one_bridge(ask))
+        check("second bridge: it names the running pid and offers take over or quit",
+              str(child.pid) in out[1] and "take over" in asked[0] and "quit" in asked[0], str((out, asked)))
+        check("second bridge: quit leaves the old one running and does not start", child.poll() is None
+              and stall.running_pid() == child.pid and bt._one_bridge(ask) is False)
+        asked, ask = answer("t")
+        started = bt._one_bridge(ask)
+        child.wait(timeout=5)
+        check("second bridge: take over closes the old one and starts", started is True
+              and stall.running_pid() is None, str((started, stall.running_pid())))
+    finally:
+        child.kill()
+        child.wait()
+
+
 def _capture_out(fn) -> "tuple[int, str]":
     import contextlib, io
     buf = io.StringIO()
@@ -3659,6 +3694,7 @@ async def _run_all() -> None:
     await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
     await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
+    test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
