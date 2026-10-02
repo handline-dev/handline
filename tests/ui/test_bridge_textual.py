@@ -2094,6 +2094,36 @@ def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
         owed["now"] = False
         bt.run()
         check("run: none owed, no exec", execs == [])
+        from ocp.ui import stall
+        _home("run_race")
+        stall.log_file().parent.mkdir(parents=True, exist_ok=True)
+        if stall._pid_fd is not None:       # the runs above took the lock in this process
+            _os.close(stall._pid_fd)
+            stall._pid_fd = None
+        child = subprocess.Popen([sys.executable, "-c", "import sys, time; sys.path.insert(0, sys.argv[1]); "
+                                  "from ocp.ui import stall; stall._claim_pid_file(__import__('os').getpid()); "
+                                  "print('up', flush=True); time.sleep(60)", str(ROOT)], stdout=subprocess.PIPE, text=True)
+        built, real_one = [], bt._one_bridge
+        bt.BridgeApp = lambda: built.append(1) or FakeApp()
+        bt._one_bridge = lambda *a, **k: True       # the other bridge came up after the prompt said none
+        try:
+            child.stdout.readline()
+            owed["now"] = True
+            execs.clear()
+            import contextlib, io
+
+            class Tty(io.StringIO):
+                def isatty(self) -> bool:
+                    return True
+            buf = Tty()
+            with contextlib.redirect_stdout(buf):
+                out = (bt.run(), buf.getvalue())
+            check("run: a bridge that lost the lock to another does not start the app",
+                  out[0] == 1 and "took the lock" in out[1] and not built and not execs, str((out, built, execs)))
+        finally:
+            bt._one_bridge = real_one
+            child.kill()
+            child.wait()
     finally:
         _os.execv, bt.BridgeApp, sys.argv = real_exec, real_app, real_argv
         sys.stdout.isatty = real_tty
@@ -3608,6 +3638,46 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
         sleeper.wait()
 
 
+def test_a_second_bridge_says_so_and_offers_to_take_over() -> None:
+    _home("second_bridge")
+    from ocp.ui import stall
+    stall.log_file().parent.mkdir(parents=True, exist_ok=True)
+    code = ("import sys, time; sys.path.insert(0, sys.argv[1]); from ocp.ui import stall; "
+            "stall._claim_pid_file(__import__('os').getpid()); print('up', flush=True); time.sleep(60)")
+
+    def old_bridge() -> subprocess.Popen:
+        child = subprocess.Popen([sys.executable, "-c", code, str(ROOT)], stdout=subprocess.PIPE, text=True)
+        child.stdout.readline()
+        return child
+
+    def answer(word: str):
+        asked = []
+        return asked, lambda q: (asked.append(q), word)[1]
+
+    check("second bridge: with none running it just starts", bt._one_bridge(lambda q: "q", tty=True) is True)
+    child = old_bridge()
+    try:
+        asked, ask = answer("q")
+        out = _capture_out(lambda: bt._one_bridge(ask, tty=True))
+        check("second bridge: it names the running pid and offers take over or quit",
+              str(child.pid) in out[1] and "take over" in asked[0] and "quit" in asked[0], str((out, asked)))
+        check("second bridge: quit leaves the old one running and does not start", child.poll() is None
+              and stall.running_pid() == child.pid and bt._one_bridge(ask, tty=True) is False)
+        asked, ask = answer("t")
+        out = _capture_out(lambda: bt._one_bridge(ask, tty=False))
+        check("second bridge: with no terminal on stdin it names the pid, asks nothing and does not start",
+              out[1].count(str(child.pid)) == 1 and out[0] is False and not asked and child.poll() is None, str((out, asked)))
+        check("second bridge: a bridge that cannot take the lock says so and holds none",
+              stall._claim_pid_file(os.getpid()) is False and stall._pid_path != stall.pid_file())
+        started = bt._one_bridge(ask, tty=True)
+        child.wait(timeout=5)
+        check("second bridge: take over closes the old one and starts", started is True
+              and stall.running_pid() is None, str((started, stall.running_pid())))
+    finally:
+        child.kill()
+        child.wait()
+
+
 def _capture_out(fn) -> "tuple[int, str]":
     import contextlib, io
     buf = io.StringIO()
@@ -3659,6 +3729,7 @@ async def _run_all() -> None:
     await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
     await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
+    test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
