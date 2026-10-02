@@ -642,6 +642,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
         finally:
             con.close()
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
+    gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it
     sys.stdout.flush()
     os.execve(argv[0], argv, env)
 

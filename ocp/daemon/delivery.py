@@ -1006,11 +1006,32 @@ def more_waiting(kind: str, more: int) -> str | None:
     return f"{more} more waiting - the next comes when you answer this one."
 
 
-def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str:
+# What one typed delivery carries of the notices waiting for its target (T935): a notice is never
+# typed on its own turn, so these ride on the next real delivery, and the rest stay for the one after.
+NOTICES_SHOWN = 3
+NOTICE_SHOWN = 160
+
+
+def folded_notices(con, agent: str) -> list:
+    """The notices the next typed delivery to `agent` carries; `tell_text` shows them,
+    and the caller marks them shown (`db.mark_notices_shown`) once the send went through."""
+    return db.pending_notices(con, agent)[:NOTICES_SHOWN]
+
+
+def notices_text(con, agent: str, folded) -> str:
+    if not folded:
+        return ""
+    lines = [textsafe.oneline(r["body"]) for r in folded]
+    lines = [t if len(t) <= NOTICE_SHOWN else t[:NOTICE_SHOWN].rstrip() + "…" for t in lines]
+    left = len(db.pending_notices(con, agent)) - len(folded)
+    return " Also: " + " | ".join(lines) + (f" (+{left} more: `ocp inbox --all`)" if left else "")
+
+
+def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded=()) -> str:
     """The message that tells an agent about `head`, as it is typed.
 
     `ahead_of` is the head a "send now" request is jumping, or, with `parked`, the head the
-    agent has sat idle on."""
+    agent has sat idle on. `folded` is `folded_notices`, carried on the same line."""
     more = depth - 1
     # One line; `ocp read` has the rest. The message is three lines at most
     # (`MAX_TYPED_LINES`), so what follows the body rides on its line. A task handoff
@@ -1032,6 +1053,7 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False) -> str
         memos = taskmod.memo_summary(con, task["id"]) if task is not None else ""
         if memos:
             shown += f" {memos}"
+    shown += notices_text(con, head["target"], folded)
     waiting = more_waiting(head["kind"], more)
     tail = f" [{waiting}]" if waiting else ""
     if parked:
@@ -1086,9 +1108,11 @@ def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None,
         db.mark_landed(con, int(head["id"]))
         _record_told(con, agent, head, depth, log, None, ahead_of, parked)
         return True
-    ok, _ = _send(handle, tell_text(con, head, depth, ahead_of, parked))
+    folded = folded_notices(con, agent)
+    ok, _ = _send(handle, tell_text(con, head, depth, ahead_of, parked, folded))
     if ok:
         _mark_typed(con, agent)
+        db.mark_notices_shown(con, [int(r["id"]) for r in folded], _live_session(con, agent))
         _record_told(con, agent, head, depth, log,
                      _live_session(con, agent) if ahead_of is None else None, ahead_of, parked)
     return ok
@@ -1115,7 +1139,12 @@ def waiting_prompt(con, agent: str, log):
             _record_told(con, agent, head, depth, log, session)
             if head["kind"] == "say":
                 messaging.finish_say(head)
-        return tell_text(con, head, depth), told
+        folded = folded_notices(con, agent)
+
+        def told_with_notices(session):
+            told(session)
+            db.mark_notices_shown(con, [int(r["id"]) for r in folded], session)
+        return tell_text(con, head, depth, folded=folded), told_with_notices
     answered = db.unannounced_answers(con, agent)
     if answered:
         return answers_text(answered), lambda session: _record_answers(con, agent, answered, log)

@@ -3791,8 +3791,9 @@ limits:
             actions.tasks._deliver_unblocked = real
         taskqueue.sweep(con, lambda *_: None, 0)
         lost = says_to(con, "manager", f"T{crash} done by")
-        check("task end: a crash between the commit and the typing leaves the say queued, not lost",
-              len(lost) == 1 and lost[0]["state"] == "queued", str([dict(r) for r in lost]))
+        check("task end: a crash between the commit and the delivery leaves the notice written, not lost",
+              len(lost) == 1 and lost[0]["state"] == "landed" and lost[0]["delivered_at"] is None,
+              str([dict(r) for r in lost]))
 
         ok, _, by_founder = actions.task_new("manager", "worker", "closed by the founder", "w")
         ok, msg = actions.mark_task_done(con, by_founder, actions.HUMAN, reason="fine as is")
@@ -7836,10 +7837,11 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
               len(told) == 2 and told[1].startswith("task T%d is unblocked" % t) and "PASS" not in told[1],
               str(told))
         notes = [r for r in db.task_requests(con, t) if r["requester"] == actions._UNBLOCK_REQUESTER]
-        check("wake: each notice is a say - a durable row marked send-now, still queued until typed, "
-              "so a parked or crashed holder loses nothing",
-              len(notes) == 2 and all(r["kind"] == "say" and r["send_now"] and r["state"] == "queued"
-                                      and not r["delivered_at"] for r in notes),
+        check("wake: each notice is a durable say - the unblocked one marked send-now and queued until typed, "
+              "the result one born landed (T935: it rides on the next delivery), so a parked or crashed holder loses nothing",
+              len(notes) == 2 and all(r["kind"] == "say" and not r["delivered_at"] for r in notes)
+              and notes[0]["state"] == "landed" and not notes[0]["send_now"]
+              and notes[1]["state"] == "queued" and notes[1]["send_now"],
               str([dict(r) for r in notes]))
 
         # A child that is discarded says so, and the result reaches the owner with another blocker left.

@@ -112,7 +112,7 @@ def _sha_on_main(repo: Path, sha: str) -> tuple[str | None, str]:
 # nothing to tell), so resolving or dismissing the notice never routes a
 # reply back to whoever closed the blocker, and it never misreads as
 # something the founder typed himself.
-_UNBLOCK_REQUESTER = "task-board"
+_UNBLOCK_REQUESTER = db.NOTICE_REQUESTER
 
 
 def _asker_of(row, requesters) -> str:
@@ -666,7 +666,8 @@ def _child_result_notice(con, dep_row, by: str, tid: int) -> tuple[int, str, str
         return None
     text = text.rstrip(": ")
     rid = db.add_request(con, _UNBLOCK_REQUESTER, dep_row["owner"], text, None, None,
-                         "fire_and_forget", "say", 0, None)
+                         "fire_and_forget", "say", 0, None,
+                         notice=True)
     db.link_request(con, dep_row["id"], rid)
     db.add_event(con, by, "child_result_told", {"task_id": dep_row["id"], "child": tid, "request_id": rid})
     return rid, dep_row["owner"], text
@@ -747,14 +748,19 @@ def _released_at_done(con, tid: int, dep: int) -> bool:
 
 def _deliver_unblocked(con, notices, freed_owners) -> None:
     """The half of a release that happens after the write: tell the owners, and give
-    each freed owner its next task now (T325) rather than at some later tick."""
+    each freed owner its next task now (T325) rather than at some later tick. An "unblocked"
+    notice is typed (it is what tells a waiting owner to go on); a result notice is not - it
+    rides on the owner's next delivery (T935)."""
     for rid, owner, text in notices:
-        db.mark_send_now(con, rid)
+        queued = db.get_request(con, rid)["state"] == "queued"      # a notice (T935) is born landed
+        if queued:
+            db.mark_send_now(con, rid)
         askmod.deliver(rid, _UNBLOCK_REQUESTER, owner, text, None,
                        team.Decision(True, "task unblocked", kind="say",
                                      response="fire_and_forget",
                                      chain_depth=0))
-        askmod.push(con, owner, rid)
+        if queued:
+            askmod.push(con, owner, rid)
     for owner in freed_owners:
         if advance_current_task(con, owner):
             askmod.push(con, owner)
@@ -1030,7 +1036,8 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
     for to in dict.fromkeys(who):
         if to in skip or to not in known:
             continue
-        rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None)
+        rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None,
+                             notice=True)
         db.add_event(con, by, "task_end_told", {"task_id": tid, "request_id": rid, "to": to})
         told.append((rid, to, text))
     return told

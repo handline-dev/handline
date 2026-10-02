@@ -93,11 +93,78 @@ def test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(home: Path) -> N
         con.close()
 
 
+def test_a_notice_rides_on_the_next_delivery_and_never_wakes_or_types_alone(home: Path) -> None:
+    """T935: a task-board notice ("T<n> done by X") is born landed - owed nothing, never a head, never
+    a reason to wake - and the next typed delivery to its target carries it."""
+    from ocp.daemon import lifecycle
+    _daemon_home(home, 20)
+    hand_edit_team(TEAM)
+    for a in ("manager", "worker", "x.helper"):
+        agents.register(a)
+    con = db.connect()
+    try:
+        rids = [db.add_request(con, db.NOTICE_REQUESTER, "worker", f"T{n} done by x.helper: PASS {n}", None, None,
+                               "fire_and_forget", "say", 0, None, notice=True) for n in range(1, 6)]
+        row = db.get_request(con, rids[0])
+        check("notice: born landed and undelivered", row["state"] == "landed" and row["delivered_at"] is None
+              and row["landed_at"] is not None, str(dict(row)))
+        check("notice: owed nothing - not queued, not pending, not undelivered, so nothing wakes for it",
+              not db.queued_for(con, "worker") and not db.send_now_pending(con, "worker")
+              and not db.undelivered_for(con, "worker") and not lifecycle.waiting_for(con, "worker"))
+        ok, _, rid = askmod.ask("worker", "please look", requester="manager")
+        head = db.get_request(con, rid)
+        folded = dmn_delivery.folded_notices(con, "worker")
+        text = dmn_delivery.tell_text(con, head, 1, folded=folded)
+        check("notice: a real delivery carries the first three, oldest first, on its own line",
+              "Also: T1 done by x.helper: PASS 1 | T2 done by x.helper: PASS 2 | T3 done by x.helper: PASS 3" in text
+              and "T4 done" not in text and text.count("\n") <= 2, text)
+        check("notice: and says how many more wait, and where", "(+2 more: `ocp inbox --all`)" in text, text)
+        check("notice: a delivery with nothing waiting says nothing of notices",
+              "Also:" not in dmn_delivery.tell_text(con, head, 1), "")
+        db.mark_notices_shown(con, [int(r["id"]) for r in folded], "sess")
+        left = db.pending_notices(con, "worker")
+        check("notice: those shown are marked, the rest wait for the next delivery",
+              [r["id"] for r in left] == rids[3:] and db.get_request(con, rids[0])["typed_at"] is not None,
+              str([r["id"] for r in left]))
+        text = dmn_delivery.tell_text(con, head, 1, folded=dmn_delivery.folded_notices(con, "worker"))
+        check("notice: the next delivery carries them, with no 'more' tail", "T4 done" in text and "T5 done" in text
+              and "more:" not in text, text)
+        # the typed path: what went out carries the notices and only then are they marked shown
+        sent = []
+        real_send = dmn_delivery._send
+        dmn_delivery._send = lambda handle, text: (sent.append(text) or (True, ""))
+        try:
+            ok, _, rid2 = askmod.ask("worker", "and this", requester="manager")
+            told = dmn_delivery._tell(con, "worker", db.get_request(con, rid2), 1, "h", lambda _m: None)
+        finally:
+            dmn_delivery._send = real_send
+        check("notice: a delivery typed by the daemon carries them, and marks them shown once sent",
+              told and "Also: T4 done" in sent[0] and not db.pending_notices(con, "worker"), str(sent))
+        db.add_request(con, db.NOTICE_REQUESTER, "worker", "T9 done by x.helper: late", None, None,
+                       "fire_and_forget", "say", 0, None, notice=True)
+        dmn_delivery._send = lambda handle, text: (False, "no")
+        try:
+            ok, _, rid3 = askmod.ask("worker", "a third", requester="manager")
+            dmn_delivery._tell(con, "worker", db.get_request(con, rid3), 1, "h", lambda _m: None)
+        finally:
+            dmn_delivery._send = real_send
+        check("notice: a send that failed leaves them unshown", len(db.pending_notices(con, "worker")) == 1)
+        # the waiting_prompt of a parked agent is such a delivery too
+        prompt = dmn_delivery.waiting_prompt(con, "worker", lambda _m: None)
+        check("notice: a resume's first prompt carries them as well", prompt is not None
+              and "Also: T9 done" in prompt[0], str(prompt))
+        prompt[1]("sess2")
+        check("notice: and marks them shown once the session is up", not db.pending_notices(con, "worker"))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(Path(td) / 'm0'))
         run(lambda: test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(Path(td) / 'm1'))
         run(lambda: test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(Path(td) / 'm2'))
+        run(lambda: test_a_notice_rides_on_the_next_delivery_and_never_wakes_or_types_alone(Path(td) / 'm3'))
     return run_area(tests)
 
 
