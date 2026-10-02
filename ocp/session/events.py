@@ -196,6 +196,8 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
             elif event in ENDS_WAIT:
                 waiting.clear(agent)
             eid = db.add_event(con, agent, event, payload, account=account)
+            if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
+                db.bind_session_start(con, agent, str(raw["session_id"]))
             if event == "PermissionRequest":
                 # After its own row exists, so the id `of()` later compares
                 # other activity against is this exact prompt's, not the one

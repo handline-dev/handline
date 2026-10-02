@@ -133,6 +133,8 @@ def build_parser() -> argparse.ArgumentParser:
                    "(a move's destination)")
     p.add_argument("--prompt-file", help="a file holding the session's first prompt; "
                    "read and deleted at launch")
+    p.add_argument("--why", help="what to record this start as (restart, wake, move, ...); "
+                   "the daemon's launches say, a person's own is 'launch'")
     p.add_argument("extra", nargs="*", help="passed through to claude")
     p.set_defaults(fn=cmd_launch)
 

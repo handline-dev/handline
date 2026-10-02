@@ -417,6 +417,23 @@ CREATE TABLE IF NOT EXISTS token_calls (
 );
 CREATE INDEX IF NOT EXISTS token_calls_account_ts ON token_calls(account, ts);
 CREATE INDEX IF NOT EXISTS token_calls_ts ON token_calls(ts);
+
+-- Every session start the chat marks: why it began (a restart, a wake, a handoff, a move, a launch by
+-- hand), whether it resumed the old conversation, and what it was given - the handoff record in its
+-- system prompt and the first prompt, empty where there was none. Written by the launch itself
+-- (`launch.exec_agent`) or, for a handoff typed into a session that stays, by the daemon; session_id
+-- is NULL for a fresh launch until its SessionStart hook names it.
+CREATE TABLE IF NOT EXISTS session_starts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent      TEXT    NOT NULL,
+  ts         INTEGER NOT NULL,
+  session_id TEXT,
+  cause      TEXT    NOT NULL,
+  resumed    INTEGER NOT NULL,
+  text       TEXT    NOT NULL,
+  prompt     TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_starts_agent ON session_starts(agent, id);
 """
 
 

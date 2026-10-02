@@ -104,7 +104,7 @@ def cmd_resume(args) -> int:
 # ---------------------------------------------------------------- launch
 def cmd_launch(args) -> int:
     launch.exec_agent(args.agent, args.extra, force=args.force,
-                      prompt_file=args.prompt_file, account=args.account)
+                      prompt_file=args.prompt_file, account=args.account, why=args.why)
     return 0  # unreachable when execve succeeds
 
 

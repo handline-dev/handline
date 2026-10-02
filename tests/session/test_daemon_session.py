@@ -2220,6 +2220,85 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
         con.close()
 
 
+def test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(home: Path) -> None:
+    """Each start the chat marks - why it began, whether it resumed, the handoff record and first prompt
+    it was given - is kept by `db.session_starts`, claimed by the session's own SessionStart."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real_agent = os.environ.get("OCP_AGENT")
+    try:
+        os.environ["OCP_AGENT"] = "backend"
+        db.set_handoff(con, "backend", "the record: carry on with #12")
+        launch._keep_what_it_starts_with("backend", [], "pick the task back up", "wake")
+        rows = db.session_starts(con, "backend")
+        check("session starts: a fresh launch keeps its cause, the record and the prompt, before any session names itself",
+              len(rows) == 1 and rows[0]["cause"] == "wake" and rows[0]["resumed"] == 0
+              and rows[0]["text"] == "the record: carry on with #12" and rows[0]["prompt"] == "pick the task back up"
+              and rows[0]["session_id"] is None, str([dict(r) for r in rows]))
+        support._fire_hook("SessionStart", source="clear", session_id="s-clear")
+        check("session starts: a /clear's SessionStart does not claim it", db.session_starts(con, "backend")[0]["session_id"] is None)
+        support._fire_hook("SessionStart", source="startup", session_id="s-new")
+        check("session starts: the new session's SessionStart names it", db.session_starts(con, "backend")[0]["session_id"] == "s-new")
+
+        launch._keep_what_it_starts_with("backend", ["--resume", "s-old"], "an event", "restart")
+        support._fire_hook("SessionStart", source="resume", session_id="s-old")
+        rows = db.session_starts(con, "backend")
+        check("session starts: a resume is kept too - resumed, its own session, the event it was given, and the "
+              "record its system prompt carries (`context_for` puts a waiting one there for a resume as well)",
+              len(rows) == 2 and rows[1]["cause"] == "restart" and rows[1]["resumed"] == 1
+              and rows[1]["session_id"] == "s-old" and rows[1]["text"] == "the record: carry on with #12"
+              and "the record: carry on with #12" in launch.context_for("backend")
+              and rows[1]["prompt"] == "an event", str([dict(r) for r in rows]))
+
+        db.set_handoff(con, "backend", None)
+        launch._keep_what_it_starts_with("backend", [], None, None)
+        last = db.session_starts(con, "backend", limit=1)[0]
+        check("session starts: a launch by hand with nothing is a 'launch' with no text and no prompt",
+              last["cause"] == "launch" and last["text"] == "" and last["prompt"] == "", str(dict(last)))
+
+        con.execute("UPDATE session_starts SET ts = ts - 7200 WHERE cause = 'launch'")
+        support._fire_hook("SessionStart", source="startup", session_id="s-late")
+        got = db.session_starts(con, "backend")
+        check("session starts: they come back oldest first, and a launch too old is not claimed",
+              [r["cause"] for r in got] == ["wake", "restart", "launch"] and got[2]["session_id"] is None,
+              str([dict(r) for r in got]))
+        check("session starts: a limit gives the newest, still in order",
+              [r["cause"] for r in db.session_starts(con, "backend", limit=2)] == ["restart", "launch"])
+
+        db.set_handoff(con, "backend", "x" * (db.handoff.SESSION_TEXT_MAX_CHARS + 500))
+        for _ in range(db.handoff.SESSION_STARTS_KEPT + 5):
+            launch._keep_what_it_starts_with("backend", [], "p", "wake")
+        got = db.session_starts(con, "backend")
+        check("session starts: a record is cut and an agent keeps only its latest few",
+              len(got) == db.handoff.SESSION_STARTS_KEPT
+              and len(got[-1]["text"]) == db.handoff.SESSION_TEXT_MAX_CHARS, str(len(got)))
+        check("session starts: and another agent's are not read", not db.session_starts(con, "frontend"))
+
+        # And it is the launch itself that writes it: `exec_agent`, the process that becomes the session.
+        db.set_handoff(con, "backend", "record via exec")
+        pf = home / "wake-prompt.txt"
+        pf.write_text("the wake prompt")
+        real_exec = (launch.build, launch._record_terminal, launch.fingerprint, os.execve)
+        launch.build = lambda *a, **k: (["claude"], {})
+        launch._record_terminal = lambda *a, **k: None
+        launch.fingerprint = lambda agent: "fp"
+        os.execve = lambda *a: None
+        try:
+            launch.exec_agent("backend", [], False, str(pf), why="move")
+        finally:
+            launch.build, launch._record_terminal, launch.fingerprint, os.execve = real_exec
+        last = db.session_starts(con, "backend", limit=1)[0]
+        check("session starts: exec_agent writes it, with the cause it was told and the prompt as it took it",
+              last["cause"] == "move" and last["text"] == "record via exec" and last["prompt"] == "the wake prompt",
+              str(dict(last)))
+    finally:
+        if real_agent is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = real_agent
+        con.close()
+
+
 def test_a_parked_closed_agent_without_a_pane_is_woken_at_its_deadline(home: Path) -> None:
     """T407: the deadline wake of a closed park needed a terminal, and a closed
     agent has none now; a worktree to open one in is enough."""
@@ -4754,6 +4833,11 @@ def test_wake_injects_handoff(home: Path) -> None:
               "fresh session" in sent[-1] and "context is empty" in sent[-1], sent[-1][:80])
         check("wake: and gets its own record back",
               "finish the thing" in (record.read_text() if record else ""), sent[-1][:120])
+        starts = db.session_starts(con, "backend")
+        check("wake: the handoff given in place is kept as a start, with its text and the line typed",
+              starts and starts[-1]["cause"] == "handoff" and starts[-1]["resumed"] == 0
+              and "finish the thing" in starts[-1]["text"] and starts[-1]["prompt"] == sent[-1],
+              str([dict(r) for r in starts]))
     finally:
         orcamod.resume_with, orcamod.alive = real_resume, real_alive
         con.close()
@@ -5243,6 +5327,7 @@ def main() -> int:
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_resume_woken_for_a_message_is_handed_that_message(Path(td) / 'woketick'))
         run(lambda: test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that_resumes(Path(td) / 'panewake'))
+        run(lambda: test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(Path(td) / 'keephand'))
         run(lambda: test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(Path(td) / 'wakeopen'))
         run(lambda: test_a_parked_closed_agent_without_a_pane_is_woken_at_its_deadline(Path(td) / 'panedue'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
