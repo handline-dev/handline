@@ -3769,6 +3769,9 @@ async def _run_all() -> None:
 
 
 def main() -> int:
+    if "-k" in sys.argv[1:]:        # its tests run in one fixed sequence on one app loop: a filter would run them all
+        print("test_bridge_textual.py has no -k filter; it runs whole", file=sys.stderr)
+        return 2
     os.environ.pop("OCP_AGENT", None)
     asyncio.run(_run_all())
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
