@@ -22,6 +22,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual.coordinate import Coordinate
 from textual.screen import Screen
+from textual.worker import get_current_worker
 from textual.widgets import Button, DataTable, Header, Input, OptionList, Static, Tabs, TextArea
 from textual.widgets.option_list import Option
 
@@ -1210,7 +1211,12 @@ class TaskBody(TaskActions, Vertical):
         self._poller = self.set_interval(self.POLL_S, self.poll)
 
     def show(self, tid: int | None) -> None:
-        self.tid = tid or 0
+        """Another task: the page is blank until its read lands, so no action can run on the new id
+        with the old task's data."""
+        tid = tid or 0
+        if tid != self.tid:
+            self.tid, self.d = tid, None
+            self._blank("loading" if tid else "no task")
         self.load()
 
     def poll(self) -> None:
@@ -1218,25 +1224,37 @@ class TaskBody(TaskActions, Vertical):
         without reopening it; a page whose task has not changed is left as it is."""
         if not self.tid or not self.display:
             return
-        con = db.connect()
-        try:
-            now = task_detail(con, self.tid)
-        finally:
-            con.close()
-        if now != self.d:
-            self.load()
+        self._read(changed_only=True)
 
     def load(self) -> None:
-        self.d = None
         if not self.tid:
+            self.d = None
             self._blank("no task")
             return
-        con = db.connect()
-        try:
-            self.d = task_detail(con, self.tid)
-        finally:
-            con.close()
-        d = self.d
+        self._read(changed_only=False)
+
+    def _read(self, changed_only: bool) -> None:
+        """The task is read on a worker thread (opening the database can wait on a writer), the newest
+        read replacing one still running; the page is drawn when it lands."""
+        tid = self.tid
+
+        def work() -> None:
+            con = db.connect()
+            try:
+                d = task_detail(con, tid)
+            finally:
+                con.close()
+            if not get_current_worker().is_cancelled:
+                self.app.call_from_thread(self._arrived, tid, d, changed_only)
+        self.run_worker(work, thread=True, exclusive=True, group="task_body", exit_on_error=False)
+
+    def _arrived(self, tid: int, d: dict | None, changed_only: bool) -> None:
+        if tid != self.tid or (changed_only and d == self.d):
+            return
+        self._draw(d)
+
+    def _draw(self, d: dict | None) -> None:
+        self.d = d
         if d is None:
             self._blank(f"task {actions.task_ref(self.tid)} is gone")
             return

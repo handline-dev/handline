@@ -2149,6 +2149,91 @@ async def test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints() -> N
         check("home read: the fresh read still arrives", screen._snapshot is not None)
 
 
+async def test_the_task_board_and_a_task_page_read_on_a_worker_after_an_action() -> None:
+    """Founder: the bridge froze for seconds after an assign. The board's redraw and the task page's
+    reload both read the database; neither does it on the event loop."""
+    import threading
+    from ocp.ui.chat_page import TaskDetail
+    _home("boardread")
+    ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(150, 40)) as pilot:
+        await pilot.pause(0.5)
+        app.push_screen(TaskDetail(tid))
+        await pilot.pause(1.0)
+        page = app.screen
+        body, loop, on_loop = page._body(), threading.get_ident(), []
+        real = db.connect
+
+        def spy(*a, **k):
+            if threading.get_ident() == loop:
+                on_loop.append(1)
+            return real(*a, **k)
+        db.connect = spy
+        try:
+            body.load()
+            body.poll()
+            body.post_message(body.Changed())
+            await pilot.pause(0.3)
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.2)
+        finally:
+            db.connect = real
+        check("task page: a reload and a poll read nothing on the loop", on_loop == [], str(on_loop))
+        check("task page: ... and the page is still drawn", body.d is not None and body.d["id"] == tid)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(150, 40)) as pilot:
+        await pilot.pause(0.5)
+        loop, on_loop = threading.get_ident(), []
+        board = app.screen.query_one("#tasks_view") if app.screen.query("#tasks_view") else None
+        if board is None:
+            return
+        db.connect = spy
+        try:
+            board.display = True
+            board.refresh_rows()
+            board.refresh_rows()
+            await pilot.pause(0.3)
+            await app.workers.wait_for_complete()
+        finally:
+            db.connect = real
+        check("task board: a refresh after an action reads nothing on the loop", on_loop == [], str(on_loop))
+
+
+async def test_switching_tasks_blanks_the_page_until_the_new_one_is_read() -> None:
+    """The page shows one task. After show(B) and before B is read, an action finds no task: it never
+    runs on B with A's text."""
+    from ocp.ui import chat_page as cp
+    _home("switchtask")
+    ok, _, a = actions.task_new("product", "backend", "A", "brief of A and its done")
+    ok, _, b = actions.task_new("product", "backend", "B", "brief of B and its done")
+    app = bt.BridgeApp()
+    real = cp.task_detail
+    async with app.run_test(size=(150, 40)) as pilot:
+        await pilot.pause(0.5)
+        app.push_screen(cp.TaskDetail(a))
+        await pilot.pause(1.0)
+        body = app.screen._body()
+        check("switch task: the first task is read", body.d is not None and body.d["id"] == a)
+        depth = len(app.screen_stack)
+        cp.task_detail = lambda con, tid: (time.sleep(1.0), real(con, tid))[1]
+        try:
+            body.show(b)
+            check("switch task: at once the page holds no task", body.d is None and body.tid == b)
+            body.action_edit_brief()
+            body.action_assign_task()
+            await pilot.pause(0.2)
+            check("switch task: an action before the read opens no box on the old data",
+                  len(app.screen_stack) == depth, str(app.screen_stack))
+            for _ in range(100):
+                if body.d is not None:
+                    break
+                await pilot.pause(0.1)
+        finally:
+            cp.task_detail = real
+        check("switch task: the new task is drawn when read", body.d is not None and body.d["id"] == b)
+
+
 async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     """The handoff of one task is ~60 ms and more; it is made off the event loop and its answer is toasted."""
     import threading
@@ -2744,21 +2829,26 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
         check("task page: its own timer draws a memo an agent added while it was open",
               [e["text"] for e in body.d["timeline"] if e["kind"] == "memo"] == ["posted while it was open"], str(body.d["timeline"]))
         loads = []
-        real = body.load
-        body.load = lambda: (loads.append(1), real())[1]
-        body.poll()
+        real = body._draw
+        body._draw = lambda d: (loads.append(1), real(d))[1]
+
+        async def polled() -> None:         # the poll reads on a worker: wait for it to land
+            body.poll()
+            await pilot.pause(0.05)
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.05)
+        await polled()
         check("task page: a poll with nothing new leaves the page alone", loads == [])
         con = db.connect()
         try:
             actions.memo_add(con, tid, "reviewer", "found the cause")
         finally:
             con.close()
-        body.poll()
-        await pilot.pause()
+        await polled()
         check("task page: a memo added meanwhile is drawn on the next poll",
               [e["text"] for e in body.d["timeline"] if e["kind"] == "memo"] == ["posted while it was open", "found the cause"]
               and len(loads) == 1, str(body.d["timeline"]))
-        body.poll()
+        await polled()
         check("task page: and the poll after that leaves it alone again", len(loads) == 1)
 
 
@@ -3968,7 +4058,9 @@ async def _run_all() -> None:
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
     await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
     await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
+    await test_switching_tasks_blanks_the_page_until_the_new_one_is_read()
     await test_a_second_assign_answered_before_the_first_worker_starts_is_refused()
+    await test_the_task_board_and_a_task_page_read_on_a_worker_after_an_action()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
