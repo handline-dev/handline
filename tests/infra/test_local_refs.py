@@ -188,6 +188,77 @@ def test_land_refuses_dirty_work_and_keeps_the_ids_out_of_git(home: Path) -> Non
           and "T" + "123" not in _git(main, "log", "-3", "--format=%B").stdout, r.stderr + log)
 
 
+def test_the_products_own_ocp_syntax_in_a_doc_is_not_a_local_id() -> None:
+    ex = "ocp task done T" + "123 <sha>"
+    md = lambda *lines: lr.scan_diff(_diff("docs/guide.md", *lines), [])        # noqa: E731
+    check("localrefs: an id that is an argument of an ocp command in a Markdown file passes",
+          md("Close it with `" + ex + "`", "    " + ex, "ocp read " + "#" + "1234") == [])
+    check("localrefs: the same line in code is still a local id", lr.scan_diff(_diff("a.py", "# " + ex), []) != [])
+    check("localrefs: an id in prose of a Markdown file is a local id", len(md("this was fixed in T" + "123")) == 1)
+    check("localrefs: so is one that only comes near an ocp command, after a sentence end or a comma",
+          len(md("ocp ran. See T" + "123")) == 1 and md("ocp task done T" + "123, then T" + "777")
+          == ["docs/guide.md:10: task id: T" + "777"])
+    check("localrefs: and a message number in a commit message is never an example",
+          lr.scan_message("Fix: " + ex, "m") != [])
+
+
+def test_a_github_link_excuses_only_its_own_number() -> None:
+    n = "#" + "9369"
+    check("localrefs: a bare number beside a github URL is still ours",
+          kinds("see https://github.com/o/r/issues/9369 and " + n) == ["message number"])
+    check("localrefs: the number in a markdown link into github is theirs",
+          kinds("[" + n + " the issue](https://github.com/o/r/issues/9369)") == [])
+    check("localrefs: a fragment inside any URL is not a message number", kinds("https://example.org/a" + n) == [])
+    check("localrefs: and a number before a github link, outside it, is ours",
+          kinds(n + " [docs](https://github.com/o/r)") == ["message number"])
+
+
+def test_an_added_line_that_looks_like_a_file_header_is_still_a_line() -> None:
+    diff = ("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,0 +5,3 @@\n"
+            "+ok\n++ looks like a header\n+# T" + "123\n"
+            "diff --git a/b.py b/b.py\n--- a/b.py\n+++ b/b.py\n@@ -2 +2 @@\n-old\n+new T" + "456\n")
+    out = lr.scan_diff(diff, [])
+    check("localrefs: the lines after a `++ x` are read, under the right path and number",
+          out == ["a.py:7: task id: T" + "123", "b.py:2: task id: T" + "456"], str(out))
+
+
+def _commit_as(main: Path, email: str, message: str = "Say it in words") -> None:
+    env = dict(ENV, GIT_AUTHOR_EMAIL=email, GIT_COMMITTER_EMAIL=email)
+    (main / "n.txt").write_text(message)
+    subprocess.run(["git", "add", "-A"], cwd=main, env=env, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", message], cwd=main, env=env, check=True, capture_output=True)
+
+
+def test_the_email_a_commit_carries_is_checked_as_well_as_its_message(home: Path) -> None:
+    main = _repo(home)
+    base = _git(main, "rev-parse", "HEAD").stdout.strip()
+    _commit_as(main, "jo.smith" + "@" + "gmail.com")
+    r = subprocess.run([sys.executable, str(TOOLS / "localrefs.py"), "log", f"{base}..HEAD"], cwd=main,
+                       capture_output=True, text=True, env=ENV)
+    check("localrefs: a commit authored with a personal email is refused, author and committer both named",
+          r.returncode == 1 and "author email" in r.stderr and "committer email" in r.stderr
+          and "user.email" in r.stderr, r.stderr)
+    _git(main, "reset", "-q", "--hard", base)
+    for ok in ("12345+jo@users.noreply.github.com", "noreply@anthropic.com", "t@example.com"):
+        _commit_as(main, ok)
+        r = subprocess.run([sys.executable, str(TOOLS / "localrefs.py"), "log", f"{base}..HEAD"], cwd=main,
+                           capture_output=True, text=True, env=ENV)
+        check(f"localrefs: a noreply or placeholder author ({ok.split('@')[1]}) passes", r.returncode == 0, r.stderr)
+        _git(main, "reset", "-q", "--hard", base)
+
+    # The next commit's identity, before it is made: the hook refuses it.
+    _git(main, "config", "core.hooksPath", "tools/githooks")
+    env = dict(ENV, GIT_AUTHOR_EMAIL="jo.smith" + "@" + "gmail.com", GIT_COMMITTER_EMAIL="jo.smith" + "@" + "gmail.com")
+    (main / "m.txt").write_text("x")
+    subprocess.run(["git", "add", "-A"], cwd=main, env=env, capture_output=True)
+    r = subprocess.run(["git", "commit", "-m", "Say it in words"], cwd=main, env=env, capture_output=True, text=True)
+    check("hooks: commit-msg refuses a commit whose author email is personal, and says how to fix it",
+          r.returncode != 0 and "author email" in r.stderr and "noreply" in r.stderr, r.stderr)
+    env["GIT_AUTHOR_EMAIL"] = env["GIT_COMMITTER_EMAIL"] = "12345+jo@users.noreply.github.com"
+    r = subprocess.run(["git", "commit", "-m", "Say it in words"], cwd=main, env=env, capture_output=True, text=True)
+    check("hooks: the same commit with a noreply address goes through", r.returncode == 0, r.stderr)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_each_pattern_is_caught())
@@ -196,6 +267,10 @@ def main() -> int:
         run(lambda: test_a_message_skips_git_comment_lines_only_when_asked())
         run(lambda: test_the_git_hooks_refuse_a_dirty_message_and_a_dirty_diff(Path(td) / "h1"))
         run(lambda: test_land_refuses_dirty_work_and_keeps_the_ids_out_of_git(Path(td) / "h2"))
+        run(lambda: test_the_products_own_ocp_syntax_in_a_doc_is_not_a_local_id())
+        run(lambda: test_a_github_link_excuses_only_its_own_number())
+        run(lambda: test_an_added_line_that_looks_like_a_file_header_is_still_a_line())
+        run(lambda: test_the_email_a_commit_carries_is_checked_as_well_as_its_message(Path(td) / "h3"))
     return run_area(tests)
 
 

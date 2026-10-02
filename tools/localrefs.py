@@ -4,10 +4,14 @@
   tools/localrefs.py diff [--staged | RANGE]   the lines a diff adds (RANGE is a git revision range)
   tools/localrefs.py log RANGE                 the commit messages in RANGE
   tools/localrefs.py message FILE              one commit message, as the commit-msg hook gets it
+  tools/localrefs.py ident                     the author and committer email a commit made now would carry
 
 Exit 0: clean. Exit 1: findings, one per line as `where: kind: text`, then what to write instead.
 A path in tools/localrefs.allow is skipped whole; a line holding `local-ref-ok` is skipped.
-Only added lines are read, so old text never blocks a new change.
+Only added lines are read, so old text never blocks a new change. `log` reads each commit's author
+and committer email as well as its message, so a personal address cannot ride in the metadata.
+In a Markdown file, an id that is an argument of an `ocp ...` command on its line is the product's
+own syntax, not a local id, and passes.
 """
 from __future__ import annotations
 
@@ -46,28 +50,54 @@ GENERIC_LOGINS = {"root", "admin", "user", "dev", "runner", "ubuntu", "ec2-user"
 
 HINT = ("say what changed and why in words; task and chat ids stay on the task board, and "
         "tools/land.sh --note records them locally. An email, name or home path goes as a "
-        "placeholder (<user>, user@example.com). Real need (a fixture): add `local-ref-ok` "
-        "to the line, or the file to tools/localrefs.allow.")
+        "placeholder (<user>, user@example.com). A personal author or committer email: "
+        "`git config user.email <id>+<name>@users.noreply.github.com`. Real need (a fixture): "
+        "add `local-ref-ok` to the line, or the file to tools/localrefs.allow.")
 
 
-def find(text: str, words: tuple[str, ...] = ()) -> list[tuple[str, str]]:
+# The text of a link into someone else's tracker, and any URL: a number in either is theirs, not ours.
+_EXTERNAL = re.compile(r"\[[^\]]*\]\(https?://github\.com/[^)\s]*\)|https?://[^\s)>\]]+")
+_OCP_COMMAND = re.compile(r"\bocp\s+[a-z][\w-]*")
+
+
+def _inside(spans: list[tuple[int, int]], pos: int) -> bool:
+    return any(a <= pos < b for a, b in spans)
+
+
+def _in_ocp_command(text: str, pos: int) -> bool:
+    """Whether `pos` is an argument of an `ocp <verb> ...` on this line: a few words after the verb and
+    no sentence end between, so `ocp task done T12 <sha>` is one and `ocp ran. See T12` is not."""
+    for c in _OCP_COMMAND.finditer(text):
+        if c.start() < pos:
+            seg = text[c.end():pos]
+            if len(seg.split()) <= 8 and not re.search(r"[;!?]|[.,](?:\s|$)", seg):
+                return True
+    return False
+
+
+def find(text: str, words: tuple[str, ...] = (), doc: bool = False) -> list[tuple[str, str]]:
     """(kind, matched text) for everything in one line of text. `words` are this machine's own
-    names (login, git user); they count as personal data wherever they stand alone."""
+    names (login, git user); they count as personal data wherever they stand alone. `doc` is a line
+    of a Markdown file, where an id in an `ocp` command is an example of the product's syntax."""
     if MARKER in text:
         return []
+    external = [m.span() for m in _EXTERNAL.finditer(text)]
     out: list[tuple[str, str]] = []
     for kind, rx in PATTERNS:
         for m in rx.finditer(text):
             s = m.group(0)
             if kind == "email":
                 local, _, domain = s.rpartition("@")
-                if domain.lower() in SAFE_EMAIL_DOMAINS or local.lower() in SAFE_EMAIL_LOCALS:
+                if (domain.lower() in SAFE_EMAIL_DOMAINS or domain.lower().endswith("noreply.github.com")
+                        or local.lower() in SAFE_EMAIL_LOCALS):
                     continue
             elif kind == "home path":
                 if (m.group(1) or m.group(2) or "").lower() in SAFE_USERS:
                     continue
-            elif kind == "message number" and "github.com" in text:
+            elif kind == "message number" and _inside(external, m.start()):
                 continue                  # the number of an issue in someone else's tracker
+            if doc and kind in ("task id", "message number") and _in_ocp_command(text, m.start()):
+                continue
             out.append((kind, s))
     for w in words:
         if re.search(r"(?<![A-Za-z0-9])" + re.escape(w) + r"(?![A-Za-z0-9])", text, re.IGNORECASE):
@@ -101,22 +131,31 @@ def is_allowed(path: str, allow: list[str]) -> bool:
 
 
 def scan_diff(diff: str, allow: list[str], words: tuple[str, ...] = ()) -> list[str]:
-    """Findings for the added lines of a `git diff -U0` text."""
+    """Findings for the added lines of a `git diff -U0` text. A hunk's lines are counted from its
+    header, so an added line that happens to read `++ x` (which a diff shows as `+++ x`) is a line
+    of the hunk and not the next file's header."""
     out: list[str] = []
-    path, lineno = "", 0
+    path, lineno, adds, dels = "", 0, 0, 0
     for raw in diff.splitlines():
+        if adds or dels:
+            if raw.startswith("+") and adds:
+                adds -= 1
+                if path and not is_allowed(path, allow):
+                    for kind, s in find(raw[1:], words, doc=path.endswith(".md")):
+                        out.append(f"{path}:{lineno}: {kind}: {s}")
+                lineno += 1
+                continue
+            if raw.startswith("-") and dels:
+                dels -= 1
+                continue
         if raw.startswith("+++ "):
             path = raw[6:] if raw.startswith("+++ b/") else ""
-            continue
-        if raw.startswith("@@"):
-            m = re.search(r"\+(\d+)", raw)
-            lineno = int(m.group(1)) if m else 0
-            continue
-        if raw.startswith("+") and path:
-            if not is_allowed(path, allow):
-                for kind, s in find(raw[1:], words):
-                    out.append(f"{path}:{lineno}: {kind}: {s}")
-            lineno += 1
+        elif raw.startswith("@@"):
+            m = re.match(r"@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", raw)
+            if m:
+                dels = int(m.group(1)) if m.group(1) is not None else 1
+                lineno = int(m.group(2))
+                adds = int(m.group(3)) if m.group(3) is not None else 1
     return out
 
 
@@ -131,6 +170,13 @@ def scan_message(text: str, where: str, words: tuple[str, ...] = (), comments: b
     return out
 
 
+def scan_emails(emails: list[tuple[str, str]], where: str) -> list[str]:
+    """Findings for the author/committer emails of one commit, as (role, email) pairs. An email
+    is personal unless it is a placeholder or a noreply address."""
+    return [f"{where}: {role} email: {email}" for role, email in emails
+            if any(kind == "email" for kind, _ in find(email))]
+
+
 def _git(*args: str) -> str:
     r = subprocess.run(["git", *args], capture_output=True, text=True)
     if r.returncode != 0:
@@ -139,7 +185,7 @@ def _git(*args: str) -> str:
 
 
 def main(argv: list[str]) -> int:
-    if not argv or argv[0] not in ("diff", "log", "message"):
+    if not argv or argv[0] not in ("diff", "log", "message", "ident"):
         print(__doc__, file=sys.stderr)
         return 2
     mode, rest = argv[0], argv[1:]
@@ -149,9 +195,16 @@ def main(argv: list[str]) -> int:
         found = scan_diff(_git("diff", "-U0", "--no-color", "--no-ext-diff", *spec), allow, words)
     elif mode == "log":
         found = []
-        for chunk in _git("log", "--format=%x01%h%n%B", *rest[:1]).split("\x01")[1:]:
+        for chunk in _git("log", "--format=%x01%h%x02%ae%x02%ce%n%B", *rest[:1]).split("\x01")[1:]:
             head, _, body = chunk.partition("\n")
-            found += scan_message(body, f"commit {head}", words, comments=False)
+            sha, author, committer = (head.split("\x02") + ["", ""])[:3]
+            found += scan_emails([("author", author), ("committer", committer)], f"commit {sha}")
+            found += scan_message(body, f"commit {sha}", words, comments=False)
+    elif mode == "ident":
+        found = []
+        for role, var in (("author", "GIT_AUTHOR_IDENT"), ("committer", "GIT_COMMITTER_IDENT")):
+            email = re.search(r"<([^>]*)>", _git("var", var))
+            found += scan_emails([(role, email.group(1) if email else "")], "next commit")
     else:
         found = scan_message(Path(rest[0]).read_text(encoding="utf-8"), "message", words)
     if found:

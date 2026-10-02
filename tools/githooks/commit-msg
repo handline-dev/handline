@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Refuse a commit message with personal data or a local task/chat id (tools/localrefs.py).
-# Installed once with tools/install-git-hooks.sh.
+# Refuse a commit with personal data or a local task/chat id in its message, or a personal
+# author/committer email (tools/localrefs.py). Installed once with tools/install-git-hooks.sh.
 top="$(git rev-parse --show-toplevel)" || exit 0
 [ -f "$top/tools/localrefs.py" ] || exit 0
-exec python3 "$top/tools/localrefs.py" message "$1"
+status=0
+python3 "$top/tools/localrefs.py" message "$1" || status=1
+python3 "$top/tools/localrefs.py" ident || status=1
+exit $status
