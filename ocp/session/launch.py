@@ -345,13 +345,6 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
         raise SystemExit(f"agent '{agent}' is a {drv.name} agent and account '{acct}' "
                          f"is a {theirs} account - refusing to start it there.")
 
-    if sessiontoken.folder().exists() and not getattr(drv, "hides_paths", False):
-        # Each session holds its own token and must not read the others'; a vendor that drops
-        # `hide` leaves the token folder open to its sessions.
-        raise SystemExit(f"agent '{agent}' runs on {drv.name}, which cannot hide the session-token folder "
-                         f"from its sessions, so another agent's token would be readable there - refusing "
-                         f"to start it.")
-
     hooks = drv.state_hooks()
     if hooks:
         try:
@@ -456,7 +449,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
             else drv.auto_mode_argv())
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
-                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.folder())],
+                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
                            no_write=main_ref_files(Path.cwd()),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode else None,
@@ -663,9 +656,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
             db.set_handoff(con, agent, None)
         finally:
             con.close()
-    token = sessiontoken.mint(agent)       # the proof this session is the agent's, for the daemon's land verbs
-    if token:
-        names.setenv(env, sessiontoken.ENV, token)
+    sessiontoken.record(agent)             # the proof this session is the agent's, for the daemon's land verbs
     env = names.both(env)
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it

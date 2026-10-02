@@ -7,7 +7,7 @@ import sys
 
 from .. import db
 from ..daemon import client as dmn_client
-from ..infra import paths, sessiontoken
+from ..infra import paths
 from ..team import ask as askmod
 
 
@@ -27,7 +27,7 @@ def _list() -> int:
 
 def _send(payload: dict) -> int:
     me = askmod.current_agent()
-    reply = dmn_client.send({**payload, "agent": me, "token": sessiontoken.held()})
+    reply = dmn_client.send({**payload, "agent": me})
     if reply is None:
         print("daemon not running, nothing recorded")
         return 1

@@ -6,8 +6,8 @@ given. The test is the merger's, in the merger's sandbox (`tools/land.sh --check
 tree it tested. A sha lands when
   - the auditor recorded a PASS for that exact sha (`ocp land --pass`), and
   - the merger recorded it with the tree its test saw (`ocp land <sha> <message>`).
-Both are accepted only with the session token `ocp launch` minted for that agent, which no other
-agent's sandbox can read or write, never on the name in the request. The daemon merges the sha into main itself, and fast-forwards main only if the result is the
+Both are accepted only from a process of the session `ocp launch` recorded for that agent (found by
+the socket's peer pid, infra/sessiontoken.py), never on the name in the request. The daemon merges the sha into main itself, and fast-forwards main only if the result is the
 tree that was tested; if main moved meanwhile the trees differ and the merger tests again. A sha lands
 at most once.
 """

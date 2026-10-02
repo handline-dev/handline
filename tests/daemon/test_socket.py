@@ -7,6 +7,7 @@ Run on its own: python3 tests/daemon/test_socket.py   (all areas: python3 tests/
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -443,6 +444,34 @@ def test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(home
           reply2 is not None and reply2["ok"] is False, str(reply2))
 
 
+def test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
+    """The daemon takes the peer pid from the kernel and accepts `land_pass` only from the process tree
+    of the session recorded for the auditor."""
+    from ocp.daemon import lands
+    from ocp.infra import sessiontoken
+    _daemon_home(home, 20)
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        check("socket: peer_pid names the process on the other end of a socket pair",
+              sessiontoken.peer_pid(a) == os.getpid(), str(sessiontoken.peer_pid(a)))
+    finally:
+        a.close(); b.close()
+    ask = {"verb": "land_pass", "agent": lands.AUDITOR, "sha": "0" * 40}
+    sessiontoken.record(lands.AUDITOR, os.getpid())
+    reply = _serve_one_roundtrip(ask)
+    check("socket: land_pass from the recorded auditor session gets past the identity check",
+          reply is not None and "not this request's session" not in reply["said"], str(reply))
+    other = subprocess.Popen(["sleep", "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        sessiontoken.record(lands.AUDITOR, other.pid)
+        reply = _serve_one_roundtrip(ask)
+        check("socket: land_pass is refused when another process is the recorded auditor session",
+              reply is not None and reply["ok"] is False and "not this request's session" in reply["said"], str(reply))
+    finally:
+        other.kill()
+        other.wait()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_serve_one_types_a_message_at_once_over_the_wire(Path(td) / 's0'))
@@ -465,6 +494,7 @@ def main() -> int:
         run(lambda: test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(Path(td) / 's4'))
         run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
         run(lambda: test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(Path(td) / 's5'))
+        run(lambda: test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(Path(td) / 's6'))
     return run_area(tests)
 
 

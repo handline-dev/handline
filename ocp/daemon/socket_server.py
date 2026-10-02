@@ -109,12 +109,12 @@ VERBS = {
 }
 
 
-# Verbs that act on the strength of who the caller is: the name in the request counts only with the
-# session token `ocp launch` minted for that agent (infra/sessiontoken.py).
+# Verbs that act on the strength of who the caller is: the name in the request counts only when the
+# process that sent it descends from the session `ocp launch` recorded for that agent (infra/sessiontoken.py).
 TOKEN_VERBS = ("land", "land_pass")
 
 
-def _handle_request(payload: dict, log) -> dict:
+def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
     verb = payload.get("verb")
     fn = VERBS.get(verb)
     if fn is None:
@@ -122,10 +122,10 @@ def _handle_request(payload: dict, log) -> dict:
     kw = {k: v for k, v in payload.items() if k not in ("verb", "caller", "token")}
     if verb in TOKEN_VERBS:
         agent = payload.get("agent")
-        if not sessiontoken.verify(agent, payload.get("token")):
-            log(f"  {verb} refused: no valid session token for {str(agent)[:60]!r}")
-            return {"ok": False, "said": f"{agent or 'the caller'} has no valid session token: the session "
-                    f"must be one `ocp launch` started after tokens existed - relaunch it"}
+        if not sessiontoken.verify(agent, peer):
+            log(f"  {verb} refused: caller is not the session of {str(agent)[:60]!r}")
+            return {"ok": False, "said": f"{agent or 'the caller'} is not this request's session: it must come from a "
+                    f"session `ocp launch` recorded for that agent (relaunch an older one)"}
         kw["caller"] = agent
     con = db.connect()
     try:
@@ -165,7 +165,7 @@ def _serve_one(conn: socket.socket, log) -> None:
         except (ValueError, UnicodeDecodeError) as e:
             reply = {"ok": False, "said": f"bad request: {e}"}
         else:
-            reply = _handle_request(payload, log) if isinstance(payload, dict) \
+            reply = _handle_request(payload, log, sessiontoken.peer_pid(conn)) if isinstance(payload, dict) \
                 else {"ok": False, "said": "a request is a JSON object"}
         try:
             conn.sendall(json.dumps(reply).encode("utf-8") + b"\n")
