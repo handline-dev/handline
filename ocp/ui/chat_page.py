@@ -222,10 +222,19 @@ def session_marks(con, agent: str, msgs: list[dict]) -> list[dict]:
             if r["ts"] >= since and not r["resumed"]]
 
 
-def session_line(r: dict) -> str:
-    """The one line a new session is drawn as: when, why, and that a handoff can be read."""
-    cause = START_WORDS.get(r["cause"], r["cause"])
-    return f"new session · {timefmt.stamp(r['ts'], timefmt.CLOCK)} · {cause}" + (" · handoff ▸" if r["text"] else "")
+def session_head(r: dict) -> str:
+    """Line 1 of a session start: when, then why."""
+    return f"{timefmt.stamp(r['ts'], timefmt.CLOCK)} · {START_WORDS.get(r['cause'], r['cause'])}"
+
+
+def session_line(r: dict) -> Text:
+    """A new session as two lines: when and why, then "new session" - with "handoff" a link to read
+    it, where there is one."""
+    out = Text(session_head(r) + "\nnew session", style="dim")
+    if r["text"]:
+        out.append(" with ")
+        out.append("handoff", style=Style(underline=True, meta={"@click": "open"}))
+    return out
 
 
 def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
@@ -627,21 +636,18 @@ class TaskChange(Vertical):
 
 class SessionMark(Static, can_focus=True):
     """Where a session started, drawn as a system line, not as anyone's message. Where it was given a
-    handoff, a click (or Enter) reads it."""
+    handoff, a click on its word (or Enter) reads it."""
 
     BINDINGS = [("enter", "open", "read the handoff")]
 
     def __init__(self, m: dict) -> None:
-        super().__init__(Text(session_line(m["session"]), style="dim"), classes="sessionmark")
+        super().__init__(session_line(m["session"]), classes="sessionmark")
         self.m = m
-
-    def on_click(self) -> None:
-        self.action_open()
 
     def action_open(self) -> None:
         r = self.m["session"]
         if r["text"]:
-            self.app.push_screen(HandoffModal(session_line(r).removesuffix(" ▸"), r["text"]))
+            self.app.push_screen(HandoffModal(session_head(r), r["text"]))
 
 
 class HandoffModal(Dialog):
