@@ -87,15 +87,23 @@ def _founder_only() -> None:
                             "not an agent's")
 
 
+def ensure(namespace: str) -> None:
+    """The namespace's folder, made private (0700, with the store's root) when this creates it. PermissionError,
+    the OS's or ours, when the caller is an agent's session."""
+    _founder_only()
+    folder = root() / namespace
+    if not folder.exists():
+        folder.mkdir(parents=True)
+        for d in (root(), folder):
+            d.chmod(0o700)
+
+
 def put(namespace: str, name: str, value: str) -> None:
     """Record `value`. PermissionError, the OS's or ours, when the caller is an
     agent's session."""
     _founder_only()
     path = _entry(namespace, name)
-    if not path.parent.exists():
-        path.parent.mkdir(parents=True)
-        for d in (root(), path.parent):
-            d.chmod(0o700)
+    ensure(namespace)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".put-")
     try:
         with os.fdopen(fd, "w") as f:

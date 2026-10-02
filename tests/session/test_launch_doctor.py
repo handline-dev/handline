@@ -795,6 +795,10 @@ def test_launch_hides_the_hook_key_folder_and_makes_it_first(home: Path) -> None
     settings = json.loads(argv[argv.index("--settings") + 1])
     folder = str(sessiontoken.key_folder())
     check("hook key: the folder exists once a launch has been built", sessiontoken.key_folder().is_dir())
+    check("hook key: made private, with the store's root, as a first put makes them",
+          oct(sessiontoken.key_folder().stat().st_mode & 0o777) == "0o700"
+          and oct(sessiontoken.key_folder().parent.stat().st_mode & 0o777) == "0o700",
+          f"{oct(sessiontoken.key_folder().stat().st_mode)} {oct(sessiontoken.key_folder().parent.stat().st_mode)}")
     check("hook key: Bash is denied reading it", folder in settings["sandbox"]["filesystem"]["denyRead"],
           str(settings["sandbox"]))
     check("hook key: and so is the Read tool", f"Read(/{folder.rstrip('/')}/**)" in settings["permissions"]["deny"],

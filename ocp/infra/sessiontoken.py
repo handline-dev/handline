@@ -101,7 +101,7 @@ def ensure_key_folder() -> None:
     """The folder exists before a launch hides it: the first launch on a machine would otherwise name a
     path the sandbox rule then does not cover once it appears. Quietly nothing when the store is unwritable."""
     try:
-        key_folder().mkdir(parents=True, exist_ok=True)
+        protected.ensure(KEY_NS)
     except OSError:
         pass
 
