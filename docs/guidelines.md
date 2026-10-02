@@ -30,7 +30,7 @@ retry path"`. Do not send a second message behind it.
 ## One task at a time
 
 An agent holds one task. The next one arrives when it is done or handed on. This keeps an agent
-from splitting its attention, and it keeps you from holding eleven threads. Queue as much as you
+from splitting its attention, and it keeps you from holding many threads. Queue as much as you
 like; the agent sees only the head.
 
 ## Separate "needs an answer" from "FYI"
