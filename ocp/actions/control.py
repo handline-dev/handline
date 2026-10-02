@@ -31,11 +31,18 @@ def wake(con, agent: str) -> str:
     return f"{agent}: {why}" if ok else f"{agent}: not woken - {why}"
 
 
-def close(con, agent: str) -> str:
-    """Give the machine back an idle agent's memory, keeping its terminal."""
+def close_result(con, agent: str, fresh: bool = False) -> tuple[bool, str]:
+    """`close`, with whether it closed. `fresh` also drops the session id, so the next wake is a new
+    conversation."""
     st = status.read_for_agent(agent, agents.current_account(agent, con))
-    ok, why = dmn_lifecycle.close_agent(con, agent, lambda _m: None, st)
-    return why if ok else f"{agent}: not closed - {why}"
+    close_fn = dmn_lifecycle.close_fresh if fresh else dmn_lifecycle.close_agent
+    ok, why = close_fn(con, agent, lambda _m: None, st)
+    return ok, why if ok else f"{agent}: not closed - {why}"
+
+
+def close(con, agent: str, fresh: bool = False) -> str:
+    """Give the machine back an idle agent's memory, keeping its terminal."""
+    return close_result(con, agent, fresh)[1]
 
 
 def unstall(con, agent: str) -> str:

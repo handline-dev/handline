@@ -45,7 +45,7 @@ def _wake(con, log, **kw) -> tuple[bool, str]:
 
 
 def _close(con, log, **kw) -> tuple[bool, str]:
-    return True, control.close(con, kw["agent"])
+    return control.close_result(con, kw["agent"], bool(kw.get("fresh")))
 
 
 def _park(con, log, **kw) -> tuple[bool, str]:

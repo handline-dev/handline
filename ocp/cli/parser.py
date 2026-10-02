@@ -462,6 +462,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("close", help="end an idle agent's session, keeping its terminal")
     p.add_argument("target", help="an agent's name")
+    p.add_argument("--fresh", action="store_true",
+                   help="also forget the session it would resume: its next wake is a new conversation")
     p.set_defaults(fn=cmd_close)
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
