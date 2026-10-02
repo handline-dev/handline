@@ -2145,6 +2145,66 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
         con.close()
 
 
+def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(home: Path) -> None:
+    """The wake of an agent with no pane holds its terminal until the session's
+    first turn is over. The session is running for all of it, so the closed mark
+    comes off when the session takes its prompt - not at the end - and the stuck
+    list does not send a person to `w` while that hold would refuse it."""
+    from ocp.infra import lock
+    _daemon_home(home, 20)
+    con = db.connect()
+    at_wait: list = []
+    real = (spawnmod.start_in, orcamod.send)
+    try:
+        orca_seen()
+        table = sessions_are()
+        orcamod.idle_now = lambda h: True
+
+        def wait_idle(h, timeout_ms=0):
+            row = db.get_agent_state(con, "backend")
+            at_wait.append((row["closed_at"], row["resume_session"]))
+            db.set_cursor(con, "ahead:backend:99", 1)       # a tell made to the running session meanwhile
+            return True
+        orcamod.wait_idle = wait_idle
+
+        def start_in(agent, worktree, cmd=None):
+            db.set_terminal(con, agent, "term_new", worktree)
+            table[agent] = 4242
+            take_launched_prompt(cmd)
+            return True, "started"
+        spawnmod.start_in = start_in
+        orcamod.live_terminals = lambda: {"term_new"}
+        wt = home / "wt"
+        wt.mkdir()
+        db.set_terminal(con, "backend", None, str(wt))
+        db.set_closed(con, "backend", "sess-4")
+        db.add_request(con, "reviewer", "backend", "look at this", None, "peer", "async", None, 0, None)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-4", "pct_5h": 20}))
+
+        ok, said = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        check("wake: the session was running, and not closed, when the wake began to wait for its first turn",
+              ok and at_wait == [(None, None)], f"{ok} {said} {at_wait}")
+        check("wake: and it is not closed afterwards either",
+              not db.get_agent_state(con, "backend")["closed_at"])
+        check("wake: a tell made to the session while the wake waited is not voided by the end of the wake",
+              db.get_cursor(con, "ahead:backend:99") == 1, str(db.get_cursor(con, "ahead:backend:99")))
+
+        db.set_closed(con, "backend", "sess-4")
+        with lock.terminal("backend") as mine:
+            state = actions._delivery_state(con, "backend", {}, {"term_new"})
+            check("stuck: while the terminal is held the reason is not an invitation to press w",
+                  mine and state[0] == "closed, starting" and state[2] and " w " not in state[1],
+                  str(state))
+        state = actions._delivery_state(con, "backend", {}, {"term_new"})
+        check("stuck: once it is free the closed reason is back", state[0] != "closed, starting", str(state))
+        check("stuck: an agent whose lock file does not exist is not held", lock.terminal_busy("never-locked") is False)
+    finally:
+        spawnmod.start_in, orcamod.send = real
+        con.close()
+
+
 def test_a_parked_closed_agent_without_a_pane_is_woken_at_its_deadline(home: Path) -> None:
     """T407: the deadline wake of a closed park needed a terminal, and a closed
     agent has none now; a worktree to open one in is enough."""
@@ -5168,6 +5228,7 @@ def main() -> int:
         run(lambda: test_an_agent_is_never_handed_another_agents_session(Path(td) / 'ident'))
         run(lambda: test_a_resume_woken_for_a_message_is_handed_that_message(Path(td) / 'woketick'))
         run(lambda: test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that_resumes(Path(td) / 'panewake'))
+        run(lambda: test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(Path(td) / 'wakeopen'))
         run(lambda: test_a_parked_closed_agent_without_a_pane_is_woken_at_its_deadline(Path(td) / 'panedue'))
         run(lambda: test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(Path(td) / 'coldwake'))
         run(lambda: test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(Path(td) / 'coldnone'))
