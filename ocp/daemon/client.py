@@ -10,6 +10,7 @@ every kind of caller.
 """
 from __future__ import annotations
 
+import errno
 import json
 import socket
 
@@ -20,6 +21,28 @@ from ..infra import paths
 TIMEOUT_S = 480.0
 
 
+def _exchange(sock: socket.socket, payload: dict) -> bytes:
+    """One request over a connected socket, and everything the peer sends back.
+
+    The daemon answers as soon as it has read the line and then hangs up, so a reply can be waiting
+    before the write side is shut: macOS then refuses the shutdown with ENOTCONN. That is the daemon
+    having already answered, not a daemon that is not there - read as the latter it told the caller
+    nothing was sent about a message that had been typed, and a retry typed it twice."""
+    sock.sendall(json.dumps(payload).encode("utf-8") + b"\n")
+    try:
+        sock.shutdown(socket.SHUT_WR)
+    except OSError as e:
+        if e.errno != errno.ENOTCONN:
+            raise
+    chunks = []
+    while True:
+        chunk = sock.recv(65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def send(payload: dict, timeout: float = TIMEOUT_S) -> dict | None:
     """POST one request to the daemon and return its `{ok, said}` reply, or
     None when nothing is listening (the daemon is down, or has not made its
@@ -28,17 +51,10 @@ def send(payload: dict, timeout: float = TIMEOUT_S) -> dict | None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
             sock.connect(str(paths.socket_file()))
-            sock.sendall(json.dumps(payload).encode("utf-8") + b"\n")
-            sock.shutdown(socket.SHUT_WR)
-            chunks = []
-            while True:
-                chunk = sock.recv(65536)
-                if not chunk:
-                    break
-                chunks.append(chunk)
+            raw = _exchange(sock, payload)
     except OSError:
         return None
-    data = b"".join(chunks).strip()
+    data = raw.strip()
     if not data:
         return None
     try:
