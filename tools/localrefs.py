@@ -66,7 +66,7 @@ def _inside(spans: list[tuple[int, int]], pos: int) -> bool:
 
 def _in_ocp_command(text: str, pos: int) -> bool:
     """Whether `pos` is an argument of an `ocp <verb> ...` on this line: a few words after the verb and
-    no sentence end between, so `ocp task done T12 <sha>` is one and `ocp ran. See T12` is not."""
+    no sentence end between, so an id in `ocp task done <id> <sha>` is one and an id after "ocp ran." is not."""
     for c in _OCP_COMMAND.finditer(text):
         if c.start() < pos:
             seg = text[c.end():pos]
