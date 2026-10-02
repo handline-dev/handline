@@ -49,6 +49,7 @@ from .components.page_header import page_header
 from .components.section_head import SectionHead
 from .components.schedules_section import SchedulesSection
 from .components.task_assign import TaskAsk, TaskAssign
+from .components.write_guard import WriteGuard
 from .components.switch_row import SwitchRow
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
@@ -1087,6 +1088,10 @@ class TaskActions:
     tid: int
     d: dict | None
 
+    @property
+    def write_guard(self) -> WriteGuard:
+        return self.__dict__.setdefault("_write_guard", WriteGuard())
+
     def say(self, text: str) -> None:
         self.notify(safe(text), severity="error", timeout=10, markup=False)
 
@@ -1109,6 +1114,8 @@ class TaskActions:
             if got is None:
                 return
             to, text = got
+            if self.write_guard.refuse(self):       # another handoff is still writing: it reports first
+                return
             log_action(f"task {ref} assign to {to}")
 
             def write() -> tuple[bool, str]:
@@ -1121,7 +1128,8 @@ class TaskActions:
                     con.close()
 
             async def assign() -> None:
-                ok, said = await asyncio.to_thread(write)      # a handoff is ~60 ms and more: not on the loop
+                with self.write_guard.running(1):
+                    ok, said = await asyncio.to_thread(write)      # a handoff is ~60 ms and more: not on the loop
                 self.report("assign", ok, said)
                 stall.crumb(f"assign {ref}: callback end ({'ok' if ok else 'refused'})")
                 self.app.call_after_refresh(stall.snapshot, self.app, f"assign {ref}: after the callback")

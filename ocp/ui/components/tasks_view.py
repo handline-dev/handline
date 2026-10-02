@@ -25,6 +25,7 @@ from .confirm import Confirm
 from .dialog import Dialog
 from .key_guide import Key, KeyGuide, KeyHelp
 from .text_prompt import TextPrompt
+from .write_guard import WriteGuard
 
 _ASKS = {"discard": "discard - why:", "owner": "new owner (agent name):",
          "priority": "priority (1 high, 2, 3 low):"}
@@ -197,7 +198,7 @@ class TasksView(Vertical):
         self.rows: list[dict] = []
         self._mark_head = ""
         self._agent_owners: list[str] | None = None
-        self._writing = 0                # tasks an action is changing now, off the loop
+        self._write = WriteGuard()
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="tasks_filters"):
@@ -507,8 +508,7 @@ class TasksView(Vertical):
             self.app.push_screen(TaskDetail(self.rows[event.cursor_row]["id"]))
 
     def action_act(self, verb: str) -> None:
-        if self._writing:       # a new act would cancel the one that must still report its result
-            self.notify(f"still changing {self._writing} task{'s' if self._writing != 1 else ''}", severity="warning")
+        if self._write.refuse(self):        # a new act would cancel the one that must still report its result
             return
         self.run_worker(self._act(verb), exclusive=True, group="tasks_act")
 
@@ -559,11 +559,8 @@ class TasksView(Vertical):
                 return actions.batch_task(con, verb, tids, actions.HUMAN, arg)
             finally:
                 con.close()
-        self._writing = len(tids)
-        try:
+        with self._write.running(len(tids)):
             results = await asyncio.to_thread(write)
-        finally:
-            self._writing = 0
         for text, severity in result_notes(results, verb):
             self.notify(text, title=verb, severity=severity, timeout=5 if severity == "information" else 12,
                         markup=False)

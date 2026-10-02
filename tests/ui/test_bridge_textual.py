@@ -1920,7 +1920,6 @@ async def test_changing_owners_on_the_task_board_does_not_hold_the_screen() -> N
         actions.batch_task = real
 
 
-||||||| parent of f1578834 (T938: the home redraw paints what a worker read (db, ps, orca off the loop); a task page's assign hands off on a thread)
 
 
 async def test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints() -> None:
@@ -1964,7 +1963,8 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     on, toasts = {}, []
 
     def spy(con, t, to, text):
-        on["thread"], on["to"] = threading.get_ident(), to
+        on["thread"], on["to"], on["calls"] = threading.get_ident(), to, on.get("calls", 0) + 1
+        time.sleep(1.2)
         return True, "handed"
     real = actions.assign_task
     actions.assign_task = spy
@@ -1979,7 +1979,16 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
             for ch in "ok":
                 await pilot.press(ch)
             await pilot.press("enter")
-            await pilot.pause(0.8)
+            await pilot.pause(0.2)
+            await pilot.press("a")                  # a second assign while the first is writing
+            await pilot.pause(0.3)
+            for ch in "ok":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause(1.6)
+            check("task page assign: a second one during it is refused, with a note, and makes no second handoff",
+                  on["calls"] == 1 and any("still changing 1 task" in str(n.message) for n in app._notifications),
+                  str((on, [n.message for n in app._notifications])))
             check("task page assign: the handoff was made", on.get("to") is not None, str(on))
             check("task page assign: ... off the event loop", on.get("thread") != threading.get_ident(), str(on))
             check("task page assign: ... and its answer is toasted",
@@ -3639,7 +3648,6 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
-||||||| parent of f1578834 (T938: the home redraw paints what a worker read (db, ps, orca off the loop); a task page's assign hands off on a thread)
     await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
     await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
