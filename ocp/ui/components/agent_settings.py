@@ -179,7 +179,18 @@ class AgentSettings(Vertical):
             self.commit(event.select.id)
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
-        if event.switch.id in self.FIELDS:
+        if event.switch.id == "s_skip" and event.value and self.settings is not None \
+                and self.settings["skip_permissions"] != "on":
+            def answered(yes: bool | None) -> None:
+                if yes:
+                    self.commit("s_skip")
+                else:
+                    event.switch.value = False
+            self.app.push_screen(Confirm("Stop asking before this agent runs tools",
+                                         "skip prompts runs claude --dangerously-skip-permissions: it will act "
+                                         "without asking, from the next launch.", yes="Turn on", no="Cancel",
+                                         danger=True), answered)
+        elif event.switch.id in self.FIELDS:
             self.commit(event.switch.id)
 
     def on_sites_list_changed(self, event: SitesList.Changed) -> None:

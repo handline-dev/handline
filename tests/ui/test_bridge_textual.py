@@ -2014,9 +2014,23 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         note = lambda n: str(scr.query_one(f"#n_{n}").render())
         check("save at once: there is no Save button on the agent form", not scr.query("#s_save") and not scr.query("#s_reset"))
         scr.query_one("#s_skip", Switch).value = True
+        await pilot.pause(0.4)
+        check("skip prompts: turning it on asks first, in red, and nothing is written yet",
+              isinstance(app.screen, Confirm) and agents.read("backend").get("skip_permissions") is not True)
+        await pilot.press("n")
+        await pilot.pause(0.4)
+        check("skip prompts: No puts the switch back", scr.query_one("#s_skip", Switch).value is False
+              and agents.read("backend").get("skip_permissions") is not True)
+        scr.query_one("#s_skip", Switch).value = True
+        await pilot.pause(0.4)
+        await pilot.press("y")
         await pilot.pause(0.5)
         check("save at once: (1) a switch saves the moment it flips, and says from the next launch",
               agents.read("backend").get("skip_permissions") is True and "next launch" in note("s_skip") and scr is app.screen, note("s_skip"))
+        scr.query_one("#s_skip", Switch).value = False
+        await pilot.pause(0.5)
+        check("skip prompts: turning it off asks nothing", agents.read("backend").get("skip_permissions") is not True
+              and not isinstance(app.screen, Confirm))
         box = scr.query_one("#s_idle_close", Input)
         box.focus()
         box.value = "15"
@@ -2134,7 +2148,6 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
                    "ignore_cache_expiry": idle_close.default_ignore_cache_expiry(), "dev_mode": devmode.dev_mode_enabled()}
         check("global switches: flipping each saves it where the daemon reads it, dev mode too",
               flipped == {k: not v for k, v in shown.items()}, str(flipped))
-        Path(os.environ.get("GLOBAL_SHOT", os.devnull)).write_text(app.export_screenshot())
         for on in (True, False):
             actions.save_global_switches({"handoff_note": on})
             app.push_screen(AgentSettingsScreen("backend"))
@@ -2145,7 +2158,6 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
             check("agent form: and draws it on the closed control",
                   f"follow the global switch ({'on' if on else 'off'})" in str(app.screen.query_one("#s_handoff_note").render())
                   or f"follow the global switch ({'on' if on else 'off'})" in _screen_text(app.screen))
-            Path(os.environ.get("AGENT_SHOT", os.devnull)).write_text(app.export_screenshot())
             await pilot.press("escape")
             await pilot.pause(0.4)
         from ocp.ui.pages.account import AccountPage
