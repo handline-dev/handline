@@ -681,9 +681,11 @@ def track_background_work(con, agent: str, row) -> None:
 
 
 def idle_since(con, agent: str) -> int | None:
-    """When this agent last did anything, or its background work last ended."""
+    """When this agent last did anything, its background work last ended, or its session was last
+    brought back: a resume nobody typed at starts no turn, and its idle window still starts then."""
     times = [t for t in (db.last_activity(con, agent),
-                         db.last_event_ts(con, agent, "background_work_ended")) if t is not None]
+                         db.last_event_ts(con, agent, "background_work_ended"),
+                         db.last_event_ts(con, agent, "wake")) if t is not None]
     return max(times) if times else None
 
 
