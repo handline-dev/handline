@@ -2,25 +2,29 @@
 (`timeout_s`, `timeout_at`; see `daemon.timebox.sweep_task_timeouts`).
 
 The clock runs only while a task is doing. When it passes its deadline the daemon tells the
-opener and starts the next stretch, so `timeout_at` is never far in the past: how long a task
-has been over is read from the notices already sent, each one a stretch after the last."""
+opener and starts the next stretch, so `timeout_at` is never far in the past. Each notice
+records the deadline it missed and the one that replaced it: how long a task has been over is
+read by following those back from the deadline now in force."""
 from __future__ import annotations
 
+import json
 import time
 
 from .. import db
 from ..infra import timefmt
 
 NOTICE = "task_timeout_exceeded"
-CHAIN_SLACK_S = 300     # a notice goes out on a tick, so it comes a little after its deadline
-START_SLACK_S = 30      # how near a notice is to the stretch it began
-EDIT_SLACK_S = 2        # `edit --timeout` restarts the clock at the moment it stamps the edit
 
 
-def _notices(con, tid: int) -> list[int]:
-    """When each timeout notice of this task went out, newest first."""
-    return [r["ts"] for r in con.execute(
-        f"SELECT ts FROM events WHERE kind = ? AND {db.EVENT_TASK} = ? ORDER BY ts DESC", (NOTICE, tid))]
+def _notices(con, tid: int) -> list[dict]:
+    """The deadline missed and the one that replaced it, for each notice of this task, newest first."""
+    out = []
+    for r in con.execute(f"SELECT payload FROM events WHERE kind = ? AND {db.EVENT_TASK} = ? "
+                         "ORDER BY id DESC", (NOTICE, tid)):
+        p = json.loads(r["payload"])
+        if "deadline" in p and "next" in p:
+            out.append(p)
+    return out
 
 
 def task_timeout(con, row, state: str, now: float | None = None) -> dict:
@@ -37,27 +41,18 @@ def task_timeout(con, row, state: str, now: float | None = None) -> dict:
         return out
     end, box = int(row["timeout_at"]), out["length"]
     out.update(start=end - box, end=end)
-    if end > now:
-        # A notice sent in this stretch's own first moments is the one that began it: the task is over.
-        chain = [t for t in _notices(con, row["id"])]
-        first = None
-        for t in chain:
-            if first is None:
-                edited = row["edited_at"]
-                if abs(t - (end - box)) > START_SLACK_S \
-                        or (edited and edited >= t and abs(edited - (end - box)) <= EDIT_SLACK_S):
-                    break           # the latest notice did not start this stretch: an edit has since extended it
-                first = t
-            elif first - t <= box + CHAIN_SLACK_S:
-                first = t
-            else:
-                break
-        if first is None:
-            out.update(state="left", left=int(end - now))
-        else:
-            out.update(state="over", over=int(now - first), told=sum(1 for t in chain if t >= first))
+    # Notices that lead to the deadline now in force: an edit replaces it, and ends the chain.
+    first, told, want = None, 0, end
+    for n in _notices(con, row["id"]):
+        if n["next"] != want:
+            break
+        first, told, want = n["deadline"], told + 1, n["deadline"]
+    if first is None and end <= now:
+        first = end
+    if first is None:
+        out.update(state="left", left=int(end - now))
     else:
-        out.update(state="over", over=int(now - end), told=0)
+        out.update(state="over", over=int(now - first), told=told)
     return out
 
 

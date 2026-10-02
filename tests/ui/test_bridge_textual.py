@@ -2248,9 +2248,9 @@ async def test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page() -> None
         con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 4350, running))
         # past its deadline twice over: the daemon told the opener at each, and began the next stretch
         con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 3600 - 5, late))
-        for ts in (now - 3600 - 5, now - 5):
-            db.add_event(con, actions.HUMAN, "task_timeout_exceeded", {"task_id": late, "timeout_s": 3600})
-            con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (ts,))
+        for deadline, nxt in ((now - 3610, now - 5), (now - 5, now + 3600 - 5)):
+            db.add_event(con, actions.HUMAN, "task_timeout_exceeded",
+                         {"task_id": late, "timeout_s": 3600, "deadline": deadline, "next": nxt})
         con.commit()
         rows = {r["id"]: r for r in actions.task_rows(con)}
         text = {tid: actions.timeout_text(rows[tid]["timeout"]) for tid in (queued, running, late)}
@@ -2267,9 +2267,9 @@ async def test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page() -> None
         check("timeout: edit --timeout is reflected: no longer over, a fresh 2h", ok and after["state"] == "left"
               and after["length"] == 7200 and 7190 <= after["left"] <= 7200, f"{said} {after}")
         con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 3600 - 5, late))
-        for ts in (now - 3600 - 5, now - 5):
-            db.add_event(con, actions.HUMAN, "task_timeout_exceeded", {"task_id": late, "timeout_s": 3600})
-            con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (ts,))
+        for deadline, nxt in ((now - 3610, now - 5), (now - 5, now + 3600 - 5)):
+            db.add_event(con, actions.HUMAN, "task_timeout_exceeded",
+                         {"task_id": late, "timeout_s": 3600, "deadline": deadline, "next": nxt})
         con.execute("UPDATE tasks SET timeout_s = 3600 WHERE id = ?", (late,))
         con.commit()
     finally:
