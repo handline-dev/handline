@@ -208,6 +208,126 @@ def test_a_process_whose_environment_ps_withholds_is_not_ours_only_if_it_is_not_
         obsmod._ps_command, obsmod._owner_uid, obsmod.process_table, obsmod.ENV_RETRY_S = real
 
 
+def _table(listed: bool | None):
+    """What the process table says about backend: listed, absent, or unreadable."""
+    obsmod.live_sessions = (lambda: None) if listed is None else (lambda: {"backend": 4200} if listed else {})
+    dmn_delivery._seen.clear()
+    dmn_delivery._drawn.clear()
+
+
+def test_a_session_is_present_if_the_table_lists_it_or_the_screen_draws_it(home: Path) -> None:
+    con, screen = _world(home, COMPOSER_EMPTY, table=True)
+    reads: list[int] = []
+    real_read = screen.read
+    screen.read = lambda handle, limit=40: (reads.append(1), real_read(handle, limit))[1]
+    orcamod._screen = screen.read
+    try:
+        _table(True)
+        check("present: a session the table lists is present, and the screen is not read for it",
+              dmn_delivery.session_present("backend") and reads == [], str(reads))
+        _table(False)
+        check("present: the table lists none but the screen draws a session: present",
+              dmn_delivery.session_present("backend"))
+        check("present: and the screen answer is held a few seconds, not read for every ask",
+              dmn_delivery.session_present("backend") and dmn_delivery.session_present("backend") and len(reads) == 1,
+              str(reads))
+        _table(None)
+        check("present: a table that could not be read, with a session drawn: present",
+              dmn_delivery.session_present("backend"))
+        screen.rows = list(SHELL)
+        _table(False)
+        check("present: none listed and a shell drawn: not present", not dmn_delivery.session_present("backend"))
+        _table(None)
+        check("present: an unreadable table and a shell: still not (fail closed)", not dmn_delivery.session_present("backend"))
+        orcamod._screen = lambda h, limit=40: None
+        _table(False)
+        check("present: none listed and a screen that cannot be read: not present", not dmn_delivery.session_present("backend"))
+        db.set_terminal(con, "backend", None, "wt")
+        orcamod._screen = real_read
+        screen.rows = list(COMPOSER_EMPTY)
+        _table(False)
+        check("present: no terminal, nothing drawn", not dmn_delivery.session_present("backend"))
+    finally:
+        con.close()
+
+
+def test_work_reaches_a_session_the_table_missed(home: Path) -> None:
+    """The starvation: a live idle session the table did not list was never typed at, and its queue waited."""
+    con, screen = _world(home, COMPOSER_EMPTY, table=False)
+    _table(False)
+    try:
+        ok, said = dmn_messaging.send_message(con, "backend", "please look at this", lambda m: None)
+        check("starved: a message to a session the table missed is typed, not queued with 'no session'",
+              ok and "please look at this" in screen.sent and "typed" in said, f"{ok} {said} {screen.sent}")
+        screen.sent.clear()
+        screen.rows = list(SHELL)
+        _table(False)
+        ok, said = dmn_messaging.send_message(con, "backend", "and this", lambda m: None)
+        check("starved: and at a shell with no session listed nothing is typed",
+              "and this" not in screen.sent, f"{ok} {said} {screen.sent}")
+    finally:
+        con.close()
+
+
+def test_a_session_the_table_misses_is_a_block_the_founder_sees_with_how_the_table_read_it(home: Path) -> None:
+    con, screen = _world(home, COMPOSER_EMPTY, table=False)
+    _table(False)
+    real_diag = obsmod.diagnose
+    obsmod.diagnose = lambda: ["pid 77: OCP_AGENT=orcapipe.other", "pid 78: its environment could not be read"]
+    try:
+        now = int(time.time())
+        lines: list[str] = []
+        blockedmod._probed.clear()
+        blockedmod._checked.clear()
+        con.execute("UPDATE requests SET state = 'landed'")      # nothing waiting: the block is not about work
+        blockedmod.sweep(con, lines.append, now)
+        rec = db.block_get(con, "backend")
+        check("miss block: with the table and the screen disagreeing a block is opened for the table",
+              rec is not None and rec["kind"] == blockedmod.TABLE_MISS and rec["origin"] == blockedmod.TABLE_ORIGIN,
+              str(dict(rec) if rec else None))
+        check("miss block: it says how each session-looking process was read, and nothing of the environment",
+              "pid 77: OCP_AGENT=orcapipe.other" in rec["detail"] and "could not be read" in rec["detail"], rec["detail"])
+        check("miss block: it is on the founder's list after the usual wait, not at once",
+              rec["show_at"] == now + blockedmod.SHOW_AFTER_S and "table misses" in "".join(lines), str(lines))
+        check("miss block: and its words are the bridge's own label and advice",
+              blockedmod.headline(rec["kind"], "").startswith("process table misses a live session")
+              and "on the screen's word" in blockedmod.ADVICE[blockedmod.TABLE_MISS])
+        blockedmod.sweep(con, lines.append, now + blockedmod.DECISION_AFTER_S + 1)
+        rec = db.block_get(con, "backend")
+        check("miss block: if it stands it becomes a request to the founder, like any block",
+              rec["request_id"] is not None, str(dict(rec)))
+        # The table lists it again: the block ends.
+        _table(True)
+        blockedmod._checked.clear()
+        blockedmod.sweep(con, lines.append, now + blockedmod.DECISION_AFTER_S + 30)
+        check("miss block: once the table lists the session again it ends", db.block_get(con, "backend") is None, str(lines[-2:]))
+    finally:
+        obsmod.diagnose = real_diag
+        con.close()
+
+
+def test_the_diagnosis_names_each_session_looking_process_and_leaks_no_environment(home: Path) -> None:
+    _daemon_home(home, 20)
+    real = (obsmod.process_table, obsmod._env_or_reason)
+    try:
+        obsmod.process_table = lambda: [(1, "claude one"), (2, "claude two"), (3, "claude three"), (4, "vim notes"),
+                                        (5, "claude five")]
+        envs = {1: ("OCP_AGENT=backend ANTHROPIC_SECRET=sk-ant-hunter2 X=1", False), 2: (None, True),
+                3: (None, False), 5: ("PATH=/bin HOME=/h", False)}
+        obsmod._env_or_reason = lambda pid: envs[pid]
+        got = obsmod.diagnose()
+        check("diagnose: each session-looking process is named with how it was read, others left out",
+              got == ["pid 1: OCP_AGENT=backend", "pid 2: another user's process",
+                      "pid 3: its environment could not be read", "pid 5: OCP_AGENT=unset"], str(got))
+        check("diagnose: and nothing of the rest of an environment is in it", "hunter2" not in " ".join(got))
+        obsmod.process_table = lambda: None
+        check("diagnose: an unreadable table says so", obsmod.diagnose() == ["the process table could not be read"])
+        obsmod.process_table = lambda: [(4, "vim notes")]
+        check("diagnose: and none looking like a session says that", obsmod.diagnose() == ["no process looks like a session"])
+    finally:
+        obsmod.process_table, obsmod._env_or_reason = real
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_screen_says_whether_a_session_is_drawn(Path(td) / "g1"))
@@ -216,6 +336,10 @@ def main() -> int:
         run(lambda: test_the_sweep_does_not_call_a_drawn_session_gone(Path(td) / "g4"))
         run(lambda: test_a_session_end_event_alone_marks_nothing_closed(Path(td) / "g5"))
         run(lambda: test_a_process_whose_environment_ps_withholds_is_not_ours_only_if_it_is_not_ours(Path(td) / "g6"))
+        run(lambda: test_a_session_is_present_if_the_table_lists_it_or_the_screen_draws_it(Path(td) / "g7"))
+        run(lambda: test_work_reaches_a_session_the_table_missed(Path(td) / "g8"))
+        run(lambda: test_a_session_the_table_misses_is_a_block_the_founder_sees_with_how_the_table_read_it(Path(td) / "g9"))
+        run(lambda: test_the_diagnosis_names_each_session_looking_process_and_leaks_no_environment(Path(td) / "g10"))
     return run_area(tests)
 
 

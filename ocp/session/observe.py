@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from . import orca
 from .. import vendors
+from ..infra import textsafe
 
 
 @dataclass
@@ -205,6 +206,25 @@ def live_sessions() -> dict[str, int] | None:
         if name:
             found.setdefault(name, pid)
     return found
+
+
+def diagnose() -> list[str]:
+    """One line per process the table takes for an agent's session, saying how it was read: whose it is
+    named as, or why it could not be. For the person looking into a session the table did not list.
+    Only the agent's name is read out of the environment, never the rest of it."""
+    table = process_table()
+    if table is None:
+        return ["the process table could not be read"]
+    lines = []
+    for pid, cmd in table:
+        if not is_session(cmd):
+            continue
+        env, not_ours = _env_or_reason(pid)
+        if env is None:
+            lines.append(f"pid {pid}: " + ("another user's process" if not_ours else "its environment could not be read"))
+        else:
+            lines.append(f"pid {pid}: OCP_AGENT={textsafe.oneline(_extract(env, 'OCP_AGENT') or 'unset')[:60]}")
+    return lines or ["no process looks like a session"]
 
 
 def observe(agents: list[str], terminals: dict[str, str | None]) -> dict[str, Observed]:

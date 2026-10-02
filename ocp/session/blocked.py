@@ -78,6 +78,12 @@ EXIT_ORIGIN = "exit"
 PROBE_S = 30
 
 NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
+# The process table lists no session for an agent whose terminal draws one. Work is typed at it on the
+# screen's word, so this is not an obstacle; it is a fault in the table that the founder is told about
+# (the bridge, `ocp ps`, and a request once it outlasts DECISION_AFTER_S), with how each session-looking
+# process was read, since the table missing a live session is what starved the auditor for hours.
+TABLE_MISS = "table miss"
+TABLE_ORIGIN = "table"
 
 # What to do about each, in the words of the bridge's own keys. STALLED's is
 # `w`, not the old `u`/unstall - founder #1620/#1631 folded that key into
@@ -90,11 +96,13 @@ ADVICE = {
     NO_SESSION: "w on the agents panel wakes it",
     STALLED: "w on the agents panel clears it",
     ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
+    TABLE_MISS: "the agent is being given its work on the screen's word; report this, with the pids named, so the process table's miss can be found",
 }
 LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the background",
          orca.UNREADABLE: "screen unreadable",
          ORCA_DOWN: "orca unreachable",
-         NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled"}
+         NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled",
+         TABLE_MISS: "process table misses a live session"}
 
 _checked: dict[str, int] = {}
 _probed: dict[str, int] = {}
@@ -112,6 +120,24 @@ def headline(kind: str, detail: str) -> str:
     only its title."""
     head = detail.split(" - ")[0] if kind == orca.MODAL else detail
     return f"{LABEL.get(kind, kind)}: {head}" if head else LABEL.get(kind, kind)
+
+
+def table_miss(row) -> tuple[str, str, str] | None:
+    """(kind, detail, title) when the process table lists no session for this open agent but its terminal
+    draws one, else None - also None when the table could not be read, which says nothing either way."""
+    from ..daemon import delivery as dmn_delivery
+
+    handle = row["terminal"]
+    if row["closed_at"] or not handle or not orca.available():
+        return None
+    if dmn_delivery.table_lists_session(row["agent"]) is not False:
+        return None
+    if not dmn_delivery.session_still_drawn(handle, wait=False):
+        return None
+    from . import observe
+    seen = "; ".join(observe.diagnose())[:300]
+    return (TABLE_MISS, "its terminal draws a session the process table does not list - it is given its work "
+                        f"on the screen's word. How the table read each session-looking process: {seen}", "")
 
 
 def work_waiting(con, agent: str, row, now: int) -> str:
@@ -385,6 +411,20 @@ def _track(con, agent: str, row, now: int, log):
 
     rec = db.block_get(con, agent)
     work = work_waiting(con, agent, row, now)
+    if rec is not None and rec["origin"] == TABLE_ORIGIN:
+        # The table's miss stands while it does: re-read, and let a real obstacle to giving the work
+        # take the agent's one block.
+        if now - _checked.get(agent, 0) < RECHECK_S:
+            return rec
+        _checked[agent] = now
+        if work and classify(con, agent, row) is not None:
+            db.block_clear(con, agent)
+            rec = None
+        elif table_miss(row) is None:
+            _end(con, agent, rec, "the table lists it again, or its screen no longer draws one", log)
+            return None
+        else:
+            return rec
     own = rec is not None and rec["origin"] in ("close", EXIT_ORIGIN)
     if not work and not own:
         if rec:
@@ -394,7 +434,13 @@ def _track(con, agent: str, row, now: int, log):
         _probed[agent] = now
         found = exit_dialog(row)
         if found is None:
-            return None
+            found = table_miss(row)
+            if found is None:
+                return None
+            db.block_open(con, agent, found[0], found[1], "", now, show_at=now + SHOW_AFTER_S,
+                          origin=TABLE_ORIGIN, title="")
+            log(f"  {agent}: the process table misses its live session - {found[1]}")
+            return db.block_get(con, agent)
         kind, detail, title = found
         db.block_open(con, agent, kind, detail, "", now, show_at=now + SHOW_AFTER_S,
                       origin=EXIT_ORIGIN, title=title)
