@@ -159,12 +159,55 @@ def test_a_notice_rides_on_the_next_delivery_and_never_wakes_or_types_alone(home
         con.close()
 
 
+def test_task_board_says_from_before_the_notice_column_are_never_carried(home: Path) -> None:
+    """T949: the upgrade adds `notice` and backfills nothing, so a weeks-old "done by" say that was
+    landed and undelivered when T935 shipped does not drip into every later delivery."""
+    _daemon_home(home, 20)
+    hand_edit_team(TEAM)
+    for a in ("manager", "worker", "x.helper"):
+        agents.register(a)
+    con = db.connect()
+    try:
+        old = db.add_request(con, db.NOTICE_REQUESTER, "worker", "T7 done by x.helper: weeks ago", None, None,
+                             "fire_and_forget", "say", 0, None, state="done")
+        new = db.add_request(con, db.NOTICE_REQUESTER, "worker", "T8 done by x.helper: just now", None, None,
+                             "fire_and_forget", "say", 0, None, notice=True)
+        con.execute("UPDATE requests SET notice = NULL WHERE id = ?", (old,))
+        check("setup: the old say is landed and undelivered, like a notice", db.get_request(con, old)["state"] == "landed"
+              and db.get_request(con, old)["delivered_at"] is None)
+        check("old rows: only the row born as a notice is carried", [r["id"] for r in db.pending_notices(con, "worker")] == [new])
+        # an old database: the column is gone, with such a row in it
+        con.commit()
+        con.execute("ALTER TABLE requests DROP COLUMN notice")
+        con.commit()
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(requests)")]
+        check("upgrade: connecting to an old database adds the column", "notice" in cols, str(cols))
+        check("upgrade: and backfills nothing - the row that was there before is not carried",
+              db.pending_notices(con, "worker") == [])
+        later = db.add_request(con, db.NOTICE_REQUESTER, "worker", "T9 done by x.helper: after", None, None,
+                               "fire_and_forget", "say", 0, None, notice=True)
+        check("upgrade: a notice written after it is carried, and a second connect adds nothing twice",
+              [r["id"] for r in db.pending_notices(con, "worker")] == [later])
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("upgrade: reconnecting keeps the column and the row", [r["id"] for r in db.pending_notices(con, "worker")] == [later])
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(Path(td) / 'm0'))
         run(lambda: test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(Path(td) / 'm1'))
         run(lambda: test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(Path(td) / 'm2'))
         run(lambda: test_a_notice_rides_on_the_next_delivery_and_never_wakes_or_types_alone(Path(td) / 'm3'))
+        run(lambda: test_task_board_says_from_before_the_notice_column_are_never_carried(Path(td) / 'm4'))
     return run_area(tests)
 
 

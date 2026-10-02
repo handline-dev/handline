@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS requests (
   -- When the human pressed "send now" on this (still undelivered) request: it
   -- is told to its target at once, ahead of a head that is already open.
   send_now INTEGER,
+  -- T949: 1 on a notice (`add_request(notice=True)`): only information, carried by the target's next
+  -- typed delivery. Not set on the task-board says that came before it.
+  notice INTEGER,
   -- T781: when the founder read it. Used only where the target is the founder: a say to him is
   -- born landed and NULL here is "unread" in For you.
   read_at INTEGER,
@@ -531,6 +534,10 @@ def _pre_schema_migrate(con, legacy: bool = True) -> None:
         con.execute("UPDATE requests SET edge_ok = 1")
     if request_cols and "send_now" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN send_now INTEGER")
+    if request_cols and "notice" not in request_cols:
+        con.execute("ALTER TABLE requests ADD COLUMN notice INTEGER")
+        # No backfill: a task-board say from before this column is a "done by" line about work that
+        # ended days ago, and carried by a delivery now it would read as news.
     if request_cols and "moot_by" not in request_cols:
         con.execute("ALTER TABLE requests ADD COLUMN moot_by INTEGER")
         # No backfill: which existing "replaced by #N" row retired which is
