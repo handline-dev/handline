@@ -959,7 +959,6 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
 # The body `actions.tasks.task_handoff` sends: "T<n> handed to you by X: <title>\n\n<note>".
 _HANDOFF_BODY = re.compile(r"\AT(\d+) handed to you by (\S+?): (.*?)\n\n(.*)\Z", re.S)
 TITLE_SHOWN = 60
-NOTE_SHOWN = 400
 
 
 def handoff_parts(body: str | None) -> tuple[int, str, str, str] | None:
@@ -1035,14 +1034,14 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded
     more = depth - 1
     # One line; `ocp read` has the rest. The message is three lines at most
     # (`MAX_TYPED_LINES`), so what follows the body rides on its line. A task handoff
-    # shows its note first and cuts only the title: every handoff of a long-titled
+    # shows its whole note first and cuts only the title: every handoff of a long-titled
     # task starts with the same title, so a cap over both hid the note (#2377).
     parts = handoff_parts(head["body"]) if head["kind"] == "task" else None
     if parts:
         tid, _, title, note = parts
         note = textsafe.oneline(note) or "(no note)"
         title = textsafe.oneline(title)
-        shown = (f"T{tid} handed to you. Note: {note if len(note) <= NOTE_SHOWN else note[:NOTE_SHOWN] + '…'} "
+        shown = (f"T{tid} handed to you. Note: {note} "
                  f"Title: {title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN].rstrip() + '…'}")
     else:
         body = textsafe.oneline(head["body"] or "").strip() or "(empty)"

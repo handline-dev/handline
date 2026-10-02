@@ -23,7 +23,7 @@ from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ig
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
+from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_show, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
 from .team import cmd_team, cmd_team_init, cmd_team_seal
 
 
@@ -503,6 +503,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="add or edit: read the memo text from this file, or from stdin with '-' "
                         "(the text may be '-' too) - safe against a shell expanding backticks or $()")
     p.set_defaults(fn=cmd_task_memo)
+    p = tk.add_parser("show", help="one task whole: its brief, memos, blockers, children and handoffs")
+    p.add_argument("task", type=_task_arg, metavar="T")
+    p.set_defaults(fn=cmd_task_show)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="done and discarded tasks too")
     p.add_argument("--owner", default=None, help="only this agent's tasks")
@@ -519,7 +522,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
     p = tk.add_parser("edit", help="change a task's owner and/or title - opener or "
-                                   "founder only, and never silent about it")
+                                   "founder only (its owner may also record what it waits on), "
+                                   "and never silent about it")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
     p.add_argument("--title", default=None)

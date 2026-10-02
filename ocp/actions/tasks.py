@@ -816,6 +816,14 @@ def _task_edit_guard(row, tid: int, by: str) -> str | None:
     return None
 
 
+def _blocker_guard(row, tid: int, by: str) -> str | None:
+    """None if `by` may record or clear what task `tid` waits on: whoever may edit it, or its owner,
+    who is the one that knows what it is waiting for."""
+    if by == row["owner"]:
+        return None
+    return _task_edit_guard(row, tid, by)
+
+
 def _link_delivery(con, tid: int, owner: str, rid: int) -> None:
     """Link a task to the request that delivers it, and make it the owner's
     current task if it holds none yet - shared by `task_new`'s immediate
@@ -1536,6 +1544,41 @@ def task_brief(con, tid: int) -> str | None:
     return (first["body"] or "") if first is not None else None
 
 
+def task_detail(con, tid: int) -> list[str] | None:
+    """T936: one task as lines to read: where it stands, its brief, memos, what it waits on, its
+    children and its handoffs, each note whole. None when there is no such task. The brief lives in
+    the first request sent for the task, so without this it took a list, a lookup and a read."""
+    row = db.get_task(con, tid)
+    if row is None:
+        return None
+    state = task_state(con, row)
+    out = [f"T{tid}  {row['title']}",
+           f"state {state}   owner {row['owner']}   opened by {row['opened_by']}   P{row['priority']}"
+           + (f"   parent T{row['parent_task']}" if row["parent_task"] else "")
+           + f"   created {timefmt.stamp(row['created_at'])}"]
+    if row["done_evidence"]:
+        out.append(f"done {timefmt.stamp(row['done_at'])}: {row['done_evidence']}")
+    if row["discarded_by"]:
+        out.append(f"discarded by {row['discarded_by']}: {row['discard_reason'] or 'no reason given'}")
+    first = db.first_linked_request(con, tid)
+    out += ["", "brief", (first["body"] if first is not None else "") or "(none)"]
+    memos = db.task_memos(con, tid)
+    if memos:
+        out += ["", "memos"]
+        out += [f"  memo {m['id']}  {m['author']}  {timefmt.stamp(m['created_at'])}\n    {m['body']}" for m in memos]
+    blockers = db.task_blockers(con, tid)
+    if blockers:
+        out += ["", "waiting on"] + [f"  T{b['id']} ({b['owner']})  {b['title']}" for b in blockers]
+    kids = con.execute("SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", (tid,)).fetchall()
+    if kids:
+        out += ["", "child tasks"] + [f"  T{k['id']} ({k['owner']}, {task_state(con, k)})  {k['title']}" for k in kids]
+    hands = db.task_handoffs(con, tid)
+    if hands:
+        out += ["", "handoffs"]
+        out += [f"  {timefmt.stamp(h['ts'])}  {h['from']} -> {h['to']}\n    {h['note']}" for h in hands]
+    return out
+
+
 def tell_body_edited(con, tid: int, by: str) -> None:
     """T689: after `edit_task` changed a task's body and its write committed - the holder is told at
     once, typed like a say, when the task is being worked; the change itself is in its record."""
@@ -1918,7 +1961,7 @@ def add_block(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
-    guard = _task_edit_guard(row, tid, by)
+    guard = _blocker_guard(row, tid, by)
     if guard:
         return False, guard
     if db.get_task(con, blocks_on) is None:
@@ -1949,7 +1992,7 @@ def unblock(con, tid: int, blocks_on: int, by: str) -> tuple[bool, str]:
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
-    guard = _task_edit_guard(row, tid, by)
+    guard = _blocker_guard(row, tid, by)
     if guard:
         return False, guard
     if not db.remove_block(con, tid, blocks_on):

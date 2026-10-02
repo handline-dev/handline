@@ -2507,7 +2507,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
             "hr withdraw": [(["hr", "withdraw", "withdrawtest"], {"OCP_AGENT": "reviewer"},
                              "hr withdraw")],
-            "guide": [["guide"]], "task list": [["task", "list"]],
+            "guide": [["guide"]], "task list": [["task", "list"]], "task show": [["task", "show", "T1"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "progress": [(["progress"], {"OCP_AGENT": "reviewer"}, "progress")],
             "withdraw": [(["withdraw", str(d + 1)], {"OCP_AGENT": "marina"}, "withdraw")],

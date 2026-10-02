@@ -56,6 +56,7 @@ back to the account its session lives on.""",
                                   is required; -t is how long before you are told it is
                                   still open. A decision only the founder can make is the
                                   same with --owner human
+  ocp task show T<n>              one task whole: brief, memos, blockers, children, handoffs
   ocp task memo T<n> add "..."    a correction to a task you gave, not a message behind it
   ocp task discard T<n> "<why>"   throw away a task that is not done
   ocp say <agent> "..."           a message: typed at once, needs no answer, starts no work.

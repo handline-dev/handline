@@ -51,8 +51,8 @@ def test_a_handoff_notice_shows_the_note_and_cuts_only_the_title(home: Path) -> 
         body = f"T{tid} handed to you by worker: short title\n\n{long_note}"
         con.execute("UPDATE requests SET body = ? WHERE id = ?", (body, head["id"]))
         cut = dmn_delivery.tell_text(con, db.get_request(con, head["id"]), 1)
-        check("notice: a note past 400 characters is cut, with the title still shown after it",
-              "x" * 400 + "…" in cut and "Title: short title" in cut, cut)
+        check("notice: a long note is shown whole, with the title still shown after it",
+              long_note in cut and "…" not in cut and "Title: short title" in cut, cut)
     finally:
         con.close()
 

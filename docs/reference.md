@@ -38,6 +38,7 @@ One line each. `ocp <command> --help` has the options, and `ocp guide <topic>` p
 |---|---|
 | `ocp task new --owner <agent> -t <time> "<title>" "<body>"` | Give work, or ask something that needs an answer. |
 | `ocp task list` | The board. |
+| `ocp task show T<n>` | One task in full: brief, memos, blockers, children, handoffs. |
 | `ocp task done T<n> "<evidence>"` | Finish your task. A sha must be on `main`. |
 | `ocp task handoff T<n> <agent> "<note>"` | Pass your task to someone else. |
 | `ocp task reopen T<n> "<why>"` | The asker says a result is wrong. |
