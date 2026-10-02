@@ -27,6 +27,8 @@ def _tree(root: Path) -> dict:
     out = {}
     for d, _dirs, files in os.walk(root, followlinks=False):
         for f in files:
+            if f.startswith("db.sqlite"):      # created by the readers the test calls, not by the move
+                continue
             p = Path(d) / f
             out[str(p.relative_to(root))] = p.read_bytes() if not p.is_symlink() else b"->" + os.readlink(p).encode()
     return out
@@ -38,7 +40,7 @@ def _fake_user(home: Path) -> mh.Plan:
     old = user / ".orcapipe"
     (old / "agents" / "backend").mkdir(parents=True)
     (old / "agents" / "backend" / "agent.yaml").write_text("model: x\n")
-    (old / "db.sqlite").write_bytes(b"\x00db\x01")
+    (old / "notes.bin").write_bytes(b"\x00data\x01")
     (old / "shared" / ".claude").mkdir(parents=True)
     (old / "shared" / ".claude" / "settings.json").write_text(json.dumps({
         "permissions": {"additionalDirectories": [str(old), "/other"]},
@@ -58,6 +60,11 @@ def test_the_home_and_its_protected_store_move_together_and_move_back(home: Path
     os.environ["OCP_TEST_ROOT"], os.environ["OCP_HOME"] = str(p.user), str(p.old)
     os.environ.pop("HANDLINE_HOME", None)
     try:
+        accounts.register("alpha")          # links its .claude into shared/, as every account has
+        link = p.old / "accounts" / "alpha" / ".claude" / "settings.json"
+        check("migrate: the fixture has an account link into the old home",
+              link.is_symlink() and os.readlink(link) == str(p.old / "shared" / ".claude" / "settings.json"),
+              str(os.readlink(link)) if link.is_symlink() else "no link")
         check("migrate: the script's store name is the one the code looks in",
               protected.root_for(p.old) == p.store_old, f"{protected.root_for(p.old)} vs {p.store_old}")
         before = _tree(p.user)
@@ -73,7 +80,7 @@ def test_the_home_and_its_protected_store_move_together_and_move_back(home: Path
         steps = mh.apply(p, never)
         check("migrate: the home is moved, a link is left, the store is renamed",
               p.new.is_dir() and p.old.is_symlink() and os.path.realpath(p.old) == str(p.new)
-              and p.store_new.is_dir() and not p.store_old.exists() and len(steps) == 4, str(steps))
+              and p.store_new.is_dir() and not p.store_old.exists() and len(steps) == 5, str(steps))
         os.environ["OCP_HOME"] = str(p.new)
         check("migrate: the founder's decision is still found under the new home",
               protected.get("hr-decisions", "abc") == '{"call": "approved"}')
@@ -88,6 +95,16 @@ def test_the_home_and_its_protected_store_move_together_and_move_back(home: Path
               and settings["sandbox"]["network"]["allowUnixSockets"] == [str(p.old / "daemon.sock"), str(p.new / "daemon.sock")],
               json.dumps(settings))
         check("migrate: the original settings are kept", p.backup.is_file())
+        os.environ["OCP_HOME"] = str(p.new)
+        newlink = p.new / "accounts" / "alpha" / ".claude" / "settings.json"
+        check("migrate: the account link now names the new path",
+              os.readlink(newlink) == str(p.new / "shared" / ".claude" / "settings.json"), os.readlink(newlink))
+        check("migrate: accounts.unlinked() finds nothing to repair", accounts.unlinked() == [], str(accounts.unlinked()))
+        r = doctor.Report()
+        doctor._check_accounts(r)
+        check("migrate: doctor's account link check passes, no 'does not point at shared'",
+              not any("does not point at shared" in row[1] for row in r.rows), str(r.rows))
+        os.environ["OCP_HOME"] = str(p.old)
         try:
             mh.apply(p, never)
             again = False
@@ -95,10 +112,17 @@ def test_the_home_and_its_protected_store_move_together_and_move_back(home: Path
             again = True
         check("migrate: a second apply is refused", again)
 
-        undone = mh.undo(p)
+        try:
+            mh.undo(p, lambda: True)
+            undo_blocked = False
+        except RuntimeError:
+            undo_blocked = True
+        check("migrate: undo refuses while the daemon runs, and changes nothing", undo_blocked and p.new.is_dir())
+        undone = mh.undo(p, never)
         check("migrate: undo puts every file back exactly as it was",
               _tree(p.user) == before and not p.old.is_symlink() and not p.new.exists()
-              and p.store_old.is_dir() and not p.store_new.exists(), str(undone))
+              and p.store_old.is_dir() and not p.store_new.exists(),
+              str(sorted(set(_tree(p.user)) ^ set(before))) + str(undone))
         check("migrate: a second undo does nothing", mh.undo(p) == ["nothing to undo"] and _tree(p.user) == before)
     finally:
         for k, v in saved.items():

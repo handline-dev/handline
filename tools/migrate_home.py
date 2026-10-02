@@ -11,11 +11,14 @@ from an agent: the protected store is not writable from a sandbox. The steps, in
   2. The protected store folder is renamed to match. Its name comes from the home's real path, so
      the folder for ~/.orcapipe is not the one the code looks in once the home is ~/.handline;
      without this step every decision, trust record and session token would seem lost.
-  3. The shared settings.json gets the new path beside each old one (additionalDirectories,
+  3. Links inside the home that point at the old path (each account's .claude links into shared/) are
+     re-aimed at the new one: doctor and `ocp account` compare those links as text.
+  4. The shared settings.json gets the new path beside each old one (additionalDirectories,
      sandbox allowWrite and allowUnixSockets): a sandbox matches real paths, and the real path changed.
      The original is kept as settings.json.pre-migration in the new home.
-`undo` reverses each step that is still in place and can be run more than once. Afterwards restart the
-daemon and relaunch the agent sessions (`ocp close` on each idle one): a running session keeps the
+`undo` reverses each step that is still in place, refuses while the daemon runs, and can be run more than
+once. The launchd job keeps OCP_HOME=~/.orcapipe: it works through the link and resolves to the new home.
+Afterwards restart the daemon and relaunch the agent sessions (`ocp close` on each idle one): a running session keeps the
 old path in its sandbox settings.
 """
 from __future__ import annotations
@@ -104,6 +107,24 @@ def _add_new_paths(node, old: str, new: str) -> bool:
     return changed
 
 
+def _repoint(root: Path, frm: Path, to: Path) -> int:
+    """Re-aim every link under `root` whose target is at or below `frm` at the same place under `to`.
+    The account folders hold absolute links into the shared folder, and code compares those as text."""
+    n = 0
+    for d, dirs, files in os.walk(root, followlinks=False):
+        for name in dirs + files:
+            link = Path(d) / name
+            if not link.is_symlink():
+                continue
+            target = os.readlink(link)
+            if target == str(frm) or target.startswith(str(frm) + "/"):
+                tmp = link.with_name(link.name + ".repoint")
+                os.symlink(str(to) + target[len(str(frm)):], tmp)
+                os.replace(tmp, link)
+                n += 1
+    return n
+
+
 def apply(p: Plan, daemon_running: Callable[[], bool]) -> list[str]:
     """The steps done, in order. Raises RuntimeError naming what stopped it, with the earlier steps
     still in place for `undo`."""
@@ -115,6 +136,7 @@ def apply(p: Plan, daemon_running: Callable[[], bool]) -> list[str]:
     done.append(f"moved {p.old} to {p.new}")
     os.symlink(p.new, p.old)
     done.append(f"left a link at {p.old}")
+    done.append(f"re-aimed {_repoint(p.new, p.old, p.new)} links inside it at the new path")
     if p.store_old.is_dir():
         os.rename(p.store_old, p.store_new)
         done.append(f"renamed the protected store to {p.store_new.name}")
@@ -133,8 +155,10 @@ def apply(p: Plan, daemon_running: Callable[[], bool]) -> list[str]:
     return done
 
 
-def undo(p: Plan) -> list[str]:
-    """Reverse what is still in place; a second run does nothing."""
+def undo(p: Plan, daemon_running: Callable[[], bool] = lambda: False) -> list[str]:
+    """Reverse what is still in place; a second run does nothing. Refuses while the daemon runs."""
+    if daemon_running():
+        raise RuntimeError("the daemon is running: stop it first")
     done = []
     if p.backup.is_file():
         shutil.copy2(p.backup, p.settings)
@@ -147,8 +171,9 @@ def undo(p: Plan) -> list[str]:
         p.old.unlink()
         done.append(f"removed the link at {p.old}")
     if p.new.is_dir() and not os.path.lexists(p.old):
+        n = _repoint(p.new, p.new, p.old)
         os.rename(p.new, p.old)
-        done.append(f"moved {p.new} back to {p.old}")
+        done.append(f"re-aimed {n} links back and moved {p.new} back to {p.old}")
     return done or ["nothing to undo"]
 
 
@@ -176,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ready" if not stop else "blocked:\n  " + "\n  ".join(stop))
         return 0 if not stop else 1
     try:
-        for line in (apply(p, running) if args.action == "apply" else undo(p)):
+        for line in (apply(p, running) if args.action == "apply" else undo(p, running)):
             print(line)
     except (RuntimeError, OSError, ValueError) as e:
         print(f"stopped: {e}\nrun `{sys.argv[0]} undo` to put back what was done", file=sys.stderr)
