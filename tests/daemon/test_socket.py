@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -295,6 +296,76 @@ def test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(home: Pat
         con.close()
 
 
+def test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_through_the_daemon(home: Path) -> None:
+    """An agent a human ended comes back as the same conversation: the daemon records the closed
+    session and resumes it when work arrives. `ocp close --fresh` ends a live session, or forgets a
+    closed one's id, so the wake starts a new conversation. And `ocp close` is the daemon's to do,
+    since an agent's own sandbox cannot read the process table and called a live session "no session"."""
+    from ocp.cli import task as cli_task
+    from ocp.session import launch as launchmod
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+            orcamod.close_terminal, cli_task.dmn_client, launchmod.find_room)
+    sent_to_daemon: list[dict] = []
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.idle_now = lambda h: True
+        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
+        sent: list[str] = []
+        table = sessions_are()
+        orcamod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+
+        # A human ended it: closed, with its session recorded; work arrives.
+        db.set_closed(con, "backend", "sess-1")
+        said = dmn_socket_server._handle_request({"verb": "close", "agent": "backend", "fresh": True}, lambda m: None)
+        row = db.get_agent_state(con, "backend")
+        check("close --fresh: a closed agent stays closed and its resume id is gone",
+              said["ok"] and row["closed_at"] and row["resume_session"] is None, str(said))
+        db.add_pending(con, "backend", "wake up please", int(time.time()))
+        launchmod.find_room = lambda agent: "alpha"      # a fresh start picks an account; a resume needs none
+        logs = []
+        dmn_evaluate.tick(con, logs.append)
+        check("close --fresh: the wake that follows starts a new session, not a resume",
+              any(" launch " in t for t in sent) and not any("--resume" in t for t in sent), str(sent) + str(logs))
+        check("close --fresh: and the agent is not closed any more",
+              not db.get_agent_state(con, "backend")["closed_at"])
+
+        # A live idle session is ended, and then not resumed either.
+        sent.clear()
+        table = sessions_are("backend")
+        dmn_delivery._seen_at["t"] = 0       # the tick's reading of the table is not this one
+        orcamod.send = relaunching_send(sent, table)
+        orcamod.close_session = exit_ends_session("backend")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.set_cursor(con, "typed_at:backend", int(time.time()) - 3600)     # the wake above typed at it
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-2", "pct_5h": 20}))
+        said = dmn_socket_server._handle_request({"verb": "close", "agent": "backend", "fresh": True}, lambda m: None)
+        row = db.get_agent_state(con, "backend")
+        check("close --fresh: a live idle session is ended and its id dropped",
+              said["ok"] and not table and row["closed_at"] and row["resume_session"] is None, str(said))
+        plain = dmn_socket_server._handle_request({"verb": "close", "agent": "nobody-here"}, lambda m: None)
+        check("close: a refusal comes back as not ok, for the CLI's exit code", not plain["ok"], str(plain))
+
+        # The CLI hands the request to the daemon, and says so when there is none.
+        cli_task.dmn_client = types.SimpleNamespace(
+            send=lambda payload, timeout=None: sent_to_daemon.append(payload) or {"ok": True, "said": "done"})
+        rc = cli_task.cmd_close(types.SimpleNamespace(target="backend", fresh=True))
+        check("ocp close --fresh: sends one close verb with fresh set, and exits 0",
+              rc == 0 and sent_to_daemon == [{"verb": "close", "agent": "backend", "fresh": True}], str(sent_to_daemon))
+        cli_task.dmn_client = types.SimpleNamespace(send=lambda payload, timeout=None: None)
+        check("ocp close: with no daemon it says nothing was closed and exits 1",
+              cli_task.cmd_close(types.SimpleNamespace(target="backend", fresh=False)) == 1)
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
+         orcamod.close_terminal, cli_task.dmn_client, launchmod.find_room) = real
+        con.close()
+
+
 def _hold_terminal_lock_elsewhere(agent: str) -> subprocess.Popen:
     """Spawn a process that takes `agent`'s lock.terminal and sits on it, to
     stand in for the tick mid-send - the race every T351 control verb has to
@@ -390,6 +461,7 @@ def main() -> int:
         run(lambda: test_pending_rows_left_by_a_dead_daemon_are_reloaded_at_start(Path(td) / 's3'))
         run(lambda: test_a_tick_itself_delivers_a_pending_row_not_just_a_direct_call(Path(td) / 's3b'))
         run(lambda: test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(Path(td) / 's3c'))
+        run(lambda: test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_through_the_daemon(Path(td) / 's3d'))
         run(lambda: test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(Path(td) / 's4'))
         run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
         run(lambda: test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(Path(td) / 's5'))

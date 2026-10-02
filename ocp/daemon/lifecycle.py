@@ -243,6 +243,28 @@ def close_agent(con, agent: str, log, st) -> tuple[bool, str]:
         return ok, said
 
 
+def close_fresh(con, agent: str, log, st) -> tuple[bool, str]:
+    """End this agent's session, if one runs, and forget the one it would resume: its next wake is a
+    new conversation that starts from the handoff record. For an agent that came back as the same
+    conversation after a human closed it (the daemon records a closed session and resumes it when
+    work arrives). A session already closed keeps its closed mark; only the id is dropped."""
+    row = db.get_agent_state(con, agent)
+    if not row:
+        return False, f"{agent} has never been started"
+    if not row["closed_at"]:
+        ok, said = close_agent(con, agent, log, st)
+        if not ok:
+            return False, said
+    elif row["resume_session"] and not db.get_handoff(con, agent):
+        # The session id was the only copy of its context; the record is what a new start is given.
+        gaps = handoffmod.record(con, agent, closed_session=row["resume_session"])
+        if gaps:
+            log(f"  {agent}: fresh start with no handoff (could not read {', '.join(gaps)})")
+    db.forget_resume(con, agent)
+    db.add_event(con, agent, "fresh_close", {"session": row["resume_session"] or (st.session_id if st else None)})
+    return True, f"{agent}: closed; its next wake starts a new session, not the old conversation"
+
+
 def _close_agent(con, agent: str, log, st) -> tuple[bool, str]:
     row = db.get_agent_state(con, agent)
     if row and row["state"] in (RUNNING, HANDOFF):

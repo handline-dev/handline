@@ -2830,7 +2830,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "block_task", "unblock_task", "dormant_block", "released_at_done", "task_unblocked", "child_result_told", "task_end_told", "task_deliver_refused", "closed_under", "dismissed", "request_reason",
                     "demoted_doing", "queue_task", "draft_task",
                     "fold", "fold_failed",
-                    "forced_move", "handoff", "moved_account", "nudged",
+                    "forced_move", "fresh_close", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_closed", "terminal_gone",
                     "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
                     "SessionEnd", "timebox_exceeded", "task_timeout_exceeded",

@@ -7,13 +7,11 @@ from pathlib import Path
 
 from .. import actions
 from ..infra import timefmt
-from ..team import agents
 from ..team import ask as askmod
-from ..daemon import lifecycle as dmn_lifecycle, taskholds
+from ..daemon import client as dmn_client, taskholds
 from .. import db
 from ..session import handoff as handoffmod
 from ..infra import gitrun, paths
-from ..usage import status
 from ..infra import textsafe
 
 from .ask import _text_arg, _who_refusal
@@ -83,15 +81,14 @@ def cmd_close(args) -> int:
         print(f"'{raw}' is not an agent. A task has no close: `ocp task done {raw}` ends it, "
               f"and `ocp task reopen {raw}` undoes a wrong result.")
         return 1
-    args.agent = raw
-    con = db.connect()
-    try:
-        st = status.read_for_agent(args.agent, agents.current_account(args.agent, con))
-        ok, msg = dmn_lifecycle.close_agent(con, args.agent, print, st)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    # The daemon does it: it can read the process table and the terminal, which an agent's own
+    # sandbox cannot - closed from here, a live session read as "no session process".
+    reply = dmn_client.send({"verb": "close", "agent": raw, "fresh": bool(getattr(args, "fresh", False))})
+    if reply is None:
+        print("daemon not running, nothing closed")
+        return 1
+    print(reply.get("said", ""))
+    return 0 if reply.get("ok") else 1
 
 
 def cmd_task_done(args) -> int:

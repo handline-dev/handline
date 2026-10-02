@@ -122,6 +122,12 @@ def set_closed(con, agent: str, session_id: str | None) -> None:
     )
 
 
+def forget_resume(con, agent: str) -> None:
+    """Keep this agent closed but drop the session it would resume: its next wake starts a new one."""
+    con.execute("UPDATE agent_state SET resume_session = NULL, updated = ? WHERE agent = ?",
+                (int(time.time()), agent))
+
+
 def clear_closed(con, agent: str) -> None:
     """A session is running again, wherever it came from - a wake, a start for
     waiting work, a human's relaunch. It is a new process, so it is told about
