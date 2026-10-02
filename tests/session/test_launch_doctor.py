@@ -769,6 +769,16 @@ def test_a_session_may_not_write_the_files_that_move_main(home: Path) -> None:
     settings = json.loads(argv[argv.index("--settings") + 1])
     check("main refs: claude gets them as sandbox denyWrite, and no denyRead with them",
           settings["sandbox"]["filesystem"] == {"denyWrite": want}, str(settings))
+    deny = settings["permissions"]["deny"]
+    check("main refs: and Claude's Edit and Write tools are denied the same files, by exact path",
+          sorted(deny) == sorted(f"{t}(/{p})" for p in want for t in ("Edit", "Write"))
+          and not any(d.endswith("/**)") for d in deny), str(deny))
+    argv = vendors.get("claude").launch_argv("/x/claude", None, "high", "Agent", [], None, hide=["/a/tokens"],
+                                             no_write=want)
+    both = json.loads(argv[argv.index("--settings") + 1])
+    check("main refs: with a read-deny as well, both kinds of permission deny are kept",
+          "Read(//a/tokens/**)" in both["permissions"]["deny"] and len(both["permissions"]["deny"]) == 9,
+          str(both["permissions"]))
 
 
 def test_a_vendor_that_cannot_hide_the_token_folder_is_refused_while_it_exists(home: Path) -> None:

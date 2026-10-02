@@ -140,9 +140,15 @@ class Claude:
             if no_write:
                 fs["denyWrite"] = no_write
             settings["sandbox"] = {"filesystem": fs}
+        deny = []
         if hide:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.
-            settings["permissions"] = {"deny": [f"Read(/{p.rstrip('/')}/**)" for p in hide]}
+            deny += [f"Read(/{p.rstrip('/')}/**)" for p in hide]
+        if no_write:
+            # Likewise denyWrite binds Bash only: the file tools are denied by exact path.
+            deny += [f"{tool}(/{p})" for p in no_write for tool in ("Edit", "Write")]
+        if deny:
+            settings["permissions"] = {"deny": deny}
         if trusted:
             # The classifier reads autoMode from --settings, not from the
             # project's settings; "$defaults" keeps the built-in entries.
