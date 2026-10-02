@@ -83,10 +83,13 @@ agent (ROLE.md, base.md); this file does not repeat them.
 
 - Tests: when you change code, write unit tests for the change in the same
   commit. Work is not done until they pass. While iterating, run only the
-  tests you touched (`python3 tests/test_ocp.py -k <name>`); run the whole
+  tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); run the whole
   suite once, right before you hand the task to `orcapipe.auditor`, with `tools/suite.sh`, in
   the foreground with a 600000 ms Bash timeout, never in the background. The
   auditor reruns it at the exact sha; a count you quote is not a verdict.
+- Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
+  venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
+  print nothing without them, and a hang looks like a stall).
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.
@@ -99,4 +102,6 @@ agent (ROLE.md, base.md); this file does not repeat them.
   paths or `git -C` instead.
 - Text to `ocp say`, `ocp task new` and `ocp task handoff` goes in single quotes
   (a literal `'` as `'"'"'`): in double quotes the shell runs backticked words
-  and they vanish from the message.
+  and they vanish from the message. Text with backticks or `$(`, or with a literal `'`
+  in it, goes in a quoted heredoc on stdin as `-`, or in a file as `--file PATH`
+  (`ocp say`, `ocp task new`, `ocp task handoff`, `ocp task memo add`).

@@ -244,7 +244,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("target", nargs="?")
     p.add_argument("body", nargs="?", default=None)
     p.add_argument("--file", default=None, metavar="PATH",
-                   help="read the body from this file instead of the inline argument")
+                   help="read the body from this file, or from stdin with '-' (the body may be '-' too), "
+                        "instead of the inline argument - safe against a shell expanding backticks or $()")
     p.add_argument("--parent", type=int, default=None,
                    help="the message this replies to: the reply settles it (T361)")
     p.add_argument("--task", type=_task_arg, default=None, metavar="T",
@@ -442,7 +443,11 @@ def build_parser() -> argparse.ArgumentParser:
                                   "to --owner, checked against the routing table")
     p.add_argument("title")
     p.add_argument("body", nargs="?", default=None,
-                   help="the work itself, sent to --owner; required - the title is not a brief")
+                   help="the work itself, sent to --owner; required - the title is not a brief. "
+                        "'-' reads it from stdin")
+    p.add_argument("--file", default=None, metavar="PATH",
+                   help="read the body from this file, or from stdin with '-', instead of the "
+                        "inline argument - safe against a shell expanding backticks or $()")
     p.add_argument("--owner", required=True, help="an agent, or 'human' for a decision task")
     p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
                    help="the task this is a part of, written T<number>")
@@ -475,8 +480,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("note", nargs="?", default=None,
                    help="required: what changed, and what the receiver should know")
     p.add_argument("--file", default=None, metavar="PATH",
-                   help="read the note from this file instead of the inline argument - "
-                        "safe against a shell expanding backticks or $() in the text")
+                   help="read the note from this file, or from stdin with '-' (the note may be '-' "
+                        "too), instead of the inline argument - safe against a shell expanding "
+                        "backticks or $() in the text")
     p.set_defaults(fn=cmd_task_handoff)
     p = tk.add_parser("start", help="pick up T<n> as your current task (T292) - for one "
                                     "delivered while you already held another")
@@ -493,6 +499,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("verb", choices=("list", "add", "edit", "delete"))
     p.add_argument("rest", nargs="*")
+    p.add_argument("--file", default=None, metavar="PATH",
+                   help="add or edit: read the memo text from this file, or from stdin with '-' "
+                        "(the text may be '-' too) - safe against a shell expanding backticks or $()")
     p.set_defaults(fn=cmd_task_memo)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="done and discarded tasks too")

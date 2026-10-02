@@ -235,7 +235,13 @@ def cmd_task_new(args) -> int:
     if not title:
         print("a task needs a title")
         return 1
-    body = textsafe.text(args.body).strip() if args.body else None
+    inline = args.body
+    if args.file or inline == "-":
+        inline, err = _text_arg(inline, args.file, "body")
+        if err:
+            print(err)
+            return 1
+    body = textsafe.text(inline).strip() if inline else None
     if args.blocked_by is not None:
         # Precheck (auditor's #2065 SHOULD-FIX C): a bad blocker must refuse
         # before anything is opened, since there is no shared transaction to
@@ -348,7 +354,13 @@ def cmd_task_memo(args) -> int:
     if me is None:
         print(_who_refusal("write a memo"))
         return 1
-    verb, rest = args.verb, args.rest
+    verb, rest = args.verb, list(args.rest)
+    if verb in ("add", "edit") and (args.file or rest[-1:] == ["-"]):
+        text, err = _text_arg(rest.pop() if rest[-1:] == ["-"] else None, args.file, "memo text")
+        if err:
+            print(err)
+            return 1
+        rest.append(text)
     shape = {"list": 0, "add": 1, "edit": 2, "delete": 1}[verb]
     if len(rest) != shape:
         print({"list": "list takes nothing more", "add": "add takes the memo text",
