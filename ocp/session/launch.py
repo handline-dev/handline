@@ -449,7 +449,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
             else drv.auto_mode_argv())
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
-                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
+                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.key_folder())],
                            no_write=main_ref_files(Path.cwd()),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode else None,
@@ -657,6 +657,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
         finally:
             con.close()
     sessiontoken.record(agent)             # the proof this session is the agent's, for the daemon's land verbs
+    sessiontoken.mint_key(agent)           # what its hook alone can name, to vouch for its own `ocp land`
     env = names.both(env)
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it
