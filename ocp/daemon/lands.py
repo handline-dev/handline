@@ -5,8 +5,8 @@ runs unsandboxed. It therefore runs only git. The test is the merger's, in the m
 (`tools/land.sh --check`), and it names the tree it tested. A sha lands when
   - the auditor recorded a PASS for that exact sha (`ocp land --pass`), and
   - the merger recorded it with the tree its test saw (`ocp land <sha> <message>`).
-Both are accepted only from the process of that agent's session (peer.py), never from the name in the
-request. The daemon merges the sha into main itself, and fast-forwards main only if the result is the
+Both are accepted only with the session token `ocp launch` minted for that agent, which no other
+agent's sandbox can read or write, never on the name in the request. The daemon merges the sha into main itself, and fast-forwards main only if the result is the
 tree that was tested; if main moved meanwhile the trees differ and the merger tests again. A sha lands
 at most once.
 """
@@ -46,7 +46,7 @@ def _commit(sha: str) -> tuple[str | None, str]:
 def record_pass(con, sha: str, caller: str | None) -> tuple[bool, str]:
     """The auditor's PASS for `sha`."""
     if caller != AUDITOR:
-        return False, f"{caller or 'a process that is no agent session'} may not record a PASS; the auditor does"
+        return False, f"{caller or 'someone else'} may not record a PASS; the auditor does"
     full, why = _commit(sha)
     if full is None:
         return False, why
@@ -57,7 +57,7 @@ def record_pass(con, sha: str, caller: str | None) -> tuple[bool, str]:
 def request(con, sha: str, message: str, tree: str | None, caller: str | None) -> tuple[bool, str]:
     """Queue `sha` to be landed with `message`, the merger having tested a merge whose tree is `tree`."""
     if caller != MERGER:
-        return False, f"{caller or 'a process that is no agent session'} may not land a branch; the merger does"
+        return False, f"{caller or 'someone else'} may not land a branch; the merger does"
     message = (message or "").strip()
     if not message or not (tree or "").strip():
         return False, "a land needs the merge message and the tree the test saw: use `ocp land <sha> <message>`"

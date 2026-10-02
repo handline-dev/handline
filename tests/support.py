@@ -1273,8 +1273,8 @@ class SecondVendor:
         return {}
     def is_resume(self, extra):
         return "--resume" in (extra or [])
-    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None, memory_dir=None,
-                    trusted=None, chrome=False):
+    def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None, no_write=None,
+                    memory_dir=None, trusted=None, chrome=False):
         return [exe]
     def skip_permissions_argv(self):
         return ["--yolo"]

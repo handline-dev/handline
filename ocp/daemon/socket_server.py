@@ -26,10 +26,10 @@ import time
 
 from .. import db
 from ..actions import control, details, prompt_blocks
-from ..infra import paths
+from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import lands, messaging, peer, sends
+from . import lands, messaging, sends
 
 # A request this old with nothing read yet is not going to finish reading;
 # closed rather than left to hold a thread forever on a client that connected
@@ -109,19 +109,23 @@ VERBS = {
 }
 
 
-# Verbs that act on the strength of who the caller is: the daemon reads that from the connection's
-# process, and what the payload says about it is dropped.
-PEER_VERBS = ("land", "land_pass")
+# Verbs that act on the strength of who the caller is: the name in the request counts only with the
+# session token `ocp launch` minted for that agent (infra/sessiontoken.py).
+TOKEN_VERBS = ("land", "land_pass")
 
 
-def _handle_request(payload: dict, log, caller_pid: int | None = None) -> dict:
+def _handle_request(payload: dict, log) -> dict:
     verb = payload.get("verb")
     fn = VERBS.get(verb)
     if fn is None:
         return {"ok": False, "said": f"not a socket verb: {verb!r}"}
-    kw = {k: v for k, v in payload.items() if k not in ("verb", "caller")}
-    if verb in PEER_VERBS:
-        kw["caller"] = peer.agent_of(caller_pid)
+    kw = {k: v for k, v in payload.items() if k not in ("verb", "caller", "token")}
+    if verb in TOKEN_VERBS:
+        agent = payload.get("agent")
+        if not sessiontoken.verify(agent, payload.get("token")):
+            return {"ok": False, "said": f"{agent or 'the caller'} has no valid session token: the session "
+                    f"must be one `ocp launch` started after tokens existed - relaunch it"}
+        kw["caller"] = agent
     con = db.connect()
     try:
         ok, said = fn(con, log, **kw)
@@ -160,7 +164,7 @@ def _serve_one(conn: socket.socket, log) -> None:
         except (ValueError, UnicodeDecodeError) as e:
             reply = {"ok": False, "said": f"bad request: {e}"}
         else:
-            reply = _handle_request(payload, log, peer.peer_pid(conn)) if isinstance(payload, dict) \
+            reply = _handle_request(payload, log) if isinstance(payload, dict) \
                 else {"ok": False, "said": "a request is a JSON object"}
         try:
             conn.sendall(json.dumps(reply).encode("utf-8") + b"\n")

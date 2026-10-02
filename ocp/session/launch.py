@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 from ..team import accounts, agents
 from .. import db, vendors
-from ..infra import gitrun, paths, textsafe
+from ..infra import gitrun, paths, sessiontoken, textsafe
 from ..usage import status
 from . import events, triggers
 
@@ -435,7 +435,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
             else drv.auto_mode_argv())
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
-                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent),
+                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + sessiontoken.others(agent),
+                           no_write=sessiontoken.others(agent),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode else None,
                            chrome=agents.chrome(cfg))
@@ -641,6 +642,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
             db.set_handoff(con, agent, None)
         finally:
             con.close()
+    sessiontoken.mint(agent)       # the proof this session is the agent's, for the daemon's land verbs
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it
     sys.stdout.flush()

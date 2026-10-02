@@ -227,6 +227,7 @@ class Opencode:
     def launch_argv(self, exe: str, model: str | None, effort: str, disallowed: str,
                     mcp: list[str], preamble: str | None,
                     hide: list[str] | None = None,
+                    no_write: list[str] | None = None,
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
                     chrome: bool = False) -> list[str]:

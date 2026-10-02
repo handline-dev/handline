@@ -4,6 +4,7 @@ Run on its own: python3 tests/infra/test_land.py   (all areas: python3 tests/tes
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -115,17 +116,17 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
     """The merger tests in its own sandbox (`land.sh --check`) and records the tree it saw; the auditor
     records a PASS; both only from the process of that agent's session. The daemon merges with git alone
     and fast-forwards only to the tree that was tested."""
-    from ocp.daemon import lands, peer, socket_server
-    from ocp.session import observe
+    from ocp.daemon import lands, socket_server
+    from ocp import vendors
+    from ocp.infra import sessiontoken
     main = _repo(home / "repo")
     sent = []
     keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
-    real = (lands._tell, observe.live_sessions)
+    real = lands._tell
     os.environ["OCP_LAND_REPO"] = str(main)
     os.environ.update({k: v for k, v in ENV.items() if k.startswith("GIT_")})
     lands._tell = lambda con, to, body, log: sent.append((to, body))
     con = db.connect()
-    child = subprocess.Popen(["sleep", "30"])
     try:
         # A suite.sh on the branch that would leave a mark if anything ran it.
         feat = _branch(main, "feat", "b.py", "z = 3\n")
@@ -138,27 +139,40 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         (main / "RAN").unlink(missing_ok=True)
         check("check: the merger's test names the tree of the merge it tested", len(tree) == 40, tree)
 
-        import socket
-        a, b = socket.socketpair(socket.AF_UNIX)
-        check("peer: the socket gives the caller's real pid", peer.peer_pid(a) == os.getpid(), str(peer.peer_pid(a)))
-        a.close(), b.close()
-        check("peer: a process under a session is that session's agent; one outside none is nobody",
-              peer.agent_of(child.pid, {lands.MERGER: os.getpid()}) == lands.MERGER
-              and peer.agent_of(child.pid, {lands.MERGER: 1}) is None
-              and peer.agent_of(None, {lands.MERGER: os.getpid()}) is None)
+        agents.register(lands.MERGER)
+        agents.register(lands.AUDITOR)
+        agents.register("orcapipe.core")
+        t_merger, t_auditor, t_core = (sessiontoken.mint(a) for a in (lands.MERGER, lands.AUDITOR, "orcapipe.core"))
+        check("token: minted into the agent's own file, readable by its owner only",
+              sessiontoken.read(lands.MERGER) == t_merger
+              and oct(sessiontoken.path_of(lands.MERGER).stat().st_mode & 0o777) == "0o600")
+        check("token: an agent's launch hides and write-protects every other agent's file, not its own",
+              str(sessiontoken.path_of(lands.MERGER)) not in sessiontoken.others(lands.MERGER)
+              and str(sessiontoken.path_of(lands.AUDITOR)) in sessiontoken.others(lands.MERGER))
+        argv = vendors.for_agent("orcapipe.core").launch_argv(
+            "claude", None, "high", "", [], None, hide=sessiontoken.others("orcapipe.core"),
+            no_write=sessiontoken.others("orcapipe.core"))
+        settings = json.loads(argv[argv.index("--settings") + 1])["sandbox"]["filesystem"]
+        check("token: the session's sandbox settings deny reading and writing the others' token files",
+              str(sessiontoken.path_of(lands.MERGER)) in settings["denyRead"]
+              and str(sessiontoken.path_of(lands.MERGER)) in settings["denyWrite"], str(settings))
 
-        observe.live_sessions = lambda: {"orcapipe.core": os.getpid()}
-        said = socket_server._handle_request({"verb": "land", "sha": feat, "message": "m", "tree": tree,
-                                              "speaker": lands.MERGER, "caller": lands.MERGER},
-                                             lambda m: None, child.pid)
-        check("land: an agent that names itself the merger is refused", not said["ok"] and "may not land" in said["said"],
-              str(said))
-        said = socket_server._handle_request({"verb": "land_pass", "sha": feat, "speaker": lands.AUDITOR},
-                                             lambda m: None, child.pid)
-        check("land: an agent that names itself the auditor cannot record a PASS", not said["ok"], str(said))
-        said = socket_server._handle_request({"verb": "land", "sha": feat, "message": "m", "tree": tree},
-                                             lambda m: None, None)
-        check("land: a caller that is no session is refused", not said["ok"], str(said))
+        def ask_daemon(verb, agent, token, **kw):
+            return socket_server._handle_request({"verb": verb, "sha": feat, "message": "m", "tree": tree,
+                                                  "agent": agent, "token": token, **kw}, lambda m: None)
+        said = ask_daemon("land", lands.MERGER, None)
+        check("land: a process that only names itself the merger (any cmdline, any OCP_AGENT) is refused",
+              not said["ok"] and "no valid session token" in said["said"], str(said))
+        said = ask_daemon("land", lands.MERGER, t_core)
+        check("land: another agent's token cannot land as the merger", not said["ok"], str(said))
+        said = ask_daemon("land_pass", lands.AUDITOR, t_merger)
+        check("land: the merger's token cannot record the auditor's PASS", not said["ok"], str(said))
+        said = ask_daemon("land", "orcapipe.core", t_core)
+        check("land: an agent with its own valid token that is not the merger is refused",
+              not said["ok"] and "may not land" in said["said"], str(said))
+        said = ask_daemon("land_pass", lands.AUDITOR, t_auditor)
+        check("land: the auditor's own token records a PASS", said["ok"], str(said))
+        con.execute("DELETE FROM land_passes")
 
         ok, said = lands.request(con, feat, "Merge feat", tree, lands.MERGER)
         check("land: no PASS, no land", not ok and "no auditor PASS" in said, said)
@@ -199,9 +213,8 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         ok, said = lands.request(con, late, "retry", _check(main, late), lands.MERGER)
         check("land: a failed sha may be recorded again", ok, said)
     finally:
-        child.kill()
         con.close()
-        lands._tell, observe.live_sessions = real
+        lands._tell = real
         for k, v in keep.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
