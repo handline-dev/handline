@@ -94,3 +94,13 @@ ocp service install
 | [docs/reference.md](docs/reference.md) | Every command, one line each |
 | [docs/how-it-works.md](docs/how-it-works.md) | The rules the daemon follows, and why |
 | [docs/development.md](docs/development.md) | Running the tests and working on orcapipe itself |
+
+## License
+
+orcapipe is free software under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`). If you cannot meet its terms, for example because you want to run a modified
+version as a network service without publishing your changes, a commercial license is available.
+Contact: *licensing contact to be filled in by the project owner*.
+
+Contributions are accepted under the [contributor license agreement](CLA.md); see
+[CONTRIBUTING.md](CONTRIBUTING.md).
