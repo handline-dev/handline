@@ -46,18 +46,10 @@ def _serve_one_roundtrip(payload: dict, log=lambda m: None) -> dict | None:
     t = threading.Thread(target=dmn_socket_server._serve_one, args=(a, log))
     t.start()
     try:
-        b.sendall(json.dumps(payload).encode("utf-8") + b"\n")
-        b.shutdown(socket.SHUT_WR)
-        chunks = []
-        while True:
-            chunk = b.recv(65536)
-            if not chunk:
-                break
-            chunks.append(chunk)
+        data = dmn_client._exchange(b, payload).strip()      # the client's own half, as the real one runs it
     finally:
         t.join(timeout=5)
         b.close()
-    data = b"".join(chunks).strip()
     return json.loads(data) if data else None
 
 
@@ -92,6 +84,59 @@ def test_serve_one_types_a_message_at_once_over_the_wire(home: Path) -> None:
               db.list_pending(con, "backend") == [])
     finally:
         con.close()
+
+
+class _LateShutdown:
+    """The client's end of a socket pair that waits for the daemon's thread to answer and hang up
+    before it shuts its write side, as a client descheduled between its send and its shutdown does -
+    and refuses the shutdown with `error` when there is one (macOS says ENOTCONN once the peer is gone)."""
+
+    def __init__(self, sock, server: threading.Thread, error: OSError | None) -> None:
+        self._sock, self._server, self._error = sock, server, error
+
+    def shutdown(self, how):
+        self._server.join(timeout=5)
+        if self._error is not None:
+            raise self._error
+        return self._sock.shutdown(how)
+
+    def __getattr__(self, name):
+        return getattr(self._sock, name)
+
+
+def _answered_before_the_shutdown(payload: dict, error: OSError | None):
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    t = threading.Thread(target=dmn_socket_server._serve_one, args=(a, lambda m: None))
+    t.start()
+    try:
+        return dmn_client._exchange(_LateShutdown(b, t, error), payload)
+    finally:
+        t.join(timeout=5)
+        b.close()
+
+
+def test_a_reply_already_waiting_when_the_client_shuts_its_write_side_is_still_the_reply(home: Path) -> None:
+    """The cause of a flaky wire test, and a real fault: the daemon answers on the newline and hangs up, so a
+    client that is slow between its send and its shutdown finds the peer gone. macOS refuses that shutdown
+    with ENOTCONN (OSError 57), which `send` read as "no daemon" - telling the caller nothing was sent about a
+    message that had been typed."""
+    import errno
+    sent = _typeable_world(home)
+    payload = {"verb": "message", "agent": "backend", "text": "typed once"}
+    raw = _answered_before_the_shutdown(payload, OSError(errno.ENOTCONN, "Socket is not connected"))
+    check("late shutdown: the refusal (ENOTCONN) after the answer is not an error, and the reply is read",
+          json.loads(raw) == {"ok": True, "said": "backend: typed"} and sent == [("term_x", "typed once")],
+          f"{raw!r} {sent}")
+    sent.clear()
+    raw = _answered_before_the_shutdown({"verb": "message", "agent": "backend", "text": "again"}, None)
+    check("late shutdown: and with the platform's own shutdown, whatever it does here, the same reply",
+          json.loads(raw) == {"ok": True, "said": "backend: typed"} and sent == [("term_x", "again")], f"{raw!r}")
+    try:
+        _answered_before_the_shutdown(payload, OSError(errno.ECONNRESET, "Connection reset by peer"))
+        refused = False
+    except OSError as e:
+        refused = e.errno == errno.ECONNRESET
+    check("late shutdown: any other refusal is still an error, which `send` reports as no daemon", refused)
 
 
 def test_the_socket_server_binds_a_private_file_a_real_client_can_reach(home: Path) -> None:
@@ -330,6 +375,7 @@ def test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(home
 def main() -> int:
     def tests(td):
         run(lambda: test_serve_one_types_a_message_at_once_over_the_wire(Path(td) / 's0'))
+        run(lambda: test_a_reply_already_waiting_when_the_client_shuts_its_write_side_is_still_the_reply(Path(td) / 's0b'))
         if _af_unix_bind_works():
             run(lambda: test_the_socket_server_binds_a_private_file_a_real_client_can_reach(Path(td) / 's0b'))
         else:
