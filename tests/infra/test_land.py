@@ -139,23 +139,27 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         (main / "RAN").unlink(missing_ok=True)
         check("check: the merger's test names the tree of the merge it tested", len(tree) == 40, tree)
 
-        agents.register(lands.MERGER)
-        agents.register(lands.AUDITOR)
-        agents.register("orcapipe.core")
         t_merger, t_auditor, t_core = (sessiontoken.mint(a) for a in (lands.MERGER, lands.AUDITOR, "orcapipe.core"))
-        check("token: minted into the agent's own file, readable by its owner only",
-              sessiontoken.read(lands.MERGER) == t_merger
-              and oct(sessiontoken.path_of(lands.MERGER).stat().st_mode & 0o777) == "0o600")
-        check("token: an agent's launch hides and write-protects every other agent's file, not its own",
-              str(sessiontoken.path_of(lands.MERGER)) not in sessiontoken.others(lands.MERGER)
-              and str(sessiontoken.path_of(lands.AUDITOR)) in sessiontoken.others(lands.MERGER))
+        check("token: minted into the protected store, one distinct secret per agent",
+              all((t_merger, t_auditor, t_core)) and len({t_merger, t_auditor, t_core}) == 3
+              and sessiontoken.verify(lands.MERGER, t_merger))
+        was = os.environ.get("OCP_AGENT")
+        os.environ["OCP_AGENT"] = "orcapipe.core"
+        try:
+            check("token: a session cannot mint one, so it cannot replace another agent's",
+                  sessiontoken.mint(lands.MERGER) is None and sessiontoken.verify(lands.MERGER, t_merger))
+        finally:
+            os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
+        agents.register("orcapipe.core")
+        launch_src = (ROOT / "ocp" / "session" / "launch.py").read_text()
         argv = vendors.for_agent("orcapipe.core").launch_argv(
-            "claude", None, "high", "", [], None, hide=sessiontoken.others("orcapipe.core"),
-            no_write=sessiontoken.others("orcapipe.core"))
-        settings = json.loads(argv[argv.index("--settings") + 1])["sandbox"]["filesystem"]
-        check("token: the session's sandbox settings deny reading and writing the others' token files",
-              str(sessiontoken.path_of(lands.MERGER)) in settings["denyRead"]
-              and str(sessiontoken.path_of(lands.MERGER)) in settings["denyWrite"], str(settings))
+            "claude", None, "high", "", [], None, hide=[str(sessiontoken.folder())])
+        settings = json.loads(argv[argv.index("--settings") + 1])
+        check("token: the session's sandbox settings deny reading the whole token folder, for Bash and for Read",
+              settings["sandbox"]["filesystem"]["denyRead"] == [str(sessiontoken.folder())]
+              and any(str(sessiontoken.folder()).lstrip("/") in d for d in settings["permissions"]["deny"]), str(settings))
+        check("token: launch hides that folder from every session",
+              "[str(sessiontoken.folder())]" in launch_src)
 
         def ask_daemon(verb, agent, token, **kw):
             return socket_server._handle_request({"verb": verb, "sha": feat, "message": "m", "tree": tree,

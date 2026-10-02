@@ -27,7 +27,7 @@ def _list() -> int:
 
 def _send(payload: dict) -> int:
     me = askmod.current_agent()
-    reply = dmn_client.send({**payload, "agent": me, "token": sessiontoken.read(me) if me else None})
+    reply = dmn_client.send({**payload, "agent": me, "token": sessiontoken.held()})
     if reply is None:
         print("daemon not running, nothing recorded")
         return 1

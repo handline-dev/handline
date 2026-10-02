@@ -1,64 +1,52 @@
 """The proof that a request comes from an agent's own session.
 
-`ocp launch` mints a fresh random token for the agent it becomes and keeps it in a file only that
-agent can read: every other agent's session is launched with that file on its sandbox's read-deny and
-write-deny lists (`launch.hidden_tokens`). The daemon, outside the sandbox, compares what a request
-carries with the file. A name in the request proves nothing; a token an agent cannot read, guess or
-overwrite does. Sessions launched before this existed are not under the deny lists and hold no
-token until they are launched again.
+`ocp launch` mints a fresh random token for the agent it becomes, keeps a copy in the protected store
+(which no agent session can write) and hands the session its own through the environment it execs
+with. Every session is launched with the store's token folder on its sandbox's read-deny list
+(`launch.build`), so one agent cannot read another's copy, and the folder is a single path whatever
+agents are added later. The daemon, outside the sandbox, compares what a request carries with the
+stored copy. A name in the request proves nothing; a token an agent cannot read, guess or overwrite
+does. A session launched before this existed holds no token and is not under the deny list until it is
+launched again.
 """
 from __future__ import annotations
 
 import hmac
 import os
 import secrets
-import tempfile
 from pathlib import Path
 
-from . import paths
+from . import protected
 
-NAME = "session.token"
+NS = "session-tokens"
+ENV = "OCP_SESSION_TOKEN"
 
 
-def path_of(agent: str) -> Path:
-    return paths.agent_dir(agent) / NAME
+def folder() -> Path:
+    return protected.root() / NS
 
 
 def mint(agent: str) -> str | None:
-    """A new token for `agent`, or None when its file cannot be written (not this agent's to write)."""
+    """A new token for `agent`, or None when the store cannot be written (an agent's session may not)."""
     token = secrets.token_urlsafe(32)
-    target = path_of(agent)
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".token-")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(token)
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, target)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
-    except OSError:
+        protected.put(NS, agent, token)
+    except (OSError, ValueError):       # PermissionError, NotTheFounder and a bad name all say no
         return None
     return token
 
 
-def read(agent: str) -> str | None:
-    try:
-        return path_of(agent).read_text().strip() or None
-    except OSError:
-        return None
+def held() -> str | None:
+    """The token this session was launched with."""
+    return os.environ.get(ENV) or None
 
 
 def verify(agent: str | None, token: str | None) -> bool:
     """Whether `token` is the one minted for `agent`'s current session."""
     if not agent or not token:
         return False
-    kept = read(agent)
-    return kept is not None and hmac.compare_digest(kept, str(token))
-
-
-def others(agent: str) -> list[str]:
-    """Every other agent's token file: what `agent`'s session may neither read nor write."""
-    return [str(path_of(a)) for a in paths.list_agents() if a != agent]
+    try:
+        kept = protected.get(NS, agent)
+    except ValueError:
+        return False
+    return kept is not None and hmac.compare_digest(kept.strip(), str(token))

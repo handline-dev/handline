@@ -123,6 +123,7 @@ def _handle_request(payload: dict, log) -> dict:
     if verb in TOKEN_VERBS:
         agent = payload.get("agent")
         if not sessiontoken.verify(agent, payload.get("token")):
+            log(f"  {verb} refused: no valid session token for {str(agent)[:60]!r}")
             return {"ok": False, "said": f"{agent or 'the caller'} has no valid session token: the session "
                     f"must be one `ocp launch` started after tokens existed - relaunch it"}
         kw["caller"] = agent
