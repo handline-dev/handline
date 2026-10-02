@@ -26,8 +26,8 @@ HERE = Path(__file__).resolve().parent
 ALLOW_FILE = HERE / "localrefs.allow"
 MARKER = "local-ref-ok"
 
-# ASCII word edges, so an id next to Hangul ("T835를") still counts but one inside a hex sha or
-# an ISO time (2026-01-01T10:00) never does.
+# ASCII word edges, so an id followed by a Korean particle still counts but one inside a hex
+# sha or an ISO time (2026-01-01T10:00) never does.
 _L, _R = r"(?<![A-Za-z0-9_])", r"(?![A-Za-z0-9_])"
 
 PATTERNS: list[tuple[str, re.Pattern]] = [
