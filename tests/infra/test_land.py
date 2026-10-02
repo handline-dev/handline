@@ -353,7 +353,7 @@ def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(h
     tree, sha = "a" * 40, "abc1234"
     ok = {
         f"ocp land --pass {sha}": ("land_pass", sha),
-        f"/home/x/bin/ocp land --pass {sha}": ("land_pass", sha),
+        f"bin/ocp land --pass {sha}": ("land_pass", sha),
         f"handline land {sha} 'Merge feat (x & y)' --tree {tree}": ("land", sha),
         f"ocp land {sha} \"Merge feat\" --tree {tree}": ("land", sha),
         f"ocp land --tree {tree} {sha} msg": ("land", sha),
