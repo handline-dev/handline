@@ -93,12 +93,14 @@ async def dispatch_agent_verb(screen: JobsAware, con, name: str, label: str, arg
             return
         screen.toast(screen._start("move", name, f"moving {name} to {dest}", (name, dest)), False)
         return
+    fresh = label == "restart" and arg == "fresh"
     if tui._needs_confirm(con, name, label):
-        if not await screen.app.push_screen_wait(Confirm(f"{label} {name}")):
+        if not await screen.app.push_screen_wait(Confirm(f"{label} {name}" + (" as a new conversation" if fresh else ""))):
             screen.toast("left alone")
             return
         ok, why = tui._confirmed_can(con, name, label)
         if not ok:
             screen.toast(why, False)
             return
-    screen.toast(screen._start(label, name, f"{jobsmod.GERUND.get(label, label)} {name}", (name,)), False)
+    screen.toast(screen._start(label, name, f"{jobsmod.GERUND.get(label, label)} {name}",
+                               (name, True) if fresh else (name,)), False)

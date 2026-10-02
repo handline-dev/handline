@@ -3132,6 +3132,61 @@ def test_a_slash_line_is_a_bridge_command_and_never_a_message() -> None:
     check("slash: an error says the command", "/nothing" in sa("/nothing")[1])
 
 
+async def test_restart_is_a_chat_command_with_a_fresh_form() -> None:
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components import jobs_aware
+    sa = cp.slash_action
+    check("restart: /restart and /restart fresh are verbs; anything else after it is an error",
+          sa("/restart") == ("verb", "restart", "") and sa("/restart fresh") == ("verb", "restart", "fresh")
+          and sa("/restart now")[0] == "error" and "fresh" in sa("/restart now")[1], str(sa("/restart now")))
+    offered = [(x.label[0], x.arg) for x in cp.suggest("/", [], [], ("restart",))]
+    check("restart: the slash menu lists both forms",
+          ("/restart", "restart") in offered and ("/restart fresh", "restart fresh") in offered, str(offered))
+    check("restart: a space after it offers fresh",
+          [x.arg for x in cp.suggest("/restart ", [], [], ("restart",))] == ["restart fresh"]
+          and not cp.suggest("/restart ", [], [], ("wake",)))
+    check("restart: it is on offer only where the board offers it", "restart" in cp.CHAT_VERBS)
+
+    home = _home("restart_chat")
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", "IDLE")
+        started: list = []
+        toasts: list = []
+        asked: list = []
+
+        class _App:
+            async def push_screen_wait(self, modal):
+                asked.append(modal.question)
+                return True
+
+        class _Screen:
+            app = _App()
+
+            def _start(self, verb, target, what, args, kwargs=None, on_result=None):
+                started.append((verb, target, args))
+                return what
+
+            def toast(self, msg, ok=True):
+                toasts.append(msg)
+
+        for arg, want in (("", ("restart", "backend", ("backend",))),
+                          ("fresh", ("restart", "backend", ("backend", True)))):
+            started.clear()
+            await jobs_aware.dispatch_agent_verb(_Screen(), con, "backend", "restart", arg)
+            check(f"restart: /restart {arg} on an idle agent's page starts the restart job".replace("  ", " "),
+                  started == [want], f"{started} {toasts}")
+        check("restart: it asks first, and says when it will be a new conversation",
+              asked == ["restart backend", "restart backend as a new conversation"], str(asked))
+        db.set_agent_state(con, "backend", "RUNNING")
+        started.clear()
+        await jobs_aware.dispatch_agent_verb(_Screen(), con, "backend", "restart", "")
+        check("restart: a mid-turn agent is refused on the page, with the reason shown",
+              not started and "mid-turn" not in toasts[-1] and "RUNNING" in toasts[-1], str(toasts[-1:]))
+    finally:
+        con.close()
+
+
 def test_a_standing_answer_is_added_from_the_settings() -> None:
     home = _home("add_answer")
     folder = home / "work"
@@ -4184,6 +4239,7 @@ async def _run_all() -> None:
     await test_the_shared_task_view_draws_the_brief()
     test_a_task_timeline_holds_memos_and_handoffs_in_time_order()
     test_a_slash_line_is_a_bridge_command_and_never_a_message()
+    await test_restart_is_a_chat_command_with_a_fresh_form()
     test_the_permission_modal_shows_the_whole_panel_without_the_tip()
     test_key_token_translates_textual_keys()
     test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck()

@@ -71,7 +71,7 @@ PANEL_NAME = {ACCOUNTS: "accounts", AGENTS: "agents", MESSAGES: "messages",
 # terminal and an agent with one are the same keypress now.
 AGENT_KEYS = [
     ("↵", "open"), ("t", "terminal"), ("m", "message"), ("e", "editor"),
-    ("w", "wake"), ("c", "close"), ("p", "park"), ("f", "fold"),
+    ("w", "wake"), ("c", "close"), ("r", "restart"), ("p", "park"), ("f", "fold"),
     ("v", "move"),
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
@@ -82,7 +82,7 @@ STUCK_KEYS = AGENT_KEYS
 # `wake` is not here - see _needs_confirm(): it asks only when the row is
 # FATAL, which is the one case unstall used to ask for on its own key
 # (founder #1620/#1631, u removed).
-CONFIRM = {"close", "park", "fold", "cancel"}
+CONFIRM = {"close", "restart", "park", "fold", "cancel"}
 
 
 def _needs_confirm(con, name: str, label: str) -> bool:
@@ -115,7 +115,7 @@ def _confirmed_can(con, name: str, label: str) -> tuple[bool, str]:
 # they cost more room on every row than they earn. Still bound - dispatch
 # reads AGENT_KEYS whole - and named under the `?` the footer adds in their
 # place.
-AGENT_RARE = {"fold", "move"}
+AGENT_RARE = {"fold", "move", "restart"}
 
 
 def agent_footer_keys(con, agent: str | None) -> list[tuple[str, str]]:

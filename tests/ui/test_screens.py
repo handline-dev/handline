@@ -2624,6 +2624,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                     "test_dev_mode_config_round_trips, not this scene",
         "auto-accept": "writes a config flag; driven in test_auto_accept_config_round_trips "
                        "(tests/session/test_autoaccept.py), not this scene",
+        "restart": "ends a session through Orca and starts it again; driven in test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal, not this scene",
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_no_open_child_and_only_the_asker",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
         "task start": "T292: writes agent_state.current_task; driven in "

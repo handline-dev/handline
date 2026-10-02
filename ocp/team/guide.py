@@ -128,6 +128,10 @@ no screen.""",
     "memory": """closing an idle session
   ocp close <agent>                end the session, keep the terminal
   ocp close --fresh <agent>        the same, and forget the session: its next wake is a new conversation
+  ocp restart <agent>              end the session and start it again at once in the same terminal,
+                                   resuming the conversation (it picks up new settings, model, hooks)
+  ocp restart --fresh <agent>      the same as a new conversation, from the handoff record
+  (restart refuses an agent mid-turn; --force closes it as a close does, once the turn has ended)
   (a task has no close: `ocp task done T<n> <sha, --request N, or a reason>`
    ends it, and its asker reopens it if the result was wrong. A task is
    always written T<n>; a bare number is a request)

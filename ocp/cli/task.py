@@ -91,6 +91,21 @@ def cmd_close(args) -> int:
     return 0 if reply.get("ok") else 1
 
 
+def cmd_restart(args) -> int:
+    """`cmd_close`'s way - through the daemon - and then the session starts again in the same terminal."""
+    raw = args.target
+    if raw.isdigit() or actions.TASK_REF.fullmatch(raw):
+        print(f"'{raw}' is not an agent.")
+        return 1
+    reply = dmn_client.send({"verb": "restart", "agent": raw, "fresh": bool(args.fresh),
+                             "force": bool(args.force)})
+    if reply is None:
+        print("daemon not running, nothing restarted")
+        return 1
+    print(reply.get("said", ""))
+    return 0 if reply.get("ok") else 1
+
+
 def cmd_task_done(args) -> int:
     """Mark a task done (#71) - the builder's own evidence, not the end of
     it. Exactly one of a sha, --request N, or a reason; `actions.mark_task_done`
