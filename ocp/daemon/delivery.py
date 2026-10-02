@@ -35,6 +35,36 @@ _seen_at = {"t": 0.0}
 SEEN_FRESH_S = 10
 
 
+def table_lists_session(agent: str) -> bool | None:
+    """What the process table says: True it lists a session for this agent, False it does not, None
+    when it could not be read."""
+    o = _seen.get(agent)
+    if o is not None and time.time() - _seen_at["t"] <= SEEN_FRESH_S:
+        return (o.session_pid is not None) if o.session_seen else None
+    sessions = obs.live_sessions()
+    return None if sessions is None else bool(sessions.get(agent))
+
+
+# A screen read costs a call to the terminal host, so one answer holds this long.
+DRAWN_FRESH_S = 5
+_drawn: dict[str, tuple[float, bool]] = {}
+
+
+def screen_draws_session(agent: str) -> bool:
+    """Does this agent's terminal draw a session right now? The screen's word, held DRAWN_FRESH_S."""
+    hit = _drawn.get(agent)
+    if hit is not None and time.time() - hit[0] <= DRAWN_FRESH_S:
+        return hit[1]
+    con = db.connect()
+    try:
+        handle = db.get_terminal(con, agent)
+    finally:
+        con.close()
+    answer = bool(handle and orca.available() and session_still_drawn(handle, wait=False))
+    _drawn[agent] = (time.time(), answer)
+    return answer
+
+
 def session_present(agent: str) -> bool:
     """Is there a session to type into, or only the shell it left behind?
 
@@ -43,15 +73,14 @@ def session_present(agent: str) -> bool:
     lands at a bash prompt. Handoffs and notices are not inert there: backticks
     run, `>` redirects, and the agent is not the one reading any of it.
 
-    Fail-closed. Only a process we positively saw is a yes; "the process table
-    could not be read" is a no, because the whole point is to stop sending on a
-    maybe.
+    Fail-closed, with two witnesses. A process the table positively lists is a yes. So is a session
+    drawn on the agent's terminal: a composer box is not what a shell shows, and the table has missed
+    a live session before (work waited on it for hours). "The table could not be read" with nothing
+    drawn is a no, because the whole point is to stop sending on a maybe.
     """
-    o = _seen.get(agent)
-    if o is not None and time.time() - _seen_at["t"] <= SEEN_FRESH_S:
-        return bool(o.session_seen and o.session_pid is not None)
-    sessions = obs.live_sessions()
-    return bool(sessions is not None and sessions.get(agent))
+    if table_lists_session(agent):
+        return True
+    return screen_draws_session(agent)
 
 
 # How long a session told `/exit` has to leave the process table. SessionEnd

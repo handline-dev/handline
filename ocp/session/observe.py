@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from . import orca
 from .. import vendors
+from ..infra import textsafe
 
 
 @dataclass
@@ -97,9 +98,11 @@ def _env_or_reason(pid: int) -> tuple[str | None, bool]:
     another user's process (T146) rather than one of the other misses that
     can happen to a live pid we should not give up on.
 
-    An environment `ps` withholds is another user's only if the process is another user's: one of
-    ours that comes back without it is a miss, looked at again once and then left unknown, never
-    read as "not an agent" - which is how a live session went missing from the table."""
+    An environment `ps` withholds is looked at again once if the process is ours, since `ps` gives
+    a live process of ours none now and then. If it is still withheld the process is left out of the
+    table, as another user's is: one process whose environment cannot be read must not make the whole
+    reading unreadable, which fails every agent's delivery closed at once (it did). The agent that
+    process is the session of is covered by the screen (`delivery.session_present`)."""
     argv = _ps_command(pid, "ww")
     with_env = _ps_command(pid, "eww")
     if argv is None or with_env is None:
@@ -111,7 +114,7 @@ def _env_or_reason(pid: int) -> tuple[str | None, bool]:
         time.sleep(ENV_RETRY_S)
         with_env = _ps_command(pid, "eww")
         if with_env is None or with_env == argv:
-            return None, False
+            return None, True
     prefix = argv.rstrip("\n")
     if not with_env.startswith(prefix):
         return None, False
@@ -205,6 +208,25 @@ def live_sessions() -> dict[str, int] | None:
         if name:
             found.setdefault(name, pid)
     return found
+
+
+def diagnose() -> list[str]:
+    """One line per process the table takes for an agent's session, saying how it was read: whose it is
+    named as, or why it could not be. For the person looking into a session the table did not list.
+    Only the agent's name is read out of the environment, never the rest of it."""
+    table = process_table()
+    if table is None:
+        return ["the process table could not be read"]
+    lines = []
+    for pid, cmd in table:
+        if not is_session(cmd):
+            continue
+        env, not_ours = _env_or_reason(pid)
+        if env is None:
+            lines.append(f"pid {pid}: " + ("another user's process" if not_ours else "its environment could not be read"))
+        else:
+            lines.append(f"pid {pid}: OCP_AGENT={textsafe.oneline(_extract(env, 'OCP_AGENT') or 'unset')[:60]}")
+    return lines or ["no process looks like a session"]
 
 
 def observe(agents: list[str], terminals: dict[str, str | None]) -> dict[str, Observed]:
