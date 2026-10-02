@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from .. import actions
-from ..team import agents
-from ..daemon import handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
+from ..team import agent_settings, agents, ask as askmod, hr
+from ..daemon import client as dmn_client, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
 from ..session import launch
 from ..infra import protected
@@ -131,3 +131,40 @@ def cmd_unstall(args) -> int:
     finally:
         con.close()
     return 0
+
+
+def cmd_agent_set(args) -> int:
+    """Change an agent's settings. The founder's own change is written at once; an
+    agent's is split by `agent_settings.ORDINARY`: those apply now, the rest wait in
+    HR for the founder's approval."""
+    values = {}
+    for item in args.values:
+        key, eq, value = item.partition("=")
+        if not eq or not key:
+            print(f"{item!r}: say it as setting=value, e.g. model=opus", file=sys.stderr)
+            return 1
+        values[key] = value
+    if not protected.in_agent_session():
+        ok, said = agent_settings.set_values(args.name, values)
+        print(said)
+        return 0 if ok else 1
+    me = askmod.asking_agent()
+    held = {k: v for k, v in values.items() if agent_settings.privileged(k)}
+    now = {k: v for k, v in values.items() if k not in held}
+    if held and not (args.why or "").strip():
+        print(f"{', '.join(held)} needs the founder's approval: say why with --why", file=sys.stderr)
+        return 1
+    code = 0
+    if now:
+        reply = dmn_client.send({"verb": "agent_set", "agent": args.name, "values": now,
+                                 "speaker": askmod.current_agent()})
+        if reply is None:
+            print("daemon not running, nothing changed")
+            return 1
+        print(reply.get("said", ""))
+        code = 0 if reply.get("ok") else 1
+    if held:
+        ok, said = hr.propose("settings", args.name, requester=me, why=args.why, sets=held)
+        print(said)
+        code = code or (0 if ok else 1)
+    return code

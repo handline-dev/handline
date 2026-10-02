@@ -32,7 +32,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import agents, ask as askmod, decisions, team
+from . import agent_settings, agents, ask as askmod, decisions, team
 from .. import db, vendors
 from ..infra import atomic, paths, sealed, textsafe
 from ..infra import timefmt
@@ -44,7 +44,7 @@ from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 APPROVE = ("approve", "approved", "yes", "ok", "go", "승인")
 REJECT = ("reject", "rejected", "no", "deny", "denied", "반려")
 
-KINDS = ("add", "retire", "rename", "link", "unlink", "team")
+KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings")
 EDGE_KINDS = ("link", "unlink")
 
 
@@ -105,7 +105,8 @@ def _draft(kind: str, name: str, requester: str, why: str,
            to: str | None, effort: str | None = None,
            vendor: str | None = None, response: str | None = None,
            relation: str | None = None, members: list[str] | None = None,
-           repos: dict[str, str] | None = None) -> tuple[dict, str]:
+           repos: dict[str, str] | None = None,
+           sets: dict[str, str] | None = None) -> tuple[dict, str]:
     """Check what was asked for and write it down. Returns (proposal, refusal).
     A `team` is `name` (its manager and the team's name) with `members`, each a
     suffix (`sea` is `name.sea`) or a full name, and `repos` by member."""
@@ -126,7 +127,7 @@ def _draft(kind: str, name: str, requester: str, why: str,
             return {}, err
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename") + EDGE_KINDS and name not in registered:
+    if kind in ("retire", "rename", "settings") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
     if kind in EDGE_KINDS:
         err = _edge_refusal(kind, name, to, response, relation, registered)
@@ -149,6 +150,12 @@ def _draft(kind: str, name: str, requester: str, why: str,
         except vendors.UnknownVendor as e:
             return {}, str(e)
 
+    if kind == "settings":
+        if not sets:
+            return {}, "name at least one setting to change"
+        _, problem = agent_settings.changes_for(name, sets)
+        if problem:
+            return {}, problem
     if kind == "add":
         repo = repo or _team_repo(team_name)
         if not repo:
@@ -175,6 +182,8 @@ def _draft(kind: str, name: str, requester: str, why: str,
                        ("response", response), ("relation", relation)):
         if value:
             prop[key] = value
+    for key, value in (sets or {}).items():
+        prop[f"set.{key}"] = str(value)
     if full:
         prop["members"] = ",".join(full)
         for n in full:
@@ -231,10 +240,11 @@ def propose(kind: str, name: str, requester: str, why: str,
             effort: str | None = None, vendor: str | None = None,
             response: str | None = None,
             relation: str | None = None, members: list[str] | None = None,
-            repos: dict[str, str] | None = None) -> tuple[bool, str]:
+            repos: dict[str, str] | None = None,
+            sets: dict[str, str] | None = None) -> tuple[bool, str]:
     """Write the proposal down and raise it to the founder. Nothing changes yet."""
     prop, err = _draft(kind, name, requester, why, team_name, repo, model,
-                       to, effort, vendor, response, relation, members, repos)
+                       to, effort, vendor, response, relation, members, repos, sets)
     if err:
         return False, err
     # Written down before it is raised: a proposal that cannot be recorded must
@@ -264,7 +274,8 @@ def enact(kind: str, name: str, why: str,
           effort: str | None = None, con=None,
           vendor: str | None = None, response: str | None = None,
           relation: str | None = None, members: list[str] | None = None,
-          repos: dict[str, str] | None = None) -> tuple[bool, str]:
+          repos: dict[str, str] | None = None,
+          sets: dict[str, str] | None = None) -> tuple[bool, str]:
     """The founder changing the roster directly. No proposal to approve.
 
     The gate exists to stop an *agent* hiring on its own, and the founder is the
@@ -276,7 +287,7 @@ def enact(kind: str, name: str, why: str,
     change that fails halfway still leaves a record of what was attempted.
     """
     prop, err = _draft(kind, name, "human", why, team_name, repo, model,
-                       to, effort, vendor, response, relation, members, repos)
+                       to, effort, vendor, response, relation, members, repos, sets)
     if err:
         return False, err
     prop["state"] = "enacting"
@@ -351,6 +362,11 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
                   f"({prop['agent']} -> {prop['agent']}.*, supervisor); the default links "
                   "then apply:"]
         lines += [f"  - {d}" for d in team.DEFAULT_LINKS]
+    elif prop["kind"] == "settings":
+        lines += [f"{prop['agent']}'s settings would become:"]
+        lines += [f"  {k}: {v or '(none)'}" for k, v in _sets_of(prop).items()]
+        lines += ["Written as the founder's own change, from its next launch; a running "
+                  "session is not restarted."]
     elif prop["kind"] == "rename":
         lines += [f"{prop['agent']} would become {prop.get('to')}"
                   + (f" in team {prop['team']}" if prop.get("team") else "")
@@ -371,6 +387,10 @@ _SUBJECT_FIELDS = ("kind", "agent", "to", "team", "repo", "model", "effort", "ve
                    "response", "relation", "requested_by", "why", "members")
 
 
+def _sets_of(prop: dict) -> dict[str, str]:
+    return {k[4:]: str(v) for k, v in prop.items() if k.startswith("set.")}
+
+
 def _members_of(prop: dict) -> list[str]:
     return [m for m in str(prop.get("members") or "").split(",") if m]
 
@@ -379,7 +399,7 @@ def subject_of(prop: dict) -> str:
     """What the founder is deciding on: every field of the draft that changes
     what applying it does, as a digest."""
     return decisions.digest({**{k: prop.get(k) for k in _SUBJECT_FIELDS},
-                             **{k: v for k, v in prop.items() if k.startswith("repo.")}})
+                             **{k: v for k, v in prop.items() if k.startswith(("repo.", "set."))}})
 
 
 def answered(prop: dict, row) -> tuple[str | None, str | None]:
@@ -1021,7 +1041,16 @@ def label(con, agent: str) -> tuple[bool, str]:
     return True, f"Orca now labels {path} {agent!r}"
 
 
-_DOERS = {"add": _add, "retire": _retire, "rename": _rename,
+def _settings(prop: dict, con) -> tuple[bool, str]:
+    """Exactly the settings that were proposed, through the register path."""
+    changes, problem = agent_settings.changes_for(prop["agent"], _sets_of(prop))
+    if not changes and not problem.startswith(agent_settings.NOTHING):
+        return False, problem
+    return (True, f"{prop['agent']}'s settings were already so") if not changes \
+        else agent_settings.save_settings(prop["agent"], changes)
+
+
+_DOERS = {"add": _add, "settings": _settings, "retire": _retire, "rename": _rename,
           "link": _link, "unlink": _unlink, "team": _team}
 
 

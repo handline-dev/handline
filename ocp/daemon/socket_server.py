@@ -27,6 +27,7 @@ import time
 from .. import db
 from ..actions import control, details, prompt_blocks
 from ..infra import paths
+from ..team import agent_settings
 
 from . import messaging, sends
 
@@ -76,7 +77,12 @@ def _trust(con, log, **kw) -> tuple[bool, str]:
     return details.trust_worktrees(kw["account"], worktrees)
 
 
+def _agent_set(con, log, **kw) -> tuple[bool, str]:
+    return agent_settings.set_by_agent(kw["agent"], dict(kw.get("values") or {}), kw.get("speaker"))
+
+
 VERBS = {
+    "agent_set": _agent_set,
     "message": _message,
     "say": sends.say_verb,
     "push": sends.push_verb,

@@ -29,6 +29,8 @@ from .. import actions, db
 from ..actions.prompt_blocks import PERMISSION, QUESTION
 from ..daemon import landing as landingmod
 from ..team import agents, ask as askmod
+from ..team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, EDITABLE, WEIGHTS,
+                                   save_settings, settings_changes, settings_of, settings_problem)
 from ..infra import paths, textsafe
 from ..session import idle_close
 from ..usage import status
@@ -356,114 +358,6 @@ def task_detail(con, tid: int) -> dict | None:
             "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing"),
             "ask": actions.previous_holders(con, tid) if state in ("draft", "queued", "doing") else []}
-
-
-EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
-            "context_k", "idle_close")
-BROWSER_MODES = (("off", "off"), ("Claude in Chrome", "chrome"), ("sandboxed Playwright", "playwright"))
-BROWSER_CUSTOM = ("custom, set in a terminal", "custom")   # shown only when the agent has one
-WEIGHTS = ("light", "heavy")
-
-
-def settings_of(agent: str) -> dict:
-    """An agent's configuration as the settings tab shows it: what its agent
-    file says, and the account its session is actually on."""
-    cfg = agents.read(agent)
-    return {"model_id": status.read_for_agent(agent, agents.current_account(agent)).model_id or "",
-            "session_account": agents.current_account(agent) or "",
-            "vendor": str(cfg.get("vendor") or agents.DEFAULT_VENDOR),
-            "enabled": bool(cfg.get("enabled", True)),
-            "model": str(cfg.get("model") or agents.DEFAULT_MODEL),
-            "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
-            "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
-            "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
-            "browser": agents.browser_mode(cfg), "browser_sites": " ".join(agents.browser_origins(cfg)),
-            "context_k": str(agents.context_tokens(cfg) // 1000),
-            "idle_close": actions.idle_close_minutes(cfg["park_timeout_s"])
-            if isinstance(cfg.get("park_timeout_s"), int) and not isinstance(cfg.get("park_timeout_s"), bool) else ""}
-
-
-def settings_problem(form: dict) -> str | None:
-    """Why `form` cannot be saved, or None. Checked here so nothing is written
-    that the agent file would refuse to load again."""
-    model, repo = form["model"].strip(), form["repo"].strip()
-    if not model:
-        return "model cannot be empty"
-    if textsafe.has_unsafe(model) or not agents.is_plain_text(model):
-        return f"model {model!r} would not be read back as text"
-    if form["effort"] not in agents.VALID_EFFORT:
-        return f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
-    if form["weight"] not in WEIGHTS:
-        return f"weight must be one of {', '.join(WEIGHTS)}"
-    if form["skip_permissions"] not in ("on", "off"):
-        return "skip permissions must be on or off"
-    if form["browser"] not in (*dict(BROWSER_MODES).values(), BROWSER_CUSTOM[1]):
-        return "browser must be off, chrome or playwright"
-    if form["browser"] == "playwright":
-        try:
-            if not agents.parse_origins(form["browser_sites"]):
-                return "name at least one site for the sandboxed browser"
-        except ValueError as e:
-            return str(e)
-    if not form["context_k"].strip().isdigit() or int(form["context_k"]) < 1:
-        return "context must be a whole number of thousands of tokens, at least 1"
-    if form["idle_close"].strip() and not form["idle_close"].strip().isdigit():
-        return "idle close must be a whole number of minutes (0 = never), or blank to follow the global time"
-    if repo and (textsafe.has_unsafe(repo) or not Path(repo).expanduser().is_dir()):
-        return f"repo {repo!r} is not a folder"
-    return None
-
-
-def settings_changes(current: dict, form: dict) -> list[tuple[str, str, str]]:
-    """(field, old, new) for each editable field the form changes. A blank repo
-    means leave it: the agent file cannot be told to forget one."""
-    out = []
-    for key in EDITABLE:
-        new = form[key].strip()
-        if key == "repo" and not new:
-            continue
-        if key == "browser_sites":
-            if form["browser"] != "playwright":      # Claude in Chrome has no site list
-                continue
-            new = " ".join(agents.parse_origins(new))
-        if new != current[key]:
-            out.append((key, current[key], new))
-    return out
-
-
-def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool, str]:
-    """Write `changes` to the agent's file through the same call `ocp agent
-    register` uses, which keeps every other field as it is. A running session
-    is not restarted."""
-    new = {k: v for k, _, v in changes}
-    idle = new.pop("idle_close", None)
-    if idle is not None:
-        try:
-            actions.parse_idle_close(idle)      # a bad one is refused before the file is written
-        except ValueError as e:
-            return False, f"not saved: {e}"
-    if new:
-        try:
-            chrome = mcp = None
-            if "browser" in new or "browser_sites" in new:
-                cfg = agents.read(agent)
-                mode = new.get("browser") or agents.browser_mode(cfg)
-                origins = agents.parse_origins(new["browser_sites"]) if "browser_sites" in new \
-                    else agents.browser_origins(cfg)
-                chrome, mcp = mode == "chrome", agents.browser_mcp_config(cfg, mode, origins)
-            agents.register(agent, model=new.get("model"), effort=new.get("effort"),
-                            weight=new.get("weight"), repo=new.get("repo"),
-                            skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
-                            chrome=chrome, mcp_config=mcp,
-                            context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
-        except (ValueError, agents.ConfigError, OSError) as e:
-            return False, f"not saved: {e}"
-    if idle is not None:
-        ok, said = actions.set_idle_close(idle, agent)
-        if not ok:
-            done = ", ".join(f"{k} {v}" for k, v in new.items())
-            return False, f"idle close not saved: {said}" + (f" ({done} was saved)" if done else "")
-    return True, "saved: " + ", ".join(f"{k} {v}" for k, _, v in changes)
 
 
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
