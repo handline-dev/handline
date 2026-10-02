@@ -40,6 +40,9 @@ IDLE_POLL_S = 0.5
 WORKING_MARKERS = ("esc to interrupt",)
 WORKING_ROWS = 12
 
+# A lone terminal escape sequence is sent as the key tmux names, not as bytes tmux may deliver one at a time.
+_KEYS = {"\x1b[A": "Up", "\x1b[B": "Down", "\x1b[C": "Right", "\x1b[D": "Left", "\x1b": "Escape", "\x03": "C-c"}
+
 _PANE = re.compile(r"^%\d+$")
 _NO_SERVER = ("no server running", "error connecting to", "no sessions", "can't find session")
 
@@ -116,11 +119,13 @@ class TmuxBackend(Backend):
         return set() if any(m in err.lower() for m in _NO_SERVER) else None
 
     def read_screen(self, handle: str, limit: int = 40) -> dict | None:
-        """The pane's visible frame. The rows below the last drawn one are dropped, so the bottom of
-        `tail` is the bottom of what is on screen, as the readers above expect."""
+        """The bottom `limit` rows of the pane. The rows below the last drawn one are dropped, so the
+        bottom of `tail` is the bottom of what is on screen, as the readers above expect. A `limit`
+        taller than the pane reaches into its scrollback (`-S`), which is how a reader widens its read
+        when a dialog's top border has scrolled out of the frame."""
         if not _PANE.match(handle):
             return None
-        code, out, _err = _tmux(["capture-pane", "-p", "-t", handle], timeout=30)
+        code, out, _err = _tmux(["capture-pane", "-p", "-t", handle, "-S", f"-{max(limit, 1)}"], timeout=30)
         if code != 0:
             return None
         rows = [r.rstrip() for r in out.split("\n")]
@@ -133,7 +138,9 @@ class TmuxBackend(Backend):
         if not _PANE.match(handle):
             return False, f"not a tmux pane: {handle!r}"
         if text:
-            if "\n" in text:
+            if text in _KEYS:
+                code, _o, err = _tmux(["send-keys", "-t", handle, _KEYS[text]])
+            elif "\n" in text:
                 # Several lines go as one bracketed paste, so a newline is text and not a submit.
                 code, _o, err = _tmux(["load-buffer", "-b", "ocp-send", "-"], stdin=text)
                 if code == 0:

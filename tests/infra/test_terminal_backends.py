@@ -383,6 +383,8 @@ elif verb == "send-keys":
         p["typed"] += rest[rest.index("--") + 1]
     elif rest[-1] == "Enter":
         p["sent"].append(p["typed"]); p["typed"] = ""
+    else:
+        p.setdefault("keys", []).append(rest[-1])
 elif verb == "load-buffer":
     st["buffers"][opt("-b")] = sys.stdin.read()
 elif verb == "paste-buffer":
@@ -466,6 +468,10 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
         p0 = _state(state)["panes"]["%0"]
         check("tmux: several lines go as one bracketed paste, and without Enter nothing is submitted",
               ok and p0["typed"] == "line one\nline two" and p0.get("pasted") is True and len(p0["sent"]) == 3, str(p0))
+        tm.send("%1", "\x1b[B", enter=False)
+        tm.send("%1", "\x1b", enter=False)
+        check("tmux: a lone escape sequence is the key tmux names, so it arrives whole",
+              _state(state)["panes"]["%1"].get("keys") == ["Down", "Escape"], str(_state(state)["panes"]["%1"]))
         check("tmux: a text starting with a dash is text, not a flag",
               tm.send("%1", "-rf --force", enter=False)[0] and _state(state)["panes"]["%1"]["typed"] == "-rf --force")
         check("tmux: a handle that is not a pane id is refused before it reaches tmux",
