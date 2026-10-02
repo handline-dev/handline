@@ -544,6 +544,19 @@ def _visible_owners(args) -> set[str] | None:
     return None if args.everyone else actions.reach(askmod.asking_agent())
 
 
+def cmd_task_show(args) -> int:
+    con = db.connect()
+    try:
+        lines = actions.task_detail(con, args.task)
+    finally:
+        con.close()
+    if lines is None:
+        print(f"no task T{args.task}")
+        return 1
+    print(textsafe.text("\n".join(lines)))     # titles, briefs and notes are other agents' text
+    return 0
+
+
 def cmd_task_list(args) -> int:
     owners = _visible_owners(args)
     if args.owner is not None and owners is not None and args.owner not in owners:

@@ -1902,6 +1902,12 @@ def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
         long_parent = db.add_request(con, "backend", "human", "q" * 100, None,
                                      "peer", "async", None, 0, None)
         cut = dmn_delivery.in_reply_to(con, {"parent_id": long_parent})
+        verdict = db.add_request(con, "human", "backend", "v" * 900, None,
+                                 "peer", "async", None, 0, parent)
+        dmn_delivery._tell(con, "backend", db.get_request(con, verdict), 1, "term_x", lambda _m: None)
+        check("a reply is typed whole, a verdict is not cut",
+              "v" * 900 in sent[-1] and "…" not in sent[-1], sent[-1][:200])
+        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (verdict,))
         check("reply notice: a long first line is cut at the limit with an ellipsis",
               cut == f"in reply to #{long_parent}: {'q' * dmn_delivery.ASKED_SHOWN}…", cut)
     finally:
@@ -5826,6 +5832,38 @@ def test_a_done_task_leaves_the_open_lists_and_shows_with_all(home: Path) -> Non
           f"T{t_open} " in out and f"T{t_done} " not in out and "waiting for check" not in out, out)
 
 
+def test_the_owner_records_what_its_task_waits_on_and_task_show_reads_it_whole(home: Path) -> None:
+    """A task's owner may add and clear its blockers, not only its opener; anyone else is
+    still refused. `ocp task show` prints the brief, memos, blockers and children in one call."""
+    _board_world(home)
+    con = db.connect()
+    try:
+        t_dep = db.new_task(con, "dependent", "worker", "manager")
+        t_blocker = db.new_task(con, "blocker", "manager", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--blocked-by", f"T{t_blocker}"], as_agent="worker")
+    check("owner: the owner who did not open the task may add a blocker", rc == 0, out)
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--unblock", f"T{t_blocker}"], as_agent="worker")
+    check("owner: and clear it again", rc == 0, out)
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--blocked-by", f"T{t_blocker}"], as_agent="x.helper")
+    check("owner: someone who neither opened nor holds the task is still refused",
+          rc == 1 and "can only be edited" in out, out)
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--title", "renamed"], as_agent="worker")
+    check("owner: the owner still cannot retitle it, only record its blockers", rc == 1, out)
+
+    ok, msg, tid = actions.task_new("manager", "worker", "show me", "the whole brief, kept in the request")
+    check("setup: a task with a brief", ok, msg)
+    _cli(["task", "memo", f"T{tid}", "add", "a correction"], as_agent="manager")
+    _cli(["task", "edit", f"T{tid}", "--blocked-by", f"T{t_blocker}"], as_agent="manager")
+    rc, out = _cli(["task", "show", f"T{tid}"], as_agent="worker")
+    check("show: title, owner, brief, memo and blocker are all there",
+          rc == 0 and "show me" in out and "the whole brief, kept in the request" in out
+          and "a correction" in out and f"T{t_blocker} (manager)" in out and "owner worker" in out, out)
+    rc, out = _cli(["task", "show", "T99999"], as_agent="worker")
+    check("show: a task that does not exist says so", rc == 1 and "no task T99999" in out, out)
+
+
 def test_task_blocked_by_another_task(home: Path) -> None:
     """task #21/#1884: a task can wait on another. The board reads it as
     `waiting on T<n>` - never `you - a result is in` and never `nobody holds
@@ -5929,12 +5967,12 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     check("edit --unblock: not actually waiting on that one is refused",
           rc == 1, out)
 
-    rc, out = _cli(["task", "edit", f"T{t_dep}", "--blocked-by", f"T{t_blocker}"], as_agent="worker")
-    check("edit --blocked-by: refused for anyone but the opener or the founder "
-          "(worker owns it, but manager opened it)", rc == 1, out)
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--blocked-by", f"T{t_blocker}"], as_agent="x.helper")
+    check("edit --blocked-by: refused for anyone but the opener, the owner or the founder "
+          "(x.helper neither opened nor holds it)", rc == 1, out)
 
-    rc, out = _cli(["task", "edit", f"T{t_dep}", "--unblock", f"T{t_blocker}"], as_agent="worker")
-    check("edit --unblock: refused for anyone but the opener or the founder "
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--unblock", f"T{t_blocker}"], as_agent="x.helper")
+    check("edit --unblock: refused for anyone but the opener, the owner or the founder "
           "too (auditor's #2065 SHOULD-FIX A - no test drove this before)",
           rc == 1, out)
     con = db.connect()
@@ -9331,6 +9369,7 @@ def main() -> int:
         run(lambda: test_task_board_shows_who_holds_each_open_task(Path(td) / 'taskboard'))
         run(lambda: test_a_done_task_leaves_the_open_lists_and_shows_with_all(Path(td) / 'taskdonegroup'))
         run(lambda: test_task_blocked_by_another_task(Path(td) / 'taskblock'))
+        run(lambda: test_the_owner_records_what_its_task_waits_on_and_task_show_reads_it_whole(Path(td) / 'taskshow'))
         run(lambda: test_a_deferred_delivery_is_not_a_live_claim_to_impersonate_or_park(
             Path(td) / 'deferreddelivery'))
         run(lambda: test_advance_moves_past_a_done_task_even_if_it_carries_a_stale_blocker(
