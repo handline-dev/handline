@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Refuse a staged diff that adds personal data or a local task/chat id (tools/localrefs.py).
+top="$(git rev-parse --show-toplevel)" || exit 0
+[ -f "$top/tools/localrefs.py" ] || exit 0
+exec python3 "$top/tools/localrefs.py" diff --staged
