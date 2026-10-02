@@ -743,6 +743,44 @@ def test_the_protected_store_is_outside_what_agents_write(home: Path) -> None:
         os.environ["OCP_HOME"] = str(home)
 
 
+def test_a_session_may_not_write_the_files_that_move_main(home: Path) -> None:
+    """The sandbox lets a session write the repository's .git for its own commits, so these four
+    files, which git rewrites to move main, are denied per session: the ref, the packed refs and
+    their locks. A feature branch's ref is not among them."""
+    import subprocess as sp
+    repo = home / "repo"
+    repo.mkdir(parents=True)
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@x", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+    sp.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True, env=env)
+    sp.run(["git", "commit", "-q", "--allow-empty", "-m", "x"], cwd=repo, check=True, env=env)
+    sp.run(["git", "worktree", "add", "-q", "-b", "feat", str(home / "wt")], cwd=repo, check=True, env=env)
+    git = repo.resolve() / ".git"
+    want = [str(git / "refs/heads/main"), str(git / "refs/heads/main.lock"),
+            str(git / "packed-refs"), str(git / "packed-refs.lock")]
+    check("main refs: from the main checkout, the four files", launch.main_ref_files(repo) == want,
+          str(launch.main_ref_files(repo)))
+    check("main refs: from a linked worktree, the same four in the common .git",
+          launch.main_ref_files(home / "wt") == want, str(launch.main_ref_files(home / "wt")))
+    check("main refs: a feature branch's ref is not denied",
+          not any(p.endswith("heads/feat") for p in launch.main_ref_files(home / "wt")))
+    check("main refs: outside a repository there is nothing to deny", launch.main_ref_files(home) == [])
+    argv = vendors.get("claude").launch_argv("/x/claude", None, "high", "Agent", [], None, no_write=want)
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    check("main refs: claude gets them as sandbox denyWrite, and no denyRead with them",
+          settings["sandbox"]["filesystem"] == {"denyWrite": want}, str(settings))
+    deny = settings["permissions"]["deny"]
+    check("main refs: and Claude's Edit and Write tools are denied the same files, by exact path",
+          sorted(deny) == sorted(f"{t}(/{p})" for p in want for t in ("Edit", "Write"))
+          and not any(d.endswith("/**)") for d in deny), str(deny))
+    argv = vendors.get("claude").launch_argv("/x/claude", None, "high", "Agent", [], None, hide=["/a/tokens"],
+                                             no_write=want)
+    both = json.loads(argv[argv.index("--settings") + 1])
+    check("main refs: with a read-deny as well, both kinds of permission deny are kept",
+          "Read(//a/tokens/**)" in both["permissions"]["deny"] and len(both["permissions"]["deny"]) == 9,
+          str(both["permissions"]))
+
+
 def test_a_vendor_that_cannot_hide_the_token_folder_is_refused_while_it_exists(home: Path) -> None:
     """Every session holds its own token and must not read the others'. opencode drops the launch's
     `hide`, so while the protected token folder exists its agents are not started; claude's are."""
@@ -2438,6 +2476,7 @@ def main() -> int:
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
         run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
+        run(lambda: test_a_session_may_not_write_the_files_that_move_main(Path(td) / 'mainrefs'))
         run(lambda: test_a_vendor_that_cannot_hide_the_token_folder_is_refused_while_it_exists(Path(td) / 'hidetok'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))

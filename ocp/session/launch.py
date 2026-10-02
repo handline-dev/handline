@@ -253,6 +253,20 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
     return ["--mcp-config", str(p)], None
 
 
+def main_ref_files(worktree: Path) -> list[str]:
+    """The files git rewrites to move the repository's main branch, which a session may not write: its
+    ref, the packed refs, and the lock files beside them (a ref moves by writing `<ref>.lock` and
+    renaming it over the ref). The sandbox lets a session write the repository's .git for its own
+    commits; this keeps the daemon the only mover of main. Branches are untouched; deleting a packed
+    branch rewrites packed-refs, so that is refused too and left to the daemon."""
+    common = _git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not common:
+        return []
+    ref = Path(common) / "refs" / "heads" / gitrun.INTEGRATION_BRANCH
+    packed = Path(common) / "packed-refs"
+    return [str(p) for p in (ref, Path(f"{ref}.lock"), packed, Path(f"{packed}.lock"))]
+
+
 def hidden_memories(agent: str) -> list[str]:
     """The memory folders `agent` may not read: every other agent's, with no
     exception for its reports - a memory is that agent's own."""
@@ -443,6 +457,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.folder())],
+                           no_write=main_ref_files(Path.cwd()),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode else None,
                            chrome=agents.chrome(cfg))
