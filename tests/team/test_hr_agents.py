@@ -2800,10 +2800,15 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
     real = dmn_client.send
     dmn_client.send = daemon_send
     try:
-        rc, out = _cli(["agent", "set", "worker", "model=opus", "effort=high", "idle_close=15"], as_agent="worker")
+        rc, out = _cli(["agent", "set", "worker", "model=opus", "effort=high", "handoff_note=off"], as_agent="worker")
         cfg = agents.read("worker")
-        check("settings: an agent's ordinary changes apply at once",
-              rc == 0 and cfg["model"] == "opus" and cfg["effort"] == "high" and cfg["park_timeout_s"] == 900, out)
+        check("settings: an agent's ordinary changes apply at once, its own handoff note off among them",
+              rc == 0 and cfg["model"] == "opus" and cfg["effort"] == "high" and cfg["handoff_note"] is False, out)
+        from ocp.daemon import handoff_note
+        check("settings: the daemon then reads that agent's handoff note as off", not handoff_note.enabled("worker"))
+        reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {"idle_close": "0"}})
+        check("settings: idle close needs the founder, since 0 keeps a session open for good",
+              not reply["ok"] and "park_timeout_s" not in agents.read("worker"), str(reply))
         rc, out = _cli(["agent", "set", "other", "model=opus"], as_agent="worker")
         check("settings: an agent changes only its own", rc == 1 and agents.read("other").get("model") != "opus", out)
         rc, out = _cli(["agent", "set", "worker", "browser=chrome"], as_agent="worker")

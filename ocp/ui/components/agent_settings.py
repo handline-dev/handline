@@ -12,7 +12,7 @@ from textual.widgets import Button, Input, Select, Static, Switch
 from ... import actions
 from ...session import idle_close
 from ...team import agents
-from ...team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, WEIGHTS, save_settings,
+from ...team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, HANDOFF_NOTES, WEIGHTS, save_settings,
                                     settings_changes, settings_of, settings_problem)
 from .action_bar import ActionBar
 from .confirm import Confirm
@@ -72,6 +72,9 @@ class AgentSettings(Vertical):
                 yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
                 yield Static("k tokens", classes="unit")
                 yield Static(id="s_context_share", classes="fvalue")
+            with Horizontal(classes="frow"):
+                yield Static("handoff note", classes="flabel")
+                yield Select(list(HANDOFF_NOTES), id="s_handoff_note", allow_blank=False, compact=True)
             yield SectionHead("work")
             with Horizontal(classes="frow"):
                 yield Static("repo", classes="flabel")
@@ -123,6 +126,7 @@ class AgentSettings(Vertical):
         self.show_context_share()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
+        self.query_one("#s_handoff_note", Select).value = cfg["handoff_note"]
         self.post_message(self.Loaded())
 
     def form(self) -> dict:
@@ -134,6 +138,7 @@ class AgentSettings(Vertical):
                 "browser": str(self.query_one("#s_browser", Select).value),
                 "browser_sites": " ".join(self.query_one("#s_browser_sites", SitesList).sites),
                 "context_k": self.query_one("#s_context_k", Input).value,
+                "handoff_note": str(self.query_one("#s_handoff_note", Select).value),
                 "idle_close": self.query_one("#s_idle_close", Input).value}
 
     def show_context_share(self) -> None:

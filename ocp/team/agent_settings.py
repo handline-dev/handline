@@ -10,10 +10,11 @@ from ..infra import textsafe
 from . import agents
 
 EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
-            "context_k", "idle_close")
+            "context_k", "idle_close", "handoff_note")
 BROWSER_MODES = (("off", "off"), ("Claude in Chrome", "chrome"), ("sandboxed Playwright", "playwright"))
 BROWSER_CUSTOM = ("custom, set in a terminal", "custom")   # shown only when the agent has one
 WEIGHTS = ("light", "heavy")
+HANDOFF_NOTES = (("follow the global switch", "default"), ("on", "on"), ("off", "off"))
 
 
 def settings_of(agent: str) -> dict:
@@ -30,6 +31,7 @@ def settings_of(agent: str) -> dict:
             "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
             "browser": agents.browser_mode(cfg), "browser_sites": " ".join(agents.browser_origins(cfg)),
             "context_k": str(agents.context_tokens(cfg) // 1000),
+            "handoff_note": {True: "on", False: "off"}.get(cfg.get("handoff_note"), "default"),
             "idle_close": actions.idle_close_minutes(cfg["park_timeout_s"])
             if isinstance(cfg.get("park_timeout_s"), int) and not isinstance(cfg.get("park_timeout_s"), bool) else ""}
 
@@ -56,6 +58,8 @@ def settings_problem(form: dict) -> str | None:
                 return "name at least one site for the sandboxed browser"
         except ValueError as e:
             return str(e)
+    if form["handoff_note"] not in dict(HANDOFF_NOTES).values():
+        return "handoff note must be on, off or default"
     if not form["context_k"].strip().isdigit() or int(form["context_k"]) < 1:
         return "context must be a whole number of thousands of tokens, at least 1"
     if form["idle_close"].strip() and not form["idle_close"].strip().isdigit():
@@ -88,6 +92,7 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
     is not restarted."""
     new = {k: v for k, _, v in changes}
     idle = new.pop("idle_close", None)
+    note = new.pop("handoff_note", None)
     if idle is not None:
         try:
             actions.parse_idle_close(idle)      # a bad one is refused before the file is written
@@ -109,6 +114,16 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
                             context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
         except (ValueError, agents.ConfigError, OSError) as e:
             return False, f"not saved: {e}"
+    if note is not None:
+        try:
+            cfg = agents.read(agent)
+            if note == "default":
+                cfg.pop("handoff_note", None)
+            else:
+                cfg["handoff_note"] = note == "on"
+            agents.write(agent, cfg)
+        except (ValueError, agents.ConfigError, OSError) as e:
+            return False, f"handoff note not saved: {e}"
     if idle is not None:
         ok, said = actions.set_idle_close(idle, agent)
         if not ok:
@@ -120,7 +135,7 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
 # The one split between what an agent may set on its own and what raises what it
 # may do: only these apply when an agent asks; every other field, and any field
 # added later, waits for the founder in HR.
-ORDINARY = frozenset({"model", "effort", "context_k", "idle_close"})
+ORDINARY = frozenset({"model", "effort", "context_k", "handoff_note"})
 
 
 def privileged(field: str) -> bool:
@@ -165,7 +180,8 @@ def set_values(agent: str, values: dict[str, str]) -> tuple[bool, str]:
 
 def set_by_agent(agent: str, values: dict[str, str], speaker: str | None) -> tuple[bool, str]:
     """An agent's own change, applied for it by the daemon: only its own, and only
-    what `ORDINARY` names. Anything else is refused here, not applied."""
+    what `ORDINARY` names. `speaker` is the caller's own word, as for ask and say: the
+    socket is private to the user, so this guards against mistakes, not a hostile local process."""
     if speaker != agent:
         return False, f"{speaker or 'someone'} may not change {agent}'s settings; an agent changes its own"
     held = sorted(k for k in values if privileged(k))

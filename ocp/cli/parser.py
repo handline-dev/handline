@@ -113,8 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
                    "project .mcp.json); 'off' removes them; on re-registration, omit to keep them")
     p.set_defaults(fn=cmd_agent_register)
 
-    p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, idle_close apply "
-                                  "at once; the rest (browser, browser_sites, skip_permissions, repo, weight) "
+    p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, handoff_note apply "
+                                  "at once; the rest (idle_close, browser, browser_sites, skip_permissions, repo, weight) "
                                   "go to HR for the founder to approve")
     p.add_argument("name")
     p.add_argument("values", nargs="+", metavar="setting=value")
