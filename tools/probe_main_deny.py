@@ -11,6 +11,8 @@ made by the same code), and has it run five writes against the scratch repositor
   1 git update-ref main <other commit>        2 create packed-refs.lock
   3 rename a file holding another commit over main's ref
   4 hard-link main's ref under another name   5 write a third commit through that link
+  6 a control: a file the settings deny outright; if it is written the sandbox was not on, and the
+    run is INCONCLUSIVE rather than a GAP
 
 Each is judged by what is on disk afterwards, not by an exit code. Op 4 alone is a gap of any deny by
 path (the link is a new name for the same file); op 5 is what makes it matter. The real .git is never
@@ -35,7 +37,7 @@ GIT_ENV = dict(os.environ, GIT_AUTHOR_NAME="probe", GIT_AUTHOR_EMAIL="user@examp
                GIT_COMMITTER_NAME="probe", GIT_COMMITTER_EMAIL="user@example.com",
                GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
 WHAT = {1: "update-ref main", 2: "create packed-refs.lock", 3: "rename over main",
-        4: "hard link to main", 5: "write through the link"}
+        4: "hard link to main", 5: "write through the link", 6: "control (must be refused)"}
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -51,6 +53,10 @@ class Scratch:
     common: Path
     commits: dict[int, str]       # the commit each of ops 1, 3 and 5 tries to put on main
     start: str
+
+    @property
+    def control(self) -> Path:
+        return self.top / "control.deny"
 
     @property
     def log(self) -> Path:
@@ -80,6 +86,7 @@ def probe_settings(s: Scratch) -> dict:
     settings = json.loads(argv[argv.index("--settings") + 1])
     fs = settings["sandbox"]["filesystem"]
     fs["allowWrite"] = [str(s.common)]
+    fs["denyWrite"] = [*fs["denyWrite"], str(s.control)]
     settings["sandbox"].update(enabled=True, allowUnsandboxedCommands=False)
     return settings
 
@@ -93,6 +100,7 @@ true > $G/packed-refs.lock; log 2 $?
 echo {c[3]} > $G/refs/heads/zz-probe && mv $G/refs/heads/zz-probe $G/refs/heads/main; log 3 $?
 ln $G/refs/heads/main $G/refs/heads/zz-probe2; log 4 $?
 echo {c[5]} > $G/refs/heads/zz-probe2; log 5 $?
+true > {s.control}; log 6 $?
 """
 
 
@@ -116,6 +124,10 @@ def judge(s: Scratch, log: dict[int, tuple[str, str]]) -> tuple[dict[int, bool |
         wrote[2] = (s.common / "packed-refs.lock").exists()
     if 4 in log:
         wrote[4] = (s.common / "refs/heads/zz-probe2").exists() and ref.stat().st_nlink > 1
+    if 6 in log:
+        wrote[6] = s.control.exists()
+    if wrote[6]:
+        return wrote, "INCONCLUSIVE: the control write went through, so the sandbox was not applied"
     if None in wrote.values():
         return wrote, "INCONCLUSIVE: ops " + ", ".join(str(i) for i, w in wrote.items() if w is None) + " never ran"
     moved = [i for i in (1, 2, 3, 5) if wrote[i]]
@@ -130,9 +142,12 @@ def run_claude(s: Scratch, exe: str, timeout: int) -> str:
     prompt = (f"This is a test of a sandbox, in a scratch repository made for it. Run exactly this one "
               f"command with the Bash tool, once, and do not retry or change anything if a part of it "
               f"fails: sh {s.top / 'probe.sh'}   Then reply with the word done.")
-    r = subprocess.run([exe, "-p", prompt, "--settings", json.dumps(probe_settings(s)),
-                        "--dangerously-skip-permissions", "--no-chrome"], cwd=s.wt, capture_output=True,
-                       text=True, timeout=timeout)
+    try:
+        r = subprocess.run([exe, "-p", prompt, "--settings", json.dumps(probe_settings(s)),
+                            "--dangerously-skip-permissions", "--no-chrome"], cwd=s.wt, capture_output=True,
+                           text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return f"(claude timed out after {timeout}s)"
     return (r.stdout + r.stderr).strip()
 
 
