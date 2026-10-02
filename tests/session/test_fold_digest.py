@@ -716,6 +716,25 @@ def test_korean_digests_read_and_are_migrated_to_english_headings(home: Path) ->
     con = db.connect()
     con.close()
     check("upgrade: a second connect does not touch it again", j.read_text() == old)
+    # A journal folder it cannot write must not fail a connect, now or on any later one.
+    import os
+    j.write_text(old)
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM cursors WHERE name = 'migrated:english_digests'")
+    finally:
+        con.close()
+    os.chmod(j.parent, 0o555)
+    try:
+        try:
+            db.connect().close()
+            failed = ""
+        except OSError as e:
+            failed = str(e)
+        check("upgrade: an unwritable journal folder does not fail a connect, the file stays readable",
+              not failed and digest.parse(j.read_text()) == d, failed)
+    finally:
+        os.chmod(j.parent, 0o755)
     check("hr: the Korean approve and reject still decide, the English ones too",
           hr.decision("\uc2b9\uc778") == "approved" and hr.decision("\ubc18\ub824 \u2014 no") == "rejected"
           and hr.decision("approve") == "approved" and hr.decision("later") == "unclear")

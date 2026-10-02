@@ -1229,7 +1229,10 @@ def _english_digests(con) -> None:
                 continue
             after = digest.migrate_text(before)
             if after != before:
-                atomic.write_text(f, after)
+                try:
+                    atomic.write_text(f, after)
+                except OSError:         # a folder it cannot write: the file stays Korean, which parse reads
+                    continue
     set_cursor(con, "migrated:english_digests", 1)
 
 

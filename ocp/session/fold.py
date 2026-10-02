@@ -137,7 +137,7 @@ def _is_resolved(con, rid: int) -> bool:
 
 
 def reconcile_resolved(con, d: digest.Digest) -> digest.Digest:
-    """Move a In progress/Blocked line to Done once every id it names is resolved.
+    """Move an In progress/Blocked line to Done once every id it names is resolved.
 
     A line with no ids, or with an id the store does not recognize or has not
     resolved, stays exactly where the model put it - this only closes what the
@@ -180,7 +180,7 @@ Rules:
 - Every item already under Done in the previous digest MUST still appear under Done.
   Losing a completed item is the one unacceptable error.
 - Move items between sections as the new events warrant; do not invent work.
-- When a In progress or Blocked item is about a request you asked, write its id as
+- When an In progress or Blocked item is about a request you asked, write its id as
   #N (e.g. "waiting on #7") ONLY when that request is what the item is
   waiting on - reconcile_resolved closes the item the moment that request
   is done, so #N there means "done" ends this. A request being resolved is
