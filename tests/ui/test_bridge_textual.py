@@ -5015,6 +5015,15 @@ async def test_m_and_M_on_the_for_you_panel_read_a_line_and_all() -> None:
         Path(os.environ.get("FORYOU_SHOT", os.devnull)).write_text(app.export_screenshot())
 
 
+def test_an_agents_note_on_its_own_row_does_not_repeat_its_name() -> None:
+    from ocp.ui.components.agent_rows import agent_note
+    check("note: a terminal that is gone says just that",
+          agent_note("legacy.clearlogo", "legacy.clearlogo's terminal is gone - Orca no longer has it") == "terminal is gone")
+    check("note: a name inside the sentence becomes it, and only a whole name",
+          agent_note("a", "no session is running in a's terminal") == "no session is running in its terminal"
+          and agent_note("a", "a is closed and b is at 98%") == "closed and b is at 98%")
+
+
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
@@ -5071,6 +5080,7 @@ async def _run_all() -> None:
     test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one()
     await test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing()
     test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays()
+    test_an_agents_note_on_its_own_row_does_not_repeat_its_name()
     await test_m_and_M_on_the_for_you_panel_read_a_line_and_all()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
