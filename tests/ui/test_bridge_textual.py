@@ -1920,6 +1920,74 @@ async def test_changing_owners_on_the_task_board_does_not_hold_the_screen() -> N
         actions.batch_task = real
 
 
+||||||| parent of f1578834 (T938: the home redraw paints what a worker read (db, ps, orca off the loop); a task page's assign hands off on a thread)
+
+
+async def test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints() -> None:
+    """Founder #9423: the home refresh ran `ps`, `orca` and the database on the event loop, 0.5 s freezes
+    in the stall log. A redraw paints what a worker read; neither it nor the timer's tick reads on the loop."""
+    import subprocess
+    import threading
+    _home("homeread")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(150, 40)) as pilot:
+        await pilot.pause(1.0)
+        screen, loop, on_loop = app.screen, threading.get_ident(), []
+
+        def spy(name, real):
+            def wrapped(*a, **k):
+                if threading.get_ident() == loop:
+                    on_loop.append(name)
+                return real(*a, **k)
+            return wrapped
+        real = (db.connect, subprocess.run, subprocess.Popen)
+        db.connect, subprocess.run, subprocess.Popen = (spy("db.connect", real[0]), spy("subprocess.run", real[1]),
+                                                         spy("subprocess.Popen", real[2]))
+        try:
+            check("home read: a first read has been painted", screen._snapshot is not None)
+            screen._redraw()
+            screen._redraw()
+            await pilot.pause(2.6)      # and a timer tick
+        finally:
+            db.connect, subprocess.run, subprocess.Popen = real
+        check("home read: a redraw and a timer tick read nothing on the loop", on_loop == [], str(on_loop))
+        check("home read: the fresh read still arrives", screen._snapshot is not None)
+
+
+async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
+    """The handoff of one task is ~60 ms and more; it is made off the event loop and its answer is toasted."""
+    import threading
+    from ocp.ui.chat_page import TaskDetail
+    _home("pageassign")
+    agents.register("reviewer")
+    ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
+    on, toasts = {}, []
+
+    def spy(con, t, to, text):
+        on["thread"], on["to"] = threading.get_ident(), to
+        return True, "handed"
+    real = actions.assign_task
+    actions.assign_task = spy
+    app = bt.BridgeApp()
+    try:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.5)
+            app.push_screen(TaskDetail(tid))
+            await pilot.pause(0.8)
+            await pilot.press("a")
+            await pilot.pause(0.5)
+            for ch in "ok":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause(0.8)
+            check("task page assign: the handoff was made", on.get("to") is not None, str(on))
+            check("task page assign: ... off the event loop", on.get("thread") != threading.get_ident(), str(on))
+            check("task page assign: ... and its answer is toasted",
+                  any("handed" in str(n.message) for n in app._notifications), str(list(app._notifications)))
+    finally:
+        actions.assign_task = real
+
+
 async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
     from ocp.daemon import devmode
     from ocp.ui import chat_page as cp
@@ -3571,6 +3639,9 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
+||||||| parent of f1578834 (T938: the home redraw paints what a worker read (db, ps, orca off the loop); a task page's assign hands off on a thread)
+    await test_the_home_redraw_reads_on_a_worker_and_the_loop_only_paints()
+    await test_assigning_from_a_tasks_page_hands_off_on_a_thread()
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()

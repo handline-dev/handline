@@ -3,6 +3,7 @@
 chat_page.tcss."""
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import re
@@ -1109,16 +1110,22 @@ class TaskActions:
                 return
             to, text = got
             log_action(f"task {ref} assign to {to}")
-            with stall.timed(f"assign {ref}: db.connect"):
-                con = db.connect()
-            try:
-                with stall.timed(f"assign {ref}: actions.assign_task"):
-                    ok, said = actions.assign_task(con, self.tid, to, text)
-            finally:
-                con.close()
-            self.report("assign", ok, said)
-            stall.crumb(f"assign {ref}: callback end ({'ok' if ok else 'refused'})")
-            self.app.call_after_refresh(stall.snapshot, self.app, f"assign {ref}: after the callback")
+
+            def write() -> tuple[bool, str]:
+                with stall.timed(f"assign {ref}: db.connect"):
+                    con = db.connect()
+                try:
+                    with stall.timed(f"assign {ref}: actions.assign_task"):
+                        return actions.assign_task(con, self.tid, to, text)
+                finally:
+                    con.close()
+
+            async def assign() -> None:
+                ok, said = await asyncio.to_thread(write)      # a handoff is ~60 ms and more: not on the loop
+                self.report("assign", ok, said)
+                stall.crumb(f"assign {ref}: callback end ({'ok' if ok else 'refused'})")
+                self.app.call_after_refresh(stall.snapshot, self.app, f"assign {ref}: after the callback")
+            self.run_worker(assign(), exclusive=True, group="task_assign")
         with stall.timed(f"assign {ref}: db.connect"):
             con = db.connect()
         try:

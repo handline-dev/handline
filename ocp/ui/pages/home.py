@@ -5,6 +5,7 @@ and the row keys in `RowActions`; what only this page shows is in `ui.components
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 from rich.text import Text
 from textual import events
@@ -12,6 +13,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.errors import NoWidget
 from textual.screen import Screen
+from textual.worker import get_current_worker
 from textual.widgets import Button, DataTable, Input, Static, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
@@ -40,6 +42,23 @@ from .stats import StatsScreen
 DOUBLE_PRESS_S = 0.5     # two presses on one row this close are a double press
 _PANEL_OF_TABLE = {"accounts": tui.ACCOUNTS, "agents": tui.AGENTS, "messages": tui.MESSAGES}
 _LEVEL_STYLE = {"normal": "dim", "slow": "yellow", "danger": "red"}
+
+
+@dataclass
+class Read:
+    """Everything the Home tab draws that comes from the database, the disk or a subprocess,
+    read on a worker thread: painting it is only widget work."""
+    summary: object
+    agent_keys: object
+    daemon: bool
+    accounts: tuple
+    usage: dict
+    agents: tuple
+    messages: tuple
+    proposals: int
+    marks: bool
+
+
 # Each tab's widgets: what it shows and the others hide.
 _TAB_WIDGETS = {
     "home": ("#header", "#accounts-box", "#agents-box", "#messages-box", "#foot", "#home_keys"),
@@ -140,6 +159,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._focus_tab = False         # the tab being opened takes the focus into its content
         self._checks: str | None = None  # the next Tasks tab opens on "delegated"
         self._hr_dot = False            # whether the HR tab wears its dot
+        self._snapshot: Read | None = None  # what was last read; every redraw paints it
         self._on = True                 # the blink phase
         self._pressed: tuple | None = None      # the last row a mouse press picked, and when
         self._pressed_at = 0.0
@@ -320,37 +340,63 @@ class HomePage(RowActions, JobsAware, Screen):
     # ------------------------------------------------------------------ drawing
 
     def _redraw(self) -> None:
+        """Paint what was last read, at once, and ask for a fresh read: nothing here waits on the
+        database, the disk or a subprocess."""
+        if self._snapshot is not None:
+            self._paint(self._snapshot)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        target = self.sel.get(self.panel)
+        self.run_worker(lambda: self._read_and_paint(self.panel, target), thread=True,
+                        exclusive=True, group="home_read", exit_on_error=False)
+
+    def _read_and_paint(self, panel: int, target) -> None:
+        got = self._fetch(panel, target)
+        if not get_current_worker().is_cancelled:
+            self.app.call_from_thread(self._arrived, got)
+
+    def _fetch(self, panel: int, target) -> Read:
+        """The reads of one redraw: on a worker thread, with a connection of its own."""
         con = db.connect()
         try:
-            target = self.sel.get(self.panel)
             agent_keys = (tui.agent_footer_keys(con, str(target) if target is not None else None)
-                          if self.panel == tui.AGENTS else None)
+                          if panel == tui.AGENTS else None)
             summary = summarize(con)
+            accounts = tui.accounts_data(con)
+            rows, notes = tui.agents_data(con)
+            agents = (rows, notes, agent_rows.collect(con, rows))
+            messages = tui.messages_data(con)
+            proposals = len(open_proposals(con))
         finally:
             con.close()
-        self.query_one("#header", Static).update(summary_text(daemon_running(), clock(), summary))
-        self._draw_accounts()
-        self._draw_agents()
-        self._draw_messages()
+        usage = {r.name: status.read(r.name) for r in accounts[0]}
+        return Read(summary, agent_keys, daemon_running(), accounts, usage, agents, messages, proposals,
+                    marks_on_screen())
+
+    def _arrived(self, got: Read) -> None:
+        self._snapshot = got
+        self._paint(got)
+
+    def _paint(self, got: Read) -> None:
+        self.query_one("#header", Static).update(summary_text(got.daemon, clock(), got.summary))
+        self._draw_accounts(*got.accounts, got.usage)
+        self._draw_agents(*got.agents)
+        self._draw_messages(*got.messages)
         self.query_one("#accounts-box").border_subtitle = " · ".join(
-            ["│ time passed in the window"] + ([status.SOURCE_LEGEND_SHORT] if marks_on_screen() else []))
+            ["│ time passed in the window"] + ([status.SOURCE_LEGEND_SHORT] if got.marks else []))
         foot = Text()
         for jl in self.jobs.lines():
             foot.append(jl.text + "\n", _LEVEL_STYLE.get(jl.level, ""))
         self.query_one("#foot", Static).update(foot)
-        self.query_one("#home_keys", KeyGuide).set_keys(self._keys(agent_keys))
-        self._count_hr()
+        self.query_one("#home_keys", KeyGuide).set_keys(self._keys(got.agent_keys))
+        self._show_hr_dot(got.proposals)
         if self.tab == "hr":
             self.query_one("#hr_view", ProposalsView).refresh_rows()
 
-    def _draw_accounts(self) -> None:
-        con = db.connect()
-        try:
-            rows, notes = tui.accounts_data(con)
-        finally:
-            con.close()
+    def _draw_accounts(self, rows, notes, usage) -> None:
         table = self.query_one("#accounts", DataTable)
-        meters = {r.name: gauge.usage_cells(status.read(r.name), True) for r in rows}
+        meters = {r.name: gauge.usage_cells(usage[r.name], True) for r in rows}
         room = table.scrollable_content_region.width or self.size.width - 4
         for cols, with_pct in _ACCT_TIERS:
             heads = ("account", *(tui.ACCT_HEAD[c] for c in cols), "")
@@ -358,7 +404,7 @@ class HomePage(RowActions, JobsAware, Screen):
             for r in rows:
                 cells = dict(r.cells)
                 if meters[r.name]:
-                    five, seven = gauge.usage_cells(status.read(r.name), with_pct)
+                    five, seven = gauge.usage_cells(usage[r.name], with_pct)
                     cells["five"], cells["seven"] = five, seven
                 body.append([Text.from_ansi(f"{tui.BOLD}{tui.oneline(loadmod.label_of(r.name))}{tui.R}"),
                              *(Text.from_ansi(cells[c]) for c in cols),
@@ -372,13 +418,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._sync_cursor(table, "#accounts-box", tui.ACCOUNTS, [r.name for r in rows])
         self._notes("#acct-notes", notes)
 
-    def _draw_agents(self) -> None:
-        con = db.connect()
-        try:
-            rows, notes = tui.agents_data(con)
-            extra = agent_rows.collect(con, rows)
-        finally:
-            con.close()
+    def _draw_agents(self, rows, notes, extra) -> None:
         table = self.query_one("#agents", DataTable)
         _set_columns(table, _AGENT_HEADS)
         out = []
@@ -407,12 +447,7 @@ class HomePage(RowActions, JobsAware, Screen):
         self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
         self._notes("#agent-notes", notes)
 
-    def _draw_messages(self) -> None:
-        con = db.connect()
-        try:
-            title, rows, notes = tui.messages_data(con)
-        finally:
-            con.close()
+    def _draw_messages(self, title, rows, notes) -> None:
         # The glyph already says what kind of message a row is (⚠ decide, ◷ asked for a
         # reply, ↩ came back, · to read), so there is no kind column and no id; `refused`,
         # the one kind the glyph shares with `answer`, is said in the text.
@@ -534,14 +569,9 @@ class HomePage(RowActions, JobsAware, Screen):
             except CellDoesNotExist:
                 pass
 
-    def _count_hr(self) -> None:
+    def _show_hr_dot(self, n: int) -> None:
         """The HR tab wears a red dot while a proposal waits on the founder, so it is
         seen from the other tabs."""
-        con = db.connect()
-        try:
-            n = len(open_proposals(con))
-        finally:
-            con.close()
         if (n > 0) != self._hr_dot:
             self._hr_dot = n > 0
             self.query_one("#scope", Tabs).get_tab("hr").label = (
