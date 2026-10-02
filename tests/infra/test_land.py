@@ -186,6 +186,26 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         check("land: another agent's session cannot land as the merger", not said["ok"], str(said))
         said = ask_daemon("land_pass", lands.AUDITOR, p_merger)
         check("land: the merger's session cannot record the auditor's PASS", not said["ok"], str(said))
+        import socket
+        a, b = socket.socketpair()
+        check("peer: the kernel names the process on the other end of a unix socket",
+              sessiontoken.peer_pid(a) == os.getpid(), str(sessiontoken.peer_pid(a)))
+        a.close(); b.close()
+
+        def over_the_wire(agent):
+            """One request through the daemon's own connection handler; the peer is this process."""
+            client, server = socket.socketpair()
+            client.sendall(json.dumps({"verb": "land", "sha": feat, "message": "m", "tree": tree,
+                                       "agent": agent}).encode() + b"\n")
+            socket_server._serve_one(server, lambda m: None)
+            return json.loads(client.recv(65536).decode())
+        sessiontoken.record("orcapipe.core", os.getpid())
+        said = over_the_wire("orcapipe.core")
+        check("peer: a request is judged by the process that sent it (this one is orcapipe.core's session)",
+              "may not land" in said["said"], str(said))
+        said = over_the_wire(lands.MERGER)
+        check("peer: the same process naming itself the merger is refused",
+              "not this request's session" in said["said"], str(said))
         said = ask_daemon("land", "orcapipe.core", p_core)
         check("land: an agent with its own valid session that is not the merger is refused",
               not said["ok"] and "may not land" in said["said"], str(said))

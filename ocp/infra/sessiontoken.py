@@ -24,10 +24,6 @@ NS = "session-tokens"      # the store folder keeps its name; renaming it would 
 _MAX_DEPTH = 64
 
 
-def folder():
-    return protected.root() / NS
-
-
 def _proc(pid: int) -> tuple[int, str] | None:
     """(parent pid, start time) of `pid`, or None when no such process is running. Read from the
     kernel, not from `ps`, which a session's sandbox forbids."""
