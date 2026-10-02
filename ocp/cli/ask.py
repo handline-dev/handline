@@ -32,7 +32,8 @@ def _refused_listing(target: str | None) -> bool:
 
 
 def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[str | None, str | None]:
-    """(text, error). `inline` or `file_path`, never both; neither reads stdin. A shell expands backticks and $() inside double quotes before this
+    """(text, error). `inline` or `file_path`, never both; neither reads stdin, and so does `-` as
+    either one (T946: the safe way to pass text a shell would expand). A shell expands backticks and $() inside double quotes before this
     process ever sees argv, so a message with either in it is silently
     rewritten - or, at a live terminal, run - by the caller's own shell. A
     file the caller wrote with a quoted heredoc, `Write`, or any tool that
@@ -41,6 +42,9 @@ def _text_arg(inline: str | None, file_path: str | None, label: str) -> tuple[st
     """
     if file_path and inline is not None:
         return None, f"give {label} inline or with --file, not both"
+    if file_path == "-" or inline == "-":
+        text = sys.stdin.read()
+        return (text, None) if text.strip() else (None, f"{label} is required, and stdin (-) was empty")
     if file_path:
         try:
             return Path(file_path).read_text(), None
