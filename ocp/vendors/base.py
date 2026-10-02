@@ -164,8 +164,8 @@ class StateHooks(Protocol):
     def allow_home_socket(self) -> bool:
         """Let a sandboxed agent connect to ocp's unix socket: True if it changed."""
 
-    def unsandboxed_commands(self) -> list[str]:
-        """The sandbox exclusions that let the ocp command run outside an agent's sandbox."""
+    def unsandboxed_commands(self) -> list[str] | None:
+        """The sandbox exclusions that let the ocp command run outside an agent's sandbox; None when the settings cannot be read."""
 
     def allow_safe_commands(self) -> bool:
         """Let the read-only and reporting commands run without asking: True if it changed."""

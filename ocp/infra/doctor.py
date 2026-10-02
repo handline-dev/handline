@@ -184,7 +184,11 @@ def _check_ocp_sandboxed(r: Report) -> None:
     an excluded command is not under its read-deny or its write limits."""
     for h in vendors.state_hooks():
         out = h.unsandboxed_commands()
-        if out:
+        if out is None:
+            r.add(WARN, "could not read the sandbox settings",
+                  f"{h.target_settings()} is not readable JSON, so whether ocp runs inside the agents' "
+                  "sandbox is unknown")
+        elif out:
             r.add(WARN, "ocp runs outside the agents' sandbox",
                   f"{h.target_settings()} excludes {', '.join(repr(e) for e in out)} from the sandbox, so "
                   "an agent's ocp can read the session tokens; remove those entries from "

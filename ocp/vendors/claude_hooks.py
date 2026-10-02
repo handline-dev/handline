@@ -200,14 +200,14 @@ def allow_home_socket() -> bool:
     return True
 
 
-def unsandboxed_commands() -> list[str]:
+def unsandboxed_commands() -> list[str] | None:
     """The shared settings' `sandbox.excludedCommands` entries that start with the ocp command: those
     run outside every agent's sandbox, so the session-token folder's read-deny and the protected
-    store's write protection do not bind them."""
+    store's write protection do not bind them. None when the settings cannot be read."""
     try:
         sandbox = _read_object(target_settings()).get("sandbox")
     except ValueError:
-        return []
+        return None
     excluded = sandbox.get("excludedCommands") if isinstance(sandbox, dict) else None
     return [e for e in excluded or [] if isinstance(e, str) and e.split(" ", 1)[0] == "ocp"]
 
