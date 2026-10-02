@@ -446,6 +446,7 @@ class HomePage(RowActions, JobsAware, Screen):
         sync_rows(table, out)
         self._sync_cursor(table, "#agents-box", tui.AGENTS, [r.name for r in rows])
         self._notes("#agent-notes", notes)
+        self.call_after_refresh(self._fit, "#agents", len(_AGENT_HEADS) - 1)
 
     def _draw_messages(self, title, rows, notes) -> None:
         # The glyph already says what kind of message a row is (⚠ decide, ◷ asked for a
@@ -471,6 +472,7 @@ class HomePage(RowActions, JobsAware, Screen):
     def on_resize(self) -> None:
         self._redraw()
         self._fit("#messages", 3)
+        self._fit("#agents", len(_AGENT_HEADS) - 1)
 
     def _sync_cursor(self, table: DataTable, box: str, panel: int, names: list) -> None:
         """A panel's table is display only: its row cursor is the page's own selection,

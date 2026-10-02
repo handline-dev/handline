@@ -1555,6 +1555,21 @@ def test_agent_rows_collect_says_why_a_row_needs_the_founder() -> None:
         con.close()
 
 
+def test_agent_rows_collect_keeps_a_stuck_reason_whole() -> None:
+    from ocp.ui.components import agent_rows as ar
+    _home("collectlong")
+    agents.register("w9")
+    long = "the daemon gave up after the third failed launch and will not try again " * 2
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "w9", dmn_states.STALLED, detail=long.strip())
+        rows, _notes = tui.agents_data(con)
+        check("agent_rows: a stuck reason is not cut short; the column ellipsizes it to its width",
+              ar.collect(con, rows)["w9"].stuck == long.strip(), ar.collect(con, rows)["w9"].stuck)
+    finally:
+        con.close()
+
+
 def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
     from ocp.team import ask as askmod
     from ocp.ui.components import proposals as pr
@@ -4150,6 +4165,7 @@ async def _run_all() -> None:
     test_agent_rows_collect_carries_the_agents_own_model_and_effort()
     test_fold_urgency_ranks_what_a_fold_hides()
     test_agent_rows_collect_says_why_a_row_needs_the_founder()
+    test_agent_rows_collect_keeps_a_stuck_reason_whole()
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
     test_idle_close_is_set_globally_and_per_agent_in_minutes()

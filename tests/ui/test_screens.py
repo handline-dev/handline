@@ -2026,8 +2026,11 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
               not delivered and "terminal is gone" in said, said)
 
         delivered, said = world({"term_x"}, {}, dmn_states.IDLE, told=False, closed=True)
-        check("agree: a closed agent says the wake is coming",
-              not delivered and "the next tick wakes it" in said, said)
+        _, said = world({"term_x"}, {}, dmn_states.IDLE, told=False, closed=True, age=60)
+        check("agree: a closed agent the daemon will wake, asked a minute ago, is not shown", not said, said)
+        _, said = world({"term_x"}, {}, dmn_states.IDLE, told=False, closed=True)
+        check("agree: but one that has waited past the stuck age is listed, with the wake coming",
+              "the next tick wakes it" in said, said)
 
         _, said = world(*live, dmn_states.RUNNING, told=False)
         check("agree: a working agent is named as working, not as idle",
