@@ -437,11 +437,23 @@ def test_every_daemon_actions_and_team_module_imports_on_its_own() -> None:
     check("imports: each daemon, actions and team module imports alone", not broken, "; ".join(broken[:3]))
 
 
+def test_every_tools_file_with_a_shebang_is_executable_in_the_index() -> None:
+    """A tool run by its own path ("tools/x.py check") must land as mode 100755."""
+    out = subprocess.run(["git", "ls-files", "-s", "tools"], cwd=ROOT, capture_output=True, text=True).stdout
+    bad = []
+    for line in out.splitlines():
+        mode, _, _, path = line.replace("\t", " ").split(None, 3)
+        if mode != "100755" and (ROOT / path).read_bytes().startswith(b"#!"):
+            bad.append(f"{path} is {mode}")
+    check("tools: every file with a shebang is 100755 in the index", out and not bad, "; ".join(bad))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_every_daemon_actions_and_team_module_imports_on_its_own())
+        run(lambda: test_every_tools_file_with_a_shebang_is_executable_in_the_index())
         run(lambda: test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch())
         run(lambda: test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs())
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
