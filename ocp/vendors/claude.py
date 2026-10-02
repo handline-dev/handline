@@ -151,8 +151,9 @@ class Claude:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.
             deny += [f"Read(/{p.rstrip('/')}/**)" for p in hide]
         if no_write:
-            # Likewise denyWrite binds Bash only: the file tools are denied by exact path.
-            deny += [f"{tool}(/{p})" for p in no_write for tool in ("Edit", "Write")]
+            # Likewise denyWrite binds Bash only: the file tools are denied by exact path. Claude
+            # Code matches only Edit rules, and they cover Write too; a Write(path) rule matches nothing.
+            deny += [f"Edit(/{p})" for p in no_write]
         if deny:
             settings["permissions"] = {"deny": deny}
         if trusted:
