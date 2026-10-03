@@ -29,7 +29,7 @@ import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, n
 from textual import events  # noqa: E402
 from ocp.actions import dialogs as dialogs_mod  # noqa: E402
 from ocp import actions, db
-from ocp.team import agents, hr
+from ocp.team import accounts, agents, hr
 from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
 from ocp.infra import timefmt  # noqa: E402
 from ocp.daemon import states as dmn_states
@@ -119,7 +119,11 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
             _week_sample(con, "alpha", now - h * 3600, 50 - h, now + 6 * 3600)     # 1 point an hour
             _week_sample(con, "beta", now - h * 3600, 20, now + 3 * 86400)         # idle
         con.commit()
-        o = actions.weekly_outlook(con, now)
+        real, accounts.login_state = accounts.login_state, lambda a: True     # a logged-out account is left out
+        try:
+            o = actions.weekly_outlook(con, now)
+        finally:
+            accounts.login_state = real
     finally:
         con.close()
     now_left = o.past[-1][1]
@@ -2195,6 +2199,10 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.4)
         check("account page: Yes leaves", not isinstance(app.screen, (Confirm, AccountPage)))
         from ocp.usage import cycle as cyclemod
+        from ocp import vendors as vendormod
+        cdir = vendormod.config_dir("alpha")
+        cdir.mkdir(parents=True, exist_ok=True)
+        (cdir / ".claude.json").write_text('{"oauthAccount": {"subscriptionCreatedAt": "2026-09-21T12:00:00Z"}}')
         loadmod.write_config({**loadmod.config_for_write(), "month_cycle_alpha": True, "sub_end_alpha": "2031-04-05"})
         app.push_screen(AccountPage("alpha"))
         await pilot.pause(0.6)
@@ -2203,6 +2211,14 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.8)
         check("account cycle: the page shows the saved switch and end day",
               acct.query_one("#a_cycle", Switch).value is True and acct.query_one("#a_end", Input).value == "2031-04-05")
+        month = str(acct.query_one("#a_month").render())
+        check("account cycle: the overview says where the month stands (ends, with its day)",
+              "Month" in month and "ends 2031-04-05" in month, month)
+        acct.query_one("#scope").active = "overview"
+        await pilot.pause(0.5)
+        Path(os.environ.get("CYCLE_END_SHOT", os.devnull)).write_text(app.export_screenshot())
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.4)
         end = acct.query_one("#a_end", Input)
         end.focus()
         end.value = "2031-05-06"
@@ -2222,6 +2238,17 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         acct.query_one("#a_cycle", Switch).value = False
         await pilot.pause(0.5)
         check("account cycle: the switch saves when flipped", not cyclemod.enabled("alpha"))
+        check("account cycle: off reads as renewing in the overview, from the subscription start",
+              "renews" in str(acct.query_one("#a_month").render()), str(acct.query_one("#a_month").render()))
+        acct.query_one("#scope").active = "overview"
+        await pilot.pause(0.5)
+        check("account page: a logged-out account says it is left out of the graphs and forecasts",
+              "left out of the graphs and forecasts" in str(acct.query_one("#a_status").render()),
+              str(acct.query_one("#a_status").render()))
+        Path(os.environ.get("CYCLE_SHOT", os.devnull)).write_text(app.export_screenshot())
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.4)
+        end.focus()
         end.value = "2031-07-08"
         await pilot.press("enter")
         await pilot.pause(0.6)

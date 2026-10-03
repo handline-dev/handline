@@ -1,5 +1,9 @@
 """cycle - an account kept on one-month subscriptions, and when its month ends.
 
+An account is renewing (the default) or ends this month: `month_cycle_<account>`
+is the switch for the second, and what follows from it is below. Where either one
+stands in its month is `position`.
+
 An account subscribed one month at a time stops being worth anything on its end
 date, whatever its weekly window says: headroom left unspent that day is lost,
 and after it the account cannot take work. Three settings in config.yaml, per
@@ -20,6 +24,7 @@ missing date must not shut an account that may well be live.
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 
 DEFAULT_WARN_DAYS = 3
 
@@ -47,12 +52,15 @@ def enabled(acct: str, cfg: dict | None = None) -> bool:
     return _cfg(cfg).get(f"month_cycle_{acct}") is True
 
 
+def add_months(d: dt.date, n: int) -> dt.date:
+    """`n` calendar months on, the day clamped to the shorter month's last."""
+    y, m = divmod(d.year * 12 + d.month - 1 + n, 12)
+    last = (dt.date(y + (m + 1) // 12, (m + 1) % 12 + 1, 1) - dt.timedelta(days=1)).day
+    return dt.date(y, m + 1, min(d.day, last))
+
+
 def add_month(d: dt.date) -> dt.date:
-    """One calendar month on, the day clamped to the shorter month's last."""
-    y, m = divmod(d.month, 12)
-    y, m = d.year + y, m + 1
-    last = (dt.date(y + m // 12, m % 12 + 1, 1) - dt.timedelta(days=1)).day
-    return dt.date(y, m, min(d.day, last))
+    return add_months(d, 1)
 
 
 def started(acct: str) -> dt.datetime | None:
@@ -147,6 +155,54 @@ def ended_why(acct: str, now: float, cfg: dict | None = None) -> str | None:
     d = end_date(acct, cfg)
     return (f"subscription ended {d} (month cycle) - not picked; after resubscribing, "
             f"`ocp account cycle {acct} --end YYYY-MM-DD` sets the new end")
+
+
+@dataclass
+class Position:
+    """Where an account stands in its monthly cycle. `day` of `length` days since
+    the cycle began; `edge` is its last day when the account ends (`ends`), or the
+    day it renews; `day` is None where the subscription start is not known."""
+    ends: bool
+    edge: dt.date | None
+    day: int | None = None
+    length: int | None = None
+    over: bool = False
+
+    def line(self) -> str:
+        where = f"day {self.day} of {self.length}" if self.day and self.length and not self.over else ""
+        if self.ends:
+            tail = (f"ended {self.edge}" if self.over else f"ends {self.edge} (one-off)") if self.edge \
+                else "one-off, no end date known"
+        else:
+            tail = f"renews {self.edge}"
+        return f"{where} - {tail}" if where else tail
+
+
+def position(acct: str, now: float, cfg: dict | None = None) -> Position | None:
+    """Where the account is in its monthly cycle on `now`, or None when that is
+    unknown: a renewing account counts months from the subscription start, so one
+    whose start cannot be read has no position. An account that ends counts its
+    one cycle from the start to its last day; with no start it still knows that day."""
+    ends = enabled(acct, cfg)
+    start = started(acct)
+    today = dt.datetime.fromtimestamp(now).date()
+    if ends:
+        edge, at = end_date(acct, cfg), end_of(acct, cfg)
+        over = at is not None and now >= at
+        if start is None or edge is None:
+            return Position(True, edge, over=over)
+        first = start.date()
+        return Position(True, edge, (today - first).days + 1, (edge - first).days + 1, over)   # the last day is a day of it
+    if start is None:
+        return None
+    first = start.date()
+    k = max(0, (today.year * 12 + today.month) - (first.year * 12 + first.month))
+    while k and add_months(first, k) > today:
+        k -= 1
+    while add_months(first, k + 1) <= today:
+        k += 1
+    begin, nxt = add_months(first, k), add_months(first, k + 1)
+    return Position(False, nxt, (today - begin).days + 1, (nxt - begin).days)
 
 
 def set_cycle(acct: str, on: bool, end: dt.date | None = None) -> None:
