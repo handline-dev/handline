@@ -132,9 +132,11 @@ def consumed_curve(rows, times: list[int]) -> dict[str, list[float]]:
     return out
 
 
-def weekly_outlook(rows, now: int, hours: int = 24) -> Outlook:
+def weekly_outlook(rows, now: int, hours: int = 24, ends: dict[str, float] | None = None) -> Outlook:
     """`rows` are `usage_samples` rows (any accounts, oldest first). The value is the
-    headroom left of the week, in percent, averaged over the accounts that have a reading."""
+    headroom left of the week, in percent, averaged over the accounts that have a reading.
+    `ends` is when an account that ends this month stops (`cycle.end_of`): its last week
+    is cut there and it is not counted after it; the weeks of one that renews go on."""
     by: dict[str, list] = {}
     for r in rows:
         w = _week(r)
@@ -149,6 +151,8 @@ def weekly_outlook(rows, now: int, hours: int = 24) -> Outlook:
     for t in grid:
         left = []
         for a, series in by.items():
+            if a in (ends or {}) and t >= ends[a]:
+                continue
             if t <= now:
                 s = _at(series, t)
                 if s:

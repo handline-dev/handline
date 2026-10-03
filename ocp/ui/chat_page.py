@@ -23,7 +23,7 @@ from textual.binding import Binding
 from textual.coordinate import Coordinate
 from textual.screen import Screen
 from textual.worker import get_current_worker
-from textual.widgets import Button, DataTable, Header, Input, OptionList, Static, Tabs, TextArea
+from textual.widgets import Button, DataTable, Header, Input, OptionList, Select, Static, Tabs, TextArea
 from textual.widgets.option_list import Option
 
 from .. import actions, db
@@ -42,6 +42,7 @@ from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
 from .components import hr_card
+from .components.shell_card import ShellCard
 from .components.dialog import Dialog
 from .components.dialog_modal import DialogModal
 from .components.permission_modal import PermissionModal
@@ -53,7 +54,7 @@ from .components.action_bar import ActionBar
 from .components.page_header import page_header
 from .components.schedules_section import SchedulesSection
 from .components.agent_settings import AgentSettings
-from .components.task_assign import TaskAsk, TaskAssign
+from .components.task_assign import TaskAssign
 from .components.write_guard import WriteGuard
 
 # States of a request that never reached its target: withdrawn, replaced, denied.
@@ -105,7 +106,9 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
            "WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, "
            "(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, "
            "(SELECT a.id FROM requests a WHERE a.settles = requests.id "
-           "ORDER BY a.id LIMIT 1) AS answer_id "
+           "ORDER BY a.id LIMIT 1) AS answer_id, "
+           # the founder's question on a task: drawn on that task's page, only its answer is a message here
+           "EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question "
            f"FROM requests WHERE state NOT IN {_GONE} AND settles IS NULL AND {where}")
     if since is not None:
         rows = con.execute(sql + " AND id >= ? ORDER BY id", (*params, since)).fetchall()
@@ -304,6 +307,8 @@ def messages_of(rows, agent: str) -> list[dict]:
             cancelled = r["state"] in ("landed", "withdrawn") and shown == askmod.CANCEL_VERDICT
             if part == 1 and (not shown or cancelled or db.dismissal(r)[0]):
                 continue
+            if part == 0 and r.get("task_question"):
+                continue
             side = "you" if speaker == human else "agent" if speaker == agent else "other"
             queued = (part == 0 and speaker == human and r["target"] != human
                       and r["state"] == "queued")
@@ -400,7 +405,8 @@ def task_detail(con, tid: int) -> dict | None:
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing"),
-            "ask": actions.previous_holders(con, tid) if state in ("draft", "queued", "doing") else []}
+            "can_queue": state in ("draft", "queued"),      # one button: Queue on a draft, Draft on a queued task
+            "people": actions.question_targets(t["owner"], paths.list_agents(), actions.recent_chatted(con))}
 
 
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
@@ -1170,26 +1176,6 @@ class TaskActions:
         with stall.timed(f"assign {ref}: TaskAssign built and pushed"):
             self.app.push_screen(TaskAssign(ref, self.d["owner"], agents_here, recent), answered)
 
-    def action_ask_task(self) -> None:
-        """Ask who held the task before: a say that names the task; the holder does not change."""
-        if not (self.d and self.d["ask"]):
-            self.say("nobody held this task before you")
-            return
-        ref = actions.task_ref(self.tid)
-
-        def answered(got: "tuple[str, str] | None") -> None:
-            if got is None:
-                return
-            to, text = got
-            log_action(f"task {ref} ask {to}")
-            con = db.connect()
-            try:
-                ok, said = actions.ask_previous_holder(con, self.tid, to, text)
-            finally:
-                con.close()
-            self.report("ask", ok, said)
-        self.app.push_screen(TaskAsk(ref, self.d["ask"]), answered)
-
     def action_done_task(self) -> None:
         if not (self.d and self.d["can_done"]):
             self.say("only a task that is not done can be marked done")
@@ -1205,6 +1191,19 @@ class TaskActions:
                     con.close()
                 self.report("done", ok, said)
         self.app.push_screen(TextPrompt("done - what came of it?"), answered)
+
+    def action_queue_task(self) -> None:
+        """A draft is approved to run, a queued task goes back to draft (`actions.set_queued`, as `ocp task queue`)."""
+        if not (self.d and self.d["can_queue"]):
+            self.say("only a draft can be queued, and only a queued task drafted")
+            return
+        queue = self.d["state"] == "draft"
+        con = db.connect()
+        try:
+            ok, said = actions.set_queued(con, self.tid, actions.HUMAN, queue)
+        finally:
+            con.close()
+        self.report("queue" if queue else "draft", ok, said)
 
     def action_reopen_task(self) -> None:
         if not (self.d and self.d["can_reopen"]):
@@ -1248,6 +1247,9 @@ class TaskText(Static):
         open_task_page(self.app, tid)
 
 
+MEMO_ONLY = ("memo (no one)", "")
+
+
 class TaskBody(TaskActions, Vertical):
     """One task as the human sees it: title, state, the facts, sub-tasks, requests, the timeline
     with a memo box, and the calls on it. The task page and the side view of the task list are
@@ -1263,6 +1265,7 @@ class TaskBody(TaskActions, Vertical):
     TaskBody .tl_text { width: 1fr; height: auto; }
     TaskBody .tl_icon { width: 3; min-width: 0; margin-left: 1; }
     TaskBody #t_memo_new { height: 1; margin-top: 1; }
+    TaskBody #t_memo_to { width: 28; margin-right: 1; }
     TaskBody #t_memo_box { width: 1fr; }
     TaskBody #t_memo_new Button { width: auto; min-width: 0; margin-left: 1; }
     TaskBody #t_brief_edit { width: auto; min-width: 0; margin-bottom: 1; }
@@ -1282,6 +1285,8 @@ class TaskBody(TaskActions, Vertical):
         self.d: dict | None = None
         self._tl_rows: list[tuple[str, Horizontal]] = []      # the timeline rows on screen, each with its entry's key
         self.keys = keys          # the buttons name their keys: the host binds them
+        self._memo_options: list = []      # the recipients the memo box offers, and the task they were drawn for
+        self._memo_task = 0
 
     def compose(self) -> ComposeResult:
         def label(word: str, key: str) -> str:
@@ -1296,12 +1301,13 @@ class TaskBody(TaskActions, Vertical):
             yield Static(id="t_memo_head", classes="section")
             yield Vertical(id="t_memos")
             with Horizontal(id="t_memo_new"):
-                yield ImeInput(id="t_memo_box", compact=True, placeholder="a memo on this task")
+                yield Select([MEMO_ONLY], id="t_memo_to", allow_blank=False, compact=True)
+                yield ImeInput(id="t_memo_box", compact=True, placeholder="a memo on this task, or a question to the one picked")
                 yield Button("Add", id="memo_add", variant="primary", compact=True)
         with ActionBar(id="t_actions"):
             yield Button(label("Assign", "a"), id="assign", variant="primary", compact=True)
-            yield Button(label("Ask", "q"), id="ask", compact=True)
             yield Button(label("Done", "x"), id="done", variant="success", compact=True)
+            yield Button(label("Queue", "u"), id="queue", variant="primary", compact=True)
             yield Button(label("Reopen", "r"), id="reopen", variant="warning", compact=True)
             yield Button(label("Discard", "d"), id="discard", variant="error", compact=True)
 
@@ -1367,12 +1373,10 @@ class TaskBody(TaskActions, Vertical):
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.draw_memos(page["timeline"])
-        for name in ("assign", "done", "reopen", "discard"):
+        for name in ("assign", "done", "queue", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = not d[f"can_{name}"]
-        ask = self.query_one("#ask", Button)
-        ask.display = bool(d["ask"])
-        if d["ask"]:
-            ask.label = f"Ask {safe(d['ask'][0])}" + ("  q" if self.keys else "")
+        self.query_one("#queue", Button).label = ("Draft" if d["state"] == "queued" else "Queue") + ("  u" if self.keys else "")
+        self.draw_memo_to(d)
 
     def _blank(self, said: str) -> None:
         self.query_one("#t_title", Static).update(Text(said, style="dim"))
@@ -1382,9 +1386,8 @@ class TaskBody(TaskActions, Vertical):
         self.query_one("#t_brief_edit", Button).display = False
         self.query_one("#t_memos", Vertical).remove_children()
         self._tl_rows = []
-        for name in ("assign", "done", "reopen", "discard"):
+        for name in ("assign", "done", "queue", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
-        self.query_one("#ask", Button).display = False
 
     def draw_memos(self, texts: list[Text]) -> None:
         """The timeline: a line each, and a memo's own line ends in edit and delete icons. A line
@@ -1416,13 +1419,32 @@ class TaskBody(TaskActions, Vertical):
             rows.append((key, row))
         self._tl_rows = rows
 
+    def draw_memo_to(self, d: dict) -> None:
+        """The memo box's recipient list: no one (a plain memo), then who the founder last chatted
+        with, the task's team, the rest. The holder is picked when the task first shows."""
+        recent, team, rest = d["people"]
+        options = ([MEMO_ONLY] + [(f"{safe(a)}  (recent)", a) for a in recent]
+                   + [(safe(a), a) for a in team + rest])
+        to = self.query_one("#t_memo_to", Select)
+        if options == self._memo_options and self._memo_task == self.tid:
+            return
+        keep = to.value if self._memo_task == self.tid else None
+        self._memo_options, self._memo_task = options, self.tid
+        to.set_options(options)
+        known = [v for _, v in options]
+        to.value = keep if keep in known else d["owner"] if d["owner"] in known else ""
+
     def action_memo_add(self) -> None:
         box = self.query_one("#t_memo_box", ImeInput)
-        text = box.value
+        text, to = box.value, self.query_one("#t_memo_to", Select).value
         if not text.strip():
             return
         box.value = ""
-        self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
+        if to:
+            log_action(f"task {actions.task_ref(self.tid)} ask {to}")
+            self.memo_call("question", lambda con: actions.ask_on_task(con, self.tid, str(to), text))
+        else:
+            self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "t_memo_box":
@@ -1489,7 +1511,7 @@ class TaskBody(TaskActions, Vertical):
             (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
             return
         call = {"memo_add": self.action_memo_add, "t_brief_edit": self.action_edit_brief, "assign": self.action_assign_task,
-                "ask": self.action_ask_task, "done": self.action_done_task, "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
+                "done": self.action_done_task, "queue": self.action_queue_task, "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
         if call:
             event.stop()
             call()
@@ -1534,9 +1556,9 @@ class TaskDetail(Screen):
     human may make on it."""
     BINDINGS = [Binding("escape", "app.pop_screen", "back"),
                 Binding("x", "done_task", "done"),
+                Binding("u", "queue_task", "queue/draft"),
                 Binding("r", "reopen_task", "reopen"),
                 Binding("a", "assign_task", "assign"),
-                Binding("q", "ask_task", "ask"),
                 Binding("d", "discard_task", "discard")]
 
     def __init__(self, tid: int) -> None:
@@ -1566,14 +1588,14 @@ class TaskDetail(Screen):
     def action_done_task(self) -> None:
         self._body().action_done_task()
 
+    def action_queue_task(self) -> None:
+        self._body().action_queue_task()
+
     def action_reopen_task(self) -> None:
         self._body().action_reopen_task()
 
     def action_assign_task(self) -> None:
         self._body().action_assign_task()
-
-    def action_ask_task(self) -> None:
-        self._body().action_ask_task()
 
     def action_discard_task(self) -> None:
         self._body().action_discard_task()
@@ -1612,6 +1634,7 @@ class ChatPage(JobsAware, Screen):
         self._recalling = False
         self.history_mode = False           # Ctrl+R: the menu lists the history
         self.sending = 0                    # sends handed to workers, not yet answered
+        self.shells: list[actions.ShellRun] = []    # the `!command`s run on this page, oldest first
         self.pending: list[Pending] = []
         self._spinning, self._frame = False, 0
         self._send_lock = threading.Lock()  # one send at a time, in the order typed
@@ -1858,7 +1881,7 @@ class ChatPage(JobsAware, Screen):
         self._rebuilding = True         # the emptied pane reads as "at its end" until laid out again
         pane.remove_children()
         widgets = transcript_widgets(with_task_changes(msgs, changes), state == "RUNNING", why, wait)
-        pane.mount(*widgets)
+        pane.mount(*widgets, *(ShellCard(r) for r in self.shells))
         if at_bottom:
             pane.anchor()       # stays at its end as the new messages are laid out, until the reader scrolls
         mids = [mid_of(w.m) for w in widgets if isinstance(w, ChatMessage)]
@@ -2229,6 +2252,11 @@ class ChatPage(JobsAware, Screen):
         elif self.replying is not None:
             self.reply_to(None)
         elif not self.query_one("#compose", ChatBox).text.strip():
+            running = [r for r in self.shells if r.running]
+            if running:         # Esc stops what is running before it leaves the page
+                for r in running:
+                    r.stop()
+                return
             self.app.pop_screen()
 
     def on_text_box_send(self, event: TextBox.Send) -> None:
@@ -2241,12 +2269,45 @@ class ChatPage(JobsAware, Screen):
             return
         if not body.strip():
             return
+        shell = actions.command_of(body)
+        if shell is not None:
+            self.run_shell(body, shell)
+            return
         what = slash_action(body)
         if what is not None:
             self.run_slash(what)
             return
         rid = mid_of(self.replying.m) if self.replying else None
         self.start_send(body, rid)
+
+    def run_shell(self, body: str, command: str) -> None:
+        """A `!` line is not sent: zsh runs it in the agent's worktree and a card shows the result."""
+        con = db.connect()
+        try:
+            cwd = actions.cwd_for(con, self.agent)
+        finally:
+            con.close()
+        try:
+            run = actions.ShellRun(command, cwd)
+        except PermissionError as e:
+            self.notify(safe(str(e)), severity="error", timeout=6, markup=False)
+            return
+        self.history = remember(self.history, body.strip())
+        save_history(self.agent, self.history)
+        self.hist_pos, self.history_mode = None, False
+        self.query_one("#compose", ChatBox).text = ""
+        self.shells.append(run)
+        pane = self.query_one("#transcript", VerticalScroll)
+        pane.mount(ShellCard(run))
+        pane.scroll_end(animate=False)
+
+    def on_unmount(self) -> None:
+        for r in self.shells:       # a command left running would outlive the page that shows it
+            r.stop()
+
+    def on_shell_card_send(self, event: ShellCard.Send) -> None:
+        event.stop()
+        self.start_send(event.run.as_message(), None)
 
     def send_now(self, rid: int) -> None:
         def work() -> None:

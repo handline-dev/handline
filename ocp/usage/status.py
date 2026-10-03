@@ -838,13 +838,19 @@ def describe_runway(r: Runway | None) -> str:
     return "outlasts reset" if r.past_reset else f"~{timefmt.span(r.eta_s)} to wall"
 
 
-def team_outlook(names: list[str] | None = None, now: float | None = None) -> str:
+def team_outlook(names: list[str] | None = None, now: float | None = None,
+                 gone=None) -> str:
     """One line on whether the team's combined headroom lasts to the next
     reset at the pace it is burning now. Only accounts with a current reading
-    count; blank when none has one."""
+    count; blank when none has one. A logged-out account is not counted: it is
+    assumed not to come back (`accounts.gone_since`); `gone` is the caller's own
+    test of that, for one that keeps its login checks cached."""
     now = now or time.time()
+    gone = gone or (lambda n: accounts.gone_since(n, now) is not None)
     counted = []
     for n in (names if names is not None else paths.list_accounts()):
+        if gone(n):
+            continue
         st = read(n)
         burn = read_burn(n, now)
         r = runway(st, burn, now)
@@ -1197,7 +1203,8 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     from .. import vendors
     from ..infra.yamlcompat import ConfigError
     read_one = read_status or read
-    names = candidates if candidates is not None else paths.list_accounts()
+    names = candidates if candidates is not None else [
+        a for a in paths.list_accounts() if accounts.login_state(a) is not False]
     try:
         picking_for = (vendors.agent_vendor(agent) if agent
                        else vendor or agents.DEFAULT_VENDOR)

@@ -143,9 +143,9 @@ def cmd_account_cap(args) -> int:
 
 
 def cmd_account_cycle(args) -> int:
-    """Show or set an account's one-month subscription: `on`/`off`, and `--end`
-    the last day it can be used (giving a date alone turns it on). With
-    neither, says where it stands."""
+    """Show or set an account's one-month subscription: `on` (ends this month) or
+    `off` (renewing), and `--end` the last day it can be used (giving a date alone
+    turns it on). With neither, says where it stands, and where in its month."""
     import datetime as dt
     end = None
     if args.end:
@@ -160,13 +160,16 @@ def cmd_account_cycle(args) -> int:
         except ConfigError as e:
             print(e, file=sys.stderr)
             return 1
+    pos = cycle.position(args.name, time.time())
     if not cycle.enabled(args.name):
-        print(f"{args.name}: not on one-month subscriptions")
+        print(f"{args.name}: renewing (not on one-month subscriptions)" + (f", {pos.line()}" if pos else ""))
         return 0
     day = cycle.end_date(args.name)
     print(f"{args.name}: one-month subscription, " + (
         f"last day {day}" + (" (a month after the subscription started)" if cycle.end_is_default(args.name) else "")
         if day else "no end date known - pass --end YYYY-MM-DD"))
+    if pos and pos.day:
+        print(f"  {pos.line()}")
     if day and cycle.end_is_default(args.name) and cycle.end_of(args.name) <= time.time():
         print(f"default end {day} is past - this account will not be picked; "
               f"set the real end with --end YYYY-MM-DD")

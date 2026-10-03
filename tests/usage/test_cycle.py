@@ -349,14 +349,14 @@ def test_account_cycle_command(home: Path) -> None:
             rc = cliaccount.cmd_account_list(argparse.Namespace(json=True))
         return rc, buf.getvalue()
 
-    check("cycle cli: shows off", run_cli() == (0, "a: not on one-month subscriptions\n"))
+    check("cycle cli: shows off as renewing", run_cli() == (0, "a: renewing (not on one-month subscriptions)\n"))
     rc, out = run_cli("on")
     check("cycle cli: on without a date says so", rc == 0 and "no end date known" in out, out)
     rc, out = run_cli(end="2026-10-22")
     check("cycle cli: a date alone turns it on", rc == 0 and "last day 2026-10-22" in out
           and cycle.enabled("a"), out)
     rc, out = run_cli("off")
-    check("cycle cli: off", rc == 0 and "not on" in out and not cycle.enabled("a"), out)
+    check("cycle cli: off", rc == 0 and "renewing" in out and not cycle.enabled("a"), out)
     import json as _json
     rc, out = run_json()
     check("cycle cli: list --json carries the switch and the date as iso or null",
@@ -624,6 +624,72 @@ def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -
     check("default end: and not before it is turned on", cycle.ended_why("a", time.time()) is None)
 
 
+def test_the_position_in_the_month_follows_the_subscription_start_and_the_setting(home: Path) -> None:
+    use_home(home)
+    write_profile("a", {"subscriptionCreatedAt": "2026-01-31T12:00:00Z"})
+    first = cycle.started("a").date()
+    at = lambda d: dt.datetime.combine(d, dt.time(12)).timestamp()
+    write_cfg("")
+    p = cycle.position("a", at(first + dt.timedelta(days=9)))
+    check("position: renewing, day 10 of the first month, renews a month on",
+          p and not p.ends and p.day == 10 and p.edge == cycle.add_months(first, 1) and p.length == (p.edge - first).days, str(p))
+    p = cycle.position("a", at(cycle.add_months(first, 1)))
+    check("position: on the renewal day the next cycle is on its day 1",
+          p.day == 1 and p.edge == cycle.add_months(first, 2), str(p))
+    p = cycle.position("a", at(cycle.add_months(first, 7) + dt.timedelta(days=3)))
+    check("position: months keep counting past the first (the renewals go on)",
+          p.day == 4 and p.edge == cycle.add_months(first, 8), str(p))
+    check("position: the line says where and when", "renews" in p.line() and "day 4 of" in p.line(), p.line())
+    write_cfg("month_cycle_a: true\n")
+    p = cycle.position("a", at(first + dt.timedelta(days=9)))
+    check("position: ends this month, day 10 of the one cycle, ends where the default end says",
+          p.ends and p.day == 10 and p.edge == cycle.end_date("a") and not p.over and "one-off" in p.line(), str(p))
+    last = cycle.end_date("a")
+    p = cycle.position("a", at(last))
+    check("position: the default end's last usable day reads day N of N", p.day == p.length, p.line())
+    write_cfg('month_cycle_a: true\nsub_end_a: "%s"\n' % (first + dt.timedelta(days=30)))
+    p = cycle.position("a", at(first + dt.timedelta(days=30)))
+    check("position: a typed end's last usable day reads day N of N", p.day == p.length == 31, p.line())
+    write_cfg("month_cycle_a: true\n")
+    p = cycle.position("a", at(first + dt.timedelta(days=60)))
+    check("position: past its end it says ended", p.over and "ended" in p.line(), p.line())
+    write_cfg('month_cycle_a: true\nsub_end_a: "2031-04-05"\n')
+    check("position: a typed end is the edge", cycle.position("a", at(first)).edge == dt.date(2031, 4, 5))
+    write_cfg("")
+    (vendors.config_dir("a") / ".claude.json").unlink()
+    check("position: renewing with no start known has none", cycle.position("a", time.time()) is None)
+    write_cfg('month_cycle_a: true\nsub_end_a: "2031-04-05"\n')
+    p = cycle.position("a", time.time())
+    check("position: ending with a typed end and no start still knows the end",
+          p.ends and p.day is None and p.edge == dt.date(2031, 4, 5) and p.line().startswith("ends"), str(p))
+    check("add_months: clamps to the shorter month, counts from the anchor",
+          cycle.add_months(dt.date(2026, 1, 31), 1) == dt.date(2026, 2, 28)
+          and cycle.add_months(dt.date(2026, 1, 31), 2) == dt.date(2026, 3, 31)
+          and cycle.add_months(dt.date(2026, 12, 15), 1) == dt.date(2027, 1, 15))
+
+
+def test_the_weekly_forecast_is_cut_where_an_account_ends_and_goes_on_where_it_renews(home: Path) -> None:
+    from ocp.usage import outlook
+    now, hr = 1_800_000_000, 3600
+    rows = []
+    for a, used in (("keep", 20), ("gone", 60)):
+        for h in range(24, -1, -1):
+            ts = now - h * hr
+            rows.append({"account": a, "ts": ts, "windows": [
+                {"minutes": 10080, "used_percent": used, "resets_at": now + 3 * 86400, "observed_at": ts}]})
+    cut = now + 6 * hr
+    both = outlook.weekly_outlook(rows, now, 24)
+    ends = outlook.weekly_outlook(rows, now, 24, {"gone": cut})
+    at = lambda o, t: dict(o.future)[t]
+    t_before = max(t for t, _ in both.future if t < cut)
+    t_after = min(t for t, _ in both.future if t >= cut)
+    check("outlook: before its end the account is counted as it was", at(ends, t_before) == at(both, t_before))
+    check("outlook: from its end it is not counted (only the renewing one is left, 80% headroom)",
+          at(ends, t_after) == 80 and at(both, t_after) == 60, (at(ends, t_after), at(both, t_after)))
+    check("outlook: a renewing account (no end) is counted to the end of the range",
+          dict(outlook.weekly_outlook(rows, now, 24, {}).future)[max(t for t, _ in both.future)] == 60)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_cycle_settings_read_and_default_to_off(Path(td) / 'c1'))
@@ -643,6 +709,8 @@ def main() -> int:
         run(lambda: test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(Path(td) / 'c14'))
         run(lambda: test_turning_on_a_cycle_whose_default_end_is_past_says_so(Path(td) / 'c15'))
         run(lambda: test_two_writers_never_share_a_temp_file(Path(td) / 'c16'))
+        run(lambda: test_the_position_in_the_month_follows_the_subscription_start_and_the_setting(Path(td) / 'c17'))
+        run(lambda: test_the_weekly_forecast_is_cut_where_an_account_ends_and_goes_on_where_it_renews(Path(td) / 'c18'))
     return run_area(tests)
 
 

@@ -29,7 +29,7 @@ import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, n
 from textual import events  # noqa: E402
 from ocp.actions import dialogs as dialogs_mod  # noqa: E402
 from ocp import actions, db
-from ocp.team import agents, hr
+from ocp.team import accounts, agents, hr
 from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
 from ocp.infra import timefmt  # noqa: E402
 from ocp.daemon import states as dmn_states
@@ -119,7 +119,11 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
             _week_sample(con, "alpha", now - h * 3600, 50 - h, now + 6 * 3600)     # 1 point an hour
             _week_sample(con, "beta", now - h * 3600, 20, now + 3 * 86400)         # idle
         con.commit()
-        o = actions.weekly_outlook(con, now)
+        real, accounts.login_state = accounts.login_state, lambda a: True     # a logged-out account is left out
+        try:
+            o = actions.weekly_outlook(con, now)
+        finally:
+            accounts.login_state = real
     finally:
         con.close()
     now_left = o.past[-1][1]
@@ -2195,6 +2199,10 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.4)
         check("account page: Yes leaves", not isinstance(app.screen, (Confirm, AccountPage)))
         from ocp.usage import cycle as cyclemod
+        from ocp import vendors as vendormod
+        cdir = vendormod.config_dir("alpha")
+        cdir.mkdir(parents=True, exist_ok=True)
+        (cdir / ".claude.json").write_text('{"oauthAccount": {"subscriptionCreatedAt": "2026-09-21T12:00:00Z"}}')
         loadmod.write_config({**loadmod.config_for_write(), "month_cycle_alpha": True, "sub_end_alpha": "2031-04-05"})
         app.push_screen(AccountPage("alpha"))
         await pilot.pause(0.6)
@@ -2203,6 +2211,14 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.8)
         check("account cycle: the page shows the saved switch and end day",
               acct.query_one("#a_cycle", Switch).value is True and acct.query_one("#a_end", Input).value == "2031-04-05")
+        month = str(acct.query_one("#a_month").render())
+        check("account cycle: the overview says where the month stands (ends, with its day)",
+              "Month" in month and "ends 2031-04-05" in month, month)
+        acct.query_one("#scope").active = "overview"
+        await pilot.pause(0.5)
+        Path(os.environ.get("CYCLE_END_SHOT", os.devnull)).write_text(app.export_screenshot())
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.4)
         end = acct.query_one("#a_end", Input)
         end.focus()
         end.value = "2031-05-06"
@@ -2222,6 +2238,17 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         acct.query_one("#a_cycle", Switch).value = False
         await pilot.pause(0.5)
         check("account cycle: the switch saves when flipped", not cyclemod.enabled("alpha"))
+        check("account cycle: off reads as renewing in the overview, from the subscription start",
+              "renews" in str(acct.query_one("#a_month").render()), str(acct.query_one("#a_month").render()))
+        acct.query_one("#scope").active = "overview"
+        await pilot.pause(0.5)
+        check("account page: a logged-out account says it is left out of the graphs and forecasts",
+              "left out of the graphs and forecasts" in str(acct.query_one("#a_status").render()),
+              str(acct.query_one("#a_status").render()))
+        Path(os.environ.get("CYCLE_SHOT", os.devnull)).write_text(app.export_screenshot())
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.4)
+        end.focus()
         end.value = "2031-07-08"
         await pilot.press("enter")
         await pilot.pause(0.6)
@@ -2886,37 +2913,34 @@ async def test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of
               str((pane.scroll_y, pane.max_scroll_y, pane.virtual_size, pane.size)))
 
 
-async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder() -> None:
-    """T932: Ask is offered on any open task with an earlier holder; the question goes to that
-    agent as a say tied to the task, the owner does not change, and the agent's reply joins the task."""
+async def test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it() -> None:
+    """The memo box has a recipient list - no one (a memo) or an agent (a question on the task,
+    a say tied to it, the holder unchanged). Who the founder last chatted with comes first, then the
+    holder's team; the question is not drawn in the chat, its answer is."""
     from textual.app import App
+    from textual.widgets import Select
     from ocp.daemon import sends
+    from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
-    from ocp.ui.components.task_assign import TaskAsk
     _home("ask_holder")
-    agents.register("backend")
-    agents.register("archivist")
-    agents.register("other")
+    for a in ("backend", "archivist", "zed"):
+        agents.register(a)
     ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
     con = db.connect()
     try:
-        h1 = actions.assign_task(con, tid, "archivist", "over to you")
-        h2 = actions.task_handoff(con, "archivist", tid, actions.HUMAN, "yours now")
-        check("ask: the setup went", h1[0] and h2[0], str((h1, h2)))
-        before = db.get_task(con, tid)["owner"]
-        check("ask: the latest holder before the founder comes first, the founder never",
-              actions.previous_holders(con, tid)[:2] == ["archivist", "backend"], str(actions.previous_holders(con, tid)))
-        ok, said = actions.ask_previous_holder(con, tid, "other", "why?")
-        check("ask: an agent that never held it is refused", not ok, said)
-        ok, said = actions.ask_previous_holder(con, tid, "archivist", "  ")
+        askmod.say("zed", "hello", requester=actions.HUMAN)
+        check("ask: who the founder last chatted with, newest first", actions.recent_chatted(con)[:1] == ["zed"],
+              str(actions.recent_chatted(con)))
+        ok, said = actions.ask_on_task(con, tid, "archivist", "  ")
         check("ask: an empty question is refused", not ok, said)
-        ok, said = actions.ask_previous_holder(con, tid, "archivist", "why did you do it this way?")
+        before = db.get_task(con, tid)["owner"]
+        ok, said = actions.ask_on_task(con, tid, "archivist", "why did you do it this way?")
         check("ask: the question is sent", ok, said)
         asked = [r for r in db.task_requests(con, tid) if r["target"] == "archivist" and r["kind"] == "say"]
         check("ask: it reached the agent, from the founder, with the task named, tied to the task",
               len(asked) == 1 and asked[0]["requester"] == actions.HUMAN and f"T{tid}" in asked[0]["body"]
               and "why did you do it this way?" in asked[0]["body"], str(asked))
-        check("ask: the task stays with the founder", db.get_task(con, tid)["owner"] == before == actions.HUMAN)
+        check("ask: the holder does not change", db.get_task(con, tid)["owner"] == before)
         ok, said = sends.say_verb(con, lambda *_: None, target=actions.HUMAN, body="because of X",
                                   parent=asked[0]["id"], requester="archivist", speaker="archivist")
         check("ask: the agent answers with no --task needed", ok, said)
@@ -2924,6 +2948,17 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holde
         check("ask: the question and its answer are both in the task's timeline",
               any(e["kind"] == "request" and "archivist → human" in e["who"] for e in timeline)
               and any(e["kind"] == "request" and "human → archivist" in e["who"] for e in timeline), str(timeline))
+        rows, _ = cp.requests_page(con, "archivist", False)
+        shown = [(m["who"], m["text"]) for m in cp.messages_of(rows, "archivist")]
+        check("ask: the chat shows the answer, not the founder's question",
+              shown == [("archivist", "because of X")], str(shown))
+        ok, _, plain = askmod.say("archivist", "an ordinary message", requester=actions.HUMAN)
+        db.link_request(con, tid, plain)
+        shown = [m["text"] for m in cp.messages_of(cp.requests_page(con, "archivist", False)[0], "archivist")]
+        check("ask: a founder message linked to the task another way is still drawn", "an ordinary message" in shown,
+              str(shown))
+        first = actions.question_targets("backend", ["archivist", "backend", "zed"], ["zed"])
+        check("ask: recent first, then the rest", first[0] == ["zed"] and "zed" not in first[1] + first[2], str(first))
     finally:
         con.close()
 
@@ -2934,34 +2969,21 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holde
             yield cp.TaskBody(tid, keys=True)
 
     app = Host()
-    async with app.run_test(size=(100, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause(0.5)
-        button = app.query_one("#ask")
-        check("ask: the page offers Ask archivist with its key", button.display and "archivist" in str(button.label)
-              and "q" in str(button.label), str(button.label))
-        app.query_one(cp.TaskBody).action_ask_task()
+        check("ask: the Ask button is gone", not app.query("#ask"))
+        to = app.query_one("#t_memo_to", Select)
+        check("ask: the box offers no one, and the holder is picked", to.value == "backend", str(to.value))
+        to.value = ""
+        app.query_one("#t_memo_box").value = "just a note"
+        app.query_one(cp.TaskBody).action_memo_add()
         await pilot.pause()
-        check("ask: Ask opens the box over the page", isinstance(app.screen, TaskAsk), str(app.screen_stack))
-        await pilot.press("escape")
-        await pilot.pause()
-    con = db.connect()
-    try:
-        back = actions.assign_task(con, tid, "archivist", "back to you")
-        check("ask: the task went back to an agent", back[0], str(back))
-    finally:
-        con.close()
-    app = Host()
-    async with app.run_test(size=(100, 40)) as pilot:
-        await pilot.pause(0.5)
-        button = app.query_one("#ask")
-        check("ask: a task an agent holds offers Ask too, never of the holder itself",
-              button.display and "archivist" not in str(button.label), str(button.label))
-    con = db.connect()
-    try:
-        ok, said = actions.ask_previous_holder(con, tid, "archivist", "me?")
-        check("ask: the current holder is not asked as a previous one", not ok, said)
-    finally:
-        con.close()
+        con = db.connect()
+        try:
+            check("ask: no one picked is a plain memo", any(e["kind"] == "memo" and "just a note" in e["text"]
+                                                             for e in actions.task_timeline(con, tid)))
+        finally:
+            con.close()
 
 
 async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
@@ -3530,6 +3552,57 @@ async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
         await pilot.press("enter")
         await pilot.pause()
         check("edit text: a blank text is refused and shown", seen[-1][1] == "error" and "needs a body" in seen[-1][0], str(seen))
+
+
+async def test_the_task_page_queues_a_draft_and_drafts_a_queued_task() -> None:
+    """One button, Queue on a draft and Draft on a queued task, through actions.set_queued; a done task has none."""
+    from textual.widgets import Button
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("queuebtn")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        actions.task_new(actions.HUMAN, "reviewer", "Busy", "keeps the owner occupied so a queued task waits its turn")
+        tid = db.new_task(con, "Fix it", "reviewer", actions.HUMAN)
+        was = actions.task_state(con, db.get_task(con, tid))
+    finally:
+        con.close()
+    check("queue button: the task starts as a draft", was == "draft", was)
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause(0.5)
+        body = app.screen.query_one(cp.TaskBody)
+        btn = body.query_one("#queue", Button)
+
+        def state() -> str:
+            con = db.connect()
+            try:
+                return actions.task_state(con, db.get_task(con, tid))
+            finally:
+                con.close()
+        first = state()
+        want = "queued" if first == "draft" else "draft"
+        check("queue button: the label names what a press does",
+              str(btn.label).startswith("Queue" if first == "draft" else "Draft") and not btn.disabled, str(btn.label))
+        await pilot.click("#queue")
+        await pilot.pause(0.8)
+        check("queue button: a press flips the task", state() == want, f"{first} -> {state()}")
+        check("queue button: and the label flips with it", str(btn.label).startswith("Queue" if want == "draft" else "Draft"), str(btn.label))
+        await pilot.press("u")
+        await pilot.pause(0.8)
+        check("queue button: the u key flips it back", state() == first, state())
+        Path(os.environ.get("QUEUE_SHOT", os.devnull)).write_text(app.export_screenshot())
+        con = db.connect()
+        try:
+            actions.mark_task_done(con, tid, actions.HUMAN, reason="done by hand")
+        finally:
+            con.close()
+        body.load()
+        await pilot.pause(0.5)
+        check("queue button: a done task cannot be queued", btn.disabled)
 
 
 async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
@@ -4843,6 +4916,160 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
         con.close()
 
 
+def test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one() -> None:
+    from ocp.infra import protected
+    _home("bang")
+    check("bang: !ls is the command ls", actions.command_of("!ls -l") == "ls -l" and actions.command_of("  ! pwd ") == "pwd")
+    check("bang: a bare ! or plain text is not one", actions.command_of("!") is None and actions.command_of("hi !ls") is None)
+    with tempfile.TemporaryDirectory() as d:
+        run = actions.ShellRun("echo out; echo err >&2; pwd; exit 3", d)
+        for _ in range(100):
+            if not run.running:
+                break
+            time.sleep(0.05)
+        lines, dropped, code = run.snapshot()
+        check("bang: stdout and stderr are both kept, and the exit code", code == 3 and lines[:2] == ["out", "err"], str((lines, code)))
+        check("bang: it ran in the given directory", Path(lines[2]).resolve() == Path(d).resolve(), lines[2])
+        slow = actions.ShellRun("sleep 30", d)
+        slow.stop()
+        for _ in range(100):
+            if not slow.running:
+                break
+            time.sleep(0.05)
+        check("bang: stop ends a running command", not slow.running and slow.stopped and slow.code != 0, str(slow.code))
+        big = actions.ShellRun("seq 1 25000", d)
+        for _ in range(100):
+            if not big.running:
+                break
+            time.sleep(0.05)
+        lines, dropped, _ = big.snapshot()
+        check("bang: a long output keeps its end and counts what it let go",
+              lines[-1] == "25000" and dropped == 25000 - len(lines) > 0, f"{len(lines)} {dropped}")
+        check("bang: what goes to the agent is the command and the last lines", "seq 1 25000" in big.as_message()
+              and "25000" in big.as_message() and "earlier lines left out" in big.as_message())
+    cwd = actions.cwd_for(db.connect(), None)
+    check("bang: with no agent it runs in home", cwd == str(Path.home()), cwd)
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        actions.ShellRun("echo no", cwd)
+        refused = False
+    except protected.NotTheFounder:
+        refused = True
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    check("bang: an agent's session is refused", refused)
+
+
+async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> None:
+    from ocp.ui.components.shell_card import ShellCard
+    from textual.widgets import Button
+    _home("bangcard")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        page = app.screen
+        check("bang card: the chat page is open", isinstance(page, ChatPage), type(page).__name__)
+        con = db.connect()
+        before = con.execute("SELECT count(*) FROM requests").fetchone()[0]
+        con.close()
+        box = page.query_one("#compose")
+        box.text = "!echo hello; exit 2"
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+        cards = list(page.query(ShellCard))
+        check("bang card: one card was drawn and the box is empty", len(cards) == 1 and box.text == "", str(len(cards)))
+        text = str(cards[0]._head.render()) + str(cards[0]._out.render())
+        check("bang card: it shows the command, the exit code and the output",
+              "echo hello" in text and "exit 2" in text and "hello" in text, text)
+        con = db.connect()
+        after = con.execute("SELECT count(*) FROM requests").fetchone()[0]
+        con.close()
+        check("bang card: nothing was sent to the agent", after == before, f"{before} -> {after}")
+        check("bang card: a finished command offers Send to agent, not Stop",
+              cards[0]._send.display and not cards[0]._stop.display)
+        box.text = "!sleep 30"
+        await pilot.press("enter")
+        await pilot.pause(0.6)
+        run = page.shells[-1]
+        check("bang card: a running command is running", run.running)
+        await pilot.press("escape")
+        await pilot.pause(1.0)
+        check("bang card: Esc stops it and stays on the page", not run.running and app.screen is page, str(run.code))
+        Path(os.environ.get("BANG_SHOT", os.devnull)).write_text(app.export_screenshot())
+
+
+def test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays() -> None:
+    from ocp.team import ask as askmod
+    _home("foryouread")
+    agents.register("reviewer")
+    agents.register("backend")
+    askmod.say("human", "report one", requester="reviewer")
+    askmod.say("human", "report two", requester="reviewer")
+    askmod.say("human", "fyi", requester="backend")
+    askmod.ask("human", "decide this please", requester="backend")
+    con = db.connect()
+    try:
+        keys = [m["key"] for m in actions.messages(con)]
+        done, kept = actions.mark_read(con, actions.fold_key("reviewer"))
+        left = [m["key"] for m in actions.messages(con)]
+        check("for you read: reading a line reads the whole line away", (done, kept) == (2, 0) and actions.fold_key("reviewer") not in left,
+              str((keys, done, kept, left)))
+        done, kept = actions.mark_read(con)
+        rows = actions.messages(con)
+        check("for you read: reading all reads the rest but a reply owed stays, and says so",
+              done == 1 and kept == 1 and len(rows) == 1 and "decide" in rows[0]["body"], str((done, kept, rows)))
+        check("for you read: a row that is owed an answer cannot be read away", actions.mark_read(con, rows[0]["key"]) == (0, 0))
+    finally:
+        con.close()
+    con = db.connect()
+    try:
+        check("for you read: and it stays read in a fresh connection", len(actions.messages(con)) == 1)
+    finally:
+        con.close()
+
+
+async def test_m_and_M_on_the_for_you_panel_read_a_line_and_all() -> None:
+    from ocp.team import ask as askmod
+    _home("foryoukeys")
+    agents.register("reviewer")
+    agents.register("backend")
+    askmod.say("human", "report one", requester="reviewer")
+    askmod.say("human", "fyi", requester="backend")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause(0.5)
+        page = app.screen
+        page.panel = tui.MESSAGES
+        page.sel[tui.MESSAGES] = actions.fold_key("reviewer")
+        page._redraw()
+        await pilot.pause(0.5)
+        await pilot.press("m")
+        await pilot.pause(0.8)
+        con = db.connect()
+        left = [m["key"] for m in actions.messages(con)]
+        con.close()
+        check("for you keys: m read the line under the cursor", left == [actions.fold_key("backend")], str(left))
+        page.sel[tui.MESSAGES] = actions.fold_key("backend")
+        await pilot.press("M")
+        await pilot.pause(0.8)
+        con = db.connect()
+        left = actions.messages(con)
+        con.close()
+        check("for you keys: M read the rest", left == [], str(left))
+        Path(os.environ.get("FORYOU_SHOT", os.devnull)).write_text(app.export_screenshot())
+
+
+def test_an_agents_note_on_its_own_row_does_not_repeat_its_name() -> None:
+    from ocp.ui.components.agent_rows import agent_note
+    check("note: a terminal that is gone says just that",
+          agent_note("legacy.clearlogo", "legacy.clearlogo's terminal is gone - Orca no longer has it") == "terminal is gone")
+    check("note: a name inside the sentence becomes it, and only a whole name",
+          agent_note("a", "no session is running in a's terminal") == "no session is running in its terminal"
+          and agent_note("a", "a is closed and b is at 98%") == "closed and b is at 98%")
+
+
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
@@ -4896,6 +5123,12 @@ async def _run_all() -> None:
     test_the_browser_setting_writes_chrome_and_the_sites_through_register()
     await test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright()
     await test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposal()
+    test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one()
+    await test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing()
+    test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays()
+    test_an_agents_note_on_its_own_row_does_not_repeat_its_name()
+    await test_m_and_M_on_the_for_you_panel_read_a_line_and_all()
+    await test_the_task_page_queues_a_draft_and_drafts_a_queued_task()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
     await test_the_chat_page_draws_a_handoff_as_one_card()
@@ -4961,7 +5194,7 @@ async def _run_all() -> None:
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
-    await test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder()
+    await test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal()
     await test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page()

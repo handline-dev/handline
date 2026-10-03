@@ -4,6 +4,7 @@ dialog or block, a delivery that is not moving, a usage limit, an open ask - sai
 the agent's own row, and rolled up onto the fold that hides it."""
 from __future__ import annotations
 
+import re
 import time
 from typing import NamedTuple
 
@@ -99,6 +100,25 @@ def fold_urgency(con, names: list[str], stuck: dict) -> tuple[str, int, str] | N
         tui.RED if tui.RED in colours else colours[0]
 
 
+# What a reason says after its point is made: the row it sits on already shows the agent and the key that fixes it.
+_NOTE_TAILS = (" - Orca no longer has it", " - nothing can be typed to it")
+
+
+def agent_note(name: str, why: str) -> str:
+    """`why` as the note on `name`'s own row: without the agent's name, which the row already shows, and
+    without the tail that only repeats the point."""
+    for lead in (f"{name}'s ", f"{name} is ", f"{name} "):
+        if why.startswith(lead):
+            why = why[len(lead):]
+            break
+    own = re.escape(name)       # a whole name: an agent called "a" is not the a in "a terminal"
+    why = re.sub(rf"(?<![\w.-]){own}'s ", "its ", why)
+    why = re.sub(rf"(?<![\w.-]){own}(?![\w.-])", "it", why)
+    for tail in _NOTE_TAILS:
+        why = why.replace(tail, "")
+    return why
+
+
 def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
     """The extras for each row that has cells, by agent name."""
     stuck = _stuck_by_agent(con)
@@ -118,7 +138,7 @@ def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
         asks = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = ? "
                            "AND state = 'queued'", (r.name, actions.HUMAN)).fetchone()[0]
         out[r.name] = Extra(textsafe.oneline(kind_short(cfg)), cache_left(con, r.name), block,
-                            why.removeprefix(f"{r.name} is "), asks,
+                            agent_note(r.name, why), asks,
                             fold_urgency(con, hidden.get(r.name, []), stuck) if r.under else None,
                             idle_close.ignore_cache_expiry(r.name))
     return out

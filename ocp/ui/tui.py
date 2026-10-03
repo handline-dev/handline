@@ -76,7 +76,7 @@ AGENT_KEYS = [
 ]
 ACCOUNT_KEYS = [("↵", "open"), ("l", "login"), ("a", "add"), ("c", "cap"), ("x", "remove")]
 MESSAGE_KEYS = [("↵", "open"), ("a", "answer"), ("e", "answer in $EDITOR"),
-                ("x", "dismiss")]
+                ("x", "dismiss"), ("m", "mark read"), ("M", "mark all read")]
 # A stuck row is about an agent, so it answers to the agent keys.
 STUCK_KEYS = AGENT_KEYS
 # `wake` is not here - see _needs_confirm(): it asks only when the row is
@@ -337,7 +337,7 @@ def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
             # in the gutter the selection cursor uses on every other panel.
             f" {GRN}{BOLD}next{R}" if name == first else ""))
     notes = [] if rows else ["no accounts registered"]
-    outlook = status.team_outlook()
+    outlook = status.team_outlook(gone=lambda a: not _logged_in(a))
     if outlook:
         notes.append(outlook)
     return rows, notes

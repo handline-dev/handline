@@ -36,6 +36,9 @@ class RowActions(AccountActions):
             # added to an empty panel, so this comes before the "no rows" guard.
             await self._account_add()
             return
+        if panel == tui.MESSAGES and key == "M":
+            await self._read_for_you(None)
+            return
         keys = tui._keys_of(panel)
         target = sel.get(panel)
         if not keys or target not in keys:
@@ -102,6 +105,18 @@ class RowActions(AccountActions):
             return
         await dispatch_agent_verb(self, con, name, label)
 
+    async def _read_for_you(self, key) -> None:
+        """m on a line, M on all of them (`key` None): read away from FOR YOU what is not owed an answer."""
+        con = db.connect()
+        try:
+            done, kept = actions.mark_read(con, key)
+        finally:
+            con.close()
+        if not done:
+            self.toast("nothing to read away: these wait on you", False)
+        else:
+            self.toast(f"marked {done} read" + (f"; {kept} waiting on you stay" if kept else ""))
+
     async def _act_message(self, con, target, key: str) -> None:
         # `target` is the row's stable key, not its id: a folded row's id is
         # its latest thing, which can have changed since the row was
@@ -123,6 +138,9 @@ class RowActions(AccountActions):
                 self.toast(f"#{rid} is gone", False)
                 return
             self.open_chat(place[0], (rid, place[1]))
+            return
+        if key == "m":
+            await self._read_for_you(target)
             return
         if key == "x":
             self.toast(self._start("dismiss", f"#{rid}", f"dismissing #{rid}", (rid,),
