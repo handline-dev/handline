@@ -4845,7 +4845,7 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
         await asyncio.sleep(0.2)
         check("stall: USR1 writes the stacks into the log", "Current thread" in stall.log_file().read_text()
               or "Thread 0x" in stall.log_file().read_text())
-        out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
+        out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True, dev_mode=False)))
         check("stall: while the bridge runs, `ocp bridge --pid` prints its pid", out == (0, f"{os.getpid()}\n"), str(out))
     os.close(stall._pid_fd)
     stall._pid_fd = None
@@ -4863,7 +4863,7 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
     sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
         stall.pid_file().write_text(f"{sleeper.pid}\n")
-        out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True)))
+        out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True, dev_mode=False)))
         check("stall: a pid file naming a live process that is no bridge (a reused pid) names none",
               stall.running_pid() is None and out[0] == 1, str(out))
     finally:

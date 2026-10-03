@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import sys
 
+from ..daemon import devmode
+from ..infra.yamlcompat import ConfigError
 from ..ui import tui
 
 
@@ -39,6 +41,12 @@ def cmd_bridge(args) -> int:
         pid = stall.running_pid()
         print(pid if pid else "no bridge is running")
         return 0 if pid else 1
+    if args.dev_mode:
+        try:
+            devmode.set_dev_mode(True)
+        except ConfigError as e:
+            print(e, file=sys.stderr)
+            return 1
     # The bridge is a Textual app. Run once, or into a pipe, it is `tui.snapshot`:
     # plain text that needs no `textual`.
     if args.once or not sys.stdout.isatty():

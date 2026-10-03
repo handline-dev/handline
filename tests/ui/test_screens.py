@@ -3230,7 +3230,7 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
     real_isatty = sys.stdout.isatty
 
     def ns(**kw):
-        base = dict(once=False, textual=False, pid=False)
+        base = dict(once=False, textual=False, pid=False, dev_mode=False)
         base.update(kw)
         return argparse.Namespace(**base)
 
