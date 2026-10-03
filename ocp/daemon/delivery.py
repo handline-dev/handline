@@ -269,8 +269,8 @@ def _clear_over_background(con, agent: str, handle: str, running: str, log) -> t
         st = status.read_for_agent(agent, agents.current_account(agent, con))
         limit = status.effective_context_limit(agents.read(agent), st.model_id)
         used = "?" if st.trusted_ctx_used is None else f"{st.trusted_ctx_used:,}"
-        ok, err = orca.send(handle, CLEAR_NOTICE.format(context=f"{used} of {limit:,}",
-                                                        minutes=CLEAR_WAIT_S // 60))
+        ok, err = orca.send_to_session(handle, CLEAR_NOTICE.format(context=f"{used} of {limit:,}",
+                                                                   minutes=CLEAR_WAIT_S // 60))
         db.set_cursor(con, f"clear_owed:{agent}", now)      # owed even if the notice did not go
         log(f"  {agent}: background work is running ({running}); told it will be cleared in "
             f"{CLEAR_WAIT_S // 60} min{'' if ok else f' (the notice failed: {err[:80]})'}")
@@ -862,7 +862,7 @@ def _send(handle: str, text: str) -> tuple[bool, str]:
     if len(lines) > MAX_TYPED_LINES:
         keep = MAX_TYPED_LINES - 2
         lines = lines[:keep] + [" ".join(lines[keep:-1])] + lines[-1:]
-    return orca.send(handle, "\n".join(lines))
+    return orca.send_to_session(handle, "\n".join(lines))
 
 
 def type_notice(con, agent: str, text: str) -> bool:

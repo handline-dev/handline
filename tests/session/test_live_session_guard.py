@@ -73,6 +73,74 @@ def test_the_screen_says_whether_a_session_is_drawn(home: Path) -> None:
     check("screen: no terminal, no session drawn", dmn_delivery.session_still_drawn(None) is False)
 
 
+# What was seen on one agent: claude has exited, its composer is still drawn above its
+# exit banner and the shell that is left. Rebuilt from the report, not captured.
+EXITED = [*COMPOSER_EMPTY, "", "Resume this session with:", "claude --resume cddd4094-e2a3-4f90-9ac2-c3b43d630f3d",
+          "user@host work % "]
+IF_CONTINUATION = [*EXITED, "if> "]
+
+
+def test_an_exited_session_whose_composer_is_still_drawn_is_not_a_session(home: Path) -> None:
+    _daemon_home(home, 20)
+    for name, rows, want in (
+            ("the exit banner and a prompt under the old composer", EXITED, False),
+            ("only the exit banner under it", [*COMPOSER_EMPTY, "Resume this session with:"], False),
+            ("a prompt under it and no banner", [*COMPOSER_EMPTY, "user@host work % "], False),
+            ("zsh waiting on an unclosed quote", IF_CONTINUATION, False),
+            ("dquote> continuation", [*COMPOSER_EMPTY, "dquote> "], False),
+            ("a live composer with its statusline ending in a percent", COMPOSER_EMPTY, True),
+            ("a live composer typed into", _composer_typed("echo $ HOME %"), True)):
+        orcamod._screen = lambda h, limit=40, r=rows: _screen_of(r)
+        check(f"exited: {name} reads as {'a session' if want else 'no session'}",
+              orcamod.session_on_screen("term_x") is want, str(rows[-2:]))
+
+
+def test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(home: Path) -> None:
+    con, screen = _world(home, EXITED, table=False)
+    delivery_sleep, orcamod.SHELL_SETTLE_S = orcamod.SHELL_SETTLE_S, 0
+    try:
+        ok, why = dmn_delivery._send("term_x", "a request, waiting for you:\nsay \"hi\" and `ocp read 1`")
+        check("shell: text is not typed at a shell under a stale composer", not ok and screen.sent == [], f"{why} {screen.sent}")
+        ok, why = orcamod.resume_with("term_x", "your handoff is in /x")
+        check("shell: nor is a handoff pointer", not ok and screen.sent == [], why)
+        # claude is there at the check and gone by the time the text has landed
+        reads = {"n": 0}
+
+        def read(handle, limit=40):
+            reads["n"] += 1
+            return _screen_of(COMPOSER_EMPTY if reads["n"] == 1 else IF_CONTINUATION)
+        orcamod._screen = read
+        screen.sent.clear()
+        ok, why = dmn_delivery._send("term_x", "say \"hi")
+        check("shell: text that reached a shell is reported as not delivered", not ok and "shell prompt" in why, why)
+        check("shell: the line is typed once and the continuation is cleared with Ctrl-C",
+              screen.sent == ["say \"hi", "\x03"], str(screen.sent))
+        orcamod._screen = lambda h, limit=40: _screen_of(COMPOSER_EMPTY)
+        screen.sent.clear()
+        ok, why = dmn_delivery._send("term_x", "hello")
+        check("shell: a live session takes it as before", ok and screen.sent == ["hello"], f"{why} {screen.sent}")
+        orcamod._screen = lambda h, limit=40: None
+        screen.sent.clear()
+        ok, _ = dmn_delivery._send("term_x", "hello")
+        check("shell: a screen that cannot be read does not stop a send", ok and screen.sent == ["hello"])
+    finally:
+        orcamod.SHELL_SETTLE_S = delivery_sleep
+        con.close()
+
+
+def test_a_message_waiting_for_an_exited_session_is_not_typed_into_its_shell(home: Path) -> None:
+    for table, why_it_holds in ((False, "the table lists none and the stale composer is not a witness"),
+                                (True, "the table still lists it, and the screen shows a shell")):
+        con, screen = _world(home / ("t" if table else "f"), EXITED, table=table)
+        try:
+            rid = db.add_pending(con, "backend", "hello", int(time.time()))
+            ok, why = dmn_messaging._deliver_row(con, "backend", rid, "hello")
+            check(f"message: not typed at a shell - {why_it_holds}", not ok and screen.sent == [], f"{why} {screen.sent}")
+            check("message: and it stays pending", db.get_pending(con, rid) is not None)
+        finally:
+            con.close()
+
+
 def test_a_close_is_not_recorded_while_a_session_is_still_drawn(home: Path) -> None:
     """The process table lists no session after /exit, but the screen still draws one: the table missed a live
     process, and a closed mark over it would have a wake type a launch line at it."""
@@ -360,6 +428,9 @@ def test_a_preamble_with_a_dash_p_in_it_does_not_make_a_session_headless(home: P
 def main() -> int:
     def tests(td):
         run(lambda: test_the_screen_says_whether_a_session_is_drawn(Path(td) / "g1"))
+        run(lambda: test_an_exited_session_whose_composer_is_still_drawn_is_not_a_session(Path(td) / "g12"))
+        run(lambda: test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(Path(td) / "g13"))
+        run(lambda: test_a_message_waiting_for_an_exited_session_is_not_typed_into_its_shell(Path(td) / "g14"))
         run(lambda: test_a_close_is_not_recorded_while_a_session_is_still_drawn(Path(td) / "g2"))
         run(lambda: test_no_launch_line_is_typed_at_a_drawn_session_by_any_path(Path(td) / "g3"))
         run(lambda: test_the_sweep_does_not_call_a_drawn_session_gone(Path(td) / "g4"))
