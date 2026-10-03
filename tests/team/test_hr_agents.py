@@ -2649,7 +2649,7 @@ edges:
             "SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()]
         check("failed apply: the founder is told why, the proposal stays approved and listed with the error",
               not ok and "not answering" in said and hr.load_proposal(pid)["state"] == "approved"
-              and hr.pending()[0]["error"] == "orca is not answering"
+              and next(c for c in hr.pending() if c["id"] == pid)["error"] == "orca is not answering"
               and any(f"proposal {pid} was approved but could not be applied" in b for b in told), said)
         ok, said = hr.decide(pid, "approved", askmod.HUMAN)
         check("failed apply: approving again retries it, without a second decision",
