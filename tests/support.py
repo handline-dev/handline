@@ -311,6 +311,11 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
     db.refresh_sent_of_request(con, rid)
 
 
+def approve_hr(pid: str):
+    """The founder approving a roster proposal as its card shows it now."""
+    return hr.decide(pid, "approved", askmod.HUMAN, subject=hr.subject_of(hr.load_proposal(pid)))
+
+
 def answer_card(con, rid: int, verdict: str) -> None:
     """Setup: the founder's answer on a decision card, as the closer leaves it - the card done with
     the verdict and its decision task done with it (T785: a proposal reads its answer off the task).
@@ -1996,6 +2001,7 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    'approve_hr',
     'answer_card',
     '_ask_row',
     'hand_edit_team',

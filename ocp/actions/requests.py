@@ -67,26 +67,7 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
             # to dismiss what they have just answered.
             db.mark_announced(con, [rid])
         return ok, msg
-    refusal = check_open_proposal(rid, row, verdict)
-    if refusal:
-        return False, refusal
     return askmod.resolve(rid, verdict)
-
-
-def check_open_proposal(rid: int, row, verdict: str) -> str | None:
-    """The refusal for closing a queued roster-proposal decision with
-    anything that is not a decision; None when it may go ahead.
-
-    A resolve reaches a queued row the same way `answer()` does - the
-    founder targeting a row that is theirs to close - and a proposal's
-    requester is the proposing agent, never HUMAN, so `check_human_resolve`
-    does not see it. Both callers need this same check, or one of them is
-    the silent non-answer this guard exists to prevent (#1770, #1893 SF1).
-    """
-    if row["state"] == "queued" and hr.is_open_proposal(rid) \
-            and hr.decision(verdict) == "unclear":
-        return f"#{rid} is a roster proposal - answer `approve` or `reject`"
-    return None
 
 
 def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | None,
@@ -127,11 +108,6 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
         refusal = check_human_resolve(con, row, tasks, no_task, me)
         if refusal:
             return False, refusal
-    if row["state"] == "queued" and hr.is_open_proposal(rid, con):
-        # "read" would close it with a verdict that is neither approve nor
-        # reject, leaving a proposal nobody can apply or clear.
-        return False, (f"#{rid} is a roster proposal - answer `approve` or `reject`, "
-                       f"it cannot be dismissed")
     if row["state"] != "queued":
         if me is not None and me == row["target"]:
             return True, f"#{rid} was already answered - nothing more for you to do"
@@ -397,35 +373,23 @@ def founder_waits(con) -> list[dict]:
         out.append({"kind": b["kind"], "who": b["agent"], "red": True,
                     "what": prompt_blocks.headline(b), "since": int(b["first_seen"])})
     out += blocked.founder_rows(con, int(time.time()))
-    # Its request is the same fact a second time, said where the founder is not
+    # A block's request is the same fact a second time, said where the founder is not
     # looking; the row above already is.
-    proposed: set[int] = {int(b["request_id"]) for b in db.blocks(con) if b["request_id"]}
+    raised: set[int] = {int(b["request_id"]) for b in db.blocks(con) if b["request_id"]}
     for prop in hr.listing():
-        if prop.get("state") != "proposed":
+        how = {"proposed": "awaiting your decision",
+               "approved": "approved, not yet applied"}.get(prop.get("state"))
+        if how is None:
             continue
-        state, tid, verdict = hr.answer_of(con, prop)
-        req = hr.card_of(con, tid) if tid else None
-        if req is None:
-            continue
-        proposed.add(int(req["id"]))
-        if state == "open":
-            how, red = "awaiting your decision", True
-        elif state == "answered":
-            call = hr.decision(verdict)
-            if call == "rejected":
-                continue
-            how, red = (("approved, not yet applied", False) if call == "approved"
-                        else ("answered, but not approve or reject", True))
-        else:
-            continue
-        out.append({"kind": "proposal", "who": prop.get("requested_by") or "?", "red": red,
+        out.append({"kind": "proposal", "who": prop.get("requested_by") or "?",
+                    "red": prop["state"] == "proposed",
                     "what": f"hr {prop['kind']} {prop['agent']} - {how}",
-                    "since": int(req["ts"])})
+                    "since": int(prop.get("created") or 0)})
 
     for r in con.execute(
         "SELECT id, ts, requester, body FROM requests WHERE target = ? AND state = 'queued' "
         f"AND id IN {db.OPEN_DECISION_CARDS_SQL} ORDER BY id", (HUMAN, HUMAN)).fetchall():
-        if int(r["id"]) in proposed:
+        if int(r["id"]) in raised:
             continue
         out.append({"kind": "decision", "who": r["requester"], "red": True,
                     "what": f"#{r['id']} {first_line(r['body'])}", "since": int(r["ts"])})

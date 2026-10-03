@@ -13,6 +13,7 @@ import hashlib
 import json
 import time
 
+from .. import db
 from ..infra import protected
 
 
@@ -63,3 +64,64 @@ def refusal(kind: str, pid: str, task_id: int, subject: str, card_id: int | None
         return (f"proposal {pid} was changed after the founder answered it - what they "
                 f"approved is not what is in the draft now; raise it again")
     return None
+
+
+# ---------------------------------------------------------------- decision tasks
+# What the founder types to answer a decision task, read by the first word. Trust proposals are
+# still raised as such a task; roster proposals are not (`hr.decide`).
+LEGACY_APPROVE = ("승인",)
+LEGACY_REJECT = ("반려",)
+APPROVE = ("approve", "approved", "yes", "ok", "go", *LEGACY_APPROVE)
+REJECT = ("reject", "rejected", "no", "deny", "denied", *LEGACY_REJECT)
+
+
+def call_of(verdict: str | None) -> str:
+    """approved / rejected / unclear, from the first word of the verdict."""
+    first = (verdict or "").strip().split()
+    if not first:
+        return "unclear"
+    word = first[0].strip(".,!:;\"'`").lower()
+    if word in APPROVE:
+        return "approved"
+    if word in REJECT:
+        return "rejected"
+    return "unclear"
+
+
+def task_of_card(con, rid: int) -> int | None:
+    """The decision task whose card is request `rid`, in whatever state it is now."""
+    for t in db.tasks_for_request(con, rid):
+        first = db.first_linked_request(con, t["id"])
+        if t["expects"] == "decision" and first is not None and int(first["id"]) == int(rid):
+            return int(t["id"])
+    return None
+
+
+def card_of(con, tid: int):
+    """The request the founder was shown: the decision's own first request."""
+    return db.first_linked_request(con, tid)
+
+
+def answer_of(con, prop: dict) -> tuple[str, int | None, str | None]:
+    """(state, task id, verdict) of the founder's answer to a proposal, read off its decision task:
+    "none" (no task to read), "open" (not answered), "discarded" (the card was withdrawn, handed
+    back, thrown away or marked done by someone but the founder: nothing was decided) or
+    "answered" with the verdict he gave."""
+    tid = int(prop.get("task") or 0) or task_of_card(con, int(prop.get("request") or 0))
+    task = db.get_task(con, tid) if tid else None
+    if task is None:
+        return "none", None, None
+    if task["discarded_by"]:
+        return "discarded", tid, None
+    if task["done_evidence"]:
+        # Only the founder's own close is his answer: an agent that was handed the task and marked it
+        # done wrote evidence, not a decision, so it reads like a hand-back.
+        last = con.execute(
+            f"SELECT kind, agent FROM events WHERE {db.EVENT_TASK} = ? AND kind IN "
+            "('settle_decision_task', 'mark_task_done', 'reopen_task') ORDER BY id DESC LIMIT 1",
+            (tid,)).fetchone()
+        if task["owner"] == db.HUMAN and last is not None and (last["kind"] == "settle_decision_task"
+                                 or (last["kind"] == "mark_task_done" and last["agent"] == db.HUMAN)):
+            return "answered", tid, task["done_evidence"]
+        return "discarded", tid, None
+    return "open", tid, None

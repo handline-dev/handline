@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import ask as askmod, decisions, hr
+from . import ask as askmod, decisions
 from .. import db
 from ..infra import atomic, paths, protected, textsafe
 from ..infra.yamlcompat import dump, load
@@ -95,6 +95,13 @@ def _save_proposal(prop: dict) -> None:
     atomic.write_text(p, dump(prop))
 
 
+def _waits_on(prop: dict, rid: int, tid: int | None) -> bool:
+    """Is request `rid` (task `tid`'s card) the decision this proposal waits on?"""
+    if prop.get("task"):
+        return tid is not None and int(prop["task"]) == tid
+    return int(prop.get("request") or 0) == rid
+
+
 def open_proposal_of(rid: int, con=None) -> str | None:
     """The id of the trust proposal still waiting on an answer whose decision is request `rid`
     (the card of its decision task)."""
@@ -104,12 +111,12 @@ def open_proposal_of(rid: int, con=None) -> str | None:
     own = con is None
     con = con or db.connect()
     try:
-        tid = hr.task_of_card(con, rid)
+        tid = decisions.task_of_card(con, rid)
     finally:
         if own:
             con.close()
     for p in props:
-        if hr.waits_on(p, rid, tid):
+        if _waits_on(p, rid, tid):
             return p["id"]
     return None
 
@@ -139,7 +146,7 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
     prop["request"] = rid
     con = db.connect()
     try:
-        prop["task"] = hr.task_of_card(con, rid)       # T785: keyed by its decision task
+        prop["task"] = decisions.task_of_card(con, rid)       # keyed by its decision task
     finally:
         con.close()
     _save_proposal(prop)
@@ -215,7 +222,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     own = con is None
     con = con or db.connect()
     try:
-        state, tid, verdict = hr.answer_of(con, prop)
+        state, tid, verdict = decisions.answer_of(con, prop)
         if state == "none":
             return False, f"proposal {pid} has no decision to check - raise it again"
         if state == "open":
@@ -225,8 +232,8 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             why = (db.get_task(con, tid)["discard_reason"] or "").strip()
             return False, (f"T{tid}, the decision on proposal {pid}, was discarded{f' ({why})' if why else ''} or handed back or closed by someone but the founder - "
                            f"nothing was decided. Raise it again.")
-        row = hr.card_of(con, tid)
-        call = hr.decision(verdict)
+        row = decisions.card_of(con, tid)
+        call = decisions.call_of(verdict)
         if call in ("approved", "rejected"):
             why_not = decisions.refusal("trust", pid, tid, subject_of(prop), row["id"] if row else None)
             if why_not or decisions.get("trust", pid)["call"] != call:

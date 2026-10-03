@@ -208,6 +208,8 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--vendor", default=None)
     q.add_argument("--why", required=True, help="what the founder is deciding")
     q = hrsub.add_parser("list", help="proposals and what became of them")
+    q.add_argument("--json", action="store_true", help="the proposals waiting on the founder, as cards")
+    q.add_argument("--all", action="store_true", help="with --json: the settled ones too")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("relabel", help="name a renamed agent's Orca worktree for it "
@@ -222,10 +224,18 @@ def build_parser() -> argparse.ArgumentParser:
                    model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
-    q.add_argument("--confirm-answer", action="store_true",
-                   help="the founder only: the decision was answered but the answer was never "
-                        "recorded; show it, ask, record it and apply")
-    q.add_argument("--yes", action="store_true", help="with --confirm-answer: do not ask")
+    q.set_defaults(name=None, why=None, team=None, repo=None,
+                   model=None, effort=None)
+    q = hrsub.add_parser("approve", help="the founder approves a proposal; it is applied now")
+    q.add_argument("id")
+    q.add_argument("--subject", default="",
+                   help="the digest of the proposal as read (`ocp hr list --json`); without it the "
+                        "proposal is shown and you are asked")
+    q.set_defaults(name=None, why=None, team=None, repo=None,
+                   model=None, effort=None)
+    q = hrsub.add_parser("reject", help="the founder rejects a proposal; the proposer is told")
+    q.add_argument("id")
+    q.add_argument("reason", nargs="?", default="", help="why, told to the proposer")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
