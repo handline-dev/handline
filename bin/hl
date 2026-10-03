@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# A bash wrapper, not a python shebang (founder ruling #1574/#1570): a python
+# A bash wrapper, not a python shebang (a founder ruling): a python
 # shebang has already committed to an interpreter before any of our own code
 # runs, so nothing written in python can be the thing that picks one. bash is
 # the one thing macOS guarantees is there when python3 might not be right (a
 # Homebrew python3 with no PyYAML or rich, or a system one with neither).
 #
-# Task #54 (founder #2069): a missing or stale venv used to make this refuse
+# A missing or stale venv used to make this refuse
 # outright. It now falls back to PATH's python3 instead, the same interpreter
 # this file used to run under unconditionally - so every verb but a tty
 # `hl` (which prints the venv fix and exits 1) keeps working until the
@@ -49,10 +49,10 @@ ready=0
 if [ -x "$py" ] && [ -f "$reqs" ] && [ -f "$stamp" ]; then
     # handline/infra/venv.py's `_canonical_requirements`, in bash: strip each line, drop
     # blank ones and whole-line comments, hash what is left - a comment-only
-    # edit must not read as stale (task #54, founder #2134).
+    # edit must not read as stale.
     # `|| true`: grep exits 1 if nothing survives the filter (an empty or
     # all-comments requirements.txt) - under pipefail that would abort the
-    # script right here, the same silent-exit class review #1613 fixed for
+    # script right here, the same silent-exit class an earlier review fixed for
     # the stamp read below.
     want="$( { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$reqs" \
         | grep -v '^#' | grep -v '^$' || true; } | shasum -a 256 | cut -d' ' -f1)"
@@ -61,7 +61,7 @@ if [ -x "$py" ] && [ -f "$reqs" ] && [ -f "$stamp" ]; then
     # newline it looks for) even though it fills $have - under set -e that
     # would exit the script right here, silently falling back to PATH's
     # python3 without a real reason. `|| true` keeps that a plain "not ready"
-    # instead (review #1613's fix, carried over from bin/ocp-venv).
+    # instead (that review's fix, carried over from bin/ocp-venv).
     read -r have < "$stamp" || true
     [ "$want" = "$have" ] && ready=1
 fi
