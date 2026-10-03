@@ -2141,7 +2141,15 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.4)
         check("save at once: global: Remove takes the answer under the cursor out at once",
               not any("Remove me" in a["text"] for a in actions.standing_answers()))
-        from ocp.daemon import devmode, handoff_note
+        order = [w.id for w in page.query("#settings_pane > *, #settings_pane SwitchRow Switch, #settings_pane #answers")
+                 if w.id]
+        heads = [str(h.title) for h in page.query("#settings_pane SectionHead")]
+        check("settings: four sections by what is decided", heads == ["concurrency", "closing windows", "automation"], str(heads))
+        check("settings: each switch sits under its section, auto-accept right above its answer list",
+              order.index("g_ignore_cache_expiry") < order.index("g_handoff_note") < order.index("g_auto_accept")
+              < order.index("answers") and "g_dev_mode" not in order, str(order))
+        Path(os.environ.get("SETTINGS_SHOT", os.devnull)).write_text(app.export_screenshot())
+        from ocp.daemon import handoff_note
         from ocp.session import autoaccept
         shown = {k: page.query_one(f"#g_{k}", Switch).value for k in actions.global_switches()}
         check("global switches: each shows the value that is saved", shown == actions.global_switches(), str(shown))
@@ -2149,8 +2157,8 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
             page.query_one(f"#g_{key}", Switch).value = not shown[key]
         await pilot.pause(0.6)
         flipped = {"handoff_note": handoff_note.default_enabled(), "auto_accept": autoaccept.enabled(),
-                   "ignore_cache_expiry": idle_close.default_ignore_cache_expiry(), "dev_mode": devmode.dev_mode_enabled()}
-        check("global switches: flipping each saves it where the daemon reads it, dev mode too",
+                   "ignore_cache_expiry": idle_close.default_ignore_cache_expiry()}
+        check("global switches: flipping each saves it where the daemon reads it",
               flipped == {k: not v for k, v in shown.items()}, str(flipped))
         for on in (True, False):
             actions.save_global_switches({"handoff_note": on})
@@ -2327,7 +2335,7 @@ def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
     _home("global_switches")
     check("switches: they start where the fixture left them (the note is off there)",
           actions.global_switches() == {"handoff_note": False, "auto_accept": True,
-                                        "ignore_cache_expiry": False, "dev_mode": False}, str(actions.global_switches()))
+                                        "ignore_cache_expiry": False}, str(actions.global_switches()))
     actions.save_global_switches({"handoff_note": True})
     check("switches: the note is on again", handoff_note.default_enabled())
     ok, said = actions.save_global_switches({"handoff_note": False, "auto_accept": False, "ignore_cache_expiry": True})
