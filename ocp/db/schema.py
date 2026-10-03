@@ -491,6 +491,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
         _dismissals_are_events(con)
         _reasons_are_events(con)
     _moot_trust_proposals(con)
+    _hr_proposals_leave_tasks(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
     return con
@@ -1069,6 +1070,19 @@ def _moot_trust_proposals(con) -> None:
     except Exception:  # noqa: BLE001 - the migration must never stop a connect
         return
     set_cursor(con, "migrated:moot_trust_proposals", 1)
+
+
+def _hr_proposals_leave_tasks(con) -> None:
+    """Roster proposals stop being decision tasks: the open ones leave the founder's task board and
+    wait on `hr.decide`. Once; a store that cannot be read here leaves them for the next connect."""
+    if get_cursor(con, "migrated:hr_proposals_leave_tasks"):
+        return
+    try:
+        from ..team import hr
+        hr.leave_tasks(con)
+    except Exception:  # noqa: BLE001 - the migration must never stop a connect
+        return
+    set_cursor(con, "migrated:hr_proposals_leave_tasks", 1)
 
 
 def _task_leftovers_settled(con) -> None:

@@ -1,6 +1,7 @@
 """`ocp hr` and `ocp trust`."""
 from __future__ import annotations
 
+import json
 import sys
 
 from ..team import ask as askmod
@@ -25,6 +26,9 @@ def cmd_hr(args) -> int:
     """
     me = askmod.asking_agent()
     if args.hr_cmd == "list":
+        if args.json:
+            print(json.dumps(hr.pending(), indent=2))
+            return 0
         skipped: list[str] = []
         rows = hr.listing(skipped)
         for why in skipped:
@@ -35,7 +39,7 @@ def cmd_hr(args) -> int:
         for p_ in rows:
             print(f"{p_['id']}  {p_['kind']:<7}{p_['agent']:<{_name_col([r['agent'] for r in rows])}}"
                   f"{p_.get('state', '?'):<10}"
-                  f"#{p_.get('request', '-')}  by {p_.get('requested_by', '?')}")
+                  f"by {p_.get('requested_by', '?')}")
         return 0
     if args.hr_cmd == "relabel":
         con = db.connect()
@@ -54,33 +58,16 @@ def cmd_hr(args) -> int:
         print(said)
         return 0 if ok else 1
     if args.hr_cmd == "apply":
-        if args.confirm_answer:
-            if protected.in_agent_session():
-                print("recording the founder's answer is the founder's, from a terminal or "
-                      "the bridge, not an agent's", file=sys.stderr)
-                return 1
-            if not args.yes:
-                prop = hr.load_proposal(args.id) or {}
-                con = db.connect()
-                try:
-                    state, tid, verdict = hr.answer_of(con, prop)
-                    row = hr.card_of(con, tid) if tid else None
-                finally:
-                    con.close()
-                if row is None:
-                    print(f"no proposal {args.id}")
-                    return 1
-                print(row["body"], f"\nanswered: {verdict!r}", sep="\n")
-                if not sys.stdin.isatty():
-                    print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
-                    return 1
-                if input("record this as your answer and apply it? [y/N] ").strip().lower() not in ("y", "yes"):
-                    print("left alone")
-                    return 1
-            ok, said = hr.confirm_answer(args.id)
-            print(said)
-            return 0 if ok else 1
         ok, said = hr.apply(args.id)
+        print(said)
+        return 0 if ok else 1
+    if args.hr_cmd in ("approve", "reject"):
+        if protected.in_agent_session() or me != askmod.HUMAN:
+            print("approving or rejecting a proposal is the founder's, from a terminal or the "
+                  "bridge, not an agent's", file=sys.stderr)
+            return 1
+        ok, said = hr.decide(args.id, "approved" if args.hr_cmd == "approve" else "rejected",
+                             me, getattr(args, "reason", ""))
         print(said)
         return 0 if ok else 1
     if args.hr_cmd == "withdraw":

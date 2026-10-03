@@ -2348,16 +2348,19 @@ deny:
               ok and "boat:" not in tf.read_text() and not agents.agent_file("boat").exists(), said)
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
-        body = db.get_request(con, prop["request"])["body"]
+        body = hr.card(prop)["text"]
         check("team: the founder reads every agent, every repo and the default links",
               all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
-              and "may ask each other" in body and "approve" in body, body)
-        check("team: one decision for the whole team",
-              con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 1)
+              and "may ask each other" in body and "ocp hr approve" in body, body)
+        check("team: one proposal for the whole team, and no task or request for it",
+              len(hr.pending()) == 1
+              and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0
+              and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 0)
         ok, said = hr.apply(pid, con)
-        check("team: refused until the founder answers", not ok, said)
-        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(prop))
-        answer_card(con, prop["request"], "approve")
+        check("team: refused until the founder approves", not ok, said)
+        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
+        prop = {**prop, "state": "approved"}
+        hr.save(prop)
         for label, key, value in [("a member added", "members", prop["members"] + ",boat.spy"),
                                   ("a member's repo changed", "repo.boat.sea", "/elsewhere"),
                                   ("the manager's repo changed", "repo", "/elsewhere")]:
@@ -2422,17 +2425,17 @@ deny:
           rc == 0 and team.Team.load().teams.get("reef") == ["reef", "reef.dive", "reef.map"]
           and agents.read("reef.dive").get("repo") == "/w/dive", out)
     rc, out = _cli(["hr", "team", "reef2", "--member", "a", "--repo", "/w/reef2", "--why", "w"], as_agent="orca")
-    check("team: an agent's `hr team` is a proposal", rc == 0 and "raised as" in out
+    check("team: an agent's `hr team` is a proposal", rc == 0 and "raised" in out
           and "reef2" not in paths.list_agents(), out)
     from ocp.team import guide
     check("guide: the rule is written down once, in the team topic",
           all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
 
 
-def test_a_proposal_reaches_the_founder_as_a_decision_task(home: Path) -> None:
-    """T361 step 3: raising a proposal opens a task of the founder's - a decision
-    card - not a bare request; the decision on it is `actions.decide`, an unclear
-    answer decides nothing, and approve is applied by it."""
+def test_a_proposal_is_its_own_record_the_founder_decides(home: Path) -> None:
+    """A roster proposal is not a task: raising it opens no task and no request, it is listed
+    for the founder as a card (`hr.pending`), and `hr.decide` is the one way it is approved
+    (applied at once, the proposer told) or rejected."""
     _daemon_home(home, 20)
     hand_edit_team("""
 teams:
@@ -2441,6 +2444,7 @@ agents:
   orca: {}
 edges:
   - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "human", kind: task }
 """)
     agents.register("orca")
@@ -2448,29 +2452,57 @@ edges:
     try:
         ok, said = hr.propose("add", "newbie", repo="/repo", requester="orca", why="more hands")
         check("proposal: raised", ok, said)
-        prop = hr.load_proposal(said.split()[1])
-        card = db.get_request(con, prop["request"])
-        row = con.execute("SELECT t.* FROM tasks t JOIN task_requests l ON l.task_id = t.id "
-                          "WHERE l.request_id = ?", (card["id"],)).fetchone()
-        check("proposal: the card is a task owned by the founder, opened by the proposer",
-              row is not None and row["owner"] == actions.HUMAN and row["opened_by"] == "orca"
-              and row["expects"] == "decision", str(dict(row) if row else None))
-        ok, said = actions.decide(con, row["id"], "hmm, not sure")
-        check("proposal: an unclear answer decides nothing - the task and the card stay open",
-              not ok and "approve" in said and not db.get_task(con, row["id"])["done_evidence"]
-              and db.get_request(con, card["id"])["state"] == "queued", said)
-        ok, said = actions.decide(con, row["id"], "approve")
-        check("proposal: approve decides, finishes the task and applies the proposal",
-              ok and db.get_task(con, row["id"])["done_evidence"] == "approve"
-              and hr.load_proposal(prop["id"])["state"] == "applied"
-              and "newbie" in paths.list_agents(), said)
+        pid = said.split()[1]
+        check("proposal: no task and no request to the founder was made for it",
+              con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 0
+              and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0)
+        cards = hr.pending()
+        check("proposal: it is a card with who, what, why and the words the founder reads",
+              len(cards) == 1 and cards[0]["id"] == pid and cards[0]["kind"] == "add"
+              and cards[0]["agent"] == "newbie" and cards[0]["requested_by"] == "orca"
+              and cards[0]["why"] == "more hands" and cards[0]["state"] == "proposed"
+              and f"ocp hr approve {pid}" in cards[0]["text"], str(cards))
+        ok, said = hr.apply(pid, con)
+        check("proposal: nothing applies it before the founder approves", not ok and "newbie" not in paths.list_agents(), said)
+        ok, said = hr.decide(pid, "approved", "orca")
+        check("proposal: an agent cannot decide it", not ok and "founder's" in said
+              and hr.load_proposal(pid)["state"] == "proposed", said)
+        ok, said = hr.decide(pid, "maybe", askmod.HUMAN)
+        check("proposal: a decision is approved or rejected, nothing else", not ok, said)
+        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+        check("proposal: the founder's approve applies it", ok and hr.load_proposal(pid)["state"] == "applied"
+              and "newbie" in paths.list_agents() and hr.pending() == [], said)
+        told = con.execute("SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()
+        check("proposal: the proposer is told how it went", any(f"proposal {pid} applied" in r["body"] for r in told),
+              [r["body"] for r in told])
+        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+        check("proposal: a second decision is refused", not ok and "already applied" in said, said)
+
+        ok, said = hr.propose("add", "nope", repo="/repo", requester="orca", why="one more")
+        pid2 = said.split()[1]
+        ok, said = hr.decide(pid2, "rejected", askmod.HUMAN, "not now")
+        told = con.execute("SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()
+        check("proposal: a reject is recorded with its reason and told to the proposer",
+              ok and hr.load_proposal(pid2)["state"] == "rejected"
+              and hr.load_proposal(pid2)["verdict"] == "not now" and "nope" not in paths.list_agents()
+              and any(f"proposal {pid2} was rejected: not now" in r["body"] for r in told), said)
+        ok, said = hr.apply(pid2, con)
+        check("proposal: a rejected one is never applied", not ok and "nope" not in paths.list_agents(), said)
+
+        ok, said = hr.propose("add", "taken", repo="/repo", requester="orca", why="changed my mind")
+        pid3 = said.split()[1]
+        ok, said = hr.withdraw(pid3, "orca")
+        check("withdraw: the author takes it back and it leaves the founder's list",
+              ok and hr.load_proposal(pid3)["state"] == "withdrawn" and hr.pending() == [], said)
+        ok, said = hr.decide(pid3, "approved", askmod.HUMAN)
+        check("withdraw: a withdrawn proposal cannot be approved", not ok and "taken" not in paths.list_agents(), said)
     finally:
         con.close()
 
 
-def test_closing_a_proposals_card_any_way_settles_the_founders_task(home: Path) -> None:
-    """Auditor #5275: the card's request leaving the queue - by the founder's
-    `ocp resolve`, a withdraw, or a dismissal - leaves no decision task open."""
+def test_a_plain_decision_task_is_settled_however_its_card_closes(home: Path) -> None:
+    """Auditor #5275: the card's request leaving the queue - by a dismissal or the founder's own
+    marking - leaves no decision task open; a question linked to a task later is not its card."""
     _daemon_home(home, 20)
     hand_edit_team("""
 teams:
@@ -2484,26 +2516,6 @@ edges:
     agents.register("orca")
     con = db.connect()
     try:
-        def raised(name: str):
-            ok, said = hr.propose("add", name, repo="/repo", requester="orca", why="w")
-            prop = hr.load_proposal(said.split()[1])
-            tid = con.execute("SELECT task_id FROM task_requests WHERE request_id = ?",
-                              (prop["request"],)).fetchone()["task_id"]
-            return prop, tid
-
-        prop, tid = raised("viaresolve")
-        ok, said = askmod.resolve(prop["request"], "approve")
-        row = db.get_task(con, tid)
-        check("resolve: the founder's `ocp resolve` decides the task too - evidence, done",
-              ok and row["done_evidence"] == "approve"
-              and hr.load_proposal(prop["id"])["state"] == "applied", str(dict(row)))
-
-        prop, tid = raised("viawithdraw")
-        ok, said = hr.withdraw(prop["id"], "orca")
-        row = db.get_task(con, tid)
-        check("withdraw: the task is discarded with it, not left on the founder's board",
-              ok and row["discarded_by"] and not row["done_evidence"], str(dict(row)))
-
         ok, msg, tid = actions.task_new("orca", actions.HUMAN, "a plain question", "which?", expects="decision")
         card = con.execute("SELECT request_id FROM task_requests WHERE task_id = ?", (tid,)).fetchone()["request_id"]
         ok, said = actions.dismiss(con, card, me=actions.HUMAN, no_task="nothing to build")
@@ -2557,11 +2569,10 @@ edges:
         con.close()
 
 
-def test_an_approve_on_a_team_proposal_is_recorded_and_applied(home: Path) -> None:
-    """T273: raise, the founder answers approve, it is recorded and applied. And an
-    answer given to a process that did not know the proposal kind (an older daemon
-    or bridge) is closed unapplied; the founder's `confirm_answer` records and applies it,
-    an agent's session cannot, and a draft changed since is refused."""
+def test_an_approve_is_recorded_where_no_agent_writes_and_applied_once(home: Path) -> None:
+    """The founder's approve is recorded in the protected store and applied by the same call;
+    a draft changed after it, a state written into the file by hand, and an agent's session
+    each apply or decide nothing; an approve whose apply failed is told and retried."""
     _daemon_home(home, 20)
     hand_edit_team("""
 teams:
@@ -2570,6 +2581,7 @@ agents:
   orca: {}
 edges:
   - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "human", kind: task }
 """)
     agents.register("orca")
@@ -2578,58 +2590,71 @@ edges:
         ok, said = hr.propose("team", "crew", requester="orca", why="a crew", repo="/w",
                               members=["a", "b"], repos={"crew.a": "/w/a"})
         pid = said.split()[1]
-        prop = hr.load_proposal(pid)
-        ok, said = askmod.resolve(prop["request"], "approve")
-        check("team answer: the approve is applied by the answer itself", ok and "applied" in said, said)
-        check("team answer: it is recorded, names the request, and the team exists",
-              (decisions.get("hr", pid) or {}).get("task") == hr.task_of_card(con, prop["request"])
+        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+        check("team answer: the approve is applied by the decision itself", ok, said)
+        check("team answer: it is recorded, and the team exists",
+              (decisions.get("hr", pid) or {}).get("call") == "approved"
               and hr.load_proposal(pid)["state"] == "applied"
               and team.Team.load().teams.get("crew") == ["crew", "crew.a", "crew.b"]
               and "crew.b" in paths.list_agents())
 
-        ok, said = hr.propose("team", "old", requester="orca", why="an older process answers",
-                              repo="/w", members=["x"])
+        ok, said = hr.propose("team", "old", requester="orca", why="forged", repo="/w", members=["x"])
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
+        hr.save({**prop, "state": "approved"})
+        ok, said = hr.apply(pid, con)
+        check("forged: a state written into the file with no recorded approval applies nothing",
+              not ok and "no approval from the founder is on record" in said
+              and "old.x" not in paths.list_agents(), said)
+        os.environ["OCP_AGENT"] = "orca"
+        try:
+            ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+            rc, out = _cli(["hr", "approve", pid], as_agent="orca")
+        finally:
+            os.environ.pop("OCP_AGENT", None)
+        check("forged: an agent's session cannot record the founder's approval", not ok
+              and rc == 1 and decisions.get("hr", pid) is None, said + out)
+        hr.save(prop)
+
         kinds = hr.KINDS
         hr.KINDS = tuple(k for k in kinds if k != "team")
         try:
-            ok, said = askmod.resolve(prop["request"], "approve")
-            ok2, said2 = askmod.resolve(prop["request"], "reject")
-            still_queued = db.get_request(con, prop["request"])["state"] == "queued"
+            ok, said = hr.decide(pid, "approved", askmod.HUMAN)
         finally:
             hr.KINDS = kinds
-        check("stale: a process that does not know the kind refuses the answer and says to restart",
-              not ok and not ok2 and "does not know" in said and "Restart" in said, said)
-        check("stale: the decision is still queued, nothing recorded or applied",
-              still_queued and hr.load_proposal(pid)["state"] == "proposed"
-              and decisions.get("hr", pid) is None and "old" not in paths.list_agents())
-        # What such a process used to do: close the row, unapplied.
-        db.close_if_queued(con, prop["request"], "done", "approve")
-        ok, said = hr.apply(pid, con)
-        check("stale: apply refuses, as the report said", not ok and "no answer from the founder" in said, said)
-        os.environ["OCP_AGENT"] = "orca"
-        try:
-            ok, said = hr.confirm_answer(pid, con)
-            rc, out = _cli(["hr", "apply", pid, "--confirm-answer", "--yes"], as_agent="orca")
-        finally:
-            os.environ.pop("OCP_AGENT", None)
-        check("stale: an agent's session cannot record it", not ok and "founder" in said
-              and rc == 1 and decisions.get("hr", pid) is None, said + out)
-        edited = dict(hr.load_proposal(pid))
+        check("stale: a process that does not know the kind decides nothing",
+              not ok and "knows" in said and hr.load_proposal(pid)["state"] == "proposed"
+              and decisions.get("hr", pid) is None, said)
+
+        subject = hr.subject_of(prop)
+        edited = dict(prop)
         edited["members"] = "old.x,old.spy"
         hr.save(edited)
-        ok, said = hr.confirm_answer(pid, con)
-        check("stale: a draft changed since the answer is refused", not ok and "raise it again" in said, said)
+        ok, said = hr.decide(pid, "approved", askmod.HUMAN, subject=subject)
+        check("bind: a draft edited after the founder read it is not approved unseen",
+              not ok and "changed after you read it" in said and decisions.get("hr", pid) is None
+              and "old.spy" not in paths.list_agents(), said)
         hr.save(prop)
-        rc, out = _cli(["hr", "apply", pid, "--confirm-answer", "--yes"], as_agent=askmod.HUMAN)
-        check("stale: the founder's own session records and applies it",
-              rc == 0 and hr.load_proposal(pid)["state"] == "applied"
-              and "old.x" in paths.list_agents(), out)
-        ok, said = hr.propose("team", "open", requester="orca", why="not answered", repo="/w", members=["y"])
-        ok, said = hr.confirm_answer(said.split()[1], con)
-        check("stale: a proposal the founder has not answered cannot be confirmed",
-              not ok and "not answered" in said, said)
+
+        # An approve whose apply fails: told to the proposer, kept approved, and retried by approving again.
+        ok, said = hr.propose("add", "latecomer", repo="/repo", requester="orca", why="w")
+        pid = said.split()[1]
+        real = hr._DOERS["add"]
+        hr._DOERS["add"] = lambda prop, con: (False, "orca is not answering")
+        try:
+            ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+        finally:
+            hr._DOERS["add"] = real
+        told = [r["body"] for r in con.execute(
+            "SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()]
+        check("failed apply: the founder is told why, the proposal stays approved and listed with the error",
+              not ok and "not answering" in said and hr.load_proposal(pid)["state"] == "approved"
+              and hr.pending()[0]["error"] == "orca is not answering"
+              and any(f"proposal {pid} was approved but could not be applied" in b for b in told), said)
+        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+        check("failed apply: approving again retries it, without a second decision",
+              ok and hr.load_proposal(pid)["state"] == "applied" and "latecomer" in paths.list_agents()
+              and pid not in {c["id"] for c in hr.pending()}, said)
     finally:
         con.close()
 
@@ -2700,18 +2725,13 @@ deny:
               ok and 'from: "marina", to: "keeper"' not in tf.read_text(), said)
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
-        req = db.get_request(con, prop["request"])
+        text = hr.card(prop)["text"]
         check("link: the founder is told which edge and how to decide",
-              "marina -> keeper" in req["body"] and "approve" in req["body"], req["body"])
+              "marina -> keeper" in text and "ocp hr approve" in text, text)
         ok, said = hr.apply(pid, con)
-        check("link: apply refuses until the founder has answered", not ok, said)
-        answer_card(con, prop["request"], "approve")
-        ok, said = hr.apply(pid, con)
-        check("link: a verdict written into the db alone, with no recorded answer, applies nothing",
-              not ok and "no answer from the founder is on record" in said, said)
-        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(hr.load_proposal(pid)))
-        ok, said = hr.apply(pid, con)
-        check("link: apply after approval adds the edge",
+        check("link: apply refuses until the founder has approved", not ok, said)
+        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+        check("link: the approval adds the edge",
               ok and team.Team.load().route("marina", "keeper").allowed, said)
 
         agents.register("late")
@@ -2839,8 +2859,9 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
     try:
         ok, said = hr.apply(pid, con)
         check("settings: nothing applies before the founder answers", not ok and not agents.read("worker").get("mcp_config"), said)
-        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(prop))
-        answer_card(con, prop["request"], "approve")
+        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
+        prop = {**prop, "state": "approved"}
+        hr.save(prop)
         edited = dict(prop)
         edited["set.browser_sites"] = "https://evil.example"
         hr.save(edited)
@@ -2897,13 +2918,11 @@ edges:
         prop = hr.load_proposal(pid)
         check("hr add: the proposal itself records the vendor",
               prop.get("vendor") == "opencode", str(prop))
-        req = db.get_request(con, prop["request"])
+        text = hr.card(prop)["text"]
         check("hr add: the decision names the vendor to the founder",
-              "vendor opencode" in req["body"], req["body"])
-        answer_card(con, prop["request"], "approve")
-        decisions.record("hr", pid, hr.task_of_card(con, prop["request"]), "approved", hr.subject_of(hr.load_proposal(pid)))
-        ok, said = hr.apply(pid, con)
-        check("hr add: applying an approved proposal succeeds", ok, said)
+              "vendor opencode" in text, text)
+        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
+        check("hr add: approving the proposal applies it", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
         check("hr add: apply writes the vendor the proposal recorded",
               cfg.get("vendor") == "opencode", str(cfg))
@@ -2914,16 +2933,14 @@ edges:
         # approved.
         ok, said = hr.propose("add", "glm3", repo="/repo", requester="marina", why="w", vendor="opencode")
         pid3 = said.split()[1]
-        rid3 = hr.load_proposal(pid3)["request"]
-        answer_card(con, rid3, "approve")
-        subject, _why = hr.answered(hr.load_proposal(pid3), db.get_request(con, rid3))
-        decisions.record("hr", pid3, hr.task_of_card(con, rid3), "approved", subject)
+        decisions.record("hr", pid3, 0, "approved", hr.subject_of(hr.load_proposal(pid3)))
+        hr.save({**hr.load_proposal(pid3), "state": "approved"})
         edited = hr.load_proposal(pid3)
         edited["repo"] = "/somewhere/else"
         hr.save(edited)
         ok, said = hr.apply(pid3, con)
         check("hr bind: a draft edited after the answer is refused, not applied",
-              not ok and "changed after the founder answered" in said, said)
+              not ok and "changed after the founder approved" in said, said)
         edited["repo"] = "/repo"        # as it was approved
         hr.save(edited)
         ok, said = hr.apply(pid3, con)
@@ -2933,62 +2950,87 @@ edges:
         con.close()
 
 
-def test_an_answer_binds_the_decisionion_the_founder_read(home: Path) -> None:
-    """T182 (auditor #1043): through the founder's own resolve, a draft edited
-    before the answer is not approved unseen, a reject settles whatever the
-    draft says, and an unlink's live caveat is not part of the comparison."""
-    use_home(home)
-    (home / "team.yaml").write_text("""
+def test_hr_cli_lists_cards_and_only_the_founder_decides(home: Path) -> None:
+    """`ocp hr list --json` is the cards the founder's chat shows; `approve` and `reject` are the
+    founder's, from a terminal, and an agent's session is refused."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
 agents:
-  marina: {}
-  keeper: {}
+  orca: {}
 edges:
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "human", kind: task }
-  - { from: "marina", to: "keeper", relation: peer, response: async }
 """)
-    for n in ("marina", "keeper"):
-        agents.register(n)
+    agents.register("orca")
+    ok, said = hr.propose("add", "pup", repo="/repo", requester="orca", why="a pup")
+    pid = said.split()[1]
+    ok, said = hr.propose("add", "kit", repo="/repo", requester="orca", why="a kit")
+    pid2 = said.split()[1]
+    rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
+    cards = json.loads(out)
+    check("hr list --json: one card per waiting proposal, with what the chat card needs",
+          rc == 0 and {c["id"] for c in cards} == {pid, pid2}
+          and all(k in cards[0] for k in ("id", "kind", "agent", "requested_by", "why", "ts",
+                                            "state", "text", "subject")), out)
+    rc, out = _cli(["hr", "approve", pid], as_agent="orca")
+    check("hr approve: an agent's session is refused and nothing is applied",
+          rc == 1 and "pup" not in paths.list_agents(), out)
+    rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
+    check("hr approve: the founder's approve applies it", rc == 0 and "pup" in paths.list_agents(), out)
+    rc, out = _cli(["hr", "reject", pid2, "too many already"], as_agent=askmod.HUMAN)
+    check("hr reject: the founder's reject is recorded with its reason",
+          rc == 0 and hr.load_proposal(pid2)["state"] == "rejected"
+          and hr.load_proposal(pid2)["verdict"] == "too many already", out)
+    rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
+    check("hr list --json: nothing left waiting once both are decided", rc == 0 and json.loads(out) == [], out)
+
+
+def test_proposals_raised_as_tasks_leave_the_task_board(home: Path) -> None:
+    """The migration: a proposal raised when it was a decision task is taken off the founder's
+    task board and stays a proposal; an answer already on record is kept, any other left to decide."""
+    _daemon_home(home, 20)
+    hand_edit_team("""
+agents:
+  orca: {}
+edges:
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+""")
+    agents.register("orca")
     con = db.connect()
     try:
-        def raise_add(name, **kw):
-            ok, said = hr.propose("add", name, requester="marina", why="w", **{"repo": "/repo", **kw})
-            return said.split()[1]
+        def old_style(name: str) -> tuple[dict, int, int]:
+            ok, said = hr.propose("add", name, repo="/repo", requester="orca", why="w")
+            prop = hr.load_proposal(said.split()[1])
+            ok, msg, rid = actions.open_decision("orca", hr._decision_text(prop))
+            tid = decisions.task_of_card(con, rid)
+            hr.save({**prop, "request": rid, "task": tid})
+            return hr.load_proposal(prop["id"]), rid, tid
 
-        pid = raise_add("x1", repo="/repoA")
-        prop = hr.load_proposal(pid)
-        prop["repo"] = "/elsewhere"
-        hr.save(prop)
-        ok, said = askmod.resolve(prop["request"], "approve")
-        check("bind: a field edited before the answer is not approved unseen",
-              "not applied" in said and "raise it again" in said
-              and decisions.get("hr", pid) is None and "x1" not in paths.list_agents(), said)
-
-        pid = raise_add("x2")
-        prop = hr.load_proposal(pid)
-        prop["agent"] = "x2renamed"
-        hr.save(prop)
-        ok, said = askmod.resolve(prop["request"], "approve")
-        check("bind: nor the agent it is about",
-              "not applied" in said and "x2renamed" not in paths.list_agents(), said)
-
-        pid = raise_add("x3", repo="/repoA")
-        prop = hr.load_proposal(pid)
-        prop["repo"] = "/elsewhere"
-        hr.save(prop)
-        ok, said = askmod.resolve(prop["request"], "reject - no")
-        check("bind: a reject settles it whatever the draft says",
-              hr.load_proposal(pid)["state"] == "rejected"
-              and decisions.get("hr", pid)["call"] == "rejected", said)
-
-        ok, said = hr.propose("unlink", "marina", requester="marina", to="keeper", why="w")
-        upid = said.split()[1]
-        uprop = hr.load_proposal(upid)
-        row = db.get_request(con, uprop["request"])
-        live = row["body"].replace("stay queued.", "stay queued. (a caveat that reads live)", 1)
-        con.execute("UPDATE requests SET body = ? WHERE id = ?", (live, uprop["request"]))
-        subject, why = hr.answered(uprop, db.get_request(con, uprop["request"]))
-        check("bind: an unlink's live caveat is left out of the comparison",
-              subject is not None and why is None, str(why))
+        open_, open_rid, open_tid = old_style("openone")
+        answered, ans_rid, ans_tid = old_style("answeredone")
+        decisions.record("hr", answered["id"], ans_tid, "approved", hr.subject_of(answered))
+        actions.decide(con, ans_tid, "approve")      # the old path: closes the task, applies nothing now
+        unrecorded, un_rid, un_tid = old_style("unrecordedone")
+        actions.decide(con, un_tid, "reject")
+        moved = hr.leave_tasks(con)
+        check("migrate: every old proposal is moved", set(moved) == {open_["id"], answered["id"], unrecorded["id"]}, moved)
+        check("migrate: an open one's task is discarded and its card closed",
+              db.get_task(con, open_tid)["discarded_by"] and db.get_request(con, open_rid)["state"] != "queued")
+        check("migrate: it stays a proposal, waiting on the founder, with no task key",
+              hr.load_proposal(open_["id"])["state"] == "proposed" and "task" not in hr.load_proposal(open_["id"])
+              and "request" not in hr.load_proposal(open_["id"])
+              and open_["id"] in {c["id"] for c in hr.pending()})
+        check("migrate: an approve on record is kept, and applying it works",
+              hr.load_proposal(answered["id"])["state"] == "approved" and hr.apply(answered["id"], con)[0]
+              and "answeredone" in paths.list_agents())
+        check("migrate: an answer with no record is decided again",
+              hr.load_proposal(unrecorded["id"])["state"] == "proposed")
+        check("migrate: no hr item is left among the open tasks",
+              not [t for t in db.open_tasks(con) if "[roster]" in (t["title"] or "")])
+        from ocp.db import schema
+        schema._hr_proposals_leave_tasks(con)
+        check("migrate: the ledger marks it done", db.get_cursor(con, "migrated:hr_proposals_leave_tasks") == 1)
     finally:
         con.close()
 
@@ -3011,404 +3053,6 @@ def test_register_writes_vendor_onto_an_agent_that_already_exists(home: Path) ->
           "already-registered agent", cfg.get("vendor") == "opencode", str(cfg))
     check("register existing: agent_vendor reads it as opencode",
           vendors.agent_vendor("late") == "opencode")
-
-
-def test_a_dismissed_decisionion_is_refused_by_its_state_not_as_a_quote(home: Path) -> None:
-    """Task #70: a proposal whose decision somehow closed as a dismissal is
-    named as dismissed when apply refuses it, not as an empty answer."""
-    _daemon_home(home, 20)
-    accounts.register("beta")
-    agents.register("hr")
-    hand_edit_team("""
-agents:
-  hr: {}
-edges:
-  - { from: "*", to: "human", kind: task }
-""")
-    con = db.connect()
-    try:
-        ok, said = hr.propose("add", "zed", repo="/repo", requester="hr", why="hands")
-        pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
-        con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (rid,))
-        db.add_event(con, "ghost", "dismissed", {"request_id": rid, "by": "ghost", "reason": "not now"})
-        from ocp.db import tasks as dbtasks
-        dbtasks.settle_decision_tasks(con, rid, "done", None, dismissed_by="ghost")     # what the real closer does
-        ok, msg = hr.apply(pid)
-        check("dismissed decision: apply names the state",
-              not ok and "was discarded (its request was dismissed)" in msg and "nothing was decided" in msg, msg)
-    finally:
-        con.close()
-
-
-def test_a_proposal_is_answered_on_its_decision_task_and_applies_once_never_on_a_discard(home: Path) -> None:
-    """T785: a proposal is keyed by its decision task. The founder's answer is the task done with the
-    verdict; an approve applies once, never on a discard or a handoff, and a reject stays rejected."""
-    _daemon_home(home, 20)
-    accounts.register("alpha")
-    agents.register("hr")
-    hand_edit_team("""
-agents:
-  hr: {}
-edges:
-  - { from: "*", to: "human", kind: task }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-""")
-    from ocp.daemon import taskqueue
-    con = db.connect()
-    try:
-        def raise_one(name):
-            ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="w")
-            pid, rid = said.split()[1], int(said.split("#")[1].split(".")[0])
-            return pid, rid, hr.load_proposal(pid)["task"]
-
-        pid, rid, tid = raise_one("alpha1")
-        check("keyed by task: the proposal names its decision task, which has the request as its card",
-              tid and hr.task_of_card(con, rid) == tid and hr.card_of(con, tid)["id"] == rid)
-        ok, said = hr.apply(pid, con)
-        check("keyed by task: unanswered, nothing applies", not ok and "has not answered" in said, said)
-        # the answer on the task, a daemon tick, then the apply
-        answer_card(con, rid, "approve")
-        decisions.record("hr", pid, tid, "approved", hr.subject_of(hr.load_proposal(pid)))
-        taskqueue.sweep(con, lambda *_: None, 0)
-        ok, said = hr.apply(pid, con)
-        check("apply: after the answer and a tick between, it applies", ok and "alpha1" in paths.list_agents(), said)
-        ok, said = hr.apply(pid, con)
-        check("apply: and never twice", not ok and "already applied" in said, said)
-
-        pid2, rid2, tid2 = raise_one("beta2")
-        decisions.record("hr", pid2, tid2, "approved", hr.subject_of(hr.load_proposal(pid2)))     # even with a record
-        from ocp.db import tasks as dbtasks
-        ok, dsaid = dbtasks.discard_task(con, tid2, actions.HUMAN, "not now"), "discarded"
-        ok2, said = hr.apply(pid2, con)
-        check("discard: a discarded decision never applies", ok and not ok2 and "discarded" in said
-              and "beta2" not in paths.list_agents(), f"{dsaid} / {said}")
-
-        pid3, rid3, tid3 = raise_one("gamma3")
-        ok, said = actions.edit_task(con, tid3, actions.HUMAN, owner="hr")      # handed to an agent
-        ok2, said2 = actions.mark_task_done(con, tid3, "hr", reason="approve")        # the agent signs its own request off
-        ok, said = hr.apply(pid3, con)
-        check("handoff: handed to an agent and 'approved' by it, with no answer of the founder's on record, nothing applies",
-              not ok and "gamma3" not in paths.list_agents(), f"{said2} / {said}")
-        ok, said = hr.confirm_answer(pid3, con)
-        check("handoff: and recording the founder's answer from the db does not believe the agent",
-              not ok and hr.answer_of(con, hr.load_proposal(pid3))[0] == "discarded"
-              and "gamma3" not in paths.list_agents(), said)
-
-        pid4, rid4, tid4 = raise_one("delta4")
-        ok, said = askmod.resolve(rid4, "reject - not this one")
-        check("reject: the founder's reject is recorded on the proposal", hr.load_proposal(pid4)["state"] == "rejected", said)
-        ok, said = hr.apply(pid4, con)
-        again = hr.load_proposal(pid4)             # a restarted daemon reads it afresh
-        check("reject: and it stays rejected, applying nothing, after a restart",
-              not ok and again["state"] == "rejected" and "delta4" not in paths.list_agents(), said)
-        db.reopen_task(con, tid4, False)
-        answer_card(con, rid4, "approve")           # the answer flipped afterwards, with no new record
-        ok, said = hr.apply(pid4, con)
-        check("reject: a flipped answer does not undo it", not ok and "delta4" not in paths.list_agents(), said)
-
-        pid6, rid6, tid6 = raise_one("zeta6")
-        ok, said = actions.mark_task_done(con, tid6, actions.HUMAN, reason="approve")      # the founder closes the task himself
-        ok1, said1 = hr.apply(pid6, con)
-        check("founder: his own close without a record applies nothing by itself", not ok1 and "zeta6" not in paths.list_agents(), said1)
-        ok2, said2 = hr.confirm_answer(pid6, con)
-        check("founder: `--confirm-answer` by him records and applies it, once", ok2 and "zeta6" in paths.list_agents()
-              and not hr.apply(pid6, con)[0], said2)
-
-        pid7, rid7, tid7 = raise_one("eta7")
-        answer_card(con, rid7, "approve")
-        con.execute("UPDATE tasks SET owner = 'hr' WHERE id = ?", (tid7,))          # closed by him, but no longer his task
-        ok, said = hr.confirm_answer(pid7, con)
-        check("founder: a task that is no longer his reads as handed back", not ok and "eta7" not in paths.list_agents(), said)
-
-        # T792: an agent that is the target of a request linked to the founder's own task can no longer
-        # mark it done at all ...
-        pid8, rid8, tid8 = raise_one("theta8")
-        link = db.add_request(con, actions.HUMAN, "hr", "a side question", None, None, None, "say", 0, None)
-        db.link_request(con, tid8, link)
-        ok, said = actions.mark_task_done(con, tid8, "hr", reason="approve")
-        ok2, said2 = hr.confirm_answer(pid8, con)
-        check("agent: marking the founder's own task done 'approve' is refused, and nothing is answered",
-              not ok and hr.answer_of(con, hr.load_proposal(pid8))[0] == "open" and not ok2
-              and "theta8" not in paths.list_agents(), f"{said} / {said2}")
-        # ... but answer_of must not trust a done that some other path recorded: built directly, as an
-        # old row or a future door could leave it (the done and the event of a non-founder actor)
-        pid9, rid9, tid9 = raise_one("iota9")
-        db.mark_task_done(con, tid9, "approve", "reason")
-        db.add_event(con, "hr", "mark_task_done", {"task_id": tid9, "done": "approve"})
-        state9 = hr.answer_of(con, hr.load_proposal(pid9))[0]
-        ok4, said4 = hr.confirm_answer(pid9, con)
-        check("agent: a done recorded by a non-founder actor is not his answer",
-              state9 == "discarded" and not ok4 and "iota9" not in paths.list_agents(), f"{state9} / {said4}")
-        pid10, rid10, tid10 = raise_one("kappa10")
-        answer_card(con, rid10, "reject - no")                         # his close ...
-        ok, said = actions.reopen_task(con, tid10, actions.HUMAN, "second thoughts")
-        db.mark_task_done(con, tid10, "approve", "reason")             # ... then someone else's reopen-and-done
-        db.add_event(con, "hr", "mark_task_done", {"task_id": tid10, "done": "approve"})
-        state10 = hr.answer_of(con, hr.load_proposal(pid10))[0]
-        ok5, said5 = hr.confirm_answer(pid10, con)
-        check("agent: after the founder's close and a reopen, a non-founder done is not his answer either",
-              ok and state10 == "discarded" and not ok5 and "kappa10" not in paths.list_agents(),
-              f"{said} / {state10} / {said5}")
-
-        pid5, rid5, tid5 = raise_one("eps5")
-        old = hr.load_proposal(pid5)
-        del old["task"]                             # a proposal raised before it was keyed by task
-        hr.save(old)
-        check("legacy: found by its card request when it has no task key", hr.open_proposal_of(rid5, con) == pid5)
-        ok, said = askmod.resolve(rid5, "approve")
-        check("legacy: and answered the same way", ok and "eps5" in paths.list_agents(), said)
-    finally:
-        con.close()
-
-
-def test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(home: Path) -> None:
-    """T156: an approve on a roster proposal's decision carries it out right
-    then, and the proposer's answer says how it went. A failed apply is put in
-    front of the founder as a report and leaves the proposal open; a reject
-    changes nothing but the record."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        accounts.register("beta")
-        agents.register("hr")
-        hand_edit_team("""
-agents:
-  hr: {}
-edges:
-  - { from: "*", to: "human", kind: task }
-""")
-        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
-        pid = said.split()[1]
-        rid = int(said.split("#")[1].split(".")[0])
-        ok, said = askmod.resolve(rid, "approve")
-        check("approve: the agent exists with no `ocp hr apply`",
-              ok and "dohyun" in paths.list_agents(), said)
-        check("approve: the file record says applied, with the verdict",
-              hr.load_proposal(pid)["state"] == "applied"
-              and hr.load_proposal(pid)["verdict"] == "approve")
-        check("approve: the proposer's answer carries the outcome",
-              f"proposal {pid} applied" in db.shown_verdict(db.get_request(con, rid))
-              and db.shown_verdict(db.get_request(con, rid)).startswith("approve"),
-              db.shown_verdict(db.get_request(con, rid)))
-
-        # The apply fails: the table no longer lists the agent to be retired.
-        ok, said = hr.propose("retire", "dohyun", requester="hr", why="gone")
-        pid2 = said.split()[1]
-        hand_edit_team("""
-agents:
-  hr: {}
-edges:
-  - { from: "*", to: "human", kind: task }
-""")
-        rid2 = int(said.split("#")[1].split(".")[0])
-        ok, said = askmod.resolve(rid2, "approve")
-        row = db.get_request(con, rid2)
-        check("approve: a failed apply is still an answer, and says it failed",
-              ok and "could not be applied" in db.shown_verdict(row), db.shown_verdict(row))
-        check("approve: and the proposal stays open to retry or withdraw",
-              hr.load_proposal(pid2)["state"] == "proposed")
-        check("approve: and the founder gets a report of it",
-              con.execute("SELECT COUNT(*) c FROM requests WHERE kind = 'say' AND target = 'human' AND body LIKE ?",
-                          (f"%{pid2}%could not be applied%",)).fetchone()["c"] == 1)
-
-        ok, said = hr.propose("add", "yerin", repo="/repo", requester="hr", why="two")
-        pid3 = said.split()[1]
-        rid3 = int(said.split("#")[1].split(".")[0])
-        askmod.resolve(rid3, "reject - no")
-        check("reject: nothing is applied", "yerin" not in paths.list_agents()
-              and db.shown_verdict(db.get_request(con, rid3)) == "reject - no")
-        check("reject: and the proposal's file records it", hr.load_proposal(pid3)["state"] == "rejected")
-
-        ok, said = hr.propose("add", "mira", repo="/repo", requester="hr", why="three")
-        pid4 = said.split()[1]
-        rid4 = int(said.split("#")[1].split(".")[0])
-        ok, said = askmod.resolve(rid4, "reject - not yet\nask again next week")
-        check("reject: a two-line reject still answers the proposer, and the file records it",
-              ok and hr.load_proposal(pid4)["state"] == "rejected"
-              and "ask again" in db.shown_verdict(db.get_request(con, rid4)), said)
-    finally:
-        con.close()
-
-
-def test_every_door_onto_an_open_proposal_also_needs_a_decision(home: Path) -> None:
-    """#1893 SF1, #1908, #1919, #1938, #1943: `answer()` (the bridge's key)
-    is not the only door onto a queued proposal decision - `ocp resolve`,
-    `--retires`, `ask.cancel`, `--replaces` and `ask.withdraw` each reach the
-    same row, and only `answer()` had the guard. A verdict, a retirement, a
-    cancel, a replace or a withdraw typed there that is not a decision used
-    to close the row anyway, leaving the proposal stuck exactly as if the
-    bridge had let it through."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        accounts.register("beta")
-        agents.register("hr")
-        hand_edit_team("""
-agents:
-  hr: {}
-edges:
-  - { from: "*", to: "human", kind: task }
-""")
-        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
-        pid = said.split()[1]
-        rid = int(said.split("#")[1].split(".")[0])
-    finally:
-        con.close()
-    con = db.connect()
-    try:
-        ok, out = actions.answer_ok(con, rid, "sounds good")
-        check("answer: an open proposal refuses a non-decision here too",
-              not ok and "approve" in out and db.get_request(con, rid)["state"] == "queued",
-              out)
-        ok, out = actions.answer_ok(con, rid, "approve")
-    finally:
-        con.close()
-    check("answer: approve still goes through", ok, out)
-    check("answer: and carries it out at once", "dohyun" in paths.list_agents()
-          and hr.load_proposal(pid)["state"] == "applied", out)
-    check("answer: so a later apply has nothing left to do", not hr.apply(pid)[0])
-
-    ok, said = hr.propose("add", "yerin", repo="/repo", requester="hr", why="a second pair")
-    pid2 = said.split()[1]
-    rid2 = int(said.split("#")[1].split(".")[0])
-
-    # #1919: task #32's finding - ask.cancel is the same family, since
-    # CANCEL_VERDICT is not a decision either.
-    con = db.connect()
-    try:
-        said = actions.cancel(con, rid2)
-    finally:
-        con.close()
-    check("cancel: an open proposal refuses to be cancelled away",
-          "approve" in said, said)
-    con = db.connect()
-    try:
-        check("cancel: and stays queued", db.get_request(con, rid2)["state"] == "queued")
-    finally:
-        con.close()
-
-    # #1943: a sixth door - the code review that found the chokepoint's
-    # should-fixes also found this one. The proposer owns its own decision
-    # (it is the requester), so `ocp withdraw` - not `ocp hr withdraw` - is
-    # ownership-eligible too, and would close it as "withdrawn: ..." if the
-    # chokepoint let it.
-    ok, said = askmod.withdraw(rid2, requester="hr")
-    check("withdraw: an open proposal points at `hr withdraw` instead",
-          not ok and "hr withdraw" in said, said)
-    con = db.connect()
-    try:
-        check("withdraw: and stays queued", db.get_request(con, rid2)["state"] == "queued")
-    finally:
-        con.close()
-
-    # `hr withdraw` is the escape valve, and still works on the same row.
-    ok, said = hr.withdraw(pid2, "hr")
-    check("hr withdraw: the one real way out still works", ok, said)
-    con = db.connect()
-    try:
-        check("hr withdraw: and the row is finally closed",
-              db.get_request(con, rid2)["state"] != "queued")
-    finally:
-        con.close()
-
-
-def test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(home: Path) -> None:
-    """#1943: the test above proves each door's own, friendlier check works.
-    This one proves the check those doors share does too - by calling the
-    three ocp/db/ functions that can move a request row out of 'queued'
-    directly, the way each door's own write eventually does, with none of
-    the doors' own checks anywhere in the call path to catch it first. If
-    this passed only because a door's check ran, deleting that check would
-    not fail it; deleting `_would_strand_a_proposal` instead does.
-
-    `close_if_queued` is `answer()`, `ocp resolve` and `ask.cancel`'s write.
-    `retire_queued` is `--retires`'s, and `--replaces`'s when the row being
-    replaced targets the founder - true of every proposal decision, since
-    only the founder decides one. `retire_if_undelivered` is `--replaces`'s
-    write for a row targeting an agent instead; no proposal decision ever
-    takes that path, but the function is part of the same family and gets
-    the same guard, so it is exercised here too."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        accounts.register("beta")
-        agents.register("hr")
-        hand_edit_team("""
-agents:
-  hr: {}
-edges:
-  - { from: "*", to: "human", kind: task }
-""")
-        ok, said = hr.propose("add", "sooyoung", repo="/repo", requester="hr", why="a third pair")
-        rid = int(said.split("#")[1].split(".")[0])
-
-        check("close_if_queued: refuses a non-decision verdict on an open proposal",
-              db.close_if_queued(con, rid, "done", "looks good", announced=True) is False)
-        check("close_if_queued: and stays queued", db.get_request(con, rid)["state"] == "queued")
-
-        check("retire_queued: refuses to retire an open proposal away",
-              db.retire_queued(con, rid, "replaced", "replaced by #9999") is False)
-        check("retire_queued: and stays queued", db.get_request(con, rid)["state"] == "queued")
-
-        check("retire_if_undelivered: refuses an open proposal too",
-              db.retire_if_undelivered(con, rid, "replaced", "replaced") is False)
-        check("retire_if_undelivered: and stays queued",
-              db.get_request(con, rid)["state"] == "queued")
-
-        check("close_if_queued: a real decision still goes through",
-              db.close_if_queued(con, rid, "done", "approve") is True)
-        check("close_if_queued: and the row is no longer queued",
-              db.get_request(con, rid)["state"] == "landed")
-
-        # #2024: ocp/db/ once also held an unguarded state-setter, so the
-        # docstring's "every function below" was false for it. That function
-        # moved to this file as `_set_request_state`, test-only. Auditor
-        # #2072 should-fix: pinning set_request_state's absence by name only
-        # catches that name coming back, not a new unguarded door under a
-        # different one - assert the property ocp/db/ must hold instead: every
-        # function that writes requests.state calls _would_strand_a_proposal,
-        # and the three that do are named here so this cannot pass by
-        # finding none. Auditor #2094 should-fix: a raw substring match on
-        # the function's source missed a writer whose SET clause orders
-        # `state` after another column, and one written as two adjacent
-        # string literals (a style ocp/db/ already uses) - Python folds
-        # adjacent literals into one ast.Constant, so walk those instead of
-        # the source text, and isolate the SET clause before looking for
-        # `state =` in it, or a WHERE clause naming `state` (mark_delivered's
-        # and _pre_schema_migrate's) reads as a writer too.
-        import ast
-        import re
-        db_funcs = [n for f in sorted((ROOT / "ocp" / "db").glob("*.py"))
-                    for n in ast.parse(f.read_text()).body]
-        set_clause_re = re.compile(r"UPDATE\s+requests\s+SET\s+(.*?)(?:\bWHERE\b|$)",
-                                   re.S | re.I)
-        state_col_re = re.compile(r"(^|[\s,])state\s*=")
-        guarded_writers, unguarded_writers = set(), set()
-        for n in db_funcs:
-            if not isinstance(n, ast.FunctionDef):
-                continue
-            writes_state = False
-            for c in ast.walk(n):
-                if not (isinstance(c, ast.Constant) and isinstance(c.value, str)):
-                    continue
-                m = set_clause_re.search(c.value)
-                if m and state_col_re.search(m.group(1)):
-                    writes_state = True
-                    break
-            if not writes_state:
-                continue
-            calls_guard = any(
-                isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
-                and c.func.id == "_would_strand_a_proposal"
-                for c in ast.walk(n))
-            (guarded_writers if calls_guard else unguarded_writers).add(n.name)
-        check("chokepoint: every db function writing requests.state "
-              "calls _would_strand_a_proposal",
-              not unguarded_writers and guarded_writers ==
-              {"retire_queued", "close_if_queued", "retire_if_undelivered", "mark_landed"},
-              f"guarded={guarded_writers} unguarded={unguarded_writers}")
-    finally:
-        con.close()
 
 
 def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(home: Path) -> None:
@@ -4055,26 +3699,18 @@ def main() -> int:
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
-        run(lambda: test_a_proposal_reaches_the_founder_as_a_decision_task(Path(td) / 'propdecide'))
-        run(lambda: test_closing_a_proposals_card_any_way_settles_the_founders_task(Path(td) / 'propsettle'))
-        run(lambda: test_an_approve_on_a_team_proposal_is_recorded_and_applied(Path(td) / 'teamanswer'))
+        run(lambda: test_a_proposal_is_its_own_record_the_founder_decides(Path(td) / 'propdecide'))
+        run(lambda: test_a_plain_decision_task_is_settled_however_its_card_closes(Path(td) / 'propsettle'))
+        run(lambda: test_an_approve_is_recorded_where_no_agent_writes_and_applied_once(Path(td) / 'teamanswer'))
         run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(Path(td) / 'agentsettings'))
-        run(lambda: test_an_answer_binds_the_decisionion_the_founder_read(Path(td) / 'hrbind'))
+        run(lambda: test_hr_cli_lists_cards_and_only_the_founder_decides(Path(td) / 'hrcli'))
+        run(lambda: test_proposals_raised_as_tasks_leave_the_task_board(Path(td) / 'hrmigrate'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
-        run(lambda: test_a_dismissed_decisionion_is_refused_by_its_state_not_as_a_quote(
-            Path(td) / 'dismissedhr'))
-        run(lambda: test_the_founders_approve_applies_the_proposal_and_tells_the_proposer(
-            Path(td) / 'hrapplyonapprove'))
-        run(lambda: test_a_proposal_is_answered_on_its_decision_task_and_applies_once_never_on_a_discard(Path(td) / 'hrkey'))
-        run(lambda: test_every_door_onto_an_open_proposal_also_needs_a_decision(
-            Path(td) / 'hrresolveguard'))
-        run(lambda: test_the_chokepoint_alone_refuses_every_door_onto_an_open_proposal(
-            Path(td) / 'hrchokepoint'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))

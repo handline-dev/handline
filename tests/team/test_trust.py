@@ -206,7 +206,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
           ok and trustmod.is_declared(home / "third")
           and decisions.get("trust", third["id"])["call"] == "approved", msg)
     con = db.connect()
-    third_task = hr.task_of_card(con, third["request"])
+    third_task = decisions.task_of_card(con, third["request"])
     check("answers: the record names the decision task", decisions.get("trust", third["id"])["task"]
           == third_task)
     check("answers: and the root the founder was shown",
@@ -225,7 +225,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     con = db.connect()
     try:
         subject, why = trustmod.answered(fourth, db.get_request(con, fourth["request"]))
-        decisions.record("trust", fourth["id"], hr.task_of_card(con, fourth["request"]), "approved", subject)
+        decisions.record("trust", fourth["id"], decisions.task_of_card(con, fourth["request"]), "approved", subject)
         answer_card(con, fourth["request"], "approve")
         body = db.get_request(con, fourth["request"])["body"].replace(
             str(home / "fourth"), str(home / "repos"))

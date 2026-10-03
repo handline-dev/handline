@@ -242,6 +242,9 @@ def stop_wait_reason(con, agent: str) -> str | None:
         return None
     if db.open_decision_tasks_of(con, agent):
         return None
+    from ..team import hr
+    if any(p.get("requested_by") == agent and p.get("state") == "proposed" for p in hr.listing()):
+        return None     # its roster proposal is waiting on the founder
     return f"T{tid} is current with no recorded wait"
 
 
@@ -345,13 +348,8 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
         # What `mark_task_done` would refuse, said before the card is settled.
         ids = ", ".join(f"T{k['id']}" for k in kids)
         return False, f"task T{tid} still has open child tasks ({ids}) - finish them first"
-    from .requests import check_open_proposal
     card = db.decision_card_of(con, tid)
     cards = [card] if card is not None and card["state"] == "queued" and card["target"] == HUMAN else []
-    for r in cards:
-        refusal = check_open_proposal(r["id"], r, text)     # an unclear answer decides nothing
-        if refusal:
-            return False, refusal
     for r in cards:
         ok, msg = askmod.resolve(r["id"], text)
         if not ok:

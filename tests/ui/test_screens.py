@@ -913,13 +913,9 @@ edges:
         tui.EXPANDED.clear()
 
 
-def test_a_proposal_dismissed_in_the_bridge_is_never_stranded(home: Path) -> None:
-    """Founder #689: "read" on a proposal decision closed it with a verdict
-    that is neither approve nor reject, and the proposal stayed `proposed`
-    with a red row nothing could clear. The bridge's own dismiss now refuses a
-    proposal that is still open, and the proposer can withdraw it, which takes
-    it off the founder's list. The stranded state itself (a request closed by
-    an older build) is built by hand and cleared the same way."""
+def test_a_proposal_is_withdrawn_by_its_author_and_not_after_the_founder_decided(home: Path) -> None:
+    """The proposer can withdraw its proposal, which takes it off the founder's list; one the
+    founder already decided cannot be withdrawn."""
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -935,16 +931,7 @@ edges:
             return [w for w in actions.founder_waits(con) if w["kind"] == "proposal"]
         ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="more hands")
         pid = said.split()[1]
-        rid = db.get_request(con, int(said.split("#")[1].split(".")[0]))["id"]
-        ok, msg = actions.dismiss(con, rid, me=actions.HUMAN)
-        check("dismiss: an open proposal cannot be read away",
-              not ok and "approve" in msg and db.get_request(con, rid)["state"] == "queued", msg)
-        check("dismiss: and stays on the founder's list", len(rows()) == 1, str(rows()))
-
-        # What an older build left behind: closed as "read - no reply".
-        askmod.resolve(rid, "read - no reply", state="done", notify=False)
-        check("stranded: the row is red with no way forward",
-              len(rows()) == 1 and rows()[0]["red"], str(rows()))
+        check("proposal: it is on the founder's list", len(rows()) == 1 and rows()[0]["red"], str(rows()))
         ok, said = hr.withdraw(pid, "marina")
         check("withdraw: not another agent's to withdraw", not ok, said)
         ok, said = hr.withdraw(pid, "hr")
@@ -957,30 +944,13 @@ edges:
         ok, said = hr.withdraw(pid, "hr")
         check("withdraw: and cannot be withdrawn twice", not ok, said)
 
-        # Withdrawn while still unanswered: the decision closes with it.
-        ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="again")
-        pid2 = said.split()[1]
-        rid2 = int(said.split("#")[1].split(".")[0])
-        ok, said = hr.withdraw(pid2, "hr")
-        check("withdraw: an unanswered one leaves the list and closes its decision",
-              ok and rows() == [] and db.get_request(con, rid2)["state"] != "queued",
-              str(rows()))
-
-        # Answered first, withdrawn after: the founder's answer stands and the
-        # withdraw refuses, leaving apply to read it (task #32).
+        # Decided first, withdrawn after: the founder's decision stands and the withdraw refuses.
         ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="third")
         pid3 = said.split()[1]
-        rid3 = int(said.split("#")[1].split(".")[0])
-        check("answer: an open proposal refuses a non-decision",
-              "approve" in actions.answer(con, rid3, "later")
-              and db.get_request(con, rid3)["state"] == "queued")
-        support.answer_card(con, rid3, "approve")  # answered, apply not yet run
+        ok, said = hr.decide(pid3, "approved", actions.HUMAN)
         ok, said = hr.withdraw(pid3, actions.HUMAN)
-        check("withdraw: an approved proposal is not withdrawn - the founder answered first",
-              not ok and "already answered" in said and "apply" in said, said)
-        check("withdraw: and it stays proposed, for apply to enact",
-              hr.load_proposal(pid3)["state"] == "proposed"
-              and db.shown_verdict(db.get_request(con, rid3)) == "approve")
+        check("withdraw: an approved proposal is not withdrawn - the founder decided first",
+              not ok and "already applied" in said and hr.load_proposal(pid3)["state"] == "applied", said)
     finally:
         con.close()
 
@@ -2514,6 +2484,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
             "hr withdraw": [(["hr", "withdraw", "withdrawtest"], {"OCP_AGENT": "reviewer"},
                              "hr withdraw")],
+            "hr approve": [(["hr", "approve", "poisontest"], {"OCP_AGENT": "human"}, "hr approve")],
+            "hr reject": [(["hr", "reject", "poisontest"], {"OCP_AGENT": "human"}, "hr reject")],
             "guide": [["guide"]], "task list": [["task", "list"]], "task show": [["task", "show", "T1"]],
             "top": [["top", "--once"]], "watch": [["watch", "--once"]], "bridge": [["bridge", "--once"]],
             "progress": [(["progress"], {"OCP_AGENT": "reviewer"}, "progress")],
@@ -3436,7 +3408,7 @@ def main() -> int:
         run(lambda: test_top_acts_through_the_same_calls_the_daemon_makes(Path(td) / 'topact'))
         run(lambda: test_a_report_shows_its_name_without_its_parents_and_keeps_the_whole_key(
             Path(td) / 'dotted'))
-        run(lambda: test_a_proposal_dismissed_in_the_bridge_is_never_stranded(
+        run(lambda: test_a_proposal_is_withdrawn_by_its_author_and_not_after_the_founder_decided(
             Path(td) / 'hrdismiss'))
         run(lambda: test_the_screen_says_which_account_to_spend_next(Path(td) / 'nextacct'))
         run(lambda: test_the_next_mark_does_not_flicker_between_close_accounts(

@@ -736,8 +736,8 @@ def test_korean_digests_read_and_are_migrated_to_english_headings(home: Path) ->
     finally:
         os.chmod(j.parent, 0o755)
     check("hr: the Korean approve and reject still decide, the English ones too",
-          hr.decision("\uc2b9\uc778") == "approved" and hr.decision("\ubc18\ub824 \u2014 no") == "rejected"
-          and hr.decision("approve") == "approved" and hr.decision("later") == "unclear")
+          decisions.call_of("\uc2b9\uc778") == "approved" and decisions.call_of("\ubc18\ub824 \u2014 no") == "rejected"
+          and decisions.call_of("approve") == "approved" and decisions.call_of("later") == "unclear")
 
 
 def main() -> int:

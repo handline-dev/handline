@@ -1,6 +1,5 @@
 """Roster proposals (`ocp hr`) waiting on the founder, and the view that lets them
-be approved or rejected: the same answer the MESSAGES panel gives, in the
-verdict words `hr.decision` reads."""
+be approved or rejected: the same `hr.decide` the chat card and `ocp hr approve` call."""
 from __future__ import annotations
 
 
@@ -10,7 +9,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Static
 
-from ... import actions, db
+from ... import actions
 from ...infra import paths
 from ...team import agents, hr
 from ...infra import textsafe, timefmt
@@ -25,39 +24,24 @@ from .section_head import SectionHead
 _FIELDS = ("vendor", "model", "effort", "team", "repo", "to")
 
 
-DECIDE, STRANDED = "decide", "no decision"
+DECIDE, APPROVED = "decide", "approved, not applied"
 
 
-def open_proposals(con) -> list[dict]:
-    """The proposals that are the founder's move, oldest first (a tie by request id): each proposal's own
-    fields plus `rid` and `asked` (the request's id and time) and `status`.
-    DECIDE is one whose decision is still queued; STRANDED is one closed with a
-    reply that is neither approve nor reject (`reply` holds it), which only a
-    withdraw can end. One approved or rejected is out: an approve is applied at once, a reject recorded."""
-    out = []
-    for prop in hr.listing():
-        if prop.get("state") != "proposed":
-            continue
-        state, tid, verdict = hr.answer_of(con, prop)
-        req = hr.card_of(con, tid) if tid else None
-        if req is None:
-            continue
-        if state == "open":
-            status, reply = DECIDE, ""
-        elif state == "answered" and hr.decision(verdict) == "unclear":
-            status, reply = STRANDED, verdict or ""
-        else:
-            continue
-        out.append({**prop, "rid": int(req["id"]), "asked": int(req["ts"]),
-                    "status": status, "reply": reply})
-    return sorted(out, key=lambda p: (p["asked"], p["rid"]))
+def open_proposals(con=None) -> list[dict]:
+    """The proposals that are the founder's move, oldest first: each proposal's own fields plus
+    `asked` (when it was raised) and `status` - DECIDE while it waits on the founder, APPROVED
+    when it was approved but the change did not go through (approving again retries it)."""
+    out = [{**prop, "asked": int(prop.get("created") or 0),
+            "status": DECIDE if prop["state"] == "proposed" else APPROVED}
+           for prop in hr.listing() if prop.get("state") in ("proposed", "approved")]
+    return sorted(out, key=lambda p: (p["asked"], p["id"]))
 
 
 def describe(p: dict) -> Text:
     """One proposal for the detail pane; every value came from an agent, so each is
     made one safe line and the reason a safe block."""
     out = Text(f"{p['kind']} {textsafe.oneline(str(p['agent']))}", style="bold")
-    out.append(f"   #{p['rid']} from {textsafe.oneline(str(p.get('requested_by') or '?'))}, "
+    out.append(f"   {p['id']} from {textsafe.oneline(str(p.get('requested_by') or '?'))}, "
                f"{timefmt.ago_short(p['asked'])} ago\n", style="dim")
     for key in _FIELDS:
         if p.get(key):
@@ -68,10 +52,9 @@ def describe(p: dict) -> Text:
         out.append(textsafe.oneline(value) + "\n")
     out.append("why\n", style="dim")
     out.append("\n".join(textsafe.drawable(str(p.get("why") or ""))))
-    if p["status"] == STRANDED:
-        out.append("\n\nanswered, but not approve or reject - the reply was\n", style="red")
-        out.append("\n".join(textsafe.drawable(p["reply"]))[:400])
-        out.append("\nWithdraw ends it; the proposer can raise it again.", style="dim")
+    if p.get("error"):
+        out.append("\n\napproved, but it did not go through\n", style="red")
+        out.append("\n".join(textsafe.drawable(str(p["error"])))[:400])
     return out
 
 
@@ -116,20 +99,16 @@ class ProposalsView(Vertical):
 
     def refresh_rows(self) -> None:
         table = self.query_one("#hr_table", DataTable)
-        keep = self.current["rid"] if self.current else None
-        con = db.connect()
-        try:
-            self.rows = open_proposals(con)
-        finally:
-            con.close()
-        rebuilt = sync_rows(table, [(str(p["rid"]), (
-            Text(f"#{p['rid']}", style="cyan"), Text(p["kind"]),
+        keep = self.current["id"] if self.current else None
+        self.rows = open_proposals()
+        rebuilt = sync_rows(table, [(p["id"], (
+            Text(p["id"], style="cyan"), Text(p["kind"]),
             Text(textsafe.oneline(str(p["agent"]))),
             Text(textsafe.oneline(str(p.get("requested_by") or "?")), style="dim"),
             Text(timefmt.ago_short(p["asked"]), style="dim"),
             Text(p["status"], style="yellow" if p["status"] == DECIDE else "red"))) for p in self.rows])
         if rebuilt and self.rows:
-            table.move_cursor(row=next((i for i, p in enumerate(self.rows) if p["rid"] == keep), 0),
+            table.move_cursor(row=next((i for i, p in enumerate(self.rows) if p["id"] == keep), 0),
                               scroll=False)
         self._sync_agents()
         self._show()
@@ -151,7 +130,7 @@ class ProposalsView(Vertical):
         p = self.current
         self.query_one("#hr_text", Static).update(
             describe(p) if p else Text("no proposal is waiting for your decision", style="dim"))
-        decidable = p is not None and p["status"] == DECIDE
+        decidable = p is not None
         self.query_one("#hr_approve", Button).disabled = not decidable
         self.query_one("#hr_reject", Button).disabled = not decidable
         self.query_one("#hr_withdraw", Button).disabled = p is None
@@ -165,23 +144,18 @@ class ProposalsView(Vertical):
                         timeout=10, markup=False)
         self.refresh_rows()
 
-    def _answer(self, rid: int, verdict: str) -> None:
-        con = db.connect()
-        try:
-            ok, said = actions.answer_ok(con, rid, verdict)
-        finally:
-            con.close()
-        self._say(ok, said)
+    def _decide(self, pid: str, call: str, note: str = "", subject: str | None = None) -> None:
+        self._say(*hr.decide(pid, call, actions.HUMAN, note, subject))
 
     def action_approve(self) -> None:
         p = self.current
-        if p is None or p["status"] != DECIDE:
+        if p is None:
             return
-        rid = p["rid"]
+        pid, subject = p["id"], hr.subject_of(p)
         self.app.push_screen(
             Confirm(f"Approve {p['kind']} {textsafe.oneline(str(p['agent']))}",
                     "Your decision, and it is what the proposing agent acts on.", yes="Approve"),
-            lambda yes: yes and self._answer(rid, "approve"))
+            lambda yes: yes and self._decide(pid, "approved", subject=subject))
 
     def action_withdraw(self) -> None:
         p = self.current
@@ -195,21 +169,16 @@ class ProposalsView(Vertical):
             lambda yes: yes and self._withdraw(pid))
 
     def _withdraw(self, pid: str) -> None:
-        con = db.connect()
-        try:
-            ok, said = hr.withdraw(pid, actions.HUMAN, con)
-        finally:
-            con.close()
-        self._say(ok, said)
+        self._say(*hr.withdraw(pid, actions.HUMAN))
 
     def action_reject(self) -> None:
         p = self.current
-        if p is None or p["status"] != DECIDE:
+        if p is None:
             return
-        rid = p["rid"]
+        pid = p["id"]
         self.app.push_screen(
             TextPrompt(f"reject {p['kind']} {textsafe.oneline(str(p['agent']))} - why:"),
-            lambda why: why and why.strip() and self._answer(rid, f"reject {why.strip()}"))
+            lambda why: why and why.strip() and self._decide(pid, "rejected", why))
 
     def action_edit(self) -> None:
         """The settings of the agent under the cursor: in the agents table, that one;
