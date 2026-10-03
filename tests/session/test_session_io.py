@@ -1494,7 +1494,9 @@ def test_a_launch_records_the_settings_it_read(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("launch: the settings it read are recorded beside the fingerprint",
               row["launch_fingerprint"] == launch.fingerprint("backend")
-              and json.loads(row["launch_parts"]) == launch.fingerprint_parts("backend"), str(dict(row)))
+              and {k: v for k, v in json.loads(row["launch_parts"]).items() if k != launch.LAUNCHED_AT}
+              == launch.fingerprint_parts("backend")
+              and launch.launched_at(row) is not None, str(dict(row)))
         from ocp.daemon import applysettings
         (home / "agents" / "backend" / "base.md").write_text("a changed standing rule")
         check("launch: and a later change to one of them is named from them",

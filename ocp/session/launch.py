@@ -632,11 +632,39 @@ def fingerprint(agent: str) -> str:
 SANDBOX_OFF_PART = hashlib.sha256(b"off").hexdigest()[:8]
 
 
+# Beside the setting hashes in a session's recorded parts: when it was launched, which tells one
+# session from the next even when both resume the same transcript.
+LAUNCHED_AT = "launched_at"
+
+
+def launch_record(agent: str) -> dict:
+    return {**fingerprint_parts(agent), LAUNCHED_AT: time.time()}
+
+
+def _parts(row) -> dict:
+    try:
+        parts = json.loads(row["launch_parts"] or "null")
+    except ValueError:
+        return {}
+    return parts if isinstance(parts, dict) else {}
+
+
+def launched_at(row) -> str | None:
+    """The stamp of the launch this agent_state row records, as written."""
+    v = _parts(row).get(LAUNCHED_AT)
+    return None if v is None else str(v)
+
+
+def launched_sandbox_off(row) -> bool:
+    """Was the session this agent_state row records launched with the sandbox off?"""
+    return _parts(row).get("sandbox") == SANDBOX_OFF_PART
+
+
 def sandbox_on(agent: str, cfg: dict, con=None) -> bool:
     """Whether a launch (or the recipe of the session now running) has the sandbox on. Off needs
-    agent.yaml's `sandbox: false` and the founder's lease; a lease whose session has ended (the agent is
-    recorded closed) is over, and a session started after it is on - the daemon's sweep only tidies
-    the record, so a launch that comes first still sees it over."""
+    agent.yaml's `sandbox: false` and the founder's lease. A lease belongs to one session: once the agent
+    is recorded closed, or its recorded launch is not the one that took the lease, it is over and a
+    session started after it is on - whichever of the wake and the daemon's sweep comes first."""
     if agents.sandbox_on(agent, cfg):
         return True
     if agents.sandbox_lease(agent) == agents.SANDBOX_PENDING:
@@ -648,16 +676,8 @@ def sandbox_on(agent: str, cfg: dict, con=None) -> bool:
     finally:
         if own:
             con.close()
-    return bool(row and row["closed_at"])
-
-
-def launched_sandbox_off(row) -> bool:
-    """Was the session this agent_state row records launched with the sandbox off?"""
-    try:
-        parts = json.loads(row["launch_parts"] or "null")
-    except ValueError:
-        return False
-    return isinstance(parts, dict) and parts.get("sandbox") == SANDBOX_OFF_PART
+    taken = agents.sandbox_lease_launch(agent)
+    return not row or bool(row["closed_at"]) or taken is None or launched_at(row) != taken
 
 
 def fingerprint_parts(agent: str) -> dict[str, str]:
@@ -805,7 +825,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 # joins the team's Run here, so Orca draws it under whoever it
                 # reports to instead of as one more tab.
                 spawn.register_worker(con, agent, handle)
-                db.set_launch_fingerprint(con, agent, fp, json.dumps(fingerprint_parts(agent)))
+                db.set_launch_fingerprint(con, agent, fp, json.dumps(launch_record(agent)))
             if acct:
                 db.set_account(con, agent, acct)
         finally:

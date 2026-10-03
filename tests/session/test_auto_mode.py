@@ -179,7 +179,8 @@ def test_the_sandbox_leave_lasts_one_session_and_can_be_ended_at_once(home: Path
     def record_launch() -> None:
         """What `ocp launch` records for the session it starts."""
         db.set_launch_fingerprint(con, "backend", launchmod.fingerprint("backend"),
-                                  json.dumps(launchmod.fingerprint_parts("backend")))
+                                  json.dumps(launchmod.launch_record("backend")))
+        time.sleep(0.01)                     # the next launch has its own stamp
         if db.get_agent_state(con, "backend")["closed_at"]:
             db.clear_closed(con, "backend")
 
@@ -204,6 +205,29 @@ def test_the_sandbox_leave_lasts_one_session_and_can_be_ended_at_once(home: Path
         sandboxlease.sweep(con, said.append)
         check("lease: and the sweep ends it: no key, no lease",
               agents.sandbox_lease("backend") is None and "sandbox" not in agents.read("backend"))
+        # The order that let a lease outlive its session: active, closed, woken, and only then the sweep.
+        agents.register("backend", sandbox=True)
+        agents.register("backend", sandbox=False)
+        db.clear_closed(con, "backend")
+        record_launch()
+        sandboxlease.sweep(con, said.append)
+        check("lease: a second lease is active on its own launch", agents.sandbox_lease("backend") == "active")
+        db.set_closed(con, "backend", "sess-2")
+        argv = launchmod.build("backend")[0]        # the wake: launched while the close is recorded
+        check("lease: the wake is sandboxed", all("enabled" not in x.get("sandbox", {}) for x in _settings(argv)))
+        record_launch()                              # ...its launch is recorded, and the close cleared
+        before = launchmod.fingerprint_parts("backend")["sandbox"]
+        sandboxlease.sweep(con, said.append)
+        check("lease: the sweep that comes after the wake still ends it",
+              agents.sandbox_lease("backend") is None and "sandbox" not in agents.read("backend"), str(said[-2:]))
+        check("lease: and the new session's recipe is the sandboxed one, so nothing restarts it",
+              launchmod.fingerprint_parts("backend")["sandbox"] == before != launchmod.SANDBOX_OFF_PART
+              and json.loads(db.get_agent_state(con, "backend")["launch_parts"])["sandbox"] == before)
+        agents.register("backend", sandbox=False)
+        sandboxlease.sweep(con, said.append)
+        check("lease: and the next launch asked for off starts from a fresh grant",
+              agents.sandbox_lease("backend") == "granted")
+        agents.register("backend", sandbox=True)
         # Given while the agent is closed, it waits for the session that comes next.
         agents.register("backend", sandbox=False)
         sandboxlease.sweep(con, said.append)

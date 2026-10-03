@@ -215,10 +215,17 @@ SANDBOX_PENDING, SANDBOX_ACTIVE = "granted", "active"
 def sandbox_lease(agent: str) -> str | None:
     """The founder's leave to run this agent unsandboxed, from the protected store (an agent can write
     its own agent.yaml, so the file alone never turns it off): `granted` until a session launched with
-    it is up, `active` while that session lasts. The daemon ends it with the session
-    (`daemon/sandboxlease.py`); it is never kept for the next one."""
+    it is up, then `active` for that one session, written `active:<its launch stamp>`. The daemon ends it
+    with the session (`daemon/sandboxlease.py`); it is never kept for the next one."""
     v = protected.get(_SANDBOX_NS, agent)
-    return v if v in (SANDBOX_PENDING, SANDBOX_ACTIVE) else None
+    state = (v or "").partition(":")[0]
+    return state if state in (SANDBOX_PENDING, SANDBOX_ACTIVE) else None
+
+
+def sandbox_lease_launch(agent: str) -> str | None:
+    """The launch stamp of the session an active lease belongs to."""
+    v = protected.get(_SANDBOX_NS, agent) or ""
+    return v.partition(":")[2] or None
 
 
 def sandbox_on(agent: str, cfg: dict) -> bool:
