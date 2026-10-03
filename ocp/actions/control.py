@@ -40,10 +40,11 @@ def close_result(con, agent: str, fresh: bool = False) -> tuple[bool, str]:
     return ok, why if ok else f"{agent}: not closed - {why}"
 
 
-def restart_result(con, agent: str, fresh: bool = False, force: bool = False) -> tuple[bool, str]:
+def restart_result(con, agent: str, fresh: bool = False, force: bool = False,
+                   by: str = db.HUMAN) -> tuple[bool, str]:
     """`dmn_lifecycle.restart_agent`, for the daemon's `restart` verb."""
     st = status.read_for_agent(agent, agents.current_account(agent, con))
-    ok, why = dmn_lifecycle.restart_agent(con, agent, lambda _m: None, st, fresh=fresh, force=force)
+    ok, why = dmn_lifecycle.restart_agent(con, agent, lambda _m: None, st, fresh=fresh, force=force, by=by or db.HUMAN)
     return ok, why if ok else f"{agent}: not restarted - {why}"
 
 

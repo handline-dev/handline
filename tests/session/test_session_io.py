@@ -1244,17 +1244,21 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         check("restart: an idle agent is ended and launched again, in the terminal it had",
               ok and [t for _h, t in sent][:1] == ["/exit"] and len(launched) == 1
               and all(h == "term_x" for h, _t in sent), f"{ok} {said} {sent}")
-        check("restart: resuming the same conversation, with nothing typed at it",
-              "--resume sess-1" in launched[0] and launched_prompt(launched[0]) == "", launched[0])
+        check("restart: resuming the same conversation, and the one thing it is told is that it was restarted, "
+              "by whom, and to retry what was going wrong",
+              "--resume sess-1" in launched[0]
+              and launched_prompt(launched[0]) == "Restarted by human (resumed). "
+                                                  "If something was going wrong before this, retry it.", launched[0])
         check("restart: and it is not left closed", row["closed_at"] is None and row["terminal"] == "term_x",
               str(dict(row)))
         check("restart: its start is recorded as a restart that resumed", "--why restart" in launched[0], launched[0])
 
         support.something_waiting(con, "backend")
         ok, said, launched, row = restart()
-        check("restart: work queued for it is the resume's first prompt",
-              ok and "--resume sess-1" in launched[0] and "something for you" in launched_prompt(launched[0]),
-              f"{said} {launched}")
+        told = launched_prompt(launched[0])
+        check("restart: work queued for it follows that line in the resume's first prompt",
+              ok and "--resume sess-1" in launched[0] and told.startswith("Restarted by human (resumed).")
+              and told.index("something for you") > told.index("Restarted"), f"{said} {launched}")
         con.execute("UPDATE requests SET state = 'landed'")
 
         con.execute("UPDATE events SET ts = ts - 7200 WHERE agent = 'backend'")
@@ -1264,7 +1268,16 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         check("restart: a cold cache still resumes - the conversation was asked for",
               ok and launched and "--resume sess-1" in launched[0], f"{said} {launched}")
 
+        ok, said, launched, row = restart(by="orcapipe")
+        check("restart: an agent that asks is named, in the line and in the launch for the record",
+              ok and launched_prompt(launched[0]).startswith("Restarted by orcapipe (resumed).")
+              and "--by orcapipe" in launched[0], f"{said} {launched}")
+        db.set_handoff(con, "backend", "RECORD LEFT BY THE CLOSE")
         ok, said, launched, row = restart(fresh=True)
+        told = launched_prompt(launched[0])
+        check("restart: a fresh restart opens with the notice, then the handoff pointer",
+              ok and told.startswith("Restarted by human (fresh). If something was going wrong before this, retry it.")
+              and "handoff" in told, told)
         check("restart: --fresh starts a new conversation, and no session is left to resume",
               ok and len(launched) == 1 and "--resume" not in launched[0] and row["resume_session"] is None
               and "--why restart" in launched[0] and row["closed_at"] is None, f"{said} {launched} {dict(row)}")
@@ -1304,6 +1317,41 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         db.clear_cursor(con, "typed_at:backend")
         table["backend"] = 4200
         sent.clear()
+        ok, said = socket_server.VERBS["restart"](con, lambda _m: None, agent="backend", fresh=False, force=False,
+                                                  by="orcapipe")
+        told = launched_prompt(next(t for _h, t in sent if " launch " in t))
+        check("restart: the daemon's verb names the agent that asked, in the line and in the launch",
+              ok and told.startswith("Restarted by orcapipe (resumed).")
+              and any("--by orcapipe" in t for _h, t in sent), f"{said} {told}")
+
+        import argparse
+        import contextlib
+        import io
+        from ocp.cli import task as cli_task
+        payloads: list = []
+        real_send_cli, real_agent_env = cli_task.dmn_client.send, os.environ.get("OCP_AGENT")
+        cli_task.dmn_client.send = lambda payload, timeout=0: (payloads.append(payload), {"ok": True, "said": "ok"})[1]
+        try:
+            for who, want in (("orcapipe", "orcapipe"), (None, "human")):
+                payloads.clear()
+                if who:
+                    os.environ["OCP_AGENT"] = who
+                else:
+                    os.environ.pop("OCP_AGENT", None)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    cli_task.cmd_restart(argparse.Namespace(target="backend", fresh=False, force=False))
+                check(f"restart: ocp restart as {who or 'a person'} asks the daemon in the name of {want}",
+                      payloads and payloads[0]["by"] == want and payloads[0]["verb"] == "restart", str(payloads))
+        finally:
+            cli_task.dmn_client.send = real_send_cli
+            if real_agent_env is None:
+                os.environ.pop("OCP_AGENT", None)
+            else:
+                os.environ["OCP_AGENT"] = real_agent_env
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        table["backend"] = 4200
+        sent.clear()
         dmn_lifecycle.close_fresh(con, "backend", lambda _m: None, status.read_for_agent("backend", "alpha"),
                                   keep_pane=True)
         support.something_waiting(con, "backend")
@@ -1316,6 +1364,23 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
          orcamod.close_terminal, handoffmod.capture) = real
+        con.close()
+
+
+def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    con = db.connect()
+    db.note_session_start(con, "backend", "wake", True, "s-1", "", "p")
+    con.execute("ALTER TABLE session_starts DROP COLUMN actor")
+    con.close()
+    con = db.connect()
+    try:
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(session_starts)")}
+        row = db.session_starts(con, "backend")[0]
+        check("session starts: an existing table gains the actor column, its old rows reading ''",
+              "actor" in cols and row["actor"] == "" and row["cause"] == "wake", str(cols))
+    finally:
         con.close()
 
 
@@ -4281,6 +4346,7 @@ def main() -> int:
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
+        run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
         run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))

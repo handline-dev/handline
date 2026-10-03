@@ -33,13 +33,13 @@ BIND_WINDOW_S = 600
 
 
 def note_session_start(con, agent: str, cause: str, resumed: bool, session_id: str | None,
-                       text: str = "", prompt: str = "") -> int:
+                       text: str = "", prompt: str = "", actor: str = "") -> int:
     """Keep that a session was started, why, and what it was given. Never cleared; only the oldest
     beyond SESSION_STARTS_KEPT go. A fresh launch has no session id yet (`bind_session_start`)."""
-    cur = con.execute("INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt) "
-                      "VALUES(?,?,?,?,?,?,?)",
+    cur = con.execute("INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt, actor) "
+                      "VALUES(?,?,?,?,?,?,?,?)",
                       (agent, int(time.time()), session_id, cause, int(resumed),
-                       text[:SESSION_TEXT_MAX_CHARS], prompt[:SESSION_TEXT_MAX_CHARS]))
+                       text[:SESSION_TEXT_MAX_CHARS], prompt[:SESSION_TEXT_MAX_CHARS], actor[:80]))
     con.execute("DELETE FROM session_starts WHERE agent = ? AND id NOT IN "
                 "(SELECT id FROM session_starts WHERE agent = ? ORDER BY id DESC LIMIT ?)",
                 (agent, agent, SESSION_STARTS_KEPT))
@@ -57,10 +57,10 @@ def bind_session_start(con, agent: str, session_id: str) -> None:
 
 def session_starts(con, agent: str, limit: int | None = None):
     """Every session start of `agent`, oldest first: rows of (ts, session_id, cause, resumed, text,
-    prompt). `resumed` is 1 for the old conversation, 0 for a new one; `text` is the handoff record the
+    prompt, actor) - `actor` is who asked for a restart, '' for any other start. `resumed` is 1 for the old conversation, 0 for a new one; `text` is the handoff record the
     session was given, '' where there was none; `session_id` is None for a launch whose session has not
     announced itself. With `limit`, the newest that many (still oldest first)."""
-    rows = con.execute("SELECT ts, session_id, cause, resumed, text, prompt FROM session_starts WHERE agent = ? "
+    rows = con.execute("SELECT ts, session_id, cause, resumed, text, prompt, actor FROM session_starts WHERE agent = ? "
                        "ORDER BY id DESC" + (" LIMIT ?" if limit else ""),
                        (agent, limit) if limit else (agent,)).fetchall()
     return rows[::-1]

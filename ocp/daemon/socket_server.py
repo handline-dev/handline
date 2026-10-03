@@ -49,7 +49,8 @@ def _close(con, log, **kw) -> tuple[bool, str]:
 
 
 def _restart(con, log, **kw) -> tuple[bool, str]:
-    return control.restart_result(con, kw["agent"], bool(kw.get("fresh")), bool(kw.get("force")))
+    return control.restart_result(con, kw["agent"], bool(kw.get("fresh")), bool(kw.get("force")),
+                                  str(kw.get("by") or db.HUMAN))
 
 
 def _park(con, log, **kw) -> tuple[bool, str]:

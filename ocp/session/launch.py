@@ -640,7 +640,8 @@ def take_prompt(path: str | None) -> str | None:
     return text or None
 
 
-def _keep_what_it_starts_with(agent: str, extra: list[str], prompt: str | None, why: str | None) -> None:
+def _keep_what_it_starts_with(agent: str, extra: list[str], prompt: str | None, why: str | None,
+                              by: str | None = None) -> None:
     """Every session this launch starts is kept (`db.session_starts`): why, whether it resumes the old
     conversation (then its id is the one after --resume), and what it is given: the handoff record
     waiting for it, which `context_for` puts in the system prompt of a resume as of a fresh start."""
@@ -650,7 +651,7 @@ def _keep_what_it_starts_with(agent: str, extra: list[str], prompt: str | None, 
     try:
         con = db.connect()
         try:
-            db.note_session_start(con, agent, why or "launch", resumed, sid, text, prompt or "")
+            db.note_session_start(con, agent, why or "launch", resumed, sid, text, prompt or "", by or "")
         finally:
             con.close()
     except Exception as e:  # noqa: BLE001 - never block a launch on bookkeeping
@@ -659,10 +660,10 @@ def _keep_what_it_starts_with(agent: str, extra: list[str], prompt: str | None, 
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
                prompt_file: str | None = None, account: str | None = None,
-               why: str | None = None) -> None:
+               why: str | None = None, by: str | None = None) -> None:
     argv, env = build(agent, list(extra or []), force, account)
     prompt = take_prompt(prompt_file)
-    _keep_what_it_starts_with(agent, list(extra or []), prompt, why)
+    _keep_what_it_starts_with(agent, list(extra or []), prompt, why, by)
     if prompt:
         argv += vendors.for_agent(agent).prompt_argv(prompt)
     if not prompt_file:
@@ -738,9 +739,11 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
               file=sys.stderr)
 
 
-def command_for(agent: str, account: str | None = None, why: str | None = None) -> str:
+def command_for(agent: str, account: str | None = None, why: str | None = None,
+                by: str | None = None) -> str:
     """The --command string to hand to Orca; `account` fixes where a move lands, `why` is what the
     session's start is recorded as (`db.session_starts`)."""
     exe = names.getenv("OCP_BIN") or shutil.which("handline") or shutil.which("ocp") or "ocp"
     return (f"{exe} launch {agent}" + (f" --account {shlex.quote(account)}" if account else "")
-            + (f" --why {shlex.quote(why)}" if why else ""))
+            + (f" --why {shlex.quote(why)}" if why else "")
+            + (f" --by {shlex.quote(by)}" if by else ""))

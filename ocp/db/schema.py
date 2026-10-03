@@ -431,7 +431,8 @@ CREATE TABLE IF NOT EXISTS session_starts (
   cause      TEXT    NOT NULL,
   resumed    INTEGER NOT NULL,
   text       TEXT    NOT NULL,
-  prompt     TEXT    NOT NULL
+  prompt     TEXT    NOT NULL,
+  actor      TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS session_starts_agent ON session_starts(agent, id);
 """
@@ -1273,6 +1274,9 @@ def _english_digests(con) -> None:
 
 
 def _add_missing_columns(con, legacy: bool = True) -> None:
+    # session_starts gained who asked for a start.
+    if "actor" not in _cols(con, "session_starts"):
+        con.execute("ALTER TABLE session_starts ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
     # usage_samples gained the windows list; the rows before it keep the columns
     # they were written with, and `usage.windows` reads either.
     if "windows" not in _cols(con, "usage_samples"):
