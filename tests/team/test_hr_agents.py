@@ -2989,10 +2989,36 @@ edges:
           and "pup" not in paths.list_agents(), out)
     hr.save(prop)
     subject = next(c["subject"] for c in cards if c["id"] == pid)
-    rc, out = _cli(["hr", "approve", pid, "--subject", subject], as_agent=askmod.HUMAN)
-    check("hr approve: the founder's approve of what was read applies it",
-          rc == 0 and "pup" in paths.list_agents(), out)
-    ok, said = approve_hr(pid2)
+    class Tty:
+        def __init__(self, answer: str) -> None:
+            self.answer = answer
+
+        def isatty(self) -> bool:
+            return True
+
+        def readline(self) -> str:
+            return self.answer + "\n"
+    real_in = sys.stdin
+    try:
+        raw = hr.path_of(pid).read_text()
+        hr.path_of(pid).write_text(raw.replace("a pup", "'fine\x1b[8mHIDDEN\x1b[0m and \x9b2K'", 1))   # an agent's hand
+        sys.stdin = Tty("n")
+        rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
+        check("hr approve: a terminal's n leaves it alone, and what is drawn has no escape bytes",
+              rc == 1 and "left alone" in out and "pup" not in paths.list_agents()
+              and "\x1b" not in out and "\x9b" not in out and "fine" in out, repr(out))
+        hr.save(prop)
+        sys.stdin = Tty("y")
+        rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
+        check("hr approve: a terminal's y approves what was shown and applies it",
+              rc == 0 and "pup" in paths.list_agents(), out)
+    finally:
+        sys.stdin = real_in
+    subject2 = next(c["subject"] for c in cards if c["id"] == pid2)
+    rc, out = _cli(["hr", "approve", pid2, "--subject", subject2], as_agent=askmod.HUMAN)
+    check("hr approve: with the digest of what was read it applies without a terminal",
+          rc == 0 and "kit" in paths.list_agents(), out)
+    ok = rc == 0
     check("hr: list --json --all adds the settled ones, with how and when they ended",
           ok and any(c["id"] == pid and c["state"] == "applied" and c["at"] for c in
                      json.loads(_cli(["hr", "list", "--json", "--all"], as_agent=askmod.HUMAN)[1]))

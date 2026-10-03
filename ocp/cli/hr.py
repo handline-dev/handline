@@ -9,7 +9,7 @@ from .. import db
 from ..team import hr
 from ..team import rehome
 from ..team import trust
-from ..infra import protected
+from ..infra import protected, textsafe
 
 from .ask import _who_refusal
 from .health import _name_col
@@ -37,9 +37,10 @@ def cmd_hr(args) -> int:
             print("no proposals")
             return 0
         for p_ in rows:
-            print(f"{p_['id']}  {p_['kind']:<7}{p_['agent']:<{_name_col([r['agent'] for r in rows])}}"
+            print(f"{p_['id']}  {p_['kind']:<7}"
+                  f"{textsafe.oneline(str(p_['agent'])):<{_name_col([r['agent'] for r in rows])}}"
                   f"{p_.get('state', '?'):<10}"
-                  f"by {p_.get('requested_by', '?')}")
+                  f"by {textsafe.oneline(str(p_.get('requested_by', '?')))}")
         return 0
     if args.hr_cmd == "relabel":
         con = db.connect()
@@ -73,7 +74,7 @@ def cmd_hr(args) -> int:
                 print(err)
                 return 1
             shown = hr.card(prop)
-            print(shown["text"])
+            print("\n".join(textsafe.drawable(shown["text"])))   # agent-written: nothing a terminal obeys
             if not sys.stdin.isatty():
                 print("not a terminal: pass --subject " + shown["subject"], file=sys.stderr)
                 return 1
