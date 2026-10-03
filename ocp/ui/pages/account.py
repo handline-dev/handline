@@ -15,7 +15,7 @@ from textual.widgets import Button, DataTable, Header, Input, Static, Switch, Ta
 
 from ...team import accounts
 from ... import actions, db
-from ...usage import load as loadmod, status
+from ...usage import cycle, load as loadmod, status
 from ...infra import paths, textsafe
 from .. import tui
 from ...infra import timefmt
@@ -31,7 +31,7 @@ from ..components.table_sync import sync_rows
 
 BAR_W = 30
 _TABS = {"overview": "#detail_pane", "agents": "#a_agents", "settings": "#a_settings"}
-_INPUTS = {"name": "#a_name", "cap": "#a_cap"}
+_INPUTS = {"name": "#a_name", "cap": "#a_cap", "end": "#a_end"}
 
 
 class AccountPage(AccountActions, Screen):
@@ -44,6 +44,7 @@ class AccountPage(AccountActions, Screen):
     AccountPage .fhint { color: $text-muted; }
     AccountPage #a_name { width: 40; }
     AccountPage #a_cap { width: 8; }
+    AccountPage #a_end { width: 14; }
     """
 
     def __init__(self, name: str) -> None:
@@ -52,6 +53,7 @@ class AccountPage(AccountActions, Screen):
         self.email: str | None = None       # asked of the vendor once: it is a subprocess
         self.facts: dict | None = None
         self._recover_shown = True          # what it last drew from the config
+        self._cycle_shown = False
         self._shown: dict[str, str] = {}    # what each settings box last drew from the config
 
     def compose(self) -> ComposeResult:
@@ -79,6 +81,12 @@ class AccountPage(AccountActions, Screen):
                     yield FieldNote(id=f"n_a_{key}")
             yield SwitchRow("usage recovery", "one real turn that renews a dead credential or restarts the usage window",
                             "a_recover", True)
+            yield SwitchRow("month cycle", "a one-month subscription: not picked after its last day", "a_cycle")
+            with Horizontal(classes="frow"):
+                yield Static("last day", classes="flabel")
+                yield ImeInput(id="a_end", compact=True, max_length=10, placeholder="YYYY-MM-DD")
+                yield Static("  usable through it; blank = a month after the subscription started", classes="fhint")
+                yield FieldNote(id="n_a_end")
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")
@@ -128,13 +136,17 @@ class AccountPage(AccountActions, Screen):
         self.query_one("#a_vendor", Static).update(f["vendor"])
         self.query_one("#a_config", Static).update(textsafe.oneline(f["config"]))
         label = loadmod.label_of(self.account)
-        for key, now in (("name", "" if label == self.account else label), ("cap", "" if f["own_cap"] is None else str(f["own_cap"]))):
+        for key, now in (("name", "" if label == self.account else label), ("cap", "" if f["own_cap"] is None else str(f["own_cap"])),
+                         ("end", f["own_end"])):
             box = self.query_one(_INPUTS[key], Input)
             if box.value in (self._shown.get(key, ""), now):    # unedited: follow the config, never what is typed
                 box.value = self._shown[key] = now
         box = self.query_one("#a_recover", Switch)
         if box.value == self._recover_shown:    # unedited: follow the config
             box.value = self._recover_shown = f["recover"]
+        box = self.query_one("#a_cycle", Switch)
+        if box.value == self._cycle_shown:
+            box.value = self._cycle_shown = f["cycle"]
         self.query_one("#a_cap", Input).placeholder = str(f["default_cap"])
 
     def _draw_overview(self, f: dict, row) -> None:
@@ -213,6 +225,8 @@ class AccountPage(AccountActions, Screen):
         label = loadmod.label_of(self.account)
         if key == "name":
             return "" if label == self.account else label
+        if key == "end":
+            return cycle.own_end(self.account)
         own = loadmod.own_cap(self.account)
         return "" if own is None else str(own)
 
@@ -221,7 +235,15 @@ class AccountPage(AccountActions, Screen):
         one that is refused does not hold the rest. The note beside it says what came of it."""
         note = self.query_one(f"#n_a_{which}", FieldNote)
         recover = bool(self.query_one("#a_recover", Switch).value)
-        if which == "recover":
+        if which == "cycle":
+            ok, said = actions.set_cycle_on(self.account, bool(self.query_one("#a_cycle", Switch).value))
+        elif which == "end":
+            typed = self.query_one("#a_end", Input).value
+            if typed.strip() == self._shown_value("end"):
+                note.clear()
+                return True
+            ok, said = actions.set_cycle_end(self.account, typed)
+        elif which == "recover":
             ok, said = actions.save_account_settings(self.account, self._shown_value("name"), "", recover)
         else:
             typed = self.query_one(_INPUTS[which], Input).value
@@ -240,6 +262,8 @@ class AccountPage(AccountActions, Screen):
         self._shown.clear()     # a saved form shows the config again, even where a blank wrote nothing
         if which == "recover":
             self._recover_shown = recover
+        elif which == "cycle":
+            self._cycle_shown = bool(self.query_one("#a_cycle", Switch).value)
         self._load()
         return True
 
@@ -266,6 +290,10 @@ class AccountPage(AccountActions, Screen):
                 self._save(key)
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
+        if event.switch.id == "a_cycle" and bool(event.value) != cycle.enabled(self.account):
+            event.stop()
+            self._save("cycle")
+            return
         if event.switch.id == "a_recover" and bool(event.value) != loadmod.usage_recover_enabled(self.account):
             event.stop()
             self._save("recover")

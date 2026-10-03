@@ -106,6 +106,20 @@ def end_of(acct: str, cfg: dict | None = None) -> float | None:
     return end[1] if end else None
 
 
+def own_end(acct: str, cfg: dict | None = None) -> str:
+    """The end day typed for this account, as written, or "" when none is."""
+    v = _cfg(cfg).get(f"sub_end_{acct}")
+    return v if isinstance(v, str) else ""
+
+
+def clear_end(acct: str) -> None:
+    """Forget the typed end, so it is a month after the subscription started again."""
+    from . import load
+    cfg = load.config_for_write()
+    cfg.pop(f"sub_end_{acct}", None)
+    load.write_config(cfg)
+
+
 def end_is_default(acct: str, cfg: dict | None = None) -> bool:
     return _cfg(cfg).get(f"sub_end_{acct}") is None
 
