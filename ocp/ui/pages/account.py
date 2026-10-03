@@ -186,6 +186,10 @@ class AccountPage(AccountActions, Screen):
         month = Text("Month\n", style="bold")
         pos = f["cycle_pos"]
         month.append(f"  {'cycle':<16}", style="dim")
+        where = cycle.fraction(pos)
+        if where is not None:       # the same track and marker as the usage gauges above
+            month.append_text(Text.from_ansi(gauge.bar(0, BAR_W, False, where)))
+            month.append("  ")
         month.append(pos.line() if pos else "renewing, subscription start unknown")
         self.query_one("#a_month", Static).update(month)
 

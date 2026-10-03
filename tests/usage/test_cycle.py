@@ -640,6 +640,14 @@ def test_the_position_in_the_month_follows_the_subscription_start_and_the_settin
     check("position: months keep counting past the first (the renewals go on)",
           p.day == 4 and p.edge == cycle.add_months(first, 8), str(p))
     check("position: the line says where and when", "renews" in p.line() and "day 4 of" in p.line(), p.line())
+    mid = cycle.position("a", at(first + dt.timedelta(days=9)))
+    check("fraction: day 10 of the month is a little under a third through",
+          0.2 < cycle.fraction(mid) < 0.4, str(cycle.fraction(mid)))
+    check("fraction: day 1 is the start and the cycle's last day the end",
+          cycle.fraction(cycle.position("a", at(first))) == 0.0
+          and cycle.fraction(cycle.position("a", at(cycle.add_months(first, 1) - dt.timedelta(days=1)))) == 1.0)
+    check("fraction: a later day is further on", cycle.fraction(mid) > 0.0)
+    check("fraction: no day known, none", cycle.fraction(None) is None and cycle.fraction(cycle.Position(True, None)) is None)
     write_cfg("month_cycle_a: true\n")
     p = cycle.position("a", at(first + dt.timedelta(days=9)))
     check("position: ends this month, day 10 of the one cycle, ends where the default end says",

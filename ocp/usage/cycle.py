@@ -178,6 +178,14 @@ class Position:
         return f"{where} - {tail}" if where else tail
 
 
+def fraction(pos: "Position | None") -> float | None:
+    """How far through its cycle the account is, 0 on day 1 and 1 on the last day, for the page's
+    gauge to put its marker at; None where the day is not known."""
+    if pos is None or not pos.day or not pos.length:
+        return None
+    return min(1.0, max(0.0, (pos.day - 1) / max(pos.length - 1, 1)))
+
+
 def position(acct: str, now: float, cfg: dict | None = None) -> Position | None:
     """Where the account is in its monthly cycle on `now`, or None when that is
     unknown: a renewing account counts months from the subscription start, so one
