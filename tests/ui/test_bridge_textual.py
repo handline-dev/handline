@@ -1584,7 +1584,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
         # An approve whose change did not go through stays approved, with its error.
         decisions.record("hr", pids["stuck"], 0, "approved", hr.subject_of(hr.load_proposal(pids["stuck"])))
         hr.save({**hr.load_proposal(pids["stuck"]), "state": "approved", "error": "orca is not answering"})
-        approve_hr(pids["approved"])
+        t.approve_hr(pids["approved"])
         hr.decide(pids["rejected"], "rejected", askmod.HUMAN, "not now")
         got = {p["agent"]: p for p in pr.open_proposals(con)}
         check("proposals: one waiting on the founder is 'decide'",
