@@ -239,15 +239,59 @@ def unlinked() -> list[tuple[str, str]]:
     return out
 
 
+def _expired_file(acct: str) -> Path:
+    return paths.account_dir(acct) / "login_expired.json"
+
+
+def login_expired(acct: str) -> dict | None:
+    """Why and when this account was found with an expired login ({"why", "at"}),
+    until a login after that time. The credential is still there, so its
+    presence says nothing; its modification time does: a login writes it anew,
+    and the mark then goes. A vendor that cannot give the time keeps the mark
+    until `clear_login_expired`."""
+    try:
+        data = json.loads(_expired_file(acct).read_text())
+        at = float(data["at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    try:
+        drv = vendors.for_account(acct)
+        changed = drv.credential_modified(vendors.config_dir(acct))
+    except vendors.UnknownVendor:
+        changed = None
+    if changed is not None and changed > at:
+        clear_login_expired(acct)
+        return None
+    return data
+
+
+def mark_login_expired(acct: str, why: str) -> bool:
+    """Record that `acct`'s login expired. False when it already is marked: the
+    first sighting's reason and time stand."""
+    if login_expired(acct):
+        return False
+    f = _expired_file(acct)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"why": why, "at": time.time()}))
+    return True
+
+
+def clear_login_expired(acct: str) -> None:
+    _expired_file(acct).unlink(missing_ok=True)
+
+
 def login_state(acct: str) -> bool | None:
     """Whether this account has credentials, as its driver's
     `credential_present` answers: a file's existence for claude, a run of
     `opencode auth list` (about 0.6s) for opencode. An account whose vendor
-    has no driver cannot be driven, so it is not. None when this process
-    cannot tell (a sandboxed one cannot see the keychain)."""
+    has no driver cannot be driven, so it is not. An account found with an
+    expired login is not logged in, whatever its credential says. None when
+    this process cannot tell (a sandboxed one cannot see the keychain)."""
     try:
         drv = vendors.for_account(acct)
     except vendors.UnknownVendor:
+        return False
+    if login_expired(acct):
         return False
     return drv.credential_present(vendors.config_dir(acct))
 

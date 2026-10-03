@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import applysettings, delivery, handoff, handoff_note, landing, lands, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import applysettings, delivery, handoff, handoff_note, landing, lands, lifecycle, login_expired, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -134,6 +134,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # when there is better evidence of it. None when nothing says where it is.
     reading = _confirmed_reading(con, agent, agents.account_reading(agent, con), log)
     acct = reading.account if reading else None
+    if login_expired.check(con, agent, row, acct, log, actions):
+        return
     st = status.read_for_agent(agent, acct)
     ctx_limit = status.effective_context_limit(agents.read(agent), st.model_id)
 

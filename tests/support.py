@@ -79,7 +79,7 @@ from ocp.infra import backup as backupmod, doctor, lock, paths, service, textsaf
 from ocp.ui import jobs as jobsmod, tui  # noqa: E402
 from ocp.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
-                        locks as dmn_locks, loop as dmn_loop, messaging as dmn_messaging,
+                        locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,
                         reconciler as dmn_reconciler, socket_server as dmn_socket_server,
                         states as dmn_states, usage_poll as dmn_usage_poll)
 from ocp.vendors import opencode as ocmod  # noqa: E402
@@ -244,6 +244,7 @@ def restore_world() -> None:
     orcamod._screen = lambda handle: None
     orcamod.PRESS_SETTLE_S = 0
     blockedmod._checked.clear()
+    dmn_login_expired._checked.clear()
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
@@ -2050,6 +2051,7 @@ __all__ = [
     'dmn_handoff',
     'dmn_lifecycle',
     'dmn_locks',
+    'dmn_login_expired',
     'dmn_messaging',
     'dmn_states',
     'dmn_reconciler',

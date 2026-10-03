@@ -5,6 +5,7 @@ Run on its own: python3 tests/session/test_daemon_session.py   (all areas: pytho
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -3455,6 +3456,114 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
         con.close()
 
 
+def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agents(home: Path) -> None:
+    """Founder #11470, #11473, #11480: "Login expired · Please run /login" left the agent
+    RUNNING for good, and the bridge still showed the account as logged in, so it never
+    offered a re-login. The line marks the account (reason recorded, logged out, no launch
+    onto it), the agent leaves RUNNING for another account, and the account is enabled again
+    once its credential is written anew by a login."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    credentialed(home, "alpha", "beta")
+    write_status(home, "beta", pct_5h=10, pct_7d=5, reset_5h=int(time.time()) + 1800)
+    con = db.connect()
+    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.screen_text,
+            orcamod.relaunch, orcamod.resume_with, orcamod.send, orcamod.close_session,
+            dmn_delivery.wait_for_session, dmn_delivery.session_present, dmn_handoff._record_handoff)
+    screen = {"text": "some work\n\n\u23fa Login expired \u00b7 Please run /login\n\n> "}
+    launched: list[str] = []
+    logs: list[str] = []
+    try:
+        orca_idle()
+        orca_seen()
+        sessions_are("backend")
+        orcamod.screen_text = lambda h: screen["text"]
+        orcamod.close_session = exit_ends_session("backend")
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.send = lambda h, text, enter=True: (True, "")
+        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        orcamod.resume_with = lambda h, text: (True, "handed back")
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
+        dmn_delivery.session_present = lambda a: True
+        dmn_handoff._record_handoff = lambda con_, agent, hid, log_: True
+        db.set_account(con, "backend", "alpha")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        check("control: alpha reads logged in before the line", accounts.logged_in("alpha"))
+
+        dmn_evaluate.supervise(con, "backend", logs.append, int(time.time()), {}, [])
+        mark = accounts.login_expired("alpha")
+        check("the account is marked, with the reason", mark and "Login expired" in mark["why"], str(mark))
+        check("a credential that is still there no longer reads as a login",
+              accounts.login_state("alpha") is False and not accounts.may_start("alpha"))
+        check("the other account is untouched", accounts.logged_in("beta"))
+        row = db.get_agent_state(con, "backend")
+        check("the agent left RUNNING and is on the other account",
+              row["state"] != dmn_states.RUNNING and row["account"] == "beta", str(dict(row)))
+        check("the move is on the record as a login move",
+              any('"trigger": "login"' in e["payload"] for e in db.events_after(con, 0, agent="backend")
+                  if e["kind"] == "moved_account"), str(logs))
+        check("the event says which account and why",
+              any(e["kind"] == "login_expired" and '"account": "alpha"' in e["payload"]
+                  for e in db.events_after(con, 0, agent="backend")))
+
+        # A quote of the line is not the line.
+        accounts.clear_login_expired("alpha")
+        dmn_login_expired._checked.clear()
+        con.execute("DELETE FROM events WHERE kind IN ('SessionStart', 'moved_account')")
+        screen["text"] = 'I saw "\u23fa Login expired \u00b7 Please run /login" in a log\n> '
+        db.set_account(con, "backend", "alpha")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        dmn_evaluate.supervise(con, "backend", logs.append, int(time.time()), {}, [])
+        check("a row that only quotes the line marks nothing", accounts.login_expired("alpha") is None)
+
+        # Nowhere to go: stopped, shown as such, and released when the login is back.
+        screen["text"] = "\u23fa Login expired \u00b7 Please run /login\n> "
+        dmn_login_expired._checked.clear()
+        con.execute("DELETE FROM events WHERE kind IN ('SessionStart', 'moved_account')")
+        (home / "accounts" / "beta" / ".claude" / ".credentials.json").unlink()
+        dmn_evaluate.supervise(con, "backend", logs.append, int(time.time()), {}, [])
+        row = db.get_agent_state(con, "backend")
+        check("with no other account it is STALLED, naming the account and the login command",
+              row["state"] == dmn_states.STALLED and "login expired on alpha" in row["detail"]
+              and "ocp login alpha" in row["detail"], str(dict(row)))
+
+        sessions_are("backend")
+        dmn_reconciler.sweep(con, logs.append, [])
+        check("still logged out: the stall stays", db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
+        cred = home / "accounts" / "alpha" / ".claude" / ".credentials.json"
+        os.utime(cred, (time.time() + 60, time.time() + 60))     # a login writes it anew
+        check("a login after the mark enables the account again", accounts.logged_in("alpha")
+              and accounts.login_expired("alpha") is None)
+        dmn_reconciler.sweep(con, logs.append, [])
+        check("and the stalled agent is released",
+              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
+              str(dict(db.get_agent_state(con, "backend"))))
+    finally:
+        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.screen_text,
+         orcamod.relaunch, orcamod.resume_with, orcamod.send, orcamod.close_session,
+         dmn_delivery.wait_for_session, dmn_delivery.session_present, dmn_handoff._record_handoff) = real
+        con.close()
+
+
+def test_the_claude_driver_reads_when_a_keychain_credential_changed(home: Path) -> None:
+    """What `security find-generic-password` (no -w) prints carries "mdat", the time a login
+    last wrote the item; that, not the secret, is what ends a login-expired mark."""
+    from ocp.vendors import claude as claudemod
+    out = ('attributes:\n    "cdat"<timedate>=0x00  "20261001000000Z\\000"\n'
+           '    "mdat"<timedate>=0x00  "20261003021500Z\\000"\n')
+    real = (claudemod.subprocess.run, claudemod.sys.platform)
+    try:
+        claudemod.subprocess.run = lambda *a, **k: types.SimpleNamespace(stdout=out, returncode=0)
+        claudemod.sys.platform = "darwin"
+        got = claudemod.Claude().credential_modified(home / "none" / ".claude")
+        check("the keychain's mdat is read as UTC", got == 1790993700.0, str(got))
+        claudemod.subprocess.run = lambda *a, **k: types.SimpleNamespace(stdout="", returncode=44)
+        check("an item that cannot be seen has no time",
+              claudemod.Claude().credential_modified(home / "none" / ".claude") is None)
+    finally:
+        claudemod.subprocess.run, claudemod.sys.platform = real
+
+
 def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
     """The deadline is the only thing that makes a parked agent due again, and
     supervise cleared it before knowing whether the wake worked. A closed park
@@ -5352,6 +5461,8 @@ def main() -> int:
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
         run(lambda: test_a_resumed_agent_is_rescued_from_a_7d_wall_too(Path(td) / 'walled7drescue'))
+        run(lambda: test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agents(Path(td) / 'loginexpired'))
+        run(lambda: test_the_claude_driver_reads_when_a_keychain_credential_changed(Path(td) / 'mdat'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))
         run(lambda: test_a_parked_agent_is_unparked_by_its_own_context_limit(
             Path(td) / 'parkctxlimit'))

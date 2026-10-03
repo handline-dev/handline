@@ -263,6 +263,27 @@ class Claude:
             return None
         return r.returncode == 0
 
+    def credential_modified(self, config_dir: Path) -> float | None:
+        """The file's mtime, or the keychain item's own "mdat" attribute, which
+        `find-generic-password` prints without -w beside the other attributes."""
+        try:
+            return (config_dir / ".credentials.json").stat().st_mtime
+        except OSError:
+            pass
+        if sys.platform != "darwin":
+            return None
+        try:
+            out = subprocess.run(
+                ["security", "find-generic-password", "-s", keychain_service(config_dir)],
+                capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        m = re.search(r'"mdat"<timedate>=\S+\s+"(\d{14})Z', out)
+        if not m:
+            return None
+        stamp = datetime.datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
+        return stamp.replace(tzinfo=datetime.timezone.utc).timestamp()
+
     def login_argv(self) -> list[str]:
         return ["claude", "/login"]
 

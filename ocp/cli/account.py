@@ -181,6 +181,7 @@ def cmd_account_recover(args) -> int:
     poll into it - the one way to run this by hand before then."""
     if args.clear_relogin:
         recovermod.clear_relogin(args.name)
+        accounts.clear_login_expired(args.name)
     if args.state is not None:
         try:
             load.set_usage_recover(args.name, args.state == "on")
@@ -193,6 +194,10 @@ def cmd_account_recover(args) -> int:
         return 0 if ok else 1
     on = load.usage_recover_enabled(args.name)
     print(f"{args.name}: usage recovery is {'on' if on else 'off'}")
+    expired = accounts.login_expired(args.name)
+    if expired:
+        print(f"{args.name}: login expired - {expired['why']}; logging it in again clears this "
+              f"(`ocp account recover {args.name} --clear-relogin` if that cannot be seen)")
     if recovermod.needs_relogin(args.name):
         print(f"{args.name}: marked needs re-login - recovery refuses it until "
               f"that mark is cleared (`ocp account recover {args.name} --clear-relogin`)")

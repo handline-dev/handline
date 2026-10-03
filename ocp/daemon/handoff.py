@@ -162,7 +162,7 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     last = last_h["updated"] if last_h else None
     # A person asked for a forced move, so the too-soon guard (for triggers that
     # repeat on their own) does not apply.
-    if last and trigger.kind != "forced" \
+    if last and trigger.kind not in ("forced", LOGIN_TRIGGER) \
             and int(time.time()) - int(last) < MIN_HANDOFF_INTERVAL_S:
         log(f"  {agent}: {trigger.kind} fired again {int(time.time()) - int(last)}s after the "
             f"last handoff - too soon, skipping")
@@ -173,9 +173,11 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
     if handle and orca.available():
         # A turn that ended on the usage limit and has stayed quiet for a while
         # is over, whatever the terminal's activity probe still says; sooner
-        # than that a person may be typing, so the probe still decides.
+        # than that a person may be typing, so the probe still decides. One
+        # that ended on an expired login is over the moment its line is drawn.
         stopped = events.at_limit(con, agent)
-        settled = stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S
+        settled = trigger.kind == LOGIN_TRIGGER \
+            or (stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S)
         if not settled and not orca.typeable_now(handle):
             # The usage-limit dialog is not a turn: it does not end by waiting,
             # so it is got past here rather than deferred to, tick after tick.
@@ -203,7 +205,7 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         # The agent writes its own part of the record first, one turn while its cache is
         # warm (T571). A person's forced move is not held for it, and a session at the
         # wall cannot take a turn.
-        if trigger.kind != "forced" and not settled \
+        if trigger.kind not in ("forced", LOGIN_TRIGGER) and not settled \
                 and handoff_note.hold(con, agent, int(time.time()), log):
             log(f"  {agent}: {trigger.kind} fired - waiting for its handoff note")
             return True
@@ -231,10 +233,14 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         return ok
 
 
-# The triggers a move answers: the two walls, and a person's own order. Nothing
+# An account whose login expired: no window rolls over to wait out, and a turn
+# on it fails, so the move is not weighed against a reset and takes no note.
+LOGIN_TRIGGER = "login"
+
+# The triggers a move answers: the two walls, a person's own order, and a login that expired. Nothing
 # below a wall is a reason to move a working agent, and an account nobody can
 # read is not a wall.
-MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced")
+MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced", LOGIN_TRIGGER)
 
 # The only triggers with a real wall to sleep out: an account's own window has
 # to roll over before either can clear. Everything else a handoff fires on -
@@ -283,11 +289,12 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
     reset = here_st.long.reset if kind == "usage_7d" else here_st.short.reset
     reset_in = max(0.0, reset - now) if reset else None
     work = bool(db.queued_for(con, agent) or db.unannounced_answers(con, agent))
-    move, why = triggers.stay_or_move(
-        work, reset_in,
-        triggers.stay_within_s(measure.cold_start_pct(con), here_st.short.minutes * 60))
-    if not move:
-        return None, why
+    if kind != LOGIN_TRIGGER:
+        move, why = triggers.stay_or_move(
+            work, reset_in,
+            triggers.stay_within_s(measure.cold_start_pct(con), here_st.short.minutes * 60))
+        if not move:
+            return None, why
     exclude = {here: "the account it is at the wall on"}
     left = _last_left(con, agent)
     if left and left != here:

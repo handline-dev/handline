@@ -12,7 +12,7 @@ from ..infra import paths
 from ..usage import status
 from ..infra.yamlcompat import ConfigError
 
-from . import delivery, evaluate, handoff, lifecycle
+from . import delivery, evaluate, handoff, lifecycle, login_expired
 from .states import (DEGRADED, DEGRADED_RETRY_S, IDLE, MAX_FAILED_ATTEMPTS, PARKED, RUNNING,
                      STALLED, STUCK_RUNNING_S, THROTTLED)
 
@@ -260,6 +260,10 @@ def sweep(con, log, actions: list[str]) -> None:
         if alive and row["state"] == STALLED and lifecycle.TRUST_STALL in (row["detail"] or ""):
             _lift_trust_stall(con, agent, row, log, actions)
             row = db.get_agent_state(con, agent)   # what follows judges the row as it now is
+
+        if alive and row["state"] == STALLED:
+            login_expired.lift(con, agent, row, log, actions)
+            row = db.get_agent_state(con, agent)
 
         if alive and closed:
             # It came back without us - a human relaunched it, or a resume
