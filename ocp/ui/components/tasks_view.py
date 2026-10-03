@@ -400,11 +400,13 @@ class TasksView(Vertical):
             if (v or None) == self.owner:
                 return
             self.owner = v or None
-        else:
+        elif event.select.id == "f_sort":
             if v == self.by:
                 return
             self._sort_by(str(v))
             self._set_columns()
+        else:
+            return
         self.table.focus()
         self.refresh_rows()
 
