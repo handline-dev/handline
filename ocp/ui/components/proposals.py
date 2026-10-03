@@ -14,11 +14,11 @@ from ...infra import paths
 from ...team import agents, hr
 from ...infra import textsafe, timefmt
 from .confirm import Confirm
-from .text_prompt import TextPrompt
 from .action_bar import ActionBar
 from .table_sync import sync_rows
 from .agent_settings_screen import AgentSettingsScreen
 from .section_head import SectionHead
+from . import hr_card
 
 # Proposal fields worth showing after the kind and agent, in this order.
 _FIELDS = ("vendor", "model", "effort", "team", "repo", "to")
@@ -74,16 +74,14 @@ class ProposalsView(Vertical):
     def __init__(self, **kw) -> None:
         super().__init__(**kw)
         self.rows: list[dict] = []
+        self.cards: dict[str, dict] = {}
 
     def compose(self) -> ComposeResult:
         yield DataTable(id="hr_table", cursor_type="row", zebra_stripes=True)
-        with VerticalScroll(id="hr_detail"):
-            yield Static(id="hr_text")
+        yield VerticalScroll(id="hr_detail")
         yield SectionHead("agents", "Enter or e edits one's settings")
         yield DataTable(id="hr_agents", cursor_type="row", zebra_stripes=True)
         with ActionBar():
-            yield Button("Approve  a", id="hr_approve", variant="success", compact=True)
-            yield Button("Reject  r", id="hr_reject", variant="error", compact=True)
             yield Button("Withdraw  w", id="hr_withdraw", compact=True)
             yield Button("Edit settings  e", id="hr_edit", compact=True)
 
@@ -101,6 +99,7 @@ class ProposalsView(Vertical):
         table = self.query_one("#hr_table", DataTable)
         keep = self.current["id"] if self.current else None
         self.rows = open_proposals()
+        self.cards = {c["id"]: c for c in hr_card.pending()}
         rebuilt = sync_rows(table, [(p["id"], (
             Text(p["id"], style="cyan"), Text(p["kind"]),
             Text(textsafe.oneline(str(p["agent"]))),
@@ -128,12 +127,28 @@ class ProposalsView(Vertical):
 
     def _show(self) -> None:
         p = self.current
-        self.query_one("#hr_text", Static).update(
-            describe(p) if p else Text("no proposal is waiting for your decision", style="dim"))
-        decidable = p is not None
-        self.query_one("#hr_approve", Button).disabled = not decidable
-        self.query_one("#hr_reject", Button).disabled = not decidable
+        detail = self.query_one("#hr_detail", VerticalScroll)
+        card = self.card
+        entry = self.cards.get(p["id"]) if p else None
+        if entry is None:
+            detail.remove_children()
+            detail.mount(Static(Text("no proposal is waiting for your decision", style="dim")))
+        elif card is not None and card.p["id"] == p["id"]:
+            if card.p != entry and not card.has_class("rejecting"):
+                card.show(entry)
+        else:
+            detail.remove_children()
+            detail.mount(hr_card.HrCard(entry))
         self.query_one("#hr_withdraw", Button).disabled = p is None
+
+    @property
+    def card(self) -> hr_card.HrCard | None:
+        found = self.query(hr_card.HrCard)
+        return found.first() if found else None
+
+    def on_hr_card_decided(self, event: hr_card.HrCard.Decided) -> None:
+        event.stop()
+        self._say(event.ok, event.said)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         event.stop()
@@ -144,18 +159,9 @@ class ProposalsView(Vertical):
                         timeout=10, markup=False)
         self.refresh_rows()
 
-    def _decide(self, pid: str, call: str, note: str = "", subject: str = "") -> None:
-        self._say(*hr.decide(pid, call, actions.HUMAN, note, subject))
-
     def action_approve(self) -> None:
-        p = self.current
-        if p is None:
-            return
-        pid, subject = p["id"], hr.subject_of(p)
-        self.app.push_screen(
-            Confirm(f"Approve {p['kind']} {textsafe.oneline(str(p['agent']))}",
-                    "Your decision, and it is what the proposing agent acts on.", yes="Approve"),
-            lambda yes: yes and self._decide(pid, "approved", subject=subject))
+        if self.card is not None:
+            self.card.approve()
 
     def action_withdraw(self) -> None:
         p = self.current
@@ -172,13 +178,8 @@ class ProposalsView(Vertical):
         self._say(*hr.withdraw(pid, actions.HUMAN))
 
     def action_reject(self) -> None:
-        p = self.current
-        if p is None:
-            return
-        pid = p["id"]
-        self.app.push_screen(
-            TextPrompt(f"reject {p['kind']} {textsafe.oneline(str(p['agent']))} - why:"),
-            lambda why: why and why.strip() and self._decide(pid, "rejected", why))
+        if self.card is not None:
+            self.card.reject()
 
     def action_edit(self) -> None:
         """The settings of the agent under the cursor: in the agents table, that one;
@@ -200,5 +201,4 @@ class ProposalsView(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        {"hr_approve": self.action_approve, "hr_reject": self.action_reject,
-         "hr_withdraw": self.action_withdraw, "hr_edit": self.action_edit}[event.button.id]()
+        {"hr_withdraw": self.action_withdraw, "hr_edit": self.action_edit}[event.button.id]()
