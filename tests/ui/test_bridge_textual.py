@@ -1570,41 +1570,41 @@ def test_agent_rows_collect_keeps_a_stuck_reason_whole() -> None:
 
 
 def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
-    from ocp.team import ask as askmod
+    from ocp.team import ask as askmod, decisions
     from ocp.ui.components import proposals as pr
     home = _home("openprops")
     agents.register("hr")
     con = db.connect()
     try:
         pids = {}
-        for name in ("queued", "unclear", "approved", "rejected"):
+        for name in ("queued", "stuck", "approved", "rejected"):
             ok, said = hr.propose("add", name, repo="/repo", requester="hr", why=f"why {name}")
             check(f"proposals: {name} was raised", ok, said)
-            pids[name] = int(said.split("#")[1].split(".")[0])
-        # `resolve` refuses a non-decision on a proposal now; one closed that way by an
-        # older ocp is what is stranded.
-        t.answer_card(con, pids["unclear"], "sounds good")
-        askmod.resolve(pids["approved"], "approve")
-        askmod.resolve(pids["rejected"], "reject not now")
+            pids[name] = said.split()[1]
+        # An approve whose change did not go through stays approved, with its error.
+        decisions.record("hr", pids["stuck"], 0, "approved", hr.subject_of(hr.load_proposal(pids["stuck"])))
+        hr.save({**hr.load_proposal(pids["stuck"]), "state": "approved", "error": "orca is not answering"})
+        hr.decide(pids["approved"], "approved", askmod.HUMAN)
+        hr.decide(pids["rejected"], "rejected", askmod.HUMAN, "not now")
         got = {p["agent"]: p for p in pr.open_proposals(con)}
-        check("proposals: a queued decision is 'decide'",
+        check("proposals: one waiting on the founder is 'decide'",
               got.get("queued", {}).get("status") == pr.DECIDE, got)
-        check("proposals: one closed with an unclear reply is 'no decision', and keeps the reply",
-              got.get("unclear", {}).get("status") == pr.STRANDED
-              and got["unclear"]["reply"] == "sounds good", got)
-        check("proposals: an approved or a rejected one is left out",
+        check("proposals: one approved but not applied says so, and keeps its error",
+              got.get("stuck", {}).get("status") == pr.APPROVED
+              and got["stuck"]["error"] == "orca is not answering", got)
+        check("proposals: an applied or a rejected one is left out",
               "approved" not in got and "rejected" not in got, sorted(got))
-        check("proposals: each carries its request's id",
-              got["queued"]["rid"] == pids["queued"])
+        check("proposals: each carries its id", got["queued"]["id"] == pids["queued"])
         check("proposals: they are oldest first", [p["asked"] for p in pr.open_proposals(con)]
               == sorted(p["asked"] for p in pr.open_proposals(con)))
         ids = []
         for name in ("tie1", "tie2", "tie3", "tie4"):
             ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="w")
-            ids.append(int(said.split("#")[1].split(".")[0]))
-        con.execute("UPDATE requests SET ts = 1000 WHERE id IN (%s)" % ",".join(map(str, ids)))
-        tied = [p["rid"] for p in pr.open_proposals(con) if p["rid"] in ids]
-        check("proposals: proposals raised in the same second come oldest first by request id",
+            pid = said.split()[1]
+            hr.save({**hr.load_proposal(pid), "created": 1000})
+            ids.append(pid)
+        tied = [p["id"] for p in pr.open_proposals(con) if p["id"] in ids]
+        check("proposals: proposals raised in the same second come in a fixed order by id",
               tied == sorted(ids), tied)
         check("proposals: the age is the biggest whole unit",
               timefmt.ago_short(0, now=59) == "0m" and timefmt.ago_short(0, now=3600) == "1h" and timefmt.ago_short(0, now=86400 * 2) == "2d")
