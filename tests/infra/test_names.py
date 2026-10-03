@@ -164,6 +164,11 @@ def test_the_old_package_name_still_imports_the_same_modules() -> None:
                         "print(a is b, db is d)"], capture_output=True, text=True)
     check("shim: import ocp.<module> gives the handline module itself, not a copy",
           r.stdout.strip() == "True True", r.stdout + r.stderr[-300:])
+    r = subprocess.run([sys.executable, "-m", "ocp.ui.actrun"], input="{}", capture_output=True, text=True,
+                       env=dict(os.environ, PYTHONPATH=str(ROOT)))
+    check("shim: python -m ocp.<module> runs the handline module (a bridge started before the rename)",
+          "get_code" not in r.stderr and "No module named" not in r.stderr and "AttributeError" not in r.stderr,
+          r.stdout + r.stderr[-300:])
 
 
 def main() -> int:
