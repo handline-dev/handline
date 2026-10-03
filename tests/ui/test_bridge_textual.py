@@ -3554,6 +3554,57 @@ async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
         check("edit text: a blank text is refused and shown", seen[-1][1] == "error" and "needs a body" in seen[-1][0], str(seen))
 
 
+async def test_the_task_page_queues_a_draft_and_drafts_a_queued_task() -> None:
+    """One button, Queue on a draft and Draft on a queued task, through actions.set_queued; a done task has none."""
+    from textual.widgets import Button
+    from ocp.ui import chat_page as cp
+    from ocp.ui.bridge_textual import BridgeApp
+    _home("queuebtn")
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        actions.task_new(actions.HUMAN, "reviewer", "Busy", "keeps the owner occupied so a queued task waits its turn")
+        tid = db.new_task(con, "Fix it", "reviewer", actions.HUMAN)
+        was = actions.task_state(con, db.get_task(con, tid))
+    finally:
+        con.close()
+    check("queue button: the task starts as a draft", was == "draft", was)
+    app = BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await app.push_screen(cp.TaskDetail(tid))
+        await pilot.pause(0.5)
+        body = app.screen.query_one(cp.TaskBody)
+        btn = body.query_one("#queue", Button)
+
+        def state() -> str:
+            con = db.connect()
+            try:
+                return actions.task_state(con, db.get_task(con, tid))
+            finally:
+                con.close()
+        first = state()
+        want = "queued" if first == "draft" else "draft"
+        check("queue button: the label names what a press does",
+              str(btn.label).startswith("Queue" if first == "draft" else "Draft") and not btn.disabled, str(btn.label))
+        await pilot.click("#queue")
+        await pilot.pause(0.8)
+        check("queue button: a press flips the task", state() == want, f"{first} -> {state()}")
+        check("queue button: and the label flips with it", str(btn.label).startswith("Queue" if want == "draft" else "Draft"), str(btn.label))
+        await pilot.press("u")
+        await pilot.pause(0.8)
+        check("queue button: the u key flips it back", state() == first, state())
+        Path(os.environ.get("QUEUE_SHOT", os.devnull)).write_text(app.export_screenshot())
+        con = db.connect()
+        try:
+            actions.mark_task_done(con, tid, actions.HUMAN, reason="done by hand")
+        finally:
+            con.close()
+        body.load()
+        await pilot.pause(0.5)
+        check("queue button: a done task cannot be queued", btn.disabled)
+
+
 async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
     """T525: a memo or a handoff made while the page is open appears on the next poll."""
     from ocp.ui import chat_page as cp
@@ -5077,6 +5128,7 @@ async def _run_all() -> None:
     test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays()
     test_an_agents_note_on_its_own_row_does_not_repeat_its_name()
     await test_m_and_M_on_the_for_you_panel_read_a_line_and_all()
+    await test_the_task_page_queues_a_draft_and_drafts_a_queued_task()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
     await test_the_chat_page_draws_a_handoff_as_one_card()

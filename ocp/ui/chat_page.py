@@ -405,6 +405,7 @@ def task_detail(con, tid: int) -> dict | None:
             "can_reopen": state == "done" and mine,
             "can_discard": state in ("draft", "queued", "doing"),
             "can_assign": state in ("draft", "queued", "doing"),
+            "can_queue": state in ("draft", "queued"),      # one button: Queue on a draft, Draft on a queued task
             "people": actions.question_targets(t["owner"], paths.list_agents(), actions.recent_chatted(con))}
 
 
@@ -1191,6 +1192,19 @@ class TaskActions:
                 self.report("done", ok, said)
         self.app.push_screen(TextPrompt("done - what came of it?"), answered)
 
+    def action_queue_task(self) -> None:
+        """A draft is approved to run, a queued task goes back to draft (`actions.set_queued`, as `ocp task queue`)."""
+        if not (self.d and self.d["can_queue"]):
+            self.say("only a draft can be queued, and only a queued task drafted")
+            return
+        queue = self.d["state"] == "draft"
+        con = db.connect()
+        try:
+            ok, said = actions.set_queued(con, self.tid, actions.HUMAN, queue)
+        finally:
+            con.close()
+        self.report("queue" if queue else "draft", ok, said)
+
     def action_reopen_task(self) -> None:
         if not (self.d and self.d["can_reopen"]):
             self.say("only a done task that you asked for can be reopened")
@@ -1293,6 +1307,7 @@ class TaskBody(TaskActions, Vertical):
         with ActionBar(id="t_actions"):
             yield Button(label("Assign", "a"), id="assign", variant="primary", compact=True)
             yield Button(label("Done", "x"), id="done", variant="success", compact=True)
+            yield Button(label("Queue", "u"), id="queue", variant="primary", compact=True)
             yield Button(label("Reopen", "r"), id="reopen", variant="warning", compact=True)
             yield Button(label("Discard", "d"), id="discard", variant="error", compact=True)
 
@@ -1358,8 +1373,9 @@ class TaskBody(TaskActions, Vertical):
         self.query_one("#t_meta", Static).update(page["meta"])
         self.query_one("#t_kids", Static).update(self._section("Sub-tasks", page["kids"]))
         self.draw_memos(page["timeline"])
-        for name in ("assign", "done", "reopen", "discard"):
+        for name in ("assign", "done", "queue", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = not d[f"can_{name}"]
+        self.query_one("#queue", Button).label = ("Draft" if d["state"] == "queued" else "Queue") + ("  u" if self.keys else "")
         self.draw_memo_to(d)
 
     def _blank(self, said: str) -> None:
@@ -1370,7 +1386,7 @@ class TaskBody(TaskActions, Vertical):
         self.query_one("#t_brief_edit", Button).display = False
         self.query_one("#t_memos", Vertical).remove_children()
         self._tl_rows = []
-        for name in ("assign", "done", "reopen", "discard"):
+        for name in ("assign", "done", "queue", "reopen", "discard"):
             self.query_one(f"#{name}", Button).disabled = True
 
     def draw_memos(self, texts: list[Text]) -> None:
@@ -1495,7 +1511,7 @@ class TaskBody(TaskActions, Vertical):
             (self.memo_edit if bid[:3] == "me_" else self.memo_delete)(int(bid[3:]))
             return
         call = {"memo_add": self.action_memo_add, "t_brief_edit": self.action_edit_brief, "assign": self.action_assign_task,
-                "done": self.action_done_task, "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
+                "done": self.action_done_task, "queue": self.action_queue_task, "reopen": self.action_reopen_task, "discard": self.action_discard_task}.get(bid)
         if call:
             event.stop()
             call()
@@ -1540,6 +1556,7 @@ class TaskDetail(Screen):
     human may make on it."""
     BINDINGS = [Binding("escape", "app.pop_screen", "back"),
                 Binding("x", "done_task", "done"),
+                Binding("u", "queue_task", "queue/draft"),
                 Binding("r", "reopen_task", "reopen"),
                 Binding("a", "assign_task", "assign"),
                 Binding("d", "discard_task", "discard")]
@@ -1570,6 +1587,9 @@ class TaskDetail(Screen):
 
     def action_done_task(self) -> None:
         self._body().action_done_task()
+
+    def action_queue_task(self) -> None:
+        self._body().action_queue_task()
 
     def action_reopen_task(self) -> None:
         self._body().action_reopen_task()
