@@ -115,46 +115,6 @@ def test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(home: Path
           stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
 
 
-def _founder_says(agent: str, body: str) -> int:
-    con = db.connect()
-    try:
-        rid = db.add_request(con, "human", agent, body, None, "supervisor", "fire_and_forget",
-                             "say", 0, None)
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (int(time.time()), rid))
-        con.commit()
-        return rid
-    finally:
-        con.close()
-
-
-def test_an_unanswered_founder_message_is_reminded_once(home: Path) -> None:
-    _board_world(home)
-    rid = _founder_says("worker", "how is the migration?")
-    block, reason = stopgate.decide("worker", {"session_id": "s1"})
-    check("founder: a turn ending with his message unanswered is refused, naming it",
-          block is True and f"The founder's #{rid} has no answer yet" in reason
-          and f"ocp say human --parent {rid}" in reason, (block, reason))
-    check("founder: and only once for that message",
-          stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
-
-    rid2 = _founder_says("worker", "and the rollout?")
-    con = db.connect()
-    try:
-        db.add_request(con, "worker", db.HUMAN, "on it", None, "subordinate", "fire_and_forget",
-                       "say", 0, rid2)
-        con.commit()
-    finally:
-        con.close()
-    check("founder: a message answered by a say with --parent is never reminded",
-          stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
-
-    _founder_says("worker", "one more")
-    check("founder: a mid-chain stop (stop_hook_active) is left alone",
-          stopgate.decide("worker", {"session_id": "s1", "stop_hook_active": True}) == (False, None))
-    check("founder: a new unanswered message is reminded again",
-          stopgate.decide("worker", {"session_id": "s1"})[0] is True)
-
-
 def test_the_enforce_switch_is_the_founders_to_flip(home: Path) -> None:
     _board_world(home)
     check("on by default", stopgate.enforced() is True)
@@ -240,7 +200,6 @@ def main() -> int:
         run(lambda: test_stop_wait_reason_becomes_a_reason_naming_the_task(Path(td) / 'sg0'))
         run(lambda: test_stop_hook_active_and_once_per_session_guard_the_loop(Path(td) / 'sg1'))
         run(lambda: test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(Path(td) / 'sg2'))
-        run(lambda: test_an_unanswered_founder_message_is_reminded_once(Path(td) / 'sg5'))
         run(lambda: test_the_enforce_switch_is_the_founders_to_flip(Path(td) / 'sg3'))
         run(lambda: test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(Path(td) / 'sg4'))
     return run_area(tests)

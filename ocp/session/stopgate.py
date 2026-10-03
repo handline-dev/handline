@@ -35,23 +35,6 @@ def _reason(tid: int, why: str) -> str:
             f"decision task.")
 
 
-def _unanswered_founder_message(con, agent: str) -> int | None:
-    """The id of the founder's latest delivered message to `agent` that nothing answered and
-    that this gate has not already reminded of, else None. A task is excluded: it is answered
-    by its handoff or done, which the wait check below already holds the agent to."""
-    row = con.execute(
-        "SELECT id FROM requests WHERE requester = ? AND target = ? AND kind != 'task' "
-        "AND delivered_at IS NOT NULL ORDER BY id DESC LIMIT 1", (db.HUMAN, agent)).fetchone()
-    if row is None:
-        return None
-    rid = int(row["id"])
-    if db.get_meta(con, f"founder_reminded:{agent}") == str(rid):
-        return None
-    answered = con.execute("SELECT 1 FROM requests WHERE requester = ? AND target = ? "
-                           "AND parent_id = ? LIMIT 1", (agent, db.HUMAN, rid)).fetchone()
-    return None if answered else rid
-
-
 def decide(agent: str, raw: dict) -> tuple[bool, str | None]:
     """(block, reason) for this Stop event - manages its own connection, the
     same as `waiting.clear`.
@@ -72,12 +55,6 @@ def decide(agent: str, raw: dict) -> tuple[bool, str | None]:
         row = db.get_agent_state(con, agent)
         if row and row["closed_at"]:
             return False, None
-        owed = _unanswered_founder_message(con, agent)
-        if owed is not None:
-            db.set_meta(con, f"founder_reminded:{agent}", str(owed))
-            return True, (f"The founder's #{owed} has no answer yet: `ocp say human --parent "
-                          f"{owed} \"...\" --task T<n>` (or `--no-task \"<why>\"`) - if it is work, "
-                          f"one line on what you will do or who has it.")
         why = taskmod.stop_wait_reason(con, agent)
         if why is None:
             return False, None
