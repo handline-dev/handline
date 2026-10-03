@@ -37,7 +37,7 @@ One line each. `ocp <command> --help` has the options, and `ocp guide <topic>` p
 
 | | |
 |---|---|
-| `ocp task new --owner <agent> -t <time> "<title>" "<body>"` | Give work, or ask something that needs an answer. |
+| `ocp task new --owner <agent> -t <time> "<title>" "<body>" [--reply <msg> "<text>"]` | Give work, or ask something that needs an answer. The last line printed is the new `T<n>`; `--reply` also answers the founder's message with `{task}` filled in as that number. |
 | `ocp task list` | The board. |
 | `ocp task show T<n>` | One task in full: brief, memos, blockers, children, handoffs. |
 | `ocp task done T<n> "<evidence>"` | Finish your task. A sha must be on `main`. |

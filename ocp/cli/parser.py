@@ -528,6 +528,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-t", "--timeout", type=_timeout_arg, default=None, metavar="DURATION",
                    help="required: notify the opener each time this long passes with the task "
                    f"still open (90m, 2h; at most {timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")
+    p.add_argument("--reply", nargs=2, default=None, metavar=("MSG", "TEXT"),
+                   help="also answer the founder's message MSG with TEXT, where {task} is this "
+                        "task's real number - never type the number yourself")
     p.set_defaults(fn=cmd_task_new)
     p = tk.add_parser("begin", help="start a task the founder told you to do, without approval "
                                     "(T297): opens it for you, linked to their message")

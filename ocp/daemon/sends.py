@@ -112,6 +112,15 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
         row = db.get_task(con, task)
         if row is None:
             return False, f"no task T{task}"
+        if target == actions.HUMAN and row["opened_by"] == me:
+            # A reply to the founder naming the task it became: it is theirs to read, not a memo,
+            # and the task is named whoever holds it now.
+            ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw.get("parent"),
+                                      speaker=speaker, notify=False)
+            if ok and rid is not None:
+                db.link_request(con, task, rid)
+                _after(rid, kw["target"], log)
+            return ok, msg
         if row["owner"] != target:
             return False, f"T{task} is with {row['owner']}, not {target}"
         ok, msg, _ = actions.memo_add(con, task, me, kw["body"])

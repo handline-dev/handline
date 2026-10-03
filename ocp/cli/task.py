@@ -271,16 +271,24 @@ def cmd_task_new(args) -> int:
     if not ok:
         print(msg)
         return 1
+    out, rc = [msg], 0
     if args.blocked_by is not None:
         con = db.connect()
         try:
             bok, bmsg = actions.add_block(con, tid, args.blocked_by, me)
         finally:
             con.close()
-        print(f"{msg}\n{bmsg}")
-        return 0 if bok else 1
-    print(msg)
-    return 0
+        out.append(bmsg)
+        rc = 0 if bok else 1
+    if args.reply:
+        from .ask import _send
+        mid, text = args.reply
+        sent = _send("say", target=askmod.HUMAN, body=textsafe.text(text.replace("{task}", f"T{tid}")),
+                     parent=int(mid), task=tid, no_task=None)
+        rc = rc or sent
+    print("\n".join(out))
+    print(f"T{tid}")        # the number this opened, alone on the last line, for a script to read
+    return rc
 
 
 def cmd_task_begin(args) -> int:

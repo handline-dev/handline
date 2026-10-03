@@ -76,6 +76,8 @@ edges:
   - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
   - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
   - { from: "worker", to: "peer", relation: peer, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 
 limits:
   max_chain_depth: 4
@@ -91,6 +93,26 @@ limits:
     check("--task: lands as a memo on that task (T521)", rc == 0 and "memo" in out.lower(), out)
     rc, out = _cli(["say", "manager", "use the v2 layout", "--task", f"T{tid}"], as_agent="manager")
     check("--task: the task must be with the one it is said to", rc == 1 and "is with worker" in out, out)
+    rc, out = _cli(["say", "human", f"opened T{tid} for it", "--task", f"T{tid}"], as_agent="manager")
+    check("--task: to the founder it names a task the sender opened, whoever holds it now",
+          rc == 0 and "is with" not in out and any(r["id"] for r in db.task_requests(db.connect(), tid)), out)
+    rc, out = _cli(["say", "human", "not mine", "--task", f"T{tid}"], as_agent="worker")
+    check("--task: a task its sender did not open is still no reply to the founder",
+          rc == 1 and "is with worker" in out, out)
+    chat = _human_request("manager")
+    rc, out = _cli(["task", "new", "-t", "1h", "--owner", "worker", "next piece", "its brief",
+                    "--reply", str(chat), "on it as {task}"], as_agent="manager")
+    last = out.strip().splitlines()[-1] if out.strip() else ""
+    con = db.connect()
+    try:
+        said = [r["body"] for r in con.execute("SELECT body FROM requests WHERE target = 'human' AND parent_id = ?",
+                                               (chat,))]
+    finally:
+        con.close()
+    check("task new: the last line is the number it opened, alone",
+          rc == 0 and last.startswith("T") and last[1:].isdigit(), out)
+    check("task new --reply: the founder is answered with the real number filled in",
+          said == [f"on it as {last}"] and db.get_request(db.connect(), chat)["state"] != "queued", f"{said} {out}")
     rc, out = _cli(["say", "worker", "x", "--task", "T99999"], as_agent="manager")
     check("--task: an unknown task is refused", rc == 1 and "no task T99999" in out, out)
     ok, msg, rid = askmod.say("manager", "a question", requester="worker")
