@@ -199,6 +199,17 @@ def save_account_settings(acct: str, label: str, cap: str,
     return True, "; ".join(said) or "nothing changed"
 
 
+def sandbox_back_on(agent: str) -> tuple[bool, str]:
+    """End the founder's leave to run `agent` without its sandbox, at once: the key and the lease go now,
+    and a session still running without it is restarted by the daemon's next idle sweep (its recipe
+    changed). The screen's one-click button and `ocp agent set <agent> sandbox=on`."""
+    from ..team import agent_settings
+    if agents.sandbox_on(agent, agents.read(agent)) and not agents.sandbox_lease(agent):
+        return True, f"{agent}: the sandbox is already on"
+    ok, said = agent_settings.set_values(agent, {"sandbox": "on"})
+    return ok, said if not ok else f"{agent}: the sandbox is back on; a running session picks it up when it restarts"
+
+
 def set_cycle_on(acct: str, on: bool) -> tuple[bool, str]:
     """The one-month subscription switch; off leaves the end day, so on again finds it."""
     try:

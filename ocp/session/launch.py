@@ -446,15 +446,24 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     # A vendor with no auto mode (auto_mode_argv() empty, e.g. opencode) or an
     # agent whose skip-permissions is in effect never reads `trusted`, so the
     # git calls that build it are skipped rather than run and thrown away.
-    mode = ([] if agents.skip_permissions(cfg) and agents.skip_permissions_granted(agent)
-            else drv.auto_mode_argv())
+    chosen = agents.mode_of(agent, cfg)
+    mode = ([] if chosen == "bypass" else drv.auto_mode_argv() if chosen == agents.DEFAULT_MODE
+            else drv.permission_mode_argv(chosen))
+    if chosen not in ("bypass", agents.DEFAULT_MODE) and not mode:
+        print(f"warning: agent '{agent}' has mode {chosen}, but {drv.name} has no such mode - "
+              f"starting it as usual", file=sys.stderr)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.key_folder())],
                            no_write=main_ref_files(Path.cwd()),
                            memory_dir=memory_dir,
-                           trusted=trusted_environment(Path.cwd()) if mode else None,
-                           chrome=agents.chrome(cfg))
+                           trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
+                           chrome=agents.chrome(cfg),
+                           **({} if sandbox_on(agent, cfg) else {"sandbox": False}))
+    if cfg.get("sandbox") is False and not agents.sandbox_lease(agent):
+        print(f"warning: agent '{agent}' has sandbox off in its agent.yaml, but the founder never "
+              f"turned it off (`ocp agent set {agent} sandbox=off`, from a terminal) - ignoring it",
+              file=sys.stderr)
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):
@@ -608,11 +617,67 @@ def fingerprint(agent: str) -> str:
                             _static_preamble(agent)])
     if agents.skip_permissions_in_effect(agent, cfg):
         material += "\x1eskip-permissions"     # only when on: turning it off returns to the old hash
+    if agents.mode_of(agent, cfg) not in ("bypass", agents.DEFAULT_MODE):
+        material += "\x1emode:" + agents.mode_of(agent, cfg)    # only when not the default, like chrome
+    if not sandbox_on(agent, cfg):
+        material += "\x1esandbox-off"
     if agents.mcp_config_args(cfg):
         material += "\x1emcp:" + agents.mcp_config_args(cfg)[1]   # only when set, like chrome
     if agents.chrome(cfg):
         material += "\x1echrome"                # only when on, like skip-permissions
     return hashlib.sha256(material.encode()).hexdigest()[:16]
+
+
+# What `fingerprint_parts` records under "sandbox" for a session launched with the sandbox off.
+SANDBOX_OFF_PART = hashlib.sha256(b"off").hexdigest()[:8]
+
+
+# Beside the setting hashes in a session's recorded parts: when it was launched, which tells one
+# session from the next even when both resume the same transcript.
+LAUNCHED_AT = "launched_at"
+
+
+def launch_record(agent: str) -> dict:
+    return {**fingerprint_parts(agent), LAUNCHED_AT: time.time()}
+
+
+def _parts(row) -> dict:
+    try:
+        parts = json.loads(row["launch_parts"] or "null")
+    except ValueError:
+        return {}
+    return parts if isinstance(parts, dict) else {}
+
+
+def launched_at(row) -> str | None:
+    """The stamp of the launch this agent_state row records, as written."""
+    v = _parts(row).get(LAUNCHED_AT)
+    return None if v is None else str(v)
+
+
+def launched_sandbox_off(row) -> bool:
+    """Was the session this agent_state row records launched with the sandbox off?"""
+    return _parts(row).get("sandbox") == SANDBOX_OFF_PART
+
+
+def sandbox_on(agent: str, cfg: dict, con=None) -> bool:
+    """Whether a launch (or the recipe of the session now running) has the sandbox on. Off needs
+    agent.yaml's `sandbox: false` and the founder's lease. A lease belongs to one session: once the agent
+    is recorded closed, or its recorded launch is not the one that took the lease, it is over and a
+    session started after it is on - whichever of the wake and the daemon's sweep comes first."""
+    if agents.sandbox_on(agent, cfg):
+        return True
+    if agents.sandbox_lease(agent) == agents.SANDBOX_PENDING:
+        return False
+    own = con is None
+    con = con or db.connect()
+    try:
+        row = db.get_agent_state(con, agent)
+    finally:
+        if own:
+            con.close()
+    taken = agents.sandbox_lease_launch(agent)
+    return not row or bool(row["closed_at"]) or taken is None or launched_at(row) != taken
 
 
 def fingerprint_parts(agent: str) -> dict[str, str]:
@@ -638,7 +703,10 @@ def fingerprint_parts(agent: str) -> dict[str, str]:
         "effort": h(str(cfg.get("effort") or agents.DEFAULT_EFFORT)),
         "mcp config": h(_mcp_config_material() + "\x1e" + (mcp[1] if mcp else "")),
         "browser": h("on" if agents.chrome(cfg) else ""),
-        "permissions": h(DISALLOWED_TOOLS + ("\x1eskip-permissions" if agents.skip_permissions_in_effect(agent, cfg) else "")),
+        "permissions": h(DISALLOWED_TOOLS + ("\x1eskip-permissions" if agents.skip_permissions_in_effect(agent, cfg) else "")
+                         + ("" if agents.mode_of(agent, cfg) in ("bypass", agents.DEFAULT_MODE)
+                            else "\x1emode:" + agents.mode_of(agent, cfg))),
+        "sandbox": SANDBOX_OFF_PART if not sandbox_on(agent, cfg) else h(""),
         "ROLE.md": h(file("ROLE.md")),
         "base.md": h(file("base.md")),
         "team": h(_your_team(agent) + "\x1e" + "\x1e".join(_team_rules(agent))),
@@ -757,7 +825,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 # joins the team's Run here, so Orca draws it under whoever it
                 # reports to instead of as one more tab.
                 spawn.register_worker(con, agent, handle)
-                db.set_launch_fingerprint(con, agent, fp, json.dumps(fingerprint_parts(agent)))
+                db.set_launch_fingerprint(con, agent, fp, json.dumps(launch_record(agent)))
             if acct:
                 db.set_account(con, agent, acct)
         finally:

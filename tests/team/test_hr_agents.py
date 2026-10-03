@@ -2997,6 +2997,39 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
           and agents.browser_origins(cfg) == ["https://a.com", "https://b.org"] and cfg["model"] == "sonnet", said)
     ok, said = agent_settings.set_values("worker", {"browser": "off"})
     check("settings: the founder changes any setting directly", ok and agents.browser_mode(agents.read("worker")) == "off", said)
+    # The sandbox and the permission mode are the founder's alone, like skip_permissions.
+    real_send = dmn_client.send
+    dmn_client.send = daemon_send
+    try:
+        for key, value in (("sandbox", "off"), ("mode", "plan"), ("mode", "bypass")):
+            reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {key: value}})
+            check(f"settings: the daemon verb refuses {key}={value} from the agent itself", not reply["ok"], str(reply))
+        check("settings: and nothing was written", agents.sandbox_on("worker", agents.read("worker"))
+              and "mode" not in agents.read("worker") and not agents.skip_permissions(agents.read("worker")))
+        rc, out = _cli(["agent", "set", "worker", "sandbox=off"], as_agent="worker")
+        check("settings: asking for the sandbox off needs a reason", rc == 1 and agents.sandbox_on("worker", agents.read("worker")), out)
+        before = len(hr.listing())
+        rc, out = _cli(["agent", "set", "worker", "sandbox=off", "mode=acceptEdits", "--why", "a system job"], as_agent="worker")
+        check("settings: with one it is only proposed", rc == 0 and "proposal" in out and len(hr.listing()) == before + 1
+              and agents.sandbox_on("worker", agents.read("worker")) and "mode" not in agents.read("worker"), out)
+    finally:
+        dmn_client.send = real_send
+    ok, said = agent_settings.set_values("worker", {"sandbox": "off", "mode": "acceptEdits"})
+    cfg = agents.read("worker")
+    check("settings: the founder sets both directly, and the lease is theirs",
+          ok and cfg["sandbox"] is False and cfg["mode"] == "acceptEdits"
+          and agents.sandbox_lease("worker") == "granted" and not agents.sandbox_on("worker", cfg), said)
+    shown = agent_settings.settings_of("worker")
+    check("settings: and the settings read back as off and acceptEdits",
+          shown["sandbox"] == "off" and shown["mode"] == "acceptEdits", str(shown))
+    ok, said = agent_settings.set_values("worker", {"mode": "yolo"})
+    check("settings: an unknown mode is refused", not ok and "mode must be one of" in said, said)
+    ok, said = agent_settings.set_values("worker", {"mode": "bypass"})
+    check("settings: bypass is the old switch, granted and shown on both",
+          ok and agents.skip_permissions_in_effect("worker", agents.read("worker"))
+          and agent_settings.settings_of("worker")["skip_permissions"] == "on"
+          and agent_settings.settings_of("worker")["mode"] == "bypass", said)
+    agent_settings.set_values("worker", {"sandbox": "on", "mode": "auto"})
 
 
 def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:

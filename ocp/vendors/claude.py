@@ -126,7 +126,7 @@ class Claude:
                     no_write: list[str] | None = None,
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
-                    chrome: bool = False) -> list[str]:
+                    chrome: bool = False, sandbox: bool = True) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -148,6 +148,10 @@ class Claude:
             if no_write:
                 fs["denyWrite"] = no_write
             settings["sandbox"] = {"filesystem": fs}
+        if not sandbox:
+            # The founder's choice for this agent: commands run unsandboxed. The Read/Edit denies below
+            # are permissions, not the sandbox, and stay.
+            settings.setdefault("sandbox", {})["enabled"] = False
         deny = []
         if hide:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.
@@ -171,6 +175,9 @@ class Claude:
 
     def skip_permissions_argv(self) -> list[str]:
         return ["--dangerously-skip-permissions"]
+
+    def permission_mode_argv(self, mode: str) -> list[str]:
+        return ["--permission-mode", mode] if mode in ("default", "acceptEdits", "plan") else []
 
     def auto_mode_argv(self) -> list[str]:
         # The flag, not permissions.defaultMode: a settings file's "auto" is

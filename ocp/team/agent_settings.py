@@ -10,7 +10,9 @@ from ..infra import textsafe
 from . import agents
 
 EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
-            "context_k", "idle_close", "handoff_note")
+            "context_k", "idle_close", "handoff_note", "sandbox", "mode")
+# Not on every form: the settings tab does not draw them yet, so a form without them leaves them be.
+OPTIONAL = frozenset({"sandbox", "mode"})
 BROWSER_MODES = (("off", "off"), ("Claude in Chrome", "chrome"), ("sandboxed Playwright", "playwright"))
 BROWSER_CUSTOM = ("custom, set in a terminal", "custom")   # shown only when the agent has one
 WEIGHTS = ("light", "heavy")
@@ -36,6 +38,7 @@ def settings_of(agent: str) -> dict:
             "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
             "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
             "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
+            "sandbox": "on" if agents.sandbox_on(agent, cfg) else "off", "mode": agents.mode_of(agent, cfg),
             "browser": agents.browser_mode(cfg), "browser_sites": " ".join(agents.browser_origins(cfg)),
             "context_k": str(agents.context_tokens(cfg) // 1000),
             "handoff_note": {True: "on", False: "off"}.get(cfg.get("handoff_note"), "default"),
@@ -57,6 +60,10 @@ def settings_problem(form: dict) -> str | None:
         return f"weight must be one of {', '.join(WEIGHTS)}"
     if form["skip_permissions"] not in ("on", "off"):
         return "skip permissions must be on or off"
+    if form.get("sandbox", "on") not in ("on", "off"):
+        return "sandbox must be on or off"
+    if form.get("mode", agents.DEFAULT_MODE) not in agents.MODES:
+        return f"mode must be one of {', '.join(agents.MODES)}"
     if form["browser"] not in (*dict(BROWSER_MODES).values(), BROWSER_CUSTOM[1]):
         return "browser must be off, chrome or playwright"
     if form["browser"] == "playwright":
@@ -81,6 +88,8 @@ def settings_changes(current: dict, form: dict) -> list[tuple[str, str, str]]:
     means leave it: the agent file cannot be told to forget one."""
     out = []
     for key in EDITABLE:
+        if key in OPTIONAL and key not in form:
+            continue
         new = form[key].strip()
         if key == "repo" and not new:
             continue
@@ -117,6 +126,8 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
             agents.register(agent, model=new.get("model"), effort=new.get("effort"),
                             weight=new.get("weight"), repo=new.get("repo"),
                             skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
+                            mode=new.get("mode"),
+                            sandbox=None if "sandbox" not in new else new["sandbox"] == "on",
                             chrome=chrome, mcp_config=mcp,
                             context_tokens=int(new["context_k"]) * 1000 if "context_k" in new else None)
         except (ValueError, agents.ConfigError, OSError) as e:
