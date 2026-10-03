@@ -3026,6 +3026,26 @@ async def test_the_chat_strip_says_the_agents_model_account_session_context_cach
         check("strip: back on the agent's own chat it is drawn again", strip.display)
 
 
+def test_the_task_list_takes_only_its_own_dropdowns_for_a_sort_or_a_view() -> None:
+    """A Select from the pane beside the list (the memo recipient) reaches the list's handler as it bubbles:
+    only the sort dropdown may change the sort and rebuild the columns."""
+    from types import SimpleNamespace
+    from ocp.ui.components.tasks_view import TasksView
+    calls: list = []
+    me = SimpleNamespace(by="id", as_tree=False, owner=None, table=SimpleNamespace(focus=lambda: calls.append("focus")),
+                         refresh_rows=lambda: calls.append("refresh"),
+                         _sort_by=lambda v: calls.append(("sort", v)), _set_columns=lambda: calls.append("columns"))
+
+    def changed(select_id: str, value: str):
+        calls.clear()
+        TasksView.on_select_changed(me, SimpleNamespace(select=SimpleNamespace(id=select_id), value=value,
+                                                        stop=lambda: None))
+        return list(calls)
+    check("task list: the memo recipient is no sort and rebuilds nothing", changed("t_memo_to", "backend") == [])
+    check("task list: the sort dropdown sorts, redraws the heads and the rows",
+          changed("f_sort", "title") == [("sort", "title"), "columns", "focus", "refresh"], str(changed("f_sort", "title")))
+
+
 async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -5134,6 +5154,7 @@ async def _run_all() -> None:
     test_the_typed_history_keeps_the_newest_and_never_repeats()
     test_the_chat_is_paged_and_hides_what_never_reached_the_agent()
     test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery()
+    test_the_task_list_takes_only_its_own_dropdowns_for_a_sort_or_a_view()
     test_background_work_alone_is_not_working()
     test_the_chat_numbers_an_answer_by_its_own_row()
     test_the_founders_reply_to_a_waiting_message_draws_its_link()
