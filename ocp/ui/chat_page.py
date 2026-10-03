@@ -207,21 +207,25 @@ def task_changes(con, msgs: list[dict], agent: str = "") -> list[dict]:
     return out
 
 
-START_WORDS = {"restart": "restarted", "wake": "woken", "move": "moved", "launch": "opened by hand"}
+# Said in the founder's terms; only a start of a new conversation is drawn, so "wake" is a fresh
+# start after the agent was closed for idle.
+START_WORDS = {"restart": "restarted fresh", "wake": "after idle close", "fresh close": "after a fresh close",
+               "move": "moved to another account", "handoff": "handoff", "launch": "opened by hand"}
 
 
 def session_marks(con, agent: str, msgs: list[dict]) -> list[dict]:
     """The session starts of `agent` since the first of `msgs`, as entries for the chat: {session: the
-    row, when}. Older ones are above what is drawn."""
+    row, when}, for the starts of a new conversation only: one that resumed the old one is not news.
+    Older ones are above what is drawn."""
     since = min((m["when"] for m in msgs if m["when"]), default=0)
-    return [{"session": dict(r), "when": r["ts"]} for r in db.session_starts(con, agent) if r["ts"] >= since]
+    return [{"session": dict(r), "when": r["ts"]} for r in db.session_starts(con, agent)
+            if r["ts"] >= since and not r["resumed"]]
 
 
 def session_line(r: dict) -> str:
-    """The one line a session start is drawn as: when, new or resumed, why, and that a handoff can be read."""
+    """The one line a new session is drawn as: when, why, and that a handoff can be read."""
     cause = START_WORDS.get(r["cause"], r["cause"])
-    return (f"{'session resumed' if r['resumed'] else 'new session'} · {timefmt.stamp(r['ts'], timefmt.CLOCK)}"
-            f" · {cause}" + (" · handoff ▸" if r["text"] else ""))
+    return f"new session · {timefmt.stamp(r['ts'], timefmt.CLOCK)} · {cause}" + (" · handoff ▸" if r["text"] else "")
 
 
 def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:

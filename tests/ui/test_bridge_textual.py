@@ -3096,7 +3096,8 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
     con = db.connect()
     try:
         db.note_session_start(con, "reviewer", "restart", False, None, handoff, "")
-        db.note_session_start(con, "reviewer", "wake", True, "sess-1", "", "")
+        db.note_session_start(con, "reviewer", "wake", True, "sess-1", "", "")        # resumed: nothing drawn
+        db.note_session_start(con, "reviewer", "wake", False, None, "", "")
         con.commit()
     finally:
         con.close()
@@ -3107,16 +3108,17 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
         await pilot.pause(0.5)
         marks = list(page.query(cp.SessionMark))
         lines = [str(m.render()) for m in marks]
-        check("session mark: a fresh start and a resume are each one line, newest last",
-              len(marks) == 2 and lines[0].startswith("new session") and "restarted" in lines[0]
-              and lines[1].startswith("session resumed") and "woken" in lines[1], str(lines))
+        check("session mark: each new conversation is one line with a readable cause, a resume draws none",
+              len(marks) == 2 and lines[0].startswith("new session") and "restarted fresh" in lines[0]
+              and lines[1].startswith("new session") and lines[1].endswith("after idle close")
+              and "woken" not in "".join(lines) and "resumed" not in "".join(lines), str(lines))
         check("session mark: only the one with a handoff says it can be read",
-              lines[0].endswith("handoff ▸") and "handoff" not in lines[1], str(lines))
+              lines[0].endswith("handoff ▸") and "▸" not in lines[1], str(lines))
         check("session mark: it is not drawn as a message from anyone",
               not any(isinstance(m, cp.ChatMessage) for m in marks))
         await pilot.click(marks[1])
         await pilot.pause(0.3)
-        check("session mark: a resume with no handoff opens nothing", app.screen is page)
+        check("session mark: a start with no handoff opens nothing", app.screen is page)
         await pilot.click(marks[0])
         await pilot.pause(0.4)
         check("session mark: a click opens that session's handoff in a modal",
@@ -3143,7 +3145,17 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
             con.close()
         page.refresh_view()
         await pilot.pause(0.4)
-        check("session mark: a start written while the page is open is drawn on the next refresh, with no new message",
+        check("session mark: a resumed start written while the page is open draws nothing",
+              len(list(page.query(cp.SessionMark))) == 2, str(len(list(page.query(cp.SessionMark)))))
+        con = db.connect()
+        try:
+            db.note_session_start(con, "reviewer", "fresh close", False, None, "", "")
+            con.commit()
+        finally:
+            con.close()
+        page.refresh_view()
+        await pilot.pause(0.4)
+        check("session mark: a fresh start written while the page is open is drawn on the next refresh, with no new message",
               len(list(page.query(cp.SessionMark))) == 3, str(len(list(page.query(cp.SessionMark)))))
 
 
