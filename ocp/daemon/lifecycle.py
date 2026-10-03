@@ -1050,9 +1050,55 @@ def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     fresh - a DB round trip - on every one of that poll's ticks.
     """
     with orca.driver_scope():
-        if not orca.trust_prompt_showing(handle):
-            return True, "clear"
-        return _handle_trust_prompt(con, agent, handle, log)
+        # An agent on a config directory that has never run it can meet both screens, in either
+        # order, and whichever is left standing would take the wake's Enter.
+        for _ in range(MAX_STARTUP_SCREENS):
+            if orca.bypass_prompt_showing(handle):
+                ok, why = _handle_bypass_prompt(con, agent, handle, log)
+            elif orca.trust_prompt_showing(handle):
+                ok, why = _handle_trust_prompt(con, agent, handle, log)
+            else:
+                return True, "clear"
+            if not ok:
+                return False, why
+        return False, f"{agent}'s terminal still shows a startup screen after {MAX_STARTUP_SCREENS} answers"
+
+
+MAX_STARTUP_SCREENS = 4
+
+
+def _bypass_grant(agent: str) -> tuple[bool, str]:
+    """(whether the founder let this agent run with permissions skipped - configured and granted -
+    and why not). The launch that raised the warning was made on that word, so accepting it is the
+    same word. An agent.yaml that cannot be read allows nothing, and says so."""
+    try:
+        if agents.skip_permissions_in_effect(agent, agents.read(agent)):
+            return True, ""
+    except Exception as e:  # noqa: BLE001
+        return False, f"its agent.yaml could not be read ({type(e).__name__})"
+    return False, "skipping permissions is not granted for it"
+
+
+def _bypass_allowed(agent: str) -> bool:
+    return _bypass_grant(agent)[0]
+
+
+def _handle_bypass_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
+    """The vendor's bypass-permissions warning, which a new config directory raises on the
+    first launch with skipped permissions. Accepted when this agent may skip them; otherwise
+    nothing is pressed or typed (its cursor starts on the exit option) and the wake fails
+    with the reason, which the stall that follows carries to the founder."""
+    allowed, why = _bypass_grant(agent)
+    if not allowed:
+        return False, (f"{agent}'s terminal is showing the bypass-permissions warning and {why} - "
+                       "nothing was typed; answer it in its terminal")
+    ok, why = orca.accept_bypass(handle)
+    if not ok:
+        return False, f"{agent}: the bypass-permissions warning was not accepted: {why}"
+    db.add_event(con, agent, "bypass_accepted", {})
+    log(f"  {agent}: accepted the bypass-permissions warning (skip permissions is granted)")
+    orca.wait_idle(handle)
+    return True, "accepted"
 
 
 def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
@@ -1066,6 +1112,18 @@ def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     if not consented:
         return _raise_trust_prompt(con, agent, handle, log, shown, recorded)
     return _press_trust(con, agent, handle, log, shown, recorded)
+
+
+def auto_bypass(con, agent: str, log) -> bool:
+    """The blocked sweep's answer to the warning a wake never met: accepted when the agent may
+    skip permissions, left alone (and reported by the sweep) when not. True when it went."""
+    handle = db.get_terminal(con, agent)
+    if not handle or not _bypass_allowed(agent):
+        return False
+    with orca.driver_scope():
+        if not orca.bypass_prompt_showing(handle):
+            return False
+        return _handle_bypass_prompt(con, agent, handle, log)[0]
 
 
 def _trust_consent(con, agent: str, handle: str) -> tuple[str | None, str | None, bool]:

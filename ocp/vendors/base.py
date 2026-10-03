@@ -318,6 +318,18 @@ class Driver(Protocol):
         or an unparseable screen reads as no dialog and a wake types blind
         into it."""
 
+    def bypass_screen(self, tail: list[str]) -> str | None:
+        """The option highlighted on this vendor's "bypass permissions" warning, when `tail`
+        shows it. None: not showing it, or this vendor has none. "": showing it, but the
+        highlighted option could not be told (a mid-redraw screen) - still showing, so check
+        `is not None`. The warning opens with its cursor on the option that exits."""
+
+    def bypass_accept(self) -> str:
+        """The label of the option that accepts the warning `bypass_screen` found."""
+
+    def bypass_next_key(self) -> str:
+        """The key that moves its cursor down one option."""
+
     def trust_answer(self) -> str:
         """Keys sent, then Enter, to accept the folder `trust_screen` named.
         Never called for a vendor whose `trust_screen` never returns one."""

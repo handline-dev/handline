@@ -333,6 +333,16 @@ class Opencode:
         # Never called: trust_screen never names a folder to accept.
         return ""
 
+    def bypass_screen(self, tail: list[str]) -> str | None:
+        # No bypass-permissions warning of its own; the other two are never called.
+        return None
+
+    def bypass_accept(self) -> str:
+        return ""
+
+    def bypass_next_key(self) -> str:
+        return ""
+
     def accepts_tool(self, tool: str | None) -> bool:
         return False
 

@@ -212,6 +212,15 @@ class Claude:
     def trust_answer(self) -> str:
         return TRUST_PROMPT_DOWN_ARROW
 
+    def bypass_screen(self, tail: list[str]) -> str | None:
+        return _bypass_screen(tail)
+
+    def bypass_accept(self) -> str:
+        return BYPASS_ACCEPT
+
+    def bypass_next_key(self) -> str:
+        return TRUST_PROMPT_DOWN_ARROW
+
     def accepts_tool(self, tool: str | None) -> bool:
         # launch_argv passes --no-chrome unless the agent opted in (T875), and an
         # opted-in agent's browser prompt is the founder's to answer.
@@ -384,6 +393,29 @@ WORKSPACE_MARKER = "Accessing workspace:"
 # exit") lands on "Yes, I trust this folder"; a bare Enter then confirms it.
 # A bare Enter with no Down confirms "No, exit" instead.
 TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
+
+
+# claude's warning when it starts with --dangerously-skip-permissions on a config directory that
+# has not accepted it yet (a new account, or an agent moved to one): two unnumbered options,
+# the cursor on the one that exits.
+BYPASS_MARKER = "WARNING: Claude Code running in Bypass Permissions mode"
+BYPASS_ACCEPT = "Yes, I accept"
+BYPASS_DECLINE = "No, exit"
+_BYPASS_ROWS = 30
+
+
+def _bypass_screen(tail: list[str]) -> str | None:
+    """`Driver.bypass_screen`'s contract. Both options and the confirm hint must be on the
+    last rows, so a transcript that quotes the warning is not it."""
+    rows = [str(x).strip() for x in tail[-_BYPASS_ROWS:]]
+    if BYPASS_MARKER not in rows or not any(r.startswith("Enter to confirm") for r in rows):
+        return None
+    labels = [r.lstrip("\u276f").strip() for r in rows]
+    if BYPASS_ACCEPT not in labels or BYPASS_DECLINE not in labels:
+        return None
+    marked = [r.lstrip("\u276f").strip() for r in rows
+              if r.startswith("\u276f") and r.lstrip("\u276f").strip() in (BYPASS_ACCEPT, BYPASS_DECLINE)]
+    return marked[0] if len(marked) == 1 else ""
 
 
 def _trust_screen(orca, tail: list[str]) -> str | None:
