@@ -236,6 +236,50 @@ def trust_prompt_gone(handle: str) -> bool:
     return _trust_screen_showing(handle) is False
 
 
+def _bypass_state(handle: str) -> str | None:
+    """The highlighted option of the vendor's bypass-permissions warning on this terminal,
+    "" when it shows and the cursor is unread, None when it is not showing or the screen could
+    not be read (which, for a gate that then types nothing, is the same)."""
+    text = screen_text(handle)
+    return None if text is None else _driver_for(handle).bypass_screen(text.split("\n"))
+
+
+def bypass_prompt_showing(handle: str) -> bool:
+    """Is this session sitting at its vendor's bypass-permissions warning? Read before typing
+    anything: the cursor starts on the option that exits, and a wake's Enter would take it."""
+    return _bypass_state(handle) is not None
+
+
+def accept_bypass(handle: str, timeout_s: float = 5.0, poll_s: float = 0.5) -> tuple[bool, str]:
+    """Accept the bypass-permissions warning this terminal shows, callers having decided that
+    they may. Enter is pressed only with the cursor on the accepting option, read off the
+    screen: from the exiting one a single Down is sent first and the screen read again, and a
+    cursor anywhere else, or unreadable, presses nothing. True once the warning is gone."""
+    driver = _driver_for(handle)
+    accept = driver.bypass_accept()
+    state = _bypass_state(handle)
+    if state is None:
+        return False, "the bypass-permissions warning is not on screen"
+    if state != accept:
+        ok, out = send(handle, driver.bypass_next_key(), enter=False)
+        if not ok:
+            return False, f"could not move to {accept!r}: {out[:200]}"
+        deadline = time.time() + timeout_s
+        while _bypass_state(handle) != accept:
+            if time.time() >= deadline:
+                return False, f"the cursor did not reach {accept!r}; nothing was confirmed"
+            time.sleep(poll_s)
+    ok, out = send(handle, "")
+    if not ok:
+        return False, f"could not confirm the bypass warning: {out[:200]}"
+    deadline = time.time() + timeout_s
+    while _bypass_state(handle) is not None:
+        if time.time() >= deadline:
+            return False, "the bypass warning is still on screen after Enter"
+        time.sleep(poll_s)
+    return True, "accepted"
+
+
 def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
                           poll_s: float = 0.5) -> bool:
     """Poll until `trust_prompt_showing(handle)` is `showing`, or give up.

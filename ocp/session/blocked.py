@@ -474,6 +474,9 @@ def _track(con, agent: str, row, now: int, log):
         if lifecycle.auto_trust(con, agent, log):
             _end(con, agent, rec, "its folder-trust prompt was accepted", log)
             return None
+        if lifecycle.auto_bypass(con, agent, log):
+            _end(con, agent, rec, "its bypass-permissions warning was accepted", log)
+            return None
         return _decline(con, agent, rec, now, log)
     return rec
 
