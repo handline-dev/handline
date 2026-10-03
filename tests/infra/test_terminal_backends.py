@@ -218,6 +218,19 @@ def test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(home: Pa
         plain.mkdir()
         orcacli._exec = lambda argv, timeout=120: (0, json.dumps({"ok": True, "result": {"repos": []}}), "")
         check("orca: a folder without .git is `not_git` and is not added", b.ensure_repo(str(plain))[0] == "not_git")
+        subprocess.run(["git", "init", "-q", str(plain)], check=True)
+        tracked, loose = plain / "tracked", plain / "loose"
+        tracked.mkdir()
+        loose.mkdir()
+        (tracked / "f.txt").write_text("1\n")
+        subprocess.run(["git", "-C", str(plain), "add", "tracked/f.txt"], check=True)
+        state, said = b.ensure_repo(str(tracked))
+        check("orca: a folder whose files a repo tracks is `not_root` and names the top, not `git init`",
+              state == "not_root" and os.path.realpath(str(plain)) in said and "git init" not in said, said)
+        state, said = b.ensure_repo(str(loose))
+        check("orca: a folder untracked inside a repo is `not_git` and says `git init`",
+              state == "not_git" and "git init" in said, said)
+        check("orca: the top folder of a repo is not `not_root`", b.ensure_repo(str(plain))[0] != "not_root")
     finally:
         orcacli._exec = real
 
@@ -694,6 +707,12 @@ def test_tmux_makes_a_git_worktree_and_knows_a_repo_by_its_dot_git(home: Path) -
     path2, _ = tm.create_worktree(str(repo), "backend", "main")
     check("tmux: a name already taken becomes name-2 and the first is left alone",
           path2 and path2.endswith("backend-2") and (Path(path) / "a.txt").exists(), str(path2))
+    (repo / "loose").mkdir()
+    (repo / "sub").mkdir()
+    (repo / "sub" / "g.txt").write_text("1\n")
+    git("add", "sub/g.txt")
+    check("tmux: a tracked subfolder is `not_root`, an untracked one `not_git`",
+          tm.ensure_repo(str(repo / "sub"))[0] == "not_root" and tm.ensure_repo(str(repo / "loose"))[0] == "not_git")
     bad, why = tm.create_worktree(str(repo), "other", "no-such-ref")
     check("tmux: a base that is not there is refused with git's words", bad is None and "worktree create failed" in why, why)
     check("tmux: a git repository is known, anything else is not and is not made one",

@@ -58,7 +58,7 @@ def available() -> bool:
 
 def ensure_repo(path: str) -> tuple[str, str]:
     """Make sure the terminal host knows `path` as a repo: (state, what to tell the founder).
-    The states are the backend's: 'known', 'added', 'not_git', 'no_orca' and 'failed'."""
+    The states are the backend's: 'known', 'added', 'not_git', 'not_root', 'no_orca' and 'failed'."""
     return backends.current().ensure_repo(path, available())
 
 

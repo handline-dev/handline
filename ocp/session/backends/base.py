@@ -11,6 +11,45 @@ Every method answers rather than raises, and "could not ask" is never "nothing t
 """
 from __future__ import annotations
 
+import os
+import subprocess
+
+from ...infra import textsafe
+
+
+def enclosing_repo(path: str) -> str | None:
+    """The top folder of the git repository that holds `path`, or None when none does. A `.git`
+    file (a linked worktree, a submodule) counts as a top, as a folder does."""
+    here = os.path.realpath(path)
+    while True:
+        if os.path.exists(os.path.join(here, ".git")):
+            return here
+        up = os.path.dirname(here)
+        if up == here:
+            return None
+        here = up
+
+
+def _tracked_in(top: str, path: str) -> bool:
+    """Whether `top`'s repository tracks files under `path`: the folder belongs to it."""
+    try:
+        r = subprocess.run(["git", "-C", top, "ls-files", "--", os.path.relpath(path, top)],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and bool(textsafe.oneline(r.stdout.strip()))
+
+
+def not_a_repo_root(path: str) -> tuple[str, str]:
+    """('not_root', why) for a folder whose files a repository above it tracks, else ('not_git', why).
+    A host takes only a repo's top folder, so `git init` is the wrong advice for the first; a
+    folder merely sitting untracked in a repo is not part of it and does need its own."""
+    top = enclosing_repo(path)
+    if top and top != path and _tracked_in(top, path):
+        return "not_root", (f"{path} is part of the git repository {top}, not its top folder, "
+                            f"so it cannot be a repo: set `repo:` to {top}")
+    return "not_git", f"{path} is not a git repository: run `git init` there"
+
 
 class Backend:
     name = ""
@@ -68,7 +107,8 @@ class Backend:
     # -- repos and worktrees
     def ensure_repo(self, path: str, present: bool = True) -> tuple[str, str]:
         """Make sure the host knows `path` as a repo: (state, what to tell the founder). State is
-        'known', 'added', 'not_git', 'no_orca' (the host is missing) or 'failed'. `present` is the
+        'known', 'added', 'not_git', 'not_root' (inside a repo, not its top), 'no_orca' (the host is
+        missing) or 'failed'. `present` is the
         caller's word on whether the host is there, so it is asked once, in one place."""
         raise NotImplementedError
 

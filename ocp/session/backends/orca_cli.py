@@ -9,7 +9,7 @@ import shutil
 import subprocess
 
 from ...infra import textsafe
-from .base import Backend
+from .base import Backend, not_a_repo_root
 
 # `--tab` waits for Orca to persist the layout; a wedged Orca must not hold the tick.
 CLOSE_TIMEOUT_S = 30
@@ -185,8 +185,8 @@ class OrcaBackend(Backend):
 
         state is 'known' (already there, left alone), 'added', 'not_git' (Orca is
         not asked: a folder that is not a git repository needs the founder's
-        `git init` first), 'no_orca' or 'failed'. The list is read first, so a
-        repo Orca already has is never added twice."""
+        `git init` first), 'not_root' (inside a repository, not its top), 'no_orca' or
+        'failed'. The list is read first, so a repo Orca already has is never added twice."""
         path = os.path.realpath(os.path.expanduser(path))
         add = "orca repo add --path " + shlex.quote(path)
         if not present:
@@ -198,8 +198,8 @@ class OrcaBackend(Backend):
         if path in known:
             return "known", f"Orca already has {path}"
         if not os.path.exists(os.path.join(path, ".git")):
-            return "not_git", (f"{path} is not a git repository, so Orca cannot have it: "
-                               f"run `git init` there, then `{add}`")
+            state, why = not_a_repo_root(path)
+            return state, why + (f", then `{add}`" if state == "not_git" else "")
         ok, out = _run(["repo", "add", "--path", path, "--json"])
         try:
             ok = ok and bool(json.loads(out).get("ok"))
