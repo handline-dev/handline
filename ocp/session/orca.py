@@ -702,13 +702,18 @@ def shell_prompt_in(tail: list) -> bool:
     return bool(below) and bool(_SHELL_PROMPT.search(below[-1].strip()))
 
 
-def shell_prompt_showing(handle: str) -> bool | None:
-    """`shell_prompt_in` for this terminal's screen; None when it cannot be read."""
+def _screen_tail(handle: str) -> list | None:
     term = _screen(handle)
     tail = term.get("tail") if term else None
     if not isinstance(tail, list) or term.get("source") != "screen":
         return None
-    return shell_prompt_in(tail)
+    return tail
+
+
+def shell_prompt_showing(handle: str) -> bool | None:
+    """`shell_prompt_in` for this terminal's screen; None when it cannot be read."""
+    tail = _screen_tail(handle)
+    return None if tail is None else shell_prompt_in(tail)
 
 
 def clear_shell(handle: str) -> tuple[bool, str]:
@@ -717,19 +722,38 @@ def clear_shell(handle: str) -> tuple[bool, str]:
     return send(handle, CTRL_C, enter=False)
 
 
+# What a Ctrl-C's record keeps of the screen that earned it: the bottom rows, each cut short.
+CLEARED_ROWS, CLEARED_ROW_CHARS = 6, 200
+
+
+# Called as `on_cleared(handle, rows)` before each Ctrl-C; the daemon sets it to write the event.
+on_cleared = None
+
+
 def send_to_session(handle: str, text: str, settle_s: float = SHELL_SETTLE_S) -> tuple[bool, str]:
     """`send` for text meant for a session, which must never reach a shell. Nothing is typed where the
     screen already shows a shell; and after the type the screen is read again, since the session can
     exit between the check and the typing. Text that landed at a shell is not delivered: the
-    continuation it opened is cleared and the send is reported as failed, so nothing is recorded as told."""
-    if shell_prompt_showing(handle):
+    continuation it opened is cleared and the send is reported as failed, so nothing is recorded as told.
+
+    A Ctrl-C into a session that was in fact running would interrupt its turn, so each one is made
+    visible: `on_cleared(handle, rows)` is called with the screen rows that read as a shell, before it is sent."""
+    tail = _screen_tail(handle)
+    if tail is not None and shell_prompt_in(tail):
         return False, "a shell prompt is showing, not a session; nothing typed"
     ok, out = send(handle, text)
     if not ok:
         return ok, out
     if settle_s:
         time.sleep(settle_s)
-    if shell_prompt_showing(handle):
+    tail = _screen_tail(handle)
+    if tail is not None and shell_prompt_in(tail):
+        if on_cleared is not None:
+            rows = [textsafe.oneline(str(r))[:CLEARED_ROW_CHARS] for r in tail if str(r).strip()]
+            try:
+                on_cleared(handle, rows[-CLEARED_ROWS:])
+            except Exception:       # noqa: BLE001 - the record is a witness; it must not stop the clear
+                pass
         clear_shell(handle)
         return False, "the session had exited: the text reached a shell prompt, which was cleared"
     return ok, out
