@@ -2886,37 +2886,34 @@ async def test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of
               str((pane.scroll_y, pane.max_scroll_y, pane.virtual_size, pane.size)))
 
 
-async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder() -> None:
-    """T932: Ask is offered on any open task with an earlier holder; the question goes to that
-    agent as a say tied to the task, the owner does not change, and the agent's reply joins the task."""
+async def test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it() -> None:
+    """The memo box has a recipient list - no one (a memo) or an agent (a question on the task,
+    a say tied to it, the holder unchanged). Who the founder last chatted with comes first, then the
+    holder's team; the question is not drawn in the chat, its answer is."""
     from textual.app import App
+    from textual.widgets import Select
     from ocp.daemon import sends
+    from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
-    from ocp.ui.components.task_assign import TaskAsk
     _home("ask_holder")
-    agents.register("backend")
-    agents.register("archivist")
-    agents.register("other")
+    for a in ("backend", "archivist", "zed"):
+        agents.register(a)
     ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
     con = db.connect()
     try:
-        h1 = actions.assign_task(con, tid, "archivist", "over to you")
-        h2 = actions.task_handoff(con, "archivist", tid, actions.HUMAN, "yours now")
-        check("ask: the setup went", h1[0] and h2[0], str((h1, h2)))
-        before = db.get_task(con, tid)["owner"]
-        check("ask: the latest holder before the founder comes first, the founder never",
-              actions.previous_holders(con, tid)[:2] == ["archivist", "backend"], str(actions.previous_holders(con, tid)))
-        ok, said = actions.ask_previous_holder(con, tid, "other", "why?")
-        check("ask: an agent that never held it is refused", not ok, said)
-        ok, said = actions.ask_previous_holder(con, tid, "archivist", "  ")
+        askmod.say("zed", "hello", requester=actions.HUMAN)
+        check("ask: who the founder last chatted with, newest first", actions.recent_chatted(con)[:1] == ["zed"],
+              str(actions.recent_chatted(con)))
+        ok, said = actions.ask_on_task(con, tid, "archivist", "  ")
         check("ask: an empty question is refused", not ok, said)
-        ok, said = actions.ask_previous_holder(con, tid, "archivist", "why did you do it this way?")
+        before = db.get_task(con, tid)["owner"]
+        ok, said = actions.ask_on_task(con, tid, "archivist", "why did you do it this way?")
         check("ask: the question is sent", ok, said)
         asked = [r for r in db.task_requests(con, tid) if r["target"] == "archivist" and r["kind"] == "say"]
         check("ask: it reached the agent, from the founder, with the task named, tied to the task",
               len(asked) == 1 and asked[0]["requester"] == actions.HUMAN and f"T{tid}" in asked[0]["body"]
               and "why did you do it this way?" in asked[0]["body"], str(asked))
-        check("ask: the task stays with the founder", db.get_task(con, tid)["owner"] == before == actions.HUMAN)
+        check("ask: the holder does not change", db.get_task(con, tid)["owner"] == before)
         ok, said = sends.say_verb(con, lambda *_: None, target=actions.HUMAN, body="because of X",
                                   parent=asked[0]["id"], requester="archivist", speaker="archivist")
         check("ask: the agent answers with no --task needed", ok, said)
@@ -2924,6 +2921,17 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holde
         check("ask: the question and its answer are both in the task's timeline",
               any(e["kind"] == "request" and "archivist → human" in e["who"] for e in timeline)
               and any(e["kind"] == "request" and "human → archivist" in e["who"] for e in timeline), str(timeline))
+        rows, _ = cp.requests_page(con, "archivist", False)
+        shown = [(m["who"], m["text"]) for m in cp.messages_of(rows, "archivist")]
+        check("ask: the chat shows the answer, not the founder's question",
+              shown == [("archivist", "because of X")], str(shown))
+        ok, _, plain = askmod.say("archivist", "an ordinary message", requester=actions.HUMAN)
+        db.link_request(con, tid, plain)
+        shown = [m["text"] for m in cp.messages_of(cp.requests_page(con, "archivist", False)[0], "archivist")]
+        check("ask: a founder message linked to the task another way is still drawn", "an ordinary message" in shown,
+              str(shown))
+        first = actions.question_targets("backend", ["archivist", "backend", "zed"], ["zed"])
+        check("ask: recent first, then the rest", first[0] == ["zed"] and "zed" not in first[1] + first[2], str(first))
     finally:
         con.close()
 
@@ -2934,34 +2942,21 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holde
             yield cp.TaskBody(tid, keys=True)
 
     app = Host()
-    async with app.run_test(size=(100, 40)) as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause(0.5)
-        button = app.query_one("#ask")
-        check("ask: the page offers Ask archivist with its key", button.display and "archivist" in str(button.label)
-              and "q" in str(button.label), str(button.label))
-        app.query_one(cp.TaskBody).action_ask_task()
+        check("ask: the Ask button is gone", not app.query("#ask"))
+        to = app.query_one("#t_memo_to", Select)
+        check("ask: the box offers no one, and the holder is picked", to.value == "backend", str(to.value))
+        to.value = ""
+        app.query_one("#t_memo_box").value = "just a note"
+        app.query_one(cp.TaskBody).action_memo_add()
         await pilot.pause()
-        check("ask: Ask opens the box over the page", isinstance(app.screen, TaskAsk), str(app.screen_stack))
-        await pilot.press("escape")
-        await pilot.pause()
-    con = db.connect()
-    try:
-        back = actions.assign_task(con, tid, "archivist", "back to you")
-        check("ask: the task went back to an agent", back[0], str(back))
-    finally:
-        con.close()
-    app = Host()
-    async with app.run_test(size=(100, 40)) as pilot:
-        await pilot.pause(0.5)
-        button = app.query_one("#ask")
-        check("ask: a task an agent holds offers Ask too, never of the holder itself",
-              button.display and "archivist" not in str(button.label), str(button.label))
-    con = db.connect()
-    try:
-        ok, said = actions.ask_previous_holder(con, tid, "archivist", "me?")
-        check("ask: the current holder is not asked as a previous one", not ok, said)
-    finally:
-        con.close()
+        con = db.connect()
+        try:
+            check("ask: no one picked is a plain memo", any(e["kind"] == "memo" and "just a note" in e["text"]
+                                                             for e in actions.task_timeline(con, tid)))
+        finally:
+            con.close()
 
 
 async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
@@ -4961,7 +4956,7 @@ async def _run_all() -> None:
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
-    await test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder()
+    await test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal()
     await test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page()

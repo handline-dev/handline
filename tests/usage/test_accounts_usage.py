@@ -2841,6 +2841,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "background_prompted", "background_abandoned", "background_started", "background_checked",
                     "schedule_fired",           # T605: a scheduled message the daemon typed
                     "settle_decision_task",     # the founder's task following its request out of the queue
+                    "task_question",            # the founder's question on a task, recorded so the chat can tell it
                     "plan_changed"}             # T743: an account's plan, asked again, is not the one recorded
     # login_expired is an account's login found expired on an agent's screen, recorded
     # under the agent that showed it, not anything that agent did.

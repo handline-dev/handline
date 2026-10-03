@@ -68,14 +68,3 @@ class TaskAssign(Dialog):
         stall.crumb("assign modal: Enter in the note")
         self.finish(self.result())
 
-
-class TaskAsk(TaskAssign):
-    """The founder asking an agent that held the task before: pick whom (the latest holder is first)
-    and type the question. Dismisses with (to, text), or None."""
-
-    VERB = "Ask about"
-
-    def __init__(self, ref: str, holders: list[str]) -> None:
-        super().__init__(ref, "", [])
-        self.options = [(a, a) for a in holders]
-        self.others = holders
