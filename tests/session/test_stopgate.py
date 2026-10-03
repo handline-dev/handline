@@ -115,6 +115,115 @@ def test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(home: Path
           stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
 
 
+def _told(con, requester: str, body: str, notice: bool = False, parent: int | None = None) -> int:
+    rid = db.add_request(con, requester, "worker", body, None, None, "fire_and_forget", "say", 0, parent,
+                         notice=notice)
+    con.execute("UPDATE requests SET delivered_at = 1 WHERE id = ?", (rid,))
+    return rid
+
+
+def test_a_question_left_unanswered_is_reminded_once_when_the_turn_ends(home: Path) -> None:
+    _board_world(home)
+    con = db.connect()
+    try:
+        rid = _told(con, db.HUMAN, "다음에 뭐 할 거예요")
+        block, reason = stopgate.decide("worker", {"session_id": "s1"})
+        check("reminder: the founder's message with no answer is reminded, naming the command to answer it",
+              block is True and f"#{rid}" in reason and f"ocp say {db.HUMAN} --parent {rid}" in reason
+              and "what you write in the terminal reaches no one" in reason, (block, reason))
+        block, reason = stopgate.decide("worker", {"session_id": "s1"})
+        con2 = db.connect()
+        try:
+            logged = [json.loads(r["payload"]) for r in con2.execute(
+                "SELECT payload FROM events WHERE agent = 'worker' AND kind = 'stop_gate'")]
+        finally:
+            con2.close()
+        check("reminder: the reminder is logged as a stop_gate event naming the message",
+              logged == [{"answer_reminder": rid, "enforced": True}], str(logged))
+        check("reminder: once per message, never repeated", (block, reason) == (False, None), (block, reason))
+        block, reason = stopgate.decide("worker", {"session_id": "s2"})
+        check("reminder: not even in a new session", (block, reason) == (False, None), (block, reason))
+        rid2 = _told(con, db.HUMAN, "and this one?")
+        block, reason = stopgate.decide("worker", {"session_id": "s2"})
+        check("reminder: a new message is a new reminder", block is True and f"#{rid2}" in reason, (block, reason))
+    finally:
+        con.close()
+    block, reason = stopgate.decide("worker", {"session_id": "s3", "stop_hook_active": True})
+    check("reminder: a stop that is itself the reminder's turn is never blocked", (block, reason) == (False, None))
+
+
+def test_no_reminder_when_it_answered_or_the_message_asks_nothing(home: Path) -> None:
+    _board_world(home)
+    con = db.connect()
+    try:
+        rid = _told(con, "manager", "which branch is it on?")
+        db.add_request(con, "worker", "manager", "main", None, None, "fire_and_forget", "say", 0, None)
+        check("no reminder: it said something to the sender after the question",
+              stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        _told(con, "manager", "FYI the build is green")
+        check("no reminder: an agent's message with no question asks nothing",
+              stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        _told(con, db.NOTICE_REQUESTER, "T5 done by x: is it good?", notice=True)
+        check("no reminder: a notice never asks, whatever it says",
+              stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        _told(con, db.NOTICE_REQUESTER, "T6 unblocked - is it?")
+        check("no reminder: nor does any line from the task board",
+              stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        rid2 = _told(con, "manager", "can you look at the retry loop？")
+        block, reason = stopgate.decide("worker", {"session_id": "s1"})
+        check("reminder: an agent's question, even with a full-width mark, is reminded and addressed to it",
+              block is True and f"ocp say manager --parent {rid2}" in reason, (block, reason))
+    finally:
+        con.close()
+
+
+def test_a_reply_answers_the_agent_and_asks_nothing_whoever_sent_it(home: Path) -> None:
+    _board_world(home)
+    con = db.connect()
+    try:
+        ask = db.add_request(con, "worker", db.HUMAN, "may I?", None, None, "fire_and_forget", "say", 0, None)
+        _told(con, db.HUMAN, "handed to orcapipe", parent=ask)
+        check("reply: the machine's 'handed to' answer to the agent's own ask gives no reminder",
+              stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        _told(con, db.HUMAN, "cleared - it can be given its work again", parent=ask)
+        check("reply: nor does a 'cleared' one", stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        _told(con, db.HUMAN, "approve? yes", parent=ask)
+        check("reply: nor a reply with a question mark in it",
+              stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        older = _told(con, db.HUMAN, "what is the status?")
+        _told(con, db.HUMAN, "ok", parent=older)
+        check("reply: and the question it answers is not found behind it",
+              stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+        con2 = db.connect()
+        try:
+            check("reminder: no event is logged for any of them",
+                  con2.execute("SELECT 1 FROM events WHERE agent = 'worker' AND kind = 'stop_gate'").fetchone() is None)
+        finally:
+            con2.close()
+    finally:
+        con.close()
+
+
+def test_the_task_wait_comes_first_and_the_reminder_waits_for_it(home: Path) -> None:
+    tid = _open_task(home)
+    con = db.connect()
+    try:
+        rid = _told(con, db.HUMAN, "status?")
+    finally:
+        con.close()
+    block, reason = stopgate.decide("worker", {"session_id": "s1"})
+    check("order: a current task with no wait is the reason given, the question is not mentioned",
+          block is True and f"T{tid}" in reason and f"#{rid}" not in reason, (block, reason))
+    con = db.connect()
+    try:
+        db.set_current_task(con, "worker", None)
+    finally:
+        con.close()
+    block, reason = stopgate.decide("worker", {"session_id": "s1"})
+    check("order: and the reminder is still owed once the task no longer holds it",
+          block is True and f"#{rid}" in reason, (block, reason))
+
+
 def test_the_enforce_switch_is_the_founders_to_flip(home: Path) -> None:
     _board_world(home)
     check("on by default", stopgate.enforced() is True)
@@ -200,6 +309,10 @@ def main() -> int:
         run(lambda: test_stop_wait_reason_becomes_a_reason_naming_the_task(Path(td) / 'sg0'))
         run(lambda: test_stop_hook_active_and_once_per_session_guard_the_loop(Path(td) / 'sg1'))
         run(lambda: test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(Path(td) / 'sg2'))
+        run(lambda: test_a_question_left_unanswered_is_reminded_once_when_the_turn_ends(Path(td) / 'sg5'))
+        run(lambda: test_no_reminder_when_it_answered_or_the_message_asks_nothing(Path(td) / 'sg6'))
+        run(lambda: test_the_task_wait_comes_first_and_the_reminder_waits_for_it(Path(td) / 'sg7'))
+        run(lambda: test_a_reply_answers_the_agent_and_asks_nothing_whoever_sent_it(Path(td) / 'sg8'))
         run(lambda: test_the_enforce_switch_is_the_founders_to_flip(Path(td) / 'sg3'))
         run(lambda: test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(Path(td) / 'sg4'))
     return run_area(tests)
