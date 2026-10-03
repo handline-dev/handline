@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 from ...infra import names, textsafe
-from .base import Backend
+from .base import Backend, not_a_repo_root
 
 SOCKET = "ocp"
 SESSION = "ocp"
@@ -190,7 +190,7 @@ class TmuxBackend(Backend):
         path = os.path.realpath(os.path.expanduser(path))
         if os.path.exists(os.path.join(path, ".git")):
             return "known", f"{path} is a git repository"
-        return "not_git", f"{path} is not a git repository: run `git init` there"
+        return not_a_repo_root(path)
 
     def create_worktree(self, repo: str, name: str, base_ref: str) -> tuple[str | None, str]:
         """A sibling directory `<repo>.worktrees/<name>` on a new branch `<name>`; a name already
