@@ -55,8 +55,9 @@ ocp hr team shop --member sea=/Users/you/code/sea --member shore --why "split th
 ocp hr link reviewer backend --why "backend may ask the reviewer for a second look"
 ```
 
-`ocp hr` files a proposal for you to approve. After you approve it, `ocp hr apply <id>` carries it
-out. `ocp hr list` shows proposals and what became of them.
+`ocp hr` files a proposal for you to decide. `ocp hr approve <id>` applies it at once and
+tells the agent that asked; `ocp hr reject <id> "why"` turns it down. `ocp hr list` shows proposals
+and what became of them.
 
 ## agent.yaml
 

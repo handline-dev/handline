@@ -380,11 +380,11 @@ def _close_replied(parent_id: int, reply_id: int, reply_body: str) -> None:
     is told, and it is marked as the answer, so there is one message. Only when it comes from
     the request's own target, to its requester, and the request is no roster proposal (those
     are decided with approve or reject) and no task (that is handed on or finished)."""
-    from . import hr, trust
+    from . import trust
     con = db.connect()
     try:
         parent, reply = db.get_request(con, parent_id), db.get_request(con, reply_id)
-        proposal = parent is not None and (hr.open_proposal_of(parent_id) or trust.open_proposal_of(parent_id))
+        proposal = parent is not None and trust.open_proposal_of(parent_id)
     finally:
         con.close()
     if (parent is not None and parent["state"] == "queued" and not proposal
@@ -560,18 +560,6 @@ def withdraw(rid: int, requester: str | None = None,
             # here apart: `retire_if_undelivered`'s own race - a delivery
             # landing between the read above and this write, the one its
             # docstring exists to close - leaves the row queued too.
-            # `hr.is_open_proposal` is what actually happened.
-            from . import hr
-            if hr.is_open_proposal(rid, con):
-                # #1943: a roster proposal's own decision task is `requester`'s
-                # to withdraw here too - ordinary ownership, since it is
-                # `requester`'s own row - but the ocp/db/requests.py chokepoint refuses
-                # this generic verdict on it the same way it refuses every
-                # other non-decision close. `hr withdraw` is the door built
-                # for it: it marks the proposal withdrawn first, which is
-                # what lets its own close through.
-                return False, (f"#{rid} is a roster proposal - `ocp hr withdraw` it "
-                               f"instead, not `ocp withdraw`")
             return False, too_late
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
@@ -630,8 +618,6 @@ def cancel(rid: int) -> tuple[bool, str]:
     mid-work on it - is typed a notice with delivery's gates when it had been
     delivered. Whatever is behind it delivers next.
     """
-    from . import hr
-
     con = db.connect()
     try:
         row = db.get_request(con, rid)
@@ -643,12 +629,6 @@ def cancel(rid: int) -> tuple[bool, str]:
             return False, f"#{rid} is already {row['state']} - nothing to cancel{stop}"
         if row["requester"] == HUMAN and not row["delivered_at"]:
             return withdraw(rid, requester=HUMAN)
-        if hr.is_open_proposal(rid, con):
-            # Same family as #1908/#1919: CANCEL_VERDICT is not approve or
-            # reject either, so cancelling a roster proposal would strand
-            # it exactly as an unguarded resolve or dismiss would.
-            return False, (f"#{rid} is a roster proposal - answer `approve` or "
-                           f"`reject`, it cannot be cancelled")
         notify = row["requester"] != HUMAN
         closed = _close_and_tell(con, rid, row, CANCEL_VERDICT, notify)
         if closed is None:
@@ -678,8 +658,6 @@ def retire_open(con, rid: int, verdict: str, notify: bool | None = None) -> tupl
     answer path unless it is the founder, who is not sent a rejection of his
     own request for something an agent did to its task (T302).
     """
-    from . import hr
-
     row = db.get_request(con, rid)
     if row is None:
         return False, f"#{rid} is gone"
@@ -687,8 +665,6 @@ def retire_open(con, rid: int, verdict: str, notify: bool | None = None) -> tupl
         notify = row["requester"] != HUMAN
     if row["state"] != "queued":
         return False, f"#{rid} is already {row['state']} - nothing to retire"
-    if hr.is_open_proposal(rid, con):
-        return False, f"#{rid} is a roster proposal - answer `approve` or `reject`"
     closed = _close_and_tell(con, rid, row, verdict, notify)
     if closed is None:
         if db.is_still_queued(con, rid):
@@ -761,17 +737,8 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
         row = db.get_request(con, rid)
         if row is None:
             return False, f"request {rid} does not exist"
-        from . import hr, trust
-        proposal = None
-        if row["state"] == "queued":
-            proposal = next(((m, i) for m, i in ((hr, hr.open_proposal_of(rid)),
-                                                 (trust, trust.open_proposal_of(rid))) if i), None)
-        if row["state"] == "queued" and proposal is None:
-            kind = hr.unknown_kind_of(rid)
-            if kind:
-                return False, (f"#{rid} is a roster proposal of kind {kind!r}, which this "
-                               f"process does not know, so it was not answered. Restart the "
-                               f"daemon and the bridge (they run older code) and answer again.")
+        from . import trust
+        proposal = trust.open_proposal_of(rid) if row["state"] == "queued" else None
         if open_tasks is not None:
             con.execute("BEGIN IMMEDIATE")
         try:
@@ -800,49 +767,45 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
                 # here.
                 return False, f"#{rid} was not resolved - it is still queued"
             return False, f"#{rid} is already {fresh['state']} - nothing to resolve"
-        applied = _apply_answered(con, row, *proposal, verdict) if proposal else ""
+        applied = _apply_answered(con, row, proposal, verdict) if proposal else ""
         return True, (applied + "\n" if applied else "") + _after_close(con, rid, row, state, notify)
     finally:
         con.close()
 
 
-def _apply_answered(con, row, mod, pid: str, verdict: str | None) -> str:
-    """The founder answered roster or trust proposal `pid` (`mod` is `hr` or
-    `trust`). An approve is carried out now, and the outcome goes on the answer
-    the proposer is about to be told; a failed apply is also reported to the
-    founder, and the proposal stays `proposed` so `apply` or `withdraw` can
-    still settle it. A reject is only recorded on the proposal's file."""
-    from . import decisions, hr, trust
+def _apply_answered(con, row, pid: str, verdict: str | None) -> str:
+    """The founder answered trust proposal `pid`. An approve is carried out now, and the outcome
+    goes on the answer the proposer is about to be told; a failed apply is also reported to the
+    founder, and the proposal stays `proposed` so `apply` can still settle it. A reject is only
+    recorded on the proposal's file."""
+    from . import decisions, trust
 
-    call = hr.decision(verdict)
-    kind = "trust" if mod is trust else "hr"
+    call = decisions.call_of(verdict)
     if call in ("approved", "rejected"):
         try:
-            prop = mod.load_proposal(pid)
+            prop = trust.load_proposal(pid)
         except (OSError, ConfigError, UnicodeDecodeError) as e:
             return f"proposal {pid} cannot be read: {e}"
         if not prop:
             return f"no proposal {pid}"
-        subject = mod.subject_of(prop)
+        subject = trust.subject_of(prop)
         if call == "approved":
-            subject, why_not = mod.answered(prop, row)
+            subject, why_not = trust.answered(prop, row)
             if why_not:
                 return f"proposal {pid} was not applied: {why_not}"
         try:
-            decisions.record(kind, pid, hr.task_of_card(con, row["id"]) or 0, call, subject)
+            decisions.record("trust", pid, decisions.task_of_card(con, row["id"]) or 0, call, subject)
         except PermissionError as e:
             return f"proposal {pid} was not applied: {e}"
     if call == "rejected":
-        mod.apply(pid, con)
+        trust.apply(pid, con)
         return ""
     if call != "approved":
         return ""
-    ok, said = mod.apply(pid, con)
+    ok, said = trust.apply(pid, con)
     line = f"proposal {pid} " + ("applied: " if ok else "could not be applied: ") + said
     db.append_verdict(con, row["id"], line)
     if not ok:
         report(con, row["requester"], f"{line}\nThe proposal is still open; "
-               f"`ocp {kind} apply {pid}` retries it"
-               + (f", `ocp hr withdraw {pid}` drops it." if kind == "hr" else "."),
-               "proposal approved, apply failed")
+               f"`ocp trust apply {pid}` retries it.", "proposal approved, apply failed")
     return line

@@ -41,6 +41,7 @@ from .theme import follow_os_theme
 from ..infra import timefmt
 from .components.ime import ImeInput
 from .components.confirm import Confirm
+from .components import hr_card
 from .components.dialog import Dialog
 from .components.dialog_modal import DialogModal
 from .components.permission_modal import PermissionModal
@@ -222,10 +223,19 @@ def session_marks(con, agent: str, msgs: list[dict]) -> list[dict]:
             if r["ts"] >= since and not r["resumed"]]
 
 
-def session_line(r: dict) -> str:
-    """The one line a new session is drawn as: when, why, and that a handoff can be read."""
-    cause = START_WORDS.get(r["cause"], r["cause"])
-    return f"new session · {timefmt.stamp(r['ts'], timefmt.CLOCK)} · {cause}" + (" · handoff ▸" if r["text"] else "")
+def session_head(r: dict) -> str:
+    """Line 1 of a session start: when, then why."""
+    return f"{timefmt.stamp(r['ts'], timefmt.CLOCK)} · {START_WORDS.get(r['cause'], r['cause'])}"
+
+
+def session_line(r: dict) -> Text:
+    """A new session as two lines: when and why, then "new session" - with "handoff" a link to read
+    it, where there is one."""
+    out = Text(session_head(r) + "\nnew session", style="dim")
+    if r["text"]:
+        out.append(" with ")
+        out.append("handoff", style=Style(underline=True, meta={"@click": "open"}))
+    return out
 
 
 def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
@@ -242,6 +252,14 @@ def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
     return out + later + waiting
 
 
+def hr_cards(agent: str, everyone: bool, msgs: list[dict]) -> list[dict]:
+    """The HR requests of `agent` (asked by it or about it; all of them in the all-chat) as entries for
+    the chat: {hr: the request, when}. A request waiting stays; a decided one stays from the first message drawn."""
+    since = min((m["when"] for m in msgs if m["when"]), default=0)
+    return [{"hr": p, "when": p["ts"]} for p in hr_card.pending(since)
+            if everyone or agent in (p["agent"], p.get("requested_by"))]
+
+
 def signature(con, agent: str, everyone: bool) -> tuple:
     """A cheap reading that changes whenever something in the chat does: a new
     request, or a request answered, closed or changed, or a session started."""
@@ -256,7 +274,8 @@ def signature(con, agent: str, everyone: bool) -> tuple:
                          f"({','.join('?' * len(_STATE_AFTER))})", tuple(_STATE_AFTER)).fetchone()
     starts = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM session_starts WHERE agent = ?",
                          (agent,)).fetchone()
-    return (*row, *events, *starts)
+    asked = tuple((p["id"], p["state"]) for p in hr_card.pending())
+    return (*row, *events, *starts, asked)
 
 
 def _col(r, name: str):
@@ -375,6 +394,7 @@ def task_detail(con, tid: int) -> dict | None:
             "discarded": (t["discarded_by"], t["discard_reason"], t["discarded_at"]) if t["discarded_by"] else None,
             "merged_into": t["merged_into"],
             "brief_text": actions.task_brief(con, tid),
+            "timeout": None if state in ("done", "discarded") else actions.task_timeout(con, t, state),
             "children": kids, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
             "can_done": state in ("draft", "queued", "doing"),
             "can_reopen": state == "done" and mine,
@@ -593,6 +613,11 @@ def task_page(d: dict) -> dict:
             facts.append(("merged into", link(d["merged_into"], actions.task_ref(d["merged_into"]))))
         elif why:
             facts.append(("reason", Text(safe(why))))
+    if d.get("timeout"):
+        first, *rest = actions.timeout_lines(d["timeout"])
+        facts.append(("timeout", Text(first.removeprefix("timeout "))))
+        for line in rest:
+            facts.append(("", Text(line, style="bold red" if d["timeout"]["state"] == "over" else "")))
     facts.append(("asked by", Text(safe(d["asker"]))))
     meta = Text()
     for label, value in facts:
@@ -621,21 +646,18 @@ class TaskChange(Vertical):
 
 class SessionMark(Static, can_focus=True):
     """Where a session started, drawn as a system line, not as anyone's message. Where it was given a
-    handoff, a click (or Enter) reads it."""
+    handoff, a click on its word (or Enter) reads it."""
 
     BINDINGS = [("enter", "open", "read the handoff")]
 
     def __init__(self, m: dict) -> None:
-        super().__init__(Text(session_line(m["session"]), style="dim"), classes="sessionmark")
+        super().__init__(session_line(m["session"]), classes="sessionmark")
         self.m = m
-
-    def on_click(self) -> None:
-        self.action_open()
 
     def action_open(self) -> None:
         r = self.m["session"]
         if r["text"]:
-            self.app.push_screen(HandoffModal(session_line(r).removesuffix(" ▸"), r["text"]))
+            self.app.push_screen(HandoffModal(session_head(r), r["text"]))
 
 
 class HandoffModal(Dialog):
@@ -695,6 +717,9 @@ def transcript_widgets(msgs: list[dict], working: bool, why: str = "", wait: str
     for m in msgs:
         if "session" in m:
             out.append(SessionMark(m))
+            continue
+        if "hr" in m:
+            out.append(hr_card.HrCard(m["hr"]))
             continue
         if "change" in m and not is_card(m):
             out.append(TaskChange(m))
@@ -1802,7 +1827,8 @@ class ChatPage(JobsAware, Screen):
             actions.for_you_seen(con, self.agent, max((max(r["id"], r["answer_id"] or 0) for r in rows), default=0))
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
             fold_handoffs(con, msgs)
-            changes = task_changes(con, msgs, self.agent) + session_marks(con, self.agent, msgs)
+            changes = (task_changes(con, msgs, self.agent) + session_marks(con, self.agent, msgs)
+                       + hr_cards(self.agent, self.everyone, msgs))
         finally:
             con.close()
         state, detail = self.agent_state
@@ -1812,7 +1838,8 @@ class ChatPage(JobsAware, Screen):
                      for r in rows),
                tuple((c["tasks"][0], c["when"], c["change"]) for c in changes if "change" in c),
                tuple((c["when"], c["session"]["session_id"], c["session"]["cause"], bool(c["session"]["text"]))
-                     for c in changes if "session" in c))
+                     for c in changes if "session" in c),
+               tuple((c["hr"]["id"], c["hr"]["state"]) for c in changes if "hr" in c))
         live = (state == "RUNNING", why, wait)
         if key == self._transcript_key and not force:
             if live != self._live:      # only the spinner, the wait or a reason: redraw those, not the chat
@@ -2235,6 +2262,10 @@ class ChatPage(JobsAware, Screen):
         if self.is_attached:
             self.toast(said, not said.startswith("not sent"))
             self.refresh_conversation(force=True)
+
+    def on_hr_card_decided(self, event: hr_card.HrCard.Decided) -> None:
+        self.toast(textsafe.oneline(event.said), event.ok)
+        self.refresh_conversation(force=True)
 
     def cancel_message(self, rid: int, body: str) -> bool:
         """Take request `rid` back and put its text in the box. Not yet

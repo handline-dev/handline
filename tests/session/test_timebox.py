@@ -145,6 +145,24 @@ def test_a_doing_tasks_timeout_starts_silently_then_repeats(home: Path) -> None:
         con.close()
 
 
+def test_the_board_reads_how_long_a_task_is_over_from_the_notice_even_on_a_stale_tick(home: Path) -> None:
+    """The tick's `now` is read before the wakes, so a notice can be sent long after the tick time
+    the next deadline is armed from; the screen follows the recorded deadlines, not timestamps."""
+    _world(home)
+    con = db.connect()
+    try:
+        now = int(time.time())
+        tid = db.new_task(con, "ship it", "marina", "manager", timeout_s=3600)
+        _doing(con, tid, "marina")
+        timebox.sweep(con, lambda _m: None, now - 3700)         # the clock starts: deadline now - 100
+        timebox.sweep(con, lambda _m: None, now - 100)          # a tick 100s stale tells the opener
+        t = actions.task_timeout(con, db.get_task(con, tid), "doing", now)
+        check("task timeout: just told, the task reads over by the deadline it missed, not 'left'",
+              t["state"] == "over" and t["told"] == 1 and t["over"] == 100, str(t))
+    finally:
+        con.close()
+
+
 def test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(home: Path) -> None:
     """T301: findings, holds and `task begin` never pass `task new -t`, so their
     tasks carry no timeout_s. The clock is set where the task becomes doing -
@@ -1241,6 +1259,7 @@ def main() -> int:
             run(lambda: test_a_stand_in_behind_an_ask_blocked_head_is_nudged_and_capped(Path(td) / 'tb20'))
             run(lambda: test_a_block_that_clears_hands_the_head_back_and_it_is_the_one_nudged(Path(td) / 'tb21'))
             run(lambda: test_a_doing_tasks_timeout_starts_silently_then_repeats(Path(td) / 'tb2b'))
+            run(lambda: test_the_board_reads_how_long_a_task_is_over_from_the_notice_even_on_a_stale_tick(Path(td) / 'tb2d'))
             run(lambda: test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(Path(td) / 'tb2c'))
             run(lambda: test_a_doing_tasks_timeout_pauses_while_it_is_not_doing(Path(td) / 'tb2b2'))
             run(lambda: test_a_task_timeout_notice_goes_to_whoever_opened_it_not_the_owner(

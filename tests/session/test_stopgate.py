@@ -58,6 +58,17 @@ def test_stop_wait_reason_becomes_a_reason_naming_the_task(home: Path) -> None:
     check("still naming the same current task", f"T{tid}" in reason2, reason2)
 
 
+def test_a_roster_proposal_waiting_on_the_founder_is_a_recorded_wait(home: Path) -> None:
+    _open_task(home)
+    ok, said = hr.propose("add", "helper", repo="/repo", requester="worker", why="more hands")
+    check("setup: the worker raises a roster proposal", ok, said)
+    check("a proposal of its own waiting on the founder lets its turn end",
+          stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+    hr.decide(said.split()[1], "rejected", askmod.HUMAN)
+    block, reason = stopgate.decide("worker", {"session_id": "s2"})
+    check("once decided it is no wait: the current task needs its own", block is True and reason, (block, reason))
+
+
 def test_stop_hook_active_and_once_per_session_guard_the_loop(home: Path) -> None:
     tid = _open_task(home)
     block, reason = stopgate.decide("worker", {"session_id": "s1", "stop_hook_active": True})
@@ -307,6 +318,7 @@ def test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(home: 
 def main() -> int:
     def tests(td):
         run(lambda: test_stop_wait_reason_becomes_a_reason_naming_the_task(Path(td) / 'sg0'))
+        run(lambda: test_a_roster_proposal_waiting_on_the_founder_is_a_recorded_wait(Path(td) / 'sg9'))
         run(lambda: test_stop_hook_active_and_once_per_session_guard_the_loop(Path(td) / 'sg1'))
         run(lambda: test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(Path(td) / 'sg2'))
         run(lambda: test_a_question_left_unanswered_is_reminded_once_when_the_turn_ends(Path(td) / 'sg5'))

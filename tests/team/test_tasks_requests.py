@@ -2308,30 +2308,17 @@ edges:
               and not any("twoline" in (m["body"] or "") for m in actions.messages(con)), said2)
         check("hr: proposing raises it to the founder and changes nothing",
               ok and "dohyun" not in paths.list_agents(), said)
-        rid = [m["id"] for m in actions.messages(con) if "dohyun" in (m["body"] or "")]
-        check("hr: and it is in front of the founder, with the words to answer with",
-              rid and "approve" in db.get_request(con, rid[0])["body"], said)
+        card = next((c for c in hr.pending() if c["id"] == pid), None)
+        check("hr: and it is in front of the founder, with the words to decide it with",
+              card and f"ocp hr approve {pid}" in card["text"], said)
 
-        # Unanswered, and answered with something that is not a decision.
+        # Not yet decided: nothing applies it.
         ok, said = hr.apply(pid)
-        check("hr: it cannot be applied before it is answered",
-              not ok and "has not answered" in said, said)
-        # #1943: `askmod.resolve` itself now refuses this verdict on an open
-        # proposal - `_set_request_state` (test-only, see #2024) bypasses that
-        # guard to reach the row hr.apply's own decision check exists for:
-        # one closed by something other than this fix, such as data from
-        # before it shipped.
-        answer_card(con, rid[0], "hmm, maybe next week")
-        ok, said = hr.apply(pid)
-        check("hr: nor on an answer that is not a decision",
-              not ok and "not a decision" in said and "dohyun" not in paths.list_agents(),
-              said)
+        check("hr: it cannot be applied before it is approved",
+              not ok and "not approved" in said, said)
 
         # Approved, and the two writes a human would have made.
-        db.reopen_task(con, hr.task_of_card(con, rid[0]), False)       # the stranded answer is replaced
-        answer_card(con, rid[0], "approve")
-        decisions.record("hr", pid, hr.task_of_card(con, rid[0]), "approved", hr.subject_of(hr.load_proposal(pid)))
-        ok, said = hr.apply(pid)
+        ok, said = approve_hr(pid)
         table = yamlcompat.load((home / "team.yaml").read_text())
         check("hr: an approved proposal registers the agent", ok and "dohyun" in paths.list_agents(), said)
         check("hr: and puts it in the team, which is what the routing is keyed on",
@@ -2345,8 +2332,7 @@ edges:
         # work that was actually done.
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
         pid2 = said.split()[1]
-        rid2 = [m["id"] for m in actions.messages(con) if "retire dohyun" in (m["body"] or "")]
-        ok, said = askmod.resolve(rid2[0], "approve")
+        ok, said = approve_hr(pid2)
         table = yamlcompat.load((home / "team.yaml").read_text())
         archived = list((home / "agents" / "archive").glob("*dohyun*"))
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
@@ -2365,9 +2351,7 @@ edges:
         ok, said = hr.propose("rename", "manager", requester="hr", to="harbor-manager",
                               why="it only ever runs the harbor project", team_name=None)
         pid_r = said.split()[1]
-        rid_r = [m["id"] for m in actions.messages(con) if "harbor-manager" in (m["body"] or "")]
-        askmod.resolve(rid_r[0], "approve")
-        ok, said = hr.apply(pid_r)
+        ok, said = approve_hr(pid_r)
         check("hr: an identity does not change under a running session",
               not ok and "session running" in said, said)
         sessions_are()
@@ -2419,8 +2403,7 @@ edges:
         # A rejection is recorded and never applied.
         ok, said = hr.propose("add", "seoyun", repo="/repo", requester="hr", why="third lane", team_name="dev")
         pid3 = said.split()[1]
-        rid3 = [m["id"] for m in actions.messages(con) if "seoyun" in (m["body"] or "")]
-        askmod.resolve(rid3[0], "reject - one lane at a time")
+        hr.decide(pid3, "rejected", actions.HUMAN, "one lane at a time")
         ok, said = hr.apply(pid3)
         check("hr: a rejected proposal stays rejected",
               not ok and "rejected" in said and "seoyun" not in paths.list_agents(), said)
@@ -2474,11 +2457,10 @@ edges:
 
         # An agent proposes; nothing changes until the founder answers.
         os.environ["OCP_AGENT"] = "marina"
-        before = len(actions.messages(con))
         rc = climod.main(hire)
         check("hr: an agent's request is a proposal, and changes nothing",
               rc == 0 and "dohyun" not in paths.list_agents()
-              and len(actions.messages(con)) == before + 1, str(rc))
+              and [c["agent"] for c in hr.pending()] == ["dohyun"], str(rc))
         del os.environ["OCP_AGENT"]
         for p_ in hr.listing():
             hr.path_of(p_["id"]).unlink()
@@ -2601,12 +2583,11 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
     check("request: a bare number still reads a request", rc == 0 or "no request" in out, out)
 
 
-def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) -> None:
-    """Task #32: a withdraw and the founder's answer on one proposal end as
-    exactly one outcome, whichever lands first, and neither leaves the
-    proposal stuck. The two are interleaved at the two points a check-then-act
-    withdraw could be overtaken: after it has read the proposal, and after it
-    has marked it withdrawn."""
+def test_a_withdraw_and_the_founders_decision_settle_to_one_outcome(home: Path) -> None:
+    """A withdraw and the founder's decision on one proposal end as exactly one outcome,
+    whichever lands first, and neither leaves the proposal stuck. The two are interleaved at
+    the two points a check-then-act withdraw could be overtaken: before it has taken its lock,
+    and after it has marked the proposal withdrawn."""
     _daemon_home(home, 20)
     accounts.register("beta")
     agents.register("hr")
@@ -2614,86 +2595,60 @@ def test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(home: Path) ->
 agents:
   hr: {}
 edges:
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
   - { from: "*", to: "human", kind: task }
 """)
 
     def propose(name):
         ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="hands")
-        return said.split()[1], int(said.split("#")[1].split(".")[0])
+        return said.split()[1]
 
-    def founder(rid, verdict, out):
-        c = db.connect()
-        try:
-            out.append(actions.answer_ok(c, rid, verdict))
-        finally:
-            c.close()
+    def founder(pid, out):
+        out.append(approve_hr(pid))
 
     orig_load, orig_save = hr.load_proposal, hr.save
     try:
         # 1. The founder approves after the withdraw has read the proposal.
-        pid, rid = propose("racer")
+        pid = propose("racer")
         got, fired = [], []
 
-        def load_then_answer(p):
+        def load_then_decide(p):
             r = orig_load(p)
             if not fired:
                 fired.append(1)
-                founder(rid, "approve", got)
+                founder(pid, got)
             return r
-        hr.load_proposal = load_then_answer
+        hr.load_proposal = load_then_decide
         ok, said = hr.withdraw(pid, "hr")
         hr.load_proposal = orig_load
         check("race 1: the founder's approve went through", got and got[0][0], str(got))
-        check("race 1: so the withdraw refuses and says so",
-              not ok and "already" in said, said)
+        check("race 1: so the withdraw refuses and says so", not ok and "already" in said, said)
         check("race 1: and the approve is enacted, not lost",
               "racer" in paths.list_agents() and hr.load_proposal(pid)["state"] == "applied")
 
-        # 2. The founder answers while the withdraw is mid-way. The withdraw
-        # holds the write lock, so the answer can only land after it.
-        pid2, rid2 = propose("racer2")
+        # 2. The founder decides while the withdraw is mid-way. The withdraw holds the write
+        # lock, so the decision can only land after it.
+        pid2 = propose("racer2")
         got2, threads = [], []
 
-        def save_then_answer(prop):
+        def save_then_decide(prop):
             r = orig_save(prop)
             if not threads:
-                t = threading.Thread(target=founder, args=(rid2, "approve", got2))
+                t = threading.Thread(target=founder, args=(pid2, got2))
                 threads.append(t)
                 t.start()
                 t.join(1.5)
             return r
-        hr.save = save_then_answer
+        hr.save = save_then_decide
         ok, said = hr.withdraw(pid2, "hr")
         hr.save = orig_save
         threads[0].join(15)
-        con = db.connect()
-        try:
-            row = db.get_request(con, rid2)
-            check("race 2: the withdraw won", ok and hr.load_proposal(pid2)["state"] == "withdrawn",
-                  said)
-            check("race 2: the founder's answer refuses, the row keeps the withdraw",
-                  got2 and not got2[0][0] and db.shown_verdict(row) == "withdrawn by hr", str(got2))
-            ok, said = hr.apply(pid2)
-            check("race 2: apply enacts nothing", not ok and "racer2" not in paths.list_agents(), said)
-        finally:
-            con.close()
-
-        # 3. The close cannot go through: nothing is withdrawn, and the file
-        # is put back so the proposal is still open.
-        pid3, rid3 = propose("racer3")
-        orig_close = db.close_if_queued
-        db.close_if_queued = lambda *a, **k: False
-        try:
-            ok, said = hr.withdraw(pid3, "hr")
-        finally:
-            db.close_if_queued = orig_close
-        con = db.connect()
-        try:
-            check("race 3: a close that fails withdraws nothing",
-                  not ok and hr.load_proposal(pid3)["state"] == "proposed"
-                  and db.get_request(con, rid3)["state"] == "queued", said)
-        finally:
-            con.close()
+        check("race 2: the withdraw won", ok and hr.load_proposal(pid2)["state"] == "withdrawn", said)
+        check("race 2: the founder's decision refuses and records nothing",
+              got2 and not got2[0][0] and "already withdrawn" in got2[0][1]
+              and decisions.get("hr", pid2) is None, str(got2))
+        ok, said = hr.apply(pid2)
+        check("race 2: apply enacts nothing", not ok and "racer2" not in paths.list_agents(), said)
     finally:
         hr.load_proposal, hr.save = orig_load, orig_save
 
@@ -3084,9 +3039,8 @@ def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> No
         check("hr wait: and the bridge pins it",
               "hr retire backend" in tui._ANSI.sub("", _snap(120, 40)))
 
-        rid = hr.load_proposal(pid)["request"]
-        answer_card(con, rid, "approve")  # answered, apply not yet run
-        decisions.record("hr", pid, hr.task_of_card(con, rid), "approved", hr.subject_of(hr.load_proposal(pid)))
+        decisions.record("hr", pid, 0, "approved", hr.subject_of(hr.load_proposal(pid)))
+        hr.save({**hr.load_proposal(pid), "state": "approved"})       # approved, apply not yet run
         w = waits("proposal")
         check("hr wait: approved but not applied it stays, no longer red",
               len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))
@@ -3095,7 +3049,7 @@ def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> No
 
         agents.register("marina")
         ok, said = hr.propose("retire", "marina", requester="marina", why="w")
-        askmod.resolve(hr.load_proposal(said.split()[1])["request"], "reject", notify=False)
+        hr.decide(said.split()[1], "rejected", actions.HUMAN)
         check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
 
         askmod.ask(actions.HUMAN, "which branch do we cut?", requester="marina")
@@ -9279,7 +9233,7 @@ def main() -> int:
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
         run(lambda: test_a_task_is_written_T_and_a_bare_number_is_never_a_task(
             Path(td) / 'taskref'))
-        run(lambda: test_a_withdraw_and_the_founders_answer_settle_to_one_outcome(
+        run(lambda: test_a_withdraw_and_the_founders_decision_settle_to_one_outcome(
             Path(td) / 'hrrace'))
         run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
         run(lambda: test_a_wait_does_not_outlive_the_prompt_that_raised_it(Path(td) / 'outlive'))

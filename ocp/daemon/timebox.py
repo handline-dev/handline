@@ -86,8 +86,10 @@ def sweep_task_timeouts(con, log, now: int) -> None:
                 f"{stop}")
         if _tell(con, row["opened_by"], text, now):
             db.advance_task_timeout(con, tid, now, actions.DEFAULT_TASK_TIMEOUT_S)
+            # the deadline missed and the one that replaced it: a screen chains notices by them
             db.add_event(con, row["opened_by"], "task_timeout_exceeded",
-                         {"task_id": tid, "timeout_s": box, "text": text})
+                         {"task_id": tid, "timeout_s": box, "text": text, "deadline": row["timeout_at"],
+                          "next": db.get_task(con, tid)["timeout_at"]})
             log(f"  T{tid}: doing, past its {timefmt.ago(box)} timeout - {row['opened_by']} told")
 
 

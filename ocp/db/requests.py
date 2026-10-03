@@ -387,9 +387,8 @@ def mark_landed(con, rid: int) -> None:
     stamp_task_delivered(con, rid)
     # What landed is sent: 'queued' is only what has not reached the other side. For a task the task
     # rows say what is still held (`db.live_delivery`).
-    if not _would_strand_a_proposal(con, rid, "landed", None):
-        con.execute("UPDATE requests SET state = 'landed', state_at = ? "
-                    "WHERE id = ? AND state = 'queued' AND target != ?", (now, rid, HUMAN))
+    con.execute("UPDATE requests SET state = 'landed', state_at = ? "
+                "WHERE id = ? AND state = 'queued' AND target != ?", (now, rid, HUMAN))
 
 
 def awaiting_landing(con, target: str):
@@ -454,38 +453,6 @@ def followups_pending(con, target: str, head_id: int):
         (target, head_id)).fetchall()
 
 
-def _would_strand_a_proposal(con, rid: int, state: str, verdict: str | None) -> bool:
-    """True when closing `rid` into `state` with `verdict` would answer a
-    queued roster-proposal decision with something that is not approve or
-    reject - the one way `hr.apply` is ever left with a row it can no longer
-    check (#1770, #1893 SF1).
-
-    Called from inside every function below that can move a request row out
-    of 'queued', rather than at each door onto one of them (a resolve,
-    a retire, `ask.cancel`, a replace and `answer()` all reached this
-    same gap in turn - #1908, #1919, #1938, #1943): a door added later gets
-    this for free instead of needing its own copy of the same check. `hr
-    withdraw` is not a door here - it marks its proposal file withdrawn
-    before it closes the row, so `is_open_proposal` is already false by the
-    time this runs.
-
-    Every request this system closes runs through one of these functions, so
-    `hr.is_open_proposal` - a glob and a YAML parse of the whole `hr/`
-    directory - would otherwise run on every one of them, not just the
-    founder-targeted rows a proposal decision could ever be. A proposal
-    decision is always an ask to the human (`hr.propose`), so a row aimed
-    anywhere else is checked here for free, off a column already in hand,
-    and the directory is never touched for it.
-    """
-    if state == "queued":
-        return False
-    from ..team import hr
-    row = con.execute("SELECT target FROM requests WHERE id = ?", (rid,)).fetchone()
-    if row is None or row["target"] != HUMAN:
-        return False
-    return hr.is_open_proposal(rid, con) and hr.decision(verdict) == "unclear"
-
-
 def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool:
     """Take a still-queued request out of the queue, delivered or not.
 
@@ -493,8 +460,6 @@ def retire_queued(con, rid: int, state: str, verdict: str | None = None) -> bool
     "delivered" only means it was drawn on a screen. Announced in the same
     write: the sender retired its own row and is not told it was answered.
     """
-    if _would_strand_a_proposal(con, rid, state, verdict):
-        return False
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, state_at = ?, queue_order = NULL "
@@ -554,8 +519,6 @@ def close_if_queued(con, rid: int, state: str, verdict: str | None,
 
     `settle=False` (T684): the request is closed because its task is being handed on, so the task
     a decision card belongs to is not settled with it - it is still open, with a new holder."""
-    if _would_strand_a_proposal(con, rid, state, verdict):
-        return False
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, state_at = ?, queue_order = NULL WHERE id = ? AND state = 'queued'",
@@ -629,8 +592,6 @@ def retire_if_undelivered(con, rid: int, state: str, verdict: str | None = None)
     (check delivered_at, then update) races a delivery landing in between;
     this closes that window in one statement.
     """
-    if _would_strand_a_proposal(con, rid, state, verdict):
-        return False
     now = int(time.time())
     cur = con.execute(
         "UPDATE requests SET state = ?, state_at = ?, queue_order = NULL "

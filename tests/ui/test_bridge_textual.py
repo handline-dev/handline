@@ -226,7 +226,7 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
     check("menu: /task lists the tasks, newest change first", names("/task ") == ["T84", "T85", "T7"])
     check("menu: /task narrows by a word of the title", names("/task audit") == ["T7"])
     check("menu: /task narrows by the digits of the number", names("/task 8") == ["T84", "T85"])
-    check("menu: /sort names the columns", names("/sort ti") == ["title"], str(names("/sort ti")))
+    check("menu: /sort names the columns", names("/sort tit") == ["title"], str(names("/sort tit")))
     check("menu: a hash lists tasks then requests", names("see #") == ["T84", "T85", "T7", "#2305", "#2289"])
     check("menu: /task also takes the T form, and a task inserts as T<n> but a request as its bare number",
           names("/task t8") == ["T84", "T85"]
@@ -1570,41 +1570,41 @@ def test_agent_rows_collect_keeps_a_stuck_reason_whole() -> None:
 
 
 def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
-    from ocp.team import ask as askmod
+    from ocp.team import ask as askmod, decisions
     from ocp.ui.components import proposals as pr
     home = _home("openprops")
     agents.register("hr")
     con = db.connect()
     try:
         pids = {}
-        for name in ("queued", "unclear", "approved", "rejected"):
+        for name in ("queued", "stuck", "approved", "rejected"):
             ok, said = hr.propose("add", name, repo="/repo", requester="hr", why=f"why {name}")
             check(f"proposals: {name} was raised", ok, said)
-            pids[name] = int(said.split("#")[1].split(".")[0])
-        # `resolve` refuses a non-decision on a proposal now; one closed that way by an
-        # older ocp is what is stranded.
-        t.answer_card(con, pids["unclear"], "sounds good")
-        askmod.resolve(pids["approved"], "approve")
-        askmod.resolve(pids["rejected"], "reject not now")
+            pids[name] = said.split()[1]
+        # An approve whose change did not go through stays approved, with its error.
+        decisions.record("hr", pids["stuck"], 0, "approved", hr.subject_of(hr.load_proposal(pids["stuck"])))
+        hr.save({**hr.load_proposal(pids["stuck"]), "state": "approved", "error": "orca is not answering"})
+        t.approve_hr(pids["approved"])
+        hr.decide(pids["rejected"], "rejected", askmod.HUMAN, "not now")
         got = {p["agent"]: p for p in pr.open_proposals(con)}
-        check("proposals: a queued decision is 'decide'",
+        check("proposals: one waiting on the founder is 'decide'",
               got.get("queued", {}).get("status") == pr.DECIDE, got)
-        check("proposals: one closed with an unclear reply is 'no decision', and keeps the reply",
-              got.get("unclear", {}).get("status") == pr.STRANDED
-              and got["unclear"]["reply"] == "sounds good", got)
-        check("proposals: an approved or a rejected one is left out",
+        check("proposals: one approved but not applied says so, and keeps its error",
+              got.get("stuck", {}).get("status") == pr.APPROVED
+              and got["stuck"]["error"] == "orca is not answering", got)
+        check("proposals: an applied or a rejected one is left out",
               "approved" not in got and "rejected" not in got, sorted(got))
-        check("proposals: each carries its request's id",
-              got["queued"]["rid"] == pids["queued"])
+        check("proposals: each carries its id", got["queued"]["id"] == pids["queued"])
         check("proposals: they are oldest first", [p["asked"] for p in pr.open_proposals(con)]
               == sorted(p["asked"] for p in pr.open_proposals(con)))
         ids = []
         for name in ("tie1", "tie2", "tie3", "tie4"):
             ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="w")
-            ids.append(int(said.split("#")[1].split(".")[0]))
-        con.execute("UPDATE requests SET ts = 1000 WHERE id IN (%s)" % ",".join(map(str, ids)))
-        tied = [p["rid"] for p in pr.open_proposals(con) if p["rid"] in ids]
-        check("proposals: proposals raised in the same second come oldest first by request id",
+            pid = said.split()[1]
+            hr.save({**hr.load_proposal(pid), "created": 1000})
+            ids.append(pid)
+        tied = [p["id"] for p in pr.open_proposals(con) if p["id"] in ids]
+        check("proposals: proposals raised in the same second come in a fixed order by id",
               tied == sorted(ids), tied)
         check("proposals: the age is the biggest whole unit",
               timefmt.ago_short(0, now=59) == "0m" and timefmt.ago_short(0, now=3600) == "1h" and timefmt.ago_short(0, now=86400 * 2) == "2d")
@@ -2229,6 +2229,67 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
               cyclemod.enabled("alpha") and acct.query_one("#a_cycle", Switch).value is True)
         await pilot.press("escape")
         await pilot.pause(0.4)
+
+
+async def test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page() -> None:
+    from textual.widgets import DataTable, Tabs
+    from ocp.team import ask as askmod
+    from ocp.ui import chat_page as cp
+    _home("task_timeout")
+    now = int(time.time())
+    con = db.connect()
+    try:
+        queued = db.new_task(con, "waiting", "backend", actions.HUMAN, timeout_s=7200)
+        running = db.new_task(con, "running", "backend", actions.HUMAN, timeout_s=3600)
+        late = db.new_task(con, "late", "backend", actions.HUMAN, timeout_s=3600)
+        for tid in (running, late):
+            _, _, rid = askmod.ask("reviewer", "work", requester=actions.HUMAN)
+            db.link_request(con, tid, rid)
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 4350, running))
+        # past its deadline twice over: the daemon told the opener at each, and began the next stretch
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 3600 - 5, late))
+        for deadline, nxt in ((now - 3610, now - 5), (now - 5, now + 3600 - 5)):
+            db.add_event(con, actions.HUMAN, "task_timeout_exceeded",
+                         {"task_id": late, "timeout_s": 3600, "deadline": deadline, "next": nxt})
+        con.commit()
+        rows = {r["id"]: r for r in actions.task_rows(con)}
+        text = {tid: actions.timeout_text(rows[tid]["timeout"]) for tid in (queued, running, late)}
+        check("timeout: a queued task shows its length only", text[queued] == "2h00m", str(text))
+        check("timeout: a doing task shows the time left to the deadline the daemon holds", text[running] == "1h12m left", str(text))
+        check("timeout: one past its deadline shows how long it has been over, from the first notice",
+              text[late] == "over by 1h00m" and rows[late]["timeout"]["told"] == 2, str(rows[late]["timeout"]))
+        lines = actions.timeout_lines(rows[running]["timeout"])
+        check("timeout: the task page says the length, when it began counting and when it ends",
+              lines[0] == "timeout 1h00m" and "counting since" in lines[1] and "ends" in lines[1] and "1h12m left" in lines[1], str(lines))
+        ok, said = actions.edit_task(con, late, actions.HUMAN, timeout_s=7200)
+        con.commit()
+        after = actions.task_timeout(con, db.get_task(con, late), "doing")
+        check("timeout: edit --timeout is reflected: no longer over, a fresh 2h", ok and after["state"] == "left"
+              and after["length"] == 7200 and 7190 <= after["left"] <= 7200, f"{said} {after}")
+        con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (now + 3600 - 5, late))
+        for deadline, nxt in ((now - 3610, now - 5), (now - 5, now + 3600 - 5)):
+            db.add_event(con, actions.HUMAN, "task_timeout_exceeded",
+                         {"task_id": late, "timeout_s": 3600, "deadline": deadline, "next": nxt})
+        con.execute("UPDATE tasks SET timeout_s = 3600 WHERE id = ?", (late,))
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(150, 30)) as pilot:
+        await pilot.pause(0.5)
+        app.screen.query_one("#scope", Tabs).active = "tasks"
+        await pilot.pause(1.0)
+        table = app.screen.query_one("#tasks_table", DataTable)
+        cells = {str(table.get_row(k)[1]): table.get_row(k) for k in [r.key for r in table.ordered_rows]}
+        shown = {ref: [str(c) for c in row] for ref, row in cells.items()}
+        check("timeout: the board has a timeout column with each task's cell",
+              "1h12m left" in shown.get(f"T{running}", []) and "2h00m" in shown.get(f"T{queued}", []), str(shown))
+        over = next(c for c in cells[f"T{late}"] if str(c).startswith("over by"))
+        check("timeout: over by is highlighted", "red" in str(over.style) and "bold" in str(over.style), str(over.style))
+        app.push_screen(cp.TaskDetail(running))
+        await pilot.pause(1.0)
+        page_text = _screen_text(app.screen)
+        check("timeout: the task page shows it", "timeout" in page_text and "counting since" in page_text, page_text[-400:])
 
 
 def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
@@ -3107,21 +3168,24 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
         await app.push_screen(page)
         await pilot.pause(0.5)
         marks = list(page.query(cp.SessionMark))
-        lines = [str(m.render()) for m in marks]
-        check("session mark: each new conversation is one line with a readable cause, a resume draws none",
-              len(marks) == 2 and lines[0].startswith("new session") and "restarted fresh" in lines[0]
-              and lines[1].startswith("new session") and lines[1].endswith("after idle close")
-              and "woken" not in "".join(lines) and "resumed" not in "".join(lines), str(lines))
+        lines = [str(m.render()).split("\n") for m in marks]
+        check("session mark: each new conversation is two lines, when and why then 'new session', a resume draws none",
+              len(marks) == 2 and "restarted fresh" in lines[0][0] and lines[0][0][2] == ":" and lines[0][1].startswith("new session")
+              and lines[1][0].endswith("after idle close") and lines[1][1] == "new session"
+              and "woken" not in str(lines) and "resumed" not in str(lines), str(lines))
         check("session mark: only the one with a handoff says it can be read",
-              lines[0].endswith("handoff ▸") and "▸" not in lines[1], str(lines))
+              lines[0][1] == "new session with handoff" and "handoff" not in lines[1][1], str(lines))
         check("session mark: it is not drawn as a message from anyone",
               not any(isinstance(m, cp.ChatMessage) for m in marks))
-        await pilot.click(marks[1])
+        await pilot.click(marks[1], offset=(marks[1].size.width // 2, 1))
         await pilot.pause(0.3)
         check("session mark: a start with no handoff opens nothing", app.screen is page)
-        await pilot.click(marks[0])
+        await pilot.click(marks[0], offset=(marks[0].size.width // 2, 0))
+        await pilot.pause(0.3)
+        check("session mark: a click off the word opens nothing", app.screen is page)
+        await pilot.click(marks[0], offset=((marks[0].size.width - 24) // 2 + 20, 1))
         await pilot.pause(0.4)
-        check("session mark: a click opens that session's handoff in a modal",
+        check("session mark: a click on 'handoff' opens that session's handoff in a modal",
               isinstance(app.screen, cp.HandoffModal) and app.screen.text == handoff, type(app.screen).__name__)
         body = app.screen.query_one("#handoff_body")
         check("session mark: the modal is scrollable and shows the text from its top",
@@ -3157,6 +3221,145 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
         await pilot.pause(0.4)
         check("session mark: a fresh start written while the page is open is drawn on the next refresh, with no new message",
               len(list(page.query(cp.SessionMark))) == 3, str(len(list(page.query(cp.SessionMark)))))
+
+
+async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page() -> None:
+    from textual.app import App
+    from textual.widgets import Button, DataTable, Input
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components import hr_card
+    _home("hr-card")
+    base = {"id": "p1", "kind": "add", "agent": "scout", "requested_by": "hr", "why": "a second pair of eyes",
+            "text": "vendor claude\nmodel opus", "ts": int(time.time()) - 90, "subject": "s", "error": None}
+    calls: list[tuple] = []
+    verdicts = [(True, "ok")]
+
+    def stub(p, verdict, note=""):
+        calls.append((p["id"], verdict, note))
+        return verdicts[0]
+
+    class Host(App):
+        def compose(self):
+            for state in ("proposed", "applied", "rejected"):
+                yield hr_card.HrCard({**base, "id": state, "state": state}, stub)
+
+    app = Host()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause(0.3)
+        cards = {c.p["state"]: c for c in app.query(hr_card.HrCard)}
+        shown = lambda c: c.query(".hr_buttons").first().display
+        check("hr card: a waiting request has Approve and Reject, a decided one has neither",
+              shown(cards["proposed"]) and not shown(cards["applied"]) and not shown(cards["rejected"]))
+        check("hr card: it says what is asked, by whom and why",
+              all(w in str(cards["proposed"]._head.render()) + str(cards["proposed"]._body.render())
+                  for w in ("add scout", "from hr", "waiting for you", "model opus", "a second pair of eyes")))
+        check("hr card: decided ones say so", "applied" in str(cards["applied"]._head.render())
+              and "rejected" in str(cards["rejected"]._head.render()))
+        card = cards["proposed"]
+        await pilot.click(card.query_one(".hr_reject", Button))
+        await pilot.pause(0.2)
+        why = card.query_one(".hr_why", Input)
+        check("hr card: Reject asks why, and nothing is decided yet", card.has_class("rejecting") and not calls)
+        await pilot.press("enter")
+        check("hr card: an empty reason rejects nothing", not calls and card.has_class("rejecting"))
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        check("hr card: Esc takes the question back", not card.has_class("rejecting") and not calls)
+        verdicts[0] = (False, "refused")
+        await pilot.click(card.query_one(".hr_approve", Button))
+        await pilot.pause(0.2)
+        check("hr card: a refused decision leaves the card waiting",
+              calls == [("proposed", "approved", "")] and card.p["state"] == "proposed" and shown(card))
+        verdicts[0] = (True, "ok")
+        await pilot.click(card.query_one(".hr_reject", Button))
+        await pilot.pause(0.2)
+        await pilot.press(*"too wide", "enter")
+        await pilot.pause(0.2)
+        check("hr card: the reason is the rejection", calls[-1] == ("proposed", "rejected", "too wide")
+              and card.p["state"] == "rejected" and not shown(card))
+
+    _home("hr-card-chat")
+    agents.register("backend")
+    ok, said = hr.propose("settings", "backend", requester="backend", why="it reads the docs",
+                          sets={"browser": "playwright", "browser_sites": "https://docs.example.org"})
+    check("hr card: a settings request is raised", ok, said)
+    app = bt.BridgeApp()
+    async with app.run_test(size=(110, 40)) as pilot:
+        page = cp.ChatPage("backend")
+        await app.push_screen(page)
+        await pilot.pause(0.5)
+        cards = list(page.query(hr_card.HrCard))
+        check("hr card: the chat of the agent that asked shows one card for it",
+              len(cards) == 1 and cards[0].p["state"] == "proposed", str(len(cards)))
+        await pilot.click(cards[0].query_one(".hr_approve", Button))
+        await pilot.pause(0.8)
+        check("hr card: Approve in the chat decides it - the settings are applied, no HR page opened",
+              "docs.example.org" in str(agents.read("backend").get("mcp_config"))
+              and app.screen is page, str(agents.read("backend")))
+        page.refresh_view()
+        await pilot.pause(0.5)
+        kept = list(page.query(hr_card.HrCard))
+        check("hr card: after a refresh the approved request keeps its card, drawn with its outcome",
+              len(kept) == 1 and kept[0].p["state"] == "applied" and not kept[0].decidable
+              and "applied" in str(kept[0]._head.render()), str([c.p["state"] for c in kept]))
+        ok, said = hr.propose("settings", "backend", requester="backend", why="too eager",
+                              sets={"effort": "low"})
+        page.refresh_view()
+        await pilot.pause(0.5)
+        waiting = [c for c in page.query(hr_card.HrCard) if c.decidable]
+        check("hr card: a second request is a second card, the first still there",
+              len(waiting) == 1 and len(list(page.query(hr_card.HrCard))) == 2)
+        waiting[0].reject()
+        await pilot.pause(0.2)
+        await pilot.press(*"no", "enter")
+        await pilot.pause(0.8)
+        page.refresh_view()
+        await pilot.pause(0.5)
+        states = sorted(c.p["state"] for c in page.query(hr_card.HrCard))
+        check("hr card: a rejected one stays too, and nothing was applied",
+              states == ["applied", "rejected"] and agents.read("backend")["effort"] != "low", str(states))
+
+    _home("hr-card-direct")
+    agents.register("backend")
+    ok, said = hr.enact("settings", "backend", "by hand", sets={"effort": "high"})
+    check("hr card: a change the founder made directly is no request card, in an empty chat either",
+          ok and cp.hr_cards("backend", False, []) == [] and cp.hr_cards("backend", True, []) == [], said)
+
+    _home("hr-card-failed")
+    agents.register("backend")
+    hr.propose("settings", "backend", requester="backend", why="w", sets={"effort": "high"})
+    asked = hr_card.pending()[0]
+    real = hr._DOERS["settings"]
+    hr._DOERS["settings"] = lambda prop, con: (False, "locked")
+    try:
+        hr_card.decide(asked, "approved")
+    finally:
+        hr._DOERS["settings"] = real
+    failed = hr_card.pending()
+    check("hr card: an approve that could not be carried out keeps its card, approved with its error, and can be retried",
+          [c["state"] for c in failed] == ["approved"] and "locked" in str(failed[0]["error"]), str(failed))
+    from ocp.ui.components.hr_card import body, head
+    check("hr card: it says so and shows why", "apply failed" in head(failed[0]).plain
+          and "locked" in body(failed[0]).plain)
+    check("hr card: and the retry asks nothing new",
+          hr_card.decide(failed[0], "approved")[0] and [c["state"] for c in hr_card.pending()] == ["applied"])
+
+    _home("hr-card-page")
+    agents.register("backend")
+    hr.propose("settings", "backend", requester="backend", why="it reads the docs", sets={"effort": "high"})
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 50)) as pilot:
+        await pilot.pause(0.3)
+        app.screen.query_one("#scope").active = "hr"
+        await pilot.pause(0.5)
+        cards = list(app.screen.query(hr_card.HrCard))
+        check("hr card: the HR page shows the same card for the selected request", len(cards) == 1
+              and cards[0].decidable)
+        app.screen.query_one("#hr_table", DataTable).focus()
+        await pilot.press("a")
+        await pilot.pause(0.8)
+        check("hr card: a on the HR page approves it through the card", agents.read("backend")["effort"] == "high",
+              str(agents.read("backend")))
 
 
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
@@ -4717,6 +4920,7 @@ async def _run_all() -> None:
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
     test_global_switches_read_and_write_the_keys_the_daemon_reads()
     await test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_value()
+    await test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page()
     test_a_standing_answer_is_added_from_the_settings()
     test_home_settings_removal_and_the_delegated_view()
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
@@ -4760,6 +4964,7 @@ async def _run_all() -> None:
     await test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holder()
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal()
+    await test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page()
     await test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest()
     await test_older_messages_loaded_above_are_not_counted_as_new()
     await test_answering_a_message_shows_its_whole_body()

@@ -6,16 +6,15 @@ on no screen. So growing is a first-class operation - and it is the operation
 with the least business being automatic, because an agent that can hire can
 spend an account into the ground without anyone deciding to.
 
-The shape is therefore: any agent may *propose*, only the founder may approve,
-and the proposal is applied by the same command that raised it, from the file
-it wrote. Three properties fall out of that:
+The shape is therefore: any agent may *propose*, only the founder may decide, and an approve
+is applied by the same call that records it. A proposal is not a task: it is its own record, and
+the founder decides it from a chat card or `ocp hr approve|reject`. Three properties fall out:
 
-  - It is a file. `hr/<id>.yaml` holds what was asked for, who asked, the
-    decision it was raised as, and what happened to it. A crash between the
-    approval and the change leaves the proposal there to be applied again.
-  - The approval is read, not interpreted. The verdict's first word decides,
-    out of a vocabulary the decision itself prints. A model reading "maybe
-    next week" as approval is the failure this exists to prevent.
+  - It is a file. `hr/<id>.yaml` holds what was asked for, who asked, and what happened to it
+    (proposed, approved, applied, rejected, withdrawn). A crash between the approval and the
+    change leaves it approved, to be applied again.
+  - The approval is a call, not a sentence. The founder's decision is recorded where no agent can
+    write it, and applying acts on that record for the draft as it stood.
   - Applying is the same two writes a human would make: `agent register`, and
     the agent's name in team.yaml. Nothing bypasses the routing table; the
     table is the thing being edited.
@@ -37,15 +36,6 @@ from .. import db, vendors
 from ..infra import atomic, paths, sealed, textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
-
-# What the founder types to decide. Printed in the decision, so the words are
-# in front of whoever answers rather than in a document they have not read.
-# The Korean words for approve and reject are still read for one release, so a founder who has
-# answered in Korean is not told their answer is unclear; the decision text shows only the English.
-LEGACY_APPROVE = ("\uc2b9\uc778",)
-LEGACY_REJECT = ("\ubc18\ub824",)
-APPROVE = ("approve", "approved", "yes", "ok", "go", *LEGACY_APPROVE)
-REJECT = ("reject", "rejected", "no", "deny", "denied", *LEGACY_REJECT)
 
 KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings")
 EDGE_KINDS = ("link", "unlink")
@@ -245,30 +235,20 @@ def propose(kind: str, name: str, requester: str, why: str,
             relation: str | None = None, members: list[str] | None = None,
             repos: dict[str, str] | None = None,
             sets: dict[str, str] | None = None) -> tuple[bool, str]:
-    """Write the proposal down and raise it to the founder. Nothing changes yet."""
+    """Write the proposal down for the founder to decide (`decide`). Nothing changes yet."""
     prop, err = _draft(kind, name, requester, why, team_name, repo, model,
                        to, effort, vendor, response, relation, members, repos, sets)
     if err:
         return False, err
-    # Written down before it is raised: a proposal that cannot be recorded must
-    # not leave a request in front of the founder that names one.
+    # Written down before it is raised: a proposal that cannot be recorded must not be
+    # waiting in front of the founder.
     try:
         dump(prop)
     except ConfigError as e:
         return False, f"could not write the proposal down, so nothing was raised: {e}"
-    from .. import actions      # a decision is a task of the founder's
-    ok, said, rid = actions.open_decision(requester, _decision_text(prop))
-    if not ok:
-        return False, f"could not raise it: {said}"
-    prop["request"] = rid
-    con = db.connect()
-    try:
-        prop["task"] = task_of_card(con, rid)       # T785: the proposal is keyed by its decision task
-    finally:
-        con.close()
     save(prop)
-    return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
-                  f"founder answers it; an approve is applied then, and you are told how it went.")
+    return True, (f"proposal {prop['id']} raised. Nothing changes until the founder decides it; "
+                  f"an approve is applied then, and you are told how it went.")
 
 
 def enact(kind: str, name: str, why: str,
@@ -382,7 +362,7 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
         lines += [f"{prop['agent']} would be taken out of team.yaml and its folder "
                   f"moved to agents/archive/. Its journal and handoffs are kept.",
                   "Anything still queued for it stays queued and undeliverable."]
-    lines += ["", f"Answer `approve` or `reject` (proposal {prop['id']})."]
+    lines += ["", f"Approve or reject: `ocp hr approve {prop['id']}` / `ocp hr reject {prop['id']}`."]
     return "\n".join(lines)
 
 
@@ -405,310 +385,210 @@ def subject_of(prop: dict) -> str:
                              **{k: v for k, v in prop.items() if k.startswith(("repo.", "set."))}})
 
 
-def answered(prop: dict, row) -> tuple[str | None, str | None]:
-    """(subject, refusal) for the answer given on `row`: what was decided on,
-    or why this draft is not what the founder was asked. The decision the
-    founder read must be the one this draft renders to - every field of the
-    change, its reason and its asker - so a draft edited before the answer
-    is refused rather than approved unseen. An unlink's caveat is the one
-    part that is read live, and is left out of the comparison."""
-    body = row["body"] or ""
-    want = _decision_text(prop, caveat=False)
-    marker = "Requests already queued on it stay queued."
-    if prop.get("kind") == "unlink" and marker in want:
-        head, tail = want.split(marker, 1)
-        ok = body.startswith(head + marker) and body.endswith(tail)
-    else:
-        ok = body == want
-    if not ok:
-        return None, (f"the draft is not what #{row['id']} asked the founder to approve "
-                      f"- raise it again")
-    return subject_of(prop), None
+def card(prop: dict) -> dict:
+    """A proposal as the founder's chat card and `ocp hr list --json` show it. `text` is what
+    will happen if it is approved; `state` is "proposed" (waiting on the founder) or "approved"
+    (decided, but the change did not go through - `error` says why, and approving again retries).
+    `subject` is the digest to hand back to `decide`: what was read is what is approved. `verdict` and
+    `at` say how and when a settled one ended (see `decided`)."""
+    return {"id": prop["id"], "kind": prop["kind"], "agent": prop["agent"],
+            "to": prop.get("to"), "requested_by": prop.get("requested_by"),
+            "why": prop.get("why"), "ts": int(prop.get("created") or 0),
+            "state": prop.get("state"), "error": prop.get("error"),
+            "text": _decision_text(prop), "subject": subject_of(prop),
+            "verdict": prop.get("verdict"),
+            "at": int(prop.get("applied") or prop.get("decided") or prop.get("created") or 0)}
 
 
-def task_of_card(con, rid: int) -> int | None:
-    """The decision task whose card is request `rid`, in whatever state it is now."""
-    for t in db.tasks_for_request(con, rid):
-        first = db.first_linked_request(con, t["id"])
-        if t["expects"] == "decision" and first is not None and int(first["id"]) == int(rid):
-            return int(t["id"])
-    return None
+def pending() -> list[dict]:
+    """The proposals still waiting on the founder, oldest first."""
+    return [card(p) for p in sorted(listing(), key=lambda p: p.get("created") or 0)
+            if p.get("state") in ("proposed", "approved")]
 
 
-def task_of(con, prop: dict) -> int | None:
-    """The decision task a proposal waits on (T785). A proposal raised before it was keyed by task
-    names only its card request: the task is found from that."""
-    return int(prop.get("task") or 0) or task_of_card(con, int(prop.get("request") or 0))
+def decided(since: int = 0) -> list[dict]:
+    """The proposals that are settled (rejected, applied, withdrawn) at or after `since`, oldest
+    first: what a chat card draws as the outcome of the one the founder decided."""
+    out = [card(p) for p in listing() if p.get("state") in ("rejected", "applied", "withdrawn")]
+    return sorted((c for c in out if c["at"] >= since), key=lambda c: (c["at"], c["id"]))
 
 
-def answer_of(con, prop: dict) -> tuple[str, int | None, str | None]:
-    """(state, task id, verdict) of the founder's answer to a proposal, read off its decision task:
-    "none" (no task to read), "open" (not answered), "discarded" (the card was withdrawn, handed
-    back, thrown away or marked done by someone but the founder: nothing was decided) or
-    "answered" with the verdict he gave."""
-    tid = task_of(con, prop)
-    task = db.get_task(con, tid) if tid else None
-    if task is None:
-        return "none", None, None
-    if task["discarded_by"]:
-        return "discarded", tid, None
-    if task["done_evidence"]:
-        # Only the founder's own close is his answer: an agent that was handed the task and marked it
-        # done wrote evidence, not a decision, so it reads like a hand-back.
-        last = con.execute(
-            f"SELECT kind, agent FROM events WHERE {db.EVENT_TASK} = ? AND kind IN "
-            "('settle_decision_task', 'mark_task_done', 'reopen_task') ORDER BY id DESC LIMIT 1",
-            (tid,)).fetchone()
-        if task["owner"] == askmod.HUMAN and last is not None and (last["kind"] == "settle_decision_task"
-                                 or (last["kind"] == "mark_task_done" and last["agent"] == askmod.HUMAN)):
-            return "answered", tid, task["done_evidence"]
-        return "discarded", tid, None
-    return "open", tid, None
-
-
-def card_of(con, tid: int):
-    """The request the founder was shown: the decision's own first request."""
-    return db.first_linked_request(con, tid)
-
-
-def decision(verdict: str | None) -> str:
-    """approved / rejected / unclear, from the first word of the verdict."""
-    first = (verdict or "").strip().split()
-    if not first:
-        return "unclear"
-    word = first[0].strip(".,!:;\"'`").lower()
-    if word in APPROVE:
-        return "approved"
-    if word in REJECT:
-        return "rejected"
-    return "unclear"
-
-
-def apply(pid: str, con=None) -> tuple[bool, str]:
-    """Carry out a proposal the founder approved. Refuses anything else."""
+def _open(pid: str) -> tuple[dict | None, str]:
+    """(proposal, refusal) for a proposal that can be read at all."""
     try:
         prop = load_proposal(pid)
     except (ConfigError, UnicodeDecodeError, OSError) as e:
-        return False, f"proposal {pid} cannot be read: {e}"
+        return None, f"proposal {pid} cannot be read: {e}"
     if not prop:
-        return False, f"no proposal {pid}"
+        return None, f"no proposal {pid}"
     if not is_proposal(prop):
-        return False, f"{pid} is not a proposal"
-    if prop.get("state") == "applied":
-        return False, f"proposal {pid} was already applied on {timefmt.stamp(prop.get('applied'), timefmt.DATE_TIME, 'an unknown date')}"
-    if prop.get("state") == "withdrawn":
-        return False, f"proposal {pid} was withdrawn"
+        return None, f"{pid} is not a proposal this process knows"
+    return prop, ""
+
+
+def _tell(prop: dict, text: str) -> None:
+    """Tell the proposer how it went. A message that cannot be delivered never undoes the decision."""
+    who = prop.get("requested_by")
+    if who and who != askmod.HUMAN:
+        askmod.say(who, text, requester=askmod.HUMAN)
+
+
+def decide(pid: str, call: str, by: str, note: str = "", subject: str = "") -> tuple[bool, str]:
+    """The founder's decision on a proposal: `call` is "approved" or "rejected". An approve is
+    applied now and the proposer is told the outcome; a reject is recorded and told.
+
+    The decision is recorded in the protected store, where no agent can write it, and `apply`
+    acts on that record alone - so only the founder's own session can decide (`by` is the
+    caller's claim; the store is the proof). An approve needs `subject`, the card's digest the
+    founder read: a draft that is not that one is refused, so an edit made after it was shown is
+    never approved unseen (the file is writable by every agent). Approving a proposal that was approved but did not apply retries it."""
+    if call not in ("approved", "rejected"):
+        return False, "decide `approved` or `rejected`"
+    if by != askmod.HUMAN:
+        return False, f"proposal {pid} is the founder's to decide, not {by}'s"
+    if call == "approved" and not subject:
+        return False, "approve what was read: pass the card's `subject`"
+    note = textsafe.oneline((note or "").strip())
+    prop, err = _open(pid)
+    if err:
+        return False, err
+    con = db.connect()
+    try:
+        # One decision wins: the state is read, the answer recorded and the state set under one
+        # write lock, so a withdraw or a second answer finds this one already there.
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            prop = load_proposal(pid) or prop
+            if prop.get("state") not in ("proposed", "approved"):
+                con.execute("ROLLBACK")
+                return False, f"proposal {pid} is already {prop.get('state')}"
+            if call == "approved" and subject != subject_of(prop):
+                con.execute("ROLLBACK")
+                return False, (f"proposal {pid} changed after you read it - read it again "
+                               f"before approving")
+            got = decisions.get("hr", pid)
+            if (prop.get("state") == "approved" and call == "approved" and got
+                    and got.get("call") == "approved" and got.get("subject") == subject_of(prop)):
+                con.execute("ROLLBACK")
+                return apply(pid)
+            try:
+                decisions.record("hr", pid, 0, call, subject_of(prop))
+            except PermissionError as e:
+                con.execute("ROLLBACK")
+                return False, str(e)
+            prop["state"] = call
+            prop["verdict"] = note or call
+            prop["decided"] = int(time.time())
+            save(prop)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
+    finally:
+        con.close()
+    if call == "rejected":
+        _tell(prop, f"proposal {pid} was rejected" + (f": {note}" if note else "."))
+        return True, f"proposal {pid} rejected"
+    return apply(pid)
+
+
+def apply(pid: str, con=None) -> tuple[bool, str]:
+    """Carry out a proposal the founder approved. Refuses anything else, and anything whose
+    recorded approval is not for the draft as it is now."""
+    prop, err = _open(pid)
+    if err:
+        return False, err
+    state = prop.get("state")
+    if state == "applied":
+        return False, (f"proposal {pid} was already applied on "
+                       f"{timefmt.stamp(prop.get('applied'), timefmt.DATE_TIME, 'an unknown date')}")
+    if state != "approved":
+        return False, (f"proposal {pid} is {state}, not approved - "
+                       f"the founder decides it with `ocp hr approve {pid}`")
+    got = decisions.get("hr", pid)
+    if got is None or got.get("call") != "approved":
+        return False, (f"no approval from the founder is on record for proposal {pid} - "
+                       f"it was not decided by the founder; raise it again")
+    if got.get("subject") != subject_of(prop):
+        return False, (f"proposal {pid} was changed after the founder approved it - "
+                       f"what they approved is not what is in the draft now; raise it again")
     own = con is None
     con = con or db.connect()
     try:
-        state, tid, verdict = answer_of(con, prop)
-        if state == "none":
-            return False, f"proposal {pid} has no decision to check - raise it again"
-        if state == "open":
-            return False, (f"the founder has not answered T{tid} yet. It is on "
-                           f"`ocp bridge`, top panel.")
-        if state == "discarded":
-            why = (db.get_task(con, tid)["discard_reason"] or "").strip()
-            return False, (f"T{tid}, the decision on proposal {pid}, was discarded{f' ({why})' if why else ''} or handed back or closed by someone but the founder - "
-                           f"nothing was decided. Raise it again, or `ocp hr withdraw {pid}`.")
-        card = card_of(con, tid)
-        call = decision(verdict)
-        if call in ("approved", "rejected"):
-            why_not = decisions.refusal("hr", pid, tid, subject_of(prop), card["id"] if card else None)
-            if why_not or decisions.get("hr", pid)["call"] != call:
-                return False, why_not or (f"the founder's recorded answer for proposal {pid} "
-                                          f"does not match T{tid}'s answer")
-        if call == "rejected":
-            prop["state"] = "rejected"
-            prop["verdict"] = textsafe.oneline(verdict or "")
-            save(prop)
-            # The founder's own text, printed raw by cmd_hr - sanitised here
-            # rather than trusted to save()'s control-character refusal above,
-            # which does not cover the C1 range (auditor, #1048).
-            return False, (f"proposal {pid} was rejected: "
-                           f"{textsafe.oneline((verdict or '').strip())[:120]}")
-        if call != "approved":
-            return False, (f"T{tid} was answered "
-                           f"{textsafe.oneline((verdict or '').strip())[:60]!r}, "
-                           f"which is not a decision. Ask the founder to answer "
-                           f"`approve` or `reject`, or `ocp hr withdraw {pid}`.")
-        doer = _DOERS[prop["kind"]]
-        ok, said = doer(prop, con)
+        ok, said = _DOERS[prop["kind"]](prop, con)
         if not ok:
+            prop["error"] = said
+            save(prop)
+            _tell(prop, f"proposal {pid} was approved but could not be applied: {said}")
             return False, said
         prop["state"] = "applied"
         prop["applied"] = int(time.time())
-        prop["verdict"] = textsafe.oneline(verdict or "")
+        prop.pop("error", None)
         save(prop)
+        _tell(prop, f"proposal {pid} applied: {said}")
         return True, said
     finally:
         if own:
             con.close()
 
 
-def confirm_answer(pid: str, con=None) -> tuple[bool, str]:
-    """The founder records, from their own session, an answer that was given but
-    never recorded (a running daemon or bridge on older code did not know the
-    proposal, so it closed the decision without applying it), then applies it.
-
-    The recorded answer is what makes an approve believable, and a verdict in the
-    db alone is no proof, so only the founder's session may do this, and only for
-    a card closed with a decision that still shows the draft the
-    founder was asked. An agent's session is refused by the protected store."""
-    try:
-        prop = load_proposal(pid)
-    except (ConfigError, UnicodeDecodeError, OSError) as e:
-        return False, f"proposal {pid} cannot be read: {e}"
-    if not is_proposal(prop):
-        return False, f"no proposal {pid}"
-    if prop.get("state") != "proposed":
-        return False, f"proposal {pid} is already {prop.get('state')}"
-    own = con is None
-    con = con or db.connect()
-    try:
-        state, tid, verdict = answer_of(con, prop)
-        if state in ("none", "open", "discarded"):
-            return False, f"the founder has not answered T{tid or prop.get('task') or '?'} yet"
-        call = decision(verdict)
-        if call == "unclear":
-            return False, f"T{tid} was answered without approve or reject"
-        card = card_of(con, tid)
-        subject, why_not = answered(prop, card)
-        if why_not:
-            return False, why_not
-        try:
-            decisions.record("hr", pid, tid, call, subject)
-        except PermissionError as e:
-            return False, str(e)
-    finally:
-        if own:
-            con.close()
-    return apply(pid)
-
-
-class _Unwound(Exception):
-    """A withdraw that had to be taken back, with the reason to show."""
-
-
-def withdraw(pid: str, me: str, con=None) -> tuple[bool, str]:
-    """The proposal's own author, or the founder, takes it back.
-
-    The way out of a proposal that will get no decision: a card closed
-    without approve or reject leaves `apply` refusing it and nothing else able
-    to end it. A still-queued card is closed with it and marked told:
-    the proposer is not messaged, whoever withdrew.
-
-    A withdraw and the founder's answer settle to exactly one outcome, decided
-    under one write lock. The decision is read there: an approve or reject
-    already on it is the founder's answer and stands, so the withdraw refuses
-    and `apply` reads that answer; still queued, the withdraw wins and the
-    founder's answer then finds the row closed and refuses. Anything else on
-    the row (closed with no decision, or no row) is the stranded case this
-    verb exists for.
-    """
-    prop = load_proposal(pid)
-    if not prop:
-        return False, f"no proposal {pid}"
+def withdraw(pid: str, me: str) -> tuple[bool, str]:
+    """The proposal's own author, or the founder, takes it back before it is applied."""
+    prop, err = _open(pid)
+    if err:
+        return False, err
     if me not in (prop.get("requested_by"), askmod.HUMAN):
         return False, f"proposal {pid} is {prop.get('requested_by')}'s to withdraw, not yours"
-    own = con is None
-    con = con or db.connect()
-    try:
-        con.execute("BEGIN IMMEDIATE")
-        saved = False
-        try:
-            # Read again under the lock: the state read above may be from
-            # before another withdraw landed.
-            prop = load_proposal(pid) or prop
-            if prop.get("state") != "proposed":
-                con.execute("ROLLBACK")
-                return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
-            state, tid, verdict = answer_of(con, prop)
-            row = card_of(con, tid) if tid else None
-            if state == "answered" and decision(verdict) != "unclear":
-                con.execute("ROLLBACK")
-                return False, (f"the founder already answered T{tid} "
-                               f"({textsafe.oneline((verdict or '').strip())[:60]!r}) - "
-                               f"nothing to withdraw; `ocp hr apply {pid}` reads that answer")
-            # Marked withdrawn before the row is closed: `_would_strand_a_proposal`
-            # reads `is_open_proposal` off this same file, and this call is the
-            # one legitimate way to close the row with something other than
-            # approve or reject - so it must already read as no-longer-open by
-            # the time the close below runs, or the chokepoint refuses its own
-            # escape valve. Put back if the transaction does not commit.
-            prop["state"] = "withdrawn"
-            save(prop)
-            saved = True
-            if row is not None and row["state"] == "queued" and not db.close_if_queued(
-                    con, row["id"], "rejected", f"withdrawn by {me}", announced=True):
-                raise _Unwound(f"#{row['id']} could not be closed - nothing was withdrawn")
-            con.execute("COMMIT")
-        except BaseException as e:
-            if con.in_transaction:
-                con.execute("ROLLBACK")
-            if saved:
-                prop["state"] = "proposed"
-                save(prop)
-            if isinstance(e, _Unwound):
-                return False, str(e)
-            raise
-        return True, f"proposal {pid} withdrawn"
-    finally:
-        if own:
-            con.close()
-
-
-def waits_on(prop: dict, rid: int, tid: int | None) -> bool:
-    """Is request `rid` (task `tid`'s card) the decision this proposal waits on?"""
-    if prop.get("task"):
-        return tid is not None and int(prop["task"]) == tid
-    return int(prop.get("request") or 0) == rid
-
-
-def open_proposal_of(rid: int, con=None) -> str | None:
-    """The id of the proposal still waiting on approve or reject whose decision is request `rid`
-    (the card of its decision task)."""
-    props = [p for p in listing() if p.get("state") == "proposed"]
-    if not props:
-        return None
-    own = con is None
-    con = con or db.connect()
-    try:
-        tid = task_of_card(con, rid)
-    finally:
-        if own:
-            con.close()
-    for p in props:
-        if waits_on(p, rid, tid):
-            return p["id"]
-    return None
-
-
-def unknown_kind_of(rid: int) -> str | None:
-    """The kind of a proposal file waiting on request `rid` that this process does
-    not know, else None. `listing` skips such a file, so without this a process
-    older than the kind would close the decision and throw the answer away."""
     con = db.connect()
     try:
-        tid = task_of_card(con, rid)
+        con.execute("BEGIN IMMEDIATE")      # against a decision landing at the same moment
+        try:
+            prop = load_proposal(pid) or prop
+            if prop.get("state") not in ("proposed", "approved"):
+                con.execute("ROLLBACK")
+                return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
+            prop["state"] = "withdrawn"
+            prop["decided"] = int(time.time())
+            save(prop)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
     finally:
         con.close()
-    for f in dir_().glob("*.yaml"):
-        try:
-            data = load(f.read_text())
-        except (ConfigError, UnicodeDecodeError, OSError):
+    return True, f"proposal {pid} withdrawn"
+
+
+def leave_tasks(con) -> list[str]:
+    """Proposals raised before they stopped being tasks: each still carries a decision task and
+    its card request. An open one is taken off the founder's task board (the card closed, the task
+    discarded with it) and stays a proposal, now waiting on `decide`. One the founder already
+    answered keeps that answer if it is on record for the draft as it stands (approved, or
+    rejected); any other is left to be decided again. Returns the ids of the proposals moved."""
+    moved = []
+    for prop in listing():
+        if prop.get("state") != "proposed" or not (prop.get("task") or prop.get("request")):
             continue
-        if (isinstance(data, dict) and data.get("id") and data.get("agent")
-                and data.get("kind") not in KINDS and data.get("state") == "proposed"
-                and waits_on(data, rid, tid)):
-            return str(data.get("kind"))
-    return None
-
-
-def is_open_proposal(rid: int, con=None) -> bool:
-    """Is request `rid` the decision of a proposal still waiting on approve or reject? Pass the
-    caller's `con` when it is inside a write: a second connection would wait on its lock."""
-    return open_proposal_of(rid, con) is not None
+        state, tid, verdict = decisions.answer_of(con, prop)
+        if state == "open":
+            card = decisions.card_of(con, tid)
+            if card is not None:
+                db.close_if_queued(con, card["id"], "withdrawn", "moved to the founder's hr requests",
+                                   announced=True)
+        elif state == "answered":
+            got = decisions.get("hr", prop["id"])
+            if (got and got.get("call") in ("approved", "rejected")
+                    and decisions.call_of(verdict) == got["call"]
+                    and got.get("subject") == subject_of(prop)):
+                prop["state"] = got["call"]
+                prop["verdict"] = textsafe.oneline(verdict or "")
+        prop.pop("task", None)
+        prop.pop("request", None)
+        save(prop)
+        moved.append(prop["id"])
+    return moved
 
 
 def register_repo(repo: str | None) -> str:
