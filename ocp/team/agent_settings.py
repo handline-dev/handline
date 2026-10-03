@@ -17,6 +17,13 @@ WEIGHTS = ("light", "heavy")
 HANDOFF_NOTES = (("follow the global switch", "default"), ("on", "on"), ("off", "off"))
 
 
+def known_models() -> list[str]:
+    """The model names the code prices by name: the families (`opus`, `sonnet`, ...), which the
+    claude CLI takes as they are. Any other value may still be typed."""
+    from ..usage import prices
+    return [k for k in prices.INPUT_PRICE if not any(c.isdigit() for c in k)]
+
+
 def settings_of(agent: str) -> dict:
     """An agent's configuration as the settings tab shows it: what its agent
     file says, and the account its session is actually on."""

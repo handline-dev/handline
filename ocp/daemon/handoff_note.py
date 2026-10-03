@@ -66,11 +66,24 @@ def _kind_key(agent: str) -> str:
     return f"handoff_ask_kind:{agent}"
 
 
+KEY = "handoff_note"
+
+
+def default_enabled() -> bool:
+    """The global switch: what an agent with no `handoff_note` of its own follows. On unless
+    config.yaml says off."""
+    return idle_close.config_flag(KEY, True)
+
+
+def set_default_enabled(on: bool) -> None:
+    idle_close.set_config_flag(KEY, on)
+
+
 def enabled(agent: str) -> bool:
     """Whether this agent writes a handoff note at all: its own `handoff_note` in agent.yaml,
-    else config.yaml's, else yes."""
-    mine = idle_close._agent_cfg(agent).get("handoff_note")
-    return mine if isinstance(mine, bool) else idle_close.config_flag("handoff_note", True)
+    else the global switch."""
+    mine = idle_close._agent_cfg(agent).get(KEY)
+    return mine if isinstance(mine, bool) else default_enabled()
 
 
 def _prompts_since(con, agent: str, event_id: int) -> int:

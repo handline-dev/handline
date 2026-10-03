@@ -14,7 +14,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.errors import NoWidget
 from textual.screen import Screen
 from textual.worker import get_current_worker
-from textual.widgets import Button, DataTable, Input, Static, Tabs
+from textual.widgets import Button, DataTable, Input, Static, Switch, Tabs
 from textual.widgets._data_table import CellDoesNotExist
 
 from ... import actions, db
@@ -23,7 +23,6 @@ from ...session import idle_close
 from ...usage import load as loadmod, status
 from .. import tui
 from ..components import agent_rows, gauge
-from ..components.action_bar import ActionBar
 from ..components.answer_add import AnswerAdd
 from ..components.ime import ImeInput
 from ..components.jobs_aware import JobsAware
@@ -31,6 +30,8 @@ from ..components.page_header import page_header
 from ..components.proposals import ProposalsView, open_proposals
 from ..components.row_actions import RowActions
 from ..components.section_head import SectionHead
+from ..components.field_note import FieldNote
+from ..components.switch_row import SwitchRow
 from ..components.table_sync import sync_rows
 from ..components.key_guide import Key, KeyGuide, KeyHelp
 from ..components.outlook_view import OutlookView
@@ -91,31 +92,6 @@ def _set_columns(table: DataTable, heads: tuple) -> None:
         table._heads = heads
 
 
-class AnswerMarks:
-    """The auto-answers marked for removal, each by what it is - the (kind, key) `remove_answer`
-    takes - not by its row, which moves when one is added or removed before Save."""
-
-    def __init__(self) -> None:
-        self.marked: set[tuple] = set()
-
-    @staticmethod
-    def of(answer: dict) -> tuple:
-        return (answer["kind"], answer["key"])
-
-    def toggle(self, answer: dict) -> None:
-        self.marked ^= {self.of(answer)}
-
-    def marks(self, answer: dict) -> bool:
-        return self.of(answer) in self.marked
-
-    def keep_only(self, answers: list[dict]) -> None:
-        """Forget a mark whose answer is gone."""
-        self.marked &= {self.of(a) for a in answers}
-
-    def clear(self) -> None:
-        self.marked = set()
-
-
 class HomePage(RowActions, JobsAware, Screen):
     AUTO_FOCUS = ""     # the keys act on the panels until the tab bar takes the focus
     # The row cursor is the selection. DataTable's hover highlight restarts at row 0
@@ -154,7 +130,6 @@ class HomePage(RowActions, JobsAware, Screen):
         tui._enter(self.panel, self.sel)
         self.tab = "home"
         self._answers: list[dict] = []
-        self._removing = AnswerMarks()      # answers marked for removal; Save removes them
         self._checks_shown = False      # the Tasks tab is showing a header link's view now
         self._focus_tab = False         # the tab being opened takes the focus into its content
         self._checks: str | None = None  # the next Tasks tab opens on "delegated"
@@ -190,22 +165,24 @@ class HomePage(RowActions, JobsAware, Screen):
                 with Horizontal(classes="frow"):
                     yield Static("default cap", classes="flabel")
                     yield ImeInput(id="default_cap", compact=True, restrict=r"[0-9]*")
+                    yield FieldNote(id="n_default_cap")
                     yield Static("  most agents mid-turn at once on an account with no cap of its own",
                                  classes="fhint")
                 with Horizontal(classes="frow"):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="idle_close", compact=True, restrict=r"[0-9]*")
+                    yield FieldNote(id="n_idle_close")
                     yield Static("  min idle before the window closes, 0 = never (background work gets 5 more)",
                                  classes="fhint")
+                yield SectionHead("switches")
+                for key, label, hint in actions.GLOBAL_SWITCHES:
+                    yield SwitchRow(label, hint, f"g_{key}")
                 yield SectionHead("auto-answer", "what ocp answers by itself on an agent's terminal; "
                                   "the modal's \"always\" adds one too")
                 yield DataTable(id="answers", cursor_type="row", show_header=False)
                 with Horizontal(id="answer_buttons"):
                     yield Button("Add", id="answer_add", compact=True)
                     yield Button("Remove selected", id="answer_remove", compact=True)
-            with ActionBar(id="settings_buttons"):
-                yield Button("Save", id="settings_save", variant="primary", compact=True)
-                yield Button("Reset", id="settings_reset", compact=True)
 
     def on_mount(self) -> None:
         self.sub_title = "home"
@@ -245,7 +222,10 @@ class HomePage(RowActions, JobsAware, Screen):
         """Fill the settings form from what is saved, dropping what was typed or marked."""
         self.query_one("#default_cap", Input).value = str(loadmod.default_cap())
         self.query_one("#idle_close", Input).value = actions.idle_close_minutes(idle_close.default_close_timeout_s())
-        self._removing.clear()
+        for key, on in actions.global_switches().items():
+            self.query_one(f"#g_{key}", Switch).value = on
+        for note in self.query("#settings_pane FieldNote"):
+            note.clear()
         self._draw_answers()
 
     @staticmethod
@@ -278,10 +258,8 @@ class HomePage(RowActions, JobsAware, Screen):
         except (OSError, ImportError) as e:
             self._answers = []
             self.toast(f"cannot read the auto-answers: {e}", False)
-        self._removing.keep_only(self._answers)
         for i, a in enumerate(self._answers):
-            table.add_row(Text(textsafe.oneline(a["text"]), style="strike dim" if self._removing.marks(a) else ""),
-                          key=str(i))
+            table.add_row(Text(textsafe.oneline(a["text"])), key=str(i))
         if not self._answers:
             table.add_row(Text("none - ocp asks you when a dialog shows", style="dim"), key="none")
 
@@ -293,44 +271,50 @@ class HomePage(RowActions, JobsAware, Screen):
             self._draw_answers()
 
     def _remove_answer(self) -> None:
-        """Mark (or unmark) the row under the cursor; Save is what removes what is marked."""
-        row = self.query_one("#answers", DataTable).cursor_row
+        """Remove the answer under the cursor, at once."""
+        table = self.query_one("#answers", DataTable)
+        row = table.cursor_row
         if not self._answers or row >= len(self._answers):
             return
-        self._removing.toggle(self._answers[row])
+        ok, said = actions.remove_answer(self._answers[row]["kind"], self._answers[row]["key"])
+        self.toast(said, ok)
         self._draw_answers()
-        self.query_one("#answers", DataTable).move_cursor(row=row)
+        table.move_cursor(row=min(row, max(len(self._answers) - 1, 0)))
 
-    def _save_settings(self) -> None:
-        """Everything on the settings tab at once: the cap, the idle close time and the marked answers
-        to remove."""
-        problems, saved = [], []
-        for ok, said in (actions.set_default_cap(self.query_one("#default_cap", Input).value),
-                         actions.set_idle_close(self.query_one("#idle_close", Input).value)):
-            (saved if ok else problems).append(said)
-        for kind, key in sorted(self._removing.marked, key=repr):
-            ok, said = actions.remove_answer(kind, key)
-            (saved if ok else problems).append(said)
-        self._removing.clear()
-        self._draw_answers()
-        if problems:
-            self.toast("not saved: " + "; ".join(problems) + (f" (saved: {', '.join(saved)})" if saved else ""), False)
-        else:
-            self.toast("saved: " + ", ".join(saved), True)
+    def _commit_input(self, box: Input) -> None:
+        """Save a typed setting: on Enter or on leaving the field. A value that is refused is
+        not written; the note beside it says why and stays until the value is right."""
+        note = self.query_one(f"#n_{box.id}", FieldNote)
+        shown = {"default_cap": lambda: str(loadmod.default_cap()),
+                 "idle_close": lambda: actions.idle_close_minutes(idle_close.default_close_timeout_s())}[box.id]()
+        if box.value.strip() == shown:
+            note.clear()
+            return
+        ok, said = (actions.set_default_cap if box.id == "default_cap" else actions.set_idle_close)(box.value)
+        note.saved() if ok else note.error(said)
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        key = (event.switch.id or "")[2:]
+        if (event.switch.id or "").startswith("g_") and key in actions.global_switches():
+            event.stop()
+            note = self.query_one(f"#n_g_{key}", FieldNote)
+            ok, said = actions.save_global_switches({key: event.value})
+            if not ok:
+                note.error(said)
+            elif said:
+                note.saved()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id in ("default_cap", "idle_close"):
             event.stop()
-            self._save_settings()
+            self._commit_input(event.input)
+
+    def on_descendant_blur(self, event) -> None:
+        if getattr(event.widget, "id", None) in ("default_cap", "idle_close"):
+            self._commit_input(event.widget)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "settings_save":
-            event.stop()
-            self._save_settings()
-        elif event.button.id == "settings_reset":
-            event.stop()
-            self._load_settings()
-        elif event.button.id == "answer_add":
+        if event.button.id == "answer_add":
             event.stop()
             self.app.push_screen(AnswerAdd(), self._answer_added)
         elif event.button.id == "answer_remove":

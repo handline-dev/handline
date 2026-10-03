@@ -7,16 +7,17 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.message import Message
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Input, Select, Static, Switch
+from textual.widgets import Input, OptionList, Select, Static, Switch
 
 from ... import actions
 from ...session import idle_close
 from ...team import agents
-from ...team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, HANDOFF_NOTES, WEIGHTS, save_settings,
-                                    settings_changes, settings_of, settings_problem)
-from .action_bar import ActionBar
+from ...team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, HANDOFF_NOTES, NOTHING, WEIGHTS, changes_for,
+                                    known_models, save_settings, settings_of)
 from .confirm import Confirm
 from .ime import ImeInput
+from .field_note import FieldNote
+from .pick_or_type import PickOrType
 from .section_head import SectionHead
 from .sites_list import SitesList
 from .switch_row import SwitchRow
@@ -40,6 +41,14 @@ class AgentSettings(Vertical):
     AgentSettings .frow .unit { width: auto; padding-left: 1; }
     """
 
+    # What each control writes: the fields one commit takes together.
+    FIELDS = {"s_model": ("model",), "s_effort": ("effort",), "s_weight": ("weight",), "s_repo": ("repo",),
+              "s_context_k": ("context_k",), "s_handoff_note": ("handoff_note",), "s_skip": ("skip_permissions",),
+              "s_browser": ("browser", "browser_sites"), "s_browser_sites": ("browser", "browser_sites"),
+              "s_idle_close": ("idle_close",)}
+    NOTES = {"s_browser_sites": "s_browser"}      # the sites share the browser's note
+    TEXT = ("s_model", "s_repo", "s_context_k", "s_idle_close")
+
     class Loaded(Message):
         """The form was filled from the file: whatever sits in `extra` reloads too."""
 
@@ -48,6 +57,12 @@ class AgentSettings(Vertical):
         self.agent = agent
         self.settings: dict | None = None
         self._extra = extra
+
+    @staticmethod
+    def handoff_choices() -> list[tuple[str, str]]:
+        """The handoff note's choices, "follow the global switch" naming what that switch says now."""
+        follows = "on" if actions.global_switches()["handoff_note"] else "off"
+        return [(f"{label} ({follows})" if value == "default" else label, value) for label, value in HANDOFF_NOTES]
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="settings_pane"):
@@ -60,25 +75,31 @@ class AgentSettings(Vertical):
             yield SectionHead("model")
             with Horizontal(classes="frow"):
                 yield Static("model", classes="flabel")
-                yield ImeInput(id="s_model", compact=True)
+                yield PickOrType(known_models(), "s_model", id="s_model_box")
+                yield FieldNote(id="n_s_model")
             with Horizontal(classes="frow"):
                 yield Static("effort", classes="flabel")
                 yield Select([(e, e) for e in agents.VALID_EFFORT], id="s_effort", allow_blank=False, compact=True)
+                yield FieldNote(id="n_s_effort")
             with Horizontal(classes="frow"):
                 yield Static("weight", classes="flabel")
                 yield Select([(w, w) for w in WEIGHTS], id="s_weight", allow_blank=False, compact=True)
+                yield FieldNote(id="n_s_weight")
             with Horizontal(classes="frow"):
                 yield Static("hand off at", classes="flabel")
                 yield ImeInput(id="s_context_k", compact=True, restrict=r"[0-9]*", max_length=6)
                 yield Static("k tokens", classes="unit")
                 yield Static(id="s_context_share", classes="fvalue")
+                yield FieldNote(id="n_s_context_k")
             with Horizontal(classes="frow"):
                 yield Static("handoff note", classes="flabel")
-                yield Select(list(HANDOFF_NOTES), id="s_handoff_note", allow_blank=False, compact=True)
+                yield Select(self.handoff_choices(), id="s_handoff_note", allow_blank=False, compact=True)
+                yield FieldNote(id="n_s_handoff_note")
             yield SectionHead("work")
             with Horizontal(classes="frow"):
                 yield Static("repo", classes="flabel")
                 yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
+                yield FieldNote(id="n_s_repo")
             yield SectionHead("session")
             yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
             yield SectionHead("browser")
@@ -86,6 +107,7 @@ class AgentSettings(Vertical):
                 yield Static("browser", classes="flabel")
                 yield Select([(label, key) for label, key in BROWSER_MODES], id="s_browser", allow_blank=False, compact=True)
                 yield Static("from the next launch", classes="unit")
+                yield FieldNote(id="n_s_browser")
             with Horizontal(classes="frow sites"):
                 yield Static("sites", classes="flabel")
                 yield SitesList(id="s_browser_sites")
@@ -93,11 +115,9 @@ class AgentSettings(Vertical):
                 yield Static("idle close", classes="flabel")
                 yield ImeInput(id="s_idle_close", compact=True, restrict=r"[0-9]*", max_length=5)
                 yield Static("min, 0 = never", classes="unit")
+                yield FieldNote(id="n_s_idle_close")
             if self._extra is not None:
                 yield self._extra()
-        with ActionBar(id="s_buttons"):
-            yield Button("Save", id="s_save", variant="primary", compact=True)
-            yield Button("Reset", id="s_reset", compact=True)
 
     def load(self, agent: str | None = None) -> None:
         """Fill the form from the agent's file (another agent's, when one is given)."""
@@ -109,6 +129,8 @@ class AgentSettings(Vertical):
             self.settings = None
             self.app.notify(f"cannot read this agent's settings: {safe(e)}", severity="error", timeout=10, markup=False)
             return
+        for note in self.query(FieldNote):
+            note.clear()
         for key in ("session_account", "vendor"):
             self.query_one(f"#s_{key}", Static).update(Text(safe(cfg[key])))
         self.query_one("#s_enabled", Static).update("yes" if cfg["enabled"] else "no")
@@ -126,6 +148,7 @@ class AgentSettings(Vertical):
         self.show_context_share()
         self.query_one("#s_effort", Select).value = cfg["effort"] if cfg["effort"] in agents.VALID_EFFORT else "medium"
         self.query_one("#s_weight", Select).value = cfg["weight"] if cfg["weight"] in WEIGHTS else "light"
+        self.query_one("#s_handoff_note", Select).set_options(self.handoff_choices())
         self.query_one("#s_handoff_note", Select).value = cfg["handoff_note"]
         self.post_message(self.Loaded())
 
@@ -147,52 +170,89 @@ class AgentSettings(Vertical):
                                               self.settings["model_id"] or self.query_one("#s_model", Input).value)
                  if self.query_one("#s_context_k", Input).value else ""))
 
+    # ------------------------------------------------------------------ saving
+
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "s_browser":
             self.query_one("#s_browser_sites", SitesList).disabled = event.value != "playwright"
+        if event.select.id in self.FIELDS:
+            self.commit(event.select.id)
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        if event.switch.id == "s_skip" and event.value and self.settings is not None \
+                and self.settings["skip_permissions"] != "on":
+            def answered(yes: bool | None) -> None:
+                if yes:
+                    self.commit("s_skip")
+                else:
+                    event.switch.value = False
+            self.app.push_screen(Confirm("Stop asking before this agent runs tools",
+                                         "skip prompts runs claude --dangerously-skip-permissions: it will act "
+                                         "without asking, from the next launch.", yes="Turn on", no="Cancel",
+                                         danger=True), answered)
+        elif event.switch.id in self.FIELDS:
+            self.commit(event.switch.id)
+
+    def on_sites_list_changed(self, event: SitesList.Changed) -> None:
+        event.stop()
+        self.commit("s_browser_sites")
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in ("s_context_k", "s_model") and self.settings is not None:
             self.show_context_share()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "s_save":
-            event.stop()
-            self.save()
-        elif event.button.id == "s_reset":
-            event.stop()
-            self.load()
+    def on_pick_or_type_picked(self, event: PickOrType.Picked) -> None:
+        event.stop()
+        self.commit(event.input.id)
 
-    def save(self) -> None:
-        """Save what the form changes, after showing exactly what that is."""
-        from ..chat_page import log_action, safe
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id in self.TEXT:
+            event.stop()
+            self.commit(event.input.id)
+
+    def on_descendant_blur(self, event) -> None:
+        wid = getattr(event.widget, "id", None)
+        if wid in self.TEXT and not isinstance(self.app.focused, OptionList):
+            self.commit(wid)
+
+    def commit(self, control: str) -> bool:
+        """Save what the control's field changes, at once. A value the agent file would refuse
+        is not written: its note says why, and it stays until the value is right."""
+        from ..chat_page import log_action
         if self.settings is None:
-            return
+            return True
+        keys = self.FIELDS[control]
         form = self.form()
-        problem = settings_problem(form)
+        note = self.query_one(f"#n_{self.NOTES.get(control, control)}", FieldNote)
+        changes, problem = changes_for(self.agent, {k: form[k] for k in keys})
+        if problem.startswith(NOTHING):
+            note.clear()
+            return True
         if problem:
-            self.app.notify(safe(problem), severity="error", timeout=10, markup=False)
-            return
-        changes = settings_changes(self.settings, form)
-        if not changes:
-            self.app.notify("nothing changed", timeout=5, markup=False)
-            return
-        detail = "\n".join(f"{k}:  {old or '(none)'}  →  {new}" for k, old, new in changes)
-        agent = self.agent
+            note.error(problem)
+            return False
+        ok, said = save_settings(self.agent, changes)
+        log_action(f"settings {self.agent}: {'ok' if ok else 'refused'} - {said}")
+        if not ok:
+            note.error(said)
+            return False
+        self.settings = settings_of(self.agent)
+        later = any(k in ("skip_permissions", "browser", "browser_sites") for k, _, _ in changes)
+        note.saved("saved, from the next launch" if later else "saved")
+        if control in ("s_context_k", "s_model"):
+            self.show_context_share()
+        return True
 
-        def answered(yes: bool | None) -> None:
-            log_action(f"settings {agent}: answered {'yes' if yes else 'no'} - {detail!r}")
-            if not yes:
-                return
-            ok, said = save_settings(agent, changes)
-            log_action(f"settings {agent}: {'ok' if ok else 'refused'} - {said}")
-            later = ok and any(k in ("skip_permissions", "browser", "browser_sites") for k, _, _ in changes)
-            self.app.notify(safe(said) + ("\n(a running session is not restarted"
-                                          + ("; skip prompts and the browser apply from its next launch)" if later else ")") if ok else ""),
-                            title=f"settings {agent}", severity="information" if ok else "error",
-                            timeout=10, markup=False)
-            self.load()
-        self.app.push_screen(Confirm(f"Change {agent}'s settings", detail,
-                                     yes="Save", no="Cancel",
-                                     danger=any(k == "skip_permissions" and new == "on" for k, _, new in changes)),
-                             answered)
+    def settle(self) -> list[str]:
+        """Try every field whose value differs from the file and return the reasons any
+        could not be saved: what going back must ask about."""
+        if self.settings is None:
+            return []
+        form = self.form()
+        controls = [c for c in self.FIELDS if c not in self.NOTES]
+        for control in controls:
+            if any(form[k] != self.settings[k] for k in self.FIELDS[control]):
+                self.commit(control)
+            else:       # typed back to what is saved: an old refusal no longer holds anything
+                self.query_one(f"#n_{control}", FieldNote).clear()
+        return [note.problem for c in controls if (note := self.query_one(f"#n_{c}", FieldNote)).problem]

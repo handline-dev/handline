@@ -74,3 +74,13 @@ class Confirm(Dialog):
         answer = confirm_answer(event.key, event.character)
         if answer is not None:
             self.finish(answer)
+
+
+def leave_or_ask(app, problems: list[str]) -> None:
+    """Go back from a settings page. Nothing is asked unless a field still holds a value that
+    could not be saved (`problems` says why): leaving would drop it."""
+    if not problems:
+        app.pop_screen()
+        return
+    Confirm.ask(app, app.pop_screen, "Go back without saving", "Not saved: " + "; ".join(problems),
+                yes="Go back", no="Stay")

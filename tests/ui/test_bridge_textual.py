@@ -1028,11 +1028,10 @@ async def test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposa
         check("hr edit: e opens the same settings form on that agent",
               isinstance(app.screen, AgentSettingsScreen) and app.screen.query_one("#s_model", Input).value == agents.read("backend")["model"])
         app.screen.query_one("#s_effort", Select).value = "high"
-        app.screen.query_one("#s_save").press()
-        await pilot.pause(0.4)
-        await pilot.press("y")
-        await pilot.pause(0.5)
-        check("hr edit: Save writes it through the founder's path", agents.read("backend")["effort"] == "high", str(agents.read("backend")))
+        await pilot.pause(0.6)
+        check("hr edit: a select saves the moment it changes, with no question asked",
+              agents.read("backend")["effort"] == "high" and isinstance(app.screen, AgentSettingsScreen), str(agents.read("backend")))
+        check("hr edit: and says so beside it", "saved" in str(app.screen.query_one("#n_s_effort").render()))
         Path(os.environ.get("HR_SHOT", os.devnull)).write_text(app.export_screenshot())
         await pilot.press("escape")
         await pilot.pause(0.4)
@@ -1098,10 +1097,10 @@ async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_f
         await pilot.pause(0.2)
         check("browser page: the list is as tall as its rows, so what follows it is not pushed away",
               sites.region.height == 3 and page.query_one("#s_idle_close").region.y == sites.region.y + 4, str(sites.region))
-        page.query_one("#s_save").press()
         await pilot.pause(0.4)
-        check("browser page: Save asks to confirm the browser change",
-              "browser:" in "\n".join(str(w.render()) for w in app.screen.query(Static)))
+        check("browser page: the mode and the sites were saved as they changed, with no Save",
+              agents.browser_mode(agents.read("backend")) == "playwright"
+              and agents.browser_origins(agents.read("backend")) == ["https://www.google.com"], str(agents.read("backend")))
         shown = html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
         Path(os.environ.get("BROWSER_SHOT", os.devnull)).write_text(app.export_screenshot())
         check("browser page: the section names itself and the next-launch note", "from the next launch" in shown, shown[-400:])
@@ -1997,31 +1996,232 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
           not ok and idle_close.close_timeout_s("backend") == before[1], said)
 
 
-def test_home_settings_marks_and_the_delegated_view() -> None:
-    from ocp.ui.pages.home import AnswerMarks
+async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_value() -> None:
+    from textual.widgets import Input, OptionList, Select, Switch
+    from ocp.ui.components.agent_settings_screen import AgentSettingsScreen
+    from ocp.ui.components.confirm import Confirm
+    from ocp.ui.components.pick_or_type import PickOrType
+    from ocp.session import idle_close
+    from ocp.usage import load as loadmod
+    from ocp.ui import chat_page as cp
+    _home("save_at_once")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(130, 50)) as pilot:
+        await pilot.pause(0.3)
+        app.push_screen(AgentSettingsScreen("backend"))
+        await pilot.pause(0.5)
+        scr = app.screen
+        note = lambda n: str(scr.query_one(f"#n_{n}").render())
+        check("save at once: there is no Save button on the agent form", not scr.query("#s_save") and not scr.query("#s_reset"))
+        scr.query_one("#s_skip", Switch).value = True
+        await pilot.pause(0.4)
+        check("skip prompts: turning it on asks first, in red, and nothing is written yet",
+              isinstance(app.screen, Confirm) and agents.read("backend").get("skip_permissions") is not True)
+        await pilot.press("n")
+        await pilot.pause(0.4)
+        check("skip prompts: No puts the switch back", scr.query_one("#s_skip", Switch).value is False
+              and agents.read("backend").get("skip_permissions") is not True)
+        scr.query_one("#s_skip", Switch).value = True
+        await pilot.pause(0.4)
+        await pilot.press("y")
+        await pilot.pause(0.5)
+        check("save at once: (1) a switch saves the moment it flips, and says from the next launch",
+              agents.read("backend").get("skip_permissions") is True and "next launch" in note("s_skip") and scr is app.screen, note("s_skip"))
+        scr.query_one("#s_skip", Switch).value = False
+        await pilot.pause(0.5)
+        check("skip prompts: turning it off asks nothing", agents.read("backend").get("skip_permissions") is not True
+              and not isinstance(app.screen, Confirm))
+        box = scr.query_one("#s_idle_close", Input)
+        box.focus()
+        box.value = "15"
+        await pilot.pause(0.2)
+        check("save at once: (2) a typed value waits for Enter or for leaving the field",
+              idle_close.close_timeout_s("backend") != 900)
+        scr.query_one("#s_repo", Input).focus()
+        await pilot.pause(0.5)
+        check("save at once: (2) leaving the field saves it", idle_close.close_timeout_s("backend") == 900)
+        ctx = scr.query_one("#s_context_k", Input)
+        before = agents.read("backend").get("context_tokens")
+        ctx.value = "0"
+        ctx.focus()
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        check("save at once: (2) an invalid value is not saved and the field says why",
+              agents.read("backend").get("context_tokens") == before and "at least 1" in note("s_context_k"), note("s_context_k"))
+        await pilot.press("escape")
+        await pilot.pause(0.4)
+        check("save at once: (4) going back with an unsaved invalid value asks", isinstance(app.screen, Confirm))
+        await pilot.press("n")
+        await pilot.pause(0.4)
+        check("save at once: (4) and No stays on the form", isinstance(app.screen, AgentSettingsScreen))
+        ctx.value = "300"
+        await pilot.press("escape")
+        await pilot.pause(0.6)
+        check("save at once: (4) a value that is now right is saved and going back asks nothing",
+              not isinstance(app.screen, (Confirm, AgentSettingsScreen)) and agents.read("backend")["context_tokens"] == 300000,
+              str(agents.read("backend")))
+        app.push_screen(AgentSettingsScreen("backend"))
+        await pilot.pause(0.5)
+        scr = app.screen
+        model = scr.query_one("#s_model_box", PickOrType)
+        check("save at once: (6) the model is one control that lists the known models",
+              {"opus", "sonnet", "haiku"} <= set(model.known) and not scr.query("#s_model_pick"), str(model.known))
+        scr.query_one("#s_model", Input).focus()
+        await pilot.pause(0.3)
+        await pilot.press("down", "down", "enter")
+        await pilot.pause(0.6)
+        picked = agents.read("backend")["model"]
+        check("save at once: (6) picking one saves it", picked in model.known and picked != "sonnet" and scr.query_one("#s_model", Input).value == picked, picked)
+        typed = scr.query_one("#s_model", Input)
+        typed.focus()
+        typed.value = "son"
+        await pilot.pause(0.3)
+        check("save at once: (6) typing narrows the list", scr.query_one(OptionList).option_count == 1
+              and scr.query_one(OptionList).get_option_at_index(0).prompt == "sonnet")
+        scr.query_one("#s_model", Input).value = "my-own-model"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("save at once: (6) a custom value can be typed instead", agents.read("backend")["model"] == "my-own-model")
+        await pilot.press("escape")
+        await pilot.pause(0.4)
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        chat = cp.ChatPage("backend")
+        app.push_screen(chat)
+        await pilot.pause(0.6)
+        chat.query_one("Tabs").active = "settings"
+        await pilot.pause(0.6)
+        c_ctx = chat.query_one("#s_context_k", Input)
+        c_ctx.focus()
+        c_ctx.value = "0"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        await pilot.press("escape")
+        await pilot.pause(0.4)
+        check("save at once: (4) the chat page's settings tab asks too when going back with a refused value",
+              isinstance(app.screen, Confirm))
+        await pilot.press("n")
+        await pilot.pause(0.3)
+        c_ctx.value = "300"
+        await pilot.press("escape")
+        await pilot.pause(0.6)
+        check("save at once: (4) and asks nothing once it is right, going back to the chat",
+              not isinstance(app.screen, Confirm) and chat.showing_settings is False)
+        while len(app.screen_stack) > 2:
+            app.pop_screen()
+        await pilot.pause(0.4)
+        page = app.screen
+        page.query_one("#scope").active = "settings"
+        await pilot.pause(0.8)
+        check("save at once: the global settings have no Save button either", not page.query("#settings_save"))
+        cap = page.query_one("#default_cap", Input)
+        cap.value = "0"
+        cap.focus()
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("save at once: global: a refused cap says why", "whole number" in str(page.query_one("#n_default_cap").render()))
+        cap.value = "7"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        check("save at once: global: a good cap is saved on Enter", loadmod.default_cap() == 7)
+        cap.value = "9"
+        page.query_one("#idle_close", Input).focus()
+        await pilot.pause(0.4)
+        check("save at once: global: leaving a field saves it", loadmod.default_cap() == 9)
+        actions.add_answer(vendor="claude", title="Remove me?", label="Yes")
+        page._draw_answers()
+        await pilot.pause(0.3)
+        mine = next(i for i, a in enumerate(page._answers) if "Remove me" in a["text"])
+        page.query_one("#answers").move_cursor(row=mine)
+        page.query_one("#answer_remove").press()
+        await pilot.pause(0.4)
+        check("save at once: global: Remove takes the answer under the cursor out at once",
+              not any("Remove me" in a["text"] for a in actions.standing_answers()))
+        from ocp.daemon import devmode, handoff_note
+        from ocp.session import autoaccept
+        shown = {k: page.query_one(f"#g_{k}", Switch).value for k in actions.global_switches()}
+        check("global switches: each shows the value that is saved", shown == actions.global_switches(), str(shown))
+        for key in shown:
+            page.query_one(f"#g_{key}", Switch).value = not shown[key]
+        await pilot.pause(0.6)
+        flipped = {"handoff_note": handoff_note.default_enabled(), "auto_accept": autoaccept.enabled(),
+                   "ignore_cache_expiry": idle_close.default_ignore_cache_expiry(), "dev_mode": devmode.dev_mode_enabled()}
+        check("global switches: flipping each saves it where the daemon reads it, dev mode too",
+              flipped == {k: not v for k, v in shown.items()}, str(flipped))
+        for on in (True, False):
+            actions.save_global_switches({"handoff_note": on})
+            app.push_screen(AgentSettingsScreen("backend"))
+            await pilot.pause(0.5)
+            labels = [str(label) for label, _ in app.screen.query_one("#s_handoff_note", Select)._options if label != Select.BLANK]
+            check(f"agent form: the handoff note choice names the global value ({'on' if on else 'off'})",
+                  any(l == f"follow the global switch ({'on' if on else 'off'})" for l in labels), str(labels))
+            check("agent form: and draws it on the closed control",
+                  f"follow the global switch ({'on' if on else 'off'})" in str(app.screen.query_one("#s_handoff_note").render())
+                  or f"follow the global switch ({'on' if on else 'off'})" in _screen_text(app.screen))
+            await pilot.press("escape")
+            await pilot.pause(0.4)
+        from ocp.ui.pages.account import AccountPage
+        app.push_screen(AccountPage("alpha"))
+        await pilot.pause(0.6)
+        acct = app.screen
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.4)
+        check("account page: no Save button", not acct.query("#a_save"))
+        alias = acct.query_one("#a_name", Input)
+        alias.focus()
+        alias.value = "first"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        check("account page: the alias is saved on Enter", loadmod.label_of("alpha") == "first")
+        alias.value = "second"
+        acct.query_one("#a_cap", Input).focus()
+        await pilot.pause(0.5)
+        check("account page: leaving a field saves it", loadmod.label_of("alpha") == "second")
+        was = loadmod.usage_recover_enabled("alpha")
+        acct.query_one("#a_recover", Switch).value = not was
+        await pilot.pause(0.5)
+        check("account page: the usage recovery switch saves when flipped", loadmod.usage_recover_enabled("alpha") == (not was))
+        cap = acct.query_one("#a_cap", Input)
+        cap.focus()
+        cap.value = "0"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        check("account page: a refused cap says why, and the alias is not held back",
+              "at least 1" in str(acct.query_one("#n_a_cap").render()) and loadmod.label_of("alpha") == "second")
+        await pilot.press("escape")
+        await pilot.pause(0.4)
+        check("account page: going back with the refused cap still there asks", isinstance(app.screen, Confirm))
+        await pilot.press("y")
+        await pilot.pause(0.4)
+        check("account page: Yes leaves", not isinstance(app.screen, (Confirm, AccountPage)))
+
+
+def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
+    from ocp.daemon import handoff_note
+    from ocp.session import autoaccept, idle_close
+    _home("global_switches")
+    check("switches: they start where the fixture left them (the note is off there)",
+          actions.global_switches() == {"handoff_note": False, "auto_accept": True,
+                                        "ignore_cache_expiry": False, "dev_mode": False}, str(actions.global_switches()))
+    actions.save_global_switches({"handoff_note": True})
+    check("switches: the note is on again", handoff_note.default_enabled())
+    ok, said = actions.save_global_switches({"handoff_note": False, "auto_accept": False, "ignore_cache_expiry": True})
+    check("switches: Save writes the ones the daemon reads from",
+          ok and not handoff_note.default_enabled() and not autoaccept.enabled()
+          and idle_close.default_ignore_cache_expiry() and "handoff note off" in said, said)
+    check("switches: an agent with no switch of its own follows the global one", not handoff_note.enabled("backend"))
+    check("switches: unchanged ones write nothing", actions.save_global_switches(actions.global_switches()) == (True, ""))
+
+
+def test_home_settings_removal_and_the_delegated_view() -> None:
     from ocp.ui.components.tasks_view import LISTED, TasksView
     _home("home_marks")
     for title in ("Run A?", "Run B?"):
         actions.add_answer(vendor="claude", title=title, label="Yes")
-    marks = AnswerMarks()
-    a, b = actions.standing_answers()
-    marks.toggle(a)
-    actions.add_answer(folder=str(Path(tempfile.mkdtemp(dir=t.TEST_ROOT))))      # trusted folders list first
-    now = actions.standing_answers()
-    marks.keep_only(now)
-    check("home marks: a mark stays on its answer when another is added before Save",
-          [x["text"] for x in now if marks.marks(x)] == [a["text"]], str(marks.marked))
-    for kind, key in marks.marked:
-        actions.remove_answer(kind, key)
+    a, b = actions.standing_answers()[:2]
+    actions.remove_answer(a["kind"], a["key"])
     left = [x["text"] for x in actions.standing_answers()]
-    check("home marks: Save removes the marked answer and only that one",
-          a["text"] not in left and b["text"] in left and any(x.startswith("trust") for x in left), str(left))
-    marks.toggle(b)
-    marks.clear()
-    check("home marks: Reset drops the marks", not marks.marked)
-    marks.toggle(b)
-    marks.keep_only([])
-    check("home marks: a mark whose answer is gone is forgotten", not marks.marked)
+    check("home settings: a removal is at once and only that answer", a["text"] not in left and b["text"] in left, str(left))
 
     view = TasksView.__new__(TasksView)
     view.refresh_rows = lambda: None
@@ -4311,8 +4511,10 @@ async def _run_all() -> None:
     test_open_proposals_lists_only_what_is_the_founders_move()
     test_summary_line()
     test_idle_close_is_set_globally_and_per_agent_in_minutes()
+    test_global_switches_read_and_write_the_keys_the_daemon_reads()
+    await test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_value()
     test_a_standing_answer_is_added_from_the_settings()
-    test_home_settings_marks_and_the_delegated_view()
+    test_home_settings_removal_and_the_delegated_view()
     test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon()
     test_the_home_cursor_moves_only_when_the_row_is_not_already_there()
     test_the_bridge_stylesheet_parses()

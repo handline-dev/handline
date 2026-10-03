@@ -3,6 +3,7 @@ from __future__ import annotations
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.widgets import Button, Static
 
 from ...infra import textsafe
@@ -51,7 +52,10 @@ class SiteEdit(Dialog):
 
 class SitesList(Vertical):
     """The sites a sandboxed browser may open: one row each with a ✎ and a ✕, and an Add button.
-    It only holds the list; the settings page's Save writes it with the other fields."""
+    It only holds the list; each change posts `Changed` and the settings page writes it."""
+
+    class Changed(Message):
+        pass
 
     DEFAULT_CSS = """
     SitesList { height: auto; }
@@ -93,6 +97,7 @@ class SitesList(Vertical):
             if site is not None:
                 self.sites.append(site)
                 self.show()
+                self.post_message(self.Changed())
         self.app.push_screen(SiteEdit(self.sites), answered)
 
     def _edit(self, i: int) -> None:
@@ -100,6 +105,7 @@ class SitesList(Vertical):
             if site is not None:
                 self.sites[i] = site
                 self.show()
+                self.post_message(self.Changed())
         self.app.push_screen(SiteEdit([s for j, s in enumerate(self.sites) if j != i], self.sites[i]), answered)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -114,3 +120,4 @@ class SitesList(Vertical):
             else:
                 del self.sites[int(bid[6:])]
                 self.show()
+                self.post_message(self.Changed())

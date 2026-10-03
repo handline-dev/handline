@@ -6,6 +6,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Static, Switch
 
+from .field_note import FieldNote
+
 
 class SwitchRow(Horizontal):
     DEFAULT_CSS = """
@@ -23,3 +25,4 @@ class SwitchRow(Horizontal):
         yield Static(self.label, classes="flabel")
         yield Switch(id=self.switch_id, value=self.initial)
         yield Static("  " + self.hint, classes="fhint")
+        yield FieldNote(id=f"n_{self.switch_id}")
