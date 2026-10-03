@@ -149,6 +149,7 @@ def account_facts(con, acct: str, logged_in=None) -> dict:
             "cost": status.live_cost(acct), "cap": loadmod.cap_of(acct), "own_cap": loadmod.own_cap(acct),
             "recover": loadmod.usage_recover_enabled(acct),
             "cycle": cycle.enabled(acct), "own_end": cycle.own_end(acct),
+            "cycle_pos": cycle.position(acct, time.time()),
             "default_cap": loadmod.default_cap(), "agents": rows}
 
 
@@ -433,7 +434,10 @@ def _outlook_rows(con, now: int, hours: int) -> list:
 def weekly_outlook(con, now: int, hours: int = 24):
     """The weekly headroom of all accounts together, the last `hours` and a guess at the next."""
     from ..usage import outlook
-    return outlook.weekly_outlook(_outlook_rows(con, now, hours), now, hours)
+    rows = _outlook_rows(con, now, hours)
+    cfg = cycle.config()
+    ends = {a: e for a in {r["account"] for r in rows} if (e := cycle.end_of(a, cfg)) is not None}
+    return outlook.weekly_outlook(rows, now, hours, ends)
 
 
 def agent_use(con, now: int, hours: int) -> list:

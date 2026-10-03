@@ -2195,6 +2195,10 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.4)
         check("account page: Yes leaves", not isinstance(app.screen, (Confirm, AccountPage)))
         from ocp.usage import cycle as cyclemod
+        from ocp import vendors as vendormod
+        cdir = vendormod.config_dir("alpha")
+        cdir.mkdir(parents=True, exist_ok=True)
+        (cdir / ".claude.json").write_text('{"oauthAccount": {"subscriptionCreatedAt": "2026-09-21T12:00:00Z"}}')
         loadmod.write_config({**loadmod.config_for_write(), "month_cycle_alpha": True, "sub_end_alpha": "2031-04-05"})
         app.push_screen(AccountPage("alpha"))
         await pilot.pause(0.6)
@@ -2203,6 +2207,14 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.8)
         check("account cycle: the page shows the saved switch and end day",
               acct.query_one("#a_cycle", Switch).value is True and acct.query_one("#a_end", Input).value == "2031-04-05")
+        month = str(acct.query_one("#a_month").render())
+        check("account cycle: the overview says where the month stands (ends, with its day)",
+              "Month" in month and "ends 2031-04-05" in month, month)
+        acct.query_one("#scope").active = "overview"
+        await pilot.pause(0.5)
+        Path(os.environ.get("CYCLE_END_SHOT", os.devnull)).write_text(app.export_screenshot())
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.4)
         end = acct.query_one("#a_end", Input)
         end.focus()
         end.value = "2031-05-06"
@@ -2222,6 +2234,14 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         acct.query_one("#a_cycle", Switch).value = False
         await pilot.pause(0.5)
         check("account cycle: the switch saves when flipped", not cyclemod.enabled("alpha"))
+        check("account cycle: off reads as renewing in the overview, from the subscription start",
+              "renews" in str(acct.query_one("#a_month").render()), str(acct.query_one("#a_month").render()))
+        acct.query_one("#scope").active = "overview"
+        await pilot.pause(0.5)
+        Path(os.environ.get("CYCLE_SHOT", os.devnull)).write_text(app.export_screenshot())
+        acct.query_one("#scope").active = "settings"
+        await pilot.pause(0.4)
+        end.focus()
         end.value = "2031-07-08"
         await pilot.press("enter")
         await pilot.pause(0.6)

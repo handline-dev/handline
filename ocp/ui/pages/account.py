@@ -64,6 +64,7 @@ class AccountPage(AccountActions, Screen):
             yield Static(id="t_badge")
             yield Static(id="t_meta")
             yield Static(id="a_usage", classes="section")
+            yield Static(id="a_month", classes="section")
             yield Static(id="a_home", classes="section")
             yield Static(id="a_status", classes="section")
         yield DataTable(id="a_agents", cursor_type="row", zebra_stripes=True)
@@ -81,7 +82,7 @@ class AccountPage(AccountActions, Screen):
                     yield FieldNote(id=f"n_a_{key}")
             yield SwitchRow("usage recovery", "one real turn that renews a dead credential or restarts the usage window",
                             "a_recover", True)
-            yield SwitchRow("month cycle", "a one-month subscription: not picked after its last day", "a_cycle")
+            yield SwitchRow("ends this month", "a one-off month: not picked after its last day; off = renewing", "a_cycle")
             with Horizontal(classes="frow"):
                 yield Static("last day", classes="flabel")
                 yield ImeInput(id="a_end", compact=True, max_length=10, placeholder="YYYY-MM-DD")
@@ -174,9 +175,19 @@ class AccountPage(AccountActions, Screen):
             usage.append(f"  {name:<6}", style="dim")
             usage.append_text(Text.from_ansi(f"{bar} {tui.pct(pct)}%{mark}"))
             left = (reset or 0) - time.time()
-            usage.append(f"   resets in {timefmt.span(left)}" if reset and left > 0 else "", style="dim")
+            cut = st.sub_end is not None and w is st.long and time.time() < st.sub_end < (reset or float("inf"))
+            if cut:     # the subscription ends inside this week: the week is cut there
+                usage.append(f"   ends in {timefmt.span(st.sub_end - time.time())}", style="dim")
+            else:
+                usage.append(f"   resets in {timefmt.span(left)}" if reset and left > 0 else "", style="dim")
             usage.append("\n")
         self.query_one("#a_usage", Static).update(usage)
+
+        month = Text("Month\n", style="bold")
+        pos = f["cycle_pos"]
+        month.append(f"  {'cycle':<16}", style="dim")
+        month.append(pos.line() if pos else "subscription start unknown" + ("" if f["cycle"] else " - renewing"))
+        self.query_one("#a_month", Static).update(month)
 
         home = Text("On the home row\n", style="bold")
         for key in ("agents", "runway"):
