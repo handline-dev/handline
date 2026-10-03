@@ -13,7 +13,7 @@ from ... import actions
 from ...session import idle_close
 from ...team import agents
 from ...team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, HANDOFF_NOTES, NOTHING, WEIGHTS, changes_for,
-                                    known_models, save_settings, settings_of)
+                                    known_models, mode_in_form, save_settings, settings_of)
 from .confirm import Confirm
 from .ime import ImeInput
 from .field_note import FieldNote
@@ -43,7 +43,7 @@ class AgentSettings(Vertical):
 
     # What each control writes: the fields one commit takes together.
     FIELDS = {"s_model": ("model",), "s_effort": ("effort",), "s_weight": ("weight",), "s_repo": ("repo",),
-              "s_context_k": ("context_k",), "s_handoff_note": ("handoff_note",), "s_skip": ("skip_permissions",),
+              "s_context_k": ("context_k",), "s_handoff_note": ("handoff_note",), "s_skip": ("skip_permissions",), "s_mode": ("mode",), "s_sandbox": ("sandbox",),
               "s_browser": ("browser", "browser_sites"), "s_browser_sites": ("browser", "browser_sites"),
               "s_idle_close": ("idle_close",)}
     NOTES = {"s_browser_sites": "s_browser"}      # the sites share the browser's note
@@ -101,7 +101,13 @@ class AgentSettings(Vertical):
                 yield ImeInput(id="s_repo", compact=True, placeholder="where it works")
                 yield FieldNote(id="n_s_repo")
             yield SectionHead("session")
+            with Horizontal(classes="frow"):
+                yield Static("mode", classes="flabel")
+                yield Select([(m, m) for m in agents.MODES if m != "bypass"], id="s_mode", allow_blank=False, compact=True)
+                yield Static("from the next launch; skip prompts overrides it", classes="unit")
+                yield FieldNote(id="n_s_mode")
             yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
+            yield SwitchRow("sandbox", "off lasts until the agent's session ends", "s_sandbox")
             yield SectionHead("browser")
             with Horizontal(classes="frow"):
                 yield Static("browser", classes="flabel")
@@ -138,6 +144,8 @@ class AgentSettings(Vertical):
         self.query_one("#s_repo", Input).value = safe(cfg["repo"])
         self.query_one("#s_context_k", Input).value = cfg["context_k"]
         self.query_one("#s_skip", Switch).value = cfg["skip_permissions"] == "on"
+        self.query_one("#s_sandbox", Switch).value = cfg["sandbox"] == "on"
+        self.show_mode()
         modes = BROWSER_MODES + (BROWSER_CUSTOM,) if cfg["browser"] == "custom" else BROWSER_MODES
         self.query_one("#s_browser", Select).set_options(modes)
         self.query_one("#s_browser", Select).value = cfg["browser"]
@@ -158,11 +166,21 @@ class AgentSettings(Vertical):
                 "weight": str(self.query_one("#s_weight", Select).value),
                 "repo": self.query_one("#s_repo", Input).value,
                 "skip_permissions": "on" if self.query_one("#s_skip", Switch).value else "off",
+                "mode": mode_in_form(self.settings, str(self.query_one("#s_mode", Select).value))
+                if self.settings else str(self.query_one("#s_mode", Select).value),
+                "sandbox": "on" if self.query_one("#s_sandbox", Switch).value else "off",
                 "browser": str(self.query_one("#s_browser", Select).value),
                 "browser_sites": " ".join(self.query_one("#s_browser_sites", SitesList).sites),
                 "context_k": self.query_one("#s_context_k", Input).value,
                 "handoff_note": str(self.query_one("#s_handoff_note", Select).value),
                 "idle_close": self.query_one("#s_idle_close", Input).value}
+
+    def show_mode(self) -> None:
+        """The mode the file has, greyed out while skip prompts is on: that is bypass and wins over it."""
+        mode = self.query_one("#s_mode", Select)
+        mode.disabled = self.settings["skip_permissions"] == "on"
+        with mode.prevent(Select.Changed):
+            mode.value = self.settings["mode"] if self.settings["mode"] != "bypass" else agents.DEFAULT_MODE
 
     def show_context_share(self) -> None:
         self.query_one("#s_context_share", Static).update(
@@ -190,6 +208,16 @@ class AgentSettings(Vertical):
                                          "skip prompts runs claude --dangerously-skip-permissions: it will act "
                                          "without asking, from the next launch.", yes="Turn on", no="Cancel",
                                          danger=True), answered)
+        elif event.switch.id == "s_sandbox" and not event.value and self.settings is not None \
+                and self.settings["sandbox"] == "on":
+            def answered(yes: bool | None) -> None:
+                if yes:
+                    self.commit("s_sandbox")
+                else:
+                    event.switch.value = True
+            self.app.push_screen(Confirm("Run this agent without its sandbox",
+                                         "Its commands will run with nothing holding them back, until its "
+                                         "session ends.", yes="Turn off", no="Cancel", danger=True), answered)
         elif event.switch.id in self.FIELDS:
             self.commit(event.switch.id)
 
@@ -237,7 +265,8 @@ class AgentSettings(Vertical):
             note.error(said)
             return False
         self.settings = settings_of(self.agent)
-        later = any(k in ("skip_permissions", "browser", "browser_sites") for k, _, _ in changes)
+        self.show_mode()
+        later = any(k in ("skip_permissions", "mode", "sandbox", "browser", "browser_sites") for k, _, _ in changes)
         note.saved("saved, from the next launch" if later else "saved")
         if control in ("s_context_k", "s_model"):
             self.show_context_share()
