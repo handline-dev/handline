@@ -20,21 +20,27 @@ import time
 from .. import db
 from ..infra import paths, textsafe
 from ..session import idle_close
+from . import delivery, messaging
 
 DIGEST_MAX_LINES = 20
 RESULT_SHOWN = 80
 _RESULT = re.compile(r"^T(\d+) (done|discarded) by (.+?):\s*(.*)$", re.S)
 
 
-def _tell_now(con, to: str, text: str, reason: str, log) -> int:
-    """One typed message to `to` from the task board: not a notice, so it wakes a closed agent."""
+def _say(con, to: str, text: str, reason: str) -> int:
+    """One message to `to` from the task board, written and queued: not a notice, so it wakes a
+    closed agent once told."""
     from ..team import ask as askmod, team
-    from . import messaging
 
     rid = db.add_request(con, db.NOTICE_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None)
     askmod.deliver(rid, db.NOTICE_REQUESTER, to, text, None,
                    team.Decision(True, reason, kind="say", response="fire_and_forget", chain_depth=0))
     db.add_event(con, db.NOTICE_REQUESTER, "notice_told", {"request_id": rid, "to": to, "reason": reason})
+    return rid
+
+
+def _tell_now(con, to: str, text: str, reason: str, log) -> int:
+    rid = _say(con, to, text, reason)
     messaging.tell_now(con, rid, log)
     return rid
 
@@ -55,7 +61,7 @@ def digest_line(row) -> str:
 def digest_text(rows) -> str:
     shown = rows[:DIGEST_MAX_LINES]
     left = len(rows) - len(shown)
-    head = f"{len(rows)} result{'s' if len(rows) != 1 else ''} since {time.strftime('%H:%M', time.localtime(int(rows[0]['landed_at'])))}" \
+    head = f"{db.DIGEST_HEAD}{len(rows)} result{'s' if len(rows) != 1 else ''} since {time.strftime('%H:%M', time.localtime(int(rows[0]['landed_at'])))}" \
            " - `ocp read <id>` shows one whole:"
     return "\n".join([head, *(digest_line(r) for r in shown), *([f"(+{left} more: `ocp inbox --all`)"] if left else [])])
 
@@ -69,10 +75,13 @@ def sweep_digests(con, log, now: int) -> None:
         rows = db.pending_notices(con, agent)
         if not rows:
             continue
-        rid = _tell_now(con, agent, digest_text(rows), "notice digest", log)
+        # Written and marked before it is told: a tell that raises leaves the digest queued for
+        # `tell_undelivered`, and no second digest is built of the same results.
+        rid = _say(con, agent, digest_text(rows), "notice digest")
         db.mark_notices_digested(con, [int(r["id"]) for r in rows])
         db.add_event(con, db.NOTICE_REQUESTER, "notices_digested",
                      {"request_id": rid, "to": agent, "notices": [int(r["id"]) for r in rows]})
+        messaging.tell_now(con, rid, log)
         log(f"  {agent}: {len(rows)} waiting result(s) told in one digest (#{rid})")
 
 
@@ -107,9 +116,11 @@ def sweep_stopped(con, log, now: int) -> None:
             if db.get_cursor(con, key):
                 continue
             db.set_cursor(con, key, 1)
-            detail = (stalled[agent]["detail"] if kind == "fatal" else blocks[agent]["detail"]) or ""
-            _tell_waiting(con, agent, f"{agent} is {'FATAL' if kind == 'fatal' else 'blocked'}: "
-                          + " ".join(textsafe.oneline(detail).split())[:300], f"is {kind}", log)
+            detail = " ".join(textsafe.oneline((stalled[agent]["detail"] if kind == "fatal"
+                                                else blocks[agent]["detail"]) or "").split())[:300]
+            what = ("blocked" if kind == "blocked"
+                    else "stalled" if detail.startswith(delivery.DIALOG_STALL) else "FATAL")
+            _tell_waiting(con, agent, f"{agent} is {what}: {detail}", f"is {what}", log)
 
 
 def sweep(con, log, now: int) -> None:
