@@ -2418,6 +2418,25 @@ deny: []
     rc, out = _cli(["hr", "links"], as_agent=askmod.HUMAN)
     check("hr links: run again, there is nothing to change", rc == 0 and "nothing to change" in out, out)
 
+    from ocp.team import linkmigrate
+    a, b, c = {"from": "x", "to": "y"}, {"from": "x", "to": "y", "relation": "peer"}, {"from": "p", "to": "q"}
+    left = linkmigrate._without([a, c, dict(a), b], [dict(a), dict(b)])
+    check("hr links: the edges left are the table's less one equal edge per dropped one",
+          left == [c, a], left)
+
+    hand_edit_team(original)
+    real_edit = linkmigrate.edit
+    linkmigrate.edit = lambda text: text.replace('  - { from: "*", to: "orca", relation: peer, response: async }\n', "")
+    try:
+        rc, out = _cli(["hr", "links", "--apply"], as_agent=askmod.HUMAN)
+    finally:
+        linkmigrate.edit = real_edit
+    check("hr links: a result that would stop a pair working is refused, nothing written",
+          rc == 1 and "would stop working" in out and (home / "team.yaml").read_text() == original, out)
+    rc, out = _cli(["hr", "links", "--apply"], as_agent=askmod.HUMAN)
+    check("hr links: applied, it says a request queued before it is refused at delivery",
+          rc == 0 and "queued before this" in out, out)
+
 
 def test_hr_team_is_one_proposal_and_a_team_has_default_links(home: Path) -> None:
     """T263: a manager and its members are proposed and approved once, and the

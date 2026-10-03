@@ -37,17 +37,23 @@ def _gives(tm: team.Team, e: dict, frm: str, to: str) -> bool:
     return d is not None and e.get("relation") in (None, d.relation) and d.kind is None
 
 
+def _without(edges: list[dict], dropped: list[dict]) -> list[dict]:
+    """`edges` less one equal edge for each of `dropped` (the dropped ones are parsed again from
+    their lines, so they are equal to the table's edges, not the same objects)."""
+    left = list(edges)
+    for e in dropped:
+        left.remove(e)
+    return left
+
+
 def plan(text: str) -> tuple[list[tuple[int, dict]], list[tuple[str, str]]]:
     """(edges to drop as (line, edge), pairs of managers to link) for the file's text."""
     data = load(text)
     tm = team.Team(data)
     drop = [(i, e) for i, e in _edges_of(text) if _covered(tm, e)]
-    gone = {i for i, _ in drop}
-    kept = [e for e in (data.get("edges") or []) if not any(e is d for _, d in drop)]
-    rest = team.Team({**data, "edges": kept})
+    rest = team.Team({**data, "edges": _without(data.get("edges") or [], [e for _, e in drop])})
     mgrs = sorted(rest.managers())
     add = [(a, b) for a in mgrs for b in mgrs if a != b and not rest.route(a, b).allowed]
-    del gone
     return drop, add
 
 
@@ -96,4 +102,7 @@ def migrate(apply: bool) -> tuple[bool, str]:
                              f"{a} -> {b} would stop working")
 
     ok, said = hr._edit_team_yaml(edit, verify=verify)
-    return ok, ("\n".join(lines) + "\n" + said) if ok else said
+    if not ok:
+        return False, said
+    return True, ("\n".join(lines) + "\n" + said + "\nA request queued before this, not yet delivered, "
+                  "still carries the old relation and is refused at delivery: send it again.")
