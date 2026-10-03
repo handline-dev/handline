@@ -209,6 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--why", required=True, help="what the founder is deciding")
     q = hrsub.add_parser("list", help="proposals and what became of them")
     q.add_argument("--json", action="store_true", help="the proposals waiting on the founder, as cards")
+    q.add_argument("--all", action="store_true", help="with --json: the settled ones too")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("relabel", help="name a renamed agent's Orca worktree for it "
@@ -227,6 +228,9 @@ def build_parser() -> argparse.ArgumentParser:
                    model=None, effort=None)
     q = hrsub.add_parser("approve", help="the founder approves a proposal; it is applied now")
     q.add_argument("id")
+    q.add_argument("--subject", default="",
+                   help="the digest of the proposal as read (`ocp hr list --json`); without it the "
+                        "proposal is shown and you are asked")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("reject", help="the founder rejects a proposal; the proposer is told")

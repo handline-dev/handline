@@ -27,7 +27,7 @@ def cmd_hr(args) -> int:
     me = askmod.asking_agent()
     if args.hr_cmd == "list":
         if args.json:
-            print(json.dumps(hr.pending(), indent=2))
+            print(json.dumps(hr.pending() + (hr.decided() if args.all else []), indent=2))
             return 0
         skipped: list[str] = []
         rows = hr.listing(skipped)
@@ -66,8 +66,23 @@ def cmd_hr(args) -> int:
             print("approving or rejecting a proposal is the founder's, from a terminal or the "
                   "bridge, not an agent's", file=sys.stderr)
             return 1
+        subject = getattr(args, "subject", "")
+        if args.hr_cmd == "approve" and not subject:
+            prop, err = hr._open(args.id)
+            if err:
+                print(err)
+                return 1
+            shown = hr.card(prop)
+            print(shown["text"])
+            if not sys.stdin.isatty():
+                print("not a terminal: pass --subject " + shown["subject"], file=sys.stderr)
+                return 1
+            if input("approve this? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("left alone")
+                return 1
+            subject = shown["subject"]
         ok, said = hr.decide(args.id, "approved" if args.hr_cmd == "approve" else "rejected",
-                             me, getattr(args, "reason", ""))
+                             me, getattr(args, "reason", ""), subject)
         print(said)
         return 0 if ok else 1
     if args.hr_cmd == "withdraw":

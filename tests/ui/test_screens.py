@@ -947,7 +947,7 @@ edges:
         # Decided first, withdrawn after: the founder's decision stands and the withdraw refuses.
         ok, said = hr.propose("add", "dohyun", repo="/repo", requester="hr", why="third")
         pid3 = said.split()[1]
-        ok, said = hr.decide(pid3, "approved", actions.HUMAN)
+        ok, said = approve_hr(pid3)
         ok, said = hr.withdraw(pid3, actions.HUMAN)
         check("withdraw: an approved proposal is not withdrawn - the founder decided first",
               not ok and "already applied" in said and hr.load_proposal(pid3)["state"] == "applied", said)

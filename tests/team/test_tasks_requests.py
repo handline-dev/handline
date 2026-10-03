@@ -2318,7 +2318,7 @@ edges:
               not ok and "not approved" in said, said)
 
         # Approved, and the two writes a human would have made.
-        ok, said = hr.decide(pid, "approved", actions.HUMAN)
+        ok, said = approve_hr(pid)
         table = yamlcompat.load((home / "team.yaml").read_text())
         check("hr: an approved proposal registers the agent", ok and "dohyun" in paths.list_agents(), said)
         check("hr: and puts it in the team, which is what the routing is keyed on",
@@ -2332,7 +2332,7 @@ edges:
         # work that was actually done.
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
         pid2 = said.split()[1]
-        ok, said = hr.decide(pid2, "approved", actions.HUMAN)
+        ok, said = approve_hr(pid2)
         table = yamlcompat.load((home / "team.yaml").read_text())
         archived = list((home / "agents" / "archive").glob("*dohyun*"))
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
@@ -2351,7 +2351,7 @@ edges:
         ok, said = hr.propose("rename", "manager", requester="hr", to="harbor-manager",
                               why="it only ever runs the harbor project", team_name=None)
         pid_r = said.split()[1]
-        ok, said = hr.decide(pid_r, "approved", actions.HUMAN)
+        ok, said = approve_hr(pid_r)
         check("hr: an identity does not change under a running session",
               not ok and "session running" in said, said)
         sessions_are()
@@ -2604,7 +2604,7 @@ edges:
         return said.split()[1]
 
     def founder(pid, out):
-        out.append(hr.decide(pid, "approved", actions.HUMAN))
+        out.append(approve_hr(pid))
 
     orig_load, orig_save = hr.load_proposal, hr.save
     try:

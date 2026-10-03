@@ -389,18 +389,28 @@ def card(prop: dict) -> dict:
     """A proposal as the founder's chat card and `ocp hr list --json` show it. `text` is what
     will happen if it is approved; `state` is "proposed" (waiting on the founder) or "approved"
     (decided, but the change did not go through - `error` says why, and approving again retries).
-    `subject` is the digest to hand back to `decide`: what was read is what is approved."""
+    `subject` is the digest to hand back to `decide`: what was read is what is approved. `verdict` and
+    `at` say how and when a settled one ended (see `decided`)."""
     return {"id": prop["id"], "kind": prop["kind"], "agent": prop["agent"],
             "to": prop.get("to"), "requested_by": prop.get("requested_by"),
             "why": prop.get("why"), "ts": int(prop.get("created") or 0),
             "state": prop.get("state"), "error": prop.get("error"),
-            "text": _decision_text(prop), "subject": subject_of(prop)}
+            "text": _decision_text(prop), "subject": subject_of(prop),
+            "verdict": prop.get("verdict"),
+            "at": int(prop.get("applied") or prop.get("decided") or prop.get("created") or 0)}
 
 
 def pending() -> list[dict]:
     """The proposals still waiting on the founder, oldest first."""
     return [card(p) for p in sorted(listing(), key=lambda p: p.get("created") or 0)
             if p.get("state") in ("proposed", "approved")]
+
+
+def decided(since: int = 0) -> list[dict]:
+    """The proposals that are settled (rejected, applied, withdrawn) at or after `since`, oldest
+    first: what a chat card draws as the outcome of the one the founder decided."""
+    out = [card(p) for p in listing() if p.get("state") in ("rejected", "applied", "withdrawn")]
+    return sorted((c for c in out if c["at"] >= since), key=lambda c: (c["at"], c["id"]))
 
 
 def _open(pid: str) -> tuple[dict | None, str]:
@@ -423,19 +433,21 @@ def _tell(prop: dict, text: str) -> None:
         askmod.say(who, text, requester=askmod.HUMAN)
 
 
-def decide(pid: str, call: str, by: str, note: str = "", subject: str | None = None) -> tuple[bool, str]:
+def decide(pid: str, call: str, by: str, note: str = "", subject: str = "") -> tuple[bool, str]:
     """The founder's decision on a proposal: `call` is "approved" or "rejected". An approve is
     applied now and the proposer is told the outcome; a reject is recorded and told.
 
     The decision is recorded in the protected store, where no agent can write it, and `apply`
     acts on that record alone - so only the founder's own session can decide (`by` is the
-    caller's claim; the store is the proof). `subject` is the card's digest the founder read: an
-    approve of a draft that is not that one is refused, so an edit made after it was shown is
-    never approved unseen. Approving a proposal that was approved but did not apply retries it."""
+    caller's claim; the store is the proof). An approve needs `subject`, the card's digest the
+    founder read: a draft that is not that one is refused, so an edit made after it was shown is
+    never approved unseen (the file is writable by every agent). Approving a proposal that was approved but did not apply retries it."""
     if call not in ("approved", "rejected"):
         return False, "decide `approved` or `rejected`"
     if by != askmod.HUMAN:
         return False, f"proposal {pid} is the founder's to decide, not {by}'s"
+    if call == "approved" and not subject:
+        return False, "approve what was read: pass the card's `subject`"
     note = textsafe.oneline((note or "").strip())
     prop, err = _open(pid)
     if err:
@@ -450,7 +462,7 @@ def decide(pid: str, call: str, by: str, note: str = "", subject: str | None = N
             if prop.get("state") not in ("proposed", "approved"):
                 con.execute("ROLLBACK")
                 return False, f"proposal {pid} is already {prop.get('state')}"
-            if call == "approved" and subject is not None and subject != subject_of(prop):
+            if call == "approved" and subject != subject_of(prop):
                 con.execute("ROLLBACK")
                 return False, (f"proposal {pid} changed after you read it - read it again "
                                f"before approving")
@@ -466,6 +478,7 @@ def decide(pid: str, call: str, by: str, note: str = "", subject: str | None = N
                 return False, str(e)
             prop["state"] = call
             prop["verdict"] = note or call
+            prop["decided"] = int(time.time())
             save(prop)
             con.execute("COMMIT")
         except BaseException:
@@ -536,6 +549,7 @@ def withdraw(pid: str, me: str) -> tuple[bool, str]:
                 con.execute("ROLLBACK")
                 return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
             prop["state"] = "withdrawn"
+            prop["decided"] = int(time.time())
             save(prop)
             con.execute("COMMIT")
         except BaseException:

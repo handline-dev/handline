@@ -144,7 +144,7 @@ class ProposalsView(Vertical):
                         timeout=10, markup=False)
         self.refresh_rows()
 
-    def _decide(self, pid: str, call: str, note: str = "", subject: str | None = None) -> None:
+    def _decide(self, pid: str, call: str, note: str = "", subject: str = "") -> None:
         self._say(*hr.decide(pid, call, actions.HUMAN, note, subject))
 
     def action_approve(self) -> None:
