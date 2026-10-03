@@ -1384,6 +1384,126 @@ def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Pat
         con.close()
 
 
+
+def test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(home: Path) -> None:
+    """What a launch reads from settings (`launch.fingerprint_parts`) is compared with what the running
+    session was launched with: a differing one restarts the agent itself, resumed, naming it in the
+    first prompt - never mid-turn, never over a dialog, and not for a setting that applies live."""
+    from ocp.daemon import applysettings
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[tuple[str, str]] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+            orcamod.typeable_now)
+    log: list[str] = []
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        launch.find_room = lambda agent: "alpha"
+        table = sessions_are("backend")
+
+        def send(handle: str, text: str, enter: bool = True):
+            sent.append((handle, text))
+            if text == "/exit":
+                table.pop("backend", None)
+            elif " launch " in text:
+                take_launched_prompt(text)
+                table["backend"] = 4242
+            return True, ""
+
+        orcamod.send = send
+        screen_free = {"ok": True}
+        orcamod.typeable_now = lambda h: screen_free["ok"]
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status_json(home / "agents" / "backend", {
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
+        db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"),
+                                  json.dumps(launch.fingerprint_parts("backend")))
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+
+        def sweep():
+            sent.clear()
+            db.clear_cursor(con, "typed_at:backend")
+            table["backend"] = 4200
+            applysettings.sweep(con, log.append, int(time.time()))
+            return [t for _h, t in sent if " launch " in t]
+
+        check("settings: nothing changed, nothing restarted", not sweep() and not any(t == "/exit" for _h, t in sent))
+
+        idle_close.set_agent_close_timeout("backend", 600)
+        check("settings: a setting that applies live restarts nothing", not sweep() and not sent, str(sent))
+
+        (home / "agents" / "backend" / "base.md").write_text("a new standing rule")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        check("settings: mid-turn it waits", not sweep() and not sent, str(sent))
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        screen_free["ok"] = False
+        check("settings: and so does a screen with a dialog open or a turn on it", not sweep() and not sent, str(sent))
+        screen_free["ok"] = True
+
+        launched = sweep()
+        check("settings: at an idle moment the session is ended and launched again, resumed",
+              len(launched) == 1 and [t for _h, t in sent][:1] == ["/exit"] and "--resume sess-1" in launched[0],
+              str(sent))
+        check("settings: it is recorded as a settings start by the daemon",
+              "--why settings" in launched[0] and "--by 'the daemon'" in launched[0], launched[0])
+        check("settings: and the first prompt names what changed",
+              launched_prompt(launched[0]) == "Restarted by the daemon (resumed) to apply changed settings: "
+                                              "base.md. If something was going wrong before this, retry it.",
+              launched_prompt(launched[0]))
+
+        check("settings: a launch that still disagrees is not restarted again for the same change",
+              not sweep() and not sent, str(sent))
+        (home / "agents" / "backend" / "base.md").write_text("another standing rule")
+        sent.clear()
+        db.clear_cursor(con, "typed_at:backend")
+        table["backend"] = 4200
+        dmn_evaluate.tick(con, log.append)
+        launched = [t for _h, t in sent if " launch " in t]
+        check("settings: a further change is restarted by the daemon's own tick", len(launched) == 1 and "--why settings" in launched[0],
+              str(sent))
+
+        con.execute("UPDATE agent_state SET launch_parts = NULL WHERE agent = 'backend'")
+        db.clear_meta(con, "settings_applied:backend")
+        check("settings: a session that recorded no settings names nothing, so restarts nothing", not sweep() and not sent)
+        db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"),
+                                  json.dumps({**launch.fingerprint_parts("backend"), "model": "x", "effort": "y"}))
+        db.clear_meta(con, "settings_applied:backend")
+        launched = sweep()
+        check("settings: more than one is named, in the order a launch reads them",
+              len(launched) == 1 and "settings: model, effort." in launched_prompt(launched[0]),
+              launched_prompt(launched[0]) if launched else str(sent))
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+         orcamod.typeable_now) = real
+        con.close()
+
+
+def test_a_launch_records_the_settings_it_read(home: Path) -> None:
+    """`_record_terminal`, the one moment a recipe and a running session are known to match, keeps the
+    fingerprint and, one setting at a time, what it read - which is what a later change is named from."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (orcamod.terminal_handle, orcamod.worktree_id, spawnmod.register_worker)
+    try:
+        orcamod.terminal_handle = lambda: "term_launched"
+        orcamod.worktree_id = lambda: "wt"
+        spawnmod.register_worker = lambda *a, **k: None
+        launch._record_terminal("backend", "alpha", launch.fingerprint("backend"))
+        row = db.get_agent_state(con, "backend")
+        check("launch: the settings it read are recorded beside the fingerprint",
+              row["launch_fingerprint"] == launch.fingerprint("backend")
+              and json.loads(row["launch_parts"]) == launch.fingerprint_parts("backend"), str(dict(row)))
+        from ocp.daemon import applysettings
+        (home / "agents" / "backend" / "base.md").write_text("a changed standing rule")
+        check("launch: and a later change to one of them is named from them",
+              applysettings.changed("backend", row) == ["base.md"], str(applysettings.changed("backend", row)))
+    finally:
+        orcamod.terminal_handle, orcamod.worktree_id, spawnmod.register_worker = real
+        con.close()
+
+
 def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     """Memory is the scarce thing on one laptop running a team: an idle session
     holds 250-500MB and earns nothing with it. Closing keeps the terminal, and
@@ -4347,6 +4467,8 @@ def main() -> int:
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
+        run(lambda: test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(Path(td) / 'applyset'))
+        run(lambda: test_a_launch_records_the_settings_it_read(Path(td) / 'recparts'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
         run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
         run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))

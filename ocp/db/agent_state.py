@@ -100,17 +100,18 @@ def set_account(con, agent: str, account: str | None, source: str = "recorded") 
     )
 
 
-def set_launch_fingerprint(con, agent: str, fingerprint: str | None) -> None:
+def set_launch_fingerprint(con, agent: str, fingerprint: str | None, parts: str | None = None) -> None:
     """Record what `launch.fingerprint` computed for the session just execve'd.
 
     Written from inside that same process, alongside `set_account` - the one
-    moment a recipe and a running session are known to match.
+    moment a recipe and a running session are known to match. `parts` is the same recipe one
+    setting at a time (JSON), for naming what changed.
     """
     con.execute(
-        "INSERT INTO agent_state(agent, state, updated, launch_fingerprint) VALUES(?,?,?,?) "
+        "INSERT INTO agent_state(agent, state, updated, launch_fingerprint, launch_parts) VALUES(?,?,?,?,?) "
         "ON CONFLICT(agent) DO UPDATE SET launch_fingerprint=excluded.launch_fingerprint, "
-        "updated=excluded.updated",
-        (agent, "IDLE", int(time.time()), fingerprint),
+        "launch_parts=excluded.launch_parts, updated=excluded.updated",
+        (agent, "IDLE", int(time.time()), fingerprint, parts),
     )
 
 
