@@ -1361,6 +1361,16 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
               launched and "--why 'fresh close'" in launched[0] and "--resume" not in launched[0], str(launched))
         check("restart: no restart closed the pane, and the agent's terminal is the one it had",
               not closed_panes and db.get_terminal(con, "backend") == "term_x", f"{closed_panes}")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        table["backend"] = 4300
+        noid = status.read_for_agent("backend", "alpha")
+        noid.session_id = None
+        ok, said = dmn_lifecycle.close_agent(con, "backend", lambda _m: None, noid, keep_pane=True)
+        check("close: a live session with no id on record is refused, and the refusal names restart --fresh",
+              not ok and "no session id on record" in said and "--fresh" in said, said)
+        ok, said = dmn_lifecycle.close_fresh(con, "backend", lambda _m: None, noid, keep_pane=True)
+        check("close: --fresh gives the conversation up on purpose, so the same session is closed", ok, said)
     finally:
         (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
          orcamod.close_terminal, handoffmod.capture) = real
