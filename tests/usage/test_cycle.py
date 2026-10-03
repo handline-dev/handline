@@ -644,6 +644,13 @@ def test_the_position_in_the_month_follows_the_subscription_start_and_the_settin
     p = cycle.position("a", at(first + dt.timedelta(days=9)))
     check("position: ends this month, day 10 of the one cycle, ends where the default end says",
           p.ends and p.day == 10 and p.edge == cycle.end_date("a") and not p.over and "one-off" in p.line(), str(p))
+    last = cycle.end_date("a")
+    p = cycle.position("a", at(last))
+    check("position: the default end's last usable day reads day N of N", p.day == p.length, p.line())
+    write_cfg('month_cycle_a: true\nsub_end_a: "%s"\n' % (first + dt.timedelta(days=30)))
+    p = cycle.position("a", at(first + dt.timedelta(days=30)))
+    check("position: a typed end's last usable day reads day N of N", p.day == p.length == 31, p.line())
+    write_cfg("month_cycle_a: true\n")
     p = cycle.position("a", at(first + dt.timedelta(days=60)))
     check("position: past its end it says ended", p.over and "ended" in p.line(), p.line())
     write_cfg('month_cycle_a: true\nsub_end_a: "2031-04-05"\n')

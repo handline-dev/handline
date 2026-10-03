@@ -192,7 +192,7 @@ def position(acct: str, now: float, cfg: dict | None = None) -> Position | None:
         if start is None or edge is None:
             return Position(True, edge, over=over)
         first = start.date()
-        return Position(True, edge, (today - first).days + 1, (edge - first).days, over)
+        return Position(True, edge, (today - first).days + 1, (edge - first).days + 1, over)   # the last day is a day of it
     if start is None:
         return None
     first = start.date()

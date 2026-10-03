@@ -186,7 +186,7 @@ class AccountPage(AccountActions, Screen):
         month = Text("Month\n", style="bold")
         pos = f["cycle_pos"]
         month.append(f"  {'cycle':<16}", style="dim")
-        month.append(pos.line() if pos else "subscription start unknown" + ("" if f["cycle"] else " - renewing"))
+        month.append(pos.line() if pos else "renewing, subscription start unknown")
         self.query_one("#a_month", Static).update(month)
 
         home = Text("On the home row\n", style="bold")
