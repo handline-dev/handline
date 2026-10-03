@@ -488,8 +488,8 @@ def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
     fake = FakeOrca({})
     orcacli._run, orcamod.available = fake.run, lambda: True
     try:
-        prop = {"agent": "crew", "members": "a,b,c", "repo": str(shared), "repo.a": str(shared),
-                "repo.b": str(own), "why": "w", "requested_by": "human", "created": int(time.time())}
+        prop = {"agent": "crew", "members": "crew.a,crew.b,crew.c", "repo": str(shared),
+                "repo.crew.a": str(shared), "repo.crew.b": str(own), "why": "w", "requested_by": "human", "created": int(time.time())}
         ok, said = hr._team(prop, None)
         adds = [c[3] for c in fake.calls if c[:2] == ["repo", "add"]]
         check("team repos: the team is made", ok and "crew" in said, said)
@@ -2322,6 +2322,122 @@ edges:
     check("link: and so is the asking end", not ok and "not in team.yaml" in said, said)
 
 
+def test_the_name_gives_the_links_between_agents() -> None:
+    """With no edge written: an agent may ask its parent (its name up to the last dot), its
+    children and its siblings, and nobody else; the links between teams are edges on purpose."""
+    names = ["a", "a.b", "a.c", "a.b.x", "a.b.y", "z", "z.q"]
+    data = {"teams": {"a": ["a", "a.b", "a.c"], "z": ["z", "z.q"]},
+            "agents": {n: {} for n in names}, "edges": [], "deny": []}
+    tm = team.Team(data)
+    check("name: parent_name is everything before the last dot, none without a dot",
+          team.parent_name("a.b.x") == "a.b" and team.parent_name("a.b") == "a"
+          and team.parent_name("a") is None and team.parent_name(".x") is None)
+    for who, whom, want, rel in [
+            ("a", "a.b", True, "supervisor"), ("a.b", "a", True, "subordinate"),
+            ("a.b", "a.c", True, "peer"), ("a.c", "a.b", True, "peer"),
+            ("a.b", "a.b.x", True, "supervisor"), ("a.b.x", "a.b", True, "subordinate"),
+            ("a.b.x", "a.b.y", True, "peer"),
+            ("a", "a.b.x", False, None), ("a.b.x", "a", False, None),
+            ("a.c", "a.b.x", False, None), ("a.b.x", "a.c", False, None),
+            ("a", "z", False, None), ("z", "a", False, None),
+            ("a.b", "z.q", False, None), ("a.b", "z", False, None),
+            ("a.b", "human", False, None), ("a.b", "nobody", False, None)]:
+        d = tm.route(who, whom)
+        check(f"name links: {who} -> {whom} is {'allowed' if want else 'denied'}"
+              + (f" as {rel}" if rel else ""),
+              d.allowed == want and (not want or d.relation == rel), d.reason)
+    check("name links: two top-level agents are not siblings of one another",
+          not tm.route("a", "z").allowed and not tm.route("z", "a").allowed)
+    check("name links: a manager may ask the founder with a decision task, a member may not",
+          tm.route("a", "human").kind == "task" and not tm.route("a.b", "human").allowed)
+    with_edge = team.Team({**data, "edges": [{"from": "a", "to": "z", "relation": "peer"},
+                                             {"from": "z", "to": "a", "relation": "peer"}]})
+    check("name links: a link between teams is an edge written on purpose",
+          with_edge.route("a", "z").allowed and with_edge.route("z", "a").allowed
+          and not with_edge.route("a.b", "z").allowed)
+    denied = team.Team({**data, "deny": [{"from": "a.b", "to": "a.c", "reason": "never"}]})
+    check("name links: a deny still beats a name link", not denied.route("a.b", "a.c").allowed
+          and denied.route("a.c", "a.b").allowed and denied.route("a.b", "a").allowed)
+    check("name links: supervisor_of is the parent when no edge says otherwise",
+          actions.supervisor_of(tm, "a.b") == "a" and actions.supervisor_of(tm, "a.b.x") == "a.b"
+          and actions.supervisor_of(tm, "a") is None)
+    boss = team.Team({**data, "edges": [{"from": "z", "to": "a.c", "relation": "supervisor"}]})
+    check("name links: an explicit supervisor edge still wins over the name",
+          actions.supervisor_of(boss, "a.c") == "z" and actions.supervisor_of(boss, "a.b") == "a")
+    loose = team.Team({"agents": {"x.y": {}}, "edges": []})
+    check("name links: a parent that is not an agent is nobody's supervisor",
+          actions.supervisor_of(loose, "x.y") is None and not loose.route("x.y", "x").allowed)
+
+
+def test_hr_links_moves_team_yaml_onto_the_name_links(home: Path) -> None:
+    """`ocp hr links` drops the edges the names now give and writes the team managers' links on
+    purpose; comments and the other edges stay, and nothing that worked before stops."""
+    _daemon_home(home, 20)
+    original = """# routing - kept
+teams:
+  boat: [boat, boat.sea, boat.shore]
+  orca: [orca, orca.core]
+agents:
+  boat: {}
+  boat.sea: {}
+  boat.shore: {}
+  orca: {}
+  orca.core: {}
+edges:
+  # the boat's own
+  - { from: "boat", to: "boat.*", relation: supervisor, response: async }
+  - { from: "boat.sea", to: "boat", response: async }
+  - { from: "boat.sea", to: "boat.shore", relation: peer, response: async }
+  - { from: "boat.sea", to: "orca.core", relation: peer, response: async }
+  - { from: "*", to: "orca", relation: peer, response: async }
+  - { from: "*", to: "human", kind: task }
+deny: []
+"""
+    hand_edit_team(original)
+    rc, out = _cli(["hr", "links"], as_agent=askmod.HUMAN)
+    check("hr links: the plan names what it drops and adds, and writes nothing",
+          rc == 0 and "drop  boat -> boat.*" in out and "drop  boat.sea -> boat" in out
+          and "drop  boat.sea -> boat.shore" in out and "add   orca -> boat (peer)" in out and "add   boat -> orca" not in out
+          and "boat.sea -> orca.core" not in out and "* -> orca" not in out
+          and (home / "team.yaml").read_text() == original, out)
+    rc, out = _cli(["hr", "links", "--apply"], as_agent="orca")
+    check("hr links: an agent's session cannot write it", rc != 0 and (home / "team.yaml").read_text() == original, out)
+    rc, out = _cli(["hr", "links", "--apply"], as_agent=askmod.HUMAN)
+    text = (home / "team.yaml").read_text()
+    t = team.Team.load()
+    check("hr links: the founder's apply drops the covered edges and keeps the rest and the comments",
+          rc == 0 and "# routing - kept" in text and "# the boat's own" in text
+          and 'from: "boat.sea", to: "orca.core"' in text and 'from: "*", to: "orca"' in text
+          and 'to: "boat.*"' not in text and 'from: "orca", to: "boat"' in text
+          and 'from: "boat", to: "orca"' not in text, out + text)
+    check("hr links: the same things are routable afterwards, by name or by the edges written",
+          t.route("boat", "boat.sea").allowed and t.route("boat.sea", "boat").allowed
+          and t.route("boat.sea", "boat.shore").allowed and t.route("boat", "orca").allowed
+          and t.route("orca", "boat").allowed and t.route("boat.sea", "orca.core").allowed
+          and not t.route("boat.shore", "orca.core").allowed)
+    rc, out = _cli(["hr", "links"], as_agent=askmod.HUMAN)
+    check("hr links: run again, there is nothing to change", rc == 0 and "nothing to change" in out, out)
+
+    from ocp.team import linkmigrate
+    a, b, c = {"from": "x", "to": "y"}, {"from": "x", "to": "y", "relation": "peer"}, {"from": "p", "to": "q"}
+    left = linkmigrate._without([a, c, dict(a), b], [dict(a), dict(b)])
+    check("hr links: the edges left are the table's less one equal edge per dropped one",
+          left == [c, a], left)
+
+    hand_edit_team(original)
+    real_edit = linkmigrate.edit
+    linkmigrate.edit = lambda text: text.replace('  - { from: "*", to: "orca", relation: peer, response: async }\n', "")
+    try:
+        rc, out = _cli(["hr", "links", "--apply"], as_agent=askmod.HUMAN)
+    finally:
+        linkmigrate.edit = real_edit
+    check("hr links: a result that would stop a pair working is refused, nothing written",
+          rc == 1 and "would stop working" in out and (home / "team.yaml").read_text() == original, out)
+    rc, out = _cli(["hr", "links", "--apply"], as_agent=askmod.HUMAN)
+    check("hr links: applied, it says a request queued before it is refused at delivery",
+          rc == 0 and "queued before this" in out, out)
+
+
 def test_hr_team_is_one_proposal_and_a_team_has_default_links(home: Path) -> None:
     """T263: a manager and its members are proposed and approved once, and the
     ordinary links (`team.DEFAULT_LINKS`) need no edge; an explicit deny still wins."""
@@ -2351,7 +2467,7 @@ deny:
         body = hr.card(prop)["text"]
         check("team: the founder reads every agent, every repo and the default links",
               all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
-              and "may ask each other" in body and "ocp hr approve" in body, body)
+              and "its parent" in body and "ocp hr approve" in body, body)
         check("team: one proposal for the whole team, and no task or request for it",
               len(hr.pending()) == 1
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0
@@ -2376,10 +2492,10 @@ deny:
     finally:
         con.close()
     t = team.Team.load()
-    check("team: the team and every agent are in team.yaml, with one supervisor edge",
+    check("team: the team and every agent are in team.yaml, and no edge was written for it",
           t.teams.get("boat") == ["boat", "boat.sea", "boat.shore", "boat.reviewer"]
           and all(n in t.agents for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer"))
-          and sum(1 for e in t.edges if e["from"] == "boat") == 1
+          and not any(e["from"] == "boat" for e in t.edges)
           and "# routing" in tf.read_text() and original.splitlines()[-4] in tf.read_text())
     check("team: every agent is registered, with its own repo",
           all(n in paths.list_agents() for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer"))
@@ -2405,8 +2521,8 @@ deny:
     for who, whom, want in [
             ("boat", "boat.sea", True), ("boat.sea", "boat", True),
             ("boat.sea", "boat.reviewer", True), ("boat", "human", True),
-            ("boat", "orca", True), ("orca", "boat", True),
-            ("boat.sea", "boat.shore", False), ("boat.sea", "human", False),
+            ("boat", "orca", False), ("orca", "boat", False),
+            ("boat.sea", "boat.shore", True), ("boat.sea", "human", False),
             ("boat.sea", "orca", False), ("boat.sea", "orca.reviewer", False),
             ("boat.sea", "orca.core", False), ("boat", "orca.core", False)]:
         d = tm.route(who, whom)
@@ -3788,6 +3904,8 @@ def main() -> int:
         run(lambda: test_a_proposal_is_its_own_record_the_founder_decides(Path(td) / 'propdecide'))
         run(lambda: test_a_plain_decision_task_is_settled_however_its_card_closes(Path(td) / 'propsettle'))
         run(lambda: test_an_approve_is_recorded_where_no_agent_writes_and_applied_once(Path(td) / 'teamanswer'))
+        run(lambda: test_the_name_gives_the_links_between_agents())
+        run(lambda: test_hr_links_moves_team_yaml_onto_the_name_links(Path(td) / 'hrlinks'))
         run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))

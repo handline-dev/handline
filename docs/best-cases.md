@@ -66,8 +66,8 @@ ocp hr team shop --member sea=/Users/you/code/sea --member shore \
 
 The manager is the member named like the team. You talk to the manager. It splits work among the
 members with tasks, and it comes to you only for decisions that are yours. Members may ask their
-manager and their team's reviewer, and nobody else, so one agent cannot send work to another
-team without going through its manager.
+manager and their siblings, and nobody else, so one agent cannot send work to another team
+without going through its manager.
 
 Start with one manager and two members. Add more only when the manager's inbox shows it is the
 bottleneck.

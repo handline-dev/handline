@@ -17,17 +17,26 @@ from dataclasses import dataclass
 from ..infra import paths, sealed
 from ..infra.yamlcompat import ConfigError, load
 
-# The links a team has without any edge written for them, so nobody runs
-# `ocp hr link` by hand for the ordinary shape. A team's manager is the member
-# named like the team (team `harbor` is [harbor, harbor.sea, ...]); its reviewer
-# is `<team>.reviewer`. Explicit `deny` entries still win over these, and an
-# edge in team.yaml is found first; `hr link` / `hr unlink` are for exceptions.
+# The links an agent has without any edge written for them, so nobody runs
+# `ocp hr link` by hand for the ordinary shape. The name is the structure: the
+# parent of `harbor.sea` is `harbor` (everything before the last dot), a name
+# without a dot has none. Grandparents and nephews are not reachable by default.
+# A team's manager is the member named like the team (team `harbor` is
+# [harbor, harbor.sea, ...]). Explicit `deny` entries still win over these, and
+# an edge in team.yaml is found first; `hr link` / `hr unlink` are for the links
+# between teams and the other exceptions.
 DEFAULT_LINKS = (
-    "a manager and its team's members may ask each other",
-    "a manager may ask the founder (a decision task) and the other teams' managers",
-    "a member may ask its team's reviewer, `<team>.reviewer`",
+    "an agent may ask its parent (its name up to the last dot), its children and its siblings",
+    "a manager may ask the founder (a decision task)",
 )
 HUMAN = "human"
+
+
+def parent_name(agent: str) -> str | None:
+    """The agent a name hangs under: `harbor.sea` -> `harbor`, `a.b.c` -> `a.b`; None for a
+    name with no dot."""
+    head, dot, _ = agent.rpartition(".")
+    return head if dot and head else None
 
 DEFAULT_MAX_CHAIN_DEPTH = 4
 DEFAULT_ASK_RATE_PER_HOUR = 20
@@ -176,24 +185,18 @@ class Team:
 
     def default_link(self, requester: str, target: str) -> Decision | None:
         """The link `DEFAULT_LINKS` gives this pair, or None."""
-        managers = self.managers()
-
         def hit(why: str, **kw) -> Decision:
             return Decision(True, f"default link: {why}", **kw)
 
-        for t, m in managers.items():
-            members = self.members(t)
-            if requester == m and target in members and target != m:
-                return hit(f"{m} manages {target}", relation="supervisor")
-            if target == m and requester in members and requester != m:
-                return hit(f"{requester} reports to {m}", relation="subordinate")
-            if target == f"{t}.reviewer" and target in members and requester in members:
-                return hit(f"{requester} may ask {t}'s reviewer", relation="peer")
-        if requester in managers:
-            if target == HUMAN:
-                return hit(f"{requester} may ask the founder", kind="task")
-            if target in managers and target != requester:
-                return hit(f"{requester} and {target} are peer managers", relation="peer")
+        mine, theirs = parent_name(requester), parent_name(target)
+        if theirs == requester:
+            return hit(f"{requester} is {target}'s parent", relation="supervisor")
+        if mine == target:
+            return hit(f"{requester} is {target}'s child", relation="subordinate")
+        if mine is not None and mine == theirs:
+            return hit(f"{requester} and {target} are siblings under {mine}", relation="peer")
+        if target == HUMAN and requester in self.managers():
+            return hit(f"{requester} may ask the founder", kind="task")
         return None
 
     # ------------------------------------------------------------ routing

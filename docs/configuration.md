@@ -46,16 +46,18 @@ limits:
   send per hour.
 - `human` is you. It is not an agent, but agents can send you a decision as a task.
 
-A team gets some links without any edge written. A manager and its members may ask each other.
-A manager may ask you and other managers. A member may ask its team's reviewer, named
-`<team>.reviewer`. To add or remove one link or agent without editing the file, use `ocp hr`:
+The name gives the links, with no edge written: an agent may ask its parent (the name up to the
+last dot, so `shop.sea` is under `shop`), its children and its siblings. A grandparent, a nephew and
+another team are not reachable; a link between teams is an edge you write on purpose. A manager may
+ask you. To add or remove one link or agent without editing the file, use `ocp hr`:
 
 ```bash
 ocp hr team shop --member sea=/Users/you/code/sea --member shore --why "split the storefront work"
 ocp hr link reviewer backend --why "backend may ask the reviewer for a second look"
 ```
 
-`ocp hr` files a proposal for you to decide. `ocp hr approve <id>` applies it at once and
+An older `team.yaml` is moved onto the name links by `ocp hr links` (it shows the plan; `--apply`
+writes it). `ocp hr` files a proposal for you to decide. `ocp hr approve <id>` applies it at once and
 tells the agent that asked; `ocp hr reject <id> "why"` turns it down. `ocp hr list` shows proposals
 and what became of them.
 

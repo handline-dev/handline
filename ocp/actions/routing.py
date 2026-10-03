@@ -71,7 +71,11 @@ def supervisor_of(t, agent: str) -> str | None:
         rank = 0 if dst == agent else (1 if dst.endswith(".*") else 2)
         if best is None or rank < best[0]:
             best = (rank, src)
-    return best[1] if best else None
+    if best is None:
+        # No edge says so: the name does (`harbor.sea` answers to `harbor`).
+        boss = team.parent_name(agent)
+        return boss if boss is not None and t.known(boss) else None
+    return best[1]
 
 
 def listing_refusal(caller: str | None, target: str) -> str | None:

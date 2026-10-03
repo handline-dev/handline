@@ -58,6 +58,11 @@ def cmd_hr(args) -> int:
             con.close()
         print(said)
         return 0 if ok else 1
+    if args.hr_cmd == "links":
+        from ..team import linkmigrate
+        ok, said = linkmigrate.migrate(args.apply)
+        print(said)
+        return 0 if ok else 1
     if args.hr_cmd == "apply":
         ok, said = hr.apply(args.id)
         print(said)
