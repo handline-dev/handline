@@ -564,6 +564,9 @@ INERT_LABELS = frozenset({"stay", "cancel", "no", "back", "keep", "do nothing",
 # on the next screen read. `accepted:true` and the dialog actually closing are
 # different claims; both were seen to hold.
 ESCAPE = "\x1b"
+CTRL_C = "\x03"
+# How long after a type the screen is read again for a shell prompt.
+SHELL_SETTLE_S = 0.6
 
 
 _ESC_MARK = re.compile(r"\(esc\)\s*$", re.IGNORECASE)
@@ -677,6 +680,61 @@ def _composer_shape(tail: list) -> bool:
     return _composer_box(tail) is not None
 
 
+# What claude prints as it exits, and what a shell shows after it: the old composer stays drawn above
+# both, so a screen with a box on it is not enough to say a session is there.
+EXIT_BANNER = "Resume this session with"
+_SHELL_PROMPT = re.compile(r"(?:^|\s)[%$#❯]$|^[a-z]+(?: [a-z]+)*> ?$")
+
+
+def shell_prompt_in(tail: list) -> bool:
+    """Does the bottom of this screen show a shell, not a session? Either claude's exit banner or a prompt
+    (`%`, `$`, `#`, or zsh's continuation such as `if>`, `dquote>`) in the last row below any composer
+    box. A box with the shell under it is the screen of a session that has just exited."""
+    rows = [str(r).rstrip() for r in tail]
+    while rows and not rows[-1].strip():
+        rows.pop()
+    if not rows:
+        return False
+    box = _composer_box(rows)
+    below = rows[box[1] + 1:] if box else rows
+    if any(EXIT_BANNER in r for r in below[-6:]):
+        return True
+    return bool(below) and bool(_SHELL_PROMPT.search(below[-1].strip()))
+
+
+def shell_prompt_showing(handle: str) -> bool | None:
+    """`shell_prompt_in` for this terminal's screen; None when it cannot be read."""
+    term = _screen(handle)
+    tail = term.get("tail") if term else None
+    if not isinstance(tail, list) or term.get("source") != "screen":
+        return None
+    return shell_prompt_in(tail)
+
+
+def clear_shell(handle: str) -> tuple[bool, str]:
+    """Abandon whatever a shell was left holding (an unclosed quote waits for its other half and
+    swallows every line after it): Ctrl-C returns it to a fresh prompt."""
+    return send(handle, CTRL_C, enter=False)
+
+
+def send_to_session(handle: str, text: str, settle_s: float = SHELL_SETTLE_S) -> tuple[bool, str]:
+    """`send` for text meant for a session, which must never reach a shell. Nothing is typed where the
+    screen already shows a shell; and after the type the screen is read again, since the session can
+    exit between the check and the typing. Text that landed at a shell is not delivered: the
+    continuation it opened is cleared and the send is reported as failed, so nothing is recorded as told."""
+    if shell_prompt_showing(handle):
+        return False, "a shell prompt is showing, not a session; nothing typed"
+    ok, out = send(handle, text)
+    if not ok:
+        return ok, out
+    if settle_s:
+        time.sleep(settle_s)
+    if shell_prompt_showing(handle):
+        clear_shell(handle)
+        return False, "the session had exited: the text reached a shell prompt, which was cleared"
+    return ok, out
+
+
 def session_on_screen(handle: str) -> bool | None:
     """Whether this terminal's screen shows an agent's session: the vendor's composer box, a dialog's
     footer, or a turn the vendor's screen says is running. A shell prompt is none of those, so this is
@@ -686,6 +744,8 @@ def session_on_screen(handle: str) -> bool | None:
     tail = term.get("tail") if term else None
     if not isinstance(tail, list) or term.get("source") != "screen":
         return None
+    if shell_prompt_in(tail):
+        return False
     if _composer_shape(tail):
         return True
     rows = [str(r) for r in tail[-MODAL_ROWS - 3:]]
@@ -1351,5 +1411,5 @@ def resume_with(handle: str, text: str) -> tuple[bool, str]:
     """Wake a cleared agent by giving it back its own handoff."""
     if not alive(handle):
         return False, f"terminal {handle} is not alive"
-    ok, out = send(handle, text)
+    ok, out = send_to_session(handle, text)
     return ok, "handoff injected" if ok else f"could not send the handoff: {out[:200]}"
