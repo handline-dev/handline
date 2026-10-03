@@ -375,6 +375,12 @@ class Driver(Protocol):
         """Whether a credential exists. Never reads or returns it. None when
         this process cannot tell, which is not the same as no."""
 
+    def credential_modified(self, config_dir: Path) -> float | None:
+        """When the credential last changed, as epoch seconds - never its content.
+        A login writes it anew, so a mark made before this time is stale. None
+        when this vendor or process cannot tell."""
+        return None
+
     def login_argv(self) -> list[str]:
         """The login a human finishes, run with `config_dir_env` set."""
 

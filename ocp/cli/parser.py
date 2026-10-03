@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.add_argument("--clear-relogin", action="store_true",
-                   help="clear a 'needs re-login' mark left by a failed recovery")
+                   help="clear a 'needs re-login' mark left by a failed recovery, and a login-expired one")
     p.add_argument("--now", action="store_true",
                    help="run recover.recover() on this account now, by hand")
     p.set_defaults(fn=cmd_account_recover)
